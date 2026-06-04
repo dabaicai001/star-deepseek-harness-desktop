@@ -25,6 +25,13 @@ pub async fn init_database(app_handle: &AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("Failed to connect to database: {}", e))?;
 
+    // Enable foreign keys and WAL mode
+    sqlx::raw_sql("PRAGMA foreign_keys = ON; PRAGMA journal_mode=WAL;")
+        .execute(&pool)
+        .await
+        .map_err(|e| format!("Failed to set pragmas: {}", e))?;
+
+    // 创建表
     sqlx::raw_sql(schema::CREATE_TABLES)
         .execute(&pool)
         .await

@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE INDEX IF NOT EXISTS idx_assets_type ON assets(type);
 CREATE INDEX IF NOT EXISTS idx_assets_group_id ON assets(group_id);
 CREATE INDEX IF NOT EXISTS idx_assets_favorite ON assets(favorite);
+CREATE INDEX IF NOT EXISTS idx_assets_name ON assets(name);
 CREATE INDEX IF NOT EXISTS idx_sql_history_conn_id ON sql_history(conn_id);
 CREATE INDEX IF NOT EXISTS idx_sql_history_executed_at ON sql_history(executed_at);
 ";
