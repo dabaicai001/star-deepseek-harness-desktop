@@ -1,16 +1,23 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import type { AssetType } from '@/types/asset'
+
+export interface Tab {
+  id: string
+  title: string
+  type: AssetType
+}
 
 export const useAppStore = defineStore('app', () => {
   const sidebarOpen = ref(true)
   const activeTab = ref<string | null>(null)
-  const tabs = ref<Array<{ id: string; title: string; type: string }>>([])
+  const tabs = ref<Tab[]>([])
 
   function toggleSidebar() {
     sidebarOpen.value = !sidebarOpen.value
   }
 
-  function addTab(tab: { id: string; title: string; type: string }) {
+  function addTab(tab: Tab) {
     if (!tabs.value.find(t => t.id === tab.id)) {
       tabs.value.push(tab)
     }

@@ -49,7 +49,6 @@ const assetStore = useAssetStore()
           density="compact"
           variant="plain"
           hide-details
-          @update:model-value="assetStore.setSearchQuery($event)"
         />
       </v-list-item>
     </v-list>

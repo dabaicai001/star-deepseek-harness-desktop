@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { useAppStore } from '@/stores/app'
+import type { AssetType } from '@/types/asset'
 
 const appStore = useAppStore()
+
+const TAB_ICONS: Record<AssetType, string> = {
+  ssh: 'mdi-console',
+  db: 'mdi-database',
+  docker: 'mdi-docker'
+}
 </script>
 
 <template>
@@ -18,7 +25,7 @@ const appStore = useAppStore()
       @click="appStore.setActiveTab(tab.id)"
     >
       <v-icon size="small" class="mr-1">
-        {{ tab.type === 'ssh' ? 'mdi-console' : tab.type === 'db' ? 'mdi-database' : 'mdi-docker' }}
+        {{ TAB_ICONS[tab.type] }}
       </v-icon>
       {{ tab.title }}
       <v-btn
