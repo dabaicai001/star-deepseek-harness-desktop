@@ -8,7 +8,7 @@ const themeStore = useThemeStore()
 <template>
   <v-app :theme="themeStore.theme">
     <v-app-bar>
-      <v-app-bar-title>StarHub</v-app-bar-title>
+      <v-app-bar-title>{{ $t('common.app') }}</v-app-bar-title>
       <v-spacer />
       <ThemeToggle />
     </v-app-bar>
