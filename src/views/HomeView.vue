@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import AssetTree from '@/components/asset/AssetTree.vue'
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -12,10 +15,10 @@ import AssetTree from '@/components/asset/AssetTree.vue'
         <v-row>
           <v-col>
             <v-card>
-              <v-card-title>欢迎使用 StarHub</v-card-title>
+              <v-card-title>{{ t('home.welcome') }}</v-card-title>
               <v-card-text>
-                <p>All-in-One 开发运维桌面中枢</p>
-                <p>从左侧资产树选择连接开始</p>
+                <p>{{ t('home.subtitle') }}</p>
+                <p>{{ t('home.hint') }}</p>
               </v-card-text>
             </v-card>
           </v-col>
