@@ -4,11 +4,8 @@ import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import App from './App.vue'
 import router from './router'
 import i18n from './i18n'
-import { createVuetify } from 'vuetify'
-import 'vuetify/styles'
-import '@mdi/font/css/materialdesignicons.css'
+import vuetify from './plugins/vuetify'
 
-const vuetify = createVuetify()
 const app = createApp(App)
 const pinia = createPinia()
 pinia.use(piniaPluginPersistedstate)
