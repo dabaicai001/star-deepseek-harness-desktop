@@ -93,5 +93,7 @@ export const useAssetStore = defineStore('asset', () => {
     setSearchQuery
   }
 }, {
-  persist: true
+  persist: {
+    pick: ['assets', 'groups', 'searchQuery']
+  }
 })
