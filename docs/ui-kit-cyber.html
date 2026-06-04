@@ -864,6 +864,61 @@ p { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
   .sftp-pane { border-right: 0; border-bottom: 1px solid var(--line); }
   h1 { font-size: 32px; }
 }
+
+/* ========== AI PANEL (page-scoped) ========== */
+.ai-panel { display: flex; flex-direction: column; height: 100%; background: linear-gradient(180deg, rgba(0, 240, 255, 0.03) 0%, transparent 30%); position: relative; }
+.ai-panel::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent 0%, var(--cyan) 50%, transparent 100%); opacity: 0.4; }
+.ai-panel-head { padding: 12px 14px; border-bottom: 1px solid var(--line-2); display: flex; align-items: center; gap: 10px; background: rgba(10, 14, 26, 0.5); }
+.ai-panel-avatar { width: 30px; height: 30px; border-radius: 8px; background: var(--grad-primary); display: flex; align-items: center; justify-content: center; color: #050810; font-size: 14px; font-weight: 800; box-shadow: 0 0 12px rgba(0, 240, 255, 0.4); position: relative; flex-shrink: 0; }
+.ai-panel-avatar::after { content: ""; position: absolute; inset: -2px; border-radius: 10px; background: var(--grad-primary); opacity: 0.3; filter: blur(6px); z-index: -1; }
+.ai-panel-title { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.2; }
+.ai-panel-subtitle { font-size: 10.5px; color: var(--cyan); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.04em; display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+.ai-panel-subtitle .scope-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.5s infinite; }
+.ai-panel-actions { margin-left: auto; display: flex; gap: 4px; }
+.ai-panel-icon-btn { width: 22px; height: 22px; border-radius: 5px; background: transparent; border: 1px solid var(--line); color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px; transition: all 0.2s; }
+.ai-panel-icon-btn:hover { color: var(--cyan); border-color: var(--cyan); }
+
+.ai-context { padding: 9px 14px; background: rgba(0, 240, 255, 0.04); border-bottom: 1px solid var(--line); font-size: 11px; color: var(--text-2); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ai-context .ctx-label { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.ai-context .ctx-chip { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; padding: 2px 7px; background: rgba(0, 240, 255, 0.1); color: var(--cyan); border: 1px solid rgba(0, 240, 255, 0.25); border-radius: 4px; font-weight: 500; }
+
+.ai-tools { padding: 7px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 10.5px; }
+.ai-tools-label { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-right: 2px; }
+.ai-tool-chip { padding: 2px 7px; background: rgba(20, 25, 40, 0.6); border: 1px solid var(--line); border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-2); cursor: default; transition: all 0.2s; }
+.ai-tool-chip:hover { border-color: var(--cyan); color: var(--cyan); }
+.ai-tool-chip.locked { opacity: 0.35; cursor: not-allowed; }
+.ai-tool-chip.locked:hover { border-color: var(--line); color: var(--text-2); }
+
+.ai-msgs { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.ai-msg { display: flex; gap: 8px; animation: msgIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); max-width: 100%; }
+@keyframes msgIn { from { opacity: 0; transform: translateY(6px); } }
+.ai-msg.user { flex-direction: row-reverse; }
+.ai-msg-avatar { width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }
+.ai-msg.user .ai-msg-avatar { background: var(--grad-cool); color: #050810; }
+.ai-msg.ai .ai-msg-avatar { background: var(--grad-primary); color: #050810; }
+.ai-msg-body { background: rgba(20, 25, 40, 0.5); border: 1px solid var(--line-2); border-radius: 8px; padding: 9px 11px; font-size: 11.5px; line-height: 1.5; color: var(--text); max-width: 88%; }
+.ai-msg.user .ai-msg-body { background: rgba(0, 240, 255, 0.1); border-color: rgba(0, 240, 255, 0.25); }
+.ai-msg-body p { margin: 0 0 6px; }
+.ai-msg-body p:last-child { margin-bottom: 0; }
+.ai-msg-body code { background: rgba(0, 240, 255, 0.1); padding: 1px 5px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--cyan); }
+.ai-msg-body .ai-action { margin-top: 8px; padding: 6px 8px; background: rgba(10, 14, 26, 0.6); border: 1px solid var(--line); border-radius: 5px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--cyan); display: flex; align-items: center; gap: 6px; }
+.ai-msg-body .ai-action .ok { color: var(--green); }
+.ai-msg-body .ai-suggestion { margin-top: 8px; display: inline-flex; padding: 4px 9px; background: rgba(181, 107, 255, 0.12); border: 1px solid rgba(181, 107, 255, 0.3); color: var(--purple); border-radius: 5px; font-size: 10.5px; cursor: pointer; transition: all 0.2s; font-weight: 500; }
+.ai-msg-body .ai-suggestion:hover { background: rgba(181, 107, 255, 0.22); transform: translateX(2px); }
+
+.ai-input-area { padding: 10px 12px; background: rgba(10, 14, 26, 0.5); border-top: 1px solid var(--line-2); }
+.ai-input { display: flex; align-items: center; gap: 6px; background: rgba(20, 25, 40, 0.6); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 8px; transition: all 0.2s; }
+.ai-input:focus-within { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1); }
+.ai-input .placeholder { color: var(--muted); font-size: 11.5px; flex: 1; }
+.ai-input .send { width: 22px; height: 22px; border-radius: 5px; background: var(--grad-primary); display: flex; align-items: center; justify-content: center; color: #050810; cursor: pointer; font-size: 10px; font-weight: 800; box-shadow: 0 2px 8px rgba(0, 240, 255, 0.3); transition: all 0.2s; }
+.ai-input .send:hover { box-shadow: 0 4px 12px rgba(0, 240, 255, 0.5); transform: scale(1.08); }
+.ai-input-hint { font-size: 10px; color: var(--muted); margin-top: 6px; display: flex; align-items: center; gap: 8px; }
+.ai-input-hint kbd { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; padding: 1px 5px; background: rgba(0, 240, 255, 0.08); border: 1px solid var(--line-2); border-radius: 3px; color: var(--cyan); }
+
+.ai-hub-tabs { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--line-2); background: rgba(10, 14, 26, 0.4); overflow-x: auto; }
+.ai-hub-tab { padding: 5px 10px; border-radius: 5px; font-size: 11px; color: var(--text-2); cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s; white-space: nowrap; }
+.ai-hub-tab:hover { color: var(--text); background: rgba(0, 240, 255, 0.05); }
+.ai-hub-tab.active { background: var(--grad-primary); color: #050810; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -1064,30 +1119,63 @@ p { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
 <div class="term-line"><span class="term-prompt">root@prod-app-01</span>:<span class="term-path">~</span><span class="term-dim">$</span> <span class="term-cursor"></span></div>
       </div>
     </div>
-    <div class="inspector">
-      <div class="insp-section">
-        <div class="insp-head">prod-app-01 实时 <span class="badge">LIVE</span></div>
-        <div class="insp-stat"><span class="label">CPU</span><span class="val cyan">23.4%</span></div>
-        <div class="insp-bar"><div style="width: 23%;"></div></div>
-        <div class="insp-stat"><span class="label">内存</span><span class="val cyan">4.2 / 16 GB</span></div>
-        <div class="insp-bar"><div style="width: 26%;"></div></div>
-        <div class="insp-stat"><span class="label">磁盘</span><span class="val">68 / 200 GB</span></div>
-        <div class="insp-bar"><div style="width: 34%;"></div></div>
-        <div class="insp-stat"><span class="label">网络 ↑</span><span class="val green">12.4 MB/s</span></div>
-        <div class="insp-stat"><span class="label">网络 ↓</span><span class="val green">86.7 MB/s</span></div>
-        <div class="insp-stat"><span class="label">负载</span><span class="val">0.42 / 0.51 / 0.63</span></div>
-      </div>
-      <div class="insp-section">
-        <div class="insp-head">进程 Top 5</div>
-        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">payment-api</span><span class="val cyan">12.3%</span></div>
-        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">nginx</span><span class="val cyan">2.1%</span></div>
-        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">postgres</span><span class="val cyan">5.4%</span></div>
-        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">redis</span><span class="val cyan">0.8%</span></div>
-      </div>
-      <div class="insp-section">
-        <div class="insp-head">告警 <span class="badge" style="background: var(--grad-accent);">2</span></div>
-        <div class="insp-stat" style="border-color: rgba(255, 77, 109, 0.3); background: rgba(255, 77, 109, 0.08);"><span class="label" style="color: var(--red);">⚠ worker 重启中</span><span class="val pink">告警</span></div>
-        <div class="insp-stat" style="border-color: rgba(255, 77, 109, 0.3); background: rgba(255, 77, 109, 0.08);"><span class="label" style="color: var(--red);">⚠ 磁盘 5 分钟 +1.2G</span><span class="val pink">告警</span></div>
+    <div class="inspector" style="padding: 0; background: rgba(10, 14, 26, 0.3);">
+      <div class="ai-panel">
+        <div class="ai-panel-head">
+          <div class="ai-panel-avatar">★</div>
+          <div>
+            <div class="ai-panel-title">SSH AI</div>
+            <div class="ai-panel-subtitle"><span class="scope-dot"></span> SCOPED · prod-app-01</div>
+          </div>
+          <div class="ai-panel-actions">
+            <div class="ai-panel-icon-btn" title="清空对话">⌫</div>
+            <div class="ai-panel-icon-btn" title="全屏">⛶</div>
+          </div>
+        </div>
+        <div class="ai-context">
+          <span class="ctx-label">上下文</span>
+          <span class="ctx-chip">@prod-app-01</span>
+          <span class="ctx-chip">/var/log</span>
+          <span class="ctx-chip">root</span>
+        </div>
+        <div class="ai-tools">
+          <span class="ai-tools-label">工具</span>
+          <span class="ai-tool-chip">ssh_exec</span>
+          <span class="ai-tool-chip">log_grep</span>
+          <span class="ai-tool-chip">cmd_explain</span>
+          <span class="ai-tool-chip locked" title="跨页面工具已锁">db_query</span>
+          <span class="ai-tool-chip locked" title="跨页面工具已锁">docker_logs</span>
+        </div>
+        <div class="ai-msgs">
+          <div class="ai-msg ai">
+            <div class="ai-msg-avatar">★</div>
+            <div class="ai-msg-body">
+              <p>我看到 <code>payment-api.log</code> 里有 12 条 5xx 错误,触发于上游超时。worker 容器在反复重启。</p>
+              <div class="ai-action">💡 <code>journalctl -u nginx --since '5 min ago' | grep -i error</code></div>
+              <p>建议下一步: <span class="ai-suggestion">→ 一键诊断 worker 容器</span></p>
+            </div>
+          </div>
+          <div class="ai-msg user">
+            <div class="ai-msg-avatar">DC</div>
+            <div class="ai-msg-body">查 payment-api 最近 100 条错误,按时间排序</div>
+          </div>
+          <div class="ai-msg ai">
+            <div class="ai-msg-avatar">★</div>
+            <div class="ai-msg-body">
+              <p>已执行,共 87 条。最新 5 条都是 <code>upstream timeout (110)</code>,目标都是 <code>192.168.1.42:8080</code>。该节点当前进程是 payment-api,CPU 12% 正常,可能是网络层或上游服务慢。</p>
+              <div class="ai-action">✓ ssh_exec · 0.4s</div>
+            </div>
+          </div>
+        </div>
+        <div class="ai-input-area">
+          <div class="ai-input">
+            <span class="placeholder">@prod-app-01 · 描述任务...</span>
+            <span class="send">↵</span>
+          </div>
+          <div class="ai-input-hint">
+            <kbd>Enter</kbd> 发送 <kbd>Shift+Enter</kbd> 换行 <kbd>/</kbd> 命令
+          </div>
+        </div>
       </div>
     </div>
     <div class="statusbar">
@@ -1188,18 +1276,59 @@ p { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
         </div>
       </div>
     </div>
-    <div class="inspector">
-      <div class="insp-section">
-        <div class="insp-head">传输队列 <span class="badge">1 RUN</span></div>
-        <div class="insp-stat"><span class="label" style="color: var(--green);">↓ nginx-access.log</span><span class="val green">68%</span></div>
-        <div class="insp-bar"><div style="width: 68%;"></div></div>
-        <div class="insp-stat" style="background: transparent; border: 0; padding: 2px 10px;"><span class="label" style="font-size: 10.5px;">96K / 142K · 3.2 MB/s</span></div>
-      </div>
-      <div class="insp-section">
-        <div class="insp-head">文件信息</div>
-        <div class="insp-stat"><span class="label">大小</span><span class="val cyan">142 KB</span></div>
-        <div class="insp-stat"><span class="label">修改</span><span class="val">14:55:12</span></div>
-        <div class="insp-stat"><span class="label">权限</span><span class="val" style="font-size: 11px;">-rw-r--r--</span></div>
+    <div class="inspector" style="padding: 0; background: rgba(10, 14, 26, 0.3);">
+      <div class="ai-panel">
+        <div class="ai-panel-head">
+          <div class="ai-panel-avatar">★</div>
+          <div>
+            <div class="ai-panel-title">SFTP AI</div>
+            <div class="ai-panel-subtitle"><span class="scope-dot"></span> SCOPED · prod-app-01:/var/log</div>
+          </div>
+          <div class="ai-panel-actions">
+            <div class="ai-panel-icon-btn">⌫</div>
+            <div class="ai-panel-icon-btn">⛶</div>
+          </div>
+        </div>
+        <div class="ai-context">
+          <span class="ctx-label">已选</span>
+          <span class="ctx-chip">nginx-access.log</span>
+          <span class="ctx-chip">142 KB</span>
+          <span class="ctx-chip">-rw-r--r--</span>
+        </div>
+        <div class="ai-tools">
+          <span class="ai-tools-label">工具</span>
+          <span class="ai-tool-chip">file_diff</span>
+          <span class="ai-tool-chip">sync_plan</span>
+          <span class="ai-tool-chip">log_explain</span>
+          <span class="ai-tool-chip">content_search</span>
+          <span class="ai-tool-chip locked">db_query</span>
+        </div>
+        <div class="ai-msgs">
+          <div class="ai-msg ai">
+            <div class="ai-msg-avatar">★</div>
+            <div class="ai-msg-body">
+              <p>当前 <code>nginx-access.log</code> 显示今天 14:00 后错误率上升,主要是 504(网关超时)。结合 SSH 页面的 payment-api 日志,确认是上游服务慢。</p>
+              <span class="ai-suggestion">→ 同步本地到远程</span>
+            </div>
+          </div>
+          <div class="ai-msg user">
+            <div class="ai-msg-avatar">DC</div>
+            <div class="ai-msg-body">这个文件里 504 占比多少?</div>
+          </div>
+          <div class="ai-msg ai">
+            <div class="ai-msg-avatar">★</div>
+            <div class="ai-msg-body">
+              <p>14:00 至今 4,231 条中 168 条 5xx,其中 142 条 504(占 3.35%)。建议设置告警:5xx 比例 &gt; 2% 持续 5 分钟触发。</p>
+              <div class="ai-action">✓ content_search · 0.2s</div>
+            </div>
+          </div>
+        </div>
+        <div class="ai-input-area">
+          <div class="ai-input">
+            <span class="placeholder">描述任务... @ 引用文件或路径</span>
+            <span class="send">↵</span>
+          </div>
+        </div>
       </div>
     </div>
     <div class="statusbar">
@@ -1326,24 +1455,61 @@ p { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
         </div>
       </div>
     </div>
-    <div class="inspector">
-      <div class="insp-section">
-        <div class="insp-head">表:orders <span class="badge">234K</span></div>
-        <div class="insp-stat"><span class="label">引擎</span><span class="val" style="font-size: 11px;">InnoDB</span></div>
-        <div class="insp-stat"><span class="label">字符集</span><span class="val" style="font-size: 11px;">utf8mb4</span></div>
-        <div class="insp-stat"><span class="label">大小</span><span class="val cyan">42 MB</span></div>
-        <div class="insp-stat"><span class="label">索引</span><span class="val">8</span></div>
-      </div>
-      <div class="insp-section">
-        <div class="insp-head">索引 <span class="badge">8</span></div>
-        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">PRIMARY (id)</span><span class="val green">PK</span></div>
-        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">idx_user_id (user_id)</span></div>
-        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">idx_status_created</span></div>
-      </div>
-      <div class="insp-section">
-        <div class="insp-head">执行计划</div>
-        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">→ orders (idx)</span><span class="val green" style="font-size: 10.5px;">0.084s</span></div>
-        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">↳ users (PK)</span><span class="val" style="font-size: 10.5px;">ref</span></div>
+    <div class="inspector" style="padding: 0; background: rgba(10, 14, 26, 0.3);">
+      <div class="ai-panel">
+        <div class="ai-panel-head">
+          <div class="ai-panel-avatar">★</div>
+          <div>
+            <div class="ai-panel-title">DB AI</div>
+            <div class="ai-panel-subtitle"><span class="scope-dot"></span> SCOPED · mysql/orders</div>
+          </div>
+          <div class="ai-panel-actions">
+            <div class="ai-panel-icon-btn">⌫</div>
+            <div class="ai-panel-icon-btn">⛶</div>
+          </div>
+        </div>
+        <div class="ai-context">
+          <span class="ctx-label">连接</span>
+          <span class="ctx-chip">@starhub.orders</span>
+          <span class="ctx-label" style="margin-left: 4px;">当前</span>
+          <span class="ctx-chip">SELECT</span>
+        </div>
+        <div class="ai-tools">
+          <span class="ai-tools-label">工具</span>
+          <span class="ai-tool-chip">sql_explain</span>
+          <span class="ai-tool-chip">sql_optimize</span>
+          <span class="ai-tool-chip">schema_diff</span>
+          <span class="ai-tool-chip">sql_gen</span>
+          <span class="ai-tool-chip locked">ssh_exec</span>
+        </div>
+        <div class="ai-msgs">
+          <div class="ai-msg ai">
+            <div class="ai-msg-avatar">★</div>
+            <div class="ai-msg-body">
+              <p>这条 SELECT 走的是 <code>idx_status_created</code> 复合索引,84ms 内返回 856 行。当前 234K 数据量,效率良好。</p>
+              <p>⚠️ <strong>潜在问题:</strong> 包含 <code>SELECT *</code> + 多 JOIN,数据量 1M 后会触发 <code>Using filesort</code>。</p>
+              <span class="ai-suggestion">→ 优化建议</span>
+            </div>
+          </div>
+          <div class="ai-msg user">
+            <div class="ai-msg-avatar">DC</div>
+            <div class="ai-msg-body">生成分页 SQL</div>
+          </div>
+          <div class="ai-msg ai">
+            <div class="ai-msg-avatar">★</div>
+            <div class="ai-msg-body">
+              <p>已生成,基于 cursor 分页避免 OFFSET 性能问题:</p>
+              <div class="ai-action">SELECT id, user_id, amount FROM orders WHERE status = 'paid' AND id &lt; ? ORDER BY id DESC LIMIT 20</div>
+              <span class="ai-suggestion">→ 插入到编辑器</span>
+            </div>
+          </div>
+        </div>
+        <div class="ai-input-area">
+          <div class="ai-input">
+            <span class="placeholder">@orders · 描述 SQL 需求或问题...</span>
+            <span class="send">↵</span>
+          </div>
+        </div>
       </div>
     </div>
     <div class="statusbar">
@@ -1485,32 +1651,61 @@ p { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
         </div>
       </div>
     </div>
-    <div class="inspector">
-      <div class="insp-section">
-        <div class="insp-head">payment-api <span class="badge">RUNNING</span></div>
-        <div class="insp-stat"><span class="label">CPU</span><span class="val cyan">12.3%</span></div>
-        <div class="insp-bar"><div style="width: 12%;"></div></div>
-        <div class="insp-stat"><span class="label">内存</span><span class="val cyan">234 / 2 GB</span></div>
-        <div class="insp-bar"><div style="width: 11%;"></div></div>
-        <div class="insp-stat"><span class="label">网络 ↑</span><span class="val green">2.1 MB/s</span></div>
-        <div class="insp-stat"><span class="label">网络 ↓</span><span class="val green">8.4 MB/s</span></div>
-      </div>
-      <div class="insp-section">
-        <div class="insp-head">配置</div>
-        <div class="insp-stat"><span class="label">镜像</span><span class="val" style="font-size: 10.5px;">payment:v2.1</span></div>
-        <div class="insp-stat"><span class="label">端口</span><span class="val" style="font-size: 10.5px;">8080:8080</span></div>
-        <div class="insp-stat"><span class="label">网络</span><span class="val" style="font-size: 10.5px;">prod-net</span></div>
-      </div>
-      <div class="insp-section">
-        <div class="insp-head">操作</div>
-        <div class="insp-stat" style="background: transparent; border: 0; padding: 2px 0;">
-          <button class="btn-mini" style="width: 100%; justify-content: center;">📋 查看日志</button>
+    <div class="inspector" style="padding: 0; background: rgba(10, 14, 26, 0.3);">
+      <div class="ai-panel">
+        <div class="ai-panel-head">
+          <div class="ai-panel-avatar">★</div>
+          <div>
+            <div class="ai-panel-title">Docker AI</div>
+            <div class="ai-panel-subtitle"><span class="scope-dot"></span> SCOPED · prod-cluster</div>
+          </div>
+          <div class="ai-panel-actions">
+            <div class="ai-panel-icon-btn">⌫</div>
+            <div class="ai-panel-icon-btn">⛶</div>
+          </div>
         </div>
-        <div class="insp-stat" style="background: transparent; border: 0; padding: 2px 0;">
-          <button class="btn-mini" style="width: 100%; justify-content: center;">⌨ 进入终端</button>
+        <div class="ai-context">
+          <span class="ctx-label">已选</span>
+          <span class="ctx-chip">worker</span>
+          <span class="ctx-chip" style="color: var(--red); border-color: rgba(255, 77, 109, 0.3); background: rgba(255, 77, 109, 0.1);">Exited (1)</span>
         </div>
-        <div class="insp-stat" style="background: transparent; border: 0; padding: 2px 0;">
-          <button class="btn-mini" style="width: 100%; justify-content: center;">🔄 重启</button>
+        <div class="ai-tools">
+          <span class="ai-tools-label">工具</span>
+          <span class="ai-tool-chip">container_diag</span>
+          <span class="ai-tool-chip">log_explain</span>
+          <span class="ai-tool-chip">restart_safe</span>
+          <span class="ai-tool-chip">compose_edit</span>
+          <span class="ai-tool-chip locked">db_query</span>
+        </div>
+        <div class="ai-msgs">
+          <div class="ai-msg ai">
+            <div class="ai-msg-avatar">★</div>
+            <div class="ai-msg-body">
+              <p><code>worker</code> 容器在 1 分钟内重启 5 次,Exit 1。最近日志显示: <code>connection refused to postgres:5432</code>。</p>
+              <p>🤔 推测:postgres 容器健康检查未通过,worker 重启时未就绪。</p>
+            </div>
+          </div>
+          <div class="ai-msg user">
+            <div class="ai-msg-avatar">DC</div>
+            <div class="ai-msg-body">能修吗?</div>
+          </div>
+          <div class="ai-msg ai">
+            <div class="ai-msg-avatar">★</div>
+            <div class="ai-msg-body">
+              <p>建议两步:</p>
+              <div class="ai-action">1. 编辑 compose.yml,加 depends_on: condition: service_healthy</div>
+              <div class="ai-action">2. 重启 worker 容器</div>
+              <p style="color: var(--yellow); margin-top: 6px;">⚠ 这会修改 compose.yml,确认执行?</p>
+              <span class="ai-suggestion">✓ 一键修复</span>
+              <span class="ai-suggestion" style="margin-left: 4px;">📋 仅查看 diff</span>
+            </div>
+          </div>
+        </div>
+        <div class="ai-input-area">
+          <div class="ai-input">
+            <span class="placeholder">@worker · 描述容器任务...</span>
+            <span class="send">↵</span>
+          </div>
         </div>
       </div>
     </div>
@@ -1526,15 +1721,15 @@ p { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
   </div>
 </div>
 
-<!-- 06 AI -->
-<h2><span class="sec-num">06 / 06</span>AI 助手 · 自然语言驱动<span class="sec-desc">AI</span></h2>
-<p>对话流 + Function Calling 执行链。AI 消息带辉光头像 + 渐变背景,工具调用步骤有勾选状态动画 + 时间统计。</p>
+<!-- 06 AI HUB -->
+<h2><span class="sec-num">06 / 06</span>AI Hub · 全局协调(跨页面 AI 调度)<span class="sec-desc">AI HUB</span></h2>
+<p>每个页面都有"专责 AI"(02-05 右侧),而 <strong>AI Hub</strong> 是"调度中心":跨页面协调任务、查看所有 AI 的执行链、跨域操作。所有工具解锁,可以调起任意页面的 AI 子会话。</p>
 
 <div class="mockup">
   <div class="mockup-bar">
     <div class="window-dots"><span></span><span></span><span></span></div>
-    <div class="mockup-title">StarHub · AI 助手</div>
-    <div class="mockup-tags"><span class="mockup-tag">06 AI</span></div>
+    <div class="mockup-title">StarHub · AI Hub</div>
+    <div class="mockup-tags"><span class="mockup-tag">06 AI HUB</span></div>
   </div>
   <div class="app" style="grid-template-columns: 260px 1fr 300px;">
     <div class="titlebar">
@@ -1546,23 +1741,28 @@ p { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
       </div>
     </div>
     <div class="menubar">
-      <span class="menu-item">会话</span><span class="menu-item">工具</span><span class="menu-item">历史</span><span class="menu-item">设置</span>
+      <span class="menu-item">会话</span><span class="menu-item">调度</span><span class="menu-item">历史</span><span class="menu-item">设置</span>
       <div class="tab-strip">
-        <span class="tab active"><span class="dot" style="background: var(--pink); box-shadow: 0 0 6px var(--pink);"></span>production-app-01 排障</span>
+        <span class="tab active"><span class="dot" style="background: var(--pink); box-shadow: 0 0 6px var(--pink);"></span>跨页面排障</span>
         <span class="tab add">+</span>
       </div>
     </div>
     <div class="sidebar">
       <div class="sidebar-section">
         <div class="sidebar-head"><span class="icon">💬</span>会话历史</div>
-        <div class="tree-item active"><span>production-app-01 排障</span><span style="color: var(--muted); font-size: 10.5px;">2m</span></div>
+        <div class="tree-item active"><span>跨页面排障 (当前)</span><span style="color: var(--green); font-size: 10.5px;">●</span></div>
         <div class="tree-item"><span>查慢 SQL</span><span style="color: var(--muted); font-size: 10.5px;">1h</span></div>
-        <div class="tree-item"><span>生成用户画像 SQL</span><span style="color: var(--muted); font-size: 10.5px;">3h</span></div>
         <div class="tree-item"><span>docker 网络问题</span><span style="color: var(--muted); font-size: 10.5px;">昨天</span></div>
-        <div class="tree-item"><span>nginx 配置优化</span><span style="color: var(--muted); font-size: 10.5px;">昨天</span></div>
       </div>
       <div class="sidebar-section">
-        <div class="sidebar-head"><span class="icon">🛠</span>工具 <span class="count">15</span></div>
+        <div class="sidebar-head"><span class="icon">🤖</span>页面 AI 状态</div>
+        <div class="tree-item"><span class="status green"></span> SSH AI · 空闲</div>
+        <div class="tree-item"><span class="status cyan"></span> SFTP AI · 空闲</div>
+        <div class="tree-item"><span class="status pink"></span> DB AI · 处理中</div>
+        <div class="tree-item"><span class="status green"></span> Docker AI · 空闲</div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-head"><span class="icon">🛠</span>全部工具 <span class="count">15</span></div>
         <div class="tree-item"><span style="color: var(--cyan);">▣</span> ssh_exec</div>
         <div class="tree-item"><span style="color: var(--purple);">📁</span> sftp_download</div>
         <div class="tree-item"><span style="color: var(--green);">⬢</span> db_query</div>
@@ -1572,6 +1772,14 @@ p { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
       </div>
     </div>
     <div class="workspace" style="padding: 0; display: flex; flex-direction: column;">
+      <div class="ai-hub-tabs">
+        <div class="ai-hub-tab active">⚡ 跨页面</div>
+        <div class="ai-hub-tab">▣ SSH</div>
+        <div class="ai-hub-tab">📁 SFTP</div>
+        <div class="ai-hub-tab">⬢ DB</div>
+        <div class="ai-hub-tab">▦ Docker</div>
+        <div class="ai-hub-tab" style="margin-left: auto; color: var(--purple);">+ 拉起子 AI</div>
+      </div>
       <div class="chat-area">
         <div class="msg user">
           <div class="msg-avatar">DC</div>
@@ -1582,70 +1790,64 @@ p { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
         <div class="msg ai">
           <div class="msg-avatar">★</div>
           <div class="msg-body">
-            <p>我来分 4 步处理这个任务:</p>
+            <p>跨 3 个页面协同,我将分派给 <strong style="color: var(--cyan);">SSH AI</strong> → <strong style="color: var(--cyan);">DB AI</strong>:</p>
             <ul class="step-list">
-              <li class="done">SSH 连接 production-app-01 <span class="step-time">0.4s</span></li>
-              <li class="done">拉取 payment-api 最近日志 <span class="step-time">0.8s</span></li>
-              <li class="done">修正 nginx upstream 配置 <span class="step-time">2.1s</span></li>
-              <li class="done">查询失败订单数 <span class="step-time">0.3s</span></li>
+              <li class="done">@ SSH AI · docker logs payment-api <span class="step-time">0.4s</span></li>
+              <li class="done">@ SSH AI · vim nginx upstream <span class="step-time">2.1s</span></li>
+              <li class="done">@ DB AI · SELECT failed orders <span class="step-time">0.3s</span></li>
             </ul>
             <div class="chat-detail">
-              <div><span class="step-num">[1]</span>ssh prod-app-01</div>
+              <div><span class="step-num">[SSH AI]</span>ssh prod-app-01</div>
               <div style="padding-left: 50px; color: var(--text);">docker logs payment-api --tail 100</div>
-              <div style="padding-left: 50px; color: var(--yellow);">⚠ 发现 12 条 5xx 错误</div>
-              <div style="margin-top: 4px;"><span class="step-num">[3]</span>vim /etc/nginx/conf.d/upstream.conf</div>
-              <div style="padding-left: 50px; color: var(--text);">修改 server 192.168.1.42:8080;</div>
+              <div style="padding-left: 50px; color: var(--yellow);">⚠ 12 条 5xx 错误</div>
+              <div style="margin-top: 4px;"><span class="step-num">[SSH AI]</span>vim /etc/nginx/conf.d/upstream.conf</div>
               <div style="padding-left: 50px; color: var(--green);">nginx -s reload ✓</div>
-              <div style="margin-top: 4px;"><span class="step-num">[4]</span>SELECT COUNT(*) FROM orders</div>
-              <div style="padding-left: 50px; color: var(--text);">WHERE status='failed' AND date=...</div>
+              <div style="margin-top: 4px;"><span class="step-num">[DB AI]</span>SELECT COUNT(*) FROM orders...</div>
               <div style="padding-left: 50px; color: var(--red);">→ 234 笔失败订单</div>
             </div>
-            <p style="margin-top: 12px;"><strong style="color: var(--cyan);">总结:</strong>payment-api 后端响应慢导致 504,已修正 nginx upstream 指向健康节点。失败订单 234 笔,建议补偿。</p>
+            <p style="margin-top: 12px;"><strong style="color: var(--cyan);">总结:</strong>payment-api 后端响应慢导致 504,已修正 nginx upstream 指向健康节点。</p>
             <div class="chat-actions">
               <button class="chat-btn primary">✓ 确认修复</button>
-              <button class="chat-btn">查看完整日志</button>
-              <button class="chat-btn" style="color: var(--pink);">取消修改</button>
+              <button class="chat-btn">→ 跳到 SSH AI</button>
+              <button class="chat-btn">→ 跳到 DB AI</button>
             </div>
           </div>
         </div>
       </div>
       <div class="chat-input">
         <div class="input-box">
-          <span class="placeholder">描述你的任务...用 @ 引用资源,如 @prod-app-01</span>
+          <span class="placeholder">跨页面任务... @资源 (Hub 模式工具全开)</span>
         </div>
         <button>发送 ⌘↵</button>
       </div>
     </div>
     <div class="inspector">
       <div class="insp-section">
-        <div class="insp-head">会话信息</div>
+        <div class="insp-head">调度会话 <span class="badge">HUB</span></div>
         <div class="insp-stat"><span class="label">模型</span><span class="val" style="font-size: 11px;">Claude 3.5</span></div>
         <div class="insp-stat"><span class="label">Token</span><span class="val cyan">1,247 / 200K</span></div>
         <div class="insp-stat"><span class="label">花费</span><span class="val green">$0.018</span></div>
-        <div class="insp-stat"><span class="label">工具调用</span><span class="val">4 次</span></div>
-        <div class="insp-stat"><span class="label">耗时</span><span class="val">8.4s</span></div>
+        <div class="insp-stat"><span class="label">调度子 AI</span><span class="val">2 个</span></div>
       </div>
       <div class="insp-section">
-        <div class="insp-head">@ 已引用资源</div>
+        <div class="insp-head">子 AI 执行链</div>
+        <div class="insp-stat" style="background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.2);"><span class="label" style="color: var(--green);">▣ SSH AI · 2 任务</span><span class="val" style="font-size: 10.5px; color: var(--green);">2.5s</span></div>
+        <div class="insp-stat" style="background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.2);"><span class="label" style="color: var(--green);">⬢ DB AI · 1 任务</span><span class="val" style="font-size: 10.5px; color: var(--green);">0.3s</span></div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-head">@ 跨域资源</div>
         <div class="ref-card"><div class="ref-icon cyan">▣</div><div class="ref-name">prod-app-01</div><div class="ref-meta">SSH</div></div>
         <div class="ref-card"><div class="ref-icon green">▦</div><div class="ref-name">payment-api</div><div class="ref-meta">Container</div></div>
         <div class="ref-card"><div class="ref-icon pink">⬢</div><div class="ref-name">starhub / orders</div><div class="ref-meta">MySQL</div></div>
       </div>
-      <div class="insp-section">
-        <div class="insp-head">执行链</div>
-        <div class="insp-stat" style="background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.2);"><span class="label" style="color: var(--green);">✓ ssh_exec</span><span class="val" style="font-size: 10.5px; color: var(--green);">1.2s</span></div>
-        <div class="insp-stat" style="background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.2);"><span class="label" style="color: var(--green);">✓ docker_logs</span><span class="val" style="font-size: 10.5px; color: var(--green);">0.8s</span></div>
-        <div class="insp-stat" style="background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.2);"><span class="label" style="color: var(--green);">✓ ssh_exec</span><span class="val" style="font-size: 10.5px; color: var(--green);">2.1s</span></div>
-        <div class="insp-stat" style="background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.2);"><span class="label" style="color: var(--green);">✓ db_query</span><span class="val" style="font-size: 10.5px; color: var(--green);">0.3s</span></div>
-      </div>
     </div>
     <div class="statusbar">
-      <div class="sb-item cyan"><span class="pulse"></span> Claude 3.5 · 已连接</div>
-      <div class="sb-item">对话 2</div>
-      <div class="sb-item">工具 4 / 15</div>
+      <div class="sb-item cyan"><span class="pulse"></span> AI Hub · Claude 3.5</div>
+      <div class="sb-item">2 子 AI 调度中</div>
+      <div class="sb-item">4 / 15 工具</div>
       <div class="sb-right">
         <div class="sb-item">$0.018 / 会话</div>
-        <div class="sb-item">SSE 流式</div>
+        <div class="sb-item">SSE</div>
       </div>
     </div>
   </div>
