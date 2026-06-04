@@ -14,7 +14,8 @@ export default {
     success: 'Success',
     error: 'Error',
     warning: 'Warning',
-    info: 'Info'
+    info: 'Info',
+    home: 'Home'
   },
   home: {
     welcome: 'Welcome to StarHub',

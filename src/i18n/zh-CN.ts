@@ -14,7 +14,8 @@ export default {
     success: '成功',
     error: '错误',
     warning: '警告',
-    info: '信息'
+    info: '信息',
+    home: '首页'
   },
   home: {
     welcome: '欢迎使用 StarHub',
