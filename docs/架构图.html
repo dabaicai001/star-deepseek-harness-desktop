@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StarHub · 架构图与技术方案</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #f7f5f0;
+      --panel: #ffffff;
+      --line: #e9e3d6;
+      --line-soft: #f0ebdf;
+      --text: #1f2533;
+      --text-2: #3a4256;
+      --muted: #7c7a72;
+      --ink: #14171e;
+      --primary: #2f6f5e;
+      --primary-dark: #1f4e42;
+      --primary-soft: rgba(47,111,94,0.08);
+      --accent: #c97b3f;
+      --accent-soft: rgba(201,123,63,0.08);
+      --rust: #ce422b;
+      --go: #00add8;
+      --vue: #42b883;
+      --tauri: #ffc131;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      font-family: 'Outfit', -apple-system, 'PingFang SC', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      background-image:
+        radial-gradient(at 0% 0%, rgba(47,111,94,0.05) 0%, transparent 45%),
+        radial-gradient(at 100% 0%, rgba(201,123,63,0.05) 0%, transparent 45%);
+      background-attachment: fixed;
+    }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 48px 28px 96px; }
+    * { text-wrap: pretty; }
+    header.hero {
+      padding: 40px 44px;
+      border-radius: 22px;
+      background: linear-gradient(135deg, #f9f6ee, #efece6);
+      border: 1px solid var(--line);
+      margin-bottom: 56px;
+      box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 6px 24px -16px rgba(20,23,30,.12);
+    }
+    .eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--primary);
+      margin-bottom: 8px;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .eyebrow::before {
+      content: ""; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--primary);
+    }
+    header.hero h1 {
+      font-family: 'DM Serif Display', 'Source Han Serif SC', Georgia, serif;
+      font-size: 38px;
+      font-weight: 400;
+      line-height: 1.2;
+      margin: 8px 0 16px;
+      color: var(--ink);
+      letter-spacing: -0.005em;
+    }
+    header.hero p {
+      color: var(--text-2);
+      max-width: 820px;
+      font-size: 15px;
+      margin: 0;
+    }
+    .meta-row {
+      display: flex; gap: 16px; flex-wrap: wrap;
+      margin-top: 22px; padding-top: 22px;
+      border-top: 1px solid var(--line);
+    }
+    .meta-item {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; color: var(--text-2);
+    }
+    .meta-item strong { color: var(--ink); font-weight: 600; }
+    .meta-item svg { color: var(--primary); }
+
+    h2 {
+      font-family: 'DM Serif Display', 'Source Han Serif SC', serif;
+      font-size: 26px;
+      font-weight: 400;
+      margin: 64px 0 24px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    h2 .sec-num {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    h2 .sec-sub {
+      font-family: 'Outfit', sans-serif;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 400;
+      margin-left: auto;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    h3 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--ink);
+      margin: 28px 0 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    h3 svg { color: var(--primary); }
+
+    p { margin: 0 0 12px; font-size: 14.5px; color: var(--text-2); }
+    code, .mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      background: var(--line-soft);
+      padding: 1.5px 6px;
+      border-radius: 4px;
+      color: var(--primary-dark);
+    }
+
+    /* Layered architecture (5 layers) */
+    .layered-arch {
+      display: flex; flex-direction: column; gap: 8px;
+      margin: 8px 0 20px;
+    }
+    .arch-row {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+    .arch-tier {
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--muted);
+      text-align: center;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px;
+    }
+    .arch-blocks {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .arch-block {
+      flex: 1 1 auto;
+      min-width: 110px;
+      background: var(--bg);
+      border: 1px solid var(--line-soft);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .arch-block .badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      background: var(--primary-soft);
+      color: var(--primary);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-weight: 500;
+    }
+    .arch-block.accent { background: var(--accent-soft); border-color: rgba(201,123,63,0.2); }
+    .arch-block.rust { background: rgba(206,66,43,0.08); border-color: rgba(206,66,43,0.2); }
+    .arch-block.vue { background: rgba(66,184,131,0.08); border-color: rgba(66,184,131,0.2); }
+    .arch-block.go { background: rgba(0,173,216,0.08); border-color: rgba(0,173,216,0.25); }
+    .arch-block.tauri { background: rgba(255,193,49,0.12); border-color: rgba(255,193,49,0.3); }
+
+    /* Process model */
+    .process-model {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin: 16px 0 24px;
+    }
+    .proc {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px;
+    }
+    .proc-head {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px dashed var(--line);
+    }
+    .proc-icon {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; flex-shrink: 0;
+    }
+    .proc-icon.rust { background: var(--rust); }
+    .proc-icon.vue { background: var(--vue); }
+    .proc-icon.go { background: var(--go); }
+    .proc-name {
+      font-size: 14px; font-weight: 600; color: var(--ink);
+    }
+    .proc-name small {
+      display: block; font-size: 11px; color: var(--muted);
+      font-weight: 400; font-family: 'JetBrains Mono', monospace;
+      margin-top: 2px;
+    }
+    .proc ul {
+      margin: 0; padding-left: 16px;
+      font-size: 13px; color: var(--text-2);
+    }
+    .proc li { margin-bottom: 4px; }
+    .proc li code { font-size: 11.5px; }
+
+    /* Mermaid */
+    .mermaid {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 24px;
+      margin: 16px 0 24px;
+      text-align: center;
+      overflow-x: auto;
+    }
+
+    /* Cards */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px 18px;
+    }
+    .card .label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+    .card .value {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--ink);
+      font-family: 'Outfit', sans-serif;
+    }
+    .card .value small { font-size: 13px; color: var(--muted); font-weight: 400; }
+    .card p { font-size: 13px; margin: 4px 0 0; }
+
+    /* Module cards */
+    .module {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px;
+      transition: transform .15s, box-shadow .15s;
+    }
+    .module:hover { transform: translateY(-2px); box-shadow: 0 12px 28px -18px rgba(20,23,30,.18); }
+    .module-head {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 10px;
+    }
+    .module-icon {
+      width: 28px; height: 28px;
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--primary-soft);
+      color: var(--primary);
+      flex-shrink: 0;
+    }
+    .module-name {
+      font-size: 14px; font-weight: 600; color: var(--ink);
+    }
+    .module p { font-size: 12.5px; margin: 0 0 8px; line-height: 1.5; }
+    .tag-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+    .tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      background: var(--bg);
+      color: var(--text-2);
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--line-soft);
+    }
+
+    /* Dataflow */
+    .dataflow {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px;
+      margin: 12px 0;
+    }
+    .dataflow-title {
+      font-size: 14px; font-weight: 600; color: var(--ink);
+      margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .dataflow-title svg { color: var(--accent); }
+    .flow {
+      display: flex; align-items: stretch; gap: 0;
+      overflow-x: auto;
+      padding: 4px 0 8px;
+    }
+    .flow-step {
+      flex: 1 1 0;
+      min-width: 130px;
+      background: var(--bg);
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12.5px;
+      color: var(--text);
+      text-align: left;
+      position: relative;
+    }
+    .flow-step .step-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--primary);
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .flow-step .step-name {
+      font-weight: 600;
+      color: var(--ink);
+      font-size: 13px;
+      margin-bottom: 2px;
+    }
+    .flow-arrow {
+      display: flex; align-items: center; justify-content: center;
+      color: var(--muted);
+      flex-shrink: 0;
+      padding: 0 2px;
+    }
+
+    /* Timeline */
+    .timeline { position: relative; padding-left: 32px; }
+    .timeline::before {
+      content: ""; position: absolute;
+      left: 11px; top: 8px; bottom: 8px;
+      width: 2px;
+      background: linear-gradient(180deg, var(--primary), var(--accent));
+    }
+    .step {
+      position: relative; padding: 0 0 28px 24px;
+    }
+    .step:last-child { padding-bottom: 0; }
+    .step-icon {
+      position: absolute; left: -28px; top: 2px;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      background: white;
+      border: 2px solid var(--primary);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--primary);
+      z-index: 1;
+    }
+    .step-title {
+      font-size: 15px; font-weight: 600; color: var(--ink);
+      margin-bottom: 2px;
+    }
+    .step-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .step ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--text-2); }
+    .step li { margin-bottom: 3px; }
+
+    /* Comparison table */
+    table {
+      width: 100%; border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+      font-size: 13.5px;
+      margin: 12px 0;
+    }
+    th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line-soft); }
+    th {
+      background: var(--bg);
+      font-weight: 600;
+      color: var(--ink);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(47,111,94,0.03); }
+    td strong { color: var(--ink); }
+
+    /* List grid */
+    .feature-list {
+      columns: 2;
+      column-gap: 24px;
+      font-size: 13px;
+      color: var(--text-2);
+      margin: 12px 0;
+    }
+    .feature-list li {
+      break-inside: avoid;
+      margin-bottom: 5px;
+      padding-left: 16px;
+      position: relative;
+    }
+    .feature-list li::before {
+      content: ""; position: absolute; left: 0; top: 8px;
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--primary);
+    }
+
+    /* Notes */
+    .note {
+      background: var(--accent-soft);
+      border-left: 3px solid var(--accent);
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13.5px;
+      color: var(--text-2);
+      margin: 14px 0;
+    }
+    .note strong { color: var(--ink); }
+
+    /* Tabs (TOC) */
+    .toc {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 8px;
+      margin-bottom: 32px;
+    }
+    .toc a {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      color: var(--text-2);
+      text-decoration: none;
+      padding: 5px 10px;
+      border-radius: 6px;
+      transition: all .15s;
+    }
+    .toc a:hover { background: var(--primary-soft); color: var(--primary); }
+
+    @media (max-width: 768px) {
+      header.hero { padding: 28px; }
+      header.hero h1 { font-size: 28px; }
+      .process-model, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .feature-list { columns: 1; }
+      .arch-row { grid-template-columns: 1fr; }
+      h2 { font-size: 22px; }
+      h2 .sec-sub { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">技术架构 · Architecture</div>
+    <h1>StarHub · 完整架构与实现方案</h1>
+    <p>基于方案 A 构建的"All-in-One 开发运维桌面中枢"——以 Tauri 2 为桌面壳、Vue 3 渲染前端、Rust 处理系统集成与协议、Go Sidecar 负责数据库驱动;通过 AI 编排打通 SSH、数据库、Docker,实现自然语言驱动的开发运维工作流。</p>
+    <div class="meta-row">
+      <div class="meta-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        <span><strong>版本</strong> v0.1</span>
+      </div>
+      <div class="meta-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-3V4a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v3H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><circle cx="12" cy="13" r="3"/></svg>
+        <span><strong>技术栈</strong> Tauri 2 / Vue 3 / Rust / Go</span>
+      </div>
+      <div class="meta-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        <span><strong>MVP 周期</strong> 3-4 月(3 人)</span>
+      </div>
+      <div class="meta-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span><strong>核心模块</strong> 5 大域 / 280+ 子功能</span>
+      </div>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <a href="#sec-arch">01 整体架构</a>
+    <a href="#sec-process">02 进程模型</a>
+    <a href="#sec-stack">03 技术选型</a>
+    <a href="#sec-modules">04 核心模块</a>
+    <a href="#sec-flow">05 数据流</a>
+    <a href="#sec-feature">06 完整功能</a>
+    <a href="#sec-storage">07 数据模型</a>
+    <a href="#sec-security">08 安全设计</a>
+    <a href="#sec-roadmap">09 路线图</a>
+    <a href="#sec-team">10 团队与风险</a>
+  </nav>
+
+  <!-- SECTION 1: Architecture -->
+  <h2 id="sec-arch"><span class="sec-num">01</span>整体架构<span class="sec-sub">5 LAYERS · CLEAN SEPARATION</span></h2>
+  <p>采用经典五层架构,职责清晰、依赖单向:从用户操作到远程资源,每一层只依赖下层。</p>
+
+  <div class="layered-arch">
+    <div class="arch-row">
+      <div class="arch-tier">L5<br>表现</div>
+      <div class="arch-blocks">
+        <span class="arch-block vue">Vue 3<span class="badge">composition</span></span>
+        <span class="arch-block vue">Vuetify 3 / Element Plus</span>
+        <span class="arch-block vue">Pinia</span>
+        <span class="arch-block vue">xterm.js</span>
+        <span class="arch-block vue">Monaco / CodeMirror 6</span>
+        <span class="arch-block vue">ECharts</span>
+      </div>
+    </div>
+    <div class="arch-row">
+      <div class="arch-tier">L4<br>交互</div>
+      <div class="arch-blocks">
+        <span class="arch-block tauri">Tauri IPC Bridge</span>
+        <span class="arch-block tauri">invoke / event</span>
+        <span class="arch-block tauri">权限白名单</span>
+        <span class="arch-block tauri">CSP</span>
+      </div>
+    </div>
+    <div class="arch-row">
+      <div class="arch-tier">L3<br>业务</div>
+      <div class="arch-blocks">
+        <span class="arch-block rust">Rust 主进程</span>
+        <span class="arch-block rust">SSH/SFTP 客户端</span>
+        <span class="arch-block rust">Docker (bollard)</span>
+        <span class="arch-block rust">跳板机/隧道</span>
+        <span class="arch-block rust">系统监控</span>
+        <span class="arch-block rust">AI Gateway</span>
+      </div>
+    </div>
+    <div class="arch-row">
+      <div class="arch-tier">L2<br>数据</div>
+      <div class="arch-blocks">
+        <span class="arch-block go">Go Sidecar</span>
+        <span class="arch-block go">数据库驱动池 (pgx/redis-go)</span>
+        <span class="arch-block go">流式数据桥 (goroutine)</span>
+        <span class="arch-block go">导入导出引擎</span>
+      </div>
+    </div>
+    <div class="arch-row">
+      <div class="arch-tier">L1<br>资源</div>
+      <div class="arch-blocks">
+        <span class="arch-block">本地 SQLite</span>
+        <span class="arch-block">系统 Keyring</span>
+        <span class="arch-block">远程 SSH 主机</span>
+        <span class="arch-block">数据库服务</span>
+        <span class="arch-block">Docker Daemon</span>
+        <span class="arch-block">LLM API</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>关键设计:</strong> Rust 处理系统协议(SSH/SFTP/Docker/网络)与系统集成,Go Sidecar 跑数据库驱动(静态二进制、PG/Redis 生态更强)。两者通过 Tauri Command 通信,职责分离、整条后端链路统一为编译型语言。
+  </div>
+
+  <!-- SECTION 2: Process Model -->
+  <h2 id="sec-process"><span class="sec-num">02</span>进程模型<span class="sec-sub">MULTI-PROCESS</span></h2>
+  <p>Tauri 主进程 + WebView + Go Sidecar 三进程协作,远程资源作为外部终结点。</p>
+
+  <div class="process-model">
+    <div class="proc">
+      <div class="proc-head">
+        <div class="proc-icon rust">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <div class="proc-name">Tauri 主进程<small>Rust · 主控</small></div>
+      </div>
+      <ul>
+        <li>窗口 / 托盘 / 通知</li>
+        <li>IPC 路由 + 权限</li>
+        <li>资源 / 连接池管理</li>
+        <li><code>SSH/SFTP/Docker</code></li>
+        <li>跳板机 / 隧道</li>
+        <li>系统 Keyring</li>
+        <li>Go Sidecar 启动器</li>
+        <li>自动更新</li>
+      </ul>
+    </div>
+    <div class="proc">
+      <div class="proc-head">
+        <div class="proc-icon vue">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg>
+        </div>
+        <div class="proc-name">WebView 渲染<small>系统原生 · 主窗口</small></div>
+      </div>
+      <ul>
+        <li>Vue 3 应用</li>
+        <li>xterm.js 终端</li>
+        <li>Monaco / CodeMirror</li>
+        <li>虚拟滚动表格</li>
+        <li>ECharts 图表</li>
+        <li>Vuetify 3 / 自研组件</li>
+      </ul>
+    </div>
+    <div class="proc">
+      <div class="proc-head">
+        <div class="proc-icon go">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <div class="proc-name">Go Sidecar<small>子进程 · 数据库代理</small></div>
+      </div>
+      <ul>
+        <li><code>go-sql-driver/mysql</code></li>
+        <li><code>jackc/pgx/v5</code></li>
+        <li><code>modernc.org/sqlite</code></li>
+        <li><code>redis/go-redis/v9</code></li>
+        <li>流式查询 (goroutine + channel)</li>
+        <li>导入导出 (csv/excelize)</li>
+        <li>国产库 ODBC 桥接</li>
+        <li>JSON-RPC over stdio</li>
+        <li><strong>单二进制 ~15MB</strong></li>
+      </ul>
+    </div>
+  </div>
+
+  <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>进程间通信</h3>
+  <div class="mermaid">
+graph LR
+  A[Vue 组件<br>in WebView] -->|invoke| B[Tauri IPC Bridge]
+  B -->|Tauri Command| C[Rust 主进程]
+  C -->|tokio spawn| D[SSH/Docker<br>异步任务]
+  C -->|stdio JSON-RPC| E[Go Sidecar]
+  E -->|pgx/go-redis| F[数据库]
+  D -->|tokio mpsc| C
+  C -->|emit event| B
+  B -->|event listener| A
+  E -.->|流式 chunk| C
+  </div>
+
+  <!-- SECTION 3: Tech Stack -->
+  <h2 id="sec-stack"><span class="sec-num">03</span>技术选型<span class="sec-sub">STACK MAP</span></h2>
+
+  <h3>核心依赖矩阵</h3>
+  <table>
+    <thead>
+      <tr><th>层</th><th>类别</th><th>选型</th><th>理由</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>桌面壳</strong></td>
+        <td>Runtime</td>
+        <td>Tauri 2 (Rust)</td>
+        <td>体积小 5×、内存省 50%、原生权限模型</td>
+      </tr>
+      <tr>
+        <td rowspan="3"><strong>前端</strong></td>
+        <td>框架</td>
+        <td>Vue 3.4 + Vite 5</td>
+        <td>Composition API、心智负担低</td>
+      </tr>
+      <tr>
+        <td>UI 库</td>
+        <td>Vuetify 3 / Element Plus</td>
+        <td>Material Design / 通用风格,二选一</td>
+      </tr>
+      <tr>
+        <td>终端</td>
+        <td>xterm.js 5</td>
+        <td>VSCode 同款、插件生态丰富</td>
+      </tr>
+      <tr>
+        <td rowspan="4"><strong>Rust 侧</strong></td>
+        <td>SSH</td>
+        <td>russh + russh-sftp</td>
+        <td>纯 Rust 异步实现,活跃维护</td>
+      </tr>
+      <tr>
+        <td>Docker</td>
+        <td>bollard</td>
+        <td>异步 Docker API 客户端</td>
+      </tr>
+      <tr>
+        <td>密钥存储</td>
+        <td>keyring-rs</td>
+        <td>对接系统 Keychain/Credential Vault</td>
+      </tr>
+      <tr>
+        <td>系统监控</td>
+        <td>sysinfo</td>
+        <td>跨平台 CPU/内存/进程信息</td>
+      </tr>
+      <tr>
+        <td rowspan="4"><strong>Go 侧</strong></td>
+        <td>MySQL</td>
+        <td>go-sql-driver/mysql</td>
+        <td>流式查询支持好</td>
+      </tr>
+      <tr>
+        <td>PostgreSQL</td>
+        <td>jackc/pgx/v5</td>
+        <td>流式必备</td>
+      </tr>
+      <tr>
+        <td>Redis</td>
+        <td>redis/go-redis/v9</td>
+        <td>健壮、集群支持</td>
+      </tr>
+      <tr>
+        <td>SQLite</td>
+        <td>modernc.org/sqlite(纯 Go)</td>
+        <td>同步,极快,适合本地</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Tauri vs Electron(为什么选 Tauri)</h3>
+  <div class="grid-3">
+    <div class="card">
+      <div class="label">安装包</div>
+      <div class="value">~20MB <small>(Tauri 2)</small></div>
+      <p>vs Electron 动辄 100MB+</p>
+    </div>
+    <div class="card">
+      <div class="label">空闲内存</div>
+      <div class="value">&lt; 200MB <small>(目标)</small></div>
+      <p>比 Electron 节省 50%+</p>
+    </div>
+    <div class="card">
+      <div class="label">冷启动</div>
+      <div class="value">&lt; 2s</div>
+      <p>无 Chromium 启动开销</p>
+    </div>
+  </div>
+
+  <!-- SECTION 4: Modules -->
+  <h2 id="sec-modules"><span class="sec-num">04</span>核心模块<span class="sec-sub">5 DOMAINS</span></h2>
+  <p>五大功能域,每个域独立开发、可单独交付。共 280+ 子功能,完整功能列表见配套技术方案文档。</p>
+
+  <div class="grid-3">
+    <div class="module">
+      <div class="module-head">
+        <div class="module-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        </div>
+        <div class="module-name">SSH 终端</div>
+      </div>
+      <p>终端、跳板机、隧道、命令广播、批量执行、实时面板</p>
+      <div class="tag-row">
+        <span class="tag">xterm.js</span>
+        <span class="tag">russh</span>
+        <span class="tag">ZMODEM</span>
+        <span class="tag">jump host</span>
+        <span class="tag">心跳保活</span>
+      </div>
+    </div>
+    <div class="module">
+      <div class="module-head">
+        <div class="module-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <div class="module-name">SFTP 传输</div>
+      </div>
+      <p>三栏/双栏布局、断点续传、跨服务器中转、内置代码编辑</p>
+      <div class="tag-row">
+        <span class="tag">russh-sftp</span>
+        <span class="tag">SCP/ZMODEM</span>
+        <span class="tag">并发传输</span>
+        <span class="tag">断点续传</span>
+      </div>
+    </div>
+    <div class="module">
+      <div class="module-head">
+        <div class="module-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+        </div>
+        <div class="module-name">数据库</div>
+      </div>
+      <p>15 种数据库、SQL 编辑器、虚拟滚动表格、跨库同步、国产化</p>
+      <div class="tag-row">
+        <span class="tag">pgx / go-redis</span>
+        <span class="tag">CodeMirror 6</span>
+        <span class="tag">百万级表格</span>
+        <span class="tag">流式查询</span>
+        <span class="tag">国产库</span>
+      </div>
+    </div>
+    <div class="module">
+      <div class="module-head">
+        <div class="module-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+        </div>
+        <div class="module-name">Docker 面板</div>
+      </div>
+      <p>容器/镜像管理、SSH 连远程 Docker、镜像加速、实时监控</p>
+      <div class="tag-row">
+        <span class="tag">bollard</span>
+        <span class="tag">镜像加速</span>
+        <span class="tag">实时监控</span>
+        <span class="tag">容器终端</span>
+      </div>
+    </div>
+    <div class="module">
+      <div class="module-head">
+        <div class="module-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <div class="module-name">AI 助手</div>
+      </div>
+      <p>自然语言驱动运维、Function Calling、多 LLM 切换、危险操作可追溯</p>
+      <div class="tag-row">
+        <span class="tag">Claude / GPT</span>
+        <span class="tag">Function Call</span>
+        <span class="tag">Ollama 本地</span>
+        <span class="tag">MCP 协议</span>
+      </div>
+    </div>
+    <div class="module">
+      <div class="module-head">
+        <div class="module-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <div class="module-name">资产与监控</div>
+      </div>
+      <p>连接分组、标签、收藏、多服务器实时面板、告警规则</p>
+      <div class="tag-row">
+        <span class="tag">SQLite 本地</span>
+        <span class="tag">云端同步</span>
+        <span class="tag">告警</span>
+        <span class="tag">快捷指令</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 5: Data Flow -->
+  <h2 id="sec-flow"><span class="sec-num">05</span>关键数据流<span class="sec-sub">END-TO-END</span></h2>
+
+  <div class="dataflow">
+    <div class="dataflow-title">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      场景 A:用户执行 SQL 查询
+    </div>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="step-num">STEP 01</div>
+        <div class="step-name">Vue: SqlEditor</div>
+        <div>用户输入 SQL,按 Ctrl+Enter</div>
+      </div>
+      <div class="flow-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      <div class="flow-step">
+        <div class="step-num">STEP 02</div>
+        <div class="step-name">Tauri IPC</div>
+        <div>invoke('db:query', {connId, sql})</div>
+      </div>
+      <div class="flow-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      <div class="flow-step">
+        <div class="step-num">STEP 03</div>
+        <div class="step-name">Rust 路由</div>
+        <div>校验参数 → 转发 Go Sidecar</div>
+      </div>
+      <div class="flow-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      <div class="flow-step">
+        <div class="step-num">STEP 04</div>
+        <div class="step-name">Go 驱动</div>
+        <div>pgx/go-redis stream → 分批 chunk</div>
+      </div>
+      <div class="flow-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      <div class="flow-step">
+        <div class="step-num">STEP 05</div>
+        <div class="step-name">前端渲染</div>
+        <div>DataTable 累加 → 虚拟滚动</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="dataflow">
+    <div class="dataflow-title">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+      场景 B:用户敲入 SSH 命令
+    </div>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="step-num">STEP 01</div>
+        <div class="step-name">xterm.js 键盘</div>
+        <div>onData 触发(含 IME 输入)</div>
+      </div>
+      <div class="flow-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      <div class="flow-step">
+        <div class="step-num">STEP 02</div>
+        <div class="step-name">Tauri IPC</div>
+        <div>invoke('ssh:write', {sessionId, data})</div>
+      </div>
+      <div class="flow-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      <div class="flow-step">
+        <div class="step-num">STEP 03</div>
+        <div class="step-name">Rust SSH</div>
+        <div>russh channel.write(data)</div>
+      </div>
+      <div class="flow-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      <div class="flow-step">
+        <div class="step-num">STEP 04</div>
+        <div class="step-name">远端 shell</div>
+        <div>PTY exec → stdout/stderr</div>
+      </div>
+      <div class="flow-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      <div class="flow-step">
+        <div class="step-num">STEP 05</div>
+        <div class="step-name">回流渲染</div>
+        <div>emit 'ssh:data' → xterm.write()</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="dataflow">
+    <div class="dataflow-title">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      场景 C:AI 自然语言排障
+    </div>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="step-num">STEP 01</div>
+        <div class="step-name">用户输入</div>
+        <div>"查 payment-api 最近报错"</div>
+      </div>
+      <div class="flow-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      <div class="flow-step">
+        <div class="step-num">STEP 02</div>
+        <div class="step-name">AI Gateway</div>
+        <div>加载系统 Prompt + 工具定义</div>
+      </div>
+      <div class="flow-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      <div class="flow-step">
+        <div class="step-num">STEP 03</div>
+        <div class="step-name">LLM 决策</div>
+        <div>返回 tool_call: docker_logs + ssh_exec</div>
+      </div>
+      <div class="flow-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      <div class="flow-step">
+        <div class="step-num">STEP 04</div>
+        <div class="step-name">工具执行</div>
+        <div>路由到 SSH/Docker 模块执行</div>
+      </div>
+      <div class="flow-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      <div class="flow-step">
+        <div class="step-num">STEP 05</div>
+        <div class="step-name">结果回流</div>
+        <div>工具结果 → LLM → 总结输出</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 6: Feature List -->
+  <h2 id="sec-feature"><span class="sec-num">06</span>完整功能列表<span class="sec-sub">280+ ITEMS</span></h2>
+  <p>覆盖五大域、十二个子系统的完整功能矩阵。详细 PRD 骨架见配套技术方案文档(包含每项的优先级 P0/P1/P2/P3 标注)。</p>
+
+  <div class="grid-4">
+    <div class="card">
+      <div class="label">全局基础</div>
+      <div class="value">18 <small>项</small></div>
+      <p>跨平台、主题、多窗口、资产中心、命令面板</p>
+    </div>
+    <div class="card">
+      <div class="label">SSH 终端</div>
+      <div class="value">40 <small>项</small></div>
+      <p>连接、终端渲染、高级功能(跳板机/隧道/批量)</p>
+    </div>
+    <div class="card">
+      <div class="label">SFTP 传输</div>
+      <div class="value">25 <small>项</small></div>
+      <p>布局、拖拽、并发、ZMODEM/SCP</p>
+    </div>
+    <div class="card">
+      <div class="label">数据库</div>
+      <div class="value">83 <small>项</small></div>
+      <p>15 种 DB、SQL 编辑、数据浏览、结构管理</p>
+    </div>
+    <div class="card">
+      <div class="label">Docker</div>
+      <div class="value">34 <small>项</small></div>
+      <p>容器/镜像/网络/卷/Compose</p>
+    </div>
+    <div class="card">
+      <div class="label">AI 助手</div>
+      <div class="value">22 <small>项</small></div>
+      <p>对话、Function Call、多 LLM、MCP</p>
+    </div>
+    <div class="card">
+      <div class="label">协作</div>
+      <div class="value">10 <small>项</small></div>
+      <p>团队工作空间、审计、权限、审批</p>
+    </div>
+    <div class="card">
+      <div class="label">监控告警</div>
+      <div class="value">10 <small>项</small></div>
+      <p>实时面板、阈值告警、渠道分发</p>
+    </div>
+  </div>
+
+  <h3>优先级分布(Phase 1 MVP)</h3>
+  <ul class="feature-list">
+    <li><strong>SSH/SFTP</strong>:连接管理、终端渲染、PTY、跳板机、隧道、拖拽、ZMODEM、SCP</li>
+    <li><strong>数据库</strong>:MySQL/PG/SQLite/Redis 完整链路、SQL 编辑器、表格编辑、跨库同步</li>
+    <li><strong>Docker</strong>:本地/SSH 通道连接、容器/镜像管理、终端、日志、监控</li>
+    <li><strong>AI</strong>:多 LLM、Function Calling、危险操作确认、对话历史</li>
+    <li><strong>安全</strong>:主密码、Keyring、敏感加密、危险拦截、审计</li>
+    <li><strong>基础</strong>:多平台、中英文、双主题、资产中心、导入导出、命令面板</li>
+  </ul>
+
+  <!-- SECTION 7: Storage -->
+  <h2 id="sec-storage"><span class="sec-num">07</span>数据模型与本地存储<span class="sec-sub">SQLITE + KEYRING</span></h2>
+  <p>本地 SQLite 存元数据,系统 Keyring 存密钥,敏感数据按需加密。</p>
+
+  <div class="mermaid">
+erDiagram
+  ASSET_GROUPS ||--o{ ASSETS : "分组"
+  ASSETS ||--o| KEYS : "引用"
+  ASSETS ||--o{ SQL_HISTORY : "记录"
+  USERS ||--o{ SNIPPETS : "拥有"
+  MONITOR_RULES }o--|| ASSETS : "监控"
+  ASSETS {
+    string id PK
+    string type "ssh/db/docker"
+    string name
+    string group_id FK
+    json config_json
+    string key_id FK
+    bool favorite
+  }
+  KEYS {
+    string id PK
+    string type "password/key"
+    blob encrypted_data
+    string keyring_ref
+  }
+  SQL_HISTORY {
+    int id PK
+    string conn_id
+    text sql
+    int executed_at
+    int duration_ms
+  }
+  </div>
+
+  <h3>加密策略</h3>
+  <table>
+    <thead><tr><th>数据</th><th>存储</th><th>加密</th></tr></thead>
+    <tbody>
+      <tr><td>私钥</td><td>系统 Keyring(优先)</td><td>系统保护</td></tr>
+      <tr><td>密码(备选)</td><td>本地 SQLite</td><td>AES-256-GCM(主密码派生)</td></tr>
+      <tr><td>资产配置</td><td>本地 SQLite</td><td>否(仅本地)</td></tr>
+      <tr><td>云端同步</td><td>远端存储</td><td>端到端加密(libsodium)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- SECTION 8: Security -->
+  <h2 id="sec-security"><span class="sec-num">08</span>安全设计<span class="sec-sub">DEFENSE IN DEPTH</span></h2>
+  <p>三层信任边界,每一层都做最小授权 + 输入校验 + 审计。</p>
+
+  <div class="mermaid">
+graph TB
+  subgraph UNTRUSTED["不可信边界"]
+    SSH[远程 SSH 主机]
+    DB[数据库服务]
+    DOCKER[Docker Daemon]
+    LLM[LLM API]
+  end
+  subgraph SEMI["半可信边界 · WebView"]
+    CSP[严格 CSP]
+    PERM[Tauri 权限白名单]
+    XSS[DOMPurify]
+  end
+  subgraph TRUSTED["可信边界 · Rust / Go"]
+    VALID[Zod 参数校验]
+    AUDIT[审计日志]
+    KEYRING[Keyring 保护]
+  end
+  UNTRUSTED -.加密通道.-> SEMI
+  SEMI -.IPC 校验.-> TRUSTED
+  </div>
+
+  <h3>关键安全措施</h3>
+  <ul class="feature-list">
+    <li><strong>Tauri 权限最小化</strong>:只 expose 必要 command</li>
+    <li><strong>CSP</strong>:<code>default-src 'self'</code> 禁止 inline script</li>
+    <li><strong>输入校验</strong>:所有 IPC 参数 zod schema 校验</li>
+    <li><strong>密钥保护</strong>:私钥不落盘明文,只存 Keyring 引用</li>
+    <li><strong>危险拦截</strong>:检测 <code>rm -rf /</code>、<code>dd if=</code>、<code>mkfs</code> 等</li>
+    <li><strong>审计日志</strong>:所有"写"操作带时间戳/用户/目标,可追溯</li>
+    <li><strong>更新安全</strong>:Tauri Updater 验证签名</li>
+    <li><strong>主密码</strong>:应用启动解锁,空闲 N 分钟自动锁</li>
+  </ul>
+
+  <!-- SECTION 9: Roadmap -->
+  <h2 id="sec-roadmap"><span class="sec-num">09</span>开发路线图<span class="sec-sub">4 PHASES · 12 MONTHS</span></h2>
+  <div class="timeline">
+    <div class="step">
+      <div class="step-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      </div>
+      <div class="step-title">Phase 1: MVP(3-4 个月)</div>
+      <div class="step-meta">M1 - M4 · 3 人团队</div>
+      <ul>
+        <li>M1:脚手架 + SSH 终端跑通(关键路径)</li>
+        <li>M2:SFTP + 资产中心 + 跨平台打包</li>
+        <li>M3:MySQL 完整支持 + Docker 基础</li>
+        <li>M4:AI 基础集成 + 内测发布</li>
+      </ul>
+    </div>
+    <div class="step">
+      <div class="step-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      </div>
+      <div class="step-title">Phase 2: 完整版(5-8 个月)</div>
+      <div class="step-meta">M5 - M8 · 6-8 人团队</div>
+      <ul>
+        <li>P0 收尾 + 国产数据库适配</li>
+        <li>P1 功能:告警、Compose、批量操作、协作</li>
+        <li>完善监控、运维面板</li>
+        <li>公测发布</li>
+      </ul>
+    </div>
+    <div class="step">
+      <div class="step-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      </div>
+      <div class="step-title">Phase 3: 商业化(9-12 个月)</div>
+      <div class="step-meta">M9 - M12</div>
+      <ul>
+        <li>P2 协作、安全增强</li>
+        <li>团队版特性、订阅模式</li>
+        <li>销售渠道(官网、JetBrains 工具集等)</li>
+      </ul>
+    </div>
+    <div class="step">
+      <div class="step-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      </div>
+      <div class="step-title">Phase 4: 生态(Year 2+)</div>
+      <div class="step-meta">M13+</div>
+      <ul>
+        <li>插件市场、主题市场</li>
+        <li>iPad / Android 平板适配</li>
+        <li>私有化部署方案</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- SECTION 10: Team & Risk -->
+  <h2 id="sec-team"><span class="sec-num">10</span>团队与风险<span class="sec-sub">TEAM & RISK</span></h2>
+
+  <div class="grid-2">
+    <div>
+      <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>MVP 最小团队(3 人,4 月)</h3>
+      <ul class="feature-list">
+        <li><strong>Rust 全栈 × 1</strong>:Tauri + SSH + 系统集成</li>
+        <li><strong>Vue 全栈 × 1</strong>:前端 + 终端 + SQL 编辑器</li>
+        <li><strong>Go 全栈 × 0.5</strong>:数据库驱动</li>
+        <li><strong>产品/设计 × 0.5</strong>:原型、UI、文档</li>
+        <li>成本估算:<strong>40-50 万 RMB</strong>(自建团队)</li>
+        <li>兼职/外包可压到:<strong>20-30 万</strong></li>
+      </ul>
+    </div>
+    <div>
+      <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>关键风险</h3>
+      <ul class="feature-list">
+        <li><strong>中文输入法卡顿(高)</strong>:xterm.js modes API + 自定义键盘</li>
+        <li><strong>ZMODEM 缺 Rust 实现(中)</strong>:桥接 C 库(lrzsz)</li>
+        <li><strong>国产数据库兼容(中)</strong>:优先用兼容协议,ODBC 兜底</li>
+        <li><strong>LLM 成本失控(中)</strong>:缓存 + token 限速 + 显式显示花费</li>
+        <li><strong>数据安全合规(高)</strong>:端到端加密 + 审计 + 第三方审计</li>
+        <li><strong>跨平台打包(中)</strong>:Tauri 2 已大幅改善,预留 1 月调</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>性能与体验目标</h3>
+  <div class="grid-4">
+    <div class="card">
+      <div class="label">冷启动</div>
+      <div class="value">&lt; 2s</div>
+    </div>
+    <div class="card">
+      <div class="label">SSH 连接</div>
+      <div class="value">&lt; 1.5s</div>
+    </div>
+    <div class="card">
+      <div class="label">百万行表格</div>
+      <div class="value">60fps</div>
+    </div>
+    <div class="card">
+      <div class="label">空闲内存</div>
+      <div class="value">&lt; 200MB</div>
+    </div>
+    <div class="card">
+      <div class="label">安装包</div>
+      <div class="value">&lt; 30MB</div>
+    </div>
+    <div class="card">
+      <div class="label">终端输入延迟</div>
+      <div class="value">&lt; 30ms</div>
+    </div>
+    <div class="card">
+      <div class="label">文件传输</div>
+      <div class="value">跑满带宽</div>
+    </div>
+    <div class="card">
+      <div class="label">自动更新下载</div>
+      <div class="value">&lt; 5s</div>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top: 32px;">
+    <strong>下一步:</strong>基于本方案跑通 SSH 终端最小链路(关键路径验证);同步拆解 P0 任务,排迭代;边做边验证假设,尤其是中文输入法和 LLM 工具调用这两个高风险点。
+  </div>
+
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#f7f5f0',
+      primaryTextColor: '#1f2533',
+      primaryBorderColor: '#2f6f5e',
+      lineColor: '#2f6f5e',
+      secondaryColor: '#efece6',
+      tertiaryColor: '#fafafa',
+      fontFamily: 'Outfit, -apple-system, PingFang SC, sans-serif',
+      fontSize: '13px'
+    },
+    flowchart: { curve: 'basis', padding: 12 },
+    er: { useMaxWidth: true }
+  });
+</script>
+</body>
+</html>

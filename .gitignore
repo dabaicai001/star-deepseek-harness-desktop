@@ -1,0 +1,99 @@
+# ============================================
+#  依赖与构建产物
+# ============================================
+
+# Rust / Tauri
+target/
+**/*.rs.bk
+Cargo.lock.bak
+# 保留根 Cargo.lock,Tauri workspace 模式需要
+!**/Cargo.lock
+
+# Node / Vue
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+.npm/
+.yarn/
+.pnp.*
+
+# Go Sidecar
+sidecar/bin/
+sidecar/dist/
+*.exe
+*.test
+*.out
+
+# 编辑器 / IDE
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-project
+*.sublime-workspace
+
+# 环境与密钥
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+secrets/
+config/local.*
+
+# 日志与临时
+*.log
+logs/
+tmp/
+temp/
+.cache/
+.parcel-cache/
+.turbo/
+
+# 测试与覆盖率
+coverage/
+*.lcov
+.nyc_output/
+
+# 系统文件
+.directory
+.Trash-*
+
+# Tauri 特定
+src-tauri/target/
+src-tauri/gen/
+
+# 跨平台
+# Windows
+$RECYCLE.BIN/
+desktop.ini
+ehthumbs.db
+# macOS
+.AppleDouble
+.LSOverride
+Icon?
+# Linux
+*~
+.fuse_hidden*
+
+# Docker
+.dockerignore-target/
+
+# 数据库本地数据(开发用)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+data/local/
+
+# 用户资产与配置(不要提交)
+assets.local.json
+config.local.toml
