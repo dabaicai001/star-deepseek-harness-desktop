@@ -58,4 +58,5 @@ export interface UpdateAssetDto {
   config?: Partial<AssetConfig>
   tags?: string[]
   favorite?: boolean
+  lastUsedAt?: number
 }

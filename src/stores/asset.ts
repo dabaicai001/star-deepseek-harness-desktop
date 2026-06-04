@@ -94,6 +94,6 @@ export const useAssetStore = defineStore('asset', () => {
   }
 }, {
   persist: {
-    pick: ['assets', 'groups', 'searchQuery']
+    paths: ['assets', 'groups', 'searchQuery']
   }
 })
