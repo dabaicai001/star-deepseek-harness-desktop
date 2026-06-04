@@ -10,21 +10,25 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "vue": "^3.4.0",
-    "vue-router": "^4.3.0",
+    "@mdi/font": "^7.4.0",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-search": "0.16.0",
+    "@xterm/addon-web-links": "0.12.0",
+    "@xterm/xterm": "6.0.0",
     "pinia": "^2.1.0",
     "pinia-plugin-persistedstate": "^3.2.0",
-    "vuetify": "^3.5.0",
-    "@mdi/font": "^7.4.0",
-    "vue-i18n": "^9.9.0"
+    "vue": "^3.4.0",
+    "vue-i18n": "^9.9.0",
+    "vue-router": "^4.3.0",
+    "vuetify": "^3.5.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/cli": "^2.0.0",
     "@vitejs/plugin-vue": "^5.0.0",
+    "sass": "^1.70.0",
     "typescript": "^5.3.0",
     "vite": "^5.0.0",
-    "vue-tsc": "^2.0.0",
-    "sass": "^1.70.0"
+    "vue-tsc": "^2.0.0"
   }
 }
