@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StarHub UI Kit v0.1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0d1117;
+  --bg-2: #161b22;
+  --panel: #1c2128;
+  --panel-2: #22272e;
+  --line: #30363d;
+  --line-soft: #21262d;
+  --text: #e6edf3;
+  --text-2: #adbac7;
+  --muted: #6e7681;
+  --primary: #58a6ff;
+  --primary-soft: rgba(88, 166, 255, 0.12);
+  --green: #3fb950;
+  --green-soft: rgba(63, 185, 80, 0.12);
+  --orange: #d29922;
+  --orange-soft: rgba(210, 153, 34, 0.12);
+  --red: #f85149;
+  --red-soft: rgba(248, 81, 73, 0.12);
+  --purple: #bc8cff;
+  --purple-soft: rgba(188, 140, 255, 0.12);
+  --cyan: #39c5cf;
+  --cyan-soft: rgba(57, 197, 207, 0.12);
+  --accent: #f78166;
+  --shadow: 0 12px 32px -8px rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.3);
+}
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-2: #f6f8fa;
+  --panel: #ffffff;
+  --panel-2: #f6f8fa;
+  --line: #d0d7de;
+  --line-soft: #eaeef2;
+  --text: #1f2328;
+  --text-2: #424a53;
+  --muted: #6e7781;
+  --primary: #0969da;
+  --primary-soft: rgba(9, 105, 218, 0.1);
+  --green: #1a7f37;
+  --green-soft: rgba(26, 127, 55, 0.1);
+  --orange: #9a6700;
+  --orange-soft: rgba(154, 103, 0, 0.1);
+  --red: #cf222e;
+  --red-soft: rgba(207, 34, 46, 0.1);
+  --purple: #8250df;
+  --purple-soft: rgba(130, 80, 223, 0.1);
+  --cyan: #1b7c83;
+  --cyan-soft: rgba(27, 124, 131, 0.1);
+  --accent: #bc4c00;
+  --shadow: 0 12px 32px -8px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.06);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font-family: 'Outfit', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.2s, color 0.2s;
+}
+.mono { font-family: 'JetBrains Mono', monospace; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 48px 28px 96px; }
+* { text-wrap: pretty; }
+
+/* HERO */
+.hero {
+  padding: 36px 40px;
+  border-radius: 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  margin-bottom: 48px;
+  box-shadow: var(--shadow);
+}
+.eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 8px;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.eyebrow::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+h1 { font-size: 34px; font-weight: 700; line-height: 1.15; margin: 8px 0 12px; letter-spacing: -0.02em; }
+.hero p { color: var(--text-2); max-width: 760px; font-size: 15px; margin: 0 0 20px; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.theme-toggle {
+  display: inline-flex; gap: 2px; padding: 3px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
+}
+.theme-toggle button {
+  background: transparent; border: 0; padding: 6px 12px;
+  border-radius: 6px; cursor: pointer; color: var(--text-2);
+  font-family: inherit; font-size: 12px; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.theme-toggle button.active { background: var(--primary); color: white; }
+.theme-toggle button svg { width: 13px; height: 13px; }
+.meta-row { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--line-soft); }
+.meta-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.meta-item strong { color: var(--text); font-weight: 600; }
+
+/* SECTIONS */
+h2 {
+  font-size: 22px; font-weight: 600;
+  margin: 56px 0 8px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--line); color: var(--text);
+  display: flex; align-items: center; gap: 10px;
+}
+h2 .sec-num {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: var(--primary-soft); color: var(--primary);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+}
+h2 .sec-desc { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: auto; font-family: 'JetBrains Mono', monospace; }
+h3 { font-size: 14px; font-weight: 600; margin: 24px 0 12px; color: var(--text); }
+p { color: var(--text-2); font-size: 14px; margin: 0 0 12px; }
+
+/* MOCKUP FRAME */
+.mockup {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  margin: 16px 0 28px;
+}
+.mockup-bar {
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+  padding: 8px 14px;
+  display: flex; align-items: center; gap: 12px;
+}
+.window-dots { display: flex; gap: 6px; }
+.window-dots span { width: 11px; height: 11px; border-radius: 50%; }
+.window-dots span:nth-child(1) { background: #ff5f57; }
+.window-dots span:nth-child(2) { background: #febc2e; }
+.window-dots span:nth-child(3) { background: #28c840; }
+.mockup-title { font-size: 12px; color: var(--muted); font-weight: 500; }
+.mockup-tags { display: flex; gap: 6px; margin-left: auto; }
+.mockup-tag { font-size: 10px; padding: 2px 7px; border-radius: 4px; background: var(--primary-soft); color: var(--primary); font-weight: 500; font-family: 'JetBrains Mono', monospace; }
+
+/* APP LAYOUT (3-column) */
+.app {
+  display: grid;
+  grid-template-rows: 44px 36px 1fr 26px;
+  grid-template-columns: 240px 1fr 280px;
+  grid-template-areas:
+    "titlebar titlebar titlebar"
+    "menubar menubar menubar"
+    "sidebar workspace inspector"
+    "statusbar statusbar statusbar";
+  height: 640px;
+  font-size: 12.5px;
+}
+.titlebar { grid-area: titlebar; background: var(--bg-2); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 12px; gap: 12px; }
+.logo { display: flex; align-items: center; gap: 6px; font-weight: 700; color: var(--text); font-size: 14px; }
+.logo-icon { width: 22px; height: 22px; border-radius: 5px; background: linear-gradient(135deg, var(--primary), var(--purple)); display: inline-flex; align-items: center; justify-content: center; color: white; font-size: 13px; }
+.top-search { flex: 1; max-width: 480px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.top-search kbd { font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 1px 5px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 3px; color: var(--muted); }
+.top-actions { display: flex; gap: 4px; margin-left: auto; align-items: center; }
+.icon-btn { width: 28px; height: 28px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: var(--text-2); cursor: pointer; }
+.icon-btn.primary { background: var(--primary); color: white; }
+.avatar { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, var(--purple), var(--accent)); display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: 600; }
+
+.menubar { grid-area: menubar; background: var(--bg-2); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 10px; gap: 4px; font-size: 11.5px; color: var(--text-2); }
+.menu-item { padding: 3px 8px; border-radius: 4px; cursor: pointer; }
+.menu-item.active { color: var(--text); background: var(--panel); }
+.tab-strip { display: flex; gap: 2px; margin-left: 12px; }
+.tab { padding: 4px 10px; border-radius: 4px 4px 0 0; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.tab.active { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-bottom-color: var(--panel); position: relative; top: 1px; }
+.tab .dot { width: 6px; height: 6px; border-radius: 50%; }
+.tab.add { color: var(--muted); }
+
+.sidebar { grid-area: sidebar; background: var(--bg-2); border-right: 1px solid var(--line); padding: 10px 0; overflow-y: auto; }
+.sidebar-section { margin-bottom: 14px; }
+.sidebar-head { display: flex; align-items: center; gap: 4px; padding: 4px 12px; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.sidebar-head svg { width: 12px; height: 12px; }
+.sidebar-head .count { margin-left: auto; color: var(--muted); font-weight: 400; font-family: 'JetBrains Mono', monospace; }
+.tree-item { padding: 4px 12px 4px 28px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); cursor: pointer; position: relative; }
+.tree-item:hover { background: var(--panel-2); }
+.tree-item.active { background: var(--primary-soft); color: var(--text); }
+.tree-item.active::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--primary); }
+.tree-item .badge { margin-left: auto; font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: var(--panel); color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.tree-item .status { width: 6px; height: 6px; border-radius: 50%; }
+.tree-item .status.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.tree-item .status.orange { background: var(--orange); }
+.tree-item .status.red { background: var(--red); }
+.tree-children .tree-item { padding-left: 44px; font-size: 11.5px; }
+.tree-children .tree-item.nested { padding-left: 60px; }
+
+.workspace { grid-area: workspace; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
+.workspace-body { flex: 1; padding: 14px; overflow: auto; }
+.workspace-body.tight { padding: 0; }
+
+.inspector { grid-area: inspector; background: var(--bg-2); border-left: 1px solid var(--line); padding: 12px; overflow-y: auto; font-size: 12px; }
+.insp-section { margin-bottom: 18px; }
+.insp-head { display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; color: var(--muted); text-transform: uppercase; font-weight: 600; margin-bottom: 8px; letter-spacing: 0.05em; }
+.insp-head .badge { font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: var(--primary-soft); color: var(--primary); font-family: 'JetBrains Mono', monospace; text-transform: none; letter-spacing: 0; }
+.insp-stat { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 5px; margin-bottom: 5px; }
+.insp-stat .label { color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+.insp-stat .label svg { width: 12px; height: 12px; color: var(--muted); }
+.insp-stat .val { color: var(--text); font-weight: 600; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
+.insp-stat .val.green { color: var(--green); }
+.insp-stat .val.orange { color: var(--orange); }
+.insp-bar { height: 4px; background: var(--line-soft); border-radius: 2px; overflow: hidden; margin: 6px 0 10px; }
+.insp-bar > div { height: 100%; background: linear-gradient(90deg, var(--primary), var(--cyan)); border-radius: 2px; }
+
+.statusbar { grid-area: statusbar; background: var(--bg-2); border-top: 1px solid var(--line); padding: 0 12px; display: flex; align-items: center; gap: 14px; font-size: 11px; color: var(--muted); }
+.sb-item { display: flex; align-items: center; gap: 4px; }
+.sb-item svg { width: 12px; height: 12px; }
+.sb-item.green { color: var(--green); }
+.sb-item .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: 0.4; } }
+.sb-right { margin-left: auto; display: flex; gap: 14px; }
+
+/* Terminal */
+.terminal {
+  background: #0a0d12;
+  color: #c9d1d9;
+  font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 12.5px;
+  padding: 14px 16px;
+  height: 100%;
+  overflow: auto;
+  line-height: 1.55;
+}
+.term-line { white-space: pre; }
+.term-prompt { color: #3fb950; }
+.term-path { color: #79c0ff; }
+.term-dim { color: #6e7681; }
+.term-cmd { color: #e6edf3; }
+.term-cyan { color: #39c5cf; }
+.term-yellow { color: #d29922; }
+.term-magenta { color: #bc8cff; }
+.term-red { color: #f85149; }
+.term-green { color: #3fb950; }
+.term-cursor { display: inline-block; width: 8px; height: 16px; background: #e6edf3; vertical-align: -3px; animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* SQL Editor */
+.sql-editor { background: #0a0d12; color: #c9d1d9; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; padding: 14px 16px; min-height: 200px; line-height: 1.6; }
+.sql-editor .line-no { color: #484f58; user-select: none; display: inline-block; width: 24px; text-align: right; margin-right: 14px; }
+.sql-editor .kw { color: #ff7b72; }
+.sql-editor .fn { color: #d2a8ff; }
+.sql-editor .str { color: #a5d6ff; }
+.sql-editor .num { color: #79c0ff; }
+.sql-editor .col { color: #ffa657; }
+.sql-editor .cmt { color: #8b949e; font-style: italic; }
+
+/* Data Table */
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+.data-table th { background: var(--bg-2); color: var(--text-2); font-weight: 500; padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; position: sticky; top: 0; }
+.data-table th .dtype { display: block; font-size: 9.5px; color: var(--muted); text-transform: none; font-weight: 400; margin-top: 1px; }
+.data-table td { padding: 6px 12px; border-bottom: 1px solid var(--line-soft); color: var(--text); }
+.data-table tr:hover td { background: var(--bg-2); }
+.data-table .pk { color: var(--purple); }
+.data-table .num { color: var(--cyan); text-align: right; }
+.data-table .status-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; font-family: 'Outfit', sans-serif; font-weight: 500; }
+.data-table .status-tag.paid { background: var(--green-soft); color: var(--green); }
+.data-table .status-tag.pending { background: var(--orange-soft); color: var(--orange); }
+.data-table .status-tag.failed { background: var(--red-soft); color: var(--red); }
+
+/* AI Chat */
+.chat-area { padding: 16px 20px; height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.msg { display: flex; gap: 10px; max-width: 92%; }
+.msg.user { align-self: flex-end; flex-direction: row-reverse; }
+.msg-avatar { width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: 600; }
+.msg.user .msg-avatar { background: linear-gradient(135deg, var(--primary), var(--purple)); }
+.msg.ai .msg-avatar { background: linear-gradient(135deg, var(--accent), var(--orange)); }
+.msg-body { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 12.5px; line-height: 1.55; color: var(--text); }
+.msg.user .msg-body { background: var(--primary-soft); border-color: rgba(88,166,255,0.3); }
+.msg-body p { margin: 0 0 6px; }
+.msg-body p:last-child { margin-bottom: 0; }
+.msg-body code { background: var(--panel); padding: 1px 5px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
+.step-list { margin: 8px 0; padding: 0; list-style: none; }
+.step-list li { padding: 4px 0 4px 22px; position: relative; font-size: 12px; color: var(--text-2); }
+.step-list li::before { content: ""; position: absolute; left: 0; top: 11px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--green); background: var(--bg-2); }
+.step-list li.done::before { background: var(--green); box-shadow: inset 0 0 0 2px var(--bg-2); }
+.chat-detail { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 6px; padding: 8px 10px; margin-top: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-2); }
+.chat-detail .step-num { color: var(--muted); display: inline-block; min-width: 50px; }
+.chat-actions { display: flex; gap: 6px; margin-top: 10px; }
+.chat-btn { padding: 4px 12px; border-radius: 5px; font-size: 11.5px; font-weight: 500; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 4px; }
+.chat-btn.primary { background: var(--green); color: white; border-color: var(--green); }
+.chat-btn.danger { color: var(--red); border-color: var(--red-soft); }
+.chat-input { display: flex; gap: 8px; padding: 12px 16px; background: var(--bg-2); border-top: 1px solid var(--line); }
+.chat-input .input-box { flex: 1; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 12.5px; color: var(--text); display: flex; align-items: center; gap: 6px; }
+.chat-input .input-box .placeholder { color: var(--muted); }
+.chat-input button { background: var(--primary); color: white; border: 0; border-radius: 8px; padding: 0 14px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: inherit; }
+
+/* Docker container rows */
+.container-list { display: flex; flex-direction: column; gap: 6px; padding: 12px; }
+.container-row { display: grid; grid-template-columns: 20px 1fr 100px 70px 50px 50px 80px 60px; gap: 8px; align-items: center; padding: 8px 10px; background: var(--bg-2); border: 1px solid var(--line-soft); border-radius: 6px; font-size: 12px; }
+.container-row.header { background: transparent; border: 0; color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; padding: 0 10px; font-weight: 600; }
+.container-row:hover { background: var(--panel-2); }
+.container-row .name { display: flex; align-items: center; gap: 6px; color: var(--text); font-weight: 500; font-family: 'JetBrains Mono', monospace; }
+.container-row .image { color: var(--text-2); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.container-row .stats { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-2); }
+.state-dot { width: 8px; height: 8px; border-radius: 50%; }
+.state-dot.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.state-dot.exited { background: var(--red); }
+.state-dot.paused { background: var(--orange); }
+
+/* SFTP 3-pane */
+.sftp-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.sftp-toolbar .path { font-family: 'JetBrains Mono', monospace; color: var(--text); flex: 1; }
+.sftp-toolbar .path .sep { color: var(--muted); margin: 0 4px; }
+.sftp-toolbar .path .host { color: var(--primary); }
+.btn-mini { padding: 3px 8px; border-radius: 4px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-family: inherit; }
+.sftp-grid { display: grid; grid-template-columns: 1fr 1fr 1.4fr; height: 100%; }
+.sftp-pane { border-right: 1px solid var(--line); padding: 8px 0; overflow-y: auto; font-size: 12px; }
+.sftp-pane:last-child { border-right: 0; }
+.sftp-pane .pane-head { padding: 4px 12px; font-size: 10.5px; color: var(--muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line-soft); padding-bottom: 6px; }
+.file-row { display: flex; align-items: center; gap: 8px; padding: 4px 12px; color: var(--text-2); cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
+.file-row:hover { background: var(--bg-2); }
+.file-row.active { background: var(--primary-soft); color: var(--text); }
+.file-row .name { flex: 1; }
+.file-row .size { color: var(--muted); font-size: 10.5px; }
+.file-row .icon-dir { color: var(--primary); }
+.preview-pane { padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.6; color: var(--text-2); white-space: pre; overflow: auto; height: 100%; }
+.preview-pane .ln { color: var(--muted); user-select: none; display: inline-block; min-width: 28px; }
+
+/* AI panel right (reference) */
+.ref-card { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 5px; margin-bottom: 4px; font-size: 11.5px; }
+.ref-card .ref-icon { width: 18px; height: 18px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; }
+.ref-card .ref-icon.ssh { background: var(--green); }
+.ref-card .ref-icon.db { background: var(--primary); }
+.ref-card .ref-icon.docker { background: var(--cyan); }
+.ref-card .ref-name { flex: 1; color: var(--text); }
+.ref-card .ref-meta { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
+
+/* Welcome */
+.welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 40px; text-align: center; }
+.welcome-icon { width: 80px; height: 80px; border-radius: 20px; background: linear-gradient(135deg, var(--primary), var(--purple)); display: flex; align-items: center; justify-content: center; color: white; font-size: 40px; margin-bottom: 20px; }
+.welcome h3 { font-size: 22px; margin: 0 0 6px; }
+.welcome p { color: var(--muted); margin: 0 0 24px; }
+.welcome-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.welcome-btn { padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
+.welcome-btn.primary { background: var(--primary); color: white; border: 0; }
+.welcome-btn.secondary { background: var(--bg-2); border: 1px solid var(--line); color: var(--text); }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; grid-template-areas: "titlebar" "menubar" "workspace" "statusbar"; height: auto; min-height: 600px; }
+  .sidebar, .inspector { display: none; }
+  .sftp-grid { grid-template-columns: 1fr; height: auto; }
+  .sftp-pane { border-right: 0; border-bottom: 1px solid var(--line); }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">UI Kit v0.1</div>
+  <h1>StarHub · 视觉与交互设计稿</h1>
+  <p>开发者工具风格定位:左侧资产树 + 中央多标签工作区 + 右侧详情面板,暗色为主、亮色可切换。下面是 6 个核心界面的高保真原型,可直接当 Vue 组件实现参考。</p>
+  <div class="controls">
+    <div class="theme-toggle">
+      <button class="active" data-theme="dark">暗色</button>
+      <button data-theme="light">亮色</button>
+    </div>
+  </div>
+  <div class="meta-row">
+    <div class="meta-item"><strong>状态</strong> 设计稿 v0.1</div>
+    <div class="meta-item"><strong>风格</strong> 开发者工具 / 暗色优先</div>
+    <div class="meta-item"><strong>字体</strong> Outfit + JetBrains Mono</div>
+    <div class="meta-item"><strong>主色</strong> GitHub-inspired Blue</div>
+  </div>
+</header>
+
+<!-- ============== 01 LAYOUT ============== -->
+<h2><span class="sec-num">01</span>整体布局 · 3 栏 + 多标签<span class="sec-desc">LAYOUT</span></h2>
+<p>主窗口采用 IDE 风格三栏:左资产树、中央多标签工作区、右侧详情面板,底栏状态、顶栏全局命令。</p>
+
+<div class="mockup">
+  <div class="mockup-bar">
+    <div class="window-dots"><span></span><span></span><span></span></div>
+    <div class="mockup-title">StarHub · Welcome</div>
+    <div class="mockup-tags"><span class="mockup-tag">01 OVERVIEW</span></div>
+  </div>
+  <div class="app">
+    <div class="titlebar">
+      <div class="logo"><span class="logo-icon">★</span><span>StarHub</span></div>
+      <div class="top-search">🔍 <span>搜索命令、连接、文件...</span><kbd>⌘K</kbd></div>
+      <div class="top-actions">
+        <div class="icon-btn">🕐</div>
+        <div class="icon-btn">🔔</div>
+        <div class="icon-btn primary">💬</div>
+        <div class="icon-btn">⚙</div>
+        <div class="avatar">DC</div>
+      </div>
+    </div>
+    <div class="menubar">
+      <span class="menu-item active">文件</span><span class="menu-item">编辑</span><span class="menu-item">视图</span>
+      <span class="menu-item">连接</span><span class="menu-item">工具</span><span class="menu-item">帮助</span>
+      <div class="tab-strip"><span class="tab add">+</span></div>
+    </div>
+    <div class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-head">🏠 资产<span class="count">23</span></div>
+        <div class="tree-item active">▾ <span>我的资产</span></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-head">🖥 服务器</div>
+        <div class="tree-item">▣ <span>production-app-01</span><span class="status green"></span></div>
+        <div class="tree-item">▣ <span>production-app-02</span><span class="status green"></span></div>
+        <div class="tree-item">▣ <span>staging-db-01</span><span class="status orange"></span></div>
+        <div class="tree-item">▣ <span>dev-cluster</span><span class="badge">3</span></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-head">🗄 数据库</div>
+        <div class="tree-item">⬢ <span>mysql · starhub</span></div>
+        <div class="tree-item">⬢ <span>postgres · orders</span></div>
+        <div class="tree-item">● <span>redis · cache</span></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-head">🐳 Docker</div>
+        <div class="tree-item">▦ <span>local</span></div>
+        <div class="tree-item">▦ <span>prod-cluster</span></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-head">🏷 快捷指令<span class="count">14</span></div>
+        <div class="tree-item"><span>查日志</span></div>
+        <div class="tree-item"><span>清磁盘</span></div>
+        <div class="tree-item"><span>重启服务</span></div>
+      </div>
+    </div>
+    <div class="workspace">
+      <div class="welcome">
+        <div class="welcome-icon">★</div>
+        <h3>欢迎使用 StarHub</h3>
+        <p>选择左侧资产开始,或创建第一个连接</p>
+        <div class="welcome-actions">
+          <button class="welcome-btn primary">+ 新建 SSH 连接</button>
+          <button class="welcome-btn secondary">⬢ 连接数据库</button>
+          <button class="welcome-btn secondary">▦ Docker 面板</button>
+          <button class="welcome-btn secondary">💬 AI 助手</button>
+        </div>
+      </div>
+    </div>
+    <div class="inspector">
+      <div class="insp-section">
+        <div class="insp-head">系统状态 <span class="badge">8 UP</span></div>
+        <div class="insp-stat"><span class="label">CPU 平均</span><span class="val">23%</span></div>
+        <div class="insp-bar"><div style="width: 23%;"></div></div>
+        <div class="insp-stat"><span class="label">内存平均</span><span class="val">4.2 GB</span></div>
+        <div class="insp-bar"><div style="width: 52%;"></div></div>
+        <div class="insp-stat"><span class="label">网络吞吐</span><span class="val green">↑12.4 MB/s</span></div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-head">最近活动</div>
+        <div class="insp-stat"><span class="label">连接到 prod-db-01</span><span class="val" style="font-size: 10.5px; color: var(--muted);">2 分钟前</span></div>
+        <div class="insp-stat"><span class="label">执行 SELECT * FROM orders</span><span class="val" style="font-size: 10.5px; color: var(--muted);">5 分钟前</span></div>
+        <div class="insp-stat"><span class="label">重启 payment-api 容器</span><span class="val" style="font-size: 10.5px; color: var(--muted);">12 分钟前</span></div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-head">@ 资源引用 <span class="badge">AI</span></div>
+        <div class="ref-card"><div class="ref-icon ssh">▣</div><div class="ref-name">prod-app-01</div><div class="ref-meta">SSH</div></div>
+        <div class="ref-card"><div class="ref-icon db">⬢</div><div class="ref-name">starhub / orders</div><div class="ref-meta">MySQL</div></div>
+        <div class="ref-card"><div class="ref-icon docker">▦</div><div class="ref-name">payment-api</div><div class="ref-meta">Container</div></div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <div class="sb-item green"><span class="pulse"></span> 已就绪</div>
+      <div class="sb-item">8 服务器</div>
+      <div class="sb-item">3 数据库</div>
+      <div class="sb-item">12 容器</div>
+      <div class="sb-right">
+        <div class="sb-item">UTF-8</div>
+        <div class="sb-item">main</div>
+        <div class="sb-item">v0.1.0</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 02 SSH -->
+<h2><span class="sec-num">02</span>SSH 终端工作区<span class="sec-desc">TERMINAL</span></h2>
+<p>多标签 + 实时监控面板的 SSH 终端。终端区使用 xterm.js,右下角资源监控实时刷新。</p>
+
+<div class="mockup">
+  <div class="mockup-bar">
+    <div class="window-dots"><span></span><span></span><span></span></div>
+    <div class="mockup-title">StarHub · SSH · production-app-01</div>
+    <div class="mockup-tags"><span class="mockup-tag">02 SSH</span></div>
+  </div>
+  <div class="app">
+    <div class="titlebar">
+      <div class="logo"><span class="logo-icon">★</span><span>StarHub</span></div>
+      <div class="top-search">🔍 <span>搜索...</span><kbd>⌘K</kbd></div>
+      <div class="top-actions"><div class="icon-btn primary">💬</div><div class="avatar">DC</div></div>
+    </div>
+    <div class="menubar">
+      <span class="menu-item">文件</span><span class="menu-item">编辑</span><span class="menu-item">视图</span>
+      <span class="menu-item">连接</span><span class="menu-item">工具</span>
+      <div class="tab-strip">
+        <span class="tab active"><span class="dot" style="background: var(--green);"></span>prod-app-01</span>
+        <span class="tab"><span class="dot" style="background: var(--green);"></span>prod-app-02</span>
+        <span class="tab"><span class="dot" style="background: var(--orange);"></span>staging</span>
+        <span class="tab add">+</span>
+      </div>
+    </div>
+    <div class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-head">🖥 服务器</div>
+        <div class="tree-item active">▣ <span>production-app-01</span><span class="status green"></span></div>
+        <div class="tree-item">▣ <span>production-app-02</span><span class="status green"></span></div>
+        <div class="tree-item">▣ <span>staging-db-01</span><span class="status orange"></span></div>
+        <div class="tree-item">▣ <span>cache-01</span><span class="status green"></span></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-head">🏷 快捷指令</div>
+        <div class="tree-item"><span>📊 查系统状态</span></div>
+        <div class="tree-item"><span>📜 查最近日志</span></div>
+        <div class="tree-item"><span>💾 磁盘使用</span></div>
+        <div class="tree-item"><span>🔄 重启服务</span></div>
+      </div>
+    </div>
+    <div class="workspace">
+      <div class="terminal">
+<div class="term-line"><span class="term-prompt">root@prod-app-01</span>:<span class="term-path">~</span><span class="term-dim">$</span> <span class="term-cmd">ls -la /var/log/</span></div>
+<div class="term-line"><span class="term-cyan">drwxr-xr-x</span> 14 root root  <span class="term-yellow">4096</span> Jun  3 10:23 .</div>
+<div class="term-line"><span class="term-cyan">drwxr-xr-x</span>  1 root root  <span class="term-yellow">4096</span> Jun  4 14:30 ..</div>
+<div class="term-line"><span class="term-cyan">-rw-r--r--</span>  1 root root  <span class="term-yellow">142K</span> Jun  4 14:55 nginx-access.log</div>
+<div class="term-line"><span class="term-cyan">-rw-r--r--</span>  1 root root   <span class="term-yellow">38K</span> Jun  4 14:32 nginx-error.log</div>
+<div class="term-line"><span class="term-cyan">-rw-r--r--</span>  1 root root  <span class="term-yellow">892K</span> Jun  4 14:58 payment-api.log</div>
+<div class="term-line"><span class="term-cyan">-rw-r--r--</span>  1 root root  <span class="term-yellow"> 12M</span> Jun  4 14:58 supervisord.log</div>
+<div class="term-line"></div>
+<div class="term-line"><span class="term-prompt">root@prod-app-01</span>:<span class="term-path">~</span><span class="term-dim">$</span> <span class="term-cmd">tail -20 /var/log/payment-api.log | grep -i "error"</span></div>
+<div class="term-line"><span class="term-red">[ERROR]</span> 2026-06-04 14:32:18 upstream timeout (110: Connection timed out)</div>
+<div class="term-line"><span class="term-red">[ERROR]</span> 2026-06-04 14:32:21 upstream timeout (110: Connection timed out)</div>
+<div class="term-line"><span class="term-yellow">[WARN]</span>  2026-06-04 14:33:02 retrying order-9921, attempt 2/3</div>
+<div class="term-line"><span class="term-red">[ERROR]</span> 2026-06-04 14:33:08 upstream timeout (110: Connection timed out)</div>
+<div class="term-line"></div>
+<div class="term-line"><span class="term-prompt">root@prod-app-01</span>:<span class="term-path">~</span><span class="term-dim">$</span> <span class="term-cmd">docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"</span></div>
+<div class="term-line"><span class="term-dim">NAMES              STATUS              PORTS</span></div>
+<div class="term-line"><span class="term-green">payment-api</span>        Up 3 days           0.0.0.0:8080-&gt;8080/tcp</div>
+<div class="term-line"><span class="term-green">nginx</span>              Up 3 days           0.0.0.0:80-&gt;80/tcp</div>
+<div class="term-line"><span class="term-green">redis</span>              Up 3 days           6379/tcp</div>
+<div class="term-line"><span class="term-red">worker</span>             Restarting (1)      -</div>
+<div class="term-line"></div>
+<div class="term-line"><span class="term-prompt">root@prod-app-01</span>:<span class="term-path">~</span><span class="term-dim">$</span> <span class="term-cursor"></span></div>
+      </div>
+    </div>
+    <div class="inspector">
+      <div class="insp-section">
+        <div class="insp-head">prod-app-01 实时 <span class="badge">LIVE</span></div>
+        <div class="insp-stat"><span class="label">CPU</span><span class="val">23.4%</span></div>
+        <div class="insp-bar"><div style="width: 23%;"></div></div>
+        <div class="insp-stat"><span class="label">内存</span><span class="val">4.2 / 16 GB</span></div>
+        <div class="insp-bar"><div style="width: 26%;"></div></div>
+        <div class="insp-stat"><span class="label">磁盘</span><span class="val">68 / 200 GB</span></div>
+        <div class="insp-bar"><div style="width: 34%;"></div></div>
+        <div class="insp-stat"><span class="label">网络 ↑</span><span class="val green">12.4 MB/s</span></div>
+        <div class="insp-stat"><span class="label">网络 ↓</span><span class="val green">86.7 MB/s</span></div>
+        <div class="insp-stat"><span class="label">负载</span><span class="val">0.42 / 0.51 / 0.63</span></div>
+        <div class="insp-stat"><span class="label">运行时长</span><span class="val" style="font-size: 11px;">3 天 14:23</span></div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-head">进程 Top 5</div>
+        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">payment-api</span><span class="val" style="color: var(--cyan);">12.3%</span></div>
+        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">nginx</span><span class="val" style="color: var(--cyan);">2.1%</span></div>
+        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">postgres</span><span class="val" style="color: var(--cyan);">5.4%</span></div>
+        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">redis</span><span class="val" style="color: var(--cyan);">0.8%</span></div>
+        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">system</span><span class="val" style="color: var(--cyan);">2.4%</span></div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-head">告警 <span class="badge" style="background: var(--orange-soft); color: var(--orange);">2</span></div>
+        <div class="insp-stat" style="border-color: var(--orange-soft); background: var(--orange-soft);"><span class="label" style="color: var(--orange);">⚠ worker 重启中</span><span class="val orange">告警</span></div>
+        <div class="insp-stat" style="border-color: var(--orange-soft); background: var(--orange-soft);"><span class="label" style="color: var(--orange);">⚠ 磁盘 5 分钟内 +1.2G</span><span class="val orange">告警</span></div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <div class="sb-item green"><span class="pulse"></span> prod-app-01 · root</div>
+      <div class="sb-item">⌘ 命令广播</div>
+      <div class="sb-item">⇥ 多分屏</div>
+      <div class="sb-right">
+        <div class="sb-item">utf-8</div>
+        <div class="sb-item">xterm-256color</div>
+        <div class="sb-item">120×40</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 03 SFTP -->
+<h2><span class="sec-num">03</span>SFTP 三栏文件管理<span class="sec-desc">SFTP</span></h2>
+<p>本地 / 远程 / 预览编辑 三栏布局。拖拽上传、内置 Monaco 编辑、底部传输队列。</p>
+
+<div class="mockup">
+  <div class="mockup-bar">
+    <div class="window-dots"><span></span><span></span><span></span></div>
+    <div class="mockup-title">StarHub · SFTP · prod-app-01</div>
+    <div class="mockup-tags"><span class="mockup-tag">03 SFTP</span></div>
+  </div>
+  <div class="app">
+    <div class="titlebar">
+      <div class="logo"><span class="logo-icon">★</span><span>StarHub</span></div>
+      <div class="top-search">🔍 <span>搜索...</span><kbd>⌘K</kbd></div>
+      <div class="top-actions"><div class="icon-btn primary">💬</div><div class="avatar">DC</div></div>
+    </div>
+    <div class="menubar">
+      <span class="menu-item">文件</span><span class="menu-item">编辑</span><span class="menu-item">视图</span><span class="menu-item">传输</span>
+      <div class="tab-strip">
+        <span class="tab active"><span class="dot" style="background: var(--green);"></span>prod-app-01 · /var/log</span>
+        <span class="tab add">+</span>
+      </div>
+    </div>
+    <div class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-head">⭐ 收藏路径</div>
+        <div class="tree-item"><span>~/projects</span></div>
+        <div class="tree-item"><span>~/Downloads</span></div>
+        <div class="tree-item"><span>/etc/nginx</span></div>
+        <div class="tree-item"><span>/var/log</span></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-head">📂 本地历史</div>
+        <div class="tree-item"><span>D:\code\starhub</span></div>
+        <div class="tree-item"><span>D:\downloads</span></div>
+      </div>
+    </div>
+    <div class="workspace">
+      <div class="sftp-toolbar">
+        <span class="path"><span class="host">prod-app-01</span><span class="sep">/</span><span>var</span><span class="sep">/</span><span>log</span><span class="sep">/</span></span>
+        <button class="btn-mini">⇅ 同步</button>
+        <button class="btn-mini">📁 新建</button>
+        <button class="btn-mini">✏ 编辑</button>
+        <button class="btn-mini">🗑 删除</button>
+      </div>
+      <div class="sftp-grid">
+        <div class="sftp-pane">
+          <div class="pane-head">本机 (D:) <span>D:\</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">..</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">code</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">downloads</span></div>
+          <div class="file-row active"><span class="icon-dir">▸</span><span class="name">starhub</span><span class="size">12 items</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">.git</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">README.md</span><span class="size">4.2K</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">AGENTS.md</span><span class="size">12K</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">技术方案.md</span><span class="size">49K</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">架构图.html</span><span class="size">48K</span></div>
+        </div>
+        <div class="sftp-pane">
+          <div class="pane-head">远程 (prod-app-01) <span>/var/log/</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">..</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">nginx</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">mysql</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">supervisord</span></div>
+          <div class="file-row active"><span class="icon-dir">▸</span><span class="name">nginx-access.log</span><span class="size">142K</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">nginx-error.log</span><span class="size">38K</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">payment-api.log</span><span class="size">892K</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">supervisord.log</span><span class="size">12M</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">syslog</span><span class="size">2.1M</span></div>
+          <div class="file-row"><span class="icon-dir">▸</span><span class="name">auth.log</span><span class="size">428K</span></div>
+        </div>
+        <div class="sftp-pane" style="padding: 0; border-right: 0;">
+          <div class="preview-pane">
+<span style="color: var(--purple);"># 2026-06-04 14:32:18</span>
+<span class="ln">1</span>  <span style="color: var(--green);">192.168.1.42</span> - - [04/Jun/2026:14:32:18 +0800] "GET /api/v1/users/42 HTTP/1.1" 200 1234 "-" "Mozilla/5.0"
+<span class="ln">2</span>  <span style="color: var(--green);">192.168.1.88</span> - - [04/Jun/2026:14:32:19 +0800] "POST /api/v1/login HTTP/1.1" 200 256 "-" "okhttp/4.9.0"
+<span class="ln">3</span>  <span style="color: var(--green);">192.168.1.42</span> - - [04/Jun/2026:14:32:20 +0800] "GET /api/v1/orders?status=paid HTTP/1.1" 200 4521 "-" "Mozilla/5.0"
+<span class="ln">4</span>  <span style="color: var(--orange);">10.0.0.5</span> - - [04/Jun/2026:14:32:21 +0800] "GET /api/v1/health HTTP/1.1" 200 12 "-" "kube-probe/1.27"
+<span class="ln">5</span>  <span style="color: var(--green);">192.168.1.42</span> - - [04/Jun/2026:14:32:23 +0800] "POST /api/v1/orders HTTP/1.1" 201 89 "-" "okhttp/4.9.0"
+<span class="ln">6</span>  <span style="color: var(--green);">192.168.1.99</span> - - [04/Jun/2026:14:32:25 +0800] "GET /api/v1/products HTTP/1.1" 200 12340 "-" "Mozilla/5.0"
+<span class="ln">7</span>  <span style="color: var(--red);">192.168.1.42</span> - - [04/Jun/2026:14:32:28 +0800] "GET /api/v1/orders/9981 HTTP/1.1" <span style="color: var(--red);">504</span> - "-" "okhttp/4.9.0"
+<span class="ln">8</span>  <span style="color: var(--red);">192.168.1.42</span> - - [04/Jun/2026:14:32:30 +0800] "GET /api/v1/orders/9982 HTTP/1.1" <span style="color: var(--red);">504</span> - "-" "okhttp/4.9.0"
+<span class="ln">9</span>  <span style="color: var(--green);">192.168.1.88</span> - - [04/Jun/2026:14:32:32 +0800] "POST /api/v1/payment HTTP/1.1" 200 412 "-" "okhttp/4.9.0"
+<span class="ln">10</span>  <span style="color: var(--green);">192.168.1.99</span> - - [04/Jun/2026:14:32:35 +0800] "GET /api/v1/users/88 HTTP/1.1" 200 832 "-" "Mozilla/5.0"
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="inspector">
+      <div class="insp-section">
+        <div class="insp-head">传输队列 <span class="badge" style="background: var(--primary-soft); color: var(--primary);">1 RUN</span></div>
+        <div class="insp-stat"><span class="label" style="color: var(--green);">↓ nginx-access.log</span><span class="val green">68%</span></div>
+        <div class="insp-bar"><div style="width: 68%; background: linear-gradient(90deg, var(--green), var(--cyan));"></div></div>
+        <div class="insp-stat" style="background: transparent; border: 0; padding: 2px 8px;"><span class="label" style="font-size: 10.5px;">96K / 142K · 3.2 MB/s</span></div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-head">文件信息</div>
+        <div class="insp-stat"><span class="label">大小</span><span class="val">142 KB</span></div>
+        <div class="insp-stat"><span class="label">修改</span><span class="val" style="font-size: 11px;">14:55:12</span></div>
+        <div class="insp-stat"><span class="label">权限</span><span class="val" style="font-size: 11px;">-rw-r--r--</span></div>
+        <div class="insp-stat"><span class="label">属主</span><span class="val" style="font-size: 11px;">root:root</span></div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <div class="sb-item green"><span class="pulse"></span> 已连接 prod-app-01</div>
+      <div class="sb-item">↑ 3.2 MB/s</div>
+      <div class="sb-item">↓ 0</div>
+      <div class="sb-item">1 任务进行中</div>
+      <div class="sb-right">
+        <div class="sb-item">LF/CRLF</div>
+        <div class="sb-item">UTF-8</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 04 DATABASE -->
+<h2><span class="sec-num">04</span>数据库工作区 · SQL + 表格<span class="sec-desc">DATABASE</span></h2>
+<p>顶部 SQL 编辑器(CodeMirror 6),下方百万级虚拟滚动表格。侧栏显示表/视图树。</p>
+
+<div class="mockup">
+  <div class="mockup-bar">
+    <div class="window-dots"><span></span><span></span><span></span></div>
+    <div class="mockup-title">StarHub · MySQL · starhub / orders</div>
+    <div class="mockup-tags"><span class="mockup-tag">04 DB</span></div>
+  </div>
+  <div class="app">
+    <div class="titlebar">
+      <div class="logo"><span class="logo-icon">★</span><span>StarHub</span></div>
+      <div class="top-search">🔍 <span>搜表、字段、SQL 片段...</span><kbd>⌘K</kbd></div>
+      <div class="top-actions"><div class="icon-btn primary">💬</div><div class="avatar">DC</div></div>
+    </div>
+    <div class="menubar">
+      <span class="menu-item">文件</span><span class="menu-item">查询</span><span class="menu-item">数据</span><span class="menu-item">结构</span>
+      <div class="tab-strip">
+        <span class="tab active"><span class="dot" style="background: var(--primary);"></span>orders.sql</span>
+        <span class="tab"><span class="dot" style="background: var(--cyan);"></span>redis · cache</span>
+        <span class="tab add">+</span>
+      </div>
+    </div>
+    <div class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-head">⬢ mysql · starhub</div>
+        <div class="tree-item">▾ <span>📁 Tables (12)</span></div>
+        <div class="tree-children">
+          <div class="tree-item">⬢ <span>users</span><span class="badge">12K</span></div>
+          <div class="tree-item active">⬢ <span>orders</span><span class="badge">234K</span></div>
+          <div class="tree-item">⬢ <span>products</span><span class="badge">8.2K</span></div>
+          <div class="tree-item">⬢ <span>order_items</span><span class="badge">1.2M</span></div>
+          <div class="tree-item">⬢ <span>payments</span><span class="badge">234K</span></div>
+          <div class="tree-item">⬢ <span>addresses</span><span class="badge">12K</span></div>
+          <div class="tree-item">⬢ <span>+ 6 more</span></div>
+        </div>
+        <div class="tree-item">▾ <span>📁 Views (3)</span></div>
+        <div class="tree-item">▾ <span>📁 Procedures (5)</span></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-head">🏷 SQL 片段</div>
+        <div class="tree-item"><span>订单按状态分组</span></div>
+        <div class="tree-item"><span>用户活跃度</span></div>
+        <div class="tree-item"><span>商品销量 Top 100</span></div>
+      </div>
+    </div>
+    <div class="workspace" style="padding: 0; display: flex; flex-direction: column;">
+      <div style="border-bottom: 1px solid var(--line);">
+        <div style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--bg-2); border-bottom: 1px solid var(--line-soft); font-size: 11px; color: var(--text-2);">
+          <span style="font-family: 'JetBrains Mono', monospace;">orders.sql</span>
+          <span style="color: var(--green);">●</span>
+          <span style="margin-left: auto; display: flex; gap: 6px;">
+            <button class="btn-mini">格式化</button>
+            <button class="btn-mini">历史</button>
+            <button class="btn-mini" style="background: var(--primary); color: white; border-color: var(--primary);">▶ 运行 (⌘↵)</button>
+          </span>
+        </div>
+        <div class="sql-editor">
+<span class="line-no">1</span><span class="cmt">-- 今日已支付订单 + 关联用户</span>
+<span class="line-no">2</span><span class="kw">SELECT</span>
+<span class="line-no">3</span>  o.<span class="col">id</span>, o.<span class="col">user_id</span>, u.<span class="col">name</span> <span class="kw">AS</span> user_name,
+<span class="line-no">4</span>  o.<span class="col">amount</span>, o.<span class="col">status</span>, o.<span class="col">created_at</span>
+<span class="line-no">5</span><span class="kw">FROM</span> <span class="col">orders</span> o
+<span class="line-no">6</span><span class="kw">JOIN</span> <span class="col">users</span> u <span class="kw">ON</span> u.id = o.user_id
+<span class="line-no">7</span><span class="kw">WHERE</span> o.<span class="col">status</span> = <span class="str">'paid'</span>
+<span class="line-no">8</span>  <span class="kw">AND</span> o.<span class="col">created_at</span> &gt;= <span class="str">'2026-06-01'</span>
+<span class="line-no">9</span><span class="kw">ORDER BY</span> o.<span class="col">id</span> <span class="kw">DESC</span>
+<span class="line-no">10</span><span class="kw">LIMIT</span> <span class="num">1000</span>;
+        </div>
+      </div>
+      <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 5px 12px; background: var(--bg-2); border-bottom: 1px solid var(--line-soft); font-size: 11px; color: var(--muted);">
+          <span style="color: var(--text-2);">结果 <span style="color: var(--text); font-family: 'JetBrains Mono', monospace; font-weight: 600;">856</span> 行</span>
+          <span style="color: var(--green);">●</span>
+          <span>耗时 <span style="color: var(--green); font-family: 'JetBrains Mono', monospace;">0.084s</span></span>
+          <span>扫描 <span style="font-family: 'JetBrains Mono', monospace;">234K</span></span>
+          <span style="margin-left: auto; display: flex; gap: 6px;">
+            <button class="btn-mini">⤓ CSV</button>
+            <button class="btn-mini">⤓ SQL</button>
+            <button class="btn-mini">⤓ JSON</button>
+          </span>
+        </div>
+        <div style="flex: 1; overflow: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>id<span class="dtype">bigint · PK</span></th>
+                <th>user_id<span class="dtype">int</span></th>
+                <th>user_name<span class="dtype">varchar(64)</span></th>
+                <th>amount<span class="dtype">decimal(10,2)</span></th>
+                <th>status<span class="dtype">enum</span></th>
+                <th>created_at<span class="dtype">datetime</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><span class="pk">9981</span></td><td>42</td><td>Alice Wang</td><td class="num">99.50</td><td><span class="status-tag paid">paid</span></td><td>2026-06-04 14:23:12</td></tr>
+              <tr><td><span class="pk">9980</span></td><td>17</td><td>Bob Chen</td><td class="num">199.00</td><td><span class="status-tag paid">paid</span></td><td>2026-06-04 14:18:55</td></tr>
+              <tr><td><span class="pk">9979</span></td><td>88</td><td>Carol Liu</td><td class="num">25.30</td><td><span class="status-tag paid">paid</span></td><td>2026-06-04 13:42:18</td></tr>
+              <tr><td><span class="pk">9978</span></td><td>3</td><td>David Zhang</td><td class="num">50.00</td><td><span class="status-tag pending">pending</span></td><td>2026-06-04 12:55:01</td></tr>
+              <tr><td><span class="pk">9977</span></td><td>42</td><td>Alice Wang</td><td class="num">15.00</td><td><span class="status-tag failed">failed</span></td><td>2026-06-04 11:30:42</td></tr>
+              <tr><td><span class="pk">9976</span></td><td>17</td><td>Bob Chen</td><td class="num">1,299.00</td><td><span class="status-tag paid">paid</span></td><td>2026-06-04 10:22:09</td></tr>
+              <tr><td><span class="pk">9975</span></td><td>99</td><td>Emma Wu</td><td class="num">75.50</td><td><span class="status-tag paid">paid</span></td><td>2026-06-04 09:15:33</td></tr>
+              <tr><td><span class="pk">9974</span></td><td>23</td><td>Frank Yang</td><td class="num">320.00</td><td><span class="status-tag paid">paid</span></td><td>2026-06-04 08:48:21</td></tr>
+              <tr><td><span class="pk">9973</span></td><td>88</td><td>Carol Liu</td><td class="num">8.80</td><td><span class="status-tag paid">paid</span></td><td>2026-06-03 22:18:00</td></tr>
+              <tr><td><span class="pk">9972</span></td><td>17</td><td>Bob Chen</td><td class="num">42.00</td><td><span class="status-tag paid">paid</span></td><td>2026-06-03 21:33:15</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="inspector">
+      <div class="insp-section">
+        <div class="insp-head">表:orders <span class="badge">234K</span></div>
+        <div class="insp-stat"><span class="label">引擎</span><span class="val" style="font-size: 11px;">InnoDB</span></div>
+        <div class="insp-stat"><span class="label">字符集</span><span class="val" style="font-size: 11px;">utf8mb4</span></div>
+        <div class="insp-stat"><span class="label">大小</span><span class="val">42 MB</span></div>
+        <div class="insp-stat"><span class="label">索引</span><span class="val">8</span></div>
+        <div class="insp-stat"><span class="label">自增</span><span class="val" style="font-size: 11px;">9981</span></div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-head">索引 <span class="badge">8</span></div>
+        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">PRIMARY (id)</span><span class="val green">PK</span></div>
+        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">idx_user_id (user_id)</span></div>
+        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">idx_status_created (status, created_at)</span></div>
+        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">idx_created_at (created_at)</span></div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-head">执行计划</div>
+        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">→ orders (idx_status_created)</span><span class="val green" style="font-size: 10.5px;">0.084s</span></div>
+        <div class="insp-stat"><span class="label" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">↳ users (PRIMARY)</span><span class="val" style="font-size: 10.5px;">ref</span></div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <div class="sb-item green"><span class="pulse"></span> mysql://starhub@10.0.1.42</div>
+      <div class="sb-item">16ms latency</div>
+      <div class="sb-item">11.2K qps</div>
+      <div class="sb-right">
+        <div class="sb-item">SQL · utf8mb4</div>
+        <div class="sb-item">只读 ✓</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 05 DOCKER -->
+<h2><span class="sec-num">05</span>Docker 面板 · 容器与监控<span class="sec-desc">DOCKER</span></h2>
+<p>容器列表 + 资源趋势图 + 详情面板。支持本地 / SSH 通道连远程 Docker daemon。</p>
+
+<div class="mockup">
+  <div class="mockup-bar">
+    <div class="window-dots"><span></span><span></span><span></span></div>
+    <div class="mockup-title">StarHub · Docker · prod-cluster</div>
+    <div class="mockup-tags"><span class="mockup-tag">05 DOCKER</span></div>
+  </div>
+  <div class="app">
+    <div class="titlebar">
+      <div class="logo"><span class="logo-icon">★</span><span>StarHub</span></div>
+      <div class="top-search">🔍 <span>搜容器、镜像...</span><kbd>⌘K</kbd></div>
+      <div class="top-actions"><div class="icon-btn primary">💬</div><div class="avatar">DC</div></div>
+    </div>
+    <div class="menubar">
+      <span class="menu-item">容器</span><span class="menu-item">镜像</span><span class="menu-item">网络</span><span class="menu-item">卷</span><span class="menu-item">Compose</span>
+      <div class="tab-strip">
+        <span class="tab active"><span class="dot" style="background: var(--cyan);"></span>prod-cluster</span>
+        <span class="tab"><span class="dot" style="background: var(--green);"></span>local</span>
+        <span class="tab add">+</span>
+      </div>
+    </div>
+    <div class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-head">▦ prod-cluster</div>
+        <div class="tree-item active">▦ <span>📦 Containers</span><span class="badge">8</span></div>
+        <div class="tree-item">▦ <span>📦 Images</span><span class="badge">42</span></div>
+        <div class="tree-item">▦ <span>📦 Volumes</span><span class="badge">12</span></div>
+        <div class="tree-item">▦ <span>📦 Networks</span><span class="badge">5</span></div>
+        <div class="tree-item">▦ <span>📦 Compose</span><span class="badge">3</span></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-head">▦ local</div>
+        <div class="tree-item">▦ <span>📦 Containers</span><span class="badge">3</span></div>
+        <div class="tree-item">▦ <span>📦 Images</span><span class="badge">18</span></div>
+      </div>
+    </div>
+    <div class="workspace" style="padding: 0;">
+      <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-2); border-bottom: 1px solid var(--line); font-size: 11.5px; color: var(--text-2);">
+        <span>容器列表</span>
+        <span style="color: var(--muted);">8 个</span>
+        <span style="color: var(--green);">●</span><span style="font-size: 11px;">7 running</span>
+        <span style="color: var(--red);">●</span><span style="font-size: 11px;">1 exited</span>
+        <span style="margin-left: auto; display: flex; gap: 6px;">
+          <button class="btn-mini">⏸ 全部停止</button>
+          <button class="btn-mini" style="background: var(--primary); color: white; border-color: var(--primary);">+ 创建容器</button>
+        </span>
+      </div>
+      <div class="container-list">
+        <div class="container-row header">
+          <span></span>
+          <span>NAME</span>
+          <span>IMAGE</span>
+          <span>STATUS</span>
+          <span>CPU</span>
+          <span>MEM</span>
+          <span>PORTS</span>
+          <span>UPTIME</span>
+        </div>
+        <div class="container-row">
+          <span class="state-dot running"></span>
+          <span class="name">payment-api</span>
+          <span class="image">payment:v2.1</span>
+          <span class="stats" style="color: var(--green);">Up</span>
+          <span class="stats">12%</span>
+          <span class="stats">234M</span>
+          <span class="stats">0.0.0.0:8080</span>
+          <span class="stats" style="color: var(--muted);">3d 14h</span>
+        </div>
+        <div class="container-row">
+          <span class="state-dot running"></span>
+          <span class="name">nginx</span>
+          <span class="image">nginx:1.25</span>
+          <span class="stats" style="color: var(--green);">Up</span>
+          <span class="stats">2%</span>
+          <span class="stats">18M</span>
+          <span class="stats">80, 443</span>
+          <span class="stats" style="color: var(--muted);">3d 14h</span>
+        </div>
+        <div class="container-row">
+          <span class="state-dot running"></span>
+          <span class="name">redis</span>
+          <span class="image">redis:7.2</span>
+          <span class="stats" style="color: var(--green);">Up</span>
+          <span class="stats">5%</span>
+          <span class="stats">64M</span>
+          <span class="stats">6379</span>
+          <span class="stats" style="color: var(--muted);">3d 14h</span>
+        </div>
+        <div class="container-row" style="border-color: var(--red-soft); background: rgba(248, 81, 73, 0.05);">
+          <span class="state-dot exited"></span>
+          <span class="name" style="color: var(--red);">worker</span>
+          <span class="image">worker:v1.0</span>
+          <span class="stats" style="color: var(--red);">Exit 1</span>
+          <span class="stats">0%</span>
+          <span class="stats">0M</span>
+          <span class="stats">—</span>
+          <span class="stats" style="color: var(--muted);">0m 12s</span>
+        </div>
+        <div class="container-row">
+          <span class="state-dot running"></span>
+          <span class="name">postgres</span>
+          <span class="image">pg:15</span>
+          <span class="stats" style="color: var(--green);">Up</span>
+          <span class="stats">18%</span>
+          <span class="stats">512M</span>
+          <span class="stats">5432</span>
+          <span class="stats" style="color: var(--muted);">3d 14h</span>
+        </div>
+        <div class="container-row">
+          <span class="state-dot running"></span>
+          <span class="name">elasticsearch</span>
+          <span class="image">es:8</span>
+          <span class="stats" style="color: var(--green);">Up</span>
+          <span class="stats">35%</span>
+          <span class="stats">2.1G</span>
+          <span class="stats">9200</span>
+          <span class="stats" style="color: var(--muted);">3d 14h</span>
+        </div>
+        <div class="container-row">
+          <span class="state-dot running"></span>
+          <span class="name">kibana</span>
+          <span class="image">kibana:8</span>
+          <span class="stats" style="color: var(--green);">Up</span>
+          <span class="stats">8%</span>
+          <span class="stats">312M</span>
+          <span class="stats">5601</span>
+          <span class="stats" style="color: var(--muted);">3d 14h</span>
+        </div>
+        <div class="container-row">
+          <span class="state-dot running"></span>
+          <span class="name">prometheus</span>
+          <span class="image">prom:v2.48</span>
+          <span class="stats" style="color: var(--green);">Up</span>
+          <span class="stats">3%</span>
+          <span class="stats">128M</span>
+          <span class="stats">9090</span>
+          <span class="stats" style="color: var(--muted);">3d 14h</span>
+        </div>
+      </div>
+    </div>
+    <div class="inspector">
+      <div class="insp-section">
+        <div class="insp-head">payment-api <span class="badge" style="background: var(--green-soft); color: var(--green);">RUNNING</span></div>
+        <div class="insp-stat"><span class="label">CPU</span><span class="val">12.3%</span></div>
+        <div class="insp-bar"><div style="width: 12%;"></div></div>
+        <div class="insp-stat"><span class="label">内存</span><span class="val">234 / 2 GB</span></div>
+        <div class="insp-bar"><div style="width: 11%;"></div></div>
+        <div class="insp-stat"><span class="label">网络 ↑</span><span class="val green">2.1 MB/s</span></div>
+        <div class="insp-stat"><span class="label">网络 ↓</span><span class="val green">8.4 MB/s</span></div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-head">配置</div>
+        <div class="insp-stat"><span class="label">镜像</span><span class="val" style="font-size: 10.5px;">payment:v2.1</span></div>
+        <div class="insp-stat"><span class="label">端口</span><span class="val" style="font-size: 10.5px;">8080:8080</span></div>
+        <div class="insp-stat"><span class="label">重启策略</span><span class="val" style="font-size: 10.5px;">unless-stopped</span></div>
+        <div class="insp-stat"><span class="label">网络</span><span class="val" style="font-size: 10.5px;">prod-net</span></div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-head">操作</div>
+        <div class="insp-stat" style="background: transparent; border: 0; padding: 2px 0;">
+          <button class="btn-mini" style="width: 100%; justify-content: center;">📋 查看日志</button>
+        </div>
+        <div class="insp-stat" style="background: transparent; border: 0; padding: 2px 0;">
+          <button class="btn-mini" style="width: 100%; justify-content: center;">⌨ 进入终端</button>
+        </div>
+        <div class="insp-stat" style="background: transparent; border: 0; padding: 2px 0;">
+          <button class="btn-mini" style="width: 100%; justify-content: center;">🔄 重启</button>
+        </div>
+        <div class="insp-stat" style="background: transparent; border: 0; padding: 2px 0;">
+          <button class="btn-mini" style="width: 100%; justify-content: center; color: var(--red);">⏹ 停止</button>
+        </div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <div class="sb-item green"><span class="pulse"></span> prod-cluster via SSH</div>
+      <div class="sb-item">8 容器 / 7 运行 / 1 异常</div>
+      <div class="sb-item">镜像加速 ✓</div>
+      <div class="sb-right">
+        <div class="sb-item">alipay:v2.1</div>
+        <div class="sb-item">amd64</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 06 AI -->
+<h2><span class="sec-num">06</span>AI 助手 · 自然语言驱动<span class="sec-desc">AI</span></h2>
+<p>对话式交互 + Function Calling。把 SSH / SQL / Docker 操作封装为工具,AI 自主拆解任务并执行,每步可追溯、可回滚。</p>
+
+<div class="mockup">
+  <div class="mockup-bar">
+    <div class="window-dots"><span></span><span></span><span></span></div>
+    <div class="mockup-title">StarHub · AI 助手</div>
+    <div class="mockup-tags"><span class="mockup-tag">06 AI</span></div>
+  </div>
+  <div class="app" style="grid-template-columns: 240px 1fr 280px;">
+    <div class="titlebar">
+      <div class="logo"><span class="logo-icon">★</span><span>StarHub</span></div>
+      <div class="top-search">🔍 <span>对话历史...</span><kbd>⌘K</kbd></div>
+      <div class="top-actions">
+        <button class="btn-mini" style="background: var(--bg-2);">Claude 3.5 ▼</button>
+        <div class="avatar">DC</div>
+      </div>
+    </div>
+    <div class="menubar">
+      <span class="menu-item">会话</span><span class="menu-item">工具</span><span class="menu-item">历史</span><span class="menu-item">设置</span>
+      <div class="tab-strip">
+        <span class="tab active"><span class="dot" style="background: var(--accent);"></span>production-app-01 排障</span>
+        <span class="tab add">+</span>
+      </div>
+    </div>
+    <div class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-head">💬 会话历史</div>
+        <div class="tree-item active"><span>production-app-01 排障</span><span style="color: var(--muted); font-size: 10.5px;">2m</span></div>
+        <div class="tree-item"><span>查慢 SQL</span><span style="color: var(--muted); font-size: 10.5px;">1h</span></div>
+        <div class="tree-item"><span>生成用户画像 SQL</span><span style="color: var(--muted); font-size: 10.5px;">3h</span></div>
+        <div class="tree-item"><span>docker 网络问题</span><span style="color: var(--muted); font-size: 10.5px;">昨天</span></div>
+        <div class="tree-item"><span>nginx 配置优化</span><span style="color: var(--muted); font-size: 10.5px;">昨天</span></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-head">🛠 工具 <span class="count">15</span></div>
+        <div class="tree-item"><span>▣ ssh_exec</span></div>
+        <div class="tree-item"><span>📁 sftp_download</span></div>
+        <div class="tree-item"><span>⬢ db_query</span></div>
+        <div class="tree-item"><span>▦ docker_logs</span></div>
+        <div class="tree-item"><span>▦ docker_exec</span></div>
+        <div class="tree-item"><span>📊 metric_query</span></div>
+      </div>
+    </div>
+    <div class="workspace" style="padding: 0; display: flex; flex-direction: column;">
+      <div class="chat-area">
+        <div class="msg user">
+          <div class="msg-avatar">DC</div>
+          <div class="msg-body">
+            <p>在 <code>production-app-01</code> 检查 <code>payment-api</code> 容器最近日志,修正 nginx 配置,再查询今天失败订单数。</p>
+          </div>
+        </div>
+        <div class="msg ai">
+          <div class="msg-avatar">★</div>
+          <div class="msg-body">
+            <p>我来分 4 步处理这个任务:</p>
+            <ul class="step-list">
+              <li class="done">SSH 连接 production-app-01</li>
+              <li class="done">拉取 payment-api 最近日志</li>
+              <li class="done">修正 nginx upstream 配置</li>
+              <li class="done">查询失败订单数</li>
+            </ul>
+            <div class="chat-detail">
+              <div><span class="step-num">步骤 1:</span>ssh prod-app-01<span class="arrow">  ↓</span></div>
+              <div style="padding-left: 50px; color: var(--text);">docker logs payment-api --tail 100</div>
+              <div style="padding-left: 50px; color: var(--orange);">⚠ 发现 12 条 5xx 错误</div>
+              <div style="margin-top: 4px;"><span class="step-num">步骤 3:</span>vim /etc/nginx/conf.d/upstream.conf<span class="arrow">  ↓</span></div>
+              <div style="padding-left: 50px; color: var(--text);">修改 server 192.168.1.42:8080;</div>
+              <div style="padding-left: 50px; color: var(--green);">nginx -s reload ✓</div>
+              <div style="margin-top: 4px;"><span class="step-num">步骤 4:</span>SELECT COUNT(*) FROM orders<span class="arrow">  ↓</span></div>
+              <div style="padding-left: 50px; color: var(--text);">WHERE status='failed' AND date=...</div>
+              <div style="padding-left: 50px; color: var(--red);">→ 234 笔失败订单</div>
+            </div>
+            <p style="margin-top: 10px;"><strong>总结:</strong>payment-api 后端响应慢导致 504,已修正 nginx upstream 指向健康节点。失败订单 234 笔,建议补偿。</p>
+            <div class="chat-actions">
+              <button class="chat-btn primary">✓ 确认修复</button>
+              <button class="chat-btn">查看完整日志</button>
+              <button class="chat-btn danger">取消修改</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="chat-input">
+        <div class="input-box">
+          <span class="placeholder">描述你的任务...用 @ 引用资源,如 @prod-app-01</span>
+        </div>
+        <button>发送 ⌘↵</button>
+      </div>
+    </div>
+    <div class="inspector">
+      <div class="insp-section">
+        <div class="insp-head">会话信息</div>
+        <div class="insp-stat"><span class="label">模型</span><span class="val" style="font-size: 11px;">Claude 3.5 Sonnet</span></div>
+        <div class="insp-stat"><span class="label">Token</span><span class="val">1,247 / 200K</span></div>
+        <div class="insp-stat"><span class="label">花费</span><span class="val" style="color: var(--green);">$0.018</span></div>
+        <div class="insp-stat"><span class="label">工具调用</span><span class="val">4 次</span></div>
+        <div class="insp-stat"><span class="label">耗时</span><span class="val">8.4s</span></div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-head">@ 已引用资源</div>
+        <div class="ref-card"><div class="ref-icon ssh">▣</div><div class="ref-name">prod-app-01</div><div class="ref-meta">SSH</div></div>
+        <div class="ref-card"><div class="ref-icon docker">▦</div><div class="ref-name">payment-api</div><div class="ref-meta">Container</div></div>
+        <div class="ref-card"><div class="ref-icon db">⬢</div><div class="ref-name">starhub / orders</div><div class="ref-meta">MySQL</div></div>
+      </div>
+      <div class="insp-section">
+        <div class="insp-head">执行链</div>
+        <div class="insp-stat" style="background: var(--green-soft); border-color: var(--green-soft);"><span class="label" style="color: var(--green);">✓ ssh_exec</span><span class="val" style="font-size: 10.5px; color: var(--green);">1.2s</span></div>
+        <div class="insp-stat" style="background: var(--green-soft); border-color: var(--green-soft);"><span class="label" style="color: var(--green);">✓ docker_logs</span><span class="val" style="font-size: 10.5px; color: var(--green);">0.8s</span></div>
+        <div class="insp-stat" style="background: var(--green-soft); border-color: var(--green-soft);"><span class="label" style="color: var(--green);">✓ ssh_exec</span><span class="val" style="font-size: 10.5px; color: var(--green);">2.1s</span></div>
+        <div class="insp-stat" style="background: var(--green-soft); border-color: var(--green-soft);"><span class="label" style="color: var(--green);">✓ db_query</span><span class="val" style="font-size: 10.5px; color: var(--green);">0.3s</span></div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <div class="sb-item green"><span class="pulse"></span> Claude 3.5 · 已连接</div>
+      <div class="sb-item">对话 2</div>
+      <div class="sb-item">工具 4 / 15</div>
+      <div class="sb-right">
+        <div class="sb-item">$0.018 / 会话</div>
+        <div class="sb-item">SSE 流式</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+  document.querySelectorAll('.theme-toggle button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const theme = btn.dataset.theme;
+      document.documentElement.dataset.theme = theme;
+      document.querySelectorAll('.theme-toggle button').forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
+</script>
+</body>
+</html>
