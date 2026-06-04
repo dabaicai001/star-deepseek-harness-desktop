@@ -3,6 +3,7 @@
 mod commands;
 mod db;
 mod sidecar;
+mod ssh;
 
 use sidecar::SidecarManager;
 
