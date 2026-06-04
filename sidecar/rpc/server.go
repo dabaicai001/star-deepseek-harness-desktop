@@ -15,6 +15,7 @@ type Handler func(params json.RawMessage) (interface{}, error)
 type Server struct {
 	mu       sync.RWMutex
 	handlers map[string]Handler
+	writeMu  sync.Mutex // 保护 stdout 写入
 }
 
 // NewServer 创建新的 RPC 服务器
@@ -98,5 +99,8 @@ func (s *Server) writeResponse(resp Response) {
 		fmt.Fprintf(os.Stderr, "Error marshaling response: %v\n", err)
 		return
 	}
+
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	fmt.Println(string(data))
 }
