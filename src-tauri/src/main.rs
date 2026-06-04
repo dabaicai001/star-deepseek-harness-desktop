@@ -6,12 +6,14 @@ mod sidecar;
 mod ssh;
 
 use sidecar::SidecarManager;
+use commands::ssh::SshManager;
 
 fn main() {
     tracing_subscriber::init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(SshManager::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
 
@@ -38,6 +40,11 @@ fn main() {
             commands::asset::create_asset,
             commands::asset::update_asset,
             commands::asset::delete_asset,
+            commands::ssh::ssh_connect,
+            commands::ssh::ssh_disconnect,
+            commands::ssh::ssh_write,
+            commands::ssh::ssh_resize,
+            commands::ssh::ssh_get_sessions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
