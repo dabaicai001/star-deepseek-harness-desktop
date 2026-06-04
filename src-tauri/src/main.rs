@@ -2,6 +2,7 @@
 
 mod commands;
 mod db;
+#[allow(unused)]
 mod sidecar;
 
 fn main() {
