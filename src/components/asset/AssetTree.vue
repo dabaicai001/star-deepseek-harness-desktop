@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
@@ -7,6 +8,10 @@ import type { Asset } from '@/types/asset'
 const { t } = useI18n()
 const assetStore = useAssetStore()
 const appStore = useAppStore()
+
+const nonFavoriteAssets = computed(() =>
+  assetStore.filteredAssets.filter(a => !a.favorite)
+)
 
 function getIcon(type: string) {
   switch (type) {
@@ -38,7 +43,7 @@ function connectToAsset(asset: Asset) {
       :key="asset.id"
       :prepend-icon="getIcon(asset.type)"
       :title="asset.name"
-      :subtitle="asset.config.host"
+      :subtitle="asset.config.host || ''"
       @click="connectToAsset(asset)"
     >
       <template v-slot:append>
@@ -60,11 +65,11 @@ function connectToAsset(asset: Asset) {
       {{ t('asset.title') }}
     </v-list-subheader>
     <v-list-item
-      v-for="asset in assetStore.filteredAssets"
+      v-for="asset in nonFavoriteAssets"
       :key="asset.id"
       :prepend-icon="getIcon(asset.type)"
       :title="asset.name"
-      :subtitle="asset.config.host || asset.config.dbType"
+      :subtitle="asset.config.host || asset.config.dbType || ''"
       @click="connectToAsset(asset)"
     >
       <template v-slot:append>
@@ -74,14 +79,12 @@ function connectToAsset(asset: Asset) {
           variant="text"
           @click.stop="assetStore.toggleFavorite(asset.id)"
         >
-          <v-icon size="small">
-            {{ asset.favorite ? 'mdi-star' : 'mdi-star-outline' }}
-          </v-icon>
+          <v-icon size="small">mdi-star-outline</v-icon>
         </v-btn>
       </template>
     </v-list-item>
 
-    <v-list-item v-if="assetStore.assets.length === 0">
+    <v-list-item v-if="assetStore.filteredAssets.length === 0">
       <template v-slot:prepend>
         <v-icon>mdi-information</v-icon>
       </template>

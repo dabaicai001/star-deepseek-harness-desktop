@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AssetType, CreateAssetDto } from '@/types/asset'
 
@@ -26,7 +26,16 @@ const portLabel = computed(() => {
   }
 })
 
+watch(assetType, (newType) => {
+  switch (newType) {
+    case 'ssh': port.value = 22; break
+    case 'db': port.value = 3306; break
+    case 'docker': port.value = 2375; break
+  }
+})
+
 function onSubmit() {
+  if (!name.value || !host.value) return
   const dto: CreateAssetDto = {
     type: assetType.value,
     name: name.value,
