@@ -39,6 +39,10 @@ export default {
     create: 'New Connection',
     edit: 'Edit Connection',
     delete: 'Delete Connection',
+    duplicate: 'Duplicate',
+    reconnect: 'Reconnect',
+    unfavorite: 'Remove from favorites',
+    confirmDelete: 'Delete "{name}"? This cannot be undone.',
     name: 'Name',
     host: 'Host',
     port: 'Port',
@@ -53,9 +57,26 @@ export default {
     disconnect: 'Disconnect',
     ssh: 'SSH Terminal',
     db: 'Database',
-    docker: 'Docker'
+    docker: 'Docker',
+    type: 'Type',
+    server: 'Server',
+    dbType: 'Database Type',
+    database: 'Database',
+    dockerSocket: 'Docker Socket / Host',
+    dockerSocketHint: 'Local default unix socket, remote via tcp://host:port',
+    placeholderName: 'Give this machine a friendly name',
+    placeholderHost: '192.168.1.10  or  dev.example.com',
+    placeholderUser: 'root  /  ubuntu  /  deploy',
+    placeholderDb: 'db.example.com',
+    placeholderDatabase: 'myapp'
+  },
+  sidebar: {
+    collapse: 'Collapse sidebar',
+    expand: 'Expand sidebar',
+    newConnection: 'New connection'
   },
   ssh: {
+    title: 'SSH',
     terminal: 'Terminal',
     newTerminal: 'New Terminal',
     search: 'Search',
@@ -65,7 +86,20 @@ export default {
     selectAll: 'Select All',
     splitHorizontal: 'Split Horizontal',
     splitVertical: 'Split Vertical',
-    closeTerminal: 'Close Terminal'
+    closeTerminal: 'Close Terminal',
+    authMethod: 'Authentication',
+    passwordOptional: 'Optional · leave empty to use SSH Agent / Key',
+    passwordHint: 'Password is stored locally only, never uploaded',
+    pemFormat: 'PEM format',
+    passphrase: 'Passphrase',
+    passphraseOptional: 'If your private key is encrypted',
+    passphraseEmpty: 'Leave empty if none',
+    formShortcut: '⌘ + Enter to save · Esc to cancel',
+    testConnection: 'Test Connection',
+    testing: 'Testing...',
+    testSuccess: 'Connection successful',
+    testFail: 'Connection failed',
+    testHint: 'Will attempt SSH connection to verify credentials'
   },
   sftp: {
     title: 'File Transfer',
@@ -96,7 +130,9 @@ export default {
     index: 'Index',
     primaryKey: 'Primary Key',
     foreignKey: 'Foreign Key',
-    unique: 'Unique'
+    unique: 'Unique',
+    initialDb: 'Initial database',
+    initialDbHint: 'Leave empty to list all'
   },
   docker: {
     title: 'Docker',

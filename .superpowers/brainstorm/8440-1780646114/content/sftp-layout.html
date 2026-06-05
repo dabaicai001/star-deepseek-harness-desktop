@@ -1,0 +1,120 @@
+<h2>SFTP 文件管理器布局方案</h2>
+<p class="subtitle">选择你偏好的面板布局结构</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:flex;gap:4px;height:260px;background:#0a0e1a;padding:8px;border-radius:8px;">
+        <!-- Left: Local -->
+        <div style="flex:1;background:rgba(15,20,32,.85);border:1px solid rgba(120,160,255,.15);border-radius:6px;display:flex;flex-direction:column;">
+          <div style="padding:6px 8px;border-bottom:1px solid rgba(120,160,255,.1);font-size:10px;color:#00f0ff;font-family:monospace;">LOCAL</div>
+          <div style="flex:1;padding:6px;font-size:10px;color:#a8b3d9;line-height:1.6;">
+            📁 Documents<br>
+            📁 Projects<br>
+            📄 readme.md<br>
+            📄 config.json
+          </div>
+        </div>
+        <!-- Center: Transfer -->
+        <div style="width:60px;background:rgba(15,20,32,.85);border:1px solid rgba(120,160,255,.15);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;">
+          <div style="font-size:14px;">→</div>
+          <div style="font-size:14px;">←</div>
+          <div style="font-size:9px;color:#5a6a96;margin-top:8px;">queue</div>
+        </div>
+        <!-- Right: Remote -->
+        <div style="flex:1;background:rgba(15,20,32,.85);border:1px solid rgba(120,160,255,.15);border-radius:6px;display:flex;flex-direction:column;">
+          <div style="padding:6px 8px;border-bottom:1px solid rgba(120,160,255,.1);font-size:10px;color:#b56bff;font-family:monospace;">REMOTE</div>
+          <div style="flex:1;padding:6px;font-size:10px;color:#a8b3d9;line-height:1.6;">
+            📁 /home/user<br>
+            📁 /var/log<br>
+            📄 .bashrc<br>
+            📄 app.tar.gz
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 经典三栏</h3>
+      <p>左本地 | 中传输队列 | 右远程。类似 WinSCP / FileZilla，用户最熟悉。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:flex;flex-direction:column;gap:4px;height:260px;background:#0a0e1a;padding:8px;border-radius:8px;">
+        <!-- Top: Dual pane -->
+        <div style="flex:1;display:flex;gap:4px;">
+          <div style="flex:1;background:rgba(15,20,32,.85);border:1px solid rgba(120,160,255,.15);border-radius:6px;display:flex;flex-direction:column;">
+            <div style="padding:6px 8px;border-bottom:1px solid rgba(120,160,255,.1);font-size:10px;color:#00f0ff;font-family:monospace;">LOCAL</div>
+            <div style="flex:1;padding:6px;font-size:10px;color:#a8b3d9;line-height:1.6;">
+              📁 Documents<br>
+              📁 Projects<br>
+              📄 readme.md
+            </div>
+          </div>
+          <div style="flex:1;background:rgba(15,20,32,.85);border:1px solid rgba(120,160,255,.15);border-radius:6px;display:flex;flex-direction:column;">
+            <div style="padding:6px 8px;border-bottom:1px solid rgba(120,160,255,.1);font-size:10px;color:#b56bff;font-family:monospace;">REMOTE</div>
+            <div style="flex:1;padding:6px;font-size:10px;color:#a8b3d9;line-height:1.6;">
+              📁 /home/user<br>
+              📁 /var/log<br>
+              📄 .bashrc
+            </div>
+          </div>
+        </div>
+        <!-- Bottom: Transfer queue -->
+        <div style="height:60px;background:rgba(15,20,32,.85);border:1px solid rgba(120,160,255,.15);border-radius:6px;padding:6px 8px;">
+          <div style="font-size:10px;color:#00f0ff;font-family:monospace;margin-bottom:4px;">TRANSFER QUEUE</div>
+          <div style="font-size:9px;color:#a8b3d9;">app.tar.gz → /home/user/  ████████░░ 80%</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 上下分栏</h3>
+      <p>上左右双面板 + 下方传输队列。类似 Total Commander，面板更宽。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:flex;gap:4px;height:260px;background:#0a0e1a;padding:8px;border-radius:8px;">
+        <!-- Left: Tree + tabs -->
+        <div style="width:80px;background:rgba(15,20,32,.85);border:1px solid rgba(120,160,255,.15);border-radius:6px;padding:6px;font-size:9px;color:#a8b3d9;line-height:1.8;">
+          <div style="color:#00f0ff;font-size:8px;margin-bottom:4px;">LOCAL</div>
+          📁 /<br>
+          ├ 📁 home<br>
+          ├ 📁 var<br>
+          └ 📁 etc
+        </div>
+        <!-- Center: File list with tabs -->
+        <div style="flex:1;background:rgba(15,20,32,.85);border:1px solid rgba(120,160,255,.15);border-radius:6px;display:flex;flex-direction:column;">
+          <div style="display:flex;border-bottom:1px solid rgba(120,160,255,.1);">
+            <div style="padding:4px 8px;font-size:9px;color:#00f0ff;border-bottom:1px solid #00f0ff;">Local</div>
+            <div style="padding:4px 8px;font-size:9px;color:#5a6a96;">Remote</div>
+            <div style="padding:4px 8px;font-size:9px;color:#5a6a96;">Queue</div>
+          </div>
+          <div style="flex:1;padding:6px;font-size:10px;color:#a8b3d9;line-height:1.6;">
+            📄 readme.md &nbsp; 2.4KB<br>
+            📄 config.json &nbsp; 856B<br>
+            📁 Projects &nbsp; —<br>
+            📄 app.tar.gz &nbsp; 14MB
+          </div>
+        </div>
+        <!-- Right: Preview / detail -->
+        <div style="width:100px;background:rgba(15,20,32,.85);border:1px solid rgba(120,160,255,.15);border-radius:6px;padding:6px;">
+          <div style="font-size:9px;color:#00f0ff;margin-bottom:4px;">PREVIEW</div>
+          <div style="font-size:9px;color:#a8b3d9;line-height:1.5;">
+            Name: readme.md<br>
+            Size: 2.4KB<br>
+            Modified: 2026-06-04<br>
+            Permissions:<br>
+            rw-r--r--
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 树 + 列表 + 预览</h3>
+      <p>左树导航 | 中文件列表(可切本地/远程/队列tab) | 右详情预览。类似 VSCode Explorer。</p>
+    </div>
+  </div>
+</div>

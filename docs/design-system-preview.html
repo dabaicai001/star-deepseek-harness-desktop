@@ -1,0 +1,1586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StarHub v0.2 — Design System & SSH UX Refresh</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Orbitron:wght@700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* StarHub design tokens (mirror src/styles/cyber.css) */
+    --bg: #050810;
+    --bg-2: #0a0e1a;
+    --panel: rgba(15, 20, 32, 0.72);
+    --panel-2: rgba(20, 25, 40, 0.85);
+    --panel-solid: #0f1420;
+    --panel-solid-2: #141928;
+    --line: rgba(120, 160, 255, 0.08);
+    --line-2: rgba(120, 160, 255, 0.15);
+    --text: #e8efff;
+    --text-2: #a8b3d9;
+    --muted: #5a6a96;
+    --cyan: #00f0ff;
+    --cyan-2: #4dd9ff;
+    --purple: #b56bff;
+    --pink: #ff3d9a;
+    --green: #4ade80;
+    --yellow: #facc15;
+    --red: #ff4d6d;
+    --grad-primary: linear-gradient(135deg, #00f0ff 0%, #b56bff 100%);
+    --grad-accent: linear-gradient(135deg, #ff3d9a 0%, #ff8a3d 100%);
+    --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.5), 0 0 40px rgba(0, 240, 255, 0.2);
+    --shadow: 0 16px 48px -12px rgba(0, 0, 0, 0.6);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { background: var(--bg); }
+
+  body {
+    font-family: 'Outfit', -apple-system, 'PingFang SC', sans-serif;
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  /* Grid background */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0, 240, 255, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 240, 255, 0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 0%, transparent 80%);
+  }
+
+  .container {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 64px 32px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ====== Hero ====== */
+  .hero {
+    text-align: center;
+    margin-bottom: 80px;
+  }
+
+  .hero .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    background: rgba(0, 240, 255, 0.08);
+    border: 1px solid rgba(0, 240, 255, 0.25);
+    border-radius: 999px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--cyan);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+  }
+
+  .hero .badge .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--cyan);
+    box-shadow: 0 0 8px var(--cyan);
+    animation: pulse 1.5s infinite;
+  }
+
+  .hero h1 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 56px;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin-bottom: 16px;
+  }
+
+  .hero h1 .grad {
+    background: var(--grad-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .hero p.subtitle {
+    font-size: 18px;
+    color: var(--text-2);
+    max-width: 600px;
+    margin: 0 auto 32px;
+  }
+
+  .hero .meta {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .hero .meta .item strong {
+    color: var(--cyan);
+    font-weight: 500;
+    margin-right: 6px;
+  }
+
+  /* ====== Section ====== */
+  .section {
+    margin-bottom: 64px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 24px;
+    position: relative;
+  }
+
+  .section-header::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--line-2) 0%, transparent 100%);
+  }
+
+  .section-number {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    background: var(--grad-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: 0.1em;
+  }
+
+  .section-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .section-desc {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 24px;
+    max-width: 720px;
+  }
+
+  /* ====== Color swatches ====== */
+  .swatch-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .swatch {
+    background: var(--panel);
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: all 0.25s;
+  }
+
+  .swatch:hover {
+    transform: translateY(-2px);
+    border-color: var(--cyan);
+    box-shadow: 0 8px 24px rgba(0, 240, 255, 0.15);
+  }
+
+  .swatch .color {
+    height: 64px;
+    position: relative;
+  }
+
+  .swatch .meta {
+    padding: 10px 12px;
+  }
+
+  .swatch .meta .name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+
+  .swatch .meta .value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  /* ====== Typography demo ====== */
+  .typo-table {
+    background: var(--panel);
+    border: 1px solid var(--line-2);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .typo-row {
+    display: grid;
+    grid-template-columns: 100px 1fr 120px;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .typo-row:last-child { border-bottom: none; }
+
+  .typo-row .role {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--cyan);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .typo-row .sample {
+    color: var(--text);
+  }
+
+  .typo-row .token {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    text-align: right;
+  }
+
+  /* ====== Component showcase frame ====== */
+  .showcase {
+    background: var(--panel-solid);
+    border: 1px solid var(--line-2);
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .showcase::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: var(--grad-primary);
+    opacity: 0.5;
+  }
+
+  .showcase .frame-header {
+    background: rgba(10, 14, 26, 0.6);
+    border-bottom: 1px solid var(--line);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .showcase .frame-header .dots {
+    display: flex;
+    gap: 6px;
+  }
+
+  .showcase .frame-header .dots span {
+    width: 10px; height: 10px; border-radius: 50%;
+  }
+
+  .showcase .frame-header .dots span:nth-child(1) { background: #ff5f57; }
+  .showcase .frame-header .dots span:nth-child(2) { background: #febc2e; }
+  .showcase .frame-header .dots span:nth-child(3) { background: #28c840; }
+
+  .showcase .frame-header .path { flex: 1; }
+
+  .showcase .frame-body {
+    padding: 32px;
+  }
+
+  /* ====== SshConnectionForm demo ====== */
+  .ssh-form {
+    max-width: 520px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .form-field { display: flex; flex-direction: column; }
+
+  .field-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+  }
+
+  .field-label .required { color: var(--red); font-size: 10px; }
+  .field-label .optional {
+    color: var(--muted); font-size: 10px; font-weight: 500;
+    text-transform: none; letter-spacing: 0; margin-left: auto;
+  }
+
+  .field-hint {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+
+  .cyber-input {
+    background: rgba(20, 25, 40, 0.6);
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+    transition: all 0.3s;
+    width: 100%;
+    outline: none;
+  }
+
+  .cyber-input.mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+  .cyber-input.code { font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; resize: vertical; min-height: 96px; }
+
+  .cyber-input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1); }
+  .cyber-input::placeholder { color: var(--muted); }
+
+  .form-row.host-port {
+    display: grid;
+    grid-template-columns: 1fr 100px;
+    gap: 8px;
+  }
+
+  .input-group { position: relative; display: flex; align-items: center; }
+  .input-prefix {
+    position: absolute; left: 12px;
+    color: var(--muted); font-size: 13px;
+    pointer-events: none; font-family: 'JetBrains Mono', monospace;
+  }
+  .input-group .cyber-input { padding-left: 32px; }
+  .input-group .action-btn { position: absolute; right: 6px; }
+
+  .switcher {
+    display: inline-flex;
+    background: rgba(20, 25, 40, 0.6);
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+  }
+
+  .switcher-item {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+  }
+
+  .switcher-item:hover { color: var(--text-2); }
+  .switcher-item.active {
+    background: rgba(0, 240, 255, 0.12);
+    color: var(--cyan);
+    box-shadow: inset 0 0 0 1px rgba(0, 240, 255, 0.25);
+  }
+
+  .action-btn {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-2);
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    font-family: inherit;
+  }
+
+  .action-btn:hover {
+    background: rgba(0, 240, 255, 0.08);
+    color: var(--cyan);
+    border-color: var(--line-2);
+  }
+
+  .form-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 16px;
+    margin-top: 20px;
+    border-top: 1px solid var(--line);
+  }
+
+  .form-footer .spacer { flex: 1; }
+
+  .form-footer kbd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 2px 6px;
+    background: rgba(0, 240, 255, 0.08);
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+
+  .cyber-btn {
+    background: var(--grad-primary);
+    color: var(--bg);
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 16px rgba(0, 240, 255, 0.3);
+    font-family: inherit;
+    font-size: 13px;
+  }
+
+  .cyber-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px rgba(0, 240, 255, 0.5);
+  }
+
+  .cyber-btn-secondary {
+    background: transparent;
+    color: var(--cyan);
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s;
+    font-family: inherit;
+    font-size: 13px;
+  }
+
+  .cyber-btn-secondary:hover {
+    background: rgba(0, 240, 255, 0.08);
+    border-color: var(--cyan);
+    box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1);
+  }
+
+  /* ====== Terminal demo ====== */
+  .terminal-frame {
+    background: var(--bg);
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+
+  .terminal-toolbar {
+    background: rgba(10, 14, 26, 0.8);
+    border-bottom: 1px solid var(--line-2);
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    backdrop-filter: blur(10px);
+  }
+
+  .terminal-toolbar .dots { display: flex; gap: 6px; }
+  .terminal-toolbar .dots span {
+    width: 11px; height: 11px; border-radius: 50%;
+  }
+  .terminal-toolbar .dots span:nth-child(1) { background: #ff5f57; }
+  .terminal-toolbar .dots span:nth-child(2) { background: #febc2e; }
+  .terminal-toolbar .dots span:nth-child(3) { background: #28c840; }
+
+  .terminal-toolbar .info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .terminal-toolbar .info .title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .terminal-toolbar .info .subtitle {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .terminal-toolbar .info .subtitle .live { color: var(--cyan); margin-left: 8px; }
+
+  .terminal-toolbar .actions { display: flex; align-items: center; gap: 4px; }
+
+  .terminal-toolbar .divider {
+    width: 1px; height: 18px; background: var(--line-2); margin: 0 4px;
+  }
+
+  .terminal-toolbar .font-size {
+    font-size: 10px; font-family: 'JetBrains Mono', monospace;
+    color: var(--muted); min-width: 32px; text-align: center;
+  }
+
+  .status {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 4px;
+    font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .status.online {
+    background: rgba(74, 222, 128, 0.12);
+    color: var(--green);
+    border: 1px solid rgba(74, 222, 128, 0.3);
+  }
+
+  .status .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 6px currentColor;
+    animation: pulse 2s infinite;
+  }
+
+  .terminal-body {
+    padding: 16px;
+    min-height: 280px;
+    background: #03060d;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #e8efff;
+  }
+
+  .terminal-body .cyan { color: var(--cyan); }
+  .terminal-body .green { color: var(--green); }
+  .terminal-body .muted { color: var(--muted); }
+  .terminal-body .prompt { color: var(--cyan); }
+
+  /* ====== Asset tree demo ====== */
+  .demo-layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 16px;
+    min-height: 400px;
+  }
+
+  .demo-sidebar {
+    background: rgba(10, 14, 26, 0.5);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 0;
+  }
+
+  .tree-group { margin-bottom: 4px; }
+  .tree-group-head {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px;
+    font-size: 10px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700;
+  }
+
+  .tree-group-head .count {
+    margin-left: auto;
+    color: var(--cyan); font-weight: 500;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .tree-group.ssh .tree-group-head .type-icon { color: var(--cyan); }
+  .tree-group.db .tree-group-head .type-icon { color: var(--purple); }
+  .tree-group.favorite .tree-group-head .type-icon { color: var(--yellow); }
+
+  .tree-item {
+    padding: 6px 14px 6px 28px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12.5px; color: var(--text-2);
+    cursor: pointer; position: relative;
+    transition: all 0.2s;
+    border-left: 2px solid transparent;
+  }
+
+  .tree-item:hover { background: rgba(0, 240, 255, 0.05); color: var(--text); }
+  .tree-item.active {
+    background: linear-gradient(90deg, rgba(0, 240, 255, 0.15) 0%, transparent 100%);
+    color: var(--cyan);
+    border-left-color: var(--cyan);
+    text-shadow: 0 0 12px rgba(0, 240, 255, 0.5);
+  }
+
+  .tree-item .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .tree-item .status-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+  .tree-item .status-dot.online {
+    background: var(--green); box-shadow: 0 0 6px var(--green);
+    animation: pulse 2s infinite;
+  }
+  .tree-item .status-dot.offline { background: var(--muted); opacity: 0.5; }
+
+  .tree-item .icon { color: var(--cyan); }
+
+  .demo-workspace {
+    background: var(--panel);
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .empty-hint {
+    text-align: center;
+    color: var(--muted);
+  }
+
+  .empty-hint .ico {
+    width: 56px; height: 56px;
+    margin: 0 auto 12px;
+    border-radius: 14px;
+    background: rgba(0, 240, 255, 0.06);
+    border: 1px dashed var(--line-2);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--cyan); font-size: 28px;
+  }
+
+  .empty-hint h3 {
+    font-size: 14px; color: var(--text-2); margin-bottom: 4px;
+  }
+
+  .empty-hint p { font-size: 12px; }
+
+  /* ====== Dialog demo ====== */
+  .dialog-stage {
+    background: rgba(5, 8, 16, 0.4);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 32px;
+    display: flex;
+    justify-content: center;
+    min-height: 380px;
+    background-image: radial-gradient(circle at 30% 20%, rgba(0, 240, 255, 0.04) 0%, transparent 50%);
+  }
+
+  .new-conn-dialog {
+    background: var(--panel-solid);
+    border: 1px solid var(--line-2);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 520px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.7);
+  }
+
+  .new-conn-dialog::before {
+    content: ""; position: absolute;
+    top: 0; left: 0; right: 0; height: 2px;
+    background: var(--grad-primary);
+    opacity: 0.6;
+  }
+
+  .modal-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+  }
+
+  .modal-header::after {
+    content: ""; position: absolute;
+    left: 0; right: 0; bottom: -1px; height: 1px;
+    background: var(--grad-primary);
+    opacity: 0.4;
+  }
+
+  .modal-header h3 {
+    flex: 1; font-size: 15px; font-weight: 600;
+    color: var(--text);
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  .icon-box {
+    width: 28px; height: 28px; border-radius: 7px;
+    background: rgba(0, 240, 255, 0.1);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--cyan);
+  }
+
+  .modal-body { padding: 20px; }
+
+  .type-card {
+    background: rgba(20, 25, 40, 0.6);
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.25s;
+    position: relative;
+  }
+
+  .type-card:last-child { margin-bottom: 0; }
+
+  .type-card:hover {
+    background: rgba(0, 240, 255, 0.04);
+    border-color: rgba(0, 240, 255, 0.3);
+    transform: translateX(2px);
+  }
+
+  .type-card.disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .type-icon {
+    width: 44px; height: 44px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    font-size: 22px;
+  }
+
+  .type-icon.ssh { background: rgba(0, 240, 255, 0.1); color: var(--cyan); border: 1px solid rgba(0, 240, 255, 0.2); }
+  .type-icon.db { background: rgba(181, 107, 255, 0.1); color: var(--purple); border: 1px solid rgba(181, 107, 255, 0.2); }
+  .type-icon.docker { background: rgba(74, 222, 128, 0.1); color: var(--green); border: 1px solid rgba(74, 222, 128, 0.2); }
+
+  .type-meta { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .type-name { font-size: 14px; font-weight: 600; color: var(--text); }
+  .type-desc { font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+  .cyber-badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 4px;
+    background: rgba(0, 240, 255, 0.1);
+    border: 1px solid rgba(0, 240, 255, 0.25);
+    color: var(--cyan); font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+
+  /* ====== Spacing demo ====== */
+  .spacing-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .spacing-cell {
+    background: var(--panel);
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex; align-items: center; gap: 12px;
+  }
+
+  .spacing-cell .bar {
+    height: 12px;
+    background: var(--grad-primary);
+    border-radius: 4px;
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.4);
+  }
+
+  .spacing-cell .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--muted);
+    margin-left: auto;
+  }
+
+  /* ====== Before / After ====== */
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .compare .col {
+    border-radius: 10px;
+    padding: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+
+  .compare .col.before {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px dashed var(--line-2);
+  }
+
+  .compare .col.after {
+    background: var(--panel);
+    border: 1px solid var(--cyan);
+    box-shadow: 0 0 24px rgba(0, 240, 255, 0.1);
+  }
+
+  .compare .col .tag {
+    display: inline-block;
+    padding: 2px 8px; border-radius: 4px;
+    font-size: 9px; text-transform: uppercase;
+    letter-spacing: 0.1em; font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  .compare .col.before .tag { background: rgba(90, 106, 150, 0.2); color: var(--muted); }
+  .compare .col.after .tag { background: rgba(0, 240, 255, 0.2); color: var(--cyan); }
+
+  .compare .col ul {
+    list-style: none;
+    color: var(--text-2);
+  }
+
+  .compare .col ul li {
+    padding: 4px 0;
+    display: flex; align-items: baseline; gap: 6px;
+  }
+
+  .compare .col ul li::before {
+    content: "•";
+    color: var(--cyan);
+  }
+
+  /* ====== Context menu showcase ====== */
+  .ctx-demo {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+
+  .ctx-stage {
+    background: rgba(5, 8, 16, 0.4);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 24px;
+    min-height: 280px;
+    position: relative;
+  }
+
+  .ctx-stage .fake-tree {
+    display: flex; flex-direction: column; gap: 2px;
+  }
+
+  .ctx-stage .fake-item {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-2);
+    cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  .ctx-stage .fake-item:hover { background: rgba(0, 240, 255, 0.06); }
+  .ctx-stage .fake-item.highlighted {
+    background: linear-gradient(90deg, rgba(0, 240, 255, 0.15) 0%, transparent 100%);
+    color: var(--cyan);
+    border-left: 2px solid var(--cyan);
+  }
+
+  .ctx-stage .rightclick-hint {
+    position: absolute; right: 8px; top: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    background: rgba(90, 106, 150, 0.1);
+    border: 1px dashed var(--line-2);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .ctx-stage .context-menu {
+    position: relative;
+    left: auto !important; top: auto !important;
+    transform: none !important;
+    margin: 24px auto 0;
+    animation: none;
+  }
+
+  /* Sidebar collapse comparison */
+  .sidebar-compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .sidebar-compare .col {
+    background: rgba(10, 14, 26, 0.5);
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    padding: 12px 0;
+    min-height: 320px;
+  }
+
+  .sidebar-compare .col-label {
+    text-align: center;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 8px;
+    font-weight: 700;
+  }
+
+  .sidebar-compare .col.expanded { width: 100%; }
+  .sidebar-compare .col.collapsed-col { width: 70px; margin: 0 auto; }
+
+  .sidebar-compare .col.collapsed-col .tree-item { padding: 8px 0; justify-content: center; }
+  .sidebar-compare .col.collapsed-col .tree-item .name,
+  .sidebar-compare .col.collapsed-col .tree-item .status-dot,
+  .sidebar-compare .col.collapsed-col .tree-item .action-btn,
+  .sidebar-compare .col.collapsed-col .tree-group-head .label,
+  .sidebar-compare .col.collapsed-col .tree-group-head .count { display: none; }
+
+  .sidebar-compare .col.collapsed-col .tree-item { padding-left: 0; padding-right: 0; }
+  .sidebar-compare .col.collapsed-col .tree-group-head { justify-content: center; padding: 8px 0; }
+  .sidebar-compare .col.collapsed-col .group-divider { margin: 8px 14px; }
+
+  .page-footer {
+    margin-top: 80px;
+    padding-top: 32px;
+    border-top: 1px solid var(--line);
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .page-footer .links {
+    margin-bottom: 12px;
+  }
+
+  .page-footer a {
+    color: var(--cyan); text-decoration: none;
+    margin: 0 8px;
+  }
+
+  .page-footer a:hover { text-decoration: underline; }
+
+  /* ====== Animations ====== */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+  }
+
+  /* ====== Responsive ====== */
+  @media (max-width: 768px) {
+    .container { padding: 32px 20px; }
+    .hero h1 { font-size: 36px; }
+    .hero p.subtitle { font-size: 15px; }
+    .demo-layout { grid-template-columns: 1fr; }
+    .compare { grid-template-columns: 1fr; }
+    .form-row.host-port { grid-template-columns: 1fr; }
+    .terminal-toolbar { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ========== Hero ========== -->
+  <header class="hero">
+    <div class="badge">
+      <span class="dot"></span>
+      v0.2 · 2026-06-05
+    </div>
+    <h1>StarHub <span class="grad">SSH UX Refresh</span></h1>
+    <p class="subtitle">从 Material 默认风 → Cyber Command Center。<br>5 个组件重写,1 套设计系统,1 份 AGENTS.md 规范。</p>
+    <div class="meta">
+      <span class="item"><strong>5</strong>components rewritten</span>
+      <span class="item"><strong>+10</strong>CSS classes</span>
+      <span class="item"><strong>+20</strong>i18n keys</span>
+      <span class="item"><strong>0</strong>type errors</span>
+    </div>
+  </header>
+
+  <!-- ========== Section 01 — Design tokens ========== -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-number">01</span>
+      <span class="section-title">Color Tokens</span>
+    </div>
+    <p class="section-desc">所有视觉 token 集中在 <code style="font-family: 'JetBrains Mono', monospace; color: var(--cyan);">src/styles/cyber.css</code>。组件内严禁硬编码颜色。</p>
+
+    <h4 style="font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin: 16px 0 8px; font-weight: 700;">Brand</h4>
+    <div class="swatch-grid">
+      <div class="swatch">
+        <div class="color" style="background: #050810;"></div>
+        <div class="meta"><div class="name">--bg</div><div class="value">#050810</div></div>
+      </div>
+      <div class="swatch">
+        <div class="color" style="background: #0a0e1a;"></div>
+        <div class="meta"><div class="name">--bg-2</div><div class="value">#0a0e1a</div></div>
+      </div>
+      <div class="swatch">
+        <div class="color" style="background: #0f1420;"></div>
+        <div class="meta"><div class="name">--panel-solid</div><div class="value">#0f1420</div></div>
+      </div>
+      <div class="swatch">
+        <div class="color" style="background: var(--grad-primary);"></div>
+        <div class="meta"><div class="name">--grad-primary</div><div class="value">cyan → purple</div></div>
+      </div>
+    </div>
+
+    <h4 style="font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin: 24px 0 8px; font-weight: 700;">State</h4>
+    <div class="swatch-grid">
+      <div class="swatch">
+        <div class="color" style="background: var(--cyan); box-shadow: var(--glow-cyan);"></div>
+        <div class="meta"><div class="name">--cyan</div><div class="value">#00f0ff · 主色</div></div>
+      </div>
+      <div class="swatch">
+        <div class="color" style="background: var(--green);"></div>
+        <div class="meta"><div class="name">--green</div><div class="value">#4ade80 · online</div></div>
+      </div>
+      <div class="swatch">
+        <div class="color" style="background: var(--yellow);"></div>
+        <div class="meta"><div class="name">--yellow</div><div class="value">#facc15 · 警告</div></div>
+      </div>
+      <div class="swatch">
+        <div class="color" style="background: var(--red);"></div>
+        <div class="meta"><div class="name">--red</div><div class="value">#ff4d6d · error</div></div>
+      </div>
+      <div class="swatch">
+        <div class="color" style="background: var(--purple);"></div>
+        <div class="meta"><div class="name">--purple</div><div class="value">#b56bff · db</div></div>
+      </div>
+      <div class="swatch">
+        <div class="color" style="background: var(--muted);"></div>
+        <div class="meta"><div class="name">--muted</div><div class="value">#5a6a96 · 辅助</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Section 02 — Typography ========== -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-number">02</span>
+      <span class="section-title">Typography</span>
+    </div>
+    <p class="section-desc">三套字体:主体 Outfit(几何无衬线)、数字/代码 JetBrains Mono、节编号 Orbitron。</p>
+
+    <div class="typo-table">
+      <div class="typo-row">
+        <div class="role">Body</div>
+        <div class="sample" style="font-family: 'Outfit', sans-serif; font-size: 16px;">The quick brown fox jumps over the lazy dog</div>
+        <div class="token">Outfit 16px</div>
+      </div>
+      <div class="typo-row">
+        <div class="role">Mono</div>
+        <div class="sample" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--cyan);">192.168.1.10:22  ·  root@prod-01  ·  /var/log/app.log</div>
+        <div class="token">JetBrains Mono 14px</div>
+      </div>
+      <div class="typo-row">
+        <div class="role">Display</div>
+        <div class="sample" style="font-family: 'Orbitron', sans-serif; font-size: 28px; background: var(--grad-primary); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700;">01 02 03</div>
+        <div class="token">Orbitron 28px</div>
+      </div>
+      <div class="typo-row">
+        <div class="role">UI</div>
+        <div class="sample" style="font-size: 12px; color: var(--text-2);">资产中心 · SSH 终端 · 测试连接</div>
+        <div class="token">Outfit 12px</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Section 03 — Spacing & motion ========== -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-number">03</span>
+      <span class="section-title">Spacing & Motion</span>
+    </div>
+    <p class="section-desc">8 节奏(4 / 8 / 12 / 16 / 20 / 24 / 32 / 48)。动效曲线统一 <code style="font-family: 'JetBrains Mono', monospace; color: var(--cyan);">cubic-bezier(0.4, 0, 0.2, 1)</code>。</p>
+
+    <div class="spacing-grid">
+      <div class="spacing-cell"><div class="bar" style="width: 4px;"></div><span class="label">4px · xs</span></div>
+      <div class="spacing-cell"><div class="bar" style="width: 8px;"></div><span class="label">8px · sm</span></div>
+      <div class="spacing-cell"><div class="bar" style="width: 12px;"></div><span class="label">12px · md</span></div>
+      <div class="spacing-cell"><div class="bar" style="width: 16px;"></div><span class="label">16px · lg</span></div>
+      <div class="spacing-cell"><div class="bar" style="width: 20px;"></div><span class="label">20px</span></div>
+      <div class="spacing-cell"><div class="bar" style="width: 24px;"></div><span class="label">24px · xl</span></div>
+    </div>
+  </section>
+
+  <!-- ========== Section 04 — SshConnectionForm ========== -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-number">04</span>
+      <span class="section-title">SshConnectionForm</span>
+    </div>
+    <p class="section-desc">新增"新建连接 → SSH"表单。字段化布局 + 密码/私钥切换 + 实时校验 + 快捷键支持(⌘+Enter / Esc)。</p>
+
+    <div class="showcase">
+      <div class="frame-header">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="path">/components/ssh/SshConnectionForm.vue</div>
+      </div>
+      <div class="frame-body">
+        <form class="ssh-form" onsubmit="event.preventDefault();">
+          <div class="form-field">
+            <label class="field-label">
+              <span style="color: var(--cyan);">◆</span> 名称
+              <span class="required">*</span>
+            </label>
+            <input class="cyber-input" value="生产-01" placeholder="给这台机器起个名字">
+            <div class="field-hint">⌘ + Enter 保存 · Esc 取消</div>
+          </div>
+
+          <div class="form-field">
+            <label class="field-label">
+              <span style="color: var(--cyan);">◆</span> 主机 : 端口
+              <span class="required">*</span>
+            </label>
+            <div class="form-row host-port">
+              <input class="cyber-input" value="prod-01.example.com" placeholder="192.168.1.10">
+              <input class="cyber-input mono" value="22" placeholder="22">
+            </div>
+          </div>
+
+          <div class="form-field">
+            <label class="field-label">
+              <span style="color: var(--cyan);">◆</span> 用户名
+              <span class="required">*</span>
+            </label>
+            <div class="input-group">
+              <span class="input-prefix">@</span>
+              <input class="cyber-input" value="deploy" placeholder="root / ubuntu / deploy">
+            </div>
+          </div>
+
+          <div class="form-field">
+            <label class="field-label">
+              <span style="color: var(--cyan);">◆</span> 认证方式
+              <span class="optional">Authentication</span>
+            </label>
+            <div class="switcher">
+              <div class="switcher-item active">🔑 密码</div>
+              <div class="switcher-item">🔐 私钥</div>
+            </div>
+          </div>
+
+          <div class="form-field">
+            <label class="field-label">
+              <span style="color: var(--cyan);">◆</span> 密码
+              <span class="optional">可选 · 留空则使用 SSH Agent / Key</span>
+            </label>
+            <div class="input-group">
+              <span class="input-prefix">🔒</span>
+              <input class="cyber-input" type="password" value="••••••••" placeholder="••••••••">
+              <button type="button" class="action-btn" style="position: absolute; right: 6px;">👁</button>
+            </div>
+            <div class="field-hint">密码仅保存在本机,不会上传任何服务器</div>
+          </div>
+
+          <div class="form-footer">
+            <div class="spacer"></div>
+            <button type="button" class="cyber-btn-secondary">✕ 取消</button>
+            <button type="submit" class="cyber-btn">💾 保存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Section 05 — SshTerminal ========== -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-number">05</span>
+      <span class="section-title">SshTerminal</span>
+    </div>
+    <p class="section-desc">终端 toolbar 重做:mac 风格三点 + 实时连接信息(host/user/duration)+ 字体缩放 + 搜索 + 清屏 + 状态徽章(connecting/online/offline/error)。</p>
+
+    <div class="terminal-frame">
+      <div class="terminal-toolbar">
+        <div class="dots"><span></span><span></span><span></span></div>
+
+        <div class="info">
+          <div class="title">
+            <span style="color: var(--cyan);">▶</span>
+            生产-01
+          </div>
+          <div class="subtitle">
+            deploy@prod-01.example.com:22<span class="live">· 00:12:34</span>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="action-btn" title="减小字体">A-</button>
+          <span class="font-size">14px</span>
+          <button class="action-btn" title="增大字体">A+</button>
+          <div class="divider"></div>
+          <button class="action-btn" title="搜索">🔍</button>
+          <button class="action-btn" title="清屏">🧹</button>
+          <div class="divider"></div>
+          <button class="action-btn" title="重连">🔌</button>
+          <button class="action-btn" title="断开" style="color: var(--red);">⏻</button>
+          <span class="status online">
+            <span class="dot"></span>
+            CONNECTED
+          </span>
+        </div>
+      </div>
+
+      <div class="terminal-body">
+        <div class="muted">» Connecting to deploy@prod-01.example.com:22...</div>
+        <div class="green">✓ Connected</div>
+        <br>
+        <div>deploy@prod-01:~$ <span class="prompt">ls -la</span></div>
+        <div class="muted">total 48</div>
+        <div>drwxr-xr-x  6 deploy deploy  4096 Jun  5 10:23 <span class="cyan">.</span></div>
+        <div>drwxr-xr-x  3 root   root    4096 May 28 09:15 ..</div>
+        <div>-rw-r--r--  1 deploy deploy  220 Jan  6  2024 .bash_logout</div>
+        <div>-rw-r--r--  1 deploy deploy 3771 Jan  6  2024 .bashrc</div>
+        <div>drwxr-xr-x  5 deploy deploy  4096 Jun  4 14:12 <span class="green">.config</span></div>
+        <div>drwx------  2 deploy deploy  4096 Jun  5 09:45 <span class="cyan">.ssh</span></div>
+        <br>
+        <div>deploy@prod-01:~$ <span class="prompt">▌</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Section 06 — AssetTree + Workspace ========== -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-number">06</span>
+      <span class="section-title">AssetTree + Workspace</span>
+    </div>
+    <p class="section-desc">左侧资产树:按类型分组(收藏 / SSH / DB / Docker),每组带 count,激活项青色高亮 + 左侧条。</p>
+
+    <div class="demo-layout">
+      <div class="demo-sidebar">
+        <div class="tree-group favorite">
+          <div class="tree-group-head">
+            <span class="type-icon">★</span>
+            <span>收藏</span>
+            <span class="count">2</span>
+          </div>
+          <div class="tree-item active">
+            <span class="icon">▶</span>
+            <span class="name">生产-01</span>
+            <span class="status-dot online"></span>
+          </div>
+          <div class="tree-item">
+            <span class="icon">▶</span>
+            <span class="name">办公 Mac</span>
+            <span class="status-dot offline"></span>
+          </div>
+        </div>
+
+        <div class="tree-group ssh">
+          <div class="tree-group-head">
+            <span class="type-icon">▶</span>
+            <span>SSH</span>
+            <span class="count">5</span>
+          </div>
+          <div class="tree-item">
+            <span class="icon">▶</span>
+            <span class="name">staging-02</span>
+            <span class="status-dot offline"></span>
+          </div>
+          <div class="tree-item">
+            <span class="icon">▶</span>
+            <span class="name">dev-box</span>
+            <span class="status-dot online"></span>
+          </div>
+          <div class="tree-item">
+            <span class="icon">▶</span>
+            <span class="name">内网跳板机</span>
+            <span class="status-dot offline"></span>
+          </div>
+        </div>
+
+        <div class="tree-group db">
+          <div class="tree-group-head">
+            <span class="type-icon">▤</span>
+            <span>数据库</span>
+            <span class="count">3</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="demo-workspace">
+        <div class="empty-hint">
+          <div class="ico">▶</div>
+          <h3>选一台 SSH 主机开始连接</h3>
+          <p>点击左侧资产树中的节点</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Section 07 — NewConnectionDialog ========== -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-number">07</span>
+      <span class="section-title">NewConnectionDialog</span>
+    </div>
+    <p class="section-desc">类型选择弹窗:水平卡片布局,hover 右移 2px,DB / Docker 标 SOON,SSH 走表单子页。</p>
+
+    <div class="dialog-stage">
+      <div class="new-conn-dialog">
+        <div class="modal-header">
+          <div class="icon-box">+</div>
+          <h3>新建连接</h3>
+          <button class="action-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="type-card">
+            <div class="type-icon ssh">▶</div>
+            <div class="type-meta">
+              <div class="type-name">SSH</div>
+              <div class="type-desc">终端 · 文件传输</div>
+            </div>
+            <div style="color: var(--cyan);">→</div>
+          </div>
+
+          <div class="type-card disabled">
+            <div class="type-icon db">▤</div>
+            <div class="type-meta">
+              <div class="type-name">数据库</div>
+              <div class="type-desc">MySQL · PG · Redis · ...</div>
+            </div>
+            <span class="cyber-badge" style="color: var(--muted); border-color: var(--line-2);">SOON</span>
+          </div>
+
+          <div class="type-card disabled">
+            <div class="type-icon docker">🐳</div>
+            <div class="type-meta">
+              <div class="type-name">Docker</div>
+              <div class="type-desc">容器 / 镜像</div>
+            </div>
+            <span class="cyber-badge" style="color: var(--muted); border-color: var(--line-2);">SOON</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Section 08 — Before / After ========== -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-number">08</span>
+      <span class="section-title">Before / After</span>
+    </div>
+    <p class="section-desc">改动前的痛点 vs 改动后的设计决策。</p>
+
+    <div class="compare">
+      <div class="col before">
+        <span class="tag">Before · Material Default</span>
+        <ul>
+          <li>裸 v-card / v-text-field / v-btn</li>
+          <li>无设计语言,默认灰色阴影</li>
+          <li>v-card 套 v-card 双层容器</li>
+          <li>状态点用 v-chip,占位大</li>
+          <li>Toolbar 死板,无操作分组</li>
+          <li>认证方式用 v-btn-toggle,色块突兀</li>
+          <li>没有 ⌘+Enter / Esc 快捷键</li>
+          <li>没有任何 hover 动效</li>
+        </ul>
+      </div>
+      <div class="col after">
+        <span class="tag">After · Cyber Command Center</span>
+        <ul>
+          <li>统一 .cyber-* 类,语义化命名</li>
+          <li>深底 + 青/紫渐变高光 + glass blur</li>
+          <li>扁平结构,form 不再套 card</li>
+          <li>6px 状态点带脉冲 + 发光</li>
+          <li>mac 三点 + 实时连接时长</li>
+          <li>switcher 切换器,扁平 8px 圆角</li>
+          <li>⌘+Enter 提交,Esc 取消</li>
+          <li>200-300ms 动效曲线,统一节奏</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Section 09 — Sidebar Collapse ========== -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-number">09</span>
+      <span class="section-title">Sidebar Collapse · ⌘+B</span>
+    </div>
+    <p class="section-desc">侧边栏可左右折叠,带 ⌘+B / Ctrl+B 全局快捷键。折叠后只显示图标,hover 显示 tooltip,适合小屏幕或想要更多工作区。</p>
+
+    <div class="sidebar-compare">
+      <div class="col expanded">
+        <div class="col-label">Expanded · 260px</div>
+        <div class="tree-group favorite">
+          <div class="tree-group-head">
+            <span class="type-icon">★</span>
+            <span class="label">收藏</span>
+            <span class="count">2</span>
+          </div>
+          <div class="tree-item active">
+            <span class="icon">▶</span>
+            <span class="name">生产-01</span>
+            <span class="status-dot online"></span>
+            <span class="action-btn" style="opacity:1;">★</span>
+          </div>
+          <div class="tree-item">
+            <span class="icon">▶</span>
+            <span class="name">办公 Mac</span>
+            <span class="status-dot offline"></span>
+          </div>
+        </div>
+        <div class="group-divider"></div>
+        <div class="tree-group ssh">
+          <div class="tree-group-head">
+            <span class="type-icon">▶</span>
+            <span class="label">SSH</span>
+            <span class="count">5</span>
+          </div>
+          <div class="tree-item"><span class="icon">▶</span><span class="name">staging-02</span><span class="status-dot offline"></span></div>
+          <div class="tree-item"><span class="icon">▶</span><span class="name">dev-box</span><span class="status-dot online"></span></div>
+        </div>
+      </div>
+
+      <div class="col collapsed-col">
+        <div class="col-label">Collapsed · 60px</div>
+        <div class="tree-group favorite">
+          <div class="tree-group-head">
+            <span class="type-icon">★</span>
+          </div>
+          <div class="tree-item active" data-tooltip="生产-01">
+            <span class="icon">▶</span>
+          </div>
+          <div class="tree-item" data-tooltip="办公 Mac">
+            <span class="icon">▶</span>
+          </div>
+        </div>
+        <div class="group-divider"></div>
+        <div class="tree-group ssh">
+          <div class="tree-group-head">
+            <span class="type-icon">▶</span>
+          </div>
+          <div class="tree-item" data-tooltip="staging-02">
+            <span class="icon">▶</span>
+          </div>
+          <div class="tree-item" data-tooltip="dev-box">
+            <span class="icon">▶</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top: 16px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+      <span>触发方式:</span>
+      <code class="kbd">⌘+B</code>
+      <code class="kbd">Ctrl+B</code>
+      <span style="margin-left: 12px;">或点击 menubar 左侧的折叠按钮</span>
+    </div>
+  </section>
+
+  <!-- ========== Section 10 — Context Menu ========== -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-number">10</span>
+      <span class="section-title">Right-Click Context Menu</span>
+    </div>
+    <p class="section-desc">在资产树任意节点上 <kbd class="kbd" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 2px 6px; background: rgba(0,240,255,0.08); border: 1px solid var(--line-2); border-radius: 4px; color: var(--cyan);">右键</kbd>,弹出 7 项操作菜单。点击外部 / Esc / 失焦 自动关闭。</p>
+
+    <div class="ctx-demo">
+      <div class="ctx-stage">
+        <span class="rightclick-hint">右键这里</span>
+        <div class="fake-tree">
+          <div class="fake-item">★ 生产-01</div>
+          <div class="fake-item highlighted">▶ Test · root@39.97.231.97</div>
+          <div class="fake-item">▤ staging-02</div>
+          <div class="fake-item">▶ dev-box</div>
+        </div>
+      </div>
+
+      <div class="ctx-stage">
+        <span class="rightclick-hint">弹出的菜单</span>
+        <div class="context-menu" style="display: flex;">
+          <div class="cm-header">
+            <span class="type-icon">▶</span>
+            <span>Test</span>
+          </div>
+          <div class="cm-item">
+            <span class="mdi">🔌</span>
+            <span class="label">连接</span>
+            <span class="shortcut">Enter</span>
+          </div>
+          <div class="cm-item">
+            <span class="mdi">↻</span>
+            <span class="label">重新连接</span>
+          </div>
+          <div class="cm-divider"></div>
+          <div class="cm-item">
+            <span class="mdi">✎</span>
+            <span class="label">编辑</span>
+            <span class="shortcut">F2</span>
+          </div>
+          <div class="cm-item">
+            <span class="mdi">⎘</span>
+            <span class="label">复制</span>
+          </div>
+          <div class="cm-item">
+            <span class="mdi">☆</span>
+            <span class="label">加入收藏</span>
+          </div>
+          <div class="cm-divider"></div>
+          <div class="cm-item danger">
+            <span class="mdi">🗑</span>
+            <span class="label">删除</span>
+            <span class="shortcut">Del</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top: 16px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+      <span>键盘快捷键:</span>
+      <code class="kbd">Enter</code><span>= 连接</span>
+      <code class="kbd">F2</code><span>= 编辑</span>
+      <code class="kbd">Del</code><span>= 删除(需输入主机名确认)</span>
+    </div>
+  </section>
+
+  <!-- ========== Footer ========== -->
+  <footer class="page-footer">
+    <div class="links">
+      <a href="./AGENTS.md">AGENTS.md</a> ·
+      <a href="./src/styles/cyber.css">cyber.css</a> ·
+      <a href="./src/components/ssh/">SSH components</a>
+    </div>
+    <div>StarHub · Cyber Design System v0.2 · 2026-06-05</div>
+  </footer>
+
+</div>
+</body>
+</html>

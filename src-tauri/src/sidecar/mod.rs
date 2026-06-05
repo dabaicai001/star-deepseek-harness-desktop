@@ -1,7 +1,8 @@
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
+use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -27,16 +28,21 @@ pub struct RpcError {
 type PendingRequest = (RpcRequest, oneshot::Sender<Result<RpcResponse, String>>);
 
 pub struct SidecarManager {
-    tx: mpsc::Sender<PendingRequest>,
+    tx: Mutex<Option<mpsc::Sender<PendingRequest>>>,
 }
+
+// SAFETY: mpsc::Sender is Send+Sync in tokio
+unsafe impl Send for SidecarManager {}
+unsafe impl Sync for SidecarManager {}
 
 impl SidecarManager {
     pub fn new() -> Self {
-        let (tx, _rx) = mpsc::channel(100);
-        Self { tx }
+        Self {
+            tx: Mutex::new(None),
+        }
     }
 
-    pub async fn start(&mut self) -> Result<(), String> {
+    pub async fn start(&self) -> Result<(), String> {
         let sidecar_path = std::env::current_dir()
             .map_err(|e| e.to_string())?
             .join("sidecar")
@@ -63,7 +69,11 @@ impl SidecarManager {
         let stderr = child.stderr.take().ok_or("Failed to get stderr")?;
 
         let (tx, rx) = mpsc::channel::<PendingRequest>(100);
-        self.tx = tx;
+
+        {
+            let mut lock = self.tx.lock().map_err(|e| e.to_string())?;
+            *lock = Some(tx);
+        }
 
         tokio::spawn(Self::io_loop(stdin, stdout, rx));
         tokio::spawn(Self::stderr_drain(stderr));
@@ -143,6 +153,11 @@ impl SidecarManager {
     }
 
     pub async fn call(&self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        let tx = {
+            let lock = self.tx.lock().map_err(|e| e.to_string())?;
+            lock.clone().ok_or_else(|| "Sidecar not running".to_string())?
+        };
+
         let request = RpcRequest {
             id: uuid::Uuid::new_v4().to_string(),
             method: method.to_string(),
@@ -151,7 +166,7 @@ impl SidecarManager {
 
         let (response_tx, response_rx) = oneshot::channel();
 
-        self.tx.send((request, response_tx)).await
+        tx.send((request, response_tx)).await
             .map_err(|_| "Sidecar not running".to_string())?;
 
         let response = response_rx.await

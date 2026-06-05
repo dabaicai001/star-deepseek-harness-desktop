@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
 export const useThemeStore = defineStore('theme', () => {
-  const theme = ref<'lightTheme' | 'darkTheme'>('lightTheme')
+  const theme = ref<'lightTheme' | 'darkTheme'>('darkTheme')
   const isDark = computed(() => theme.value === 'darkTheme')
 
   let cleanupSystemListener: (() => void) | null = null

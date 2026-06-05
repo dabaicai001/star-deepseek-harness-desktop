@@ -19,6 +19,7 @@ once_cell = "1"
 russh = "0.50"
 russh-sftp = "2"
 glob-match = "0.2"
+tokio-util = "0.7"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

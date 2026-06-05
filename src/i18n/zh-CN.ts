@@ -39,6 +39,10 @@ export default {
     create: '新建连接',
     edit: '编辑连接',
     delete: '删除连接',
+    duplicate: '复制连接',
+    reconnect: '重新连接',
+    unfavorite: '取消收藏',
+    confirmDelete: '确定要删除「{name}」吗?此操作不可撤销。',
     name: '名称',
     host: '主机',
     port: '端口',
@@ -53,9 +57,26 @@ export default {
     disconnect: '断开',
     ssh: 'SSH 终端',
     db: '数据库',
-    docker: 'Docker'
+    docker: 'Docker',
+    type: '类型',
+    server: '服务器',
+    dbType: '数据库类型',
+    database: '数据库',
+    dockerSocket: 'Docker Socket / Host',
+    dockerSocketHint: '本地默认 unix socket,远程用 tcp://host:port',
+    placeholderName: '给这台机器起个名字',
+    placeholderHost: '192.168.1.10  或  dev.example.com',
+    placeholderUser: 'root  /  ubuntu  /  deploy',
+    placeholderDb: 'db.example.com',
+    placeholderDatabase: 'myapp'
+  },
+  sidebar: {
+    collapse: '收起侧边栏',
+    expand: '展开侧边栏',
+    newConnection: '新建连接'
   },
   ssh: {
+    title: 'SSH',
     terminal: '终端',
     newTerminal: '新终端',
     search: '搜索',
@@ -65,7 +86,20 @@ export default {
     selectAll: '全选',
     splitHorizontal: '水平分屏',
     splitVertical: '垂直分屏',
-    closeTerminal: '关闭终端'
+    closeTerminal: '关闭终端',
+    authMethod: '认证方式',
+    passwordOptional: '可选 · 留空则使用 SSH Agent / Key',
+    passwordHint: '密码仅保存在本机,不会上传任何服务器',
+    pemFormat: 'PEM 格式',
+    passphrase: '私钥密码',
+    passphraseOptional: '如果私钥有密码保护',
+    passphraseEmpty: '留空表示无密码',
+    formShortcut: '⌘ + Enter 保存 · Esc 取消',
+    testConnection: '测试连接',
+    testing: '正在测试...',
+    testSuccess: '连接成功',
+    testFail: '连接失败',
+    testHint: '将尝试 SSH 连接到目标主机,验证凭据是否有效'
   },
   sftp: {
     title: '文件传输',
@@ -96,7 +130,9 @@ export default {
     index: '索引',
     primaryKey: '主键',
     foreignKey: '外键',
-    unique: '唯一'
+    unique: '唯一',
+    initialDb: '初始数据库',
+    initialDbHint: '留空列出全部'
   },
   docker: {
     title: 'Docker',

@@ -149,7 +149,153 @@ starhub/
 | 指标 | `github.com/prometheus/client_golang` | |
 | 追踪 | `go.opentelemetry.io/otel` | |
 | 测试 | `github.com/stretchr/testify` | |
-| Mock | `github.com/golang/mock` + `github.com/DATA-DOG/go-sqlmock` | |
+	| Mock | `github.com/golang/mock` + `github.com/DATA-DOG/go-sqlmock` | |
+
+---
+
+### 4.4 设计系统(Design System)
+
+> 所有 UI 改动必须先读这一节。Token 和组件类集中在 `src/styles/cyber.css`,任何新增/修改都要双向同步(代码 + 本节)。
+
+#### 4.4.1 设计语言
+
+| 项 | 取值 |
+|---|---|
+| 定位 | **Cyber Command Center** — 像开发者的控制台,而非 Material 风格的 App |
+| 关键词 | sci-fi terminal、command line、霓虹、玻璃、栅格 |
+| 调性 | 暗色为主(信息密度高) + 青色高亮(单一重点色) + 等宽数字(数据感) |
+| 目标情绪 | 专业、克制、可信,不是花哨/卡通/可爱 |
+
+#### 4.4.2 主题与 token
+
+- 默认 `darkTheme`,预留 `lightTheme`(`src/plugins/vuetify.ts`)
+- 切换走 Pinia `useThemeStore`(持久化) → Vuetify `v-theme` + `:root` CSS 变量双通道
+- 所有视觉 token 都是 CSS 变量,集中在 [`src/styles/cyber.css`](./src/styles/cyber.css) 的 `:root` 块
+- **禁止**在组件内写死颜色/阴影/字体,必须引用 token
+
+| 变量 | 用途 | 默认值 |
+|---|---|---|
+| `--bg` / `--bg-2` | 页面底色 / 二级底色 | `#050810` / `#0a0e1a` |
+| `--panel` / `--panel-2` | 玻璃面板(半透明 + blur) | `rgba(15,20,32,.72)` / `rgba(20,25,40,.85)` |
+| `--panel-solid` / `--panel-solid-2` | 不透明面板(嵌套用) | `#0f1420` / `#141928` |
+| `--line` / `--line-2` | 分割线(2 档透明度) | `rgba(120,160,255,.08)` / `.15` |
+| `--text` / `--text-2` / `--muted` | 文字(3 档) | `#e8efff` / `#a8b3d9` / `#5a6a96` |
+| `--cyan` | **主色 / 重点**(连接、激活、链接) | `#00f0ff` |
+| `--purple` / `--pink` / `--green` / `--yellow` / `--red` | 辅助状态色 | 见 `cyber.css` |
+| `--grad-primary` | 主渐变(青→紫),用于 logo / 主按钮 / 高光 | `135deg, #00f0ff → #b56bff` |
+| `--grad-accent` / `--grad-cool` / `--grad-success` | 辅渐变 | 同上 |
+| `--glow-cyan` / `--glow-purple` / `--glow-pink` / `--glow-soft` | 光晕(2 档强度) | — |
+| `--shadow` | 标准阴影 | `0 16px 48px -12px rgba(0,0,0,.6)` |
+
+#### 4.4.3 字体
+
+| 角色 | 字体 | 用途 |
+|---|---|---|
+| 主体 | `'Outfit', -apple-system, 'PingFang SC', sans-serif` | 全部正文、按钮、标签 |
+| 代码 / 终端 / 数字 | `'JetBrains Mono', 'Fira Code', monospace` | 终端、host、port、time、count |
+| 节编号 / Logo 装饰 | `'Orbitron', sans-serif` | `01` `02` 编号、品牌 S |
+
+字号阶(rem 基准 16):
+
+| token | 像素 | 用途 |
+|---|---|---|
+| `text-2xs` | 10px | 徽章、状态栏 |
+| `text-xs` | 11px | 标签、辅助说明 |
+| `text-sm` | 12px | 树节点、tab、menu |
+| `text-base` | 13px | 默认正文 |
+| `text-md` | 14px | 卡片标题、按钮 |
+| `text-lg` | 16px | 节标题 |
+| `text-xl` | 24px | 弹窗标题 |
+| `text-2xl` | 32px | Welcome / Hero |
+
+#### 4.4.4 间距 / 圆角 / 动效
+
+- **间距**:4 / 8 / 12 / 16 / 20 / 24 / 32 / 48(8 节奏,不允许中间值)
+- **圆角**:4(小标签) / 6(按钮) / 8(输入框、菜单) / 12(卡片、面板) / 16(弹窗)
+- **阴影**:优先用 `--glow-*` 光晕,不用 Material 风格 `0 2px 4px rgba(0,0,0,.1)`
+- **动效曲线**:`cubic-bezier(0.4, 0, 0.2, 1)`(标准)
+- **动效时长**:`0.2s`(快:按钮、tab) / `0.3s`(中:卡片 hover) / `0.6s`(慢:光带扫过)
+- **必备动画**:`@keyframes pulse` / `shimmer` / `glow` / `float`(已在 `cyber.css`)
+
+#### 4.4.5 必备组件类(全部在 `cyber.css` 集中提供)
+
+> 写组件时**只引用 class**,不写 scoped 样式。视觉风格改 `cyber.css` 一处生效。
+
+| 类名 | 用途 |
+|---|---|
+| `.cyber-panel` | 玻璃面板(带顶部 1px 主渐变高光 + blur) |
+| `.cyber-card` | 卡片(同 panel 但更紧凑,带 hover 上抬) |
+| `.cyber-btn` / `.cyber-btn-secondary` | 主按钮(渐变 + 光带扫过) / 次按钮(描边) |
+| `.action-btn` / `.action-btn.primary` | 工具栏图标按钮 |
+| `.cyber-input` | 输入框(深底 + 聚焦青色光环) |
+| `.connection-card` / `.connection-icon(.ssh/.db/.docker/.add)` | 资产卡片 + 类型色块 |
+| `.tree-item` / `.tree-item.active` | 树节点(带左侧 2px 激活条 + 文字发光) |
+| `.status-dot(.online/.offline/.connecting)` | 状态点(绿/灰/青脉冲) |
+| `.cyber-badge` | 徽章(青底 + 等宽) |
+| `.cyber-tab` / `.cyber-tab.active` | 标签(底部 2px 激活条) |
+| `.section-header` / `.section-number` | 节标题(编号 + 标题 + 渐变分割线) |
+| `.terminal-container` / `.terminal-header` / `.terminal-dots` | 终端外壳(红黄绿三点) |
+| `.empty-state` | 空状态(图标 + 标题 + 描述 + CTA) |
+| `.glow-cyan` / `.glow-purple` / `.glow-pink` | 静态光晕 |
+| `.text-gradient` | 文字主渐变 |
+| `.grid-bg::before` | 栅格背景(cyan 1px,40px 间距,径向遮罩) |
+
+#### 4.4.6 状态色语义
+
+| 状态 | 色 | 用途 |
+|---|---|---|
+| `online` | `--green` | 已连接 / 运行中(脉冲) |
+| `connecting` | `--cyan` | 连接中(脉冲,1s) |
+| `offline` | `--muted` | 未连接 |
+| `error` | `--red` | 失败 / 断开 |
+| `warning` | `--yellow` | 警告 / 提示 |
+| `info` | `--cyan` | 普通提示 |
+| `active / focus` | `--cyan` | 选中、聚焦、链接 |
+| `favorite` | `--yellow` | 收藏 |
+
+#### 4.4.7 信息架构(主窗口)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ titlebar:  Logo | 全局搜索 (⌘K) | 设置 | +新建 | 头像       │  52px
+├──────────────────────────────────────────────────────────────┤
+│ menubar:  Home | Assets | SSH | DB | Docker | AI |  [tabs]  │  40px
+├──────────────┬───────────────────────────────────────────────┤
+│              │                                               │
+│  sidebar     │  workspace                                    │
+│  (260px)     │  (router-view: HomeView / SshTerminal / ...)  │
+│              │                                               │
+├──────────────┴───────────────────────────────────────────────┤
+│ statusbar:  v0.1.0  N SSH  N DB  N Docker  ⏰ time           │  30px
+└──────────────────────────────────────────────────────────────┘
+```
+
+**弹窗层级**:`v-dialog` + `.cyber-panel` 自定义容器(`max-width: 520`,圆角 16,带 backdrop blur)。
+
+#### 4.4.8 反模式(禁止使用)
+
+- ❌ 裸 Vuetify `v-card` / `v-text-field` / `v-btn` / `v-list` 默认外观(必须套 `.cyber-*` 类)
+- ❌ Material 风格 `box-shadow: 0 2px 4px rgba(0,0,0,.1)`(用 `--glow-*`)
+- ❌ 居中大圆角 + 鲜艳渐变填充大块
+- ❌ Emoji 当 UI 元素(可作文档内容,不放按钮图标)
+- ❌ Tailwind / Bootstrap 类混用
+- ❌ 硬编码颜色 `#00f0ff` / `#0f1420` / `rgba(120,160,255,.15)` 等(走 token)
+- ❌ 在 `<style scoped>` 里写 20+ 行自定义视觉(应当提取为 `cyber.css` 通用类)
+
+#### 4.4.9 新增组件流程
+
+1. **token 优先**:先看 `cyber.css` 是否有现成 token,无则新增 CSS 变量
+2. **组件类**:在 `cyber.css` 写组件类(单一职责,带伪元素高光)
+3. **使用方**:Vue 组件只引用 class,不写 scoped 视觉
+4. **同步文档**:本节加新类名到"必备组件类"表
+5. **CHANGELOG**:UI 类变更要写 `🎨 style(design-system): ...`
+
+#### 4.4.10 Vuetify 协作约定
+
+- 保留 Vuetify 组件 API(v-form / v-row / v-col / v-dialog / v-icon / v-snackbar 等)
+- **不用** Vuetify 默认视觉 — 通过 class、scoped 覆盖、或自定义包装组件
+- 图标统一用 `@mdi/font`(MDI 7),`mdi-*` 前缀
+- 字体加载走 Google Fonts 链接(Outfit / JetBrains Mono / Orbitron),在 `src/index.html`
 
 ---
 

@@ -5,7 +5,7 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      component: () => import('@/components/layout/AppLayout.vue'),
+      component: () => import('@/components/layout/CyberLayout.vue'),
       children: [
         {
           path: '',
@@ -16,10 +16,16 @@ const router = createRouter({
           path: 'settings',
           name: 'settings',
           component: () => import('@/views/SettingsView.vue')
-        }
-      ]
-    }
-  ]
+        },
+        {
+          path: 'ssh/:id',
+          name: 'ssh-terminal',
+          component: () => import('@/components/ssh/SshTerminal.vue'),
+          props: true,
+        },
+      ],
+    },
+  ],
 })
 
 export default router
