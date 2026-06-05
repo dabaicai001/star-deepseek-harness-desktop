@@ -3,32 +3,35 @@
 mod commands;
 mod db;
 mod sidecar;
+mod sftp;
 mod ssh;
 
-use sidecar::SidecarManager;
+use tauri::Manager;
 use commands::ssh::SshManager;
 
 fn main() {
-    tracing_subscriber::init();
+    tracing_subscriber::fmt::init();
+
+    let sidecar_manager = sidecar::SidecarManager::new();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(SshManager::new())
+        .manage(sidecar_manager)
         .setup(|app| {
+            // 启动 Sidecar
             let app_handle = app.handle().clone();
-
-            let app_handle_clone = app_handle.clone();
-            tokio::spawn(async move {
-                let mut manager = SidecarManager::new();
+            tauri::async_runtime::spawn(async move {
+                let manager = app_handle.state::<sidecar::SidecarManager>();
                 if let Err(e) = manager.start().await {
                     tracing::error!("Failed to start sidecar: {}", e);
-                } else {
-                    app_handle_clone.manage(manager);
                 }
             });
 
-            tokio::spawn(async move {
-                if let Err(e) = db::init_database(&app_handle).await {
+            // 初始化数据库
+            let app_handle_clone = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = db::init_database(&app_handle_clone).await {
                     tracing::error!("Failed to init database: {}", e);
                 }
             });
