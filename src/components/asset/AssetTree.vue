@@ -63,6 +63,17 @@ function reconnectToAsset(asset: Asset) {
   connectToAsset(asset)
 }
 
+function openSftpForAsset(asset: Asset) {
+  if (asset.type !== 'ssh') return
+  appStore.addTab({
+    id: `sftp-${asset.id}`,
+    title: `SFTP: ${asset.name}`,
+    type: 'ssh'
+  })
+  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
+  router.push({ name: 'sftp', params: { id: asset.id } })
+}
+
 // ====== 右键菜单 ======
 const ctxMenu = ref<{ x: number; y: number; asset: Asset } | null>(null)
 const ctxItems = computed<MenuItem[]>(() => {
@@ -83,6 +94,13 @@ const ctxItems = computed<MenuItem[]>(() => {
       label: t('asset.reconnect'),
       disabled: asset.type !== 'ssh',
       onClick: () => reconnectToAsset(asset)
+    },
+    {
+      type: 'item',
+      icon: 'mdi-folder-network',
+      label: 'Open SFTP',
+      disabled: asset.type !== 'ssh',
+      onClick: () => openSftpForAsset(asset)
     },
     { type: 'divider' },
     {

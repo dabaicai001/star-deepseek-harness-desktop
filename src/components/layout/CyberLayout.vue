@@ -127,6 +127,16 @@ function connectToAsset(asset: Asset) {
   // db / docker 路由后续按 type 补
 }
 
+function openSftpForAsset(asset: Asset) {
+  appStore.addTab({
+    id: `sftp-${asset.id}`,
+    title: `SFTP: ${asset.name}`,
+    type: 'ssh'
+  })
+  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
+  router.push({ name: 'sftp', params: { id: asset.id } })
+}
+
 function openNewConnection() {
   showNewConnection.value = true
 }
@@ -150,7 +160,12 @@ function navigateTo(path: string) {
 function selectTab(tab: { id: string; type: string }) {
   appStore.setActiveTab(tab.id)
   if (tab.type === 'ssh') {
-    router.push({ name: 'ssh-terminal', params: { id: tab.id } })
+    if (tab.id.startsWith('sftp-')) {
+      const assetId = tab.id.replace('sftp-', '')
+      router.push({ name: 'sftp', params: { id: assetId } })
+    } else {
+      router.push({ name: 'ssh-terminal', params: { id: tab.id } })
+    }
   }
   // db / docker 路由后续补
 }
@@ -161,7 +176,12 @@ function closeTab(tabId: string) {
   if (appStore.tabs.length === 0) {
     router.push({ name: 'home' })
   } else if (appStore.activeTab && tab && tab.type === 'ssh') {
-    router.push({ name: 'ssh-terminal', params: { id: appStore.activeTab } })
+    if (tab.id.startsWith('sftp-')) {
+      const assetId = tab.id.replace('sftp-', '')
+      router.push({ name: 'sftp', params: { id: assetId } })
+    } else {
+      router.push({ name: 'ssh-terminal', params: { id: appStore.activeTab } })
+    }
   }
 }
 </script>
@@ -294,6 +314,11 @@ function closeTab(tabId: string) {
                 <v-icon size="32" color="cyan">mdi-console</v-icon>
                 <h3>{{ t('ssh.title') }}</h3>
                 <p>{{ t('ssh.terminal') }}</p>
+              </div>
+              <div class="feature-card" @click="openNewConnection">
+                <v-icon size="32" color="cyan">mdi-folder-network</v-icon>
+                <h3>SFTP</h3>
+                <p>File Manager</p>
               </div>
               <div class="feature-card">
                 <v-icon size="32" color="purple">mdi-database</v-icon>
