@@ -9,9 +9,19 @@
 
 ## [未发布]
 
+### 新增
+- ✨ feat(sftp): SFTP 文件管理器 — 双面板布局、拖拽传输、传输队列
+- ✨ feat(sftp): 文件操作 — 列目录、上传、下载、删除、重命名、新建目录
+- ✨ feat(sftp): 断点续传支持
+- ✨ feat(sftp): 文件搜索（glob 模式）
+- ✨ feat(sftp): 权限修改（chmod 对话框）
+- ✨ feat(sftp): 文件预览（文本 + 图片）
+- ✨ feat(sftp): 右键上下文菜单
+- ✨ feat(sftp): 面包屑路径导航
+
 ### 计划中
 - Tauri 2 + Vue 3 + Rust + Go 项目脚手架
-- MVP: SSH 终端、SFTP、MySQL / PostgreSQL / SQLite / Redis 基础支持
+- MVP: SSH 终端、MySQL / PostgreSQL / SQLite / Redis 基础支持
 - Docker 本地 + SSH 通道管理
 - AI 助手基础集成(Claude / GPT)
 

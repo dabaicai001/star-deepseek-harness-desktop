@@ -118,6 +118,7 @@ starhub/
 | 桌面壳 | `tauri` 2.x | 多窗口、权限、Updater |
 | 异步 | `tokio` | 全异步 |
 | SSH | `russh` + `russh-sftp` | SSH / SFTP |
+| SFTP | `russh-sftp` 2.x | SFTP client |
 | Docker | `bollard` | Docker API |
 | HTTP | `reqwest` | LLM API / Webhook |
 | 持久化 | `sqlx` (SQLite) | 本地资产/配置 |
