@@ -6,7 +6,7 @@ use crate::ssh::{SshConfig, SshSessionInfo};
 use crate::ssh::session::SshSession;
 
 pub struct SshManager {
-    sessions: Arc<Mutex<HashMap<String, SshSession>>>,
+    pub sessions: Arc<Mutex<HashMap<String, SshSession>>>,
     channels: Arc<Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
 }
 
