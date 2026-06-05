@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import TerminalPane from './TerminalPane.vue'
+import SftpBrowser from './SftpBrowser.vue'
 import { useAssetStore } from '@/stores/asset'
 
 const { t } = useI18n()
@@ -44,6 +45,9 @@ const statusText = computed(() => {
 const fontSize = ref(14)
 const showSearch = ref(false)
 const searchQuery = ref('')
+
+// SFTP 面板显示开关(连接成功后默认开启,跟终端并排)
+const showSftp = ref(true)
 
 onMounted(async () => {
   if (asset.value) {
@@ -291,6 +295,17 @@ function handleSearch() {
           <v-icon size="14">mdi-power-standby</v-icon>
         </button>
 
+        <span class="divider" />
+
+        <button
+          class="action-btn"
+          :class="{ active: showSftp }"
+          :data-tooltip="showSftp ? 'Hide SFTP' : 'Show SFTP'"
+          @click="showSftp = !showSftp"
+        >
+          <v-icon size="14">mdi-folder-network-outline</v-icon>
+        </button>
+
         <span class="status" :class="statusKind">
           <span class="dot" />
           {{ statusText }}
@@ -298,16 +313,22 @@ function handleSearch() {
       </div>
     </div>
 
-    <div class="terminal-body">
-      <TerminalPane
-        ref="terminalRef"
-        :session-id="id"
-        :font-size="fontSize"
-        :reconnect-mode="!connected && !connecting"
-        @data="handleData"
-        @reconnect="handleReconnect"
-        @resize="handleResize"
-      />
+    <div class="workspace" :class="{ 'with-sftp': showSftp }">
+      <div class="terminal-pane">
+        <TerminalPane
+          ref="terminalRef"
+          :session-id="id"
+          :font-size="fontSize"
+          :reconnect-mode="!connected && !connecting"
+          @data="handleData"
+          @reconnect="handleReconnect"
+          @resize="handleResize"
+        />
+      </div>
+      <div v-if="showSftp" class="pane-divider" />
+      <div v-if="showSftp" class="sftp-pane">
+        <SftpBrowser :session-id="id" />
+      </div>
     </div>
   </div>
 </template>
@@ -324,6 +345,67 @@ function handleSearch() {
   flex: 1;
   min-height: 0;
   padding: 8px;
+}
+
+/* 两栏布局:terminal + sftp */
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.workspace:not(.with-sftp) .terminal-pane {
+  flex: 1;
+}
+
+.terminal-pane {
+  flex: 1 1 50%;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px;
+  display: flex;
+}
+
+.terminal-pane > :deep(.terminal-container) {
+  flex: 1;
+}
+
+.sftp-pane {
+  flex: 1 1 50%;
+  min-width: 320px;
+  min-height: 0;
+  border-left: 1px solid var(--line-2);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-2);
+}
+
+.pane-divider {
+  width: 1px;
+  background: var(--line-2);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.pane-divider::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--grad-primary);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.workspace:hover .pane-divider::before {
+  opacity: 0.3;
+}
+
+.action-btn.active {
+  background: rgba(0, 240, 255, 0.12);
+  color: var(--cyan);
+  border-color: rgba(0, 240, 255, 0.3);
 }
 
 .font-size-indicator {

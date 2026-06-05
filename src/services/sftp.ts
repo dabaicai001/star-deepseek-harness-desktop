@@ -1,115 +1,80 @@
 import { invoke } from '@tauri-apps/api/core'
 
-export interface FileEntry {
+export interface SftpEntry {
+  /** 文件/目录名(不含父路径) */
   name: string
+  /** 完整绝对路径 */
   path: string
-  is_dir: boolean
+  /** 是否是目录 */
+  isDir: boolean
+  /** 文件大小(字节),目录为 0 */
   size: number
+  /** 修改时间(Unix timestamp 毫秒) */
+  modified?: number
+  /** POSIX 权限位(0o755 = 493) */
   permissions: number
-  modified: number
-  is_symlink: boolean
+  /** Unix owner uid(可选) */
+  uid?: number
+  /** Unix group gid(可选) */
+  gid?: number
 }
 
-export interface SftpSessionInfo {
-  session_id: string
-  remote_root: string
-  connected: boolean
+export async function sftpList(id: string, path: string): Promise<SftpEntry[]> {
+  return invoke('sftp_list', { id, path })
 }
 
-export interface TransferFile {
-  name: string
-  size: number
-  transferred: number
+export async function sftpRead(id: string, path: string): Promise<number[]> {
+  return invoke('sftp_read', { id, path })
 }
 
-export type TransferDirection = 'Upload' | 'Download'
-export type TransferStatus = 'Queued' | 'Running' | 'Done' | 'Failed' | 'Cancelled'
-
-export interface TransferTask {
-  id: string
-  session_id: string
-  direction: TransferDirection
-  files: TransferFile[]
-  status: TransferStatus
-  total_bytes: number
-  transferred_bytes: number
-  error: string | null
+export async function sftpWrite(id: string, path: string, data: number[]): Promise<void> {
+  return invoke('sftp_write', { id, path, data })
 }
 
-export interface TransferProgress {
-  transfer_id: string
-  file_name: string
-  transferred: number
-  total: number
-  direction: TransferDirection
+export async function sftpStat(id: string, path: string): Promise<SftpEntry> {
+  return invoke('sftp_stat', { id, path })
 }
 
-export async function sftpConnect(sessionId: string): Promise<SftpSessionInfo> {
-  return invoke('sftp_connect', { sessionId })
+export async function sftpRemove(id: string, path: string): Promise<void> {
+  return invoke('sftp_remove', { id, path })
 }
 
-export async function sftpDisconnect(sessionId: string): Promise<void> {
-  return invoke('sftp_disconnect', { sessionId })
+export async function sftpMkdir(id: string, path: string): Promise<void> {
+  return invoke('sftp_mkdir', { id, path })
 }
 
-export async function sftpListDir(sessionId: string, path: string): Promise<FileEntry[]> {
-  return invoke('sftp_list_dir', { sessionId, path })
+export async function sftpRename(id: string, from: string, to: string): Promise<void> {
+  return invoke('sftp_rename', { id, from, to })
 }
 
-export async function sftpMkdir(sessionId: string, path: string): Promise<void> {
-  return invoke('sftp_mkdir', { sessionId, path })
+export async function sftpUpload(
+  id: string,
+  localPath: string,
+  remotePath: string
+): Promise<void> {
+  return invoke('sftp_upload', { id, localPath, remotePath })
 }
 
-export async function sftpRename(sessionId: string, from: string, to: string): Promise<void> {
-  return invoke('sftp_rename', { sessionId, from, to })
+/** 把 parent + name 拼成 child 路径(保证中间有 /) */
+export function joinPath(parent: string, name: string): string {
+  if (parent === '/' || parent === '') return `/${name}`
+  if (parent.endsWith('/')) return `${parent}${name}`
+  return `${parent}/${name}`
 }
 
-export async function sftpDelete(sessionId: string, path: string, isDir: boolean): Promise<void> {
-  return invoke('sftp_delete', { sessionId, path, isDir })
+/** 返回 parent 路径(根目录时返回 '/') */
+export function parentPath(path: string): string {
+  if (!path || path === '/') return '/'
+  const i = path.lastIndexOf('/')
+  if (i <= 0) return '/'
+  return path.slice(0, i)
 }
 
-export async function sftpUpload(sessionId: string, localPaths: string[], remoteDir: string): Promise<string> {
-  return invoke('sftp_upload', { sessionId, localPaths, remoteDir })
-}
-
-export async function sftpDownload(sessionId: string, remotePaths: string[], localDir: string): Promise<string> {
-  return invoke('sftp_download', { sessionId, remotePaths, localDir })
-}
-
-export async function sftpCancelTransfer(transferId: string): Promise<void> {
-  return invoke('sftp_cancel_transfer', { transferId })
-}
-
-export async function sftpListTransfers(sessionId: string): Promise<TransferTask[]> {
-  return invoke('sftp_list_transfers', { sessionId })
-}
-
-export async function sftpSetPermissions(sessionId: string, path: string, permissions: number): Promise<void> {
-  return invoke('sftp_set_permissions', { sessionId, path, permissions })
-}
-
-export async function sftpSearch(sessionId: string, path: string, pattern: string): Promise<FileEntry[]> {
-  return invoke('sftp_search', { sessionId, path, pattern })
-}
-
-export function formatFileSize(bytes: number): string {
+/** 字节数格式化为可读字符串 */
+export function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  const size = bytes / Math.pow(1024, i)
-  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
-
-export function formatPermissions(permissions: number): string {
-  const owner = (permissions >> 6) & 7
-  const group = (permissions >> 3) & 7
-  const other = permissions & 7
-  const toRwx = (n: number): string => {
-    let s = ''
-    s += n & 4 ? 'r' : '-'
-    s += n & 2 ? 'w' : '-'
-    s += n & 1 ? 'x' : '-'
-    return s
-  }
-  return toRwx(owner) + toRwx(group) + toRwx(other)
+  const k = 1024
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${(bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }

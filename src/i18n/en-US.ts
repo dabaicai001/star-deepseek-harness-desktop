@@ -113,7 +113,19 @@ export default {
     delete: 'Delete',
     permissions: 'Permissions',
     size: 'Size',
-    modified: 'Modified'
+    modified: 'Modified',
+    name: 'Name',
+    perm: 'Perm',
+    empty: 'Empty folder',
+    up: 'Up',
+    home: 'Home',
+    newFolder: 'New folder',
+    showHidden: 'Show hidden',
+    open: 'Open',
+    newFolderPrompt: 'New folder name:',
+    renamePrompt: 'New name:',
+    confirmDelete: 'Delete "{name}"? This cannot be undone.',
+    dropToUpload: 'Release to upload to current folder'
   },
   db: {
     title: 'Database',

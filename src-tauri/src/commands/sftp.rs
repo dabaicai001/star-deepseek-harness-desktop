@@ -1,230 +1,217 @@
-use std::collections::HashMap;
 use std::sync::Arc;
-use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
-
+use tauri::State;
 use crate::commands::ssh::SshManager;
-use crate::sftp::ops;
-use crate::sftp::session::SftpSessionWrapper;
-use crate::sftp::transfer::TransferManager;
-use crate::sftp::{FileEntry, SftpSessionInfo, TransferTask};
+use crate::ssh::sftp::SftpEntry;
 
-pub struct SftpManager {
-    sessions: Arc<Mutex<HashMap<String, SftpSessionWrapper>>>,
-    transfer: TransferManager,
+fn map_err<E: std::fmt::Display>(e: E) -> String {
+    format!("{}", e)
 }
 
-impl SftpManager {
-    pub fn new(app_handle: AppHandle) -> Self {
-        Self {
-            sessions: Arc::new(Mutex::new(HashMap::new())),
-            transfer: TransferManager::new(app_handle),
+/// 读取远程目录
+#[tauri::command]
+pub async fn sftp_list(
+    manager: State<'_, SshManager>,
+    id: String,
+    path: String,
+) -> Result<Vec<SftpEntry>, String> {
+    let mut sessions = manager.sessions.lock().await;
+    let session = sessions
+        .get_mut(&id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+
+    let read_dir = sftp.read_dir(&path).await.map_err(map_err)?;
+
+    let mut entries: Vec<SftpEntry> = Vec::new();
+    for dir_entry in read_dir {
+        let name = dir_entry.file_name();
+        let metadata = dir_entry.metadata();
+        let full_path = dir_entry.path();
+        let is_dir = metadata.is_dir();
+        let size = if is_dir { 0 } else { metadata.size.unwrap_or(0) };
+        let modified = metadata.mtime.map(|t| (t as u64) * 1000);
+
+        entries.push(SftpEntry {
+            name,
+            path: full_path,
+            is_dir,
+            size,
+            modified,
+            permissions: metadata.permissions.unwrap_or(0),
+            uid: metadata.uid,
+            gid: metadata.gid,
+        });
+    }
+
+    // 目录在前,文件在后,字母序
+    entries.sort_by(|a, b| {
+        match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
         }
-    }
+    });
+
+    Ok(entries)
 }
 
+/// 读文件内容(返回字节)
 #[tauri::command]
-pub async fn sftp_connect(
-    ssh_manager: State<'_, SshManager>,
-    sftp_manager: State<'_, SftpManager>,
-    session_id: String,
-) -> Result<SftpSessionInfo, String> {
-    let ssh_sessions = ssh_manager.sessions.lock().await;
-    let ssh_session = ssh_sessions
-        .get(&session_id)
-        .ok_or_else(|| format!("SSH session not found: {}", session_id))?;
-
-    let wrapper = SftpSessionWrapper::connect(ssh_session, session_id.clone())
-        .await
-        .map_err(|e| format!("SFTP connect failed: {}", e))?;
-
-    sftp_manager
-        .transfer
-        .register_sftp(session_id.clone(), wrapper.sftp())
-        .await;
-
-    let info = SftpSessionInfo {
-        session_id: session_id.clone(),
-        remote_root: "/".to_string(),
-        connected: true,
-    };
-
-    let mut sessions = sftp_manager.sessions.lock().await;
-    sessions.insert(session_id, wrapper);
-
-    Ok(info)
+pub async fn sftp_read(
+    manager: State<'_, SshManager>,
+    id: String,
+    path: String,
+) -> Result<Vec<u8>, String> {
+    let mut sessions = manager.sessions.lock().await;
+    let session = sessions
+        .get_mut(&id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    sftp.read(&path).await.map_err(map_err)
 }
 
+/// 写文件(覆盖)
 #[tauri::command]
-pub async fn sftp_disconnect(
-    sftp_manager: State<'_, SftpManager>,
-    session_id: String,
+pub async fn sftp_write(
+    manager: State<'_, SshManager>,
+    id: String,
+    path: String,
+    data: Vec<u8>,
 ) -> Result<(), String> {
-    let mut sessions = sftp_manager.sessions.lock().await;
+    let mut sessions = manager.sessions.lock().await;
+    let session = sessions
+        .get_mut(&id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    sftp.write(&path, &data).await.map_err(map_err)
+}
 
-    if let Some(wrapper) = sessions.remove(&session_id) {
-        wrapper
-            .disconnect()
-            .await
-            .map_err(|e| format!("SFTP disconnect failed: {}", e))?;
+/// 读文件元数据
+#[tauri::command]
+pub async fn sftp_stat(
+    manager: State<'_, SshManager>,
+    id: String,
+    path: String,
+) -> Result<SftpEntry, String> {
+    let mut sessions = manager.sessions.lock().await;
+    let session = sessions
+        .get_mut(&id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    let metadata = sftp.metadata(&path).await.map_err(map_err)?;
+    let name = std::path::Path::new(&path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&path)
+        .to_string();
+    Ok(SftpEntry {
+        name,
+        path: path.clone(),
+        is_dir: metadata.is_dir(),
+        size: metadata.size.unwrap_or(0),
+        modified: metadata.mtime.map(|t| (t as u64) * 1000),
+        permissions: metadata.permissions.unwrap_or(0),
+        uid: metadata.uid,
+        gid: metadata.gid,
+    })
+}
+
+/// 删除文件(单文件)
+#[tauri::command]
+pub async fn sftp_remove_file(
+    manager: State<'_, SshManager>,
+    id: String,
+    path: String,
+) -> Result<(), String> {
+    let mut sessions = manager.sessions.lock().await;
+    let session = sessions
+        .get_mut(&id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    sftp.remove_file(&path).await.map_err(map_err)
+}
+
+/// 删除目录(空目录)
+#[tauri::command]
+pub async fn sftp_remove_dir(
+    manager: State<'_, SshManager>,
+    id: String,
+    path: String,
+) -> Result<(), String> {
+    let mut sessions = manager.sessions.lock().await;
+    let session = sessions
+        .get_mut(&id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    sftp.remove_dir(&path).await.map_err(map_err)
+}
+
+/// 删除文件或空目录(自动判断)
+#[tauri::command]
+pub async fn sftp_remove(
+    manager: State<'_, SshManager>,
+    id: String,
+    path: String,
+) -> Result<(), String> {
+    let mut sessions = manager.sessions.lock().await;
+    let session = sessions
+        .get_mut(&id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    let metadata = sftp.metadata(&path).await.map_err(map_err)?;
+    if metadata.is_dir() {
+        sftp.remove_dir(&path).await.map_err(map_err)?;
+    } else {
+        sftp.remove_file(&path).await.map_err(map_err)?;
     }
-
-    sftp_manager
-        .transfer
-        .unregister_sftp(&session_id)
-        .await;
-
     Ok(())
 }
 
-#[tauri::command]
-pub async fn sftp_list_dir(
-    sftp_manager: State<'_, SftpManager>,
-    session_id: String,
-    path: String,
-) -> Result<Vec<FileEntry>, String> {
-    let sessions = sftp_manager.sessions.lock().await;
-    let wrapper = sessions
-        .get(&session_id)
-        .ok_or_else(|| format!("SFTP session not found: {}", session_id))?;
-
-    ops::list_dir(&wrapper.sftp(), &path)
-        .await
-        .map_err(|e| format!("list_dir failed: {}", e))
-}
-
+/// 创建目录
 #[tauri::command]
 pub async fn sftp_mkdir(
-    sftp_manager: State<'_, SftpManager>,
-    session_id: String,
+    manager: State<'_, SshManager>,
+    id: String,
     path: String,
 ) -> Result<(), String> {
-    let sessions = sftp_manager.sessions.lock().await;
-    let wrapper = sessions
-        .get(&session_id)
-        .ok_or_else(|| format!("SFTP session not found: {}", session_id))?;
-
-    ops::mkdir(&wrapper.sftp(), &path)
-        .await
-        .map_err(|e| format!("mkdir failed: {}", e))
+    let mut sessions = manager.sessions.lock().await;
+    let session = sessions
+        .get_mut(&id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    sftp.create_dir(&path).await.map_err(map_err)
 }
 
+/// 重命名
 #[tauri::command]
 pub async fn sftp_rename(
-    sftp_manager: State<'_, SftpManager>,
-    session_id: String,
+    manager: State<'_, SshManager>,
+    id: String,
     from: String,
     to: String,
 ) -> Result<(), String> {
-    let sessions = sftp_manager.sessions.lock().await;
-    let wrapper = sessions
-        .get(&session_id)
-        .ok_or_else(|| format!("SFTP session not found: {}", session_id))?;
-
-    ops::rename(&wrapper.sftp(), &from, &to)
-        .await
-        .map_err(|e| format!("rename failed: {}", e))
+    let mut sessions = manager.sessions.lock().await;
+    let session = sessions
+        .get_mut(&id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    sftp.rename(&from, &to).await.map_err(map_err)
 }
 
-#[tauri::command]
-pub async fn sftp_delete(
-    sftp_manager: State<'_, SftpManager>,
-    session_id: String,
-    path: String,
-    is_dir: bool,
-) -> Result<(), String> {
-    let sessions = sftp_manager.sessions.lock().await;
-    let wrapper = sessions
-        .get(&session_id)
-        .ok_or_else(|| format!("SFTP session not found: {}", session_id))?;
-
-    let sftp = wrapper.sftp();
-    if is_dir {
-        ops::delete_dir(&sftp, &path)
-            .await
-            .map_err(|e| format!("delete_dir failed: {}", e))
-    } else {
-        ops::delete_file(&sftp, &path)
-            .await
-            .map_err(|e| format!("delete_file failed: {}", e))
-    }
-}
-
+/// 上传本地文件到远程路径
 #[tauri::command]
 pub async fn sftp_upload(
-    sftp_manager: State<'_, SftpManager>,
-    session_id: String,
-    local_paths: Vec<String>,
-    remote_dir: String,
-) -> Result<String, String> {
-    sftp_manager
-        .transfer
-        .upload(&session_id, local_paths, remote_dir)
-        .await
-        .map_err(|e| format!("upload failed: {}", e))
-}
-
-#[tauri::command]
-pub async fn sftp_download(
-    sftp_manager: State<'_, SftpManager>,
-    session_id: String,
-    remote_paths: Vec<String>,
-    local_dir: String,
-) -> Result<String, String> {
-    sftp_manager
-        .transfer
-        .download(&session_id, remote_paths, local_dir)
-        .await
-        .map_err(|e| format!("download failed: {}", e))
-}
-
-#[tauri::command]
-pub async fn sftp_cancel_transfer(
-    sftp_manager: State<'_, SftpManager>,
-    transfer_id: String,
+    manager: State<'_, SshManager>,
+    id: String,
+    local_path: String,
+    remote_path: String,
 ) -> Result<(), String> {
-    sftp_manager.transfer.cancel(&transfer_id).await;
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn sftp_list_transfers(
-    sftp_manager: State<'_, SftpManager>,
-    session_id: String,
-) -> Result<Vec<TransferTask>, String> {
-    Ok(sftp_manager.transfer.get_tasks(&session_id).await)
-}
-
-#[tauri::command]
-pub async fn sftp_set_permissions(
-    sftp_manager: State<'_, SftpManager>,
-    session_id: String,
-    path: String,
-    permissions: u32,
-) -> Result<(), String> {
-    let sessions = sftp_manager.sessions.lock().await;
-    let wrapper = sessions
-        .get(&session_id)
-        .ok_or_else(|| format!("SFTP session not found: {}", session_id))?;
-
-    ops::set_permissions(&wrapper.sftp(), &path, permissions)
-        .await
-        .map_err(|e| format!("set_permissions failed: {}", e))
-}
-
-#[tauri::command]
-pub async fn sftp_search(
-    sftp_manager: State<'_, SftpManager>,
-    session_id: String,
-    path: String,
-    pattern: String,
-) -> Result<Vec<FileEntry>, String> {
-    let sessions = sftp_manager.sessions.lock().await;
-    let wrapper = sessions
-        .get(&session_id)
-        .ok_or_else(|| format!("SFTP session not found: {}", session_id))?;
-
-    ops::search_files(&wrapper.sftp(), &path, &pattern)
-        .await
-        .map_err(|e| format!("search failed: {}", e))
+    let bytes = std::fs::read(&local_path).map_err(map_err)?;
+    let mut sessions = manager.sessions.lock().await;
+    let session = sessions
+        .get_mut(&id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    sftp.write(&remote_path, &bytes).await.map_err(map_err)
 }

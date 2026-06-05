@@ -139,14 +139,25 @@ impl SshSession {
         Ok(())
     }
 
-    pub async fn open_sftp_channel(&self) -> anyhow::Result<russh::Channel<russh::client::Msg>> {
+    pub async fn open_sftp_channel(&mut self) -> anyhow::Result<russh::Channel<russh::client::Msg>> {
         let handle = self
             .handle
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
         let mut channel = handle.channel_open_session().await?;
         channel.request_subsystem(true, "sftp").await?;
         Ok(channel)
+    }
+
+    /// 打开一个 SFTP session(每次新操作都用新 channel)
+    pub async fn open_sftp(&mut self) -> Result<russh_sftp::client::SftpSession, String> {
+        let channel = self
+            .open_sftp_channel()
+            .await
+            .map_err(|e| format!("Failed to open SFTP channel: {}", e))?;
+        russh_sftp::client::SftpSession::new(channel.into_stream())
+            .await
+            .map_err(|e| format!("Failed to init SFTP session: {}", e))
     }
 
     pub fn disconnect(&mut self) {

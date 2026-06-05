@@ -113,7 +113,19 @@ export default {
     delete: '删除',
     permissions: '权限',
     size: '大小',
-    modified: '修改时间'
+    modified: '修改时间',
+    name: '名称',
+    perm: '权限',
+    empty: '空目录',
+    up: '上一级',
+    home: '家目录',
+    newFolder: '新建文件夹',
+    showHidden: '显示隐藏文件',
+    open: '打开',
+    newFolderPrompt: '新目录名:',
+    renamePrompt: '新名称:',
+    confirmDelete: '确定删除「{name}」?此操作不可撤销。',
+    dropToUpload: '松手上传到当前目录'
   },
   db: {
     title: '数据库',

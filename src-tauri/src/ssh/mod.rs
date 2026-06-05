@@ -1,5 +1,6 @@
 pub mod session;
 pub mod auth;
+pub mod sftp;
 
 use serde::{Deserialize, Serialize};
 

@@ -3,11 +3,9 @@
 mod commands;
 mod db;
 mod sidecar;
-mod sftp;
 mod ssh;
 
 use tauri::Manager;
-use commands::sftp::SftpManager;
 use commands::ssh::SshManager;
 
 fn main() {
@@ -20,8 +18,6 @@ fn main() {
         .manage(SshManager::new())
         .manage(sidecar_manager)
         .setup(|app| {
-            app.manage(SftpManager::new(app.handle().clone()));
-
             // 启动 Sidecar
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -51,18 +47,16 @@ fn main() {
             commands::ssh::ssh_write,
             commands::ssh::ssh_resize,
             commands::ssh::ssh_get_sessions,
-            commands::sftp::sftp_connect,
-            commands::sftp::sftp_disconnect,
-            commands::sftp::sftp_list_dir,
+            commands::sftp::sftp_list,
+            commands::sftp::sftp_read,
+            commands::sftp::sftp_write,
+            commands::sftp::sftp_stat,
+            commands::sftp::sftp_remove,
+            commands::sftp::sftp_remove_file,
+            commands::sftp::sftp_remove_dir,
             commands::sftp::sftp_mkdir,
             commands::sftp::sftp_rename,
-            commands::sftp::sftp_delete,
             commands::sftp::sftp_upload,
-            commands::sftp::sftp_download,
-            commands::sftp::sftp_cancel_transfer,
-            commands::sftp::sftp_list_transfers,
-            commands::sftp::sftp_set_permissions,
-            commands::sftp::sftp_search,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
