@@ -1,0 +1,33 @@
+use anyhow::Result;
+use russh_sftp::client::SftpSession;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+use crate::ssh::session::SshSession;
+
+pub struct SftpSessionWrapper {
+    pub session_id: String,
+    sftp: Arc<Mutex<SftpSession>>,
+}
+
+impl SftpSessionWrapper {
+    pub async fn connect(ssh_session: &SshSession, session_id: String) -> Result<Self> {
+        let channel = ssh_session.open_sftp_channel().await?;
+        let stream = channel.into_stream();
+        let sftp = SftpSession::new(stream).await?;
+        Ok(Self {
+            session_id,
+            sftp: Arc::new(Mutex::new(sftp)),
+        })
+    }
+
+    pub fn sftp(&self) -> Arc<Mutex<SftpSession>> {
+        self.sftp.clone()
+    }
+
+    pub async fn disconnect(&self) -> Result<()> {
+        let sftp = self.sftp.lock().await;
+        sftp.close().await?;
+        Ok(())
+    }
+}

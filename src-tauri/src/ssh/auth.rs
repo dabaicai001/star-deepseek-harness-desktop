@@ -1,18 +1,16 @@
 use russh::client;
-use std::sync::Arc;
+use russh::keys::PublicKey;
 
-pub struct SshHandler {
-    pub host_key_verification: bool,
-}
+pub struct SshHandler;
 
 impl client::Handler for SshHandler {
     type Error = anyhow::Error;
 
     async fn check_server_key(
-        &self,
-        _server_public_key: &ssh_key::PublicKey,
+        &mut self,
+        _server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
-        // TODO: 实现主机指纹验证
+        // TODO: Implement proper known_hosts verification
         Ok(true)
     }
 }
