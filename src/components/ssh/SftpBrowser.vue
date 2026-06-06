@@ -20,6 +20,8 @@ const { t } = useI18n()
 
 const props = defineProps<{
   sessionId: string
+  /** SSH session 是否已就绪(true 后才会真正调 sftpList) */
+  ready?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -35,6 +37,64 @@ const errorMsg = ref<string | null>(null)
 const pathInput = ref('')
 const showHidden = ref(false)
 const isDragging = ref(false)
+
+// ====== 路径栏双模切换 ======
+const pathEditing = ref(false)
+
+function startPathEdit() {
+  pathEditing.value = true
+  pathInput.value = currentPath.value
+  // nextTick 聚焦并选中
+  setTimeout(() => {
+    const el = document.querySelector('.path-input') as HTMLInputElement | null
+    if (el) { el.focus(); el.select() }
+  }, 0)
+}
+
+function commitPathEdit() {
+  pathEditing.value = false
+  navigateToPath()
+}
+
+function cancelPathEdit() {
+  pathEditing.value = false
+}
+
+// ====== 列宽拖拽 ======
+const COL_MIN = { size: 50, perms: 60, date: 90 }
+const colWidths = ref({ size: 80, perms: 90, date: 130 })
+const resizingCol = ref<string | null>(null)
+let resizeStartX = 0
+let resizeStartW = 0
+
+function onColResizeStart(e: MouseEvent, col: 'size' | 'perms' | 'date') {
+  e.preventDefault()
+  resizingCol.value = col
+  resizeStartX = e.clientX
+  resizeStartW = colWidths.value[col]
+  document.addEventListener('mousemove', onColResizeMove)
+  document.addEventListener('mouseup', onColResizeEnd)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+function onColResizeMove(e: MouseEvent) {
+  if (!resizingCol.value) return
+  const delta = e.clientX - resizeStartX
+  const col = resizingCol.value as 'size' | 'perms' | 'date'
+  const min = COL_MIN[col]
+  colWidths.value[col] = Math.max(min, resizeStartW + delta)
+}
+
+function onColResizeEnd() {
+  resizingCol.value = null
+  document.removeEventListener('mousemove', onColResizeMove)
+  document.removeEventListener('mouseup', onColResizeEnd)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
+const gridCols = computed(() => `1fr ${colWidths.value.size}px ${colWidths.value.perms}px ${colWidths.value.date}px`)
 
 const isAtRoot = computed(() => currentPath.value === '/' || currentPath.value === '')
 
@@ -267,11 +327,21 @@ function fmtPerms(p: number) {
   return s((p >> 6) & 7) + s((p >> 3) & 7) + s(p & 7)
 }
 
-// 初始加载
-onMounted(() => load())
+// 初始加载:只有 ready=true 才发请求,避免在 SSH 还在 connecting 阶段去打
+// 后端(那时候 manager.sessions 里还没有这条 id,会立刻拿到 "Session not found")
+onMounted(() => {
+  if (props.ready) load()
+})
 
 // 监听 sessionId 变化(同一个组件实例被复用)
-watch(() => props.sessionId, () => load())
+watch(() => props.sessionId, () => {
+  if (props.ready) load()
+})
+
+// SSH session 就绪后,自动 load 一次
+watch(() => props.ready, (now, prev) => {
+  if (now && !prev) load()
+})
 </script>
 
 <template>
@@ -304,42 +374,67 @@ watch(() => props.sessionId, () => load())
       </label>
     </div>
 
-    <!-- 路径栏(面包屑 + 可编辑) -->
+    <!-- 路径栏(双模:面包屑 ↔ 输入框) -->
     <div class="sftp-path">
-      <div class="breadcrumbs">
-        <span class="crumb root" @click="goBreadcrumb(-1)">
-          <v-icon size="11">mdi-server</v-icon>
-        </span>
-        <span
-          v-for="(crumb, idx) in breadcrumbs"
-          :key="crumb.path"
-          class="crumb"
-          @click="goBreadcrumb(idx)"
-        >
-          <v-icon size="9" class="sep">mdi-chevron-right</v-icon>
-          {{ crumb.name }}
-        </span>
-      </div>
-      <input
-        v-model="pathInput"
-        type="text"
-        class="cyber-input mono path-input"
-        :placeholder="'/path/to/dir'"
-        @keydown.enter="navigateToPath"
-      />
+      <template v-if="!pathEditing">
+        <div class="breadcrumbs" @dblclick="startPathEdit">
+          <span class="crumb root" @click="goBreadcrumb(-1)">
+            <v-icon size="11">mdi-server</v-icon>
+          </span>
+          <span
+            v-for="(crumb, idx) in breadcrumbs"
+            :key="crumb.path"
+            class="crumb"
+            :class="{ last: idx === breadcrumbs.length - 1 }"
+            @click="goBreadcrumb(idx)"
+            @dblclick.stop="startPathEdit"
+          >
+            <v-icon size="9" class="sep">mdi-chevron-right</v-icon>
+            {{ crumb.name }}
+          </span>
+        </div>
+        <button class="action-btn edit-path-btn" data-tooltip="编辑路径" @click="startPathEdit">
+          <v-icon size="12">mdi-pencil</v-icon>
+        </button>
+      </template>
+      <template v-else>
+        <input
+          ref="pathInputRef"
+          v-model="pathInput"
+          type="text"
+          class="cyber-input mono path-input"
+          :placeholder="'/path/to/dir'"
+          @keydown.enter="commitPathEdit"
+          @keydown.esc="cancelPathEdit"
+          @blur="cancelPathEdit"
+        />
+      </template>
     </div>
 
-    <!-- 表头 -->
-    <div class="sftp-head">
+    <!-- 表头(可拖拽列宽) -->
+    <div class="sftp-head" :style="{ gridTemplateColumns: gridCols }">
       <div class="col col-name">{{ t('sftp.name') ?? 'Name' }}</div>
-      <div class="col col-size">{{ t('sftp.size') ?? 'Size' }}</div>
-      <div class="col col-perms">{{ t('sftp.perm') ?? 'Perm' }}</div>
-      <div class="col col-date">{{ t('sftp.modified') ?? 'Modified' }}</div>
+      <div class="col col-size">
+        {{ t('sftp.size') ?? 'Size' }}
+        <span class="col-resize" @mousedown="onColResizeStart($event, 'size')" />
+      </div>
+      <div class="col col-perms">
+        {{ t('sftp.perm') ?? 'Perm' }}
+        <span class="col-resize" @mousedown="onColResizeStart($event, 'perms')" />
+      </div>
+      <div class="col col-date">
+        {{ t('sftp.modified') ?? 'Modified' }}
+        <span class="col-resize" @mousedown="onColResizeStart($event, 'date')" />
+      </div>
     </div>
 
     <!-- 文件列表 -->
     <div class="sftp-list">
-      <div v-if="loading" class="sftp-state">
+      <div v-if="!ready" class="sftp-state">
+        <v-icon size="20" color="muted" class="spin">mdi-loading</v-icon>
+        <span>{{ t('ssh.connecting') ?? '等待 SSH 连接...' }}</span>
+      </div>
+      <div v-else-if="loading" class="sftp-state">
         <v-icon size="20" class="spin">mdi-loading</v-icon>
         <span>{{ t('common.loading') }}</span>
       </div>
@@ -355,6 +450,7 @@ watch(() => props.sessionId, () => load())
         v-for="entry in sortedEntries"
         :key="entry.path"
         class="sftp-row"
+        :style="{ gridTemplateColumns: gridCols }"
         :data-tooltip="entry.path"
         @dblclick="onEntryDblClick(entry)"
         @contextmenu="openContextMenu($event, entry)"
@@ -518,7 +614,6 @@ watch(() => props.sessionId, () => load())
 /* 表头 */
 .sftp-head {
   display: grid;
-  grid-template-columns: 1fr 80px 90px 130px;
   gap: 8px;
   padding: 6px 12px;
   background: rgba(10, 14, 26, 0.4);
@@ -529,6 +624,22 @@ watch(() => props.sessionId, () => load())
   letter-spacing: 0.08em;
   font-weight: 700;
   flex-shrink: 0;
+}
+
+.col-resize {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.col-resize:hover,
+.col-resize:active {
+  background: var(--cyan);
+  opacity: 0.4;
 }
 
 /* 列表 */
@@ -554,7 +665,6 @@ watch(() => props.sessionId, () => load())
 
 .sftp-row {
   display: grid;
-  grid-template-columns: 1fr 80px 90px 130px;
   gap: 8px;
   padding: 6px 12px;
   font-size: 12px;
@@ -574,12 +684,28 @@ watch(() => props.sessionId, () => load())
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  position: relative;
 }
 
 .col-name {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.edit-path-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+}
+
+.crumb.last {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.crumb.last:hover {
+  text-decoration: underline;
 }
 
 .col-name .name {

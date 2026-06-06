@@ -412,7 +412,7 @@ function handleSearch() {
         class="sftp-pane"
         :style="{ flex: `0 0 ${sftpPercent}%` }"
       >
-        <SftpBrowser :session-id="id" />
+        <SftpBrowser :session-id="id" :ready="connected" />
       </div>
     </div>
   </div>
