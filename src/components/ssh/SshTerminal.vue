@@ -26,6 +26,71 @@ let unlistenClose: (() => void) | null = null
 let connectedAt = 0
 let timerId: number | null = null
 
+// SFTP 分栏宽度(终端:SFTP),默认 65:35,从 localStorage 记忆
+const SPLIT_KEY = 'starhub.ssh.split'
+const splitPercent = ref<number>(loadSplit())
+
+function loadSplit(): number {
+  try {
+    const v = localStorage.getItem(SPLIT_KEY)
+    if (!v) return 65
+    const n = Number(v)
+    if (Number.isFinite(n) && n >= 30 && n <= 85) return n
+  } catch {}
+  return 65
+}
+
+function saveSplit(n: number) {
+  try { localStorage.setItem(SPLIT_KEY, String(Math.round(n))) } catch {}
+}
+
+const isDragging = ref(false)
+let dragStartX = 0
+let dragStartPercent = 0
+
+function onDividerPointerDown(e: PointerEvent) {
+  if (!splitEnabled.value) return
+  e.preventDefault()
+  isDragging.value = true
+  dragStartX = e.clientX
+  dragStartPercent = splitPercent.value
+  ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+function onDividerPointerMove(e: PointerEvent) {
+  if (!isDragging.value) return
+  const workspace = (e.target as HTMLElement).closest('.workspace') as HTMLElement | null
+  if (!workspace) return
+  const w = workspace.getBoundingClientRect().width
+  if (w <= 0) return
+  const deltaPercent = ((e.clientX - dragStartX) / w) * 100
+  // dragStartPercent 是 terminal 占的百分比
+  const next = Math.min(85, Math.max(30, dragStartPercent + deltaPercent))
+  splitPercent.value = next
+}
+
+function onDividerPointerUp(e: PointerEvent) {
+  if (!isDragging.value) return
+  isDragging.value = false
+  try { (e.target as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  saveSplit(splitPercent.value)
+  // 拖完通知 terminal 重排(xterm cols)
+  requestAnimationFrame(() => terminalRef.value?.fit())
+}
+
+function resetSplit() {
+  splitPercent.value = 65
+  saveSplit(65)
+  requestAnimationFrame(() => terminalRef.value?.fit())
+}
+
+const sftpPercent = computed(() => 100 - splitPercent.value)
+const splitEnabled = computed(() => showSftp.value)
+
 const statusKind = computed<'connecting' | 'online' | 'offline' | 'error'>(() => {
   if (connecting.value) return 'connecting'
   if (connected.value) return 'online'
@@ -273,30 +338,6 @@ function handleSearch() {
           <v-icon size="14">mdi-broom</v-icon>
         </button>
 
-        <div class="divider" />
-
-        <!-- 重连 -->
-        <button
-          class="action-btn"
-          :data-tooltip="t('asset.connect')"
-          :disabled="connecting || !asset"
-          @click="connect"
-        >
-          <v-icon size="14">mdi-connection</v-icon>
-        </button>
-
-        <!-- 断开 -->
-        <button
-          class="action-btn danger"
-          :data-tooltip="t('asset.disconnect')"
-          :disabled="!connected"
-          @click="disconnect"
-        >
-          <v-icon size="14">mdi-power-standby</v-icon>
-        </button>
-
-        <span class="divider" />
-
         <button
           class="action-btn"
           :class="{ active: showSftp }"
@@ -306,15 +347,40 @@ function handleSearch() {
           <v-icon size="14">mdi-folder-network-outline</v-icon>
         </button>
 
+        <span class="divider" />
+
+        <!-- 状态 + 重连/断开(紧挨状态) -->
         <span class="status" :class="statusKind">
           <span class="dot" />
           {{ statusText }}
         </span>
+
+        <button
+          class="action-btn reconnect-btn"
+          :data-tooltip="t('asset.connect')"
+          :disabled="connecting || !asset"
+          @click="connect"
+        >
+          <v-icon size="14">mdi-connection</v-icon>
+        </button>
+
+        <button
+          class="action-btn disconnect-btn"
+          :class="{ 'pulse-danger': connected }"
+          :data-tooltip="t('asset.disconnect')"
+          :disabled="!connected"
+          @click="disconnect"
+        >
+          <v-icon size="14">mdi-power-standby</v-icon>
+        </button>
       </div>
     </div>
 
-    <div class="workspace" :class="{ 'with-sftp': showSftp }">
-      <div class="terminal-pane">
+    <div class="workspace" :class="{ 'with-sftp': showSftp, dragging: isDragging }">
+      <div
+        class="terminal-pane"
+        :style="showSftp ? { flex: `0 0 ${splitPercent}%` } : undefined"
+      >
         <TerminalPane
           ref="terminalRef"
           :session-id="id"
@@ -325,8 +391,27 @@ function handleSearch() {
           @resize="handleResize"
         />
       </div>
-      <div v-if="showSftp" class="pane-divider" />
-      <div v-if="showSftp" class="sftp-pane">
+      <div
+        v-if="showSftp"
+        class="pane-divider"
+        :class="{ active: isDragging }"
+        role="separator"
+        aria-orientation="vertical"
+        :aria-valuenow="Math.round(splitPercent)"
+        :title="`拖动调整 · 终端 ${Math.round(splitPercent)}% / SFTP ${Math.round(sftpPercent)}% · 双击重置`"
+        @pointerdown="onDividerPointerDown"
+        @pointermove="onDividerPointerMove"
+        @pointerup="onDividerPointerUp"
+        @pointercancel="onDividerPointerUp"
+        @dblclick="resetSplit"
+      >
+        <span class="divider-grip" />
+      </div>
+      <div
+        v-if="showSftp"
+        class="sftp-pane"
+        :style="{ flex: `0 0 ${sftpPercent}%` }"
+      >
         <SftpBrowser :session-id="id" />
       </div>
     </div>
@@ -354,6 +439,7 @@ function handleSearch() {
   display: flex;
   flex-direction: row;
   overflow: hidden;
+  position: relative;
 }
 
 .workspace:not(.with-sftp) .terminal-pane {
@@ -361,11 +447,16 @@ function handleSearch() {
 }
 
 .terminal-pane {
-  flex: 1 1 50%;
   min-width: 0;
   min-height: 0;
   padding: 8px;
   display: flex;
+  transition: flex-basis 0s; /* 拖拽时不带过渡,跟手 */
+}
+
+.workspace:not(.dragging) .terminal-pane,
+.workspace:not(.dragging) .sftp-pane {
+  transition: flex-basis 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .terminal-pane > :deep(.terminal-container) {
@@ -373,8 +464,7 @@ function handleSearch() {
 }
 
 .sftp-pane {
-  flex: 1 1 50%;
-  min-width: 320px;
+  min-width: 240px;
   min-height: 0;
   border-left: 1px solid var(--line-2);
   display: flex;
@@ -382,24 +472,60 @@ function handleSearch() {
   background: var(--bg-2);
 }
 
+/* 可拖拽分隔条 */
 .pane-divider {
-  width: 1px;
-  background: var(--line-2);
+  width: 6px;
   flex-shrink: 0;
+  cursor: col-resize;
   position: relative;
+  background: transparent;
+  z-index: 2;
+  /* 命中区域加大,方便抓取 */
+  margin: 0 -2px;
 }
 
 .pane-divider::before {
   content: "";
   position: absolute;
-  inset: 0;
-  background: var(--grad-primary);
-  opacity: 0;
-  transition: opacity 0.2s;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--line-2);
+  transform: translateX(-50%);
+  transition: background 0.15s, width 0.15s, box-shadow 0.15s;
 }
 
-.workspace:hover .pane-divider::before {
-  opacity: 0.3;
+.pane-divider:hover::before,
+.pane-divider.active::before {
+  background: var(--cyan);
+  width: 2px;
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.45);
+}
+
+/* 中间的握把点(3 个竖点) */
+.divider-grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 28px;
+  border-radius: 1px;
+  background: var(--cyan);
+  opacity: 0;
+  transition: opacity 0.2s, height 0.2s;
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.4);
+}
+
+.pane-divider:hover .divider-grip,
+.pane-divider.active .divider-grip {
+  opacity: 0.7;
+}
+
+.pane-divider.active .divider-grip {
+  height: 40px;
+  opacity: 1;
 }
 
 .action-btn.active {
@@ -432,6 +558,37 @@ function handleSearch() {
   background: rgba(255, 77, 109, 0.12);
   color: var(--red);
   border-color: rgba(255, 77, 109, 0.3);
+}
+
+.reconnect-btn:not([disabled]) {
+  color: var(--green);
+  border-color: rgba(80, 250, 123, 0.25);
+}
+
+.reconnect-btn:not([disabled]):hover {
+  background: rgba(80, 250, 123, 0.12);
+  border-color: rgba(80, 250, 123, 0.4);
+  box-shadow: 0 0 8px rgba(80, 250, 123, 0.2);
+}
+
+.disconnect-btn:not([disabled]) {
+  color: var(--red);
+  border-color: rgba(255, 77, 109, 0.25);
+}
+
+.disconnect-btn:not([disabled]):hover {
+  background: rgba(255, 77, 109, 0.12);
+  border-color: rgba(255, 77, 109, 0.4);
+  box-shadow: 0 0 8px rgba(255, 77, 109, 0.2);
+}
+
+.disconnect-btn.pulse-danger {
+  animation: pulse-red 2s infinite;
+}
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 6px rgba(255, 77, 109, 0.25); }
 }
 
 .search-wrap {

@@ -133,13 +133,18 @@ function setFontSize(size: number) {
   }
 }
 
+function fit() {
+  fitAddon?.fit()
+}
+
 defineExpose({
   write,
   writeln,
   clear,
   focus,
   search,
-  setFontSize
+  setFontSize,
+  fit
 })
 </script>
 
