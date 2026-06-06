@@ -486,8 +486,7 @@ function isGroupExpanded(id: string) {
 .asset-tree.collapsed .tree-item .status-dot,
 .asset-tree.collapsed .tree-item .action-btn,
 .asset-tree.collapsed .tree-empty span,
-.asset-tree.collapsed .empty-state-title,
-.asset-tree.collapsed .empty-state-desc {
+.asset-tree.collapsed .empty-state {
   display: none;
 }
 
