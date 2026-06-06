@@ -111,3 +111,32 @@ pub async fn ssh_get_sessions(
         .collect();
     Ok(infos)
 }
+
+/// 测试 SSH 连接:不写入 SshManager,connect 完立即 disconnect,仅返回成功/失败
+#[tauri::command]
+pub async fn test_ssh_connection(
+    config: SshConfig,
+) -> Result<serde_json::Value, String> {
+    use std::time::Duration;
+    let mut session = SshSession::new(config.clone());
+
+    let start = std::time::Instant::now();
+    if let Err(e) = session.connect().await {
+        return Ok(serde_json::json!({
+            "ok": false,
+            "message": e,
+        }));
+    }
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+    // 主动断开
+    session.disconnect();
+    // 给一点时间让 disconnect 走完(它是 spawn 出去的)
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    Ok(serde_json::json!({
+        "ok": true,
+        "message": format!("OK in {}ms ({}@{}:{})", elapsed_ms, config.username, config.host, config.port),
+        "elapsed_ms": elapsed_ms,
+    }))
+}

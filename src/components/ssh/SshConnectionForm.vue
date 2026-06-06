@@ -71,16 +71,17 @@ async function onTestConnection() {
   testMessage.value = ''
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    const result = await invoke<{ ok: boolean; message?: string }>('test_ssh_connection', {
-      host: host.value,
-      port: port.value,
-      username: username.value,
-      password: authType.value === 'password' ? password.value : undefined,
-      privateKey: authType.value === 'key' ? privateKey.value : undefined,
-      passphrase: authType.value === 'key' ? passphrase.value : undefined
-    })
+    // 组装 SshConfig:{ host, port, username, auth: SshAuth }
+    const auth = authType.value === 'password'
+      ? { Password: password.value || '' }
+      : { PrivateKey: { key: privateKey.value, passphrase: passphrase.value || null } }
+    const result = await invoke<{ ok: boolean; message?: string; elapsed_ms?: number }>(
+      'test_ssh_connection',
+      { config: { host: host.value, port: port.value, username: username.value, auth } }
+    )
     testStatus.value = result.ok ? 'success' : 'fail'
-    testMessage.value = result.message ?? (result.ok ? t('ssh.testSuccess') : t('ssh.testFail'))
+    const ms = result.elapsed_ms != null ? ` (${result.elapsed_ms}ms)` : ''
+    testMessage.value = (result.message ?? (result.ok ? t('ssh.testSuccess') : t('ssh.testFail'))) + ms
   } catch (err: unknown) {
     testStatus.value = 'fail'
     testMessage.value = err instanceof Error ? err.message : String(err)
