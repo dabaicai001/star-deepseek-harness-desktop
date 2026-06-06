@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
@@ -216,12 +216,36 @@ function onAssetKeydown(e: KeyboardEvent, asset: Asset) {
 }
 
 // ====== 折叠/展开分组(SSH / DB / DOCKER / 收藏) ======
-const expandedGroups = ref<Record<string, boolean>>({
+// 持久化到 localStorage,这样刷新页面 / 重启 app 之后,用户折叠过的
+// 分组不会被强制展开。默认全部展开,首次启动会写入 localStorage。
+const GROUP_EXPAND_KEY = 'starhub.assetTree.expanded'
+const GROUP_DEFAULTS: Record<string, boolean> = {
   favorite: true,
   ssh: true,
   db: true,
   docker: true
-})
+}
+
+function loadExpanded(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(GROUP_EXPAND_KEY)
+    if (!raw) return { ...GROUP_DEFAULTS }
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return { ...GROUP_DEFAULTS }
+    // 用默认填充缺失 key,避免旧版数据/手工改动造成 undefined
+    return { ...GROUP_DEFAULTS, ...parsed }
+  } catch {
+    return { ...GROUP_DEFAULTS }
+  }
+}
+
+const expandedGroups = ref<Record<string, boolean>>(loadExpanded())
+
+// deep watch:toggleGroup 是直接改子属性,ref 引用没变也能捕获
+watch(expandedGroups, (v) => {
+  try { localStorage.setItem(GROUP_EXPAND_KEY, JSON.stringify(v)) } catch {}
+}, { deep: true })
+
 function toggleGroup(id: string) {
   expandedGroups.value[id] = !expandedGroups.value[id]
 }
