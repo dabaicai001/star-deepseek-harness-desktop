@@ -18,6 +18,17 @@
 - ✨ feat(sftp): 文件预览（文本 + 图片）
 - ✨ feat(sftp): 右键上下文菜单
 - ✨ feat(sftp): 面包屑路径导航
+- ✨ feat(ssh): 终端 / SFTP 分栏可拖拽（默认 65:35,记忆到 localStorage,双击重置）
+- ✨ feat(layout): 标签页右键菜单 + Ctrl/Cmd+W 关闭 + 鼠标中键关闭
+
+### 修复
+- 🐛 fix(ssh): 「测试连接」按钮不可用 —— 后端缺少 `test_ssh_connection` 命令
+- 🐛 fix(sftp): 冷启动首次进入 SSH 标签,SFTP 报 "Session not found" —— SftpBrowser 等待 SSH connected=true 后再发 sftpList
+
+### 改进
+- 🎨 style(design-system): SSH 表单 host/port 比例收紧(端口固定 90px)
+- 🎨 style(layout): 顶部"+"按钮克制化、状态栏增加 SFTP 计数、欢迎页 4 卡 + P0/P1 chip
+- 🎨 style(layout): 状态栏时钟改 1s 间隔 HH:MM:SS,标签页关闭按钮默认半透明
 
 ### 计划中
 - Tauri 2 + Vue 3 + Rust + Go 项目脚手架
