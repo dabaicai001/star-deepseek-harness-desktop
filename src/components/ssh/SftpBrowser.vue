@@ -61,13 +61,39 @@ function cancelPathEdit() {
 }
 
 // ====== 列宽拖拽 ======
-const COL_MIN = { size: 50, perms: 60, date: 90 }
-const colWidths = ref({ size: 80, perms: 90, date: 130 })
-const resizingCol = ref<string | null>(null)
+// name 列用 minmax(nameMin, 1fr):保证最小可读宽度,剩余空间全部让给文件名
+// size / perms / date 是固定 px,可拖 handle 改 px
+// 拖 name 的 handle 时改的是 nameMin(列名仍可弹性放大)
+type ColKey = 'name' | 'size' | 'perms' | 'date'
+const COL_MIN: Record<ColKey, number> = { name: 100, size: 50, perms: 60, date: 90 }
+const COL_KEY = 'starhub.sftp.cols'
+const colWidths = ref<Record<ColKey, number>>(loadColWidths())
+const resizingCol = ref<ColKey | null>(null)
 let resizeStartX = 0
 let resizeStartW = 0
 
-function onColResizeStart(e: MouseEvent, col: 'size' | 'perms' | 'date') {
+function loadColWidths(): Record<ColKey, number> {
+  const defaults: Record<ColKey, number> = { name: 140, size: 80, perms: 90, date: 130 }
+  try {
+    const raw = localStorage.getItem(COL_KEY)
+    if (!raw) return defaults
+    const parsed = JSON.parse(raw)
+    const out: Record<ColKey, number> = { ...defaults }
+    for (const k of Object.keys(defaults) as ColKey[]) {
+      const v = Number(parsed?.[k])
+      if (Number.isFinite(v) && v >= COL_MIN[k]) out[k] = v
+    }
+    return out
+  } catch {
+    return defaults
+  }
+}
+
+function saveColWidths() {
+  try { localStorage.setItem(COL_KEY, JSON.stringify(colWidths.value)) } catch {}
+}
+
+function onColResizeStart(e: MouseEvent, col: ColKey) {
   e.preventDefault()
   resizingCol.value = col
   resizeStartX = e.clientX
@@ -81,20 +107,25 @@ function onColResizeStart(e: MouseEvent, col: 'size' | 'perms' | 'date') {
 function onColResizeMove(e: MouseEvent) {
   if (!resizingCol.value) return
   const delta = e.clientX - resizeStartX
-  const col = resizingCol.value as 'size' | 'perms' | 'date'
+  const col = resizingCol.value
   const min = COL_MIN[col]
   colWidths.value[col] = Math.max(min, resizeStartW + delta)
 }
 
 function onColResizeEnd() {
+  if (!resizingCol.value) return
   resizingCol.value = null
   document.removeEventListener('mousemove', onColResizeMove)
   document.removeEventListener('mouseup', onColResizeEnd)
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
+  saveColWidths()
 }
 
-const gridCols = computed(() => `1fr ${colWidths.value.size}px ${colWidths.value.perms}px ${colWidths.value.date}px`)
+// name 列的 1fr 自适应填满,其他列固定
+const gridCols = computed(() =>
+  `minmax(${colWidths.value.name}px, 1fr) ${colWidths.value.size}px ${colWidths.value.perms}px ${colWidths.value.date}px`
+)
 
 const isAtRoot = computed(() => currentPath.value === '/' || currentPath.value === '')
 
@@ -413,7 +444,10 @@ watch(() => props.ready, (now, prev) => {
 
     <!-- 表头(可拖拽列宽) -->
     <div class="sftp-head" :style="{ gridTemplateColumns: gridCols }">
-      <div class="col col-name">{{ t('sftp.name') ?? 'Name' }}</div>
+      <div class="col col-name">
+        {{ t('sftp.name') ?? 'Name' }}
+        <span class="col-resize" @mousedown="onColResizeStart($event, 'name')" />
+      </div>
       <div class="col col-size">
         {{ t('sftp.size') ?? 'Size' }}
         <span class="col-resize" @mousedown="onColResizeStart($event, 'size')" />
