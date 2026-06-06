@@ -11,6 +11,7 @@ export default {
     loading: '加载中...',
     noData: '暂无数据',
     confirm: '确认',
+    soon: '即将推出',
     success: '成功',
     error: '错误',
     warning: '警告',

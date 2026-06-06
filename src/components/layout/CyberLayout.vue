@@ -108,6 +108,61 @@ const filteredAssets = computed(() => {
   )
 })
 
+// ====== 顶部菜单 ======
+// 每个菜单项一个统一结构:key 决定 action。
+// - 路由跳转 / 打开 NewConnectionDialog / disabled 三个动作
+// - active 由当前路由名决定
+type MenuAction =
+  | { kind: 'route', name: 'home' | 'settings' }
+  | { kind: 'newConnection' }
+  | { kind: 'disabled' }
+
+const currentRouteName = computed(() => router.currentRoute.value.name as string | undefined)
+
+interface TopMenuItem {
+  key: string
+  label: string
+  i18n: string
+  action: MenuAction
+}
+
+const topMenus: TopMenuItem[] = [
+  { key: 'home',       label: '首页',     i18n: 'common.home', action: { kind: 'route', name: 'home' } },
+  { key: 'assets',     label: '资产中心', i18n: 'asset.title', action: { kind: 'route', name: 'home' } },
+  { key: 'terminal',   label: '终端',     i18n: 'ssh.terminal', action: { kind: 'newConnection' } },
+  { key: 'db',         label: '数据库',   i18n: 'db.title', action: { kind: 'newConnection' } },
+  { key: 'docker',     label: 'Docker',   i18n: 'docker.title', action: { kind: 'newConnection' } },
+  { key: 'ai',         label: 'AI 助手',  i18n: 'ai.title', action: { kind: 'disabled' } }
+]
+
+function isMenuActive(item: TopMenuItem): boolean {
+  if (item.action.kind !== 'route') return false
+  const name = item.action.name
+  // home 也覆盖 settings(欢迎页语义)
+  if (name === 'home') {
+    return currentRouteName.value === 'home' || currentRouteName.value === 'settings'
+  }
+  return currentRouteName.value === name
+}
+
+function isMenuDisabled(item: TopMenuItem): boolean {
+  return item.action.kind === 'disabled'
+}
+
+function onMenuClick(item: TopMenuItem) {
+  if (isMenuDisabled(item)) return
+  switch (item.action.kind) {
+    case 'route':
+      router.push({ name: item.action.name })
+      break
+    case 'newConnection':
+      // 跳回 home + 弹新建连接弹窗,等各类型路由/适配器实现后再细化
+      if (currentRouteName.value !== 'home') router.push({ name: 'home' })
+      showNewConnection.value = true
+      break
+  }
+}
+
 const sshAssets = computed(() => filteredAssets.value.filter(a => a.type === 'ssh'))
 const dbAssets = computed(() => filteredAssets.value.filter(a => a.type === 'db'))
 const dockerAssets = computed(() => filteredAssets.value.filter(a => a.type === 'docker'))
@@ -400,12 +455,19 @@ vueWatch(() => appStore.tabs.length, () => {
 
     <!-- Menu Bar -->
     <div class="menubar">
-      <div class="menu-item active">{{ t('common.home') }}</div>
-      <div class="menu-item">{{ t('asset.title') }}</div>
-      <div class="menu-item">{{ t('ssh.terminal') }}</div>
-      <div class="menu-item">{{ t('db.title') }}</div>
-      <div class="menu-item">{{ t('docker.title') }}</div>
-      <div class="menu-item">{{ t('ai.title') }}</div>
+      <button
+        v-for="item in topMenus"
+        :key="item.key"
+        type="button"
+        class="menu-item"
+        :class="{ active: isMenuActive(item), disabled: isMenuDisabled(item) }"
+        :disabled="isMenuDisabled(item)"
+        :aria-current="isMenuActive(item) ? 'page' : undefined"
+        :data-tooltip="isMenuDisabled(item) ? t('common.soon') || '即将推出' : undefined"
+        @click="onMenuClick(item)"
+      >
+        {{ t(item.i18n) }}
+      </button>
       
       <div class="tab-strip-wrap">
         <button
@@ -786,16 +848,46 @@ kbd {
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1;
+  position: relative;
 }
 
-.menu-item:hover {
+.menu-item:hover:not(:disabled):not(.disabled) {
   background: rgba(0, 240, 255, 0.06);
   color: var(--text);
+}
+
+.menu-item:focus-visible {
+  outline: none;
+  border-color: rgba(0, 240, 255, 0.4);
+  background: rgba(0, 240, 255, 0.06);
 }
 
 .menu-item.active {
   color: var(--cyan);
   background: rgba(0, 240, 255, 0.1);
+}
+
+.menu-item.active::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 1px;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+
+.menu-item.disabled,
+.menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .tab-strip {
