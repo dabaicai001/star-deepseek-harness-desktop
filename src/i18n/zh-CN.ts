@@ -73,7 +73,11 @@ export default {
   sidebar: {
     collapse: '收起侧边栏',
     expand: '展开侧边栏',
-    newConnection: '新建连接'
+    newConnection: '新建连接',
+    dragToResize: '拖动可调整宽度',
+    clickToExpand: '点击展开',
+    adjustingWidth: '调整中',
+    resetHint: '双击重置为 260px'
   },
   ssh: {
     title: 'SSH',

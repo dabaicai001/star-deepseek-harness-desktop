@@ -73,7 +73,11 @@ export default {
   sidebar: {
     collapse: 'Collapse sidebar',
     expand: 'Expand sidebar',
-    newConnection: 'New connection'
+    newConnection: 'New connection',
+    dragToResize: 'Drag to resize',
+    clickToExpand: 'Click to expand',
+    adjustingWidth: 'Adjusting',
+    resetHint: 'Double-click to reset 260px'
   },
   ssh: {
     title: 'SSH',
