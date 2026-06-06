@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
@@ -12,6 +12,30 @@ const router = useRouter()
 const assetStore = useAssetStore()
 const appStore = useAppStore()
 const showNewConnection = ref(false)
+
+// 最近用过的资产:按 lastUsedAt 倒序,只取有记录的,最多 6 条
+const recentAssets = computed<Asset[]>(() => {
+  return [...assetStore.assets]
+    .filter(a => typeof a.lastUsedAt === 'number')
+    .sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))
+    .slice(0, 6)
+})
+
+function relativeTime(ms: number | null | undefined): string {
+  if (!ms) return ''
+  const diff = Date.now() - ms
+  if (diff < 0) return ''
+  const min = Math.floor(diff / 60000)
+  if (min < 1) return t('common.justNow') ?? '刚刚'
+  if (min < 60) return `${min} ${t('common.minutesAgo') ?? '分钟前'}`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr} ${t('common.hoursAgo') ?? '小时前'}`
+  const day = Math.floor(hr / 24)
+  if (day < 30) return `${day} ${t('common.daysAgo') ?? '天前'}`
+  const d = new Date(ms)
+  const y = d.getFullYear(); const m = d.getMonth() + 1; const da = d.getDate()
+  return `${y}-${String(m).padStart(2,'0')}-${String(da).padStart(2,'0')}`
+}
 
 function connectToAsset(asset: Asset) {
   appStore.addTab({
@@ -63,12 +87,101 @@ async function handleNewConnection(dto: CreateAssetDto) {
 
 <template>
   <div class="home-view">
-    <!-- Recent Connections -->
-    <div class="section">
+    <!-- 最近用过(按 lastUsedAt 倒序,持久化在 asset store) -->
+    <div v-if="recentAssets.length > 0" class="section">
       <div class="section-header">
         <span class="section-number">01</span>
+        <span class="section-title">最近用过</span>
+        <span class="section-hint">RECENT</span>
+      </div>
+
+      <div class="connections-grid">
+        <div
+          v-for="asset in recentAssets"
+          :key="asset.id"
+          class="connection-card"
+          @click="connectToAsset(asset)"
+        >
+          <div class="connection-icon" :class="asset.type">
+            <v-icon :color="getIconColor(asset.type)">{{ getIcon(asset.type) }}</v-icon>
+          </div>
+          <div class="connection-info">
+            <div class="connection-name">{{ asset.name }}</div>
+            <div class="connection-host">{{ asset.config.host || asset.config.dbType || 'Docker' }}</div>
+          </div>
+          <div class="connection-status">
+            <span class="last-used">{{ relativeTime(asset.lastUsedAt) }}</span>
+            <span class="status-dot online" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 全部资产 -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-number">{{ recentAssets.length > 0 ? '02' : '01' }}</span>
         <span class="section-title">{{ t('asset.title') }}</span>
       </div>
+
+      <div class="connections-grid">
+        <div
+          v-for="asset in assetStore.assets"
+          :key="asset.id"
+          class="connection-card"
+          @click="connectToAsset(asset)"
+        >
+          <div class="connection-icon" :class="asset.type">
+            <v-icon :color="getIconColor(asset.type)">{{ getIcon(asset.type) }}</v-icon>
+          </div>
+          <div class="connection-info">
+            <div class="connection-name">{{ asset.name }}</div>
+            <div class="connection-host">{{ asset.config.host || asset.config.dbType || 'Docker' }}</div>
+          </div>
+          <div class="connection-status">
+            <span class="status-dot" :class="asset.lastUsedAt ? 'online' : 'offline'"></span>
+          </div>
+        </div>
+
+        <div class="connection-card add-new" @click="openNewConnection">
+          <div class="connection-icon add">
+            <v-icon color="cyan">mdi-plus</v-icon>
+          </div>
+          <div class="connection-info">
+            <div class="connection-name">{{ t('asset.create') }}</div>
+            <div class="connection-host">{{ t('ssh.title') }} / {{ t('db.title') }} / {{ t('docker.title') }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-number">{{ recentAssets.length > 0 ? '03' : '02' }}</span>
+        <span class="section-title">{{ t('common.search') }}</span>
+      </div>
+
+      <div class="quick-actions-grid">
+        <div class="action-card">
+          <v-icon size="24" color="cyan">mdi-console</v-icon>
+          <span>{{ t('ssh.newTerminal') }}</span>
+        </div>
+        <div class="action-card">
+          <v-icon size="24" color="purple">mdi-database</v-icon>
+          <span>{{ t('db.query') }}</span>
+        </div>
+        <div class="action-card">
+          <v-icon size="24" color="green">mdi-docker</v-icon>
+          <span>{{ t('docker.containers') }}</span>
+        </div>
+        <div class="action-card">
+          <v-icon size="24" color="pink">mdi-robot</v-icon>
+          <span>{{ t('ai.newChat') }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
       
       <div class="connections-grid">
         <div 
@@ -265,6 +378,27 @@ async function handleNewConnection(dto: CreateAssetDto) {
 
 .connection-status {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.last-used {
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.section-hint {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.18em;
+  opacity: 0.5;
 }
 
 .status-dot {

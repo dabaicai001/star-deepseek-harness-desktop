@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
-import { useAppStore } from '@/stores/app'
+import { useAppStore, SIDEBAR_COLLAPSED_WIDTH } from '@/stores/app'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import AssetTree from '@/components/asset/AssetTree.vue'
 import SidebarHandle from '@/components/layout/SidebarHandle.vue'
@@ -449,7 +449,15 @@ vueWatch(() => appStore.tabs.length, () => {
     <!-- Main Content -->
     <div class="main-content">
       <!-- Sidebar -->
-      <div class="sidebar" :class="{ collapsed: !appStore.sidebarOpen }">
+      <div
+        class="sidebar"
+        :class="{ collapsed: !appStore.sidebarOpen }"
+        :style="{
+          width: appStore.sidebarOpen
+            ? appStore.sidebarWidth + 'px'
+            : SIDEBAR_COLLAPSED_WIDTH + 'px'
+        }"
+      >
         <AssetTree />
         <SidebarHandle />
       </div>
@@ -546,11 +554,11 @@ vueWatch(() => appStore.tabs.length, () => {
         <span>{{ dockerAssets.length }} Docker</span>
       </div>
       <div class="sb-right">
-        <div class="sb-item">
-          <v-icon size="10">mdi-clock</v-icon>
-          <span>{{ clockText }}</span>
-        </div>
+      <div class="sb-item">
+        <v-icon size="10">mdi-clock</v-icon>
+        <span>{{ clockText }}</span>
       </div>
+    </div>
     </div>
 
     <!-- New Connection Dialog -->
@@ -900,16 +908,18 @@ kbd {
 }
 
 .sidebar {
-  width: 260px;
+  flex-shrink: 0;
   background: rgba(10, 14, 26, 0.5);
   border-right: 1px solid var(--line);
   padding: 14px 0;
-  overflow-y: auto;
+  overflow: hidden auto;
   backdrop-filter: blur(10px);
-  transition: width 0.3s;
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
 }
 
 .sidebar.collapsed {
+  /* 折叠态宽度走 inline style (SIDEBAR_COLLAPSED_WIDTH);这里只覆盖可能的默认 width */
   width: 60px;
 }
 

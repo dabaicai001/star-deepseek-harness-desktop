@@ -8,13 +8,28 @@ export interface Tab {
   type: AssetType
 }
 
+// 侧边栏宽度可调范围(展开态)
+export const SIDEBAR_WIDTH_MIN = 180
+export const SIDEBAR_WIDTH_MAX = 420
+export const SIDEBAR_WIDTH_DEFAULT = 260
+// 折叠态固定宽度
+export const SIDEBAR_COLLAPSED_WIDTH = 60
+
 export const useAppStore = defineStore('app', () => {
   const sidebarOpen = ref(true)
+  const sidebarWidth = ref<number>(SIDEBAR_WIDTH_DEFAULT)
   const activeTab = ref<string | null>(null)
   const tabs = ref<Tab[]>([])
 
   function toggleSidebar() {
     sidebarOpen.value = !sidebarOpen.value
+  }
+
+  function setSidebarWidth(w: number) {
+    // 折叠态不调宽度(用固定 60)
+    if (!sidebarOpen.value) return
+    const clamped = Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(w)))
+    sidebarWidth.value = clamped
   }
 
   function addTab(tab: Tab) {
@@ -40,13 +55,17 @@ export const useAppStore = defineStore('app', () => {
 
   return {
     sidebarOpen,
+    sidebarWidth,
     activeTab,
     tabs,
     toggleSidebar,
+    setSidebarWidth,
     addTab,
     removeTab,
     setActiveTab
   }
 }, {
+  // pinia-plugin-persistedstate: 整个 store 自动落 localStorage,
+  // 包括 sidebarOpen / sidebarWidth / tabs / activeTab
   persist: true
 })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 
@@ -12,15 +12,81 @@ onMounted(() => {
   isMac.value = /mac|iphone|ipad|ipod/.test(ua)
 })
 const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
+
+// ====== 拖拽调整宽度 ======
+// 区分"点击"和"拖拽":mousedown 时记录,移动 > 4px 视为拖拽;
+// mouseup 时若是拖拽则不触发 click,否则正常 click 切换开/关。
+// 折叠态(handle 变成"展开"按钮)时只响应点击,不进拖拽。
+const isDragging = ref(false)
+let startX = 0
+let startWidth = 0
+let moved = 0
+
+function onPointerDown(e: PointerEvent) {
+  if (!appStore.sidebarOpen) {
+    // 折叠态:不进入拖拽,只让 click 触发 toggle
+    return
+  }
+  startX = e.clientX
+  startWidth = appStore.sidebarWidth
+  moved = 0
+  // 不立即 setPointerCapture / 加监听,等真的移动 4px 才进入拖拽,
+  // 这样纯点击不会被误判为拖拽
+  window.addEventListener('pointermove', onPointerMove)
+  window.addEventListener('pointerup', onPointerUp, { once: true })
+}
+
+function onPointerMove(e: PointerEvent) {
+  const delta = e.clientX - startX
+  moved = Math.abs(delta) > 4 ? Math.abs(delta) : moved
+  if (!isDragging.value && Math.abs(delta) > 4) {
+    isDragging.value = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+  if (isDragging.value) {
+    appStore.setSidebarWidth(startWidth + delta)
+  }
+}
+
+function onPointerUp() {
+  window.removeEventListener('pointermove', onPointerMove)
+  if (isDragging.value) {
+    isDragging.value = false
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+  // 若没动 / 移动 < 4px,保留 click 行为(toggle)
+}
+
+function onClick(e: MouseEvent) {
+  // 拖拽状态下吞掉 click 避免误触 toggle;否则正常 toggle
+  if (isDragging.value || moved > 4) {
+    e.stopPropagation()
+    e.preventDefault()
+    return
+  }
+  appStore.toggleSidebar()
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointermove', onPointerMove)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+})
 </script>
 
 <template>
   <button
     class="sidebar-handle"
+    :class="{ dragging: isDragging }"
     :data-collapsed="!appStore.sidebarOpen"
-    :title="appStore.sidebarOpen ? `${t('sidebar.collapse')} (${modKey}B)` : `${t('sidebar.expand')} (${modKey}B)`"
+    :title="appStore.sidebarOpen
+      ? `${t('sidebar.collapse')} (${modKey}B) · 拖动调整宽度`
+      : `${t('sidebar.expand')} (${modKey}B)`"
     :aria-label="appStore.sidebarOpen ? t('sidebar.collapse') : t('sidebar.expand')"
-    @click="appStore.toggleSidebar()"
+    @pointerdown="onPointerDown"
+    @click="onClick"
   >
     <span class="grip">
       <span class="dot"></span>
@@ -48,7 +114,7 @@ const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
   border: 1px solid rgba(0, 240, 255, 0.3);
   border-radius: 6px;
   color: var(--cyan);
-  cursor: pointer;
+  cursor: ew-resize;
   padding: 0;
   font-family: inherit;
   /* 常驻醒目:不再 opacity 0.55,常驻 + 微 glow */
@@ -56,6 +122,8 @@ const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
     0 2px 12px rgba(0, 0, 0, 0.4),
     0 0 8px rgba(0, 240, 255, 0.15);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .sidebar-handle:hover {
@@ -73,10 +141,20 @@ const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
   transform: translateY(-50%) scale(0.94);
 }
 
+.sidebar-handle.dragging {
+  background: var(--cyan);
+  color: var(--bg);
+  border-color: var(--cyan);
+  box-shadow:
+    0 0 0 3px rgba(0, 240, 255, 0.3),
+    0 0 24px rgba(0, 240, 255, 0.6),
+    0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
 /* 折叠时:把手整体往左偏一点点,提示"可展开" */
 .sidebar-handle[data-collapsed="true"] {
-  /* 让把手更靠左,贴合 60px 窄栏 */
   right: -12px;
+  cursor: pointer;
 }
 
 /* 折叠时:箭头旋转 180°,变"双右" */
@@ -89,6 +167,11 @@ const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
   color: var(--cyan);
   filter: drop-shadow(0 0 3px rgba(0, 240, 255, 0.5));
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-handle.dragging .arrow {
+  color: var(--bg);
+  filter: none;
 }
 
 /* 装饰:小圆点像"把手" 3D 凸起 */
@@ -113,5 +196,11 @@ const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
   opacity: 1;
   box-shadow: 0 0 6px var(--cyan);
   transform: scaleX(1.4);
+}
+
+.sidebar-handle.dragging .grip .dot {
+  background: var(--bg);
+  box-shadow: none;
+  opacity: 1;
 }
 </style>
