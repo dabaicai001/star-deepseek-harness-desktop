@@ -144,7 +144,21 @@ export default {
     foreignKey: '外键',
     unique: '唯一',
     initialDb: '初始数据库',
-    initialDbHint: '留空列出全部'
+    initialDbHint: '留空列出全部',
+    rows: '行',
+    structure: '结构',
+    data: '数据',
+    insert: '新增行',
+    update: '更新',
+    deleteRow: '删除行',
+    truncate: '清空',
+    drop: '删除表',
+    rename: '重命名',
+    refresh: '刷新',
+    noTableSelected: '请先选择一个表',
+    connected: '已连接',
+    connecting: '连接中...',
+    connectionFailed: '连接失败'
   },
   docker: {
     title: 'Docker',

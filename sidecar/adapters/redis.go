@@ -1,0 +1,622 @@
+package adapters
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog/log"
+)
+
+// RedisAdapter 封装 Redis 连接
+type RedisAdapter struct {
+	client *redis.Client
+	conn   *RedisConnInfo
+	ctx    context.Context
+}
+
+// RedisConnInfo Redis 连接参数
+type RedisConnInfo struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Password string `json:"password,omitempty"`
+	DB       int    `json:"db"`
+	SSL      bool   `json:"ssl,omitempty"`
+}
+
+// RedisKeyInfo Key 信息
+type RedisKeyInfo struct {
+	Key  string `json:"key"`
+	Type string `json:"type"`
+	TTL  int64  `json:"ttl"` // -1 = no expire, -2 = not found
+	Size int64  `json:"size,omitempty"`
+}
+
+// RedisValueResult 值查询结果
+type RedisValueResult struct {
+	Key   string      `json:"key"`
+	Type  string      `json:"type"`
+	Value interface{} `json:"value"`
+	TTL   int64       `json:"ttl"`
+	Size  int64       `json:"size,omitempty"`
+}
+
+// RedisScanResult SCAN 结果
+type RedisScanResult struct {
+	Keys   []RedisKeyInfo `json:"keys"`
+	Cursor uint64         `json:"cursor"`
+	Total  int            `json:"total,omitempty"`
+}
+
+// RedisCommandResult 命令执行结果
+type RedisCommandResult struct {
+	Result     interface{} `json:"result"`
+	DurationMs int64       `json:"durationMs"`
+	Error      string      `json:"error,omitempty"`
+}
+
+// NewRedisAdapter 创建 Redis 适配器
+func NewRedisAdapter(info *RedisConnInfo) (*RedisAdapter, error) {
+	if info.Port == 0 {
+		info.Port = 6379
+	}
+
+	opts := &redis.Options{
+		Addr:         fmt.Sprintf("%s:%d", info.Host, info.Port),
+		Password:     info.Password,
+		DB:           info.DB,
+		DialTimeout:  10 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		PoolSize:     10,
+		MinIdleConns: 2,
+	}
+
+	if info.SSL {
+		opts.TLSConfig = nil // go-redis handles TLS with nil config for default
+	}
+
+	client := redis.NewClient(opts)
+	ctx := context.Background()
+
+	if err := client.Ping(ctx).Err(); err != nil {
+		return nil, fmt.Errorf("redis connect failed: %w", err)
+	}
+
+	log.Info().Str("host", info.Host).Int("port", info.Port).Int("db", info.DB).Msg("redis connected")
+
+	return &RedisAdapter{
+		client: client,
+		conn:   info,
+		ctx:    ctx,
+	}, nil
+}
+
+// Close 关闭连接
+func (a *RedisAdapter) Close() error {
+	return a.client.Close()
+}
+
+// Ping 检测连接
+func (a *RedisAdapter) Ping() error {
+	return a.client.Ping(a.ctx).Err()
+}
+
+// Select 切换数据库
+func (a *RedisAdapter) Select(db int) error {
+	a.conn.DB = db
+	a.client = redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%d", a.conn.Host, a.conn.Port),
+		Password: a.conn.Password,
+		DB:       db,
+	})
+	return a.client.Ping(a.ctx).Err()
+}
+
+// GetDB 当前数据库编号
+func (a *RedisAdapter) GetDB() int {
+	return a.conn.DB
+}
+
+// Info 获取 Redis INFO
+func (a *RedisAdapter) RedisInfo(section string) (string, error) {
+	if section == "" {
+		section = "default"
+	}
+	return a.client.Info(a.ctx, section).Result()
+}
+
+// DBSize 当前 DB 的 key 数量
+func (a *RedisAdapter) DBSize() (int64, error) {
+	return a.client.DBSize(a.ctx).Result()
+}
+
+// Scan SCAN 扫描 key
+func (a *RedisAdapter) Scan(cursor uint64, match string, count int64) (*RedisScanResult, error) {
+	if match == "" {
+		match = "*"
+	}
+	if count <= 0 {
+		count = 100
+	}
+
+	keys, newCursor, err := a.client.Scan(a.ctx, cursor, match, count).Result()
+	if err != nil {
+		return nil, fmt.Errorf("scan: %w", err)
+	}
+
+	keyInfos := make([]RedisKeyInfo, 0, len(keys))
+	for _, key := range keys {
+		keyType, _ := a.client.Type(a.ctx, key).Result()
+		ttl, _ := a.client.TTL(a.ctx, key).Result()
+		keyInfos = append(keyInfos, RedisKeyInfo{
+			Key:  key,
+			Type: keyType,
+			TTL:  int64(ttl / time.Second),
+		})
+	}
+
+	return &RedisScanResult{
+		Keys:   keyInfos,
+		Cursor: newCursor,
+	}, nil
+}
+
+// Type 获取 key 类型
+func (a *RedisAdapter) GetType(key string) (string, error) {
+	return a.client.Type(a.ctx, key).Result()
+}
+
+// TTL 获取 key 的 TTL
+func (a *RedisAdapter) TTL(key string) (int64, error) {
+	ttl, err := a.client.TTL(a.ctx, key).Result()
+	if err != nil {
+		return 0, err
+	}
+	return int64(ttl / time.Second), nil
+}
+
+// Del 删除 key
+func (a *RedisAdapter) Del(keys ...string) (int64, error) {
+	return a.client.Del(a.ctx, keys...).Result()
+}
+
+// Rename 重命名 key
+func (a *RedisAdapter) Rename(oldKey, newKey string) error {
+	return a.client.Rename(a.ctx, oldKey, newKey).Err()
+}
+
+// Set 设置值
+func (a *RedisAdapter) Set(key string, value interface{}, expiration time.Duration) error {
+	return a.client.Set(a.ctx, key, value, expiration).Err()
+}
+
+// GetValue 获取 key 的值（根据类型返回不同结构）
+func (a *RedisAdapter) GetValue(key string) (*RedisValueResult, error) {
+	keyType, err := a.client.Type(a.ctx, key).Result()
+	if err != nil {
+		return nil, fmt.Errorf("type: %w", err)
+	}
+
+	ttl, _ := a.client.TTL(a.ctx, key).Result()
+	result := &RedisValueResult{
+		Key:  key,
+		Type: keyType,
+		TTL:  int64(ttl / time.Second),
+	}
+
+	switch keyType {
+	case "string":
+		val, err := a.client.Get(a.ctx, key).Result()
+		if err != nil {
+			return nil, err
+		}
+		result.Value = val
+		result.Size = int64(len(val))
+
+	case "hash":
+		val, err := a.client.HGetAll(a.ctx, key).Result()
+		if err != nil {
+			return nil, err
+		}
+		result.Value = val
+		result.Size = int64(len(val))
+
+	case "list":
+		length, _ := a.client.LLen(a.ctx, key).Result()
+		// 限制获取数量
+		end := length - 1
+		if end > 999 {
+			end = 999
+		}
+		val, err := a.client.LRange(a.ctx, key, 0, end).Result()
+		if err != nil {
+			return nil, err
+		}
+		result.Value = val
+		result.Size = length
+
+	case "set":
+		val, err := a.client.SMembers(a.ctx, key).Result()
+		if err != nil {
+			return nil, err
+		}
+		result.Value = val
+		result.Size = int64(len(val))
+
+	case "zset":
+		// 返回带分数的列表
+		val, err := a.client.ZRangeWithScores(a.ctx, key, 0, 999).Result()
+		if err != nil {
+			return nil, err
+		}
+		type ZMember struct {
+			Value  string  `json:"value"`
+			Score  float64 `json:"score"`
+		}
+		members := make([]ZMember, len(val))
+		for i, z := range val {
+			members[i] = ZMember{
+				Value: fmt.Sprintf("%v", z.Member),
+				Score: z.Score,
+			}
+		}
+		result.Value = members
+		card, _ := a.client.ZCard(a.ctx, key).Result()
+		result.Size = card
+
+	default:
+		result.Value = fmt.Sprintf("unsupported type: %s", keyType)
+	}
+
+	return result, nil
+}
+
+// Get 执行 GET
+func (a *RedisAdapter) Get(key string) (string, error) {
+	return a.client.Get(a.ctx, key).Result()
+}
+
+// HGetAll 执行 HGETALL
+func (a *RedisAdapter) HGetAll(key string) (map[string]string, error) {
+	return a.client.HGetAll(a.ctx, key).Result()
+}
+
+// LRange 执行 LRANGE
+func (a *RedisAdapter) LRange(key string, start, stop int64) ([]string, error) {
+	return a.client.LRange(a.ctx, key, start, stop).Result()
+}
+
+// SMembers 执行 SMEMBERS
+func (a *RedisAdapter) SMembers(key string) ([]string, error) {
+	return a.client.SMembers(a.ctx, key).Result()
+}
+
+// ZRangeWithScores 执行 ZRANGE WITHSCORES
+func (a *RedisAdapter) ZRangeWithScores(key string, start, stop int64) ([]redis.Z, error) {
+	return a.client.ZRangeWithScores(a.ctx, key, start, stop).Result()
+}
+
+// Execute 通用命令执行（通过解析命令字符串）
+func (a *RedisAdapter) Execute(command string) (*RedisCommandResult, error) {
+	start := time.Now()
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return &RedisCommandResult{Error: "empty command"}, nil
+	}
+
+	parts := parseRedisCommand(command)
+	if len(parts) == 0 {
+		return &RedisCommandResult{Error: "invalid command"}, nil
+	}
+
+	args := make([]interface{}, len(parts))
+	for i, p := range parts {
+		args[i] = p
+	}
+
+	cmd := strings.ToUpper(parts[0])
+
+	var result interface{}
+	var err error
+
+	switch cmd {
+	case "GET":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "GET requires a key"}, nil
+		}
+		result, err = a.client.Get(a.ctx, parts[1]).Result()
+		if err == redis.Nil {
+			result = nil
+			err = nil
+		}
+
+	case "SET":
+		if len(parts) < 3 {
+			return &RedisCommandResult{Error: "SET requires key and value"}, nil
+		}
+		err = a.client.Set(a.ctx, parts[1], parts[2], 0).Err()
+		result = "OK"
+
+	case "DEL":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "DEL requires a key"}, nil
+		}
+		keys := make([]string, len(parts)-1)
+		copy(keys, parts[1:])
+		var n int64
+		n, err = a.client.Del(a.ctx, keys...).Result()
+		result = n
+
+	case "EXISTS":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "EXISTS requires a key"}, nil
+		}
+		var n int64
+		n, err = a.client.Exists(a.ctx, parts[1]).Result()
+		result = n
+
+	case "KEYS":
+		pattern := "*"
+		if len(parts) > 1 {
+			pattern = parts[1]
+		}
+		result, err = a.client.Keys(a.ctx, pattern).Result()
+
+	case "TYPE":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "TYPE requires a key"}, nil
+		}
+		result, err = a.client.Type(a.ctx, parts[1]).Result()
+
+	case "TTL":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "TTL requires a key"}, nil
+		}
+		var ttl time.Duration
+		ttl, err = a.client.TTL(a.ctx, parts[1]).Result()
+		result = int64(ttl / time.Second)
+
+	case "PTTL":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "PTTL requires a key"}, nil
+		}
+		var ttl time.Duration
+		ttl, err = a.client.PTTL(a.ctx, parts[1]).Result()
+		result = int64(ttl / time.Millisecond)
+
+	case "HGET":
+		if len(parts) < 3 {
+			return &RedisCommandResult{Error: "HGET requires key and field"}, nil
+		}
+		result, err = a.client.HGet(a.ctx, parts[1], parts[2]).Result()
+		if err == redis.Nil {
+			result = nil
+			err = nil
+		}
+
+	case "HGETALL":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "HGETALL requires a key"}, nil
+		}
+		result, err = a.client.HGetAll(a.ctx, parts[1]).Result()
+
+	case "HSET":
+		if len(parts) < 4 || (len(parts)-1)%2 != 0 {
+			return &RedisCommandResult{Error: "HSET requires key field value [field value ...]"}, nil
+		}
+		args := make([]interface{}, len(parts)-2)
+		for i, p := range parts[2:] {
+			args[i] = p
+		}
+		var n int64
+		n, err = a.client.HSet(a.ctx, parts[1], args...).Result()
+		result = n
+
+	case "HDEL":
+		if len(parts) < 3 {
+			return &RedisCommandResult{Error: "HDEL requires key and fields"}, nil
+		}
+		fields := make([]string, len(parts)-2)
+		copy(fields, parts[2:])
+		var n int64
+		n, err = a.client.HDel(a.ctx, parts[1], fields...).Result()
+		result = n
+
+	case "LLEN":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "LLEN requires a key"}, nil
+		}
+		result, err = a.client.LLen(a.ctx, parts[1]).Result()
+
+	case "LRANGE":
+		if len(parts) < 4 {
+			return &RedisCommandResult{Error: "LRANGE requires key start stop"}, nil
+		}
+		start, _ := strconv.ParseInt(parts[2], 10, 64)
+		stop, _ := strconv.ParseInt(parts[3], 10, 64)
+		result, err = a.client.LRange(a.ctx, parts[1], start, stop).Result()
+
+	case "LPUSH":
+		if len(parts) < 3 {
+			return &RedisCommandResult{Error: "LPUSH requires key and values"}, nil
+		}
+		vals := make([]interface{}, len(parts)-2)
+		for i, p := range parts[2:] {
+			vals[i] = p
+		}
+		result, err = a.client.LPush(a.ctx, parts[1], vals...).Result()
+
+	case "RPUSH":
+		if len(parts) < 3 {
+			return &RedisCommandResult{Error: "RPUSH requires key and values"}, nil
+		}
+		vals := make([]interface{}, len(parts)-2)
+		for i, p := range parts[2:] {
+			vals[i] = p
+		}
+		result, err = a.client.RPush(a.ctx, parts[1], vals...).Result()
+
+	case "SADD":
+		if len(parts) < 3 {
+			return &RedisCommandResult{Error: "SADD requires key and members"}, nil
+		}
+		members := make([]interface{}, len(parts)-2)
+		for i, p := range parts[2:] {
+			members[i] = p
+		}
+		result, err = a.client.SAdd(a.ctx, parts[1], members...).Result()
+
+	case "SCARD":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "SCARD requires a key"}, nil
+		}
+		result, err = a.client.SCard(a.ctx, parts[1]).Result()
+
+	case "ZADD":
+		if len(parts) < 4 || (len(parts)-2)%2 != 0 {
+			return &RedisCommandResult{Error: "ZADD requires key score member [score member ...]"}, nil
+		}
+		zs := make([]redis.Z, 0, (len(parts)-2)/2)
+		for i := 2; i < len(parts); i += 2 {
+			score, _ := strconv.ParseFloat(parts[i], 64)
+			zs = append(zs, redis.Z{Score: score, Member: parts[i+1]})
+		}
+		result, err = a.client.ZAdd(a.ctx, parts[1], zs...).Result()
+
+	case "ZCARD":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "ZCARD requires a key"}, nil
+		}
+		result, err = a.client.ZCard(a.ctx, parts[1]).Result()
+
+	case "ZRANGE":
+		if len(parts) < 4 {
+			return &RedisCommandResult{Error: "ZRANGE requires key start stop"}, nil
+		}
+		start, _ := strconv.ParseInt(parts[2], 10, 64)
+		stop, _ := strconv.ParseInt(parts[3], 10, 64)
+		result, err = a.client.ZRange(a.ctx, parts[1], start, stop).Result()
+
+	case "INCR":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "INCR requires a key"}, nil
+		}
+		result, err = a.client.Incr(a.ctx, parts[1]).Result()
+
+	case "DECR":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "DECR requires a key"}, nil
+		}
+		result, err = a.client.Decr(a.ctx, parts[1]).Result()
+
+	case "EXPIRE":
+		if len(parts) < 3 {
+			return &RedisCommandResult{Error: "EXPIRE requires key and seconds"}, nil
+		}
+		sec, _ := strconv.ParseInt(parts[2], 10, 64)
+		result, err = a.client.Expire(a.ctx, parts[1], time.Duration(sec)*time.Second).Result()
+
+	case "PERSIST":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "PERSIST requires a key"}, nil
+		}
+		result, err = a.client.Persist(a.ctx, parts[1]).Result()
+
+	case "PING":
+		result, err = a.client.Ping(a.ctx).Result()
+
+	case "DBSIZE":
+		result, err = a.client.DBSize(a.ctx).Result()
+
+	case "INFO":
+		section := ""
+		if len(parts) > 1 {
+			section = parts[1]
+		}
+		result, err = a.client.Info(a.ctx, section).Result()
+
+	case "SELECT":
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "SELECT requires db number"}, nil
+		}
+		db, _ := strconv.Atoi(parts[1])
+		err = a.Select(db)
+		if err == nil {
+			result = "OK"
+		}
+
+	case "FLUSHDB":
+		err = a.client.FlushDB(a.ctx).Err()
+		if err == nil {
+			result = "OK"
+		}
+
+	default:
+		// 尝试作为通用命令执行
+		result, err = a.client.Do(a.ctx, args...).Result()
+	}
+
+	if err != nil {
+		return &RedisCommandResult{
+			Error:      err.Error(),
+			DurationMs: time.Since(start).Milliseconds(),
+		}, nil
+	}
+
+	return &RedisCommandResult{
+		Result:     result,
+		DurationMs: time.Since(start).Milliseconds(),
+	}, nil
+}
+
+// parseRedisCommand 简单解析 Redis 命令（处理引号）
+func parseRedisCommand(command string) []string {
+	var parts []string
+	var current strings.Builder
+	inQuote := false
+	quoteChar := byte(0)
+
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+
+		if inQuote {
+			if ch == quoteChar {
+				inQuote = false
+			} else {
+				current.WriteByte(ch)
+			}
+		} else {
+			if ch == '"' || ch == '\'' {
+				inQuote = true
+				quoteChar = ch
+			} else if ch == ' ' || ch == '\t' {
+				if current.Len() > 0 {
+					parts = append(parts, current.String())
+					current.Reset()
+				}
+			} else {
+				current.WriteByte(ch)
+			}
+		}
+	}
+
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+
+	return parts
+}
+
+// MarshalJSON 为 RedisAdapter 提供自定义 JSON 序列化（避免导出 ctx）
+func (a *RedisAdapter) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]interface{}{
+		"host": a.conn.Host,
+		"port": a.conn.Port,
+		"db":   a.conn.DB,
+	})
+}

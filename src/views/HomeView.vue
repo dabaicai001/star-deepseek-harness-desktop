@@ -13,7 +13,6 @@ const assetStore = useAssetStore()
 const appStore = useAppStore()
 const showNewConnection = ref(false)
 
-// 最近用过的资产:按 lastUsedAt 倒序,只取有记录的,最多 6 条
 const recentAssets = computed<Asset[]>(() => {
   return [...assetStore.assets]
     .filter(a => typeof a.lastUsedAt === 'number')
@@ -26,15 +25,14 @@ function relativeTime(ms: number | null | undefined): string {
   const diff = Date.now() - ms
   if (diff < 0) return ''
   const min = Math.floor(diff / 60000)
-  if (min < 1) return t('common.justNow') ?? '刚刚'
-  if (min < 60) return `${min} ${t('common.minutesAgo') ?? '分钟前'}`
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min} 分钟前`
   const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr} ${t('common.hoursAgo') ?? '小时前'}`
+  if (hr < 24) return `${hr} 小时前`
   const day = Math.floor(hr / 24)
-  if (day < 30) return `${day} ${t('common.daysAgo') ?? '天前'}`
+  if (day < 30) return `${day} 天前`
   const d = new Date(ms)
-  const y = d.getFullYear(); const m = d.getMonth() + 1; const da = d.getDate()
-  return `${y}-${String(m).padStart(2,'0')}-${String(da).padStart(2,'0')}`
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function connectToAsset(asset: Asset) {
@@ -46,8 +44,16 @@ function connectToAsset(asset: Asset) {
   assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
   if (asset.type === 'ssh') {
     router.push({ name: 'ssh-terminal', params: { id: asset.id } })
+  } else if (asset.type === 'db') {
+    const dbType = asset.config.dbType || 'mysql'
+    if (dbType === 'redis') {
+      router.push({ name: 'db-redis', params: { id: asset.id } })
+    } else {
+      router.push({ name: 'db-mysql', params: { id: asset.id } })
+    }
+  } else if (asset.type === 'docker') {
+    router.push({ name: 'docker', params: { id: asset.id } })
   }
-  // db / docker 路由后续按 type 补
 }
 
 function getIcon(type: string) {
@@ -74,20 +80,29 @@ function openNewConnection() {
 
 async function handleNewConnection(dto: CreateAssetDto) {
   const asset = await assetStore.createAsset(dto)
+  appStore.addTab({
+    id: asset.id,
+    title: asset.name,
+    type: asset.type
+  })
   if (dto.type === 'ssh') {
-    appStore.addTab({
-      id: asset.id,
-      title: asset.name,
-      type: asset.type
-    })
     router.push({ name: 'ssh-terminal', params: { id: asset.id } })
+  } else if (dto.type === 'db') {
+    const dbType = dto.config.dbType || 'mysql'
+    if (dbType === 'redis') {
+      router.push({ name: 'db-redis', params: { id: asset.id } })
+    } else {
+      router.push({ name: 'db-mysql', params: { id: asset.id } })
+    }
+  } else if (dto.type === 'docker') {
+    router.push({ name: 'docker', params: { id: asset.id } })
   }
 }
 </script>
 
 <template>
   <div class="home-view">
-    <!-- 最近用过(按 lastUsedAt 倒序,持久化在 asset store) -->
+    <!-- 最近用过 -->
     <div v-if="recentAssets.length > 0" class="section">
       <div class="section-header">
         <span class="section-number">01</span>
@@ -162,65 +177,6 @@ async function handleNewConnection(dto: CreateAssetDto) {
         <span class="section-title">{{ t('common.search') }}</span>
       </div>
 
-      <div class="quick-actions-grid">
-        <div class="action-card">
-          <v-icon size="24" color="cyan">mdi-console</v-icon>
-          <span>{{ t('ssh.newTerminal') }}</span>
-        </div>
-        <div class="action-card">
-          <v-icon size="24" color="purple">mdi-database</v-icon>
-          <span>{{ t('db.query') }}</span>
-        </div>
-        <div class="action-card">
-          <v-icon size="24" color="green">mdi-docker</v-icon>
-          <span>{{ t('docker.containers') }}</span>
-        </div>
-        <div class="action-card">
-          <v-icon size="24" color="pink">mdi-robot</v-icon>
-          <span>{{ t('ai.newChat') }}</span>
-        </div>
-      </div>
-    </div>
-  </div>
-      
-      <div class="connections-grid">
-        <div 
-          v-for="asset in assetStore.assets" 
-          :key="asset.id"
-          class="connection-card"
-          @click="connectToAsset(asset)"
-        >
-          <div class="connection-icon" :class="asset.type">
-            <v-icon :color="getIconColor(asset.type)">{{ getIcon(asset.type) }}</v-icon>
-          </div>
-          <div class="connection-info">
-            <div class="connection-name">{{ asset.name }}</div>
-            <div class="connection-host">{{ asset.config.host || asset.config.dbType || 'Docker' }}</div>
-          </div>
-          <div class="connection-status">
-            <span class="status-dot" :class="asset.lastUsedAt ? 'online' : 'offline'"></span>
-          </div>
-        </div>
-        
-        <div class="connection-card add-new" @click="openNewConnection">
-          <div class="connection-icon add">
-            <v-icon color="cyan">mdi-plus</v-icon>
-          </div>
-          <div class="connection-info">
-            <div class="connection-name">{{ t('asset.create') }}</div>
-            <div class="connection-host">{{ t('ssh.title') }} / {{ t('db.title') }} / {{ t('docker.title') }}</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Quick Actions -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-number">02</span>
-        <span class="section-title">{{ t('common.search') }}</span>
-      </div>
-      
       <div class="quick-actions-grid">
         <div class="action-card">
           <v-icon size="24" color="cyan">mdi-console</v-icon>

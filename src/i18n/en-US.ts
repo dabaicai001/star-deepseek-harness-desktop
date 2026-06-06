@@ -144,7 +144,21 @@ export default {
     foreignKey: 'Foreign Key',
     unique: 'Unique',
     initialDb: 'Initial database',
-    initialDbHint: 'Leave empty to list all'
+    initialDbHint: 'Leave empty to list all',
+    rows: 'rows',
+    structure: 'Structure',
+    data: 'Data',
+    insert: 'Insert Row',
+    update: 'Update',
+    deleteRow: 'Delete Row',
+    truncate: 'Truncate',
+    drop: 'Drop Table',
+    rename: 'Rename',
+    refresh: 'Refresh',
+    noTableSelected: 'Please select a table first',
+    connected: 'Connected',
+    connecting: 'Connecting...',
+    connectionFailed: 'Connection failed'
   },
   docker: {
     title: 'Docker',

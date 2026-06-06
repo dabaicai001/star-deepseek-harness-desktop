@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SshConnectionForm from '@/components/ssh/SshConnectionForm.vue'
+import DbConnectionForm from '@/components/db/DbConnectionForm.vue'
 import type { CreateAssetDto, Asset } from '@/types/asset'
 
 const { t } = useI18n()
@@ -17,18 +18,41 @@ const emit = defineEmits<{
   update: [payload: { id: string; dto: CreateAssetDto }]
 }>()
 
-const step = ref<'type' | 'ssh'>('type')
+const step = ref<'type' | 'ssh' | 'db' | 'docker'>('type')
+const dockerName = ref('')
+const dockerSocket = ref('')
 
 const mode = computed<'create' | 'edit'>(() => (props.asset ? 'edit' : 'create'))
 
 function selectType(type: string) {
   if (type === 'ssh') {
     step.value = 'ssh'
+  } else if (type === 'db') {
+    step.value = 'db'
+  } else if (type === 'docker') {
+    step.value = 'docker'
   }
-  // db / docker 后续补充
 }
 
 function handleSshSubmit(dto: CreateAssetDto) {
+  if (mode.value === 'edit' && props.asset) {
+    emit('update', { id: props.asset.id, dto })
+  } else {
+    emit('submit', dto)
+  }
+  close()
+}
+
+function handleDbSubmit(dto: CreateAssetDto) {
+  if (mode.value === 'edit' && props.asset) {
+    emit('update', { id: props.asset.id, dto })
+  } else {
+    emit('submit', dto)
+  }
+  close()
+}
+
+function handleDockerSubmit(dto: CreateAssetDto) {
   if (mode.value === 'edit' && props.asset) {
     emit('update', { id: props.asset.id, dto })
   } else {
@@ -76,17 +100,17 @@ function close() {
               </div>
               <v-icon class="arrow" size="14">mdi-arrow-right</v-icon>
             </div>
-            <div class="type-card disabled">
+            <div class="type-card" @click="selectType('db')">
               <div class="type-icon db">
                 <v-icon size="26">mdi-database-outline</v-icon>
               </div>
               <div class="type-meta">
                 <span class="type-name">{{ t('db.title') }}</span>
-                <span class="type-desc">MySQL · PG · Redis · ...</span>
+                <span class="type-desc">MySQL · Redis</span>
               </div>
-              <span class="cyber-badge" style="color: var(--muted); border-color: var(--line-2);">SOON</span>
+              <v-icon class="arrow" size="14">mdi-arrow-right</v-icon>
             </div>
-            <div class="type-card disabled">
+            <div class="type-card" @click="selectType('docker')">
               <div class="type-icon docker">
                 <v-icon size="26">mdi-docker</v-icon>
               </div>
@@ -94,7 +118,7 @@ function close() {
                 <span class="type-name">Docker</span>
                 <span class="type-desc">{{ t('docker.containers') }} / {{ t('docker.images') }}</span>
               </div>
-              <span class="cyber-badge" style="color: var(--muted); border-color: var(--line-2);">SOON</span>
+              <v-icon class="arrow" size="14">mdi-arrow-right</v-icon>
             </div>
           </div>
         </div>
@@ -131,6 +155,97 @@ function close() {
             @submit="handleSshSubmit"
             @cancel="close"
           />
+        </div>
+      </template>
+
+      <!-- DB Form -->
+      <template v-else-if="step === 'db'">
+        <div class="modal-header">
+          <button class="action-btn" @click="step = 'type'" style="margin-right: -4px;">
+            <v-icon size="14">mdi-arrow-left</v-icon>
+          </button>
+          <div class="icon-box" style="background: rgba(181, 107, 255, 0.1); color: var(--purple); border-color: rgba(181, 107, 255, 0.2);">
+            <v-icon size="14">mdi-database</v-icon>
+          </div>
+          <h3>
+            {{ mode === 'edit' ? t('asset.edit') : t('asset.create') }} · {{ t('db.title') }}
+            <span v-if="mode === 'edit' && asset" class="edit-hint">{{ asset.name }}</span>
+          </h3>
+          <button class="action-btn" @click="close">
+            <v-icon size="14">mdi-close</v-icon>
+          </button>
+        </div>
+        <div class="modal-body">
+          <DbConnectionForm
+            :initial-values="mode === 'edit' && asset ? {
+              name: asset.name,
+              dbType: asset.config.dbType || 'mysql',
+              host: asset.config.host || '',
+              port: asset.config.port || 3306,
+              username: asset.config.username || '',
+              password: asset.config.password || '',
+              database: asset.config.database || '',
+              ssl: asset.config.ssl || false
+            } : undefined"
+            @submit="handleDbSubmit"
+            @cancel="close"
+          />
+        </div>
+      </template>
+
+      <!-- Docker Form -->
+      <template v-else-if="step === 'docker'">
+        <div class="modal-header">
+          <button class="action-btn" @click="step = 'type'" style="margin-right: -4px;">
+            <v-icon size="14">mdi-arrow-left</v-icon>
+          </button>
+          <div class="icon-box" style="background: rgba(74, 222, 128, 0.1); color: var(--green); border-color: rgba(74, 222, 128, 0.2);">
+            <v-icon size="14">mdi-docker</v-icon>
+          </div>
+          <h3>
+            {{ mode === 'edit' ? t('asset.edit') : t('asset.create') }} · Docker
+            <span v-if="mode === 'edit' && asset" class="edit-hint">{{ asset.name }}</span>
+          </h3>
+          <button class="action-btn" @click="close">
+            <v-icon size="14">mdi-close</v-icon>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form class="docker-form" @submit.prevent="handleDockerSubmit({
+            type: 'docker',
+            name: dockerName,
+            config: { socketPath: dockerSocket }
+          })">
+            <div class="form-field">
+              <label class="field-label">
+                <v-icon size="12">mdi-tag-outline</v-icon>
+                {{ t('asset.name') }}
+                <span class="required">*</span>
+              </label>
+              <input v-model="dockerName" type="text" class="cyber-input" :placeholder="t('asset.placeholderName')" autofocus required />
+            </div>
+            <div class="form-field">
+              <label class="field-label">
+                <v-icon size="12">mdi-server-network</v-icon>
+                {{ t('asset.dockerSocket') }}
+              </label>
+              <input v-model="dockerSocket" type="text" class="cyber-input" placeholder="unix:///var/run/docker.sock" />
+              <div class="field-hint">{{ t('asset.dockerSocketHint') }}</div>
+            </div>
+            <div class="form-footer">
+              <div></div>
+              <div class="footer-right">
+                <button type="button" class="cyber-btn-secondary" @click="close">
+                  <v-icon size="14">mdi-close</v-icon>
+                  {{ t('common.cancel') }}
+                </button>
+                <button type="submit" class="cyber-btn" :disabled="!dockerName">
+                  <v-icon size="14">mdi-content-save-outline</v-icon>
+                  {{ t('common.save') }}
+                </button>
+              </div>
+            </div>
+          </form>
         </div>
       </template>
     </div>
