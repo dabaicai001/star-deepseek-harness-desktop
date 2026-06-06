@@ -579,7 +579,7 @@
 }
 
 .form-row.host-port {
-  grid-template-columns: 1.8fr 1fr;
+  grid-template-columns: minmax(0, 1fr) 90px;
   gap: 6px;
 }
 
