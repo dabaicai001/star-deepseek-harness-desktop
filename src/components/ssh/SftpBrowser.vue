@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   sftpList,
@@ -67,6 +67,8 @@ function cancelPathEdit() {
 type ColKey = 'name' | 'size' | 'perms' | 'date'
 const COL_MIN: Record<ColKey, number> = { name: 100, size: 50, perms: 60, date: 90 }
 const COL_KEY = 'starhub.sftp.cols'
+// 智能收缩的权重:name 受保护,缩得少;其他 3 列等比缩
+const SHRINK_WEIGHT: Record<ColKey, number> = { name: 0.2, size: 1, perms: 1, date: 1 }
 const colWidths = ref<Record<ColKey, number>>(loadColWidths())
 const resizingCol = ref<ColKey | null>(null)
 let resizeStartX = 0
@@ -122,10 +124,56 @@ function onColResizeEnd() {
   saveColWidths()
 }
 
-// name 列的 1fr 自适应填满,其他列固定
-const gridCols = computed(() =>
-  `minmax(${colWidths.value.name}px, 1fr) ${colWidths.value.size}px ${colWidths.value.perms}px ${colWidths.value.date}px`
-)
+// ====== 容器宽度监听 + 智能收缩 ======
+// SFTP 容器太窄时,4 列总宽会超过容器,默认行为是 grid 溢出/裁剪。
+// 这里按 "可削减空间 × 权重" 等比缩,name 权值 0.2 几乎不缩,其他 3
+// 列等比消化溢出宽度。
+const containerWidth = ref<number>(0)
+const browserEl = ref<HTMLElement | null>(null)
+let resizeObserver: ResizeObserver | null = null
+
+function onContainerResize() {
+  if (!browserEl.value) return
+  containerWidth.value = browserEl.value.clientWidth
+}
+
+const effectiveColWidths = computed<Record<ColKey, number>>(() => {
+  const src = colWidths.value
+  const cw = containerWidth.value
+  // 容器还没量到(0)或不需要缩:直接用源值
+  if (cw <= 0) return { ...src }
+  const total = src.name + src.size + src.perms + src.date
+  if (total <= cw) return { ...src }
+  // 总宽超出,需要按"可削减空间"等比缩
+  const overflow = total - cw
+  const reducible: Record<ColKey, number> = {
+    name: Math.max(0, src.name - COL_MIN.name),
+    size: Math.max(0, src.size - COL_MIN.size),
+    perms: Math.max(0, src.perms - COL_MIN.perms),
+    date: Math.max(0, src.date - COL_MIN.date)
+  }
+  const weighted = (Object.keys(reducible) as ColKey[])
+    .reduce((sum, k) => sum + reducible[k] * SHRINK_WEIGHT[k], 0)
+  if (weighted <= 0) {
+    // 全部已到最小,缩不动了,原样返回(grid 仍然会溢出,但不会更糟)
+    return { ...src }
+  }
+  // scale < 1: 等比缩; scale >= 1: 全部 reducible 用完也不够,clamp 到最小
+  const scale = overflow / weighted
+  const out: Record<ColKey, number> = { ...src }
+  for (const k of Object.keys(reducible) as ColKey[]) {
+    out[k] = Math.max(COL_MIN[k], src[k] - reducible[k] * SHRINK_WEIGHT[k] * scale)
+  }
+  return out
+})
+
+// 渲染用:name 是 minmax(effectiveName, 1fr) —— 1fr 仍然允许 name 弹性
+// 放大吃满多余空间;但实际 px 已经被 effectiveColWidths 锁住,grid 不会
+// 出现 1fr 把列"撑大"导致行高错乱
+const gridCols = computed(() => {
+  const e = effectiveColWidths.value
+  return `minmax(${e.name}px, 1fr) ${e.size}px ${e.perms}px ${e.date}px`
+})
 
 const isAtRoot = computed(() => currentPath.value === '/' || currentPath.value === '')
 
@@ -373,10 +421,32 @@ watch(() => props.sessionId, () => {
 watch(() => props.ready, (now, prev) => {
   if (now && !prev) load()
 })
+
+// 容器尺寸变化时同步,触发 effectiveColWidths 重算
+onMounted(() => {
+  if (typeof ResizeObserver !== 'undefined' && browserEl.value) {
+    resizeObserver = new ResizeObserver(onContainerResize)
+    resizeObserver.observe(browserEl.value)
+  } else {
+    // fallback: window resize
+    window.addEventListener('resize', onContainerResize)
+  }
+  onContainerResize() // 首次量一次
+})
+
+onBeforeUnmount(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  } else {
+    window.removeEventListener('resize', onContainerResize)
+  }
+})
 </script>
 
 <template>
   <div
+    ref="browserEl"
     class="sftp-browser"
     :class="{ dragging: isDragging }"
     @dragover="onDragOver"
