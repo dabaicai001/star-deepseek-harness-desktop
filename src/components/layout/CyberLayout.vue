@@ -7,6 +7,7 @@ import { useAppStore } from '@/stores/app'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import AssetTree from '@/components/asset/AssetTree.vue'
 import SidebarHandle from '@/components/layout/SidebarHandle.vue'
+import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import * as tauriWindowApi from '@tauri-apps/api/window'
 import type { Asset } from '@/types/asset'
 import type { CreateAssetDto } from '@/types/asset'
@@ -77,15 +78,25 @@ function onTitlebarDblclick() {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('keydown', onGlobalKeydown)
+  updateClock()
+  clockTimer = window.setInterval(updateClock, 1000)
   await refreshMaximized()
   // 监听 Tauri 窗口状态变化,同步 isMaximized
   try {
     await appWindow.onResized(async () => { await refreshMaximized() })
   } catch {}
+  // 初始化标签页滚动状态
+  setTimeout(updateTabScrollState, 100)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('keydown', onGlobalKeydown)
+  if (clockTimer !== null) {
+    window.clearInterval(clockTimer)
+    clockTimer = null
+  }
 })
 
 const filteredAssets = computed(() => {
@@ -100,6 +111,16 @@ const filteredAssets = computed(() => {
 const sshAssets = computed(() => filteredAssets.value.filter(a => a.type === 'ssh'))
 const dbAssets = computed(() => filteredAssets.value.filter(a => a.type === 'db'))
 const dockerAssets = computed(() => filteredAssets.value.filter(a => a.type === 'docker'))
+const sftpTabCount = computed(() => appStore.tabs.filter(t => t.id.startsWith('sftp-')).length)
+
+// 时钟(每秒更新)
+const clockText = ref('')
+let clockTimer: number | null = null
+function updateClock() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  clockText.value = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
 
 function getIcon(type: string) {
   switch (type) {
@@ -184,6 +205,127 @@ function closeTab(tabId: string) {
     }
   }
 }
+
+// ====== 标签页右键菜单 ======
+const tabCtxMenu = ref<{ x: number; y: number; tab: { id: string; type: string; title: string } } | null>(null)
+
+function openTabContextMenu(e: MouseEvent, tab: { id: string; type: string; title: string }) {
+  e.preventDefault()
+  e.stopPropagation()
+  tabCtxMenu.value = { x: e.clientX, y: e.clientY, tab }
+}
+
+function closeTabContextMenu() {
+  tabCtxMenu.value = null
+}
+
+const tabCtxItems = computed<MenuItem[]>(() => {
+  if (!tabCtxMenu.value) return []
+  const { tab } = tabCtxMenu.value
+  const idx = appStore.tabs.findIndex(t => t.id === tab.id)
+  const hasLeft = idx > 0
+  const hasRight = idx >= 0 && idx < appStore.tabs.length - 1
+  const others = appStore.tabs.filter(t => t.id !== tab.id)
+  const activeId = appStore.activeTab
+  return [
+    {
+      type: 'header',
+      icon: getIcon(tab.type),
+      label: tab.title
+    },
+    {
+      type: 'item',
+      icon: 'mdi-close',
+      label: '关闭',
+      shortcut: 'Ctrl+W',
+      onClick: () => closeTab(tab.id)
+    },
+    {
+      type: 'item',
+      icon: 'mdi-close-circle-outline',
+      label: '关闭其他标签页',
+      disabled: others.length === 0,
+      onClick: () => {
+        // 关闭除当前外的所有
+        for (const t of [...appStore.tabs]) {
+          if (t.id !== tab.id) appStore.removeTab(t.id)
+        }
+        // 跳到当前
+        selectTab(tab as any)
+      }
+    },
+    {
+      type: 'item',
+      icon: 'mdi-arrow-collapse-right',
+      label: '关闭右侧标签页',
+      disabled: !hasRight,
+      onClick: () => {
+        const right = appStore.tabs.slice(idx + 1)
+        for (const t of right) appStore.removeTab(t.id)
+        // 如果 active 在被关的里面,跳回当前
+        if (activeId && !appStore.tabs.find(t => t.id === activeId)) {
+          selectTab(tab as any)
+        }
+      }
+    },
+    { type: 'divider' },
+    {
+      type: 'item',
+      icon: 'mdi-content-duplicate',
+      label: '复制标签标题',
+      onClick: async () => {
+        try { await navigator.clipboard.writeText(tab.title) } catch {}
+      }
+    },
+    {
+      type: 'item',
+      icon: 'mdi-arrow-right',
+      label: '关闭所有并回首页',
+      danger: true,
+      disabled: appStore.tabs.length === 0,
+      onClick: () => {
+        for (const t of [...appStore.tabs]) appStore.removeTab(t.id)
+        router.push({ name: 'home' })
+      }
+    }
+  ]
+})
+
+// Ctrl+W 关闭当前
+function onGlobalKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w' && appStore.activeTab) {
+    e.preventDefault()
+    closeTab(appStore.activeTab)
+  }
+}
+
+// ====== 标签页溢出滚动 ======
+const tabStripRef = ref<HTMLElement | null>(null)
+const canScrollLeft = ref(false)
+const canScrollRight = ref(false)
+
+function updateTabScrollState() {
+  const el = tabStripRef.value
+  if (!el) return
+  canScrollLeft.value = el.scrollLeft > 2
+  canScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 2
+}
+
+function scrollTabs(dir: -1 | 1) {
+  const el = tabStripRef.value
+  if (!el) return
+  el.scrollBy({ left: dir * 160, behavior: 'smooth' })
+}
+
+function onTabStripScroll() {
+  updateTabScrollState()
+}
+
+// 监听 tabs 变化,刷新滚动状态
+import { watch as vueWatch } from 'vue'
+vueWatch(() => appStore.tabs.length, () => {
+  setTimeout(updateTabScrollState, 50)
+})
 </script>
 
 <template>
@@ -265,18 +407,42 @@ function closeTab(tabId: string) {
       <div class="menu-item">{{ t('docker.title') }}</div>
       <div class="menu-item">{{ t('ai.title') }}</div>
       
-      <div class="tab-strip">
-        <div
-          v-for="tab in appStore.tabs"
-          :key="tab.id"
-          class="tab"
-          :class="{ active: appStore.activeTab === tab.id }"
-          @click="selectTab(tab)"
+      <div class="tab-strip-wrap">
+        <button
+          v-show="canScrollLeft"
+          class="tab-scroll-btn left"
+          @click="scrollTabs(-1)"
         >
-          <v-icon size="12">{{ getIcon(tab.type) }}</v-icon>
-          {{ tab.title }}
-          <v-icon size="10" @click.stop="closeTab(tab.id)">mdi-close</v-icon>
+          <v-icon size="12">mdi-chevron-left</v-icon>
+        </button>
+        <div
+          ref="tabStripRef"
+          class="tab-strip"
+          @scroll="onTabStripScroll"
+        >
+          <div
+            v-for="tab in appStore.tabs"
+            :key="tab.id"
+            class="tab"
+            :class="{ active: appStore.activeTab === tab.id }"
+            @click="selectTab(tab)"
+            @contextmenu="openTabContextMenu($event, tab)"
+            @auxclick.middle.prevent="closeTab(tab.id)"
+          >
+            <v-icon size="12">{{ getIcon(tab.type) }}</v-icon>
+            <span class="tab-title">{{ tab.title }}</span>
+            <span class="tab-close" @click.stop="closeTab(tab.id)">
+              <v-icon size="10">mdi-close</v-icon>
+            </span>
+          </div>
         </div>
+        <button
+          v-show="canScrollRight"
+          class="tab-scroll-btn right"
+          @click="scrollTabs(1)"
+        >
+          <v-icon size="12">mdi-chevron-right</v-icon>
+        </button>
       </div>
     </div>
 
@@ -297,7 +463,7 @@ function closeTab(tabId: string) {
             </div>
             <h2 class="text-gradient">{{ t('home.welcome') }}</h2>
             <p>{{ t('home.subtitle') }}</p>
-            
+
             <div class="quick-actions">
               <button class="cyber-btn" @click="openNewConnection">
                 <v-icon size="16">mdi-plus</v-icon>
@@ -309,31 +475,43 @@ function closeTab(tabId: string) {
               </button>
             </div>
 
+            <div class="section-divider">
+              <span class="section-label">CAPABILITIES</span>
+              <span class="section-hint">选择一个模块开始</span>
+            </div>
+
             <div class="feature-grid">
               <div class="feature-card" @click="openNewConnection">
-                <v-icon size="32" color="cyan">mdi-console</v-icon>
+                <div class="fc-head">
+                  <v-icon size="22" color="cyan">mdi-console</v-icon>
+                  <span class="fc-tag">P0</span>
+                </div>
                 <h3>{{ t('ssh.title') }}</h3>
-                <p>{{ t('ssh.terminal') }}</p>
+                <p>{{ t('ssh.terminal') }} · SFTP</p>
               </div>
-              <div class="feature-card" @click="openNewConnection">
-                <v-icon size="32" color="cyan">mdi-folder-network</v-icon>
-                <h3>SFTP</h3>
-                <p>File Manager</p>
-              </div>
-              <div class="feature-card">
-                <v-icon size="32" color="purple">mdi-database</v-icon>
+              <div class="feature-card disabled-card">
+                <div class="fc-head">
+                  <v-icon size="22" color="purple">mdi-database</v-icon>
+                  <span class="fc-tag">P1</span>
+                </div>
                 <h3>{{ t('db.title') }}</h3>
-                <p>{{ t('db.query') }}</p>
+                <p>MySQL · PG · Redis · ...</p>
               </div>
-              <div class="feature-card">
-                <v-icon size="32" color="green">mdi-docker</v-icon>
+              <div class="feature-card disabled-card">
+                <div class="fc-head">
+                  <v-icon size="22" color="green">mdi-docker</v-icon>
+                  <span class="fc-tag">P1</span>
+                </div>
                 <h3>{{ t('docker.title') }}</h3>
-                <p>{{ t('docker.containers') }}</p>
+                <p>{{ t('docker.containers') }} / {{ t('docker.images') }}</p>
               </div>
-              <div class="feature-card">
-                <v-icon size="32" color="pink">mdi-robot</v-icon>
+              <div class="feature-card disabled-card">
+                <div class="fc-head">
+                  <v-icon size="22" color="pink">mdi-robot-outline</v-icon>
+                  <span class="fc-tag">P1</span>
+                </div>
                 <h3>{{ t('ai.title') }}</h3>
-                <p>{{ t('ai.send') }}</p>
+                <p>Function Calling · 自然语言运维</p>
               </div>
             </div>
           </div>
@@ -356,6 +534,10 @@ function closeTab(tabId: string) {
         <span>{{ sshAssets.length }} SSH</span>
       </div>
       <div class="sb-item">
+        <v-icon size="10">mdi-folder-network-outline</v-icon>
+        <span>{{ sftpTabCount }} SFTP</span>
+      </div>
+      <div class="sb-item">
         <v-icon size="10">mdi-database</v-icon>
         <span>{{ dbAssets.length }} DB</span>
       </div>
@@ -366,7 +548,7 @@ function closeTab(tabId: string) {
       <div class="sb-right">
         <div class="sb-item">
           <v-icon size="10">mdi-clock</v-icon>
-          <span>{{ new Date().toLocaleTimeString() }}</span>
+          <span>{{ clockText }}</span>
         </div>
       </div>
     </div>
@@ -375,6 +557,15 @@ function closeTab(tabId: string) {
     <NewConnectionDialog
       v-model="showNewConnection"
       @submit="handleNewConnection"
+    />
+
+    <!-- Tab context menu -->
+    <ContextMenu
+      v-if="tabCtxMenu"
+      :x="tabCtxMenu.x"
+      :y="tabCtxMenu.y"
+      :items="tabCtxItems"
+      @close="closeTabContextMenu"
     />
   </div>
 </template>
@@ -541,15 +732,17 @@ kbd {
 }
 
 .action-btn.primary {
-  background: var(--grad-primary);
-  color: var(--bg);
-  border: 0;
-  box-shadow: 0 4px 16px rgba(0, 240, 255, 0.3);
+  background: rgba(0, 240, 255, 0.1);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  box-shadow: none;
 }
 
 .action-btn.primary:hover {
-  box-shadow: 0 6px 24px rgba(0, 240, 255, 0.5);
-  transform: translateY(-1px);
+  background: rgba(0, 240, 255, 0.18);
+  color: var(--cyan);
+  border-color: var(--cyan);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.25);
 }
 
 .avatar {
@@ -600,12 +793,49 @@ kbd {
 .tab-strip {
   display: flex;
   gap: 4px;
-  margin-left: 16px;
   overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-strip-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 16px;
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.tab-scroll-btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: rgba(0, 240, 255, 0.06);
+  border: 1px solid var(--line-2);
+  cursor: pointer;
+  transition: all 0.15s;
+  z-index: 2;
+}
+
+.tab-scroll-btn:hover {
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.12);
+  border-color: rgba(0, 240, 255, 0.3);
 }
 
 .tab {
-  padding: 6px 12px;
+  padding: 6px 10px 6px 12px;
   border-radius: 6px 6px 0 0;
   background: transparent;
   color: var(--muted);
@@ -618,6 +848,7 @@ kbd {
   transition: all 0.2s;
   position: relative;
   white-space: nowrap;
+  max-width: 220px;
 }
 
 .tab:hover {
@@ -629,6 +860,36 @@ kbd {
   color: var(--cyan);
   background: linear-gradient(180deg, rgba(0, 240, 255, 0.1) 0%, transparent 100%);
   border-bottom-color: var(--cyan);
+}
+
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  color: var(--muted);
+  opacity: 0.5;
+  transition: all 0.15s;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tab:hover .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background: rgba(255, 77, 109, 0.15);
+  color: var(--red);
 }
 
 .main-content {
@@ -765,16 +1026,24 @@ kbd {
 
 .feature-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+@media (max-width: 720px) {
+  .feature-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .feature-card {
   background: var(--panel);
   border: 1px solid var(--line-2);
-  border-radius: 12px;
-  padding: 20px;
-  text-align: center;
+  border-radius: 10px;
+  padding: 14px 16px;
+  text-align: left;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
@@ -792,23 +1061,76 @@ kbd {
   opacity: 0.3;
 }
 
-.feature-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 40px rgba(0, 240, 255, 0.2);
+.feature-card:hover:not(.disabled-card) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 240, 255, 0.15);
   border-color: rgba(0, 240, 255, 0.3);
 }
 
+.feature-card.disabled-card {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.feature-card .fc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.feature-card .fc-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(120, 160, 255, 0.08);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  letter-spacing: 0.05em;
+}
+
 .feature-card h3 {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  margin-top: 12px;
-  margin-bottom: 4px;
+  margin: 0 0 2px 0;
   color: var(--text);
 }
 
 .feature-card p {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
+  margin: 0;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.section-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 32px auto 16px;
+  max-width: 760px;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+
+.section-divider::before,
+.section-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--line-2), transparent);
+}
+
+.section-hint {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  opacity: 0.7;
 }
 
 .workspace-content {
