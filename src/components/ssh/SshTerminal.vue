@@ -249,9 +249,10 @@ async function runSshAgent() {
     () => aiStore.settings.commandWhitelist,
     confirmFn,
     (status, detail) => {
-      const color = status === 'OK' ? '\x1b[32m' : '\x1b[31m'
-      const suffix = detail ? ` ${detail}` : ''
-      terminalRef.value?.writeln(`${color}${status}${suffix}\x1b[0m`)
+      if (status === 'ERR') {
+        const suffix = detail ? ` ${detail}` : ''
+        terminalRef.value?.writeln(`\x1b[31mERR${suffix}\x1b[0m`)
+      }
     }
   )
   const toolExec = async (call: LlmToolCall) => {
