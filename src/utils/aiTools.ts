@@ -27,6 +27,15 @@ export interface ToolConfirmCtx {
  */
 export type ToolConfirmFn = (ctx: ToolConfirmCtx) => Promise<boolean>
 
+/** 打印命令执行状态(OK / ERR)到终端,便于用户观察 AI 执行进度 */
+export type StatusPrinter = (status: 'OK' | 'ERR', detail?: string) => void
+
+/** 简单判断 SSH 输出是否看起来像失败 */
+function looksLikeSshError(output: string): boolean {
+  const lower = output.toLowerCase()
+  return /command not found|permission denied|no such file|cannot access|not a directory|operation not permitted|fatal|error:|failed|denied/.test(lower)
+}
+
 // ============================================================
 // SSH 工具
 // ============================================================
@@ -84,7 +93,8 @@ export function makeSshToolCaller(
   write: (cmd: string) => Promise<void>,
   captureOutput: (timeoutMs: number) => Promise<string>,
   getWhitelist: () => string[],
-  confirmFn: ToolConfirmFn
+  confirmFn: ToolConfirmFn,
+  printStatus?: StatusPrinter
 ) {
   return async (call: { function: { name: string; arguments: string } }): Promise<string> => {
     const args = safeParse(call.function.arguments)
@@ -115,9 +125,15 @@ export function makeSshToolCaller(
     }
 
     // 写命令到 terminal(用户能看到)
-    await write(command + '\n')
+    // 注意:write 回调内部(writeCommand)已自带 \n,此处不再追加
+    await write(command)
     // 等固定超时收集输出
     const output = await captureOutput(3000)
+    // 打印执行状态到终端
+    if (printStatus) {
+      const err = !output || looksLikeSshError(output)
+      printStatus(err ? 'ERR' : 'OK', command)
+    }
     return output || '(无输出)'
   }
 }
@@ -176,7 +192,8 @@ export type DbToolExecutor = (sql: string, forceConfirm: boolean) => Promise<str
 export function makeDbToolCaller(
   query: (sql: string) => Promise<string>,
   getWhitelist: () => string[],
-  confirmFn: ToolConfirmFn
+  confirmFn: ToolConfirmFn,
+  printStatus?: StatusPrinter
 ) {
   return async (call: { function: { name: string; arguments: string } }): Promise<string> => {
     const args = safeParse(call.function.arguments)
@@ -204,7 +221,13 @@ export function makeDbToolCaller(
       if (!approved) throw new Error('[Rejected by user]')
     }
 
-    return await query(sql)
+    const result = await query(sql)
+    // 打印执行状态到终端
+    if (printStatus) {
+      const err = result.startsWith('[Error]') || /error|failed|denied|timeout/i.test(result)
+      printStatus(err ? 'ERR' : 'OK', sql.length > 60 ? sql.slice(0, 60) + '...' : sql)
+    }
+    return result
   }
 }
 
@@ -300,7 +323,8 @@ export type DockerToolExecutor = (name: string, args: Record<string, unknown>) =
 export function makeDockerToolCaller(
   exec: DockerToolExecutor,
   getWhitelist: () => string[],
-  confirmFn: ToolConfirmFn
+  confirmFn: ToolConfirmFn,
+  printStatus?: StatusPrinter
 ) {
   return async (call: { function: { name: string; arguments: string } }): Promise<string> => {
     const args = safeParse(call.function.arguments)
@@ -329,6 +353,13 @@ export function makeDockerToolCaller(
       }
     }
 
-    return await exec(name, args)
+    const result = await exec(name, args)
+    // 打印执行状态到终端
+    if (printStatus) {
+      const err = result.startsWith('[Error]') || /error|failed|denied|timeout|not found/i.test(result)
+      const label = name + (args.command ? ` ${args.command}` : '')
+      printStatus(err ? 'ERR' : 'OK', label.length > 60 ? label.slice(0, 60) + '...' : label)
+    }
+    return result
   }
 }
