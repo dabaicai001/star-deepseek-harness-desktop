@@ -33,3 +33,8 @@ app.use(router)
 app.use(i18n)
 app.use(vuetify)
 app.mount('#app')
+
+// 全局抑制浏览器/系统的默认右键菜单
+// Tauri 桌面壳里浏览器的"返回/刷新/打印/检查"毫无意义,
+// 各业务区域需要时自己挂 @contextmenu 并用 <ContextMenu> 弹自定义菜单
+document.addEventListener('contextmenu', (e) => e.preventDefault())

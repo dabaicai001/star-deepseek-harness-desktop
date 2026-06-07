@@ -610,9 +610,14 @@
 }
 
 .form-row.host-port {
-  /* host 自适应,给个合理上限避免整列拉伸;port 固定 80px 够放 4 位端口 */
-  grid-template-columns: minmax(160px, 220px) 80px;
+  /* host 自适应,给个合理上限避免整列拉伸;port 固定 64px 够放 4 位端口 */
+  grid-template-columns: 1fr 64px;
   gap: 6px;
+}
+
+.form-row.host-port .cyber-input {
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
 .form-row.label-stack {

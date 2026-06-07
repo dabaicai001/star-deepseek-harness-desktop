@@ -10,6 +10,7 @@ const { t } = useI18n()
 const props = defineProps<{
   modelValue: boolean
   asset?: Asset | null
+  initialType?: 'ssh' | 'db' | 'docker'
 }>()
 
 const emit = defineEmits<{
@@ -52,6 +53,9 @@ watch(
     } else if (asset && asset.type === 'docker') {
       step.value = 'docker'
       syncDockerFromAsset()
+    } else if (props.initialType) {
+      // 从顶栏菜单快捷入口进入,跳过 type 选择
+      selectType(props.initialType)
     }
   },
   { immediate: true }

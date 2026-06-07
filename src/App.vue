@@ -3,6 +3,7 @@ import { watch } from 'vue'
 import { useTheme } from 'vuetify'
 import { useThemeStore } from '@/stores/theme'
 import { useI18n } from 'vue-i18n'
+import ErrorBoundary from '@/components/common/ErrorBoundary.vue'
 
 const themeStore = useThemeStore()
 const { t } = useI18n()
@@ -20,7 +21,9 @@ watch(
 
 <template>
   <v-app class="grid-bg">
-    <router-view />
+    <ErrorBoundary>
+      <router-view />
+    </ErrorBoundary>
   </v-app>
 </template>
 

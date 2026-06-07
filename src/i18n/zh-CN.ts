@@ -20,8 +20,15 @@ export default {
   },
   home: {
     welcome: '欢迎使用 StarHub',
-    subtitle: 'All-in-One 开发运维桌面中枢',
-    hint: '从左侧资产树选择连接开始'
+    subtitle: 'All-in-One 开发运维桌面中枢 — SSH / 数据库 / Docker / AI 一个窗口搞定',
+    hint: '从左侧资产树选择连接开始',
+    recent: '最近用过',
+    assets: '资产中心',
+    quickActions: '快捷操作',
+    quickActionsHint: 'QUICK ACTIONS',
+    noMatch: '没有匹配项',
+    emptyWelcome: '新建第一个连接',
+    tryAi: '试试 AI 助手'
   },
   settings: {
     title: '设置',
@@ -31,7 +38,18 @@ export default {
     general: '通用',
     proxy: '代理',
     security: '安全',
-    about: '关于'
+    about: '关于',
+    generalStartPage: '启动行为',
+    generalStartPageHome: '打开主页',
+    generalStartPageRestore: '恢复上次的 tab',
+    generalConfirmClose: '关闭主窗口时确认',
+    generalMaxTabs: '最大打开 tab 数',
+    generalMaxTabsHint: '超过后最早的 tab 自动关闭',
+    aboutVersion: '版本',
+    aboutDesc: 'All-in-One 跨平台开发运维桌面中枢 — SSH / 数据库 / Docker / AI 一个窗口搞定。',
+    aboutGithub: 'GitHub 仓库',
+    aboutLicense: 'MIT License · 2026',
+    aboutCheckUpdate: '检查更新'
   },
   asset: {
     title: '资产中心',
@@ -44,6 +62,7 @@ export default {
     reconnect: '重新连接',
     unfavorite: '取消收藏',
     confirmDelete: '确定要删除「{name}」吗?此操作不可撤销。',
+    deleted: '连接已删除',
     name: '名称',
     host: '主机',
     port: '端口',

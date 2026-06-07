@@ -359,6 +359,13 @@ function onKeydown(e: KeyboardEvent) {
   gap: 0;
 }
 
+.host-port .cyber-input {
+  padding: 5px 8px;
+  font-size: 12px;
+  height: 30px;
+  min-height: auto;
+}
+
 .db-type-switcher {
   display: flex;
   gap: 8px;

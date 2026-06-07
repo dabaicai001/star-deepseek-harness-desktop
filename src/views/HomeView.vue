@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
@@ -13,6 +13,13 @@ const router = useRouter()
 const assetStore = useAssetStore()
 const appStore = useAppStore()
 const showNewConnection = ref(false)
+// 顶栏 Quick Action 卡片传进来的预设类型(跳 type 选择页)
+const quickInitialType = ref<'ssh' | 'db' | 'docker' | undefined>(undefined)
+// 关闭 dialog 时清掉 quickInitialType,避免污染 + 按钮
+import { watch as vueWatch } from 'vue'
+vueWatch(showNewConnection, (open) => {
+  if (!open) quickInitialType.value = undefined
+})
 
 const recentAssets = computed<Asset[]>(() => {
   return [...assetStore.assets]
@@ -78,6 +85,27 @@ function openNewConnection() {
   showNewConnection.value = true
 }
 
+/** Quick Action 卡片点击:有同类资产就直接跳,没有就弹新建 dialog(预设类型) */
+function onQuickAction(type: 'ssh' | 'db' | 'docker' | 'ai') {
+  if (type === 'ai') {
+    // AI 是页内入口,直接跳
+    router.push({ name: 'ai' })
+    return
+  }
+  const sameType = assetStore.assets.filter(a => a.type === type)
+  if (sameType.length === 1) {
+    // 唯一一条直接开
+    connectToAsset(sameType[0])
+  } else if (sameType.length > 1) {
+    // 多条跳 home 通过 sidebar 让用户选(简单方案:聚焦最近一条)
+    connectToAsset(sameType.sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))[0])
+  } else {
+    // 没有同类资产 → 弹新建 dialog 并预设类型
+    quickInitialType.value = type
+    nextTick(() => { showNewConnection.value = true })
+  }
+}
+
 async function handleNewConnection(dto: CreateAssetDto) {
   const asset = await assetStore.createAsset(dto)
   const instanceId = generateInstanceId(asset.id)
@@ -100,11 +128,32 @@ async function handleNewConnection(dto: CreateAssetDto) {
 
 <template>
   <div class="home-view">
+    <!-- 完全空态:零资产时的欢迎卡 -->
+    <div v-if="assetStore.assets.length === 0" class="empty-welcome">
+      <div class="empty-welcome-inner">
+        <div class="welcome-icon">
+          <v-icon size="48" color="cyan">mdi-rocket-launch-outline</v-icon>
+        </div>
+        <h1 class="welcome-title">{{ t('home.welcome') }}</h1>
+        <p class="welcome-sub">{{ t('home.subtitle') }}</p>
+        <div class="welcome-actions">
+          <button class="cyber-btn" @click="openNewConnection">
+            <v-icon size="16">mdi-plus</v-icon>
+            <span>{{ t('home.emptyWelcome') }}</span>
+          </button>
+          <button class="cyber-btn-secondary" @click="onQuickAction('ai')">
+            <v-icon size="16">mdi-robot-outline</v-icon>
+            <span>{{ t('home.tryAi') }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 最近用过 -->
     <div v-if="recentAssets.length > 0" class="section">
       <div class="section-header">
         <span class="section-number">01</span>
-        <span class="section-title">最近用过</span>
+        <span class="section-title">{{ t('home.recent') }}</span>
         <span class="section-hint">RECENT</span>
       </div>
 
@@ -172,23 +221,24 @@ async function handleNewConnection(dto: CreateAssetDto) {
     <div class="section">
       <div class="section-header">
         <span class="section-number">{{ recentAssets.length > 0 ? '03' : '02' }}</span>
-        <span class="section-title">{{ t('common.search') }}</span>
+        <span class="section-title">{{ t('home.quickActions') }}</span>
+        <span class="section-hint">{{ t('home.quickActionsHint') }}</span>
       </div>
 
       <div class="quick-actions-grid">
-        <div class="action-card">
+        <div class="action-card" @click="onQuickAction('ssh')">
           <v-icon size="24" color="cyan">mdi-console</v-icon>
           <span>{{ t('ssh.newTerminal') }}</span>
         </div>
-        <div class="action-card">
+        <div class="action-card" @click="onQuickAction('db')">
           <v-icon size="24" color="purple">mdi-database</v-icon>
           <span>{{ t('db.query') }}</span>
         </div>
-        <div class="action-card">
+        <div class="action-card" @click="onQuickAction('docker')">
           <v-icon size="24" color="green">mdi-docker</v-icon>
           <span>{{ t('docker.containers') }}</span>
         </div>
-        <div class="action-card">
+        <div class="action-card" @click="onQuickAction('ai')">
           <v-icon size="24" color="pink">mdi-robot</v-icon>
           <span>{{ t('ai.newChat') }}</span>
         </div>
@@ -198,6 +248,7 @@ async function handleNewConnection(dto: CreateAssetDto) {
 
   <NewConnectionDialog
     v-model="showNewConnection"
+    :initial-type="quickInitialType"
     @submit="handleNewConnection"
   />
 </template>
@@ -406,5 +457,59 @@ async function handleNewConnection(dto: CreateAssetDto) {
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* ====== 空态欢迎卡 ====== */
+.empty-welcome {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+  margin-bottom: 24px;
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.empty-welcome::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 30% 40%, rgba(0, 240, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 70% 60%, rgba(181, 107, 255, 0.06) 0%, transparent 50%);
+  pointer-events: none;
+}
+.empty-welcome-inner {
+  text-align: center;
+  padding: 40px 32px;
+  position: relative;
+}
+.welcome-icon {
+  margin-bottom: 16px;
+  filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.4));
+}
+.welcome-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  background: var(--grad-primary);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.welcome-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 24px;
+  line-height: 1.6;
+}
+.welcome-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 </style>

@@ -1,18 +1,27 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import {
   sftpList,
   sftpRemove,
   sftpMkdir,
   sftpRename,
-  sftpUpload,
-  sftpRead,
+  sftpEnsureSession,
+  sftpStartUpload,
+  sftpStartDownload,
+  sftpCancelTransfer,
+  sftpListTransfers,
   joinPath,
   parentPath,
   formatSize,
-  type SftpEntry
+  type SftpEntry,
+  type TransferProgress,
+  type TransferStatusEvent,
+  type TransferTask as ServerTransferTask
 } from '@/services/sftp'
+import { open as showOpenDialog, save as showSaveDialog } from '@tauri-apps/plugin-dialog'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
@@ -37,6 +46,37 @@ const errorMsg = ref<string | null>(null)
 const pathInput = ref('')
 const showHidden = ref(false)
 const isDragging = ref(false)
+// ====== 多选 ======
+const selectedPaths = ref<Set<string>>(new Set())
+
+// ====== 传输队列(上传 + 下载共用) ======
+type TransferDirection = 'upload' | 'download'
+/** 前端显示用状态 */
+type TransferStatus = 'pending' | 'active' | 'done' | 'error' | 'cancelled'
+
+interface TransferTask {
+  /** 前端 id(临时,前端自己生成) */
+  id: string
+  /** 后端 transfer_id(走 TransferManager 才有),用来 listen progress/status */
+  serverId?: string
+  direction: TransferDirection
+  name: string
+  size: number
+  transferred: number
+  status: TransferStatus
+  /** 显示用的本地路径(下载时有) */
+  localPath?: string
+  /** 显示用的远端路径 */
+  remotePath: string
+  error?: string
+}
+
+const transferTasks = ref<TransferTask[]>([])
+// 浮动窗默认展开,文件多时收起
+const queuePanelOpen = ref(true)
+const queueMinimized = ref(false)
+
+const fileInputRef = ref<HTMLInputElement | null>(null)
 
 // ====== 路径栏双模切换 ======
 const pathEditing = ref(false)
@@ -182,11 +222,22 @@ const sortedEntries = computed(() => {
   return entries.value.filter(e => !e.name.startsWith('.'))
 })
 
+// 上传/下载进度统计(共用)
+const transferStats = computed(() => {
+  const tasks = transferTasks.value
+  const total = tasks.length
+  const done = tasks.filter(t => t.status === 'done').length
+  const failed = tasks.filter(t => t.status === 'error').length
+  const active = tasks.filter(t => t.status === 'active' || t.status === 'pending').length
+  return { total, done, failed, active }
+})
+
 // ====== 加载 ======
 async function load(path?: string) {
   const target = path ?? currentPath.value
   loading.value = true
   errorMsg.value = null
+  selectedPaths.value = new Set()
   try {
     entries.value = await sftpList(props.sessionId, target)
     currentPath.value = target
@@ -196,7 +247,7 @@ async function load(path?: string) {
     errorMsg.value = msg
     entries.value = []
     // 修复 race condition:SSH connect 是 async,如果 SftpBrowser 在 SshTerminal
-    // connect() 完成前就发了请求,后端 sessions 还没注册这条 id,会报 Session not found。
+    // connect() 完成前就发了请求,后端 sessions 还没有这条 id,会报 Session not found。
     // 遇到这个错误时,等 600ms 再重试 1 次(给后端时间完成注册)
     if (msg.includes('Session not found') && !retrying.value) {
       retrying.value = true
@@ -243,6 +294,198 @@ function navigateToPath() {
   load(p)
 }
 
+// ====== 上传 / 下载 通用传输(走 TransferManager 的流式 + 事件) ======
+
+/** 一次性把多个本地路径丢给后端,后端自己开 transfer、emit 进度/状态事件 */
+async function uploadFromLocalPaths(localPaths: string[]) {
+  if (localPaths.length === 0) return
+  queuePanelOpen.value = true
+  queueMinimized.value = false
+
+  // 先把任务占位放进去(占位状态:pending,等后端 Running 事件切到 active)
+  const placeholders: TransferTask[] = localPaths.map((localPath) => {
+    const name = localPath.split(/[\\/]/).pop() || localPath
+    return {
+      id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      direction: 'upload',
+      name,
+      size: 0,
+      transferred: 0,
+      status: 'pending',
+      localPath,
+      remotePath: joinPath(currentPath.value, name)
+    }
+  })
+  transferTasks.value.push(...placeholders)
+
+  try {
+    // 确保 SFTP 通道已开
+    await sftpEnsureSession(props.sessionId)
+    // 一次性交给后端(后端会按文件顺序一个个发 progress 事件)
+    const transferId = await sftpStartUpload(props.sessionId, localPaths, currentPath.value)
+    // 把所有 placeholder 都绑上 serverId,事件来时一起更新
+    for (const p of placeholders) p.serverId = transferId
+  } catch (err: any) {
+    for (const p of placeholders) {
+      p.status = 'error'
+      p.error = err?.message ?? String(err)
+    }
+  }
+}
+
+async function downloadToLocalPath(entry: SftpEntry, localPath: string) {
+  queuePanelOpen.value = true
+  queueMinimized.value = false
+
+  const task: TransferTask = {
+    id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    direction: 'download',
+    name: entry.name,
+    size: entry.size,
+    transferred: 0,
+    status: 'pending',
+    localPath,
+    remotePath: entry.path
+  }
+  transferTasks.value.push(task)
+
+  try {
+    await sftpEnsureSession(props.sessionId)
+    // 用户的 save dialog 选的是具体文件路径(不是目录),所以传单个远端路径 +
+    // 该路径的父目录给后端。后端会把文件落到 local_dir/entry.name,
+    // 但我们想要的就是用户选的那个具体路径。
+    // —— 折中:把 localPath 的父目录作为 local_dir,文件名交给后端拼。
+    const localDir = localPath.replace(/[\\/][^\\/]+$/, '')
+    const transferId = await sftpStartDownload(
+      props.sessionId,
+      [entry.path],
+      localDir
+    )
+    task.serverId = transferId
+  } catch (err: any) {
+    task.status = 'error'
+    task.error = err?.message ?? String(err)
+  }
+}
+
+async function triggerFileUpload() {
+  try {
+    const selected = await showOpenDialog({
+      multiple: true,
+      directory: false,
+      title: t('sftp.selectFilesToUpload') ?? '选择要上传的文件',
+    })
+    if (!selected) return
+    const paths = Array.isArray(selected) ? selected : [selected]
+    if (paths.length === 0) return
+    void uploadFromLocalPaths(paths)
+  } catch (e: any) {
+    notify(e?.message ?? String(e), 'error')
+  }
+}
+
+async function onFileSelected(e: Event) {
+  const input = e.target as HTMLInputElement
+  input.value = ''
+}
+
+function clearFinishedTransfers() {
+  transferTasks.value = transferTasks.value.filter(
+    t => t.status === 'active' || t.status === 'pending'
+  )
+}
+
+/** 删除单个已完成/失败/取消的任务 */
+function removeTransferTask(task: TransferTask) {
+  transferTasks.value = transferTasks.value.filter(t => t.id !== task.id)
+}
+
+function toggleQueuePanel() {
+  queuePanelOpen.value = !queuePanelOpen.value
+}
+
+function toggleQueueMinimize() {
+  queueMinimized.value = !queueMinimized.value
+}
+
+// ====== 浮动窗位置 / 大小 / 拖拽 ======
+interface QueuePos { x: number; y: number; w: number }
+const QUEUE_DEFAULT_W = 360
+const QUEUE_MIN_W = 280
+const QUEUE_HEADER_H = 32
+const queuePos = ref<QueuePos>({ x: 0, y: 0, w: QUEUE_DEFAULT_W })
+const queueSize = ref<{ w: number }>({ w: QUEUE_DEFAULT_W })
+
+let queueDragging = false
+let dragStartX = 0
+let dragStartY = 0
+let dragOriginX = 0
+let dragOriginY = 0
+
+function onQueueHeaderMouseDown(e: MouseEvent) {
+  // 仅左键、忽略按钮区
+  if (e.button !== 0) return
+  if ((e.target as HTMLElement).closest('.tq-icon-btn')) return
+  queueDragging = true
+  dragStartX = e.clientX
+  dragStartY = e.clientY
+  dragOriginX = queuePos.value.x
+  dragOriginY = queuePos.value.y
+  document.addEventListener('mousemove', onQueueDragMove)
+  document.addEventListener('mouseup', onQueueDragEnd, { once: true })
+  e.preventDefault()
+}
+
+function onQueueDragMove(e: MouseEvent) {
+  if (!queueDragging) return
+  const nx = dragOriginX + (e.clientX - dragStartX)
+  const ny = dragOriginY + (e.clientY - dragStartY)
+  // 视口边界保护(最少露出 80px 标题栏)
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const maxX = vw - 80
+  const maxY = vh - QUEUE_HEADER_H
+  queuePos.value = {
+    ...queuePos.value,
+    x: Math.max(-queueSize.value.w + 80, Math.min(maxX, nx)),
+    y: Math.max(0, Math.min(maxY, ny))
+  }
+}
+
+function onQueueDragEnd() {
+  queueDragging = false
+  document.removeEventListener('mousemove', onQueueDragMove)
+}
+
+// 初始化:右下角浮窗
+function placeQueueInitially() {
+  if (typeof window === 'undefined') return
+  const w = QUEUE_DEFAULT_W
+  queuePos.value = {
+    x: window.innerWidth - w - 16,
+    y: window.innerHeight - 280,
+    w
+  }
+  queueSize.value = { w }
+}
+
+// 第一次出现时才放位置(避免 SSR / 容器未挂载时算错)
+watch(queuePanelOpen, (open) => {
+  if (open && queuePos.value.x === 0 && queuePos.value.y === 0) {
+    placeQueueInitially()
+  }
+})
+
+onBeforeUnmount(() => {
+  if (queueDragging) onQueueDragEnd()
+})
+
+// ====== 通知(简易) ======
+function notify(msg: string, _type: 'info' | 'warn' | 'error' = 'info') {
+  // 复用 errorMsg 区域做兜底展示;后续可换 toast
+  errorMsg.value = msg
+}
+
 // ====== 操作 ======
 async function onEntryDblClick(entry: SftpEntry) {
   if (entry.isDir) {
@@ -252,22 +495,39 @@ async function onEntryDblClick(entry: SftpEntry) {
   }
 }
 
-async function downloadFile(entry: SftpEntry) {
-  try {
-    const bytes = await sftpRead(props.sessionId, entry.path)
-    // 转成 Blob 触发浏览器下载
-    const blob = new Blob([new Uint8Array(bytes)])
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = entry.name
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  } catch (e: any) {
-    errorMsg.value = `Download failed: ${e?.message ?? e}`
+/** 单击选中(Ctrl 多选 / 单选) */
+function onEntryClick(entry: SftpEntry, e: MouseEvent) {
+  const path = entry.path
+  if (e.ctrlKey || e.metaKey) {
+    // Ctrl 多选:切换选中状态
+    const next = new Set(selectedPaths.value)
+    if (next.has(path)) {
+      next.delete(path)
+    } else {
+      next.add(path)
+    }
+    selectedPaths.value = next
+  } else {
+    // 单选
+    selectedPaths.value = new Set([path])
   }
+}
+
+async function downloadFile(entry: SftpEntry) {
+  // 让用户选本地保存位置(默认 Downloads + 原文件名)
+  let localPath: string | null = null
+  try {
+    localPath = await showSaveDialog({
+      defaultPath: entry.name,
+      title: '保存到本地',
+      filters: [{ name: 'All files', extensions: ['*'] }]
+    })
+  } catch (e: any) {
+    errorMsg.value = `Save dialog failed: ${e?.message ?? e}`
+    return
+  }
+  if (!localPath) return // 用户取消
+  await downloadToLocalPath(entry, localPath)
 }
 
 async function createDir() {
@@ -282,41 +542,82 @@ async function createDir() {
 }
 
 // ====== 右键菜单 ======
-const ctxMenu = ref<{ x: number; y: number; entry: SftpEntry } | null>(null)
+const ctxMenu = ref<{ x: number; y: number; entry: SftpEntry | null } | null>(null)
 const ctxItems = computed<MenuItem[]>(() => {
   if (!ctxMenu.value) return []
   const entry = ctxMenu.value.entry
+  
+  // 空白区域右键菜单
+  if (!entry) {
+    return [
+      { type: 'header', icon: 'mdi-folder', label: currentPath.value },
+      {
+        type: 'item',
+        icon: 'mdi-cloud-upload-outline',
+        label: '上传文件',
+        onClick: () => triggerFileUpload()
+      },
+      { type: 'divider' },
+      {
+        type: 'item',
+        icon: 'mdi-folder-plus-outline',
+        label: t('sftp.newFolder') ?? '新建文件夹',
+        onClick: () => createDir()
+      },
+      { type: 'divider' },
+      {
+        type: 'item',
+        icon: 'mdi-refresh',
+        label: t('sftp.refresh') ?? '刷新',
+        onClick: () => refresh()
+      }
+    ]
+  }
+  
+  // 判断是否有多选
+  const hasMulti = selectedPaths.value.size > 1 && selectedPaths.value.has(entry.path)
+  const selectedEntries = sortedEntries.value.filter(e => selectedPaths.value.has(e.path))
+  
+  // 文件/目录右键菜单
   return [
-    { type: 'header', icon: entry.isDir ? 'mdi-folder' : 'mdi-file', label: entry.name },
-    {
-      type: 'item',
-      icon: 'mdi-open-in-app',
-      label: entry.isDir ? (t('sftp.open') ?? '打开') : (t('sftp.download') ?? '下载'),
-      onClick: () => entry.isDir
-        ? load(joinPath(currentPath.value, entry.name))
-        : downloadFile(entry)
-    },
-    { type: 'divider' },
-    {
-      type: 'item',
-      icon: 'mdi-rename-box',
-      label: t('sftp.rename') ?? '重命名',
-      onClick: () => renameEntry(entry)
-    },
-    { type: 'divider' },
+    { type: 'header', icon: entry.isDir ? 'mdi-folder' : 'mdi-file', label: hasMulti ? `${selectedPaths.value.size} 个项目` : entry.name },
+    ...(hasMulti ? [] : [
+      {
+        type: 'item' as const,
+        icon: 'mdi-open-in-app',
+        label: entry.isDir ? (t('sftp.open') ?? '打开') : (t('sftp.download') ?? '下载'),
+        onClick: () => entry.isDir
+          ? load(joinPath(currentPath.value, entry.name))
+          : downloadFile(entry)
+      },
+      { type: 'divider' as const },
+      {
+        type: 'item' as const,
+        icon: 'mdi-rename-box',
+        label: t('sftp.rename') ?? '重命名',
+        onClick: () => renameEntry(entry)
+      },
+      { type: 'divider' as const },
+    ]),
     {
       type: 'item',
       icon: 'mdi-delete-outline',
-      label: t('asset.delete') ?? '删除',
+      label: hasMulti ? `删除 ${selectedPaths.value.size} 个项目` : (t('sftp.delete') ?? '删除'),
       danger: true,
-      onClick: () => openDeleteConfirm(entry)
+      onClick: () => openDeleteConfirm(hasMulti ? selectedEntries : [entry])
     }
   ]
 })
 
-function openContextMenu(e: MouseEvent, entry: SftpEntry) {
+function openContextMenu(e: MouseEvent, entry?: SftpEntry) {
   e.preventDefault()
-  ctxMenu.value = { x: e.clientX, y: e.clientY, entry }
+  if (entry) {
+    // 右键时如果目标不在选中集合中,则切换单选
+    if (!selectedPaths.value.has(entry.path)) {
+      selectedPaths.value = new Set([entry.path])
+    }
+  }
+  ctxMenu.value = { x: e.clientX, y: e.clientY, entry: entry ?? null }
 }
 
 function closeContextMenu() {
@@ -339,61 +640,201 @@ async function renameEntry(entry: SftpEntry) {
 
 // ====== 删除确认 ======
 const showDeleteConfirm = ref(false)
-const deleteTarget = ref<SftpEntry | null>(null)
+const deleteTargets = ref<SftpEntry[]>([])
 const deleteTyped = ref('')
 
-function openDeleteConfirm(entry: SftpEntry) {
-  deleteTarget.value = entry
+function openDeleteConfirm(entries: SftpEntry[]) {
+  deleteTargets.value = entries
   deleteTyped.value = ''
   showDeleteConfirm.value = true
 }
 
 async function handleDelete() {
-  if (!deleteTarget.value) return
-  const target = deleteTarget.value
+  if (deleteTargets.value.length === 0) return
+  const targets = [...deleteTargets.value]
   try {
-    await sftpRemove(props.sessionId, target.path)
+    for (const target of targets) {
+      await sftpRemove(props.sessionId, target.path)
+    }
     showDeleteConfirm.value = false
-    deleteTarget.value = null
+    deleteTargets.value = []
+    selectedPaths.value = new Set()
     await load()
   } catch (e: any) {
     errorMsg.value = `Delete failed: ${e?.message ?? e}`
   }
 }
 
-// ====== 拖放上传 ======
-function onDragOver(e: DragEvent) {
-  e.preventDefault()
-  isDragging.value = true
-}
+// ====== Tauri 2 拖放上传 ======
+// Tauri 2 不会再注入 File.path,浏览器层的 dragover/drop 拿到的是空 FileList。
+// 正确做法是订阅 webview.onDragDropEvent,event.payload.paths 才是真路径。
+let unlistenDragDrop: (() => void) | null = null
 
-function onDragLeave(e: DragEvent) {
-  e.preventDefault()
-  isDragging.value = false
-}
-
-async function onDrop(e: DragEvent) {
-  e.preventDefault()
-  isDragging.value = false
-  if (!e.dataTransfer?.files?.length) return
-  const files = Array.from(e.dataTransfer.files)
-  for (const file of files) {
-    // Tauri 注入 file.path(非标准但 desktop 平台提供)
-    // @ts-ignore
-    const localPath: string | undefined = file.path
-    const remotePath = joinPath(currentPath.value, file.name)
-    if (!localPath) {
-      // 浏览器环境(无 Tauri):用 FileReader 读字节,fallback
-      errorMsg.value = `Drag upload needs desktop runtime (Tauri). Browser fallback not implemented.`
-      continue
-    }
-    try {
-      await sftpUpload(props.sessionId, localPath, remotePath)
-    } catch (err: any) {
-      errorMsg.value = `Upload ${file.name} failed: ${err?.message ?? err}`
-    }
+async function setupTauriDragDrop() {
+  try {
+    const wv = getCurrentWebview()
+    unlistenDragDrop = await wv.onDragDropEvent((event) => {
+      const p = event.payload as { type: string; paths?: string[]; position?: { x: number; y: number } }
+      if (p.type === 'over') {
+        isDragging.value = true
+      } else if (p.type === 'leave') {
+        isDragging.value = false
+      } else if (p.type === 'drop') {
+        isDragging.value = false
+        const paths = p.paths ?? []
+        if (paths.length === 0) return
+        // 把"文件"挑出来:目录的判断放到 Rust 端处理更稳;
+        // 简单做法:把所有路径都交给 uploadFromLocalPaths,Rust 端逐路径 stat 后决定
+        void uploadFromLocalPaths(paths)
+      }
+    })
+  } catch (e) {
+    // 非 Tauri 环境(纯 web dev 跑 vite),静默降级
+    console.warn('[sftp] onDragDropEvent unavailable, drag-drop disabled:', e)
   }
-  await load()
+}
+
+function teardownTauriDragDrop() {
+  if (unlistenDragDrop) {
+    unlistenDragDrop()
+    unlistenDragDrop = null
+  }
+}
+
+// ====== 监听 TransferManager 的 progress / status 事件 ======
+let unlistenProgress: UnlistenFn | null = null
+let unlistenStatus: UnlistenFn | null = null
+
+async function setupTransferListeners() {
+  try {
+    unlistenProgress = await listen<TransferProgress>('sftp://transfer-progress', (e) => {
+      const p = e.payload
+      // 优先级 1:serverId + fileName 精准匹配(正常路径)
+      let task = transferTasks.value.find(
+        t => t.serverId === p.transferId && t.name === p.fileName
+      )
+      // 优先级 2:Rust 的 tokio::spawn 跑得比 await sftpStartUpload() 返回还快,
+      // 第一个 progress 事件到的时候 placeholder 还没绑上 serverId(竞态)
+      // 兜底:按 fileName + 未绑定 serverId + 状态为 pending/active 找占位
+      if (!task) {
+        task = transferTasks.value.find(
+          t => t.name === p.fileName
+            && t.serverId === undefined
+            && (t.status === 'pending' || t.status === 'active')
+        )
+        // 找到后顺手把 serverId 绑上,后续事件走优先级 1
+        if (task) task.serverId = p.transferId
+      }
+      if (!task) return
+      task.transferred = p.transferred
+      if (p.total > 0) {
+        task.size = Math.max(task.size, p.total)
+      }
+      if (task.status === 'pending') task.status = 'active'
+    })
+
+    unlistenStatus = await listen<TransferStatusEvent>('sftp://transfer-status', (e) => {
+      const s = e.payload
+      // 一个 transferId 可能对应多个本地占位(批量上传),所以找出所有
+      const tasks = transferTasks.value.filter(t => t.serverId === s.transferId)
+      if (tasks.length === 0) return
+      const map: Record<string, TransferStatus> = {
+        queued: 'pending',
+        running: 'active',
+        done: 'done',
+        failed: 'error',
+        cancelled: 'cancelled'
+      }
+      const frontendStatus = map[s.status] ?? 'active'
+      for (const t of tasks) {
+        t.status = frontendStatus
+        if (s.error) t.error = s.error
+        if (frontendStatus === 'done' && t.size === 0) {
+          // 后端没给 size,前端不知道;保持 0 让 UI 显示 — 不强制改
+        }
+      }
+      // 终态时如果是上传,刷新文件列表(可能有同名新文件出现)
+      if (frontendStatus === 'done' && s.direction === 'upload') {
+        void load()
+      }
+    })
+  } catch (e) {
+    console.warn('[sftp] failed to subscribe transfer events:', e)
+  }
+}
+
+function teardownTransferListeners() {
+  if (unlistenProgress) { unlistenProgress(); unlistenProgress = null }
+  if (unlistenStatus) { unlistenStatus(); unlistenStatus = null }
+}
+
+/** 取消一个传输任务 */
+async function cancelTransfer(task: TransferTask) {
+  if (!task.serverId) return
+  try {
+    await sftpCancelTransfer(props.sessionId, task.serverId)
+    // 后端会立刻 emit cancelled status,前端 listener 会更新 task
+  } catch (e: any) {
+    task.error = e?.message ?? String(e)
+  }
+}
+
+/** 重新从后端拉一遍任务列表(用于刷新/重连) */
+async function refreshTransferList() {
+  try {
+    const list = await sftpListTransfers(props.sessionId)
+    // 只把"已结束 + 不在本地"的任务保留(避免覆盖正在跑的)
+    const knownIds = new Set(transferTasks.value.map(t => t.serverId).filter(Boolean))
+    for (const t of list) {
+      if (knownIds.has(t.id)) continue
+      // 远端有但前端没有的(比如刷新后)— 按 upload/download + 文件名建占位
+      const dir: TransferDirection = t.direction === 'upload' ? 'upload' : 'download'
+      for (const f of t.files) {
+        transferTasks.value.push({
+          id: `remote-${t.id}-${f.name}`,
+          serverId: t.id,
+          direction: dir,
+          name: f.name,
+          size: f.size,
+          transferred: f.transferred,
+          status: mapServerStatus(t.status),
+          remotePath: ''
+        })
+      }
+    }
+  } catch (e) {
+    console.warn('[sftp] refreshTransferList failed:', e)
+  }
+}
+
+function mapServerStatus(s: string): TransferStatus {
+  const m: Record<string, TransferStatus> = {
+    queued: 'pending',
+    running: 'active',
+    done: 'done',
+    failed: 'error',
+    cancelled: 'cancelled'
+  }
+  return m[s] ?? 'pending'
+}
+
+function progressPct(t: TransferTask): number {
+  if (!t.size || t.size <= 0) return 0
+  return Math.max(0, Math.min(100, (t.transferred / t.size) * 100))
+}
+
+// 浏览器层 dragover/drop 只在非 Tauri 环境下走(纯 vite 调试),并且必须
+// preventDefault 才能让 drop 触发。这里加 fallback 防止 hover 时光标变
+// "禁止"图标。
+function onDragOver(e: DragEvent) {
+  if (e.dataTransfer) e.preventDefault()
+}
+function onDragLeave(_e: DragEvent) {
+  // Tauri 走自己的事件,这里不切 isDragging(避免和 webview 事件打架)
+}
+function onDrop(e: DragEvent) {
+  e.preventDefault()
+  // 真上传由 webview 事件触发;这里只 swallow 浏览器默认行为
 }
 
 // ====== 路径段点击导航 ======
@@ -433,6 +874,12 @@ function fmtPerms(p: number) {
 // 后端(那时候 manager.sessions 里还没有这条 id,会立刻拿到 "Session not found")
 onMounted(() => {
   if (props.ready) load()
+  // 注册 Tauri 2 拖拽监听(浏览器 input.files 拿不到本地路径,必须走 webview 事件)
+  void setupTauriDragDrop()
+  // 订阅 TransferManager 的 progress / status 事件
+  void setupTransferListeners()
+  // 拉一下已有的传输(应对刷新/重连场景)
+  void refreshTransferList()
 })
 
 // 监听 sessionId 变化(同一个组件实例被复用)
@@ -464,6 +911,8 @@ onBeforeUnmount(() => {
   } else {
     window.removeEventListener('resize', onContainerResize)
   }
+  teardownTauriDragDrop()
+  teardownTransferListeners()
 })
 </script>
 
@@ -475,7 +924,17 @@ onBeforeUnmount(() => {
     @dragover="onDragOver"
     @dragleave="onDragLeave"
     @drop="onDrop"
+    @contextmenu="openContextMenu($event)"
   >
+    <!-- 隐藏的文件输入 -->
+    <input
+      ref="fileInputRef"
+      type="file"
+      multiple
+      class="hidden-file-input"
+      @change="onFileSelected"
+    />
+
     <!-- 工具栏 -->
     <div class="sftp-toolbar">
       <button class="action-btn" :disabled="isAtRoot" :data-tooltip="t('sftp.up')" @click="goUp">
@@ -488,6 +947,9 @@ onBeforeUnmount(() => {
         <v-icon size="14">mdi-refresh</v-icon>
       </button>
       <span class="divider" />
+      <button class="action-btn upload-btn" data-tooltip="上传文件" @click="triggerFileUpload">
+        <v-icon size="14">mdi-cloud-upload-outline</v-icon>
+      </button>
       <button class="action-btn" :data-tooltip="t('sftp.newFolder')" @click="createDir">
         <v-icon size="14">mdi-folder-plus-outline</v-icon>
       </button>
@@ -496,6 +958,23 @@ onBeforeUnmount(() => {
         <input v-model="showHidden" type="checkbox" />
         <v-icon size="12">mdi-eye-outline</v-icon>
       </label>
+      <span class="spacer" />
+      <button
+        v-if="transferTasks.length > 0"
+        class="action-btn upload-status"
+        :class="{ 'has-error': transferStats.failed > 0, active: queuePanelOpen }"
+        :data-tooltip="`传输 ${transferStats.done}/${transferStats.total}${transferStats.failed > 0 ? ' · 失败 ' + transferStats.failed : ''}`"
+        @click="toggleQueuePanel"
+      >
+        <v-icon size="14" :class="{ spin: transferStats.active > 0 }">
+          {{ transferStats.failed > 0
+            ? 'mdi-alert-circle'
+            : transferStats.active > 0
+              ? 'mdi-cloud-sync-outline'
+              : 'mdi-check-circle' }}
+        </v-icon>
+        <span class="upload-count">{{ transferStats.done }}/{{ transferStats.total }}</span>
+      </button>
     </div>
 
     <!-- 路径栏(双模:面包屑 ↔ 输入框) -->
@@ -534,6 +1013,116 @@ onBeforeUnmount(() => {
         />
       </template>
     </div>
+
+    <!-- 传输队列:浮动小窗(可拖、可最小化、独立滚动) -->
+    <Teleport to="body">
+      <div
+        v-if="queuePanelOpen && transferTasks.length > 0"
+        class="transfer-queue"
+        :class="{ minimized: queueMinimized, 'has-error': transferStats.failed > 0 }"
+        :style="{
+          left: queuePos.x + 'px',
+          top: queuePos.y + 'px',
+          width: queueSize.w + 'px'
+        }"
+      >
+        <!-- 标题栏(可拖) -->
+        <div
+          class="tq-header"
+          @mousedown="onQueueHeaderMouseDown"
+          @dblclick="toggleQueueMinimize"
+        >
+          <v-icon size="14" :class="transferStats.active > 0 ? 'spin' : ''">
+            {{ transferStats.failed > 0
+              ? 'mdi-alert-circle'
+              : transferStats.active > 0
+                ? 'mdi-cloud-sync-outline'
+                : 'mdi-check-circle' }}
+          </v-icon>
+          <span class="tq-title">
+            传输队列
+            <span class="tq-counts">
+              {{ transferStats.done }}/{{ transferStats.total }}
+              <template v-if="transferStats.active > 0">· {{ transferStats.active }} 进行中</template>
+              <template v-if="transferStats.failed > 0">· {{ transferStats.failed }} 失败</template>
+            </span>
+          </span>
+          <span class="tq-spacer" />
+          <button class="tq-icon-btn" :title="queueMinimized ? '展开' : '最小化'" @click.stop="toggleQueueMinimize">
+            <v-icon size="12">{{ queueMinimized ? 'mdi-window-maximize' : 'mdi-window-minimize' }}</v-icon>
+          </button>
+          <button class="tq-icon-btn" title="清空已完成" @click.stop="clearFinishedTransfers">
+            <v-icon size="12">mdi-broom</v-icon>
+          </button>
+          <button class="tq-icon-btn" title="关闭" @click.stop="toggleQueuePanel">
+            <v-icon size="12">mdi-close</v-icon>
+          </button>
+        </div>
+
+        <!-- 列表(独立滚动) -->
+        <div v-show="!queueMinimized" class="tq-body">
+          <div
+            v-for="task in transferTasks"
+            :key="task.id"
+            class="tq-item"
+            :class="[task.direction, task.status]"
+          >
+            <v-icon size="13" class="tq-item-icon">
+              <template v-if="task.direction === 'upload'">mdi-cloud-upload-outline</template>
+              <template v-else>mdi-cloud-download-outline</template>
+            </v-icon>
+            <div class="tq-item-main">
+              <div class="tq-item-row1">
+                <span class="tq-item-name" :title="task.name">{{ task.name }}</span>
+                <span class="tq-item-size">
+                  <template v-if="task.size > 0 && (task.status === 'active' || task.status === 'pending')">
+                    {{ formatSize(task.transferred) }} / {{ formatSize(task.size) }}
+                  </template>
+                  <template v-else>{{ formatSize(task.size) }}</template>
+                </span>
+                <v-icon size="11" class="tq-item-state">
+                  <template v-if="task.status === 'active'">mdi-loading mdi-spin</template>
+                  <template v-else-if="task.status === 'pending'">mdi-clock-outline</template>
+                  <template v-else-if="task.status === 'done'">mdi-check-circle</template>
+                  <template v-else-if="task.status === 'cancelled'">mdi-close-circle-outline</template>
+                  <template v-else>mdi-alert-circle</template>
+                </v-icon>
+                <!-- 取消按钮:进行中可点 -->
+                <button
+                  v-if="task.status === 'active' || task.status === 'pending'"
+                  class="tq-item-cancel"
+                  title="取消"
+                  @click.stop="cancelTransfer(task)"
+                >
+                  <v-icon size="11">mdi-close</v-icon>
+                </button>
+                <!-- 删除按钮:已完成/失败/取消的任务可删除 -->
+                <button
+                  v-if="task.status === 'done' || task.status === 'error' || task.status === 'cancelled'"
+                  class="tq-item-cancel"
+                  title="删除"
+                  @click.stop="removeTransferTask(task)"
+                >
+                  <v-icon size="11">mdi-close</v-icon>
+                </button>
+              </div>
+              <!-- 进度条 -->
+              <div
+                v-if="task.size > 0 && (task.status === 'active' || task.status === 'pending')"
+                class="tq-progress"
+              >
+                <div class="tq-progress-fill" :style="{ width: progressPct(task) + '%' }" />
+              </div>
+              <div class="tq-item-path" v-if="task.localPath" :title="task.localPath">
+                <v-icon size="9">mdi-arrow-right</v-icon>
+                {{ task.localPath }}
+              </div>
+              <div v-if="task.error" class="tq-item-error">{{ task.error }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- 表头(可拖拽列宽) -->
     <div class="sftp-head" :style="{ gridTemplateColumns: gridCols }">
@@ -577,10 +1166,12 @@ onBeforeUnmount(() => {
         v-for="entry in sortedEntries"
         :key="entry.path"
         class="sftp-row"
+        :class="{ selected: selectedPaths.has(entry.path) }"
         :style="{ gridTemplateColumns: gridCols }"
         :data-tooltip="entry.path"
+        @click="onEntryClick(entry, $event)"
         @dblclick="onEntryDblClick(entry)"
-        @contextmenu="openContextMenu($event, entry)"
+        @contextmenu.stop="openContextMenu($event, entry)"
       >
         <div class="col col-name">
           <v-icon size="14" :class="entry.isDir ? 'folder' : 'file'">
@@ -614,11 +1205,13 @@ onBeforeUnmount(() => {
     <!-- 删除确认 -->
     <ConfirmDialog
       v-model="showDeleteConfirm"
-      :title="t('asset.delete') ?? '删除'"
-      :message="t('sftp.confirmDelete', { name: deleteTarget?.name })"
-      :confirm-text="t('asset.delete') ?? '删除'"
+      :title="t('sftp.delete') ?? '删除'"
+      :message="deleteTargets.length > 1
+        ? `确定删除 ${deleteTargets.length} 个项目?`
+        : t('sftp.confirmDelete', { name: deleteTargets[0]?.name })"
+      :confirm-text="t('sftp.delete') ?? '删除'"
       :cancel-text="t('common.cancel') ?? '取消'"
-      :require-typing="deleteTarget?.name || ''"
+      :require-typing="deleteTargets.length === 1 ? (deleteTargets[0]?.name || '') : ''"
       v-model:typed="deleteTyped"
       danger
       @confirm="handleDelete"
@@ -642,6 +1235,14 @@ onBeforeUnmount(() => {
   outline-offset: -1px;
 }
 
+.hidden-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* 工具栏 */
 .sftp-toolbar {
   display: flex;
@@ -658,6 +1259,10 @@ onBeforeUnmount(() => {
   height: 16px;
   background: var(--line-2);
   margin: 0 4px;
+}
+
+.sftp-toolbar .spacer {
+  flex: 1;
 }
 
 .sftp-toolbar .toggle {
@@ -681,6 +1286,59 @@ onBeforeUnmount(() => {
 .sftp-toolbar .toggle:has(input:checked) {
   color: var(--cyan);
   background: rgba(0, 240, 255, 0.1);
+}
+
+.upload-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  border-radius: 6px;
+  color: var(--cyan);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.upload-btn:hover {
+  background: rgba(0, 240, 255, 0.15);
+  border-color: rgba(0, 240, 255, 0.4);
+}
+
+.btn-label {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.upload-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(74, 222, 128, 0.08);
+  border: 1px solid rgba(74, 222, 128, 0.2);
+  border-radius: 6px;
+  color: var(--green);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.upload-status.has-error {
+  background: rgba(255, 77, 109, 0.08);
+  border-color: rgba(255, 77, 109, 0.2);
+  color: var(--red);
+}
+
+.upload-status.active {
+  background: rgba(0, 240, 255, 0.12);
+  border-color: rgba(0, 240, 255, 0.3);
+  color: var(--cyan);
+}
+
+.upload-count {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 /* 路径 */
@@ -736,6 +1394,210 @@ onBeforeUnmount(() => {
   width: 200px;
   font-size: 11px;
   padding: 4px 8px;
+}
+
+/* 浮动传输队列小窗 */
+.transfer-queue {
+  position: fixed;
+  z-index: 9998;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  box-shadow:
+    0 16px 48px -12px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(0, 240, 255, 0.06),
+    0 0 24px rgba(0, 240, 255, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+  animation: tq-appear 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.transfer-queue.has-error {
+  border-color: rgba(255, 77, 109, 0.4);
+  box-shadow:
+    0 16px 48px -12px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 77, 109, 0.08),
+    0 0 24px rgba(255, 77, 109, 0.12);
+}
+
+@keyframes tq-appear {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.tq-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  background: rgba(10, 14, 26, 0.6);
+  border-bottom: 1px solid var(--line);
+  cursor: grab;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.tq-header:active { cursor: grabbing; }
+
+.tq-title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.tq-counts {
+  margin-left: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.tq-spacer { flex: 1; }
+
+.tq-icon-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.tq-icon-btn:hover {
+  background: rgba(0, 240, 255, 0.1);
+  color: var(--cyan);
+  border-color: var(--line-2);
+}
+
+.tq-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+  max-height: 360px;
+}
+
+.transfer-queue.minimized .tq-body { display: none; }
+
+.tq-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  border-bottom: 1px solid rgba(120, 160, 255, 0.05);
+}
+
+.tq-item:last-child { border-bottom: none; }
+
+.tq-item:hover { background: rgba(0, 240, 255, 0.04); }
+
+.tq-item.upload .tq-item-icon { color: var(--cyan); }
+.tq-item.download .tq-item-icon { color: var(--purple); }
+.tq-item.error .tq-item-icon { color: var(--red); }
+.tq-item.done .tq-item-icon { color: var(--green); }
+
+.tq-item-main { flex: 1; min-width: 0; }
+
+.tq-item-row1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tq-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.tq-item-size {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.tq-item-state {
+  flex-shrink: 0;
+}
+.tq-item.active .tq-item-state { color: var(--cyan); }
+.tq-item.done .tq-item-state { color: var(--green); }
+.tq-item.error .tq-item-state { color: var(--red); }
+
+.tq-item-cancel {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s;
+}
+.tq-item-cancel:hover {
+  background: rgba(255, 77, 109, 0.1);
+  color: var(--red);
+  border-color: rgba(255, 77, 109, 0.2);
+}
+
+.tq-progress {
+  margin-top: 4px;
+  height: 3px;
+  background: var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+.tq-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--purple));
+  border-radius: 2px;
+  transition: width 0.18s ease;
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.4);
+}
+.tq-item.error .tq-progress-fill { background: var(--red); box-shadow: 0 0 6px rgba(255, 77, 109, 0.4); }
+.tq-item.done .tq-progress-fill { background: var(--green); box-shadow: 0 0 6px rgba(74, 222, 128, 0.4); }
+
+.tq-item-path {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tq-item-error {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--red);
+  word-break: break-all;
 }
 
 /* 表头 */
@@ -800,11 +1662,18 @@ onBeforeUnmount(() => {
   transition: background 0.1s;
   border-bottom: 1px solid rgba(120, 160, 255, 0.04);
   align-items: center;
+  user-select: none;
 }
 
 .sftp-row:hover {
   background: rgba(0, 240, 255, 0.05);
   color: var(--text);
+}
+
+.sftp-row.selected {
+  background: rgba(0, 240, 255, 0.1);
+  color: var(--text);
+  border-left: 2px solid var(--cyan);
 }
 
 .col {

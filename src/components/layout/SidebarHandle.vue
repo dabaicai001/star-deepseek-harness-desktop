@@ -13,14 +13,16 @@ onMounted(() => {
 })
 const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
 
-// ====== 拖拽调整宽度 ======
+// ====== 拖拽调整宽度(使用 requestAnimationFrame 节流) ======
 const isDragging = ref(false)
 let startX = 0
 let startWidth = 0
 let moved = 0
+let rafId = 0
 
 function onPointerDown(e: PointerEvent) {
   if (!appStore.sidebarOpen) return
+  e.preventDefault()
   startX = e.clientX
   startWidth = appStore.sidebarWidth
   moved = 0
@@ -33,18 +35,28 @@ function onPointerMove(e: PointerEvent) {
   moved = Math.abs(delta) > 4 ? Math.abs(delta) : moved
   if (!isDragging.value && Math.abs(delta) > 4) {
     isDragging.value = true
+    appStore.sidebarDragging = true
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
   }
   if (isDragging.value) {
-    appStore.setSidebarWidth(startWidth + delta)
+    if (rafId) cancelAnimationFrame(rafId)
+    rafId = requestAnimationFrame(() => {
+      appStore.setSidebarWidth(startWidth + delta)
+      rafId = 0
+    })
   }
 }
 
 function onPointerUp() {
   window.removeEventListener('pointermove', onPointerMove)
+  if (rafId) {
+    cancelAnimationFrame(rafId)
+    rafId = 0
+  }
   if (isDragging.value) {
     isDragging.value = false
+    appStore.sidebarDragging = false
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
   }
@@ -60,8 +72,6 @@ function onClick(e: MouseEvent) {
 }
 
 // ====== 自定义 tooltip ======
-// 1s 悬停后才显示,避免 hover 一闪而过就弹窗。拖拽时不弹。
-// 位置:handle 左侧,用 Teleport 避开 sidebar 的 overflow 裁剪。
 const tooltipVisible = ref(false)
 const tooltipPos = ref({ x: 0, y: 0 })
 let hoverTimer: number | null = null
@@ -87,9 +97,8 @@ function showTooltip() {
   if (isDragging.value) return
   if (!handleEl.value) return
   const r = handleEl.value.getBoundingClientRect()
-  // 左侧:handle 右边缘向左,垂直对齐 handle 中部
   tooltipPos.value = {
-    x: r.left - 10,  // 留 10px 间距,transform translateX(-100%) 后 tooltip 右边缘贴 handle
+    x: r.left - 10,
     y: r.top + r.height / 2
   }
   tooltipVisible.value = true
@@ -97,14 +106,13 @@ function showTooltip() {
 
 function onHandleEnter() {
   clearHover()
-  hoverTimer = window.setTimeout(showTooltip, 1000)
+  hoverTimer = window.setTimeout(showTooltip, 800)
 }
 function onHandleLeave() {
   clearHover()
   tooltipVisible.value = false
 }
 function onHandleFocus() {
-  // 键盘聚焦也显示(无障碍)
   clearHover()
   hoverTimer = window.setTimeout(showTooltip, 600)
 }
@@ -122,6 +130,7 @@ function onHandleDblClick() {
 
 onBeforeUnmount(() => {
   window.removeEventListener('pointermove', onPointerMove)
+  if (rafId) cancelAnimationFrame(rafId)
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
   clearHover()
@@ -133,8 +142,7 @@ onBeforeUnmount(() => {
     <button
       ref="handleEl"
       class="sidebar-handle"
-      :class="{ dragging: isDragging }"
-      :data-collapsed="!appStore.sidebarOpen"
+      :class="{ dragging: isDragging, collapsed: !appStore.sidebarOpen }"
       :aria-label="tooltipTitle"
       :aria-describedby="tooltipVisible ? 'sidebar-handle-tooltip' : undefined"
       @pointerdown="onPointerDown"
@@ -145,14 +153,10 @@ onBeforeUnmount(() => {
       @focus="onHandleFocus"
       @blur="onHandleBlur"
     >
-      <span class="grip">
-        <span class="dot"></span>
-        <span class="dot"></span>
-      </span>
-      <v-icon class="arrow" size="14">mdi-chevron-double-left</v-icon>
+      <span class="handle-indicator" />
     </button>
 
-    <!-- 自定义 tooltip:贴 handle 左侧,垂直居中,1s 悬停后出现 -->
+    <!-- 自定义 tooltip -->
     <Teleport to="body">
       <div
         v-if="tooltipVisible"
@@ -189,122 +193,90 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .sidebar-handle-wrap {
-  /* 包裹层不引入额外布局,仅作为 Teleport 的相对锚点 */
   display: contents;
 }
 
 .sidebar-handle {
   position: absolute;
-  /* 贴边模式:完全嵌在 sidebar 右边线内侧,不再外凸(以前 right:-12px 被父级 overflow 切掉一半) */
   right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 0;
+  bottom: 0;
+  width: 3px;
   z-index: 20;
-  width: 14px;
-  height: 56px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  background: var(--panel-2);
-  border: 1px solid rgba(0, 240, 255, 0.3);
-  /* 左侧贴边、右侧圆角:视觉上像"贴在 sidebar 右边缘的一条把手" */
-  border-left: 1px solid rgba(0, 240, 255, 0.5);
-  border-radius: 0 6px 6px 0;
-  color: var(--cyan);
-  cursor: ew-resize;
+  background: transparent;
+  border: none;
+  cursor: col-resize;
   padding: 0;
   font-family: inherit;
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.4),
-    0 0 6px rgba(0, 240, 255, 0.15);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width 0.15s ease, background 0.15s ease;
   user-select: none;
   -webkit-user-select: none;
-}
-
-.sidebar-handle:hover,
-.sidebar-handle:focus-visible {
-  background: var(--panel-2);
-  color: var(--cyan);
-  border-color: var(--cyan);
-  box-shadow:
-    0 0 0 3px rgba(0, 240, 255, 0.18),
-    0 0 16px rgba(0, 240, 255, 0.5),
-    0 4px 16px rgba(0, 0, 0, 0.5);
-  transform: translateY(-50%) scale(1.08);
   outline: none;
 }
 
-.sidebar-handle:active {
-  transform: translateY(-50%) scale(0.94);
+/* 中间指示条 */
+.handle-indicator {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 100%;
+  height: 24px;
+  background: var(--line-2);
+  border-radius: 0 2px 2px 0;
+  transition: all 0.15s ease;
 }
 
-.sidebar-handle.dragging {
+/* 悬停态 */
+.sidebar-handle:hover {
+  width: 6px;
+  background: rgba(0, 240, 255, 0.06);
+}
+
+.sidebar-handle:hover .handle-indicator {
+  height: 32px;
   background: var(--cyan);
-  color: var(--bg);
-  border-color: var(--cyan);
-  box-shadow:
-    0 0 0 3px rgba(0, 240, 255, 0.3),
-    0 0 24px rgba(0, 240, 255, 0.6),
-    0 4px 16px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
 }
 
-/* 折叠时:把手 cursor 变 pointer,只响应点击;位置跟展开态一致(贴 sidebar 右内侧) */
-.sidebar-handle[data-collapsed="true"] {
-  right: 0;
+/* 拖拽态 */
+.sidebar-handle.dragging {
+  width: 6px;
+  background: rgba(0, 240, 255, 0.1);
+}
+
+.sidebar-handle.dragging .handle-indicator {
+  height: 40px;
+  background: var(--cyan);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.6);
+}
+
+/* 聚焦态(无障碍) */
+.sidebar-handle:focus-visible {
+  width: 6px;
+}
+
+.sidebar-handle:focus-visible .handle-indicator {
+  background: var(--cyan);
+  opacity: 0.6;
+}
+
+/* 折叠态 */
+.sidebar-handle.collapsed {
   cursor: pointer;
 }
 
-.sidebar-handle[data-collapsed="true"] .arrow {
-  transform: rotate(180deg);
+.sidebar-handle.collapsed .handle-indicator {
+  height: 16px;
+  opacity: 0.5;
 }
 
-.sidebar-handle .arrow {
-  font-size: 18px;
-  color: var(--cyan);
-  filter: drop-shadow(0 0 3px rgba(0, 240, 255, 0.5));
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.sidebar-handle.dragging .arrow {
-  color: var(--bg);
-  filter: none;
-}
-
-.sidebar-handle .grip {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 1px;
-}
-
-.sidebar-handle .grip .dot {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--cyan);
-  opacity: 0.7;
-  box-shadow: 0 0 3px var(--cyan);
-  transition: all 0.25s;
-}
-
-.sidebar-handle:hover .grip .dot,
-.sidebar-handle:focus-visible .grip .dot {
-  opacity: 1;
-  box-shadow: 0 0 6px var(--cyan);
-  transform: scaleX(1.4);
-}
-
-.sidebar-handle.dragging .grip .dot {
-  background: var(--bg);
-  box-shadow: none;
+.sidebar-handle.collapsed:hover .handle-indicator {
   opacity: 1;
 }
 </style>
 
-<!-- Tooltip 样式不 scoped,因为 Teleport 到 body,需要全局可见 -->
+<!-- Tooltip 全局样式 -->
 <style>
 .handle-tooltip {
   position: fixed;
@@ -392,7 +364,6 @@ onBeforeUnmount(() => {
   animation: pulse 1s infinite;
 }
 
-/* 三角箭头:指向 handle(右侧) */
 .handle-tooltip .tt-arrow {
   position: absolute;
   right: -5px;

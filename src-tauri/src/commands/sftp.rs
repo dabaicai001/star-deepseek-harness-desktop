@@ -2,6 +2,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tauri::State;
 use crate::commands::ssh::SshManager;
+use crate::sftp::transfer::TransferManager;
+use crate::sftp::{TransferTask, TransferStatus};
 use crate::ssh::sftp::SftpEntry;
 
 fn map_err<E: std::fmt::Display>(e: E) -> String {
@@ -199,19 +201,79 @@ pub async fn sftp_rename(
     sftp.rename(&from, &to).await.map_err(map_err)
 }
 
-/// 上传本地文件到远程路径
+// ============== 流式传输(走 TransferManager,分块 + progress 事件) ==============
+
+/// 打开一条 SFTP 通道并注册到 TransferManager(后续 sftp_start_*
+/// 会复用它,避免每个文件都新开 SFTP channel)
 #[tauri::command]
-pub async fn sftp_upload(
+pub async fn sftp_ensure_session(
     manager: State<'_, SshManager>,
+    transfer_manager: State<'_, TransferManager>,
     id: String,
-    local_path: String,
-    remote_path: String,
 ) -> Result<(), String> {
-    let bytes = std::fs::read(&local_path).map_err(map_err)?;
+    // 已注册过就直接返回
+    if transfer_manager.has_session(&id).await {
+        tracing::info!("[sftp_ensure_session] session {} already registered", id);
+        return Ok(());
+    }
+    tracing::info!("[sftp_ensure_session] opening SFTP channel for session {}", id);
     let mut sessions = manager.sessions.lock().await;
     let session = sessions
         .get_mut(&id)
         .ok_or_else(|| "Session not found".to_string())?;
-    let mut sftp = session.open_sftp().await.map_err(map_err)?;
-    sftp.write(&remote_path, &bytes).await.map_err(map_err)
+    let sftp = session.open_sftp().await.map_err(map_err)?;
+    tracing::info!("[sftp_ensure_session] SFTP channel opened, registering to TransferManager");
+    transfer_manager
+        .register_sftp(id.clone(), Arc::new(Mutex::new(sftp)))
+        .await;
+    tracing::info!("[sftp_ensure_session] session {} registered successfully", id);
+    Ok(())
+}
+
+/// 启动流式上传(分块 + progress 事件)
+#[tauri::command]
+pub async fn sftp_start_upload(
+    transfer_manager: State<'_, TransferManager>,
+    id: String,
+    local_paths: Vec<String>,
+    remote_dir: String,
+) -> Result<String, String> {
+    transfer_manager
+        .upload(&id, local_paths, remote_dir)
+        .await
+        .map_err(map_err)
+}
+
+/// 启动流式下载(分块 + progress 事件)
+#[tauri::command]
+pub async fn sftp_start_download(
+    transfer_manager: State<'_, TransferManager>,
+    id: String,
+    remote_paths: Vec<String>,
+    local_dir: String,
+) -> Result<String, String> {
+    transfer_manager
+        .download(&id, remote_paths, local_dir)
+        .await
+        .map_err(map_err)
+}
+
+/// 取消一个传输(设置 cancellation token,正在跑的循环检测到后退出)
+#[tauri::command]
+pub async fn sftp_cancel_transfer(
+    transfer_manager: State<'_, TransferManager>,
+    _id: String,
+    transfer_id: String,
+) -> Result<(), String> {
+    transfer_manager.cancel(&transfer_id).await;
+    Ok(())
+}
+
+/// 列出某 session 的所有传输任务(给前端刷新/重连用)
+#[tauri::command]
+pub async fn sftp_list_transfers(
+    transfer_manager: State<'_, TransferManager>,
+    id: String,
+) -> Result<Vec<TransferTask>, String> {
+    Ok(transfer_manager.list_tasks(&id).await)
 }

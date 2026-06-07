@@ -5,6 +5,7 @@ pub mod transfer;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileEntry {
     pub name: String,
     pub path: String,
@@ -23,6 +24,7 @@ pub struct SftpSessionInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TransferFile {
     pub name: String,
     pub size: u64,
@@ -30,12 +32,14 @@ pub struct TransferFile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum TransferDirection {
     Upload,
     Download,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum TransferStatus {
     Queued,
     Running,
@@ -45,6 +49,7 @@ pub enum TransferStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TransferTask {
     pub id: String,
     pub session_id: String,
@@ -57,6 +62,7 @@ pub struct TransferTask {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TransferProgress {
     pub transfer_id: String,
     pub file_name: String,

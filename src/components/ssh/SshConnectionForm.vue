@@ -656,6 +656,13 @@ async function pasteJumpKeyFromClipboard() {
   gap: 0;
 }
 
+.host-port .cyber-input {
+  padding: 5px 8px;
+  font-size: 12px;
+  height: 30px;
+  min-height: auto;
+}
+
 .form-body {
   display: grid;
   grid-template-columns: 1fr 1fr;

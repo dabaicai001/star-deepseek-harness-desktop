@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
+import { useNotifyStore } from '@/stores/notify'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -14,7 +15,22 @@ const { t } = useI18n()
 const router = useRouter()
 const assetStore = useAssetStore()
 const appStore = useAppStore()
+const notifyStore = useNotifyStore()
 const isCollapsed = computed(() => !appStore.sidebarOpen)
+
+/**
+ * 折叠态拦截:点击图标先展开 sidebar,让用户能"看到名字再确认"。
+ * 返回 true 表示"已展开 + 拦截了点击,不要再走原动作",false 表示正常路径。
+ */
+function expandIfCollapsed(): boolean {
+  if (!isCollapsed.value) return false
+  appStore.sidebarOpen = true
+  return true
+}
+
+const emit = defineEmits<{
+  'new-connection': []
+}>()
 
 const sshAssets = computed(() =>
   assetStore.filteredAssets.filter(a => a.type === 'ssh' && !a.favorite)
@@ -62,6 +78,8 @@ function isActive(asset: Asset) {
 }
 
 function connectToAsset(asset: Asset) {
+  // 折叠态:点击图标等同于"展开 sidebar + 连接",让用户立刻看到反馈
+  if (isCollapsed.value) appStore.sidebarOpen = true
   if (asset.type !== 'ssh') {
     // db / docker: 暂未实现,后续在 dialog 走类型路由
     return
@@ -103,20 +121,6 @@ function reconnectToAsset(asset: Asset) {
   connectToAsset(asset)
 }
 
-function openSftpForAsset(asset: Asset) {
-  if (asset.type !== 'ssh') return
-  // 总是新开 SFTP tab(看不同目录)
-  const instanceId = `sftp-${generateInstanceId(asset.id)}`
-  appStore.addTab({
-    id: instanceId,
-    assetId: asset.id,
-    title: `SFTP: ${asset.name}`,
-    type: 'ssh'
-  })
-  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-  router.push({ name: 'sftp', params: { id: instanceId } })
-}
-
 // ====== 右键菜单 ======
 const ctxMenu = ref<{ x: number; y: number; asset: Asset } | null>(null)
 const ctxItems = computed<MenuItem[]>(() => {
@@ -145,13 +149,6 @@ const ctxItems = computed<MenuItem[]>(() => {
       label: t('asset.reconnect'),
       disabled: asset.type !== 'ssh',
       onClick: () => reconnectToAsset(asset)
-    },
-    {
-      type: 'item',
-      icon: 'mdi-folder-network',
-      label: 'Open SFTP',
-      disabled: asset.type !== 'ssh',
-      onClick: () => openSftpForAsset(asset)
     },
     { type: 'divider' },
     {
@@ -187,6 +184,8 @@ const ctxItems = computed<MenuItem[]>(() => {
 
 function openContextMenu(e: MouseEvent, asset: Asset) {
   e.preventDefault()
+  // 折叠态:先展开 sidebar 再弹菜单,让用户看到完整资产名
+  if (isCollapsed.value) appStore.sidebarOpen = true
   ctxMenu.value = { x: e.clientX, y: e.clientY, asset }
 }
 
@@ -228,16 +227,30 @@ async function handleDelete() {
   const target = deleteTarget.value
   // 关闭该资产的所有 tab
   const tabsToRemove = appStore.tabs.filter(t => t.assetId === target.id)
+  const removingCurrent = tabsToRemove.some(t => t.id === router.currentRoute.value.params.id)
   for (const tab of tabsToRemove) {
     appStore.removeTab(tab.id)
   }
-  // 路由回 home(如果停在已删的 ssh 路由)
-  if (router.currentRoute.value.params.id === target.id) {
+  // 路由回 home(如果当前路由在被关的 tab 上)
+  if (removingCurrent) {
     router.push({ name: 'home' })
   }
-  await assetStore.deleteAsset(target.id)
-  showDeleteConfirm.value = false
-  deleteTarget.value = null
+  try {
+    await assetStore.deleteAsset(target.id)
+    showDeleteConfirm.value = false
+    deleteTarget.value = null
+  } catch (error) {
+    const msg = String(error)
+    if (msg.includes('Asset not found')) {
+      // 资产已不存在，从本地列表移除
+      assetStore.assets = assetStore.assets.filter(a => a.id !== target.id)
+      showDeleteConfirm.value = false
+      deleteTarget.value = null
+      notifyStore.notify({ message: t('asset.deleted'), color: 'success' })
+    } else {
+      notifyStore.notify({ message: msg, color: 'error' })
+    }
+  }
 }
 
 // ====== 复制 ======
@@ -502,6 +515,10 @@ function isGroupExpanded(id: string) {
       <v-icon class="empty-state-icon" size="32">mdi-server-off</v-icon>
       <div class="empty-state-title">{{ t('asset.noConnection') }}</div>
       <div class="empty-state-desc" style="font-size: 11px;">{{ t('asset.addHint') }}</div>
+      <button class="cyber-btn" style="margin-top: 12px;" @click="$emit('new-connection')">
+        <v-icon size="14">mdi-plus</v-icon>
+        {{ t('asset.create') }}
+      </button>
     </div>
   </div>
 

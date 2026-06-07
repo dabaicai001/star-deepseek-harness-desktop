@@ -47,12 +47,75 @@ export async function sftpRename(id: string, from: string, to: string): Promise<
   return invoke('sftp_rename', { id, from, to })
 }
 
-export async function sftpUpload(
+// ===== 流式传输(走 TransferManager,带 progress / status 事件) =====
+
+export interface TransferFile {
+  name: string
+  size: number
+  transferred: number
+}
+
+export type TransferDirection = 'upload' | 'download'
+export type TransferStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+
+export interface TransferTask {
+  id: string
+  sessionId: string
+  direction: TransferDirection
+  files: TransferFile[]
+  status: TransferStatus
+  totalBytes: number
+  transferredBytes: number
+  error?: string | null
+}
+
+export interface TransferProgress {
+  transferId: string
+  fileName: string
+  transferred: number
+  total: number
+  direction: TransferDirection
+}
+
+export interface TransferStatusEvent {
+  transferId: string
+  sessionId: string
+  direction: TransferDirection
+  status: TransferStatus
+  error?: string | null
+}
+
+/** 先确保 SFTP 通道已开启并注册到 TransferManager(后续传输复用同一通道) */
+export async function sftpEnsureSession(id: string): Promise<void> {
+  return invoke('sftp_ensure_session', { id })
+}
+
+/** 启动流式上传,返回 transfer_id(用于 listen 进度/状态) */
+export async function sftpStartUpload(
   id: string,
-  localPath: string,
-  remotePath: string
-): Promise<void> {
-  return invoke('sftp_upload', { id, localPath, remotePath })
+  localPaths: string[],
+  remoteDir: string
+): Promise<string> {
+  return invoke('sftp_start_upload', { id, localPaths, remoteDir })
+}
+
+/** 启动流式下载,返回 transfer_id */
+export async function sftpStartDownload(
+  id: string,
+  remotePaths: string[],
+  localDir: string
+): Promise<string> {
+  return invoke('sftp_start_download', { id, remotePaths, localDir })
+}
+
+/** 取消一个传输 */
+export async function sftpCancelTransfer(id: string, transferId: string): Promise<void> {
+  return invoke('sftp_cancel_transfer', { id, transferId })
+}
+
+/** 列出某 session 的所有传输任务 */
+export async function sftpListTransfers(id: string): Promise<TransferTask[]> {
+  return invoke('sftp_list_transfers', { id })
 }
 
 /** 把 parent + name 拼成 child 路径(保证中间有 /) */

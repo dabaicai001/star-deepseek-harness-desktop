@@ -20,8 +20,15 @@ export default {
   },
   home: {
     welcome: 'Welcome to StarHub',
-    subtitle: 'All-in-One DevOps Desktop Hub',
-    hint: 'Select a connection from the asset tree to get started'
+    subtitle: 'All-in-One DevOps desktop hub — SSH / Database / Docker / AI in one window',
+    hint: 'Pick a connection from the sidebar to get started',
+    recent: 'Recent',
+    assets: 'Assets',
+    quickActions: 'Quick Actions',
+    quickActionsHint: 'QUICK ACTIONS',
+    noMatch: 'No matches',
+    emptyWelcome: 'Create your first connection',
+    tryAi: 'Try the AI assistant'
   },
   settings: {
     title: 'Settings',
@@ -31,7 +38,18 @@ export default {
     general: 'General',
     proxy: 'Proxy',
     security: 'Security',
-    about: 'About'
+    about: 'About',
+    generalStartPage: 'Startup behavior',
+    generalStartPageHome: 'Open home page',
+    generalStartPageRestore: 'Restore last tabs',
+    generalConfirmClose: 'Confirm before closing main window',
+    generalMaxTabs: 'Max open tabs',
+    generalMaxTabsHint: 'Oldest tab auto-closes when exceeded',
+    aboutVersion: 'Version',
+    aboutDesc: 'All-in-One cross-platform DevOps desktop hub — SSH / Database / Docker / AI in one window.',
+    aboutGithub: 'GitHub repository',
+    aboutLicense: 'MIT License · 2026',
+    aboutCheckUpdate: 'Check for updates'
   },
   asset: {
     title: 'Asset Center',
@@ -44,6 +62,7 @@ export default {
     reconnect: 'Reconnect',
     unfavorite: 'Remove from favorites',
     confirmDelete: 'Delete "{name}"? This cannot be undone.',
+    deleted: 'Connection deleted',
     name: 'Name',
     host: 'Host',
     port: 'Port',

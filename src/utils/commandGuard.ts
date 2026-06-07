@@ -157,3 +157,27 @@ export class PendingConfirmError extends Error {
     this.resolve = () => { /* noop, set by executeTool */ }
   }
 }
+
+/**
+ * 从命令中提取白名单前缀
+ * 例如: "rm -rf /tmp" → "rm"
+ *       "docker ps -a" → "docker ps"
+ *       "ls -la /home" → "ls"
+ */
+export function extractWhitelistPrefix(command: string): string {
+  const cmd = command.trim()
+  if (!cmd) return ''
+
+  // 分割命令参数
+  const parts = cmd.split(/\s+/)
+  if (parts.length === 0) return ''
+
+  // 对于 docker/kubectl 等子命令，取前两段
+  const multiWordCommands = ['docker', 'kubectl', 'systemctl', 'journalctl', 'git', 'mysql', 'redis-cli']
+  if (multiWordCommands.includes(parts[0]) && parts.length >= 2) {
+    return `${parts[0]} ${parts[1]}`
+  }
+
+  // 其他命令取第一段
+  return parts[0]
+}

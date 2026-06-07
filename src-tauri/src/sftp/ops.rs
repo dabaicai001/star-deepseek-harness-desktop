@@ -140,10 +140,14 @@ pub async fn upload_file<F>(
 where
     F: Fn(u64, u64) + Send + 'static,
 {
+    tracing::info!("[upload_file] start: local={}, remote={}", local_path, remote_path);
+
     let total_size = tokio::fs::metadata(local_path)
         .await
         .with_context(|| format!("read local file failed: {}", local_path))?
         .len();
+
+    tracing::info!("[upload_file] local file size: {} bytes", total_size);
 
     let mut local_file = tokio::fs::File::open(local_path)
         .await
@@ -151,14 +155,18 @@ where
 
     let remote_file = {
         let sftp = sftp.lock().await;
-        sftp.create(remote_path)
+        tracing::info!("[upload_file] creating remote file: {}", remote_path);
+        let f = sftp.create(remote_path)
             .await
-            .with_context(|| format!("create remote file failed: {}", remote_path))?
+            .with_context(|| format!("create remote file failed: {}", remote_path))?;
+        tracing::info!("[upload_file] remote file created successfully");
+        f
     };
 
     let mut remote_file = remote_file;
     let mut buf = vec![0u8; 65536];
     let mut transferred: u64 = 0;
+    let mut chunk_count: u64 = 0;
 
     on_progress(0, total_size);
 
@@ -168,23 +176,30 @@ where
             .await
             .with_context(|| "read local chunk failed")?;
         if n == 0 {
+            tracing::info!("[upload_file] EOF reached after {} chunks, total {} bytes", chunk_count, transferred);
             break;
         }
 
         remote_file
             .write_all(&buf[..n])
             .await
-            .with_context(|| "write remote chunk failed")?;
+            .with_context(|| format!("write remote chunk failed at offset {}", transferred))?;
 
         transferred += n as u64;
+        chunk_count += 1;
+        if chunk_count <= 3 || chunk_count % 100 == 0 {
+            tracing::info!("[upload_file] chunk {}: wrote {} bytes, total {} / {}", chunk_count, n, transferred, total_size);
+        }
         on_progress(transferred, total_size);
     }
 
+    tracing::info!("[upload_file] calling shutdown/flush...");
     remote_file
         .shutdown()
         .await
         .with_context(|| "flush remote file failed")?;
 
+    tracing::info!("[upload_file] done: {} bytes uploaded", transferred);
     Ok(())
 }
 

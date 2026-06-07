@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
@@ -23,27 +23,49 @@ const assetStore = useAssetStore()
 const appStore = useAppStore()
 const themeStore = useThemeStore()
 
+// menubar 水平 padding(.menubar 上写的 0 12px),
+// tab-strip 的左边距要减去这个,才能正好对齐到 workspace 左边缘
+const MENUBAR_PADDING_X = 12
+
 const searchQuery = computed({
   get: () => assetStore.searchQuery,
   set: (v: string) => assetStore.setSearchQuery(v)
 })
+const searchInputRef = ref<HTMLInputElement | null>(null)
+
+/** 顶栏搜索框快捷键:⌘K / Ctrl+K 聚焦 */
+function onSearchShortcut(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    searchInputRef.value?.focus()
+    searchInputRef.value?.select()
+  }
+}
 const showNewConnection = ref(false)
+// 从顶栏菜单"快速新建"入口传入,弹 dialog 时直接跳过 type 选择
+const newConnectionInitialType = ref<'ssh' | 'db' | 'docker' | undefined>(undefined)
+
+// dialog 关闭时清掉 initialType,下次开 + 按钮回到正常 type 选择页
+import { watch as vueWatch2 } from 'vue'
+vueWatch2(showNewConnection, (open) => {
+  if (!open) newConnectionInitialType.value = undefined
+})
 
 // 跨平台快捷键修饰键(Mac ⌘, Win/Linux Ctrl)
 const isMac = ref(false)
-onMounted(() => {
-  // navigator.platform 在 macOS / Windows / Linux 都能识别
-  const ua = navigator.userAgent.toLowerCase()
-  isMac.value = /mac|iphone|ipad|ipod/.test(ua)
-})
 const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
 const searchShortcut = computed(() => `${modKey.value}K`)
 
 // 快捷键:⌘+B / Ctrl+B 折叠/展开 sidebar
+// 快捷键:⌘+Shift+B / Ctrl+Shift+B 折叠/展开右侧面板
 function onKeydown(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
     e.preventDefault()
-    appStore.toggleSidebar()
+    if (e.shiftKey) {
+      appStore.toggleRightPanel()
+    } else {
+      appStore.toggleSidebar()
+    }
   }
 }
 
@@ -94,6 +116,11 @@ onMounted(async () => {
   } catch {}
   // 初始化标签页滚动状态
   setTimeout(updateTabScrollState, 100)
+  // 启动时从 SQLite 拉一次资产(之前是 TODO,没人调,导致重启后侧栏看起来"链接全没了")
+  // 包在 try 里,失败不阻塞 UI(后端未就绪也能用)
+  assetStore.fetchAssets().catch((e) => {
+    console.warn('[layout] fetchAssets failed:', e)
+  })
 })
 
 onBeforeUnmount(() => {
@@ -108,6 +135,72 @@ onBeforeUnmount(() => {
 // ====== 标签栏 + 号:基于当前 tab 类型弹资产选择器,选哪条就开哪条 ======
 const newTabPicker = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 function closeNewTabPicker() { newTabPicker.value = null }
+
+// ====== 标签栏空隙右键菜单(空 tab 区 / menubar 区域) ======
+const tabBarCtxMenu = ref<{ x: number; y: number } | null>(null)
+function closeTabBarContextMenu() { tabBarCtxMenu.value = null }
+
+const tabBarCtxItems = computed<MenuItem[]>(() => {
+  const hasTabs = appStore.tabs.length > 0
+  const hasActive = !!appStore.activeTab
+  return [
+    { type: 'header', icon: 'mdi-tab', label: '标签栏' },
+    {
+      type: 'item',
+      icon: 'mdi-console',
+      label: '新建 SSH 连接…',
+      onClick: () => openNewConnectionWithType('ssh')
+    },
+    {
+      type: 'item',
+      icon: 'mdi-database',
+      label: '新建数据库连接…',
+      onClick: () => openNewConnectionWithType('db')
+    },
+    {
+      type: 'item',
+      icon: 'mdi-docker',
+      label: '新建 Docker 主机…',
+      onClick: () => openNewConnectionWithType('docker')
+    },
+    { type: 'divider' },
+    {
+      type: 'item',
+      icon: 'mdi-close',
+      label: '关闭当前标签页',
+      shortcut: 'Ctrl+W',
+      disabled: !hasActive,
+      onClick: () => { if (appStore.activeTab) closeTab(appStore.activeTab) }
+    },
+    {
+      type: 'item',
+      icon: 'mdi-arrow-right',
+      label: '关闭所有并回首页',
+      danger: true,
+      disabled: !hasTabs,
+      onClick: () => {
+        for (const t of [...appStore.tabs]) appStore.removeTab(t.id)
+        router.push({ name: 'home' })
+      }
+    }
+  ]
+})
+
+/** 标签栏空隙右键 / menubar 右键统一入口 */
+function openTabBarContextMenu(e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  tabBarCtxMenu.value = { x: e.clientX, y: e.clientY }
+  // 关闭可能并存的 tab 单体菜单
+  closeTabContextMenu()
+}
+
+/** 预设类型打开新建连接弹窗;非 home 路由先回首页避免 dialog 套在子视图上 */
+function openNewConnectionWithType(type: 'ssh' | 'db' | 'docker') {
+  newConnectionInitialType.value = type
+  if (currentRouteName.value !== 'home') router.push({ name: 'home' })
+  showNewConnection.value = true
+}
 
 function openNewTabFromCurrent(e: MouseEvent) {
   // 推断当前 tab 类型
@@ -169,7 +262,7 @@ const userMenuOpen = ref(false)
 function toggleUserMenu() { userMenuOpen.value = !userMenuOpen.value }
 function closeUserMenu() { userMenuOpen.value = false }
 
-function onUserMenuAction(action: 'settings' | 'theme' | 'lang' | 'about') {
+function onUserMenuAction(action: 'settings' | 'theme' | 'lang' | 'about' | 'quick-db' | 'quick-docker') {
   closeUserMenu()
   switch (action) {
     case 'settings':
@@ -183,9 +276,39 @@ function onUserMenuAction(action: 'settings' | 'theme' | 'lang' | 'about') {
       locale.value = locale.value === 'zh-CN' ? 'en-US' : 'zh-CN'
       break
     case 'about':
-      // 简单弹窗提示版本
-      alert(`StarHub v${appVersion}\n\n跨平台 DevOps 桌面工具\nGitHub: github.com/dabaicai001/starhub`)
+      // 简单弹窗提示版�?
+      alert(`StarHub v${appVersion}\n\n跨平�?DevOps 桌面工具\nGitHub: github.com/dabaicai001/starhub`)
       break
+    case 'quick-db':
+      // 跳到主页(如果不在)并弹出新建连接对话框,预设数据库类型
+      if (currentRouteName.value !== 'home') router.push({ name: 'home' })
+      nextTick(() => { newConnectionInitialType.value = 'db'; showNewConnection.value = true })
+      break
+    case 'quick-docker':
+      if (currentRouteName.value !== 'home') router.push({ name: 'home' })
+      nextTick(() => { newConnectionInitialType.value = 'docker'; showNewConnection.value = true })
+      break
+  }
+}
+
+/** 欢迎页 CAPABILITIES 卡片点击:有同类资产跳最近一条,没有弹新建 dialog(预设类型) */
+function onWelcomeQuickAction(type: 'ssh' | 'db' | 'docker') {
+  const sameType = assetStore.assets.filter(a => a.type === type)
+  if (sameType.length > 0) {
+    // 跳最近用过的一条
+    const a = sameType.sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))[0]
+    let routeName: string
+    if (a.type === 'ssh') routeName = 'ssh-terminal'
+    else if (a.type === 'docker') routeName = 'docker'
+    else routeName = (a.config.dbType || 'mysql') === 'redis' ? 'db-redis' : 'db-mysql'
+    const instanceId = generateInstanceId(a.id)
+    appStore.addTab({ id: instanceId, assetId: a.id, title: a.name, type: a.type })
+    router.push({ name: routeName, params: { id: instanceId } })
+    assetStore.updateAsset(a.id, { lastUsedAt: Date.now() })
+  } else {
+    // 0 同类资产 → 弹新建 dialog 并预设类型
+    newConnectionInitialType.value = type
+    nextTick(() => { showNewConnection.value = true })
   }
 }
 
@@ -285,6 +408,60 @@ const sshAssets = computed(() => filteredAssets.value.filter(a => a.type === 'ss
 const dbAssets = computed(() => filteredAssets.value.filter(a => a.type === 'db'))
 const dockerAssets = computed(() => filteredAssets.value.filter(a => a.type === 'docker'))
 const sftpTabCount = computed(() => appStore.tabs.filter(t => t.id.startsWith('sftp-')).length)
+
+/** 顶栏搜索下拉:实时显示匹配资产(最多 8 个) */
+const searchOpen = ref(false)
+const searchSelectedIdx = ref(0)
+const searchResults = computed(() => {
+  if (!searchQuery.value) return []
+  return filteredAssets.value.slice(0, 8)
+})
+function onSearchInput() {
+  searchOpen.value = searchQuery.value.length > 0 && searchResults.value.length > 0
+  searchSelectedIdx.value = 0
+}
+function onSearchFocus() {
+  if (searchQuery.value && searchResults.value.length > 0) searchOpen.value = true
+}
+function onSearchBlur() {
+  // 延迟关闭,让点击有时间触发
+  setTimeout(() => { searchOpen.value = false }, 150)
+}
+function onSearchKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    searchOpen.value = false
+    ;(e.target as HTMLInputElement).blur()
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    searchSelectedIdx.value = Math.min(searchResults.value.length - 1, searchSelectedIdx.value + 1)
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    searchSelectedIdx.value = Math.max(0, searchSelectedIdx.value - 1)
+  } else if (e.key === 'Enter') {
+    e.preventDefault()
+    const a = searchResults.value[searchSelectedIdx.value]
+    if (a) openAsset(a)
+  }
+}
+function assetIcon(type: string) {
+  return type === 'ssh' ? 'mdi-console' : type === 'db' ? 'mdi-database' : 'mdi-docker'
+}
+function assetIconColor(type: string) {
+  return type === 'ssh' ? 'cyan' : type === 'db' ? 'purple' : 'green'
+}
+function openAsset(asset: Asset) {
+  let routeName: string
+  if (asset.type === 'ssh') routeName = 'ssh-terminal'
+  else if (asset.type === 'docker') routeName = 'docker'
+  else routeName = (asset.config.dbType || 'mysql') === 'redis' ? 'db-redis' : 'db-mysql'
+  const instanceId = generateInstanceId(asset.id)
+  appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: asset.type })
+  router.push({ name: routeName, params: { id: instanceId } })
+  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
+  searchOpen.value = false
+  searchQuery.value = ''
+  ;(searchInputRef.value as HTMLInputElement | null)?.blur()
+}
 
 // 时钟(每秒更新)
 const clockText = ref('')
@@ -547,6 +724,26 @@ const tabStripRef = ref<HTMLElement | null>(null)
 const canScrollLeft = ref(false)
 const canScrollRight = ref(false)
 
+/** 最近用过的资产(有 lastUsedAt 且非 docker)— 用于 tab 栏空态快速启动条 */
+const recentAssets = computed(() => {
+  return [...assetStore.assets]
+    .filter(a => a.lastUsedAt)
+    .sort((a, b) => (b.lastUsedAt || 0) - (a.lastUsedAt || 0))
+    .slice(0, 6)
+})
+
+/** 紧凑时间标签(用于 quick-start-bar) */
+function shortTimeAgo(ts: number | null | undefined): string {
+  if (!ts) return ''
+  const diff = Date.now() - ts
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3600_000)}h`
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d`
+  const d = new Date(ts)
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function updateTabScrollState() {
   const el = tabStripRef.value
   if (!el) return
@@ -583,12 +780,36 @@ vueWatch(() => appStore.tabs.length, () => {
       <div class="top-search">
         <v-icon size="14" color="muted">mdi-magnify</v-icon>
         <input
+          ref="searchInputRef"
           v-model="searchQuery"
           type="text"
           :placeholder="t('common.search') + '...'"
           class="search-input"
+          @input="onSearchInput"
+          @focus="onSearchFocus"
+          @blur="onSearchBlur"
+          @keydown="onSearchKeydown"
         />
         <kbd>{{ searchShortcut }}</kbd>
+
+        <!-- 搜索结果下拉(最多 8 项) -->
+        <div v-if="searchOpen && searchResults.length > 0" class="search-dropdown">
+          <div
+            v-for="(a, idx) in searchResults"
+            :key="a.id"
+            class="search-result"
+            :class="{ selected: idx === searchSelectedIdx }"
+            @mousedown.prevent="openAsset(a)"
+            @mouseenter="searchSelectedIdx = idx"
+          >
+            <v-icon size="14" :color="assetIconColor(a.type)">{{ assetIcon(a.type) }}</v-icon>
+            <div class="search-result-info">
+              <div class="search-result-name">{{ a.name }}</div>
+              <div class="search-result-host">{{ a.config.host || a.config.dbType || a.type.toUpperCase() }}</div>
+            </div>
+            <kbd v-if="idx === searchSelectedIdx" class="search-result-kbd">↵</kbd>
+          </div>
+        </div>
       </div>
 
       <div class="top-actions">
@@ -627,6 +848,17 @@ vueWatch(() => appStore.tabs.length, () => {
             <button class="user-menu-item" @click="onUserMenuAction('lang')">
               <v-icon size="14">mdi-translate</v-icon>
               <span>{{ t('settings.language') }}: {{ locale === 'zh-CN' ? '中文' : 'EN' }}</span>
+            </button>
+            <div class="user-menu-divider" />
+            <button class="user-menu-item" @click="onUserMenuAction('quick-db')">
+              <v-icon size="14">mdi-database</v-icon>
+              <span>数据库</span>
+              <kbd>新建</kbd>
+            </button>
+            <button class="user-menu-item" @click="onUserMenuAction('quick-docker')">
+              <v-icon size="14">mdi-docker</v-icon>
+              <span>Docker</span>
+              <kbd>新建</kbd>
             </button>
             <div class="user-menu-divider" />
             <button class="user-menu-item" @click="onUserMenuAction('about')">
@@ -682,7 +914,14 @@ vueWatch(() => appStore.tabs.length, () => {
 
     <!-- Menu Bar (只放 tab 条,顶部导航按钮已删除) -->
     <div class="menubar">
-      <div class="tab-strip-wrap" style="margin-left: 12px;">
+      <div
+        class="tab-strip-wrap"
+        :style="{
+          // tab 条与 workspace 左边缘对齐,而不是贴 sidebar 边
+          // (展开态 260 / 折叠态 60,减去 menubar 自身的 12px padding)
+          marginLeft: ((appStore.sidebarOpen ? appStore.sidebarWidth : SIDEBAR_COLLAPSED_WIDTH) - MENUBAR_PADDING_X) + 'px'
+        }"
+      >
         <button
           v-show="canScrollLeft"
           class="tab-scroll-btn left"
@@ -694,6 +933,7 @@ vueWatch(() => appStore.tabs.length, () => {
           ref="tabStripRef"
           class="tab-strip"
           @scroll="onTabStripScroll"
+          @contextmenu="openTabBarContextMenu"
         >
           <div
             v-for="tab in appStore.tabs"
@@ -727,6 +967,33 @@ vueWatch(() => appStore.tabs.length, () => {
           <v-icon size="13">mdi-plus</v-icon>
         </button>
       </div>
+
+      <!-- 无 tab 时:tab 栏居中显示"最近用过"快速启动条,填充空白 -->
+      <div v-if="appStore.tabs.length === 0" class="quick-start-bar">
+        <template v-if="recentAssets.length > 0">
+          <span class="qs-label">最近</span>
+          <button
+            v-for="a in recentAssets"
+            :key="a.id"
+            class="qs-chip"
+            :data-tooltip="`${a.config.host || a.config.dbType || ''} · ${shortTimeAgo(a.lastUsedAt)}`"
+            @click="connectToAsset(a)"
+          >
+            <v-icon size="12" :class="a.type">{{ getIcon(a.type) }}</v-icon>
+            <span class="qs-name">{{ a.name }}</span>
+            <span class="qs-time">{{ shortTimeAgo(a.lastUsedAt) }}</span>
+          </button>
+          <span class="qs-hint">点 + 创建新连接,或点上方按钮快速打开</span>
+        </template>
+        <template v-else>
+          <span class="qs-empty">
+            <v-icon size="14" color="muted">mdi-rocket-launch-outline</v-icon>
+            还没有任何连接 — 点右上角
+            <v-icon size="12" color="cyan">mdi-plus</v-icon>
+            创建第一个
+          </span>
+        </template>
+      </div>
     </div>
 
     <!-- Main Content -->
@@ -734,14 +1001,17 @@ vueWatch(() => appStore.tabs.length, () => {
       <!-- Sidebar -->
       <div
         class="sidebar"
-        :class="{ collapsed: !appStore.sidebarOpen }"
+        :class="{
+          collapsed: !appStore.sidebarOpen,
+          dragging: appStore.sidebarDragging
+        }"
         :style="{
           width: appStore.sidebarOpen
             ? appStore.sidebarWidth + 'px'
             : SIDEBAR_COLLAPSED_WIDTH + 'px'
         }"
       >
-        <AssetTree />
+        <AssetTree @new-connection="openNewConnection" />
         <SidebarHandle />
       </div>
 
@@ -760,10 +1030,6 @@ vueWatch(() => appStore.tabs.length, () => {
                 <v-icon size="16">mdi-plus</v-icon>
                 {{ t('asset.create') }}
               </button>
-              <button class="cyber-btn-secondary">
-                <v-icon size="16">mdi-connection</v-icon>
-                {{ t('asset.testConnection') }}
-              </button>
             </div>
 
             <div class="section-divider">
@@ -772,7 +1038,7 @@ vueWatch(() => appStore.tabs.length, () => {
             </div>
 
             <div class="feature-grid">
-              <div class="feature-card" @click="openNewConnection">
+              <div class="feature-card" @click="onWelcomeQuickAction('ssh')">
                 <div class="fc-head">
                   <v-icon size="22" color="cyan">mdi-console</v-icon>
                   <span class="fc-tag">P0</span>
@@ -780,29 +1046,21 @@ vueWatch(() => appStore.tabs.length, () => {
                 <h3>{{ t('ssh.title') }}</h3>
                 <p>{{ t('ssh.terminal') }} · SFTP</p>
               </div>
-              <div class="feature-card disabled-card">
+              <div class="feature-card" @click="onWelcomeQuickAction('db')">
                 <div class="fc-head">
                   <v-icon size="22" color="purple">mdi-database</v-icon>
-                  <span class="fc-tag">P1</span>
+                  <span class="fc-tag">P0</span>
                 </div>
                 <h3>{{ t('db.title') }}</h3>
                 <p>MySQL · PG · Redis · ...</p>
               </div>
-              <div class="feature-card disabled-card">
+              <div class="feature-card" @click="onWelcomeQuickAction('docker')">
                 <div class="fc-head">
                   <v-icon size="22" color="green">mdi-docker</v-icon>
-                  <span class="fc-tag">P1</span>
+                  <span class="fc-tag">P0</span>
                 </div>
                 <h3>{{ t('docker.title') }}</h3>
                 <p>{{ t('docker.containers') }} / {{ t('docker.images') }}</p>
-              </div>
-              <div class="feature-card disabled-card">
-                <div class="fc-head">
-                  <v-icon size="22" color="pink">mdi-robot-outline</v-icon>
-                  <span class="fc-tag">P1</span>
-                </div>
-                <h3>{{ t('ai.title') }}</h3>
-                <p>Function Calling · 自然语言运维</p>
               </div>
             </div>
           </div>
@@ -847,6 +1105,7 @@ vueWatch(() => appStore.tabs.length, () => {
     <!-- New Connection Dialog -->
     <NewConnectionDialog
       v-model="showNewConnection"
+      :initial-type="newConnectionInitialType"
       @submit="handleNewConnection"
     />
 
@@ -857,6 +1116,15 @@ vueWatch(() => appStore.tabs.length, () => {
       :y="tabCtxMenu.y"
       :items="tabCtxItems"
       @close="closeTabContextMenu"
+    />
+
+    <!-- 标签栏空隙 / menubar 右键菜单 -->
+    <ContextMenu
+      v-if="tabBarCtxMenu"
+      :x="tabBarCtxMenu.x"
+      :y="tabBarCtxMenu.y"
+      :items="tabBarCtxItems"
+      @close="closeTabBarContextMenu"
     />
 
     <!-- 标签栏 + 号弹出的资产选择器 -->
@@ -982,6 +1250,7 @@ vueWatch(() => appStore.tabs.length, () => {
   color: var(--muted);
   font-size: 12px;
   transition: all 0.3s;
+  position: relative; /* 让 .search-dropdown 绝对定位锚定 */
 }
 
 .top-search:hover {
@@ -1004,6 +1273,71 @@ vueWatch(() => appStore.tabs.length, () => {
 
 .search-input::placeholder {
   color: var(--muted);
+}
+
+/* ====== 顶栏搜索下拉 ====== */
+.search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--panel-solid);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  z-index: 99;
+  animation: searchDropdownIn 0.12s ease;
+}
+@keyframes searchDropdownIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.search-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 13px;
+  transition: all 0.1s;
+}
+.search-result.selected {
+  background: rgba(0, 240, 255, 0.1);
+  color: var(--cyan);
+}
+.search-result-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.search-result-name {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-result-host {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-result-kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--cyan);
+  color: var(--bg);
+  border-radius: 4px;
+  font-weight: 700;
 }
 
 kbd {
@@ -1255,10 +1589,12 @@ kbd {
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-left: 16px;
+  /* margin-left 由 :style 动态绑定(跟随 sidebar 宽度),不要在这里写死 */
   flex: 1;
   min-width: 0;
   position: relative;
+  /* 宽度跟随 sidebar 变化时给个缓动,免得拖拽时生硬 */
+  transition: margin-left 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .tab-scroll-btn {
@@ -1304,6 +1640,82 @@ kbd {
   background: rgba(0, 240, 255, 0.1);
   border-color: rgba(0, 240, 255, 0.4);
   box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
+}
+
+/* 无 tab 时,tab 栏居中显示"最近用过"快速启动条 */
+.quick-start-bar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.quick-start-bar::-webkit-scrollbar { display: none; }
+.quick-start-bar .qs-label {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: 'Orbitron', sans-serif;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+.quick-start-bar .qs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 6px;
+  background: rgba(0, 240, 255, 0.05);
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  color: var(--text-2);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.quick-start-bar .qs-chip:hover {
+  background: rgba(0, 240, 255, 0.12);
+  border-color: rgba(0, 240, 255, 0.4);
+  color: var(--cyan);
+  transform: translateY(-1px);
+}
+.quick-start-bar .qs-chip .v-icon.ssh { color: var(--cyan); }
+.quick-start-bar .qs-chip .v-icon.db { color: var(--purple); }
+.quick-start-bar .qs-chip .v-icon.docker { color: var(--green); }
+.quick-start-bar .qs-name {
+  font-weight: 500;
+}
+.quick-start-bar .qs-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--muted);
+  padding-left: 4px;
+  border-left: 1px solid var(--line-2);
+  margin-left: 2px;
+}
+.quick-start-bar .qs-hint {
+  font-size: 10px;
+  color: var(--muted);
+  margin-left: auto;
+  font-style: italic;
+  flex-shrink: 0;
+}
+.quick-start-bar .qs-empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  width: 100%;
+  justify-content: center;
 }
 
 .tab {
@@ -1380,6 +1792,10 @@ kbd {
   backdrop-filter: blur(10px);
   transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
+}
+
+.sidebar.dragging {
+  transition: none !important;
 }
 
 .sidebar.collapsed {

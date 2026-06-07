@@ -1,17 +1,45 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useAiStore } from '@/stores/ai'
 import type { AiSettings } from '@/stores/ai'
+import { version as appVersion } from '~package.json'
 
 const { t, locale } = useI18n()
 const themeStore = useThemeStore()
 const aiStore = useAiStore()
 
 // 选中的 tab
-type TabKey = 'appearance' | 'ai'
-const activeTab = ref<TabKey>('appearance')
+type TabKey = 'general' | 'appearance' | 'ai' | 'about'
+const activeTab = ref<TabKey>('general')
+
+/** 通用设置(用 localStorage 持久化,P2 阶段先不上 store) */
+const startPage = ref<'home' | 'restore'>('home')
+const confirmClose = ref(true)
+const maxTabs = ref(20)
+const STORAGE_KEY = 'starhub.settings.general'
+
+function loadGeneral() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return
+    const v = JSON.parse(raw)
+    if (v.startPage === 'home' || v.startPage === 'restore') startPage.value = v.startPage
+    if (typeof v.confirmClose === 'boolean') confirmClose.value = v.confirmClose
+    if (typeof v.maxTabs === 'number' && v.maxTabs > 0) maxTabs.value = v.maxTabs
+  } catch {}
+}
+function saveGeneral() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      startPage: startPage.value,
+      confirmClose: confirmClose.value,
+      maxTabs: maxTabs.value
+    }))
+  } catch {}
+}
+onMounted(loadGeneral)
 
 // AI 配置本地副本(用于表单展示,保存时再写回 store)
 const aiLocal = ref<AiSettings>({ ...aiStore.settings })
@@ -102,6 +130,10 @@ const PRESET_MODELS = [
 
     <!-- Tab 切换 -->
     <div class="settings-tabs">
+      <button class="tab" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">
+        <v-icon size="13">mdi-tune-variant</v-icon>
+        <span>{{ t('settings.general') }}</span>
+      </button>
       <button class="tab" :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">
         <v-icon size="13">mdi-palette-outline</v-icon>
         <span>{{ t('settings.appearance') }}</span>
@@ -111,6 +143,61 @@ const PRESET_MODELS = [
         <span>AI 助手</span>
         <span class="tab-hint">Function Calling · 命令执行</span>
       </button>
+      <button class="tab" :class="{ active: activeTab === 'about' }" @click="activeTab = 'about'">
+        <v-icon size="13">mdi-information-outline</v-icon>
+        <span>{{ t('settings.about') }}</span>
+      </button>
+    </div>
+
+    <!-- 通用设置 -->
+    <div v-if="activeTab === 'general'" class="settings-panel">
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">01</span>
+          <span class="section-title">{{ t('settings.generalStartPage') }}</span>
+        </div>
+        <div class="form-grid">
+          <label class="radio-row">
+            <input type="radio" value="home" v-model="startPage" @change="saveGeneral" />
+            <span>{{ t('settings.generalStartPageHome') }}</span>
+          </label>
+          <label class="radio-row">
+            <input type="radio" value="restore" v-model="startPage" @change="saveGeneral" />
+            <span>{{ t('settings.generalStartPageRestore') }}</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">02</span>
+          <span class="section-title">{{ t('settings.generalMaxTabs') }}</span>
+        </div>
+        <div class="form-grid">
+          <div class="form-field">
+            <input
+              v-model.number="maxTabs"
+              type="number"
+              min="1"
+              max="100"
+              class="cyber-input"
+              @change="saveGeneral"
+            />
+            <div class="field-hint">{{ t('settings.generalMaxTabsHint') }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">03</span>
+          <span class="section-title">{{ t('settings.generalConfirmClose') }}</span>
+        </div>
+        <label class="checkbox-row">
+          <input type="checkbox" v-model="confirmClose" @change="saveGeneral" />
+          <span>{{ t('settings.generalConfirmClose') }}</span>
+        </label>
+      </div>
     </div>
 
     <!-- 外观设置 -->
@@ -263,6 +350,33 @@ const PRESET_MODELS = [
             </button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 关于 -->
+    <div v-if="activeTab === 'about'" class="settings-panel">
+      <div class="section about-hero">
+        <div class="about-logo">
+          <div class="about-logo-icon">S</div>
+        </div>
+        <h2 class="about-name">StarHub</h2>
+        <div class="about-version">
+          <kbd>v{{ appVersion }}</kbd>
+          <span class="about-version-label">{{ t('settings.aboutVersion') }}</span>
+        </div>
+        <p class="about-desc">{{ t('settings.aboutDesc') }}</p>
+        <div class="about-links">
+          <a class="about-link" href="https://github.com/dabaicai001/starhub" target="_blank" rel="noopener">
+            <v-icon size="14">mdi-github</v-icon>
+            <span>{{ t('settings.aboutGithub') }}</span>
+          </a>
+          <button class="about-link" disabled>
+            <v-icon size="14">mdi-update</v-icon>
+            <span>{{ t('settings.aboutCheckUpdate') }}</span>
+            <span class="about-soon">{{ t('common.soon') }}</span>
+          </button>
+        </div>
+        <p class="about-license">{{ t('settings.aboutLicense') }}</p>
       </div>
     </div>
   </div>
@@ -598,5 +712,159 @@ const PRESET_MODELS = [
 .chip-remove:hover {
   color: var(--red);
   background: rgba(255, 77, 109, 0.12);
+}
+
+/* ====== Radio / Checkbox(单/复选) ====== */
+.radio-row,
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-2);
+  transition: all 0.15s;
+}
+.radio-row:hover,
+.checkbox-row:hover {
+  border-color: var(--cyan);
+  color: var(--text);
+}
+.radio-row input,
+.checkbox-row input {
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+
+/* ====== About ====== */
+.about-hero {
+  text-align: center;
+  padding: 40px 24px;
+  position: relative;
+  overflow: hidden;
+}
+.about-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(0, 240, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 70% 70%, rgba(181, 107, 255, 0.06) 0%, transparent 50%);
+  pointer-events: none;
+}
+.about-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+  position: relative;
+}
+.about-logo-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  background: var(--grad-primary);
+  color: #050810;
+  font-size: 36px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Orbitron', sans-serif;
+  box-shadow: 0 0 24px rgba(0, 240, 255, 0.4);
+  position: relative;
+}
+.about-name {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  background: var(--grad-primary);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  position: relative;
+}
+.about-version {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  position: relative;
+}
+.about-version kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 2px 10px;
+  background: rgba(0, 240, 255, 0.1);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: 4px;
+  color: var(--cyan);
+}
+.about-version-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.about-desc {
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.6;
+  max-width: 480px;
+  margin: 0 auto 20px;
+  position: relative;
+}
+.about-links {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  position: relative;
+}
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.about-link:hover:not(:disabled) {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  text-decoration: none;
+}
+.about-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.about-soon {
+  font-size: 9px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 1px 4px;
+  background: rgba(255, 122, 58, 0.15);
+  border: 1px solid rgba(255, 122, 58, 0.3);
+  border-radius: 3px;
+  color: var(--orange);
+  margin-left: 4px;
+}
+.about-license {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.05em;
+  position: relative;
 }
 </style>

@@ -11,7 +11,7 @@ pub struct SftpSessionWrapper {
 }
 
 impl SftpSessionWrapper {
-    pub async fn connect(ssh_session: &SshSession, session_id: String) -> Result<Self> {
+    pub async fn connect(ssh_session: &mut SshSession, session_id: String) -> Result<Self> {
         let channel = ssh_session.open_sftp_channel().await?;
         let stream = channel.into_stream();
         let sftp = SftpSession::new(stream).await?;

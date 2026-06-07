@@ -1,5 +1,6 @@
 use anyhow::Result;
 use russh_sftp::client::SftpSession;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -10,6 +11,17 @@ use uuid::Uuid;
 
 use super::ops::{download_file, stat, upload_file};
 use super::{TransferDirection, TransferFile, TransferProgress, TransferStatus, TransferTask};
+
+/// 状态变更事件 payload(emit 到 `sftp://transfer-status`)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferStatusEvent {
+    pub transfer_id: String,
+    pub session_id: String,
+    pub direction: TransferDirection,
+    pub status: TransferStatus,
+    pub error: Option<String>,
+}
 
 pub struct TransferManager {
     tasks: Arc<Mutex<HashMap<String, TransferTask>>>,
@@ -33,9 +45,44 @@ impl TransferManager {
         sessions.insert(session_id, sftp);
     }
 
+    pub async fn has_session(&self, session_id: &str) -> bool {
+        self.sftp_sessions.lock().await.contains_key(session_id)
+    }
+
     pub async fn unregister_sftp(&self, session_id: &str) {
         let mut sessions = self.sftp_sessions.lock().await;
         sessions.remove(session_id);
+    }
+
+    /// 拿到当前 session 的所有任务(给前端做断线重连/刷新用)
+    pub async fn list_tasks(&self, session_id: &str) -> Vec<TransferTask> {
+        let tasks = self.tasks.lock().await;
+        tasks
+            .values()
+            .filter(|t| t.session_id == session_id)
+            .cloned()
+            .collect()
+    }
+
+    /// emit 一次 status 变化到前端(状态由 TransferStatus enum 序列化为驼峰字符串)
+    fn emit_status(
+        &self,
+        transfer_id: &str,
+        session_id: &str,
+        direction: TransferDirection,
+        status: TransferStatus,
+        error: Option<String>,
+    ) {
+        let _ = self.app_handle.emit(
+            "sftp://transfer-status",
+            TransferStatusEvent {
+                transfer_id: transfer_id.to_string(),
+                session_id: session_id.to_string(),
+                direction,
+                status,
+                error,
+            },
+        );
     }
 
     pub async fn upload(
@@ -44,12 +91,19 @@ impl TransferManager {
         local_paths: Vec<String>,
         remote_dir: String,
     ) -> Result<String> {
+        tracing::info!("[TransferManager::upload] start: session={}, files={}, remote_dir={}", session_id, local_paths.len(), remote_dir);
+
+        // 早转 owned,后面 spawn 闭包要 'static
+        let session_id = session_id.to_string();
+
         let sftp = {
             let sessions = self.sftp_sessions.lock().await;
-            sessions
-                .get(session_id)
+            let s = sessions
+                .get(&session_id)
                 .cloned()
-                .ok_or_else(|| anyhow::anyhow!("SFTP session not found: {}", session_id))?
+                .ok_or_else(|| anyhow::anyhow!("SFTP session not found: {}", session_id))?;
+            tracing::info!("[TransferManager::upload] SFTP session found for {}", session_id);
+            s
         };
 
         let transfer_id = Uuid::new_v4().to_string();
@@ -75,7 +129,7 @@ impl TransferManager {
 
         let task = TransferTask {
             id: transfer_id.clone(),
-            session_id: session_id.to_string(),
+            session_id: session_id.clone(),
             direction: TransferDirection::Upload,
             files,
             status: TransferStatus::Queued,
@@ -97,16 +151,30 @@ impl TransferManager {
         let cancel_tokens = self.cancel_tokens.clone();
         let app_handle = self.app_handle.clone();
         let tid = transfer_id.clone();
+        let session_id_for_emit = session_id.clone();
 
         tokio::spawn(async move {
+            tracing::info!("[TransferManager::upload] spawned task {} starting", tid);
             {
                 let mut tasks = tasks.lock().await;
                 if let Some(t) = tasks.get_mut(&tid) {
                     t.status = TransferStatus::Running;
                 }
             }
+            // 通知前端:开始
+            let _ = app_handle.emit(
+                "sftp://transfer-status",
+                TransferStatusEvent {
+                    transfer_id: tid.clone(),
+                    session_id: session_id_for_emit.clone(),
+                    direction: TransferDirection::Upload,
+                    status: TransferStatus::Running,
+                    error: None,
+                },
+            );
 
             let mut cumulative_transferred: u64 = 0;
+            let mut final_status: Option<(TransferStatus, Option<String>)> = None;
 
             for (i, local_path) in local_paths.iter().enumerate() {
                 if cancel_token.is_cancelled() {
@@ -114,6 +182,7 @@ impl TransferManager {
                     if let Some(t) = tasks.get_mut(&tid) {
                         t.status = TransferStatus::Cancelled;
                     }
+                    final_status = Some((TransferStatus::Cancelled, None));
                     break;
                 }
 
@@ -126,6 +195,8 @@ impl TransferManager {
                 } else {
                     format!("{}/{}", remote_dir, file_name)
                 };
+
+                tracing::info!("[TransferManager::upload] uploading file {}: {} -> {}", i, local_path, remote_path);
 
                 let offset = cumulative_transferred;
                 let ah = app_handle.clone();
@@ -145,33 +216,39 @@ impl TransferManager {
                             direction: TransferDirection::Upload,
                         },
                     );
-                    let mut tasks = tasks_ref.blocking_lock();
-                    if let Some(t) = tasks.get_mut(&tid_clone) {
-                        t.transferred_bytes = offset + file_progress;
-                        if let Some(f) = t.files.get_mut(i) {
-                            f.transferred = file_progress;
+                    if let Ok(mut tasks) = tasks_ref.try_lock() {
+                        if let Some(t) = tasks.get_mut(&tid_clone) {
+                            t.transferred_bytes = offset + file_progress;
+                            if let Some(f) = t.files.get_mut(i) {
+                                f.transferred = file_progress;
+                            }
                         }
                     }
                 })
                 .await;
 
                 if result.is_err() && cancel_token.is_cancelled() {
+                    tracing::info!("[TransferManager::upload] task {} cancelled", tid);
                     let mut tasks = tasks.lock().await;
                     if let Some(t) = tasks.get_mut(&tid) {
                         t.status = TransferStatus::Cancelled;
                     }
+                    final_status = Some((TransferStatus::Cancelled, None));
                     return;
                 }
 
                 if let Err(e) = result {
+                    tracing::error!("[TransferManager::upload] task {} failed: {}", tid, e);
                     let mut tasks = tasks.lock().await;
                     if let Some(t) = tasks.get_mut(&tid) {
                         t.status = TransferStatus::Failed;
                         t.error = Some(e.to_string());
                     }
+                    final_status = Some((TransferStatus::Failed, Some(e.to_string())));
                     return;
                 }
 
+                tracing::info!("[TransferManager::upload] file {} uploaded successfully", i);
                 let file_size = tokio::fs::metadata(local_path)
                     .await
                     .map(|m| m.len())
@@ -190,10 +267,26 @@ impl TransferManager {
             }
 
             if !cancel_token.is_cancelled() {
+                tracing::info!("[TransferManager::upload] task {} completed", tid);
                 let mut tasks = tasks.lock().await;
                 if let Some(t) = tasks.get_mut(&tid) {
                     t.status = TransferStatus::Done;
                 }
+                final_status = Some((TransferStatus::Done, None));
+            }
+
+            // 通知前端:终态
+            if let Some((status, error)) = final_status {
+                let _ = app_handle.emit(
+                    "sftp://transfer-status",
+                    TransferStatusEvent {
+                        transfer_id: tid.clone(),
+                        session_id: session_id_for_emit.clone(),
+                        direction: TransferDirection::Upload,
+                        status,
+                        error,
+                    },
+                );
             }
 
             let mut tokens = cancel_tokens.lock().await;
@@ -209,10 +302,13 @@ impl TransferManager {
         remote_paths: Vec<String>,
         local_dir: String,
     ) -> Result<String> {
+        // 早转 owned,后面 spawn 闭包要 'static
+        let session_id = session_id.to_string();
+
         let sftp = {
             let sessions = self.sftp_sessions.lock().await;
             sessions
-                .get(session_id)
+                .get(&session_id)
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("SFTP session not found: {}", session_id))?
         };
@@ -239,7 +335,7 @@ impl TransferManager {
 
         let task = TransferTask {
             id: transfer_id.clone(),
-            session_id: session_id.to_string(),
+            session_id: session_id.clone(),
             direction: TransferDirection::Download,
             files,
             status: TransferStatus::Queued,
@@ -261,6 +357,7 @@ impl TransferManager {
         let cancel_tokens = self.cancel_tokens.clone();
         let app_handle = self.app_handle.clone();
         let tid = transfer_id.clone();
+        let session_id_for_emit = session_id.clone();
 
         tokio::spawn(async move {
             {
@@ -269,8 +366,20 @@ impl TransferManager {
                     t.status = TransferStatus::Running;
                 }
             }
+            // 通知前端:开始
+            let _ = app_handle.emit(
+                "sftp://transfer-status",
+                TransferStatusEvent {
+                    transfer_id: tid.clone(),
+                    session_id: session_id_for_emit.clone(),
+                    direction: TransferDirection::Download,
+                    status: TransferStatus::Running,
+                    error: None,
+                },
+            );
 
             let mut cumulative_transferred: u64 = 0;
+            let mut final_status: Option<(TransferStatus, Option<String>)> = None;
 
             for (i, remote_path) in remote_paths.iter().enumerate() {
                 if cancel_token.is_cancelled() {
@@ -278,6 +387,7 @@ impl TransferManager {
                     if let Some(t) = tasks.get_mut(&tid) {
                         t.status = TransferStatus::Cancelled;
                     }
+                    final_status = Some((TransferStatus::Cancelled, None));
                     break;
                 }
 
@@ -310,11 +420,12 @@ impl TransferManager {
                                 direction: TransferDirection::Download,
                             },
                         );
-                        let mut tasks = tasks_ref.blocking_lock();
-                        if let Some(t) = tasks.get_mut(&tid_clone) {
-                            t.transferred_bytes = offset + file_progress;
-                            if let Some(f) = t.files.get_mut(i) {
-                                f.transferred = file_progress;
+                        if let Ok(mut tasks) = tasks_ref.try_lock() {
+                            if let Some(t) = tasks.get_mut(&tid_clone) {
+                                t.transferred_bytes = offset + file_progress;
+                                if let Some(f) = t.files.get_mut(i) {
+                                    f.transferred = file_progress;
+                                }
                             }
                         }
                     })
@@ -325,6 +436,7 @@ impl TransferManager {
                     if let Some(t) = tasks.get_mut(&tid) {
                         t.status = TransferStatus::Cancelled;
                     }
+                    final_status = Some((TransferStatus::Cancelled, None));
                     return;
                 }
 
@@ -334,6 +446,7 @@ impl TransferManager {
                         t.status = TransferStatus::Failed;
                         t.error = Some(e.to_string());
                     }
+                    final_status = Some((TransferStatus::Failed, Some(e.to_string())));
                     return;
                 }
 
@@ -359,6 +472,21 @@ impl TransferManager {
                 if let Some(t) = tasks.get_mut(&tid) {
                     t.status = TransferStatus::Done;
                 }
+                final_status = Some((TransferStatus::Done, None));
+            }
+
+            // 通知前端:终态
+            if let Some((status, error)) = final_status {
+                let _ = app_handle.emit(
+                    "sftp://transfer-status",
+                    TransferStatusEvent {
+                        transfer_id: tid.clone(),
+                        session_id: session_id_for_emit.clone(),
+                        direction: TransferDirection::Download,
+                        status,
+                        error,
+                    },
+                );
             }
 
             let mut tokens = cancel_tokens.lock().await;

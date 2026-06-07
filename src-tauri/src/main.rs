@@ -5,9 +5,11 @@ mod commands;
 mod db;
 mod sidecar;
 mod ssh;
+mod sftp;
 
 use tauri::Manager;
 use commands::ssh::SshManager;
+use sftp::transfer::TransferManager;
 
 fn main() {
     tracing_subscriber::fmt::init();
@@ -37,6 +39,9 @@ fn main() {
                 }
             });
 
+            // 初始化 TransferManager(需要 AppHandle 用于 emit 进度/状态事件)
+            app.manage(TransferManager::new(app.handle().clone()));
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -60,7 +65,12 @@ fn main() {
             commands::sftp::sftp_remove_dir,
             commands::sftp::sftp_mkdir,
             commands::sftp::sftp_rename,
-            commands::sftp::sftp_upload,
+            // 流式传输(走 TransferManager,带 progress / status 事件)
+            commands::sftp::sftp_ensure_session,
+            commands::sftp::sftp_start_upload,
+            commands::sftp::sftp_start_download,
+            commands::sftp::sftp_cancel_transfer,
+            commands::sftp::sftp_list_transfers,
             // MySQL
             commands::db::db_mysql_connect,
             commands::db::db_mysql_test,
