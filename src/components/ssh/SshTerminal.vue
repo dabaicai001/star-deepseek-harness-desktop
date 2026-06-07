@@ -247,13 +247,7 @@ async function runSshAgent() {
     async (cmd) => { await writeCommand(cmd) },
     async (ms) => { return await captureOutput(ms || timeoutSec * 1000) },
     () => aiStore.settings.commandWhitelist,
-    confirmFn,
-    (status, detail) => {
-      if (status === 'ERR') {
-        const suffix = detail ? ` ${detail}` : ''
-        terminalRef.value?.writeln(`\x1b[31mERR${suffix}\x1b[0m`)
-      }
-    }
+    confirmFn
   )
   const toolExec = async (call: LlmToolCall) => {
     return await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
