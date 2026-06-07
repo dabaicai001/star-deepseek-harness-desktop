@@ -161,17 +161,55 @@ async function executeDockerTool(name: string, args: Record<string, unknown>): P
     return `inspect ${args.target} - 后端暂未实现,可以用 docker_list_containers 替代`
   }
   if (name === 'docker_exec' || name === 'docker_exec_confirmed') {
-    return `docker exec ${args.container} ← ${args.command} - 后端暂未实现 exec,等下一步`
+    const container = String(args.container ?? '')
+    const command = String(args.command ?? '').trim()
+    if (!container || !command) {
+      return '[Error] docker_exec 需要 container 和 command 参数'
+    }
+    const result = await dockerService.dockerExec(
+      connId,
+      container,
+      ['sh', '-c', command],  // shell -c 支持多命令组合(管道、&&、重定向)
+      { timeoutSec: 30 }
+    )
+    const parts: string[] = []
+    if (result.stdout) parts.push(result.stdout)
+    if (result.stderr) parts.push(`[stderr]\n${result.stderr}`)
+    if (parts.length === 0) parts.push('(无输出)')
+    if (result.exitCode !== 0) parts.push(`\n[exit ${result.exitCode}]`)
+    return parts.join('\n')
   }
   return `[Unknown tool] ${name}`
 }
 
+const dockerPendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
+
 async function onAiSend(text: string) {
   if (!aiSession.value) return
   aiSession.value.messages.push({ role: 'user', content: text })
+
+  const confirmFn: import('@/utils/aiTools').ToolConfirmFn = async (ctx) => {
+    const session = aiSession.value!
+    const running = [...session.toolCalls].reverse().find(t => t.status === 'running' || t.status === 'awaiting-confirm')
+    const recordId = running?.id || `pending-${Date.now()}`
+    if (running) {
+      running.status = 'awaiting-confirm'
+      running.result = ctx.message
+    } else {
+      session.toolCalls.push({
+        id: recordId, name: ctx.toolName, args: ctx.args,
+        status: 'awaiting-confirm', result: ctx.message, startedAt: Date.now()
+      })
+    }
+    return new Promise<boolean>((resolve) => {
+      dockerPendingConfirms.value.set(recordId, resolve)
+    })
+  }
+
   const caller = makeDockerToolCaller(
     executeDockerTool,
-    () => aiStore.settings.commandWhitelist
+    () => aiStore.settings.commandWhitelist,
+    confirmFn
   )
   const toolExec = async (call: LlmToolCall) =>
     await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
@@ -190,7 +228,12 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject') {
   const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
   if (rec) {
     rec.status = decision === 'approve' ? 'success' : 'rejected'
-    if (decision === 'reject') rec.result = '[Rejected by user]'
+    rec.result = decision === 'approve' ? '✓ 已批准,正在执行…' : '✗ 已拒绝'
+  }
+  const resolve = dockerPendingConfirms.value.get(recordId)
+  if (resolve) {
+    resolve(decision === 'approve')
+    dockerPendingConfirms.value.delete(recordId)
   }
 }
 </script>

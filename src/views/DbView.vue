@@ -212,12 +212,34 @@ function formatVal(v: unknown): string {
   return s.length > 100 ? s.slice(0, 100) + '…' : s
 }
 
+const dbPendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
+
 async function onAiSend(text: string) {
   if (!aiSession.value) return
   aiSession.value.messages.push({ role: 'user', content: text })
+
+  const confirmFn: import('@/utils/aiTools').ToolConfirmFn = async (ctx) => {
+    const session = aiSession.value!
+    const running = [...session.toolCalls].reverse().find(t => t.status === 'running' || t.status === 'awaiting-confirm')
+    const recordId = running?.id || `pending-${Date.now()}`
+    if (running) {
+      running.status = 'awaiting-confirm'
+      running.result = ctx.message
+    } else {
+      session.toolCalls.push({
+        id: recordId, name: ctx.toolName, args: ctx.args,
+        status: 'awaiting-confirm', result: ctx.message, startedAt: Date.now()
+      })
+    }
+    return new Promise<boolean>((resolve) => {
+      dbPendingConfirms.value.set(recordId, resolve)
+    })
+  }
+
   const caller = makeDbToolCaller(
     executeDbSql,
-    () => aiStore.settings.commandWhitelist
+    () => aiStore.settings.commandWhitelist,
+    confirmFn
   )
   const toolExec = async (call: LlmToolCall) =>
     await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
@@ -236,7 +258,12 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject') {
   const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
   if (rec) {
     rec.status = decision === 'approve' ? 'success' : 'rejected'
-    if (decision === 'reject') rec.result = '[Rejected by user]'
+    rec.result = decision === 'approve' ? '✓ 已批准,正在执行…' : '✗ 已拒绝'
+  }
+  const resolve = dbPendingConfirms.value.get(recordId)
+  if (resolve) {
+    resolve(decision === 'approve')
+    dbPendingConfirms.value.delete(recordId)
   }
 }
 </script>

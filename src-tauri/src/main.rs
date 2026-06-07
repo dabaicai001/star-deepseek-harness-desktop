@@ -110,6 +110,7 @@ fn main() {
             commands::docker::docker_pull_image,
             commands::docker::docker_remove_image,
             commands::docker::docker_prune_images,
+            commands::docker::docker_exec,
             // AI
             commands::ai::ai_chat,
             commands::ai::ai_list_models,

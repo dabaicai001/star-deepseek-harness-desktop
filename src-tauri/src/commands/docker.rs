@@ -178,3 +178,25 @@ pub async fn docker_prune_images(
 ) -> Result<Value, String> {
     sidecar.call("docker.pruneImages", serde_json::json!({ "connId": conn_id })).await
 }
+
+/// 在指定容器内执行一条 shell 命令,返回 stdout/stderr
+/// 用于 AI 助手(docker_exec 工具)或用户手动
+/// 注意:不解析 docker exec 的 stdin 模式,只跑一次性命令并返回结果
+#[tauri::command]
+pub async fn docker_exec(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    container_id: String,
+    command: Vec<String>,
+    workdir: Option<String>,
+    timeout_sec: Option<i64>,
+) -> Result<Value, String> {
+    let mut params = serde_json::json!({
+        "connId": conn_id,
+        "containerId": container_id,
+        "command": command,
+    });
+    if let Some(w) = workdir { params["workdir"] = serde_json::json!(w); }
+    if let Some(t) = timeout_sec { params["timeoutSec"] = serde_json::json!(t); }
+    sidecar.call("docker.exec", params).await
+}

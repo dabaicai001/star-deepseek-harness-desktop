@@ -130,3 +130,30 @@ function matchesWhitelist(command: string, prefix: string): boolean {
   if (command.startsWith(p + ' ')) return true
   return false
 }
+
+/**
+ * 等待用户确认异常 — AI 工具执行器在需要用户批准时 throw 这个,
+ * AiChat 接到 awaiting-confirm 状态后 emit confirm-tool 事件,父组件
+ * 调用 resolve() 推进执行。
+ */
+export class PendingConfirmError extends Error {
+  readonly callId: string
+  readonly toolName: string
+  readonly args: Record<string, unknown>
+  readonly message: string
+  resolve: (approved: boolean) => void
+
+  constructor(opts: {
+    callId: string
+    toolName: string
+    args: Record<string, unknown>
+    message: string
+  }) {
+    super(opts.message)
+    this.callId = opts.callId
+    this.toolName = opts.toolName
+    this.args = opts.args
+    this.message = opts.message
+    this.resolve = () => { /* noop, set by executeTool */ }
+  }
+}

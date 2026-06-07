@@ -145,17 +145,85 @@ const commands = computed<Command[]>(() => {
 })
 
 const filtered = computed<Command[]>(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return commands.value.slice(0, 12)
+  const q = query.value.trim()
+  if (!q) {
+    // 无 query:历史记录优先(最近 5 个),其余按原顺序
+    const historyIds = recentCommands.value
+    const historyCmds = historyIds
+      .map(id => commands.value.find(c => c.id === id))
+      .filter((c): c is Command => Boolean(c))
+    const rest = commands.value.filter(c => !historyIds.includes(c.id))
+    return [...historyCmds, ...rest].slice(0, 12)
+  }
+  const ql = q.toLowerCase()
+
+  // 支持前缀: type:ssh / group:tab / action:new
+  let typeFilter: string | null = null
+  let groupFilter: string | null = null
+  let textQuery = ql
+  const typeMatch = ql.match(/^type:(\w+)/)
+  if (typeMatch) {
+    typeFilter = typeMatch[1]
+    textQuery = ql.replace(typeMatch[0], '').trim()
+  }
+  const groupMatch = ql.match(/^group:(\w+)/)
+  if (groupMatch) {
+    groupFilter = groupMatch[1]
+    textQuery = ql.replace(groupMatch[0], '').trim()
+  }
+  // 支持 tag:xxx(从资产 tag 过滤)
+  let tagFilter: string | null = null
+  const tagMatch = ql.match(/^tag:(\S+)/)
+  if (tagMatch) {
+    tagFilter = tagMatch[1]
+    textQuery = ql.replace(tagMatch[0], '').trim()
+  }
+
   return commands.value.filter(c => {
+    if (typeFilter && !c.group.startsWith(typeFilter) && !(c.keywords || []).some(k => k.includes(typeFilter))) return false
+    if (groupFilter && c.group !== groupFilter) return false
+    if (tagFilter) {
+      // tag 过滤只对资产命令生效(资产才有 tag)
+      const isAsset = c.id.startsWith('asset-')
+      if (!isAsset) return false
+      const a = assetStore.assets.find(x => `asset-${x.id}` === c.id)
+      if (!a || !a.tags?.some(t => t.toLowerCase().includes(tagFilter))) return false
+    }
+    if (!textQuery) return true
     const haystack = [
       c.label.toLowerCase(),
       c.group,
       ...(c.keywords || []).map(k => k.toLowerCase())
     ].join(' ')
-    return haystack.includes(q)
+    return haystack.includes(textQuery)
   }).slice(0, 20)
 })
+
+/** 命令历史(localStorage 持久化,最近 20 个) */
+const RECENT_KEY = 'starhub.cmd-palette.recent'
+const recentCommands = ref<string[]>(loadRecent())
+
+function loadRecent(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? arr : []
+  } catch {
+    return []
+  }
+}
+
+function saveRecent() {
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(recentCommands.value)) } catch {}
+}
+
+function recordRun(id: string) {
+  // 把 id 移到最前,去重,保留 20 个
+  const next = [id, ...recentCommands.value.filter(x => x !== id)].slice(0, 20)
+  recentCommands.value = next
+  saveRecent()
+}
 
 function show() {
   open.value = true
@@ -170,6 +238,7 @@ function hide() {
 
 function runCommand(cmd: Command) {
   cmd.run()
+  recordRun(cmd.id)
   hide()
 }
 
@@ -221,7 +290,7 @@ const groupLabel: Record<Command['group'], string> = {
             v-model="query"
             type="text"
             class="cmd-input"
-            placeholder="搜索资产、tab 或动作…"
+            placeholder="搜索资产、tab 或动作…试试 type:ssh / group:tab / tag:prod"
             @input="selectedIdx = 0"
           />
           <kbd>Esc</kbd>

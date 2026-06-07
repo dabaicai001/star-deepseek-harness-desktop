@@ -7,10 +7,25 @@
  *  - Docker: 调 docker 命令,返回结果
  *
  * 命令风险检测在执行器入口统一拦截(白名单 + 风险词)。
+ * 非白名单 / 风险命令会 await 一个 confirmFn(由父组件提供),
+ * confirmFn 返回 true → 执行,false → 抛错(被用户拒绝)。
  */
 
 import type { LlmTool } from '@/services/ai'
 import { checkCommand } from '@/utils/commandGuard'
+
+/** 工具调用等待确认时传给父组件的上下文(供弹窗渲染) */
+export interface ToolConfirmCtx {
+  toolName: string
+  args: Record<string, unknown>
+  reason: 'risk' | 'whitelist-miss' | 'always-confirm'
+  message: string
+}
+
+/**
+ * confirmFn 签名: 异步等用户决策(弹窗/对话框),返回 true 批准 / false 拒绝
+ */
+export type ToolConfirmFn = (ctx: ToolConfirmCtx) => Promise<boolean>
 
 // ============================================================
 // SSH 工具
@@ -68,7 +83,8 @@ export type SshToolExecutor = (
 export function makeSshToolCaller(
   write: (cmd: string) => Promise<void>,
   captureOutput: (timeoutMs: number) => Promise<string>,
-  getWhitelist: () => string[]
+  getWhitelist: () => string[],
+  confirmFn: ToolConfirmFn
 ) {
   return async (call: { function: { name: string; arguments: string } }): Promise<string> => {
     const args = safeParse(call.function.arguments)
@@ -77,22 +93,31 @@ export function makeSshToolCaller(
 
     const forceConfirm = call.function.name === 'ssh_exec_confirmed'
     const check = checkCommand(command, getWhitelist())
-    if (forceConfirm || check.needsConfirm) {
-      // 由 UI 弹确认对话框;此处只返回 prompt 标记
-      // 调用方在 record.status = 'awaiting-confirm' 时会 await 用户决策
-      // 这里为了简化,直接返回一个标记;实际 UI 层应该拦截 awaiting-confirm
-      // 真正的实现:executeSshTool 会先 await userConfirm(...)
-      // 但现在我们简化:让所有非白名单命令都自动等 1s,假装是用户批准了
-      // TODO: 接入 ConfirmDialog
-      if (check.isRisky) {
-        throw new Error(`风险命令被拦截: ${check.riskReason}`)
-      }
+
+    if (check.isRisky) {
+      // 风险命令:也走 confirm,但用户必须明确知道(弹窗文案要强调)
+      const approved = await confirmFn({
+        toolName: call.function.name,
+        args: { command },
+        reason: 'risk',
+        message: check.confirmMessage
+      })
+      if (!approved) throw new Error(`[Rejected by user] ${check.riskReason}`)
+    } else if (forceConfirm || check.needsConfirm) {
+      // 非白名单 / forced:走普通确认
+      const approved = await confirmFn({
+        toolName: call.function.name,
+        args: { command },
+        reason: forceConfirm ? 'always-confirm' : 'whitelist-miss',
+        message: check.confirmMessage
+      })
+      if (!approved) throw new Error('[Rejected by user]')
     }
 
     // 写命令到 terminal(用户能看到)
     await write(command + '\n')
     // 等固定超时收集输出
-    const output = await captureOutput(3000)  // 默认 3s
+    const output = await captureOutput(3000)
     return output || '(无输出)'
   }
 }
@@ -150,7 +175,8 @@ export type DbToolExecutor = (sql: string, forceConfirm: boolean) => Promise<str
 
 export function makeDbToolCaller(
   query: (sql: string) => Promise<string>,
-  getWhitelist: () => string[]
+  getWhitelist: () => string[],
+  confirmFn: ToolConfirmFn
 ) {
   return async (call: { function: { name: string; arguments: string } }): Promise<string> => {
     const args = safeParse(call.function.arguments)
@@ -159,11 +185,23 @@ export function makeDbToolCaller(
 
     const forceConfirm = call.function.name === 'db_query_confirmed'
     const check = checkCommand(sql, getWhitelist())
+
     if (check.isRisky) {
-      throw new Error(`风险 SQL 被拦截: ${check.riskReason}`)
-    }
-    if (forceConfirm || check.needsConfirm) {
-      // TODO: 接入 ConfirmDialog
+      const approved = await confirmFn({
+        toolName: call.function.name,
+        args: { sql },
+        reason: 'risk',
+        message: check.confirmMessage
+      })
+      if (!approved) throw new Error(`[Rejected by user] ${check.riskReason}`)
+    } else if (forceConfirm || check.needsConfirm) {
+      const approved = await confirmFn({
+        toolName: call.function.name,
+        args: { sql },
+        reason: forceConfirm ? 'always-confirm' : 'whitelist-miss',
+        message: check.confirmMessage
+      })
+      if (!approved) throw new Error('[Rejected by user]')
     }
 
     return await query(sql)
@@ -261,22 +299,33 @@ export type DockerToolExecutor = (name: string, args: Record<string, unknown>) =
 
 export function makeDockerToolCaller(
   exec: DockerToolExecutor,
-  getWhitelist: () => string[]
+  getWhitelist: () => string[],
+  confirmFn: ToolConfirmFn
 ) {
   return async (call: { function: { name: string; arguments: string } }): Promise<string> => {
     const args = safeParse(call.function.arguments)
     const name = call.function.name
 
-    // 涉及命令的:docker_exec / docker_exec_confirmed
     if (name === 'docker_exec' || name === 'docker_exec_confirmed') {
       const command = String(args.command ?? '').trim()
       const forceConfirm = name === 'docker_exec_confirmed'
       const check = checkCommand(command, getWhitelist())
       if (check.isRisky) {
-        throw new Error(`风险命令被拦截: ${check.riskReason}`)
-      }
-      if (forceConfirm || check.needsConfirm) {
-        // TODO: ConfirmDialog
+        const approved = await confirmFn({
+          toolName: name,
+          args: { container: args.container, command },
+          reason: 'risk',
+          message: check.confirmMessage
+        })
+        if (!approved) throw new Error(`[Rejected by user] ${check.riskReason}`)
+      } else if (forceConfirm || check.needsConfirm) {
+        const approved = await confirmFn({
+          toolName: name,
+          args: { container: args.container, command },
+          reason: forceConfirm ? 'always-confirm' : 'whitelist-miss',
+          message: check.confirmMessage
+        })
+        if (!approved) throw new Error('[Rejected by user]')
       }
     }
 

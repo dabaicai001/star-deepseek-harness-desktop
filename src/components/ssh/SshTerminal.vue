@@ -175,26 +175,64 @@ async function onAiRetry() {
 }
 
 function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject') {
-  // MVP: 自动批准(真正的 UI 确认弹窗留到下一步)
   if (!aiSession.value) return
   const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
   if (rec) {
     rec.status = decision === 'approve' ? 'success' : 'rejected'
-    if (decision === 'reject') {
-      rec.result = '[Rejected by user]'
+    if (decision === 'approve') {
+      rec.result = '✓ 已批准,正在执行…'
+    } else {
+      rec.result = '✗ 已拒绝'
     }
   }
+  // 唤醒 caller 中的 await confirmFn()
+  const resolve = pendingConfirms.value.get(recordId)
+  if (resolve) {
+    resolve(decision === 'approve')
+    pendingConfirms.value.delete(recordId)
+  }
 }
+
+/** 等待用户确认的 tool call 记录 ID → resolve 回调 */
+const pendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
 
 async function runSshAgent() {
   if (!aiSession.value) return
   const timeoutSec = aiStore.settings.commandTimeoutSec
+
+  /**
+   * 等用户确认(通过 AiChat 弹按钮,emit confirm-tool 事件)
+   */
+  const confirmFn: import('@/utils/aiTools').ToolConfirmFn = async (ctx) => {
+    // 把正在 confirm 的 call 标 awaiting-confirm,记录 id 用于后续 resolve
+    // 找到 session 里最近一个 running 的 record,改成 awaiting-confirm
+    const session = aiSession.value!
+    const running = [...session.toolCalls].reverse().find(t => t.status === 'running' || t.status === 'awaiting-confirm')
+    const recordId = running?.id || `pending-${Date.now()}`
+    if (running) {
+      running.status = 'awaiting-confirm'
+      running.result = ctx.message
+    } else {
+      session.toolCalls.push({
+        id: recordId,
+        name: ctx.toolName,
+        args: ctx.args,
+        status: 'awaiting-confirm',
+        result: ctx.message,
+        startedAt: Date.now()
+      })
+    }
+    return new Promise<boolean>((resolve) => {
+      pendingConfirms.value.set(recordId, resolve)
+    })
+  }
+
   const caller = makeSshToolCaller(
     async (cmd) => { await writeCommand(cmd) },
     async (ms) => { return await captureOutput(ms || timeoutSec * 1000) },
-    () => aiStore.settings.commandWhitelist
+    () => aiStore.settings.commandWhitelist,
+    confirmFn
   )
-  // 包装一层,把 LlmToolCall 转成 caller 期望的格式
   const toolExec = async (call: LlmToolCall) => {
     return await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
   }

@@ -28,7 +28,10 @@ const accentOptions = [
 ]
 
 async function onSave() {
-  aiStore.updateSettings(aiLocal.value)
+  // apiKey 单独处理(走加密通道),其他字段用 updateSettings
+  const { apiKey, ...rest } = aiLocal.value
+  aiStore.updateSettings(rest)
+  await aiStore.setApiKey(apiKey)
   saved.value = true
   setTimeout(() => { saved.value = false }, 2000)
 }

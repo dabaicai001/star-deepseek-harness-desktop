@@ -68,3 +68,24 @@ export async function removeImage(connId: string, imageId: string, force?: boole
 export async function pruneImages(connId: string): Promise<void> {
   return invoke('docker_prune_images', { connId })
 }
+
+/** 在指定容器内执行命令,返回 stdout + stderr */
+export interface DockerExecResult {
+  stdout: string
+  stderr: string
+  exitCode: number
+}
+export async function dockerExec(
+  connId: string,
+  containerId: string,
+  command: string[],
+  options?: { workdir?: string; timeoutSec?: number }
+): Promise<DockerExecResult> {
+  return invoke('docker_exec', {
+    connId,
+    containerId,
+    command,
+    workdir: options?.workdir,
+    timeoutSec: options?.timeoutSec
+  })
+}

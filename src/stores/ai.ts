@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { ChatMessage, LlmTool, LlmToolCall, NewChatRequest, NewChatResponse } from '@/services/ai'
-import { chatWithTools } from '@/services/ai'
+import { chatWithTools, chatStream } from '@/services/ai'
+import { encrypt as enc, decrypt as dec } from '@/utils/crypto'
 
 /**
  * AI 全局配置(持久化到 localStorage)
@@ -56,6 +57,32 @@ const DEFAULT_SYSTEM_PROMPT = '你是一个专业的运维助手,帮助用户通
 
 export const useAiStore = defineStore('ai', () => {
   // ====== 全局配置 ======
+  // ====== 敏感字段加密 ======
+  // settings.apiKey 持久化时存为加密 blob(加密包在 store 状态里);
+  // 内部用 _unlockedApiKey 缓存明文,首次访问时解密;改 apiKey 时重新加密。
+  const _unlockedApiKey = ref<string>('')
+
+  async function _ensureUnlocked() {
+    if (_unlockedApiKey.value) return
+    if (!settings.value.apiKey) return
+    const plain = await dec(settings.value.apiKey)
+    if (plain) _unlockedApiKey.value = plain
+  }
+
+  async function setApiKey(plain: string) {
+    _unlockedApiKey.value = plain
+    if (plain) {
+      settings.value.apiKey = await enc(plain)
+    } else {
+      settings.value.apiKey = ''
+    }
+  }
+
+  async function getApiKey(): Promise<string> {
+    await _ensureUnlocked()
+    return _unlockedApiKey.value
+  }
+
   const settings = ref<AiSettings>({
     provider: 'openai-compatible',
     baseUrl: 'https://api.openai.com/v1',
@@ -119,7 +146,19 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   function updateSettings(partial: Partial<AiSettings>) {
-    Object.assign(settings.value, partial)
+    // apiKey 不允许通过 updateSettings 直接赋值(必须用 setApiKey 加密)
+    if ('apiKey' in partial) {
+      const { apiKey: _, ...rest } = partial
+      Object.assign(settings.value, rest)
+      // setApiKey 是 async,这里 fire-and-forget
+      if (typeof partial.apiKey === 'string') {
+        setApiKey(partial.apiKey).catch(err => {
+          console.error('Failed to set apiKey:', err)
+        })
+      }
+    } else {
+      Object.assign(settings.value, partial)
+    }
   }
 
   function addToWhitelist(command: string) {
@@ -137,6 +176,8 @@ export const useAiStore = defineStore('ai', () => {
    * 调用方负责传入:工具定义、工具执行器、当前资产上下文。
    *
    * 这是一个通用入口——具体怎么"执行命令"由调用方在 executeTool 里实现(SSH/DB/Docker 不同)。
+   *
+   * 使用 chatStream(SSE)接收响应,内容部分直接 push 到 assistant 消息,边接收边显示。
    */
   async function runAgent(
     instanceId: string,
@@ -153,9 +194,10 @@ export const useAiStore = defineStore('ai', () => {
 
     try {
       for (let step = 0; step < maxSteps; step++) {
+        const apiKey = await getApiKey()
         const request: NewChatRequest = {
           baseUrl: settings.value.baseUrl,
-          apiKey: settings.value.apiKey,
+          apiKey,
           model: settings.value.model,
           messages: session.messages,
           temperature: settings.value.temperature,
@@ -163,17 +205,39 @@ export const useAiStore = defineStore('ai', () => {
           system: systemPrompt,
           tools
         }
-        const response: NewChatResponse = await chatWithTools(request)
-        const assistant = response.message
-        session.messages.push(assistant)
 
-        // 没有 tool_calls → AI 完成回复
-        if (!assistant.tool_calls || assistant.tool_calls.length === 0) {
+        // 创建一个空的 assistant 消息占位,流式 push content
+        const assistantIdx = session.messages.length
+        const assistantMsg: ChatMessage = { role: 'assistant', content: '' }
+        session.messages.push(assistantMsg)
+
+        // 流式消费
+        let finalMessage: ChatMessage | null = null
+        for await (const chunk of chatStream(request)) {
+          if (chunk.kind === 'content') {
+            assistantMsg.content = (assistantMsg.content || '') + chunk.delta
+            // 触发 reactivity
+            session.messages[assistantIdx] = { ...assistantMsg }
+          } else if (chunk.kind === 'error') {
+            throw new Error(chunk.message)
+          } else if (chunk.kind === 'done') {
+            finalMessage = chunk.message
+          }
+        }
+
+        // 用流的最终消息(覆盖占位,确保 tool_calls 完整)
+        if (finalMessage) {
+          session.messages[assistantIdx] = finalMessage
+          assistantMsg.content = finalMessage.content
+          assistantMsg.tool_calls = finalMessage.tool_calls
+        }
+
+        if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
           return
         }
 
         // 处理 tool calls
-        for (const call of assistant.tool_calls) {
+        for (const call of assistantMsg.tool_calls) {
           const record: AiToolCallRecord = {
             id: call.id,
             name: call.function.name,
@@ -207,7 +271,6 @@ export const useAiStore = defineStore('ai', () => {
           }
         }
       }
-      // 走到这里说明 for 循环跑完了 maxSteps 还没收敛
       session.error = `AI agent exceeded max steps (${maxSteps})`
     } catch (e) {
       session.error = e instanceof Error ? e.message : String(e)
@@ -224,6 +287,55 @@ export const useAiStore = defineStore('ai', () => {
     }
   }
 
+  /**
+   * 添加一条"等待用户确认"的 tool call 记录(AiChat 渲染时显示按钮)。
+   * 返回 recordId,父组件用此 id 在用户决定后调 resolveConfirm 推进。
+   */
+  function addConfirmRecord(
+    instanceId: string,
+    toolCallId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+    message: string
+  ): string {
+    const session = getSession(instanceId)
+    if (!session) throw new Error(`AI session not found: ${instanceId}`)
+    const recordId = `confirm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    // 找到对应的 toolCallRecord,标 awaiting-confirm
+    const call = session.toolCalls.find(t => t.id === toolCallId)
+    if (call) {
+      call.status = 'awaiting-confirm'
+      call.result = message
+    } else {
+      // 没找到时(可能 caller 还没创建),创建一条独立记录
+      session.toolCalls.push({
+        id: recordId,
+        name: toolName,
+        args,
+        status: 'awaiting-confirm',
+        result: message,
+        startedAt: Date.now()
+      })
+    }
+    return recordId
+  }
+
+  function resolveConfirm(instanceId: string, recordId: string, approved: boolean) {
+    const session = getSession(instanceId)
+    if (!session) return
+    const rec = session.toolCalls.find(t => t.id === recordId)
+    if (rec) {
+      if (approved) {
+        rec.status = 'success'
+        rec.result = '✓ 已批准'
+      } else {
+        rec.status = 'rejected'
+        rec.result = '✗ 已拒绝'
+      }
+      rec.finishedAt = Date.now()
+    }
+  }
+
   return {
     settings,
     sessions,
@@ -234,7 +346,11 @@ export const useAiStore = defineStore('ai', () => {
     updateSettings,
     addToWhitelist,
     removeFromWhitelist,
-    runAgent
+    runAgent,
+    addConfirmRecord,
+    resolveConfirm,
+    setApiKey,
+    getApiKey
   }
 }, {
   persist: {
