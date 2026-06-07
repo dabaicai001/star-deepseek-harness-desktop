@@ -180,6 +180,14 @@ async function onAiRetry() {
   if (msgs.length) await runSshAgent()
 }
 
+function onAiNewChat() {
+  aiStore.resetSession(props.id)
+}
+
+function onAiStop() {
+  aiStore.stopAgent(props.id)
+}
+
 function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {
   if (!aiSession.value) return
   const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
@@ -659,6 +667,8 @@ function handleSearch() {
             @send="onAiSend"
             @retry="onAiRetry"
             @confirm-tool="onAiConfirmTool"
+            @new-chat="onAiNewChat"
+            @stop="onAiStop"
           />
         </template>
       </RightPanel>

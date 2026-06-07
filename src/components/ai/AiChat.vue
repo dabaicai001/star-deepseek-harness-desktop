@@ -21,7 +21,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   send: [text: string]
   retry: []
-  confirmTool: [recordId: string, decision: 'approve' | 'reject']
+  confirmTool: [recordId: string, decision: 'approve' | 'reject' | 'whitelist']
+  newChat: []
+  stop: []
 }>()
 
 const inputText = ref('')
@@ -58,15 +60,42 @@ function formatTime(ts: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-const pendingToolCall = computed<AiToolCallRecord | undefined>(() =>
-  props.session.toolCalls.find(t => t.status === 'awaiting-confirm')
-)
-
-function approve() {
-  if (pendingToolCall.value) emit('confirmTool', pendingToolCall.value.id, 'approve')
+// 获取某个消息之后、下一个消息之前的工具调用
+function getToolCallsAfterMessage(msgIdx: number): AiToolCallRecord[] {
+  const records: AiToolCallRecord[] = []
+  const messages = props.session.messages
+  const toolCalls = props.session.toolCalls
+  
+  // 找到当前消息的 tool_call_ids
+  const currentMsg = messages[msgIdx]
+  if (!currentMsg) return records
+  
+  // 如果是 assistant 消息且有 tool_calls，获取关联的记录
+  if (currentMsg.role === 'assistant' && currentMsg.tool_calls) {
+    for (const tc of currentMsg.tool_calls) {
+      const record = toolCalls.find(r => r.id === tc.id)
+      if (record) {
+        records.push(record)
+      }
+    }
+  }
+  
+  return records
 }
-function reject() {
-  if (pendingToolCall.value) emit('confirmTool', pendingToolCall.value.id, 'reject')
+
+// 获取等待确认的工具调用
+function getPendingToolCall(): AiToolCallRecord | undefined {
+  return props.session.toolCalls.find(t => t.status === 'awaiting-confirm')
+}
+
+function approve(recordId: string) {
+  emit('confirmTool', recordId, 'approve')
+}
+function reject(recordId: string) {
+  emit('confirmTool', recordId, 'reject')
+}
+function addToWhitelist(recordId: string) {
+  emit('confirmTool', recordId, 'whitelist')
 }
 
 function toolCallSummary(rec: AiToolCallRecord): string {
@@ -100,6 +129,14 @@ function shortResult(s: string, max = 240): string {
 
 <template>
   <div class="ai-chat">
+    <!-- 顶部工具栏 -->
+    <div class="chat-toolbar">
+      <button class="toolbar-btn" title="新建会话" @click="emit('newChat')">
+        <v-icon size="14">mdi-plus</v-icon>
+        <span>新会话</span>
+      </button>
+    </div>
+
     <!-- 消息流 -->
     <div ref="messagesRef" class="chat-messages">
       <!-- 空状态 -->
@@ -109,54 +146,71 @@ function shortResult(s: string, max = 240): string {
         <div class="empty-desc">问我关于这台 {{ session.assetType.toUpperCase() }} 的任何事,例如"查一下磁盘使用情况"</div>
       </div>
 
-      <!-- 消息 -->
-      <div v-for="(msg, idx) in session.messages" :key="idx" class="msg" :class="msg.role">
-        <div class="msg-avatar">
-          <v-icon size="14" v-if="msg.role === 'user'">mdi-account</v-icon>
-          <v-icon size="14" v-else-if="msg.role === 'tool'">mdi-tools</v-icon>
-          <v-icon size="14" v-else>mdi-robot</v-icon>
-        </div>
-        <div class="msg-body">
-          <div class="msg-meta">
-            <span class="msg-role">
-              {{ msg.role === 'user' ? '你' : msg.role === 'tool' ? '工具' : 'AI' }}
-            </span>
+      <!-- 消息循环 -->
+      <template v-for="(msg, idx) in session.messages" :key="idx">
+        <!-- 普通消息 (user / assistant / tool) -->
+        <div class="msg" :class="msg.role">
+          <div class="msg-avatar">
+            <v-icon size="14" v-if="msg.role === 'user'">mdi-account</v-icon>
+            <v-icon size="14" v-else-if="msg.role === 'tool'">mdi-tools</v-icon>
+            <v-icon size="14" v-else>mdi-robot</v-icon>
           </div>
-          <div v-if="msg.role === 'tool'" class="msg-content tool-content">
-            <pre>{{ shortResult(msg.content ?? '') }}</pre>
+          <div class="msg-body">
+            <div class="msg-meta">
+              <span class="msg-role">
+                {{ msg.role === 'user' ? '你' : msg.role === 'tool' ? '工具' : 'AI' }}
+              </span>
+            </div>
+            <div v-if="msg.role === 'tool'" class="msg-content tool-content">
+              <pre>{{ shortResult(msg.content ?? '') }}</pre>
+            </div>
+            <div v-else class="msg-content">{{ msg.content }}</div>
           </div>
-          <div v-else class="msg-content">{{ msg.content }}</div>
         </div>
-      </div>
 
-      <!-- Tool call 记录(横排小卡片) -->
-      <div v-for="rec in session.toolCalls" :key="rec.id" class="tool-call" :class="`status-${rec.status}`">
-        <div class="tool-head">
-          <v-icon size="13" :class="rec.status">
-            <template v-if="rec.status === 'running'">mdi-loading mdi-spin</template>
-            <template v-else-if="rec.status === 'success'">mdi-check-circle</template>
-            <template v-else-if="rec.status === 'error'">mdi-alert-circle</template>
-            <template v-else-if="rec.status === 'awaiting-confirm'">mdi-shield-alert-outline</template>
-            <template v-else-if="rec.status === 'rejected'">mdi-cancel</template>
-            <template v-else>mdi-tools</template>
-          </v-icon>
-          <span class="tool-name">{{ rec.name }}</span>
-          <span class="tool-summary">{{ toolCallSummary(rec) }}</span>
-        </div>
-        <pre v-if="rec.result" class="tool-result">{{ shortResult(rec.result, 600) }}</pre>
-        <pre v-if="rec.errorMessage" class="tool-error">{{ rec.errorMessage }}</pre>
-        <div v-if="rec.status === 'awaiting-confirm'" class="tool-confirm">
-          <span class="confirm-hint">执行这条操作?</span>
-          <button class="cyber-btn-secondary confirm-btn reject" @click="reject">
-            <v-icon size="12">mdi-close</v-icon>
-            拒绝
-          </button>
-          <button class="cyber-btn confirm-btn" @click="approve">
-            <v-icon size="12">mdi-check</v-icon>
-            批准
-          </button>
-        </div>
-      </div>
+        <!-- assistant 消息后紧跟的工具调用卡片 -->
+        <template v-if="msg.role === 'assistant'">
+          <div
+            v-for="rec in getToolCallsAfterMessage(idx)"
+            :key="rec.id"
+            class="tool-call"
+            :class="`status-${rec.status}`"
+          >
+            <div class="tool-head">
+              <v-icon size="13" :class="rec.status">
+                <template v-if="rec.status === 'running'">mdi-loading mdi-spin</template>
+                <template v-else-if="rec.status === 'success'">mdi-check-circle</template>
+                <template v-else-if="rec.status === 'error'">mdi-alert-circle</template>
+                <template v-else-if="rec.status === 'awaiting-confirm'">mdi-shield-alert-outline</template>
+                <template v-else-if="rec.status === 'rejected'">mdi-cancel</template>
+                <template v-else>mdi-tools</template>
+              </v-icon>
+              <span class="tool-name">{{ rec.name }}</span>
+              <span class="tool-summary">{{ toolCallSummary(rec) }}</span>
+            </div>
+            <pre v-if="rec.result" class="tool-result">{{ shortResult(rec.result, 600) }}</pre>
+            <pre v-if="rec.errorMessage" class="tool-error">{{ rec.errorMessage }}</pre>
+            <div v-if="rec.status === 'awaiting-confirm'" class="tool-confirm">
+              <span class="confirm-hint">执行这条操作?</span>
+              <button class="cyber-btn-secondary confirm-btn reject" @click="reject(rec.id)">
+                <v-icon size="12">mdi-close</v-icon>
+                拒绝
+              </button>
+              <button class="cyber-btn confirm-btn" @click="approve(rec.id)">
+                <v-icon size="12">mdi-check</v-icon>
+                批准
+              </button>
+              <button class="cyber-btn-secondary confirm-btn whitelist" @click="addToWhitelist(rec.id)">
+                <v-icon size="12">mdi-shield-check-outline</v-icon>
+                加入白名单
+              </button>
+            </div>
+            <div v-if="rec.status === 'awaiting-confirm'" class="whitelist-hint">
+              💡 加入白名单后，该命令将不再询问
+            </div>
+          </div>
+        </template>
+      </template>
 
       <!-- 加载指示 -->
       <div v-if="sending" class="msg assistant">
@@ -189,9 +243,13 @@ function shortResult(s: string, max = 240): string {
         :disabled="sending"
         @keydown="onKeydown"
       />
-      <button class="cyber-btn send-btn" :disabled="!inputText.trim() || sending" @click="onSend">
-        <v-icon size="14">{{ sending ? 'mdi-loading mdi-spin' : 'mdi-send' }}</v-icon>
-        {{ sending ? '发送中' : '发送' }}
+      <button v-if="sending" class="cyber-btn-secondary stop-btn" @click="emit('stop')">
+        <v-icon size="14">mdi-stop</v-icon>
+        停止
+      </button>
+      <button v-else class="cyber-btn send-btn" :disabled="!inputText.trim()" @click="onSend">
+        <v-icon size="14">mdi-send</v-icon>
+        发送
       </button>
     </div>
   </div>
@@ -341,6 +399,7 @@ function shortResult(s: string, max = 240): string {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  margin-left: 32px;
 }
 
 .tool-call.status-awaiting-confirm {
@@ -410,12 +469,14 @@ function shortResult(s: string, max = 240): string {
   align-items: center;
   gap: 6px;
   margin-top: 4px;
+  flex-wrap: wrap;
 }
 
 .confirm-hint {
   font-size: 11px;
   color: var(--yellow);
   flex: 1;
+  min-width: 100%;
 }
 
 .confirm-btn {
@@ -426,6 +487,26 @@ function shortResult(s: string, max = 240): string {
 .confirm-btn.reject {
   color: var(--red) !important;
   border-color: rgba(255, 77, 109, 0.3) !important;
+}
+
+.confirm-btn.reject:hover {
+  background: rgba(255, 77, 109, 0.1) !important;
+}
+
+.confirm-btn.whitelist {
+  color: var(--green) !important;
+  border-color: rgba(74, 222, 128, 0.3) !important;
+}
+
+.confirm-btn.whitelist:hover {
+  background: rgba(74, 222, 128, 0.1) !important;
+}
+
+.whitelist-hint {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+  padding-left: 2px;
 }
 
 .error-bar {
@@ -493,5 +574,46 @@ function shortResult(s: string, max = 240): string {
   padding: 6px 12px !important;
   font-size: 12px !important;
   white-space: nowrap;
+}
+
+.stop-btn {
+  padding: 6px 12px !important;
+  font-size: 12px !important;
+  white-space: nowrap;
+  color: var(--red) !important;
+  border-color: rgba(255, 77, 109, 0.3) !important;
+}
+
+.stop-btn:hover {
+  background: rgba(255, 77, 109, 0.1) !important;
+}
+
+.chat-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--panel-solid);
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  color: var(--text-2);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+
+.toolbar-btn:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.06);
 }
 </style>

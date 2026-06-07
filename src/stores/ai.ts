@@ -62,6 +62,10 @@ export const useAiStore = defineStore('ai', () => {
   // 内部用 _unlockedApiKey 缓存明文,首次访问时解密;改 apiKey 时重新加密。
   const _unlockedApiKey = ref<string>('')
 
+  // ====== Agent 中断控制 ======
+  // key = instanceId, value = AbortController
+  const _abortControllers = new Map<string, AbortController>()
+
   async function _ensureUnlocked() {
     if (_unlockedApiKey.value) return
     if (!settings.value.apiKey) return
@@ -138,7 +142,38 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   function clearSession(instanceId: string) {
+    // 如果有正在运行的 agent,先中断
+    const ac = _abortControllers.get(instanceId)
+    if (ac) {
+      ac.abort()
+      _abortControllers.delete(instanceId)
+    }
     sessions.value.delete(instanceId)
+  }
+
+  /**
+   * 中断某个 session 正在运行的 agent
+   */
+  function stopAgent(instanceId: string) {
+    const ac = _abortControllers.get(instanceId)
+    if (ac) {
+      ac.abort()
+    }
+  }
+
+  /**
+   * 清空某个 session 的消息(新建会话)
+   */
+  function resetSession(instanceId: string) {
+    // 先中断正在运行的 agent
+    stopAgent(instanceId)
+    const session = sessions.value.get(instanceId)
+    if (session) {
+      session.messages = []
+      session.toolCalls = []
+      session.error = null
+      session.loading = false
+    }
   }
 
   function clearAllSessions() {
@@ -189,11 +224,21 @@ export const useAiStore = defineStore('ai', () => {
     const session = getSession(instanceId)
     if (!session) throw new Error(`AI session not found: ${instanceId}`)
 
+    // 创建中断控制器
+    const ac = new AbortController()
+    _abortControllers.set(instanceId, ac)
+
     session.loading = true
     session.error = null
 
     try {
       for (let step = 0; step < maxSteps; step++) {
+        // 检查是否被中断
+        if (ac.signal.aborted) {
+          session.error = '已停止'
+          return
+        }
+
         const apiKey = await getApiKey()
         const request: NewChatRequest = {
           baseUrl: settings.value.baseUrl,
@@ -203,7 +248,8 @@ export const useAiStore = defineStore('ai', () => {
           temperature: settings.value.temperature,
           maxTokens: settings.value.maxTokens,
           system: systemPrompt,
-          tools
+          tools,
+          signal: ac.signal
         }
 
         // 创建一个空的 assistant 消息占位,流式 push content
@@ -213,16 +259,29 @@ export const useAiStore = defineStore('ai', () => {
 
         // 流式消费
         let finalMessage: ChatMessage | null = null
-        for await (const chunk of chatStream(request)) {
-          if (chunk.kind === 'content') {
-            assistantMsg.content = (assistantMsg.content || '') + chunk.delta
-            // 触发 reactivity
-            session.messages[assistantIdx] = { ...assistantMsg }
-          } else if (chunk.kind === 'error') {
-            throw new Error(chunk.message)
-          } else if (chunk.kind === 'done') {
-            finalMessage = chunk.message
+        try {
+          for await (const chunk of chatStream(request)) {
+            if (chunk.kind === 'content') {
+              assistantMsg.content = (assistantMsg.content || '') + chunk.delta
+              // 触发 reactivity
+              session.messages[assistantIdx] = { ...assistantMsg }
+            } else if (chunk.kind === 'error') {
+              throw new Error(chunk.message)
+            } else if (chunk.kind === 'done') {
+              finalMessage = chunk.message
+            }
           }
+        } catch (e) {
+          // AbortError: 用户主动停止,不算异常
+          if (e instanceof DOMException && e.name === 'AbortError') {
+            // 如果 assistant 消息有部分内容就保留,否则移除空占位
+            if (!assistantMsg.content) {
+              session.messages.splice(assistantIdx, 1)
+            }
+            session.error = '已停止'
+            return
+          }
+          throw e
         }
 
         // 用流的最终消息(覆盖占位,确保 tool_calls 完整)
@@ -238,6 +297,12 @@ export const useAiStore = defineStore('ai', () => {
 
         // 处理 tool calls
         for (const call of assistantMsg.tool_calls) {
+          // 检查是否被中断
+          if (ac.signal.aborted) {
+            session.error = '已停止'
+            return
+          }
+
           const record: AiToolCallRecord = {
             id: call.id,
             name: call.function.name,
@@ -273,8 +338,13 @@ export const useAiStore = defineStore('ai', () => {
       }
       session.error = `AI agent exceeded max steps (${maxSteps})`
     } catch (e) {
-      session.error = e instanceof Error ? e.message : String(e)
+      if (ac.signal.aborted) {
+        session.error = '已停止'
+      } else {
+        session.error = e instanceof Error ? e.message : String(e)
+      }
     } finally {
+      _abortControllers.delete(instanceId)
       session.loading = false
     }
   }
@@ -347,6 +417,8 @@ export const useAiStore = defineStore('ai', () => {
     addToWhitelist,
     removeFromWhitelist,
     runAgent,
+    stopAgent,
+    resetSession,
     addConfirmRecord,
     resolveConfirm,
     setApiKey,

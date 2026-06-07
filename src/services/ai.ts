@@ -98,6 +98,8 @@ export interface NewChatRequest {
   maxTokens?: number
   system?: string
   tools?: LlmTool[]
+  /** 外部传入的中断信号 */
+  signal?: AbortSignal
 }
 
 export interface NewChatResponse {
@@ -247,9 +249,12 @@ export async function* chatStream(req: NewChatRequest): AsyncGenerator<StreamChu
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${req.apiKey}`
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: req.signal
     })
   } catch (e) {
+    // AbortError 不算网络错误,直接 rethrow 让调用方处理
+    if (e instanceof DOMException && e.name === 'AbortError') throw e
     yield { kind: 'error', message: `Network error: ${e instanceof Error ? e.message : String(e)}` }
     return
   }

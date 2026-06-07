@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
+import { useAppStore } from '@/stores/app'
 import { useDbStore } from '@/stores/db'
 import { useAiStore } from '@/stores/ai'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
+import DbDashboard from '@/components/dashboard/DbDashboard.vue'
 import { parseInstanceId } from '@/utils/tabId'
 import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
@@ -17,7 +19,9 @@ import type { TableInfo, ColumnMeta, QueryResult } from '@/types/db'
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const assetStore = useAssetStore()
+const appStore = useAppStore()
 const dbStore = useDbStore()
 const aiStore = useAiStore()
 
@@ -162,19 +166,24 @@ function insertTableName(name: string) {
 onMounted(() => {
   if (asset.value && asset.value.type === 'db') {
     connect()
+  } else if (!asset.value) {
+    // 资产不存在(被删除)→ 自动回主页,避免卡在空 tab
+    router.push({ name: 'home' })
   }
 })
 
 watch(() => assetId.value, () => {
   if (asset.value && asset.value.type === 'db' && !connected.value) {
     connect()
+  } else if (!asset.value) {
+    router.push({ name: 'home' })
   }
 })
 
-// ====== AI 助手(每个 tab 独立) ======
-const showRightPanel = ref(true)
-const rightActiveTab = ref('ai')
+// ====== 右侧 Panel(仪表盘 / AI 切换) ======
+const rightActiveTab = ref('dashboard')
 const rightPanelTabs = computed(() => [
+  { key: 'dashboard', label: '仪表盘', icon: 'mdi-view-dashboard-outline' },
   { key: 'ai', label: 'AI 助手', icon: 'mdi-robot-outline' }
 ])
 
@@ -253,16 +262,37 @@ async function onAiRetry() {
   if (msgs.length) await onAiSend('')  // 跑 agent 不再加 user
 }
 
-function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject') {
+function onAiNewChat() {
+  aiStore.resetSession(instanceId.value)
+}
+
+function onAiStop() {
+  aiStore.stopAgent(instanceId.value)
+}
+
+function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {
   if (!aiSession.value) return
   const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
   if (rec) {
-    rec.status = decision === 'approve' ? 'success' : 'rejected'
-    rec.result = decision === 'approve' ? '✓ 已批准,正在执行…' : '✗ 已拒绝'
+    if (decision === 'whitelist') {
+      const sql = String(rec.args.sql ?? '')
+      const prefix = sql.trim().split(/\s+/)[0]?.toUpperCase() || ''
+      if (prefix) {
+        aiStore.addToWhitelist(prefix)
+      }
+      rec.status = 'success'
+      rec.result = `✓ 已加入白名单 (${prefix}),正在执行…`
+    } else if (decision === 'approve') {
+      rec.status = 'success'
+      rec.result = '✓ 已批准,正在执行…'
+    } else {
+      rec.status = 'rejected'
+      rec.result = '✗ 已拒绝'
+    }
   }
   const resolve = dbPendingConfirms.value.get(recordId)
   if (resolve) {
-    resolve(decision === 'approve')
+    resolve(decision === 'approve' || decision === 'whitelist')
     dbPendingConfirms.value.delete(recordId)
   }
 }
@@ -415,11 +445,17 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject') {
     </div>
 
     <RightPanel
-      v-model="showRightPanel"
+      v-model="appStore.rightPanelOpen"
       v-model:active-tab="rightActiveTab"
       :tabs="rightPanelTabs"
-      :width="380"
     >
+      <template #tab-dashboard>
+        <DbDashboard
+          :conn-id="connId || ''"
+          :db-type="asset?.config.dbType || 'mysql'"
+          :connected="connected"
+        />
+      </template>
       <template #tab-ai>
         <AiChat
           v-if="aiSession"
@@ -429,6 +465,8 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject') {
           @send="onAiSend"
           @retry="onAiRetry"
           @confirm-tool="onAiConfirmTool"
+          @new-chat="onAiNewChat"
+          @stop="onAiStop"
         />
       </template>
     </RightPanel>
