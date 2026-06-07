@@ -19,6 +19,7 @@
     "core:window:allow-start-dragging",
     "core:webview:default",
     "core:path:default",
-    "core:app:default"
+    "core:app:default",
+    "dialog:default"
   ]
 }

@@ -192,12 +192,35 @@ async function load(path?: string) {
     currentPath.value = target
     pathInput.value = target
   } catch (e: any) {
-    errorMsg.value = String(e?.message ?? e)
+    const msg = String(e?.message ?? e)
+    errorMsg.value = msg
     entries.value = []
+    // 修复 race condition:SSH connect 是 async,如果 SftpBrowser 在 SshTerminal
+    // connect() 完成前就发了请求,后端 sessions 还没注册这条 id,会报 Session not found。
+    // 遇到这个错误时,等 600ms 再重试 1 次(给后端时间完成注册)
+    if (msg.includes('Session not found') && !retrying.value) {
+      retrying.value = true
+      setTimeout(async () => {
+        retrying.value = false
+        try {
+          entries.value = await sftpList(props.sessionId, target)
+          currentPath.value = target
+          pathInput.value = target
+          errorMsg.value = null
+        } catch (e2: any) {
+          errorMsg.value = String(e2?.message ?? e2)
+        } finally {
+          loading.value = false
+        }
+      }, 600)
+      return
+    }
   } finally {
     loading.value = false
   }
 }
+
+const retrying = ref(false)
 
 function refresh() {
   load()

@@ -7,7 +7,8 @@ export default defineConfig({
   root: 'src',
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(__dirname, 'src'),
+      '~package.json': resolve(__dirname, 'package.json')
     }
   },
   server: {

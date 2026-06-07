@@ -1,0 +1,409 @@
+<script setup lang="ts">
+/**
+ * 全局命令面板(Ctrl/Cmd + P)
+ *  - 列资产、当前 tabs、动作
+ *  - 模糊匹配,键盘上下选,Enter 执行
+ *  - 浮在窗口中央,带 backdrop
+ */
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAssetStore } from '@/stores/asset'
+import { useAppStore } from '@/stores/app'
+import { useThemeStore } from '@/stores/theme'
+import { useI18n } from 'vue-i18n'
+import { generateInstanceId } from '@/utils/tabId'
+import type { Asset } from '@/types/asset'
+
+const { t, locale } = useI18n()
+const router = useRouter()
+const assetStore = useAssetStore()
+const appStore = useAppStore()
+const themeStore = useThemeStore()
+
+const open = ref(false)
+const query = ref('')
+const selectedIdx = ref(0)
+const inputRef = ref<HTMLInputElement | null>(null)
+
+interface Command {
+  id: string
+  label: string
+  group: 'asset' | 'tab' | 'action'
+  icon: string
+  /** 搜索关键词(中文/英文/同义词) */
+  keywords?: string[]
+  run: () => void
+}
+
+const commands = computed<Command[]>(() => {
+  const cmds: Command[] = []
+
+  // 资产
+  for (const a of assetStore.assets) {
+    const typeLabel = a.type === 'ssh' ? 'SSH'
+      : a.type === 'db' ? (a.config.dbType || 'DB').toUpperCase()
+      : 'Docker'
+    cmds.push({
+      id: `asset-${a.id}`,
+      group: 'asset',
+      icon: a.type === 'ssh' ? 'mdi-console' : a.type === 'db' ? 'mdi-database' : 'mdi-docker',
+      label: a.name,
+      keywords: [typeLabel, a.config.host || '', a.config.username || '', ...(a.tags || [])],
+      run: () => {
+        let routeName: string
+        if (a.type === 'ssh') routeName = 'ssh-terminal'
+        else if (a.type === 'docker') routeName = 'docker'
+        else routeName = a.config.dbType === 'redis' ? 'db-redis' : 'db-mysql'
+        const instanceId = generateInstanceId(a.id)
+        appStore.addTab({ id: instanceId, assetId: a.id, title: a.name, type: a.type })
+        router.push({ name: routeName, params: { id: instanceId } })
+        assetStore.updateAsset(a.id, { lastUsedAt: Date.now() })
+      }
+    })
+  }
+
+  // 当前 tabs(切换)
+  for (const t of appStore.tabs) {
+    cmds.push({
+      id: `tab-${t.id}`,
+      group: 'tab',
+      icon: t.id.startsWith('sftp-') ? 'mdi-folder-network' : t.type === 'db' ? 'mdi-database' : t.type === 'docker' ? 'mdi-docker' : t.type === 'settings' ? 'mdi-cog' : 'mdi-console',
+      label: `${t.title} · tab`,
+      keywords: ['tab', 'switch', '切换'],
+      run: () => {
+        appStore.setActiveTab(t.id)
+        if (t.type === 'settings') router.push('/settings')
+        else if (t.type === 'ssh') {
+          if (t.id.startsWith('sftp-')) router.push({ name: 'sftp', params: { id: t.id } })
+          else router.push({ name: 'ssh-terminal', params: { id: t.id } })
+        } else if (t.type === 'db') {
+          const a = assetStore.assets.find(x => x.id === t.assetId)
+          const dbType = a?.config.dbType || 'mysql'
+          router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: t.id } })
+        } else if (t.type === 'docker') {
+          router.push({ name: 'docker', params: { id: t.id } })
+        }
+      }
+    })
+  }
+
+  // 动作
+  cmds.push(
+    {
+      id: 'action-new',
+      group: 'action',
+      icon: 'mdi-plus-circle-outline',
+      label: '新建连接',
+      keywords: ['new', 'create', 'add'],
+      run: () => {
+        // 通过 window 自定义事件通知 CyberLayout 打开 dialog
+        if (router.currentRoute.value.name !== 'home') router.push({ name: 'home' })
+        setTimeout(() => window.dispatchEvent(new CustomEvent('starhub:new-connection')), 50)
+      }
+    },
+    {
+      id: 'action-settings',
+      group: 'action',
+      icon: 'mdi-cog-outline',
+      label: '打开设置',
+      keywords: ['settings', 'preferences', '配置'],
+      run: () => {
+        appStore.openSettingsTab()
+        router.push('/settings')
+      }
+    },
+    {
+      id: 'action-theme-toggle',
+      group: 'action',
+      icon: themeStore.theme === 'darkTheme' ? 'mdi-weather-sunny' : 'mdi-weather-night',
+      label: `切换主题 (${themeStore.theme === 'darkTheme' ? 'Dark → Light' : 'Light → Dark'})`,
+      keywords: ['theme', 'dark', 'light', '主题'],
+      run: () => themeStore.setTheme(themeStore.theme === 'darkTheme' ? 'lightTheme' : 'darkTheme')
+    },
+    {
+      id: 'action-lang-toggle',
+      group: 'action',
+      icon: 'mdi-translate',
+      label: `切换语言 (${locale.value === 'zh-CN' ? '中文 → EN' : 'EN → 中文'})`,
+      keywords: ['language', 'lang', '语言'],
+      run: () => locale.value = locale.value === 'zh-CN' ? 'en-US' : 'zh-CN'
+    },
+    {
+      id: 'action-close-all-tabs',
+      group: 'action',
+      icon: 'mdi-close-circle-multiple-outline',
+      label: '关闭所有 tab',
+      keywords: ['close', 'all', 'tabs'],
+      run: () => {
+        for (const t of [...appStore.tabs]) appStore.removeTab(t.id)
+        router.push({ name: 'home' })
+      }
+    }
+  )
+
+  return cmds
+})
+
+const filtered = computed<Command[]>(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q) return commands.value.slice(0, 12)
+  return commands.value.filter(c => {
+    const haystack = [
+      c.label.toLowerCase(),
+      c.group,
+      ...(c.keywords || []).map(k => k.toLowerCase())
+    ].join(' ')
+    return haystack.includes(q)
+  }).slice(0, 20)
+})
+
+function show() {
+  open.value = true
+  query.value = ''
+  selectedIdx.value = 0
+  nextTick(() => inputRef.value?.focus())
+}
+
+function hide() {
+  open.value = false
+}
+
+function runCommand(cmd: Command) {
+  cmd.run()
+  hide()
+}
+
+function onKeydown(e: KeyboardEvent) {
+  // Ctrl/Cmd + P 触发
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+    e.preventDefault()
+    if (open.value) hide()
+    else show()
+    return
+  }
+  // 面板打开时
+  if (open.value) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      hide()
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      selectedIdx.value = Math.min(filtered.value.length - 1, selectedIdx.value + 1)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      selectedIdx.value = Math.max(0, selectedIdx.value - 1)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const cmd = filtered.value[selectedIdx.value]
+      if (cmd) runCommand(cmd)
+    }
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+
+const groupLabel: Record<Command['group'], string> = {
+  asset: '资产',
+  tab: 'Tab',
+  action: '动作'
+}
+</script>
+
+<template>
+  <Teleport to="body">
+    <div v-if="open" class="cmd-palette-backdrop" @click="hide">
+      <div class="cmd-palette" @click.stop>
+        <div class="cmd-input-wrap">
+          <v-icon size="16" color="cyan">mdi-magnify</v-icon>
+          <input
+            ref="inputRef"
+            v-model="query"
+            type="text"
+            class="cmd-input"
+            placeholder="搜索资产、tab 或动作…"
+            @input="selectedIdx = 0"
+          />
+          <kbd>Esc</kbd>
+        </div>
+
+        <div v-if="filtered.length === 0" class="cmd-empty">
+          <v-icon size="20" color="muted">mdi-magnify-close</v-icon>
+          <span>没有匹配项</span>
+        </div>
+
+        <div v-else class="cmd-list">
+          <template v-for="(cmd, idx) in filtered" :key="cmd.id">
+            <div v-if="idx === 0 || filtered[idx - 1].group !== cmd.group" class="cmd-group-label">
+              {{ groupLabel[cmd.group] }}
+            </div>
+            <div
+              class="cmd-item"
+              :class="{ selected: idx === selectedIdx }"
+              @click="runCommand(cmd)"
+              @mouseenter="selectedIdx = idx"
+            >
+              <v-icon size="14" :class="cmd.group">{{ cmd.icon }}</v-icon>
+              <span class="cmd-label">{{ cmd.label }}</span>
+              <kbd v-if="idx === selectedIdx" class="cmd-kbd">↵</kbd>
+            </div>
+          </template>
+        </div>
+
+        <div class="cmd-footer">
+          <span><kbd>↑</kbd><kbd>↓</kbd> 切换</span>
+          <span><kbd>↵</kbd> 执行</span>
+          <span><kbd>Esc</kbd> 关闭</span>
+          <span class="cmd-shortcut">⌘P</span>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+</template>
+
+<style scoped>
+.cmd-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 8, 16, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  animation: cmdFadeIn 0.12s ease;
+}
+@keyframes cmdFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.cmd-palette {
+  width: 600px;
+  max-width: 90vw;
+  max-height: 70vh;
+  background: var(--panel-solid);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: 12px;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(0, 240, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: cmdSlideDown 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes cmdSlideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cmd-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line-2);
+}
+.cmd-input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+}
+.cmd-input::placeholder { color: var(--muted); }
+.cmd-input-wrap kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 2px 6px;
+  background: rgba(0, 240, 255, 0.06);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  color: var(--muted);
+}
+
+.cmd-list {
+  overflow-y: auto;
+  max-height: 50vh;
+  padding: 6px;
+}
+
+.cmd-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'Orbitron', sans-serif;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+  padding: 8px 10px 4px;
+  text-transform: uppercase;
+}
+
+.cmd-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 13px;
+  transition: all 0.1s;
+}
+.cmd-item.selected {
+  background: rgba(0, 240, 255, 0.1);
+  color: var(--cyan);
+}
+.cmd-item .v-icon.asset { color: var(--cyan); }
+.cmd-item .v-icon.tab { color: var(--purple); }
+.cmd-item .v-icon.action { color: var(--muted); }
+.cmd-item.selected .v-icon { color: var(--cyan); }
+.cmd-label { flex: 1; }
+.cmd-kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--cyan);
+  color: var(--bg);
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.cmd-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.cmd-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line-2);
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+.cmd-footer kbd {
+  font-size: 10px;
+  padding: 1px 4px;
+  background: rgba(0, 240, 255, 0.06);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  color: var(--text-2);
+  margin: 0 2px;
+}
+.cmd-shortcut {
+  margin-left: auto;
+  color: var(--cyan);
+  font-weight: 700;
+}
+</style>

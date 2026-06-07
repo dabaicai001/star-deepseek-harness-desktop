@@ -123,7 +123,9 @@ function onSubmit() {
       username: username.value,
       password: password.value,
       database: database.value || undefined,
-      ssl: ssl.value
+      ssl: ssl.value,
+      // Redis 才有意义;MySQL 时也保留字段(为 0),后端可忽略
+      redisDb: dbType.value === 'redis' ? redisDb.value : undefined
     }
   }
   emit('submit', dto)

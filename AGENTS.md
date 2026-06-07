@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.2(仅文档,代码脚手架未开始) |
+| 当前版本 | v0.3.0(SFTP + SSH 终端优化) |
 
 ---
 
@@ -381,6 +381,30 @@ cargo tauri build
 - 字符编码: 全仓库 UTF-8(无 BOM)
 - 行尾: 跟随 git 默认(Windows CRLF / Unix LF,git 会自动转换)
 
+### 6.5 版本发布(强制)
+
+每次大需求完成之后,必须执行以下操作:
+
+1. **更新 `CHANGELOG.md`**:
+   - 将 `[未发布]` 中已完成的内容移到新版本号下
+   - 新版本号格式:`[x.y.z] - YYYY-MM-DD`
+   - 保留 `[未发布]` 部分用于计划中功能
+
+2. **更新 `package.json` version**:
+   - 同步更新 `package.json` 中的 `version` 字段
+   - 版本号必须与 `CHANGELOG.md` 最新版本一致
+
+3. **版本号规则**:
+   - **主版本(x)**: 架构重大变更、不兼容 API
+   - **次版本(y)**: 新功能、大需求完成
+   - **修订版(z)**: Bug 修复、小改进
+
+4. **发布检查清单**:
+   - [ ] CHANGELOG.md 已更新
+   - [ ] package.json version 已同步
+   - [ ] AGENTS.md 当前版本已更新
+   - [ ] 文档与代码一致
+
 ---
 
 ## 7. 测试 / 构建
@@ -467,6 +491,32 @@ cargo tauri build
 - 性能敏感场景升级到 `gRPC over Unix Socket`
 - 协议版本号:Sidecar 启动时打印,便于排查
 
+#### 10.4.1 Sidecar 路径解析
+
+`SidecarManager::start()` 通过 `std::env::current_exe()` 获取主程序 exe 路径,然后按优先级检查以下候选路径:
+
+| 优先级 | 路径 | 场景 |
+|---|---|---|
+| 1 | `<exe_dir>/starhub-sidecar.exe` | 生产环境:sidecar 与主程序同目录 |
+| 2 | `<exe_dir>/sidecar/starhub-sidecar.exe` | 生产环境:sidecar 子目录 |
+| 3 | `<exe_dir>/../sidecar/bin/starhub-sidecar.exe` | 开发环境:exe 在 `src-tauri/target/<profile>/` |
+| 4 | `<exe_dir>/../../sidecar/bin/starhub-sidecar.exe` | 开发环境备用 |
+| 5 | `<exe_dir>/../../../sidecar/bin/starhub-sidecar.exe` | 开发环境:exe 在 `src-tauri/target/debug/` |
+
+**开发时**:`cargo tauri dev` 编译出的 exe 位于 `src-tauri/target/debug/starhub.exe`,向上 3 层到项目根目录 → `sidecar/bin/starhub-sidecar.exe`。
+
+**打包时**:需确保 sidecar 二进制与主程序 exe 放在同一目录(或 `sidecar/` 子目录)。推荐配置 `tauri.conf.json`:
+
+```json
+{
+  "bundle": {
+    "externalBin": ["../sidecar/bin/starhub-sidecar"]
+  }
+}
+```
+
+> ⚠️ Go sidecar 编译时必须指定正确的 `GOOS` 和 `GOARCH`(如 `GOOS=windows GOARCH=amd64`),否则二进制无法在目标平台运行。
+
 ### 10.5 Tauri 2 跨平台打包
 
 - macOS arm64 + x86_64 需双架构打包(用 `cargo tauri build --target universal-apple-darwin`)
@@ -516,4 +566,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-06-04 (v0.2 立项)*
+*最后更新: 2026-06-06 (v0.3.0)*

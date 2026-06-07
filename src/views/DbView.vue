@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useDbStore } from '@/stores/db'
+import { useAiStore } from '@/stores/ai'
+import RightPanel from '@/components/layout/RightPanel.vue'
+import AiChat from '@/components/ai/AiChat.vue'
+import { parseInstanceId } from '@/utils/tabId'
+import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller } from '@/utils/aiTools'
+import type { LlmToolCall } from '@/services/ai'
 import SqlEditor from '@/components/db/SqlEditor.vue'
 import DataGrid from '@/components/db/DataGrid.vue'
 import * as dbService from '@/services/db'
@@ -13,8 +19,11 @@ const { t } = useI18n()
 const route = useRoute()
 const assetStore = useAssetStore()
 const dbStore = useDbStore()
+const aiStore = useAiStore()
 
-const assetId = computed(() => route.params.id as string)
+// 路由 :id 是 tab instanceId,需要解析出 assetId 找资产配置
+const instanceId = computed(() => route.params.id as string)
+const assetId = computed(() => parseInstanceId(instanceId.value).assetId)
 const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value))
 
 // State
@@ -161,10 +170,80 @@ watch(() => assetId.value, () => {
     connect()
   }
 })
+
+// ====== AI 助手(每个 tab 独立) ======
+const showRightPanel = ref(true)
+const rightActiveTab = ref('ai')
+const rightPanelTabs = computed(() => [
+  { key: 'ai', label: 'AI 助手', icon: 'mdi-robot-outline' }
+])
+
+const aiSession = computed(() => {
+  if (!asset.value) return null
+  return aiStore.getOrCreateSession(instanceId.value, asset.value.id, 'db')
+})
+
+async function executeDbSql(sql: string): Promise<string> {
+  if (!connId.value) throw new Error('数据库未连接')
+  const dbType = asset.value?.config.dbType || 'mysql'
+  if (dbType === 'redis') {
+    const r = await dbService.redisExecute(connId.value, sql)
+    if (r.error) return `[Error] ${r.error}`
+    return r.result == null ? '(无输出)' : (typeof r.result === 'string' ? r.result : JSON.stringify(r.result, null, 2))
+  }
+  const r = await dbService.mysqlExecute(connId.value, sql)
+  if (r.error) return `[Error] ${r.error}`
+  if (r.rows.length === 0) {
+    return `(0 行${r.rowsAffected ? `, ${r.rowsAffected} 行受影响` : ''})`
+  }
+  // QueryResult.rows 是 unknown[][](行是值的数组),columns 是 ColumnInfo[]
+  const colNames = r.columns.map(c => c.name)
+  const sample = r.rows.slice(0, 20)
+  const formatted = sample.map(row =>
+    row.map((v, i) => `${colNames[i] || i}=${formatVal(v)}`).join(' | ')
+  ).join('\n')
+  return `列: ${colNames.join(', ')}\n${formatted}${r.rows.length > 20 ? `\n… (共 ${r.rows.length} 行)` : ''}`
+}
+
+function formatVal(v: unknown): string {
+  if (v === null || v === undefined) return 'NULL'
+  if (typeof v === 'object') return JSON.stringify(v)
+  const s = String(v)
+  return s.length > 100 ? s.slice(0, 100) + '…' : s
+}
+
+async function onAiSend(text: string) {
+  if (!aiSession.value) return
+  aiSession.value.messages.push({ role: 'user', content: text })
+  const caller = makeDbToolCaller(
+    executeDbSql,
+    () => aiStore.settings.commandWhitelist
+  )
+  const toolExec = async (call: LlmToolCall) =>
+    await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+  await aiStore.runAgent(instanceId.value, dbTools, toolExec, DB_SYSTEM_PROMPT)
+}
+
+async function onAiRetry() {
+  if (!aiSession.value) return
+  const msgs = aiSession.value.messages
+  while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
+  if (msgs.length) await onAiSend('')  // 跑 agent 不再加 user
+}
+
+function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject') {
+  if (!aiSession.value) return
+  const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
+  if (rec) {
+    rec.status = decision === 'approve' ? 'success' : 'rejected'
+    if (decision === 'reject') rec.result = '[Rejected by user]'
+  }
+}
 </script>
 
 <template>
-  <div class="db-view">
+  <div class="db-view-with-panel">
+    <div class="db-view">
     <!-- Sidebar -->
     <div class="db-sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="sidebar-header">
@@ -306,6 +385,26 @@ watch(() => assetId.value, () => {
         </div>
       </div>
     </div>
+    </div>
+
+    <RightPanel
+      v-model="showRightPanel"
+      v-model:active-tab="rightActiveTab"
+      :tabs="rightPanelTabs"
+      :width="380"
+    >
+      <template #tab-ai>
+        <AiChat
+          v-if="aiSession"
+          :session="aiSession"
+          :sending="aiSession.loading"
+          placeholder="问我关于这个数据库的任何事,例如'查一下 users 表结构'"
+          @send="onAiSend"
+          @retry="onAiRetry"
+          @confirm-tool="onAiConfirmTool"
+        />
+      </template>
+    </RightPanel>
   </div>
 </template>
 

@@ -41,6 +41,11 @@ const router = createRouter({
           component: () => import('@/views/DockerView.vue'),
           props: true,
         },
+        {
+          path: 'ai',
+          name: 'ai',
+          component: () => import('@/views/AiView.vue'),
+        },
       ],
     },
   ],

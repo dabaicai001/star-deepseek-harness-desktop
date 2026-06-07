@@ -7,6 +7,7 @@ import { useAppStore } from '@/stores/app'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { generateInstanceId } from '@/utils/tabId'
 import type { Asset, CreateAssetDto } from '@/types/asset'
 
 const { t } = useI18n()
@@ -34,12 +35,30 @@ function getIcon(type: string) {
   }
 }
 
-function getStatus(asset: Asset) {
-  return asset.lastUsedAt ? 'online' : 'offline'
+function getStatus(asset: Asset): 'never' | 'recent' | 'stale' {
+  // 区分三种状态,比单纯 online/offline 表达更多信息:
+  //  - never:  从未连接过(灰,无光晕)
+  //  - recent: 最近 30 分钟用过(绿,脉冲)
+  //  - stale:  之前用过但超 30 分钟(绿,无脉冲)
+  if (!asset.lastUsedAt) return 'never'
+  const minutesAgo = (Date.now() - asset.lastUsedAt) / 60000
+  return minutesAgo < 30 ? 'recent' : 'stale'
+}
+
+/** 紧凑时间标签:刚刚 / 5m / 2h / 昨天 / 3d / 12-25 */
+function shortTimeAgo(ts: number): string {
+  const diff = Date.now() - ts
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3600_000)}h`
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d`
+  const d = new Date(ts)
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function isActive(asset: Asset) {
-  return appStore.activeTab === asset.id
+  const activeTab = appStore.tabs.find(t => t.id === appStore.activeTab)
+  return activeTab?.assetId === asset.id
 }
 
 function connectToAsset(asset: Asset) {
@@ -47,31 +66,55 @@ function connectToAsset(asset: Asset) {
     // db / docker: 暂未实现,后续在 dialog 走类型路由
     return
   }
+  // 单击 = 总是新开 tab(不复用)
+  const instanceId = generateInstanceId(asset.id)
   appStore.addTab({
-    id: asset.id,
+    id: instanceId,
+    assetId: asset.id,
     title: asset.name,
     type: asset.type
   })
   assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-  router.push({ name: 'ssh-terminal', params: { id: asset.id } })
+  router.push({ name: 'ssh-terminal', params: { id: instanceId } })
+}
+
+// "在新标签页中打开"——每次创建新 tab，支持同一资产多实例
+// 支持 SSH / DB;Docker 当前是单视图(后端按 host 串流复用同一 session),先 disabled。
+function openInNewTab(asset: Asset) {
+  if (asset.type === 'docker') return
+  const instanceId = generateInstanceId(asset.id)
+  appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: asset.type })
+  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
+  if (asset.type === 'ssh') {
+    router.push({ name: 'ssh-terminal', params: { id: instanceId } })
+  } else if (asset.type === 'db') {
+    const dbType = asset.config.dbType || 'mysql'
+    router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: instanceId } })
+  }
 }
 
 function reconnectToAsset(asset: Asset) {
   if (asset.type !== 'ssh') return
-  // 关闭已有 tab,重新发起
-  appStore.removeTab(asset.id)
+  // 关闭该资产的所有 tab,重新发起
+  const tabsToRemove = appStore.tabs.filter(t => t.assetId === asset.id)
+  for (const tab of tabsToRemove) {
+    appStore.removeTab(tab.id)
+  }
   connectToAsset(asset)
 }
 
 function openSftpForAsset(asset: Asset) {
   if (asset.type !== 'ssh') return
+  // 总是新开 SFTP tab(看不同目录)
+  const instanceId = `sftp-${generateInstanceId(asset.id)}`
   appStore.addTab({
-    id: `sftp-${asset.id}`,
+    id: instanceId,
+    assetId: asset.id,
     title: `SFTP: ${asset.name}`,
     type: 'ssh'
   })
   assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-  router.push({ name: 'sftp', params: { id: asset.id } })
+  router.push({ name: 'sftp', params: { id: instanceId } })
 }
 
 // ====== 右键菜单 ======
@@ -87,6 +130,14 @@ const ctxItems = computed<MenuItem[]>(() => {
       label: t('asset.connect'),
       shortcut: 'Enter',
       onClick: () => connectToAsset(asset)
+    },
+    {
+      type: 'item',
+      icon: 'mdi-tab-plus',
+      label: t('asset.openInNewTab') || '在新标签页中打开',
+      // 仅 SSH / DB 支持开新标签页(Docker 当前只有一个视图)
+      disabled: asset.type === 'docker',
+      onClick: () => openInNewTab(asset)
     },
     {
       type: 'item',
@@ -175,8 +226,11 @@ function openDeleteConfirm(asset: Asset) {
 async function handleDelete() {
   if (!deleteTarget.value) return
   const target = deleteTarget.value
-  // 关闭该 tab
-  appStore.removeTab(target.id)
+  // 关闭该资产的所有 tab
+  const tabsToRemove = appStore.tabs.filter(t => t.assetId === target.id)
+  for (const tab of tabsToRemove) {
+    appStore.removeTab(tab.id)
+  }
   // 路由回 home(如果停在已删的 ssh 路由)
   if (router.currentRoute.value.params.id === target.id) {
     router.push({ name: 'home' })
@@ -194,11 +248,19 @@ async function duplicateAsset(asset: Asset) {
     config: { ...asset.config }
   }
   const newAsset = await assetStore.createAsset(dto)
+  const instanceId = generateInstanceId(newAsset.id)
   appStore.addTab({
-    id: newAsset.id,
-    title: newAsset.id,
+    id: instanceId,
+    assetId: newAsset.id,
+    title: newAsset.name,
     type: newAsset.type
   })
+  if (newAsset.type === 'ssh') {
+    router.push({ name: 'ssh-terminal', params: { id: instanceId } })
+  } else if (newAsset.type === 'db') {
+    const dbType = newAsset.config.dbType || 'mysql'
+    router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: instanceId } })
+  }
 }
 
 // ====== 键盘 ======
@@ -284,6 +346,7 @@ function isGroupExpanded(id: string) {
       >
         <v-icon size="13" :class="asset.type">{{ getIcon(asset.type) }}</v-icon>
         <span class="name">{{ asset.name }}</span>
+        <span v-if="asset.lastUsedAt" class="last-used">{{ shortTimeAgo(asset.lastUsedAt) }}</span>
         <span class="status-dot" :class="getStatus(asset)" />
         <button
           class="action-btn"
@@ -612,7 +675,37 @@ function isGroupExpanded(id: string) {
   animation: pulse 2s infinite;
 }
 
-.tree-item .status-dot.offline { background: var(--muted); opacity: 0.5; }
+/* 三档状态:never/recent/stale */
+.tree-item .status-dot.never {
+  background: transparent;
+  border: 1px solid var(--muted);
+  opacity: 0.5;
+}
+.tree-item .status-dot.recent {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: pulse 2s infinite;
+}
+.tree-item .status-dot.stale {
+  background: var(--green);
+  opacity: 0.6;
+  box-shadow: 0 0 3px var(--green);
+}
+/* 旧名兼容 */
+.tree-item .status-dot.offline {
+  background: var(--muted);
+  opacity: 0.5;
+}
+
+.tree-item .last-used {
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  margin-left: auto;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
 
 .tree-item .action-btn {
   width: 22px;

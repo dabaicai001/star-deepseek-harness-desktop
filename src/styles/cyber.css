@@ -491,6 +491,37 @@
   transform: translateX(-50%) translateY(-4px);
 }
 
+/* .action-btn 带 [data-tooltip] 时也自动有 tooltip(全局 fallback) */
+.action-btn[data-tooltip]:hover::before,
+.cyber-tooltip[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 100;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--text);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  animation: tt-appear 0.15s ease;
+}
+.action-btn[data-tooltip] {
+  position: relative;
+}
+.action-btn[data-tooltip]:hover::before {
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+@keyframes tt-appear {
+  from { opacity: 0; transform: translateX(-50%) translateY(2px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
 /* Empty state */
 .empty-state {
   display: flex;
@@ -579,7 +610,8 @@
 }
 
 .form-row.host-port {
-  grid-template-columns: minmax(0, 1fr) 90px;
+  /* host 自适应,给个合理上限避免整列拉伸;port 固定 80px 够放 4 位端口 */
+  grid-template-columns: minmax(160px, 220px) 80px;
   gap: 6px;
 }
 

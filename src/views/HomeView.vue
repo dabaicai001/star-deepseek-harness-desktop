@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
+import { generateInstanceId } from '@/utils/tabId'
 import type { Asset, CreateAssetDto } from '@/types/asset'
 
 const { t } = useI18n()
@@ -36,23 +37,22 @@ function relativeTime(ms: number | null | undefined): string {
 }
 
 function connectToAsset(asset: Asset) {
+  // 单击 = 总是新开 tab(不复用)
+  const instanceId = generateInstanceId(asset.id)
   appStore.addTab({
-    id: asset.id,
+    id: instanceId,
+    assetId: asset.id,
     title: asset.name,
     type: asset.type
   })
   assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
   if (asset.type === 'ssh') {
-    router.push({ name: 'ssh-terminal', params: { id: asset.id } })
+    router.push({ name: 'ssh-terminal', params: { id: instanceId } })
   } else if (asset.type === 'db') {
     const dbType = asset.config.dbType || 'mysql'
-    if (dbType === 'redis') {
-      router.push({ name: 'db-redis', params: { id: asset.id } })
-    } else {
-      router.push({ name: 'db-mysql', params: { id: asset.id } })
-    }
+    router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: instanceId } })
   } else if (asset.type === 'docker') {
-    router.push({ name: 'docker', params: { id: asset.id } })
+    router.push({ name: 'docker', params: { id: instanceId } })
   }
 }
 
@@ -80,22 +80,20 @@ function openNewConnection() {
 
 async function handleNewConnection(dto: CreateAssetDto) {
   const asset = await assetStore.createAsset(dto)
+  const instanceId = generateInstanceId(asset.id)
   appStore.addTab({
-    id: asset.id,
+    id: instanceId,
+    assetId: asset.id,
     title: asset.name,
     type: asset.type
   })
   if (dto.type === 'ssh') {
-    router.push({ name: 'ssh-terminal', params: { id: asset.id } })
+    router.push({ name: 'ssh-terminal', params: { id: instanceId } })
   } else if (dto.type === 'db') {
     const dbType = dto.config.dbType || 'mysql'
-    if (dbType === 'redis') {
-      router.push({ name: 'db-redis', params: { id: asset.id } })
-    } else {
-      router.push({ name: 'db-mysql', params: { id: asset.id } })
-    }
+    router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: instanceId } })
   } else if (dto.type === 'docker') {
-    router.push({ name: 'docker', params: { id: asset.id } })
+    router.push({ name: 'docker', params: { id: instanceId } })
   }
 }
 </script>

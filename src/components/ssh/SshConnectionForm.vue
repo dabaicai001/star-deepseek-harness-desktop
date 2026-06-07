@@ -13,6 +13,12 @@ export interface SshFormInitialValues {
   password?: string
   privateKey?: string
   passphrase?: string
+  jumpHost?: string
+  jumpPort?: number
+  jumpUsername?: string
+  jumpPassword?: string
+  jumpPrivateKey?: string
+  jumpPassphrase?: string
 }
 
 const props = defineProps<{
@@ -33,9 +39,25 @@ const authType = ref<'password' | 'key'>(
 )
 const password = ref(props.initialValues?.password ?? '')
 const privateKey = ref(props.initialValues?.privateKey ?? '')
+const privateKeyName = ref('')
 const passphrase = ref(props.initialValues?.passphrase ?? '')
 const showPassword = ref(false)
 const showPassphrase = ref(false)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+
+// 跳板机
+const showJumpHost = ref(false)
+const jumpHost = ref('')
+const jumpPort = ref<number>(22)
+const jumpUsername = ref('')
+const jumpAuthType = ref<'password' | 'key'>('password')
+const jumpPassword = ref('')
+const jumpPrivateKey = ref('')
+const jumpPrivateKeyName = ref('')
+const jumpPassphrase = ref('')
+const showJumpPassword = ref(false)
+const showJumpPassphrase = ref(false)
+const jumpFileInputRef = ref<HTMLInputElement | null>(null)
 
 const testStatus = ref<'idle' | 'testing' | 'success' | 'fail'>('idle')
 const testMessage = ref('')
@@ -50,19 +72,32 @@ watch(
     username.value = next.username ?? ''
     password.value = next.password ?? ''
     privateKey.value = next.privateKey ?? ''
+    privateKeyName.value = next.privateKey ? t('ssh.keyLoaded') : ''
     passphrase.value = next.passphrase ?? ''
     authType.value = next.privateKey ? 'key' : 'password'
+    // 跳板机
+    jumpHost.value = next.jumpHost ?? ''
+    jumpPort.value = next.jumpPort ?? 22
+    jumpUsername.value = next.jumpUsername ?? ''
+    jumpPassword.value = next.jumpPassword ?? ''
+    jumpPrivateKey.value = next.jumpPrivateKey ?? ''
+    jumpPrivateKeyName.value = next.jumpPrivateKey ? t('ssh.keyLoaded') : ''
+    jumpPassphrase.value = next.jumpPassphrase ?? ''
+    jumpAuthType.value = next.jumpPrivateKey ? 'key' : 'password'
+    showJumpHost.value = Boolean(next.jumpHost)
   }
 )
 
 const canSubmit = computed(() =>
   Boolean(name.value && host.value && username.value) &&
-  (authType.value === 'password' ? true : privateKey.value.length > 0)
+  (authType.value === 'password' ? true : privateKey.value.length > 0) &&
+  (!showJumpHost.value || !jumpHost.value || (jumpAuthType.value === 'password' ? true : jumpPrivateKey.value.length > 0))
 )
 
 const canTest = computed(() =>
   Boolean(host.value && username.value) &&
-  (authType.value === 'password' ? true : privateKey.value.length > 0)
+  (authType.value === 'password' ? true : privateKey.value.length > 0) &&
+  (!showJumpHost.value || !jumpHost.value || (jumpAuthType.value === 'password' ? true : jumpPrivateKey.value.length > 0))
 )
 
 async function onTestConnection() {
@@ -71,13 +106,29 @@ async function onTestConnection() {
   testMessage.value = ''
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    // 组装 SshConfig:{ host, port, username, auth: SshAuth }
     const auth = authType.value === 'password'
       ? { Password: password.value || '' }
       : { PrivateKey: { key: privateKey.value, passphrase: passphrase.value || null } }
+
+    const config: Record<string, unknown> = {
+      host: host.value,
+      port: port.value,
+      username: username.value,
+      auth
+    }
+
+    if (showJumpHost.value && jumpHost.value) {
+      config.jump_host = jumpHost.value
+      config.jump_port = jumpPort.value || 22
+      config.jump_username = jumpUsername.value || username.value
+      config.jump_auth = jumpAuthType.value === 'password'
+        ? { Password: jumpPassword.value || '' }
+        : { PrivateKey: { key: jumpPrivateKey.value, passphrase: jumpPassphrase.value || null } }
+    }
+
     const result = await invoke<{ ok: boolean; message?: string; elapsed_ms?: number }>(
       'test_ssh_connection',
-      { config: { host: host.value, port: port.value, username: username.value, auth } }
+      { config }
     )
     testStatus.value = result.ok ? 'success' : 'fail'
     const ms = result.elapsed_ms != null ? ` (${result.elapsed_ms}ms)` : ''
@@ -91,17 +142,28 @@ async function onTestConnection() {
 function onSubmit() {
   if (!canSubmit.value) return
 
+  const config: Record<string, unknown> = {
+    host: host.value,
+    port: port.value,
+    username: username.value,
+    password: authType.value === 'password' ? password.value : undefined,
+    privateKey: authType.value === 'key' ? privateKey.value : undefined,
+    passphrase: authType.value === 'key' ? passphrase.value : undefined
+  }
+
+  if (showJumpHost.value && jumpHost.value) {
+    config.jumpHost = jumpHost.value
+    config.jumpPort = jumpPort.value || 22
+    config.jumpUsername = jumpUsername.value || username.value
+    config.jumpPassword = jumpAuthType.value === 'password' ? jumpPassword.value : undefined
+    config.jumpPrivateKey = jumpAuthType.value === 'key' ? jumpPrivateKey.value : undefined
+    config.jumpPassphrase = jumpAuthType.value === 'key' ? jumpPassphrase.value : undefined
+  }
+
   const dto: CreateAssetDto = {
     type: 'ssh',
     name: name.value,
-    config: {
-      host: host.value,
-      port: port.value,
-      username: username.value,
-      password: authType.value === 'password' ? password.value : undefined,
-      privateKey: authType.value === 'key' ? privateKey.value : undefined,
-      passphrase: authType.value === 'key' ? passphrase.value : undefined
-    }
+    config
   }
   emit('submit', dto)
 }
@@ -117,6 +179,104 @@ function onKeydown(e: KeyboardEvent) {
   } else if (e.key === 'Escape') {
     e.preventDefault()
     onCancel()
+  }
+}
+
+// ====== 私钥文件选择(web input + FileReader) ======
+// 2MB 私钥文件足够大了(常见 PEM/OPENSSH 都是 1-3KB)
+const MAX_KEY_SIZE = 2 * 1024 * 1024
+
+function pickKeyFile() {
+  fileInputRef.value?.click()
+}
+
+async function onKeyFilePicked(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  if (file.size > MAX_KEY_SIZE) {
+    testStatus.value = 'fail'
+    testMessage.value = t('ssh.keyTooLarge')
+    input.value = ''
+    return
+  }
+
+  try {
+    const text = await file.text()
+    privateKey.value = text
+    privateKeyName.value = file.name
+  } catch (err) {
+    testStatus.value = 'fail'
+    testMessage.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    // 清空 input.value,允许用户重复选同一文件
+    input.value = ''
+  }
+}
+
+function clearKey() {
+  privateKey.value = ''
+  privateKeyName.value = ''
+}
+
+async function pasteKeyFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText()
+    if (text && text.includes('PRIVATE KEY')) {
+      privateKey.value = text
+      privateKeyName.value = t('ssh.pastedFromClipboard')
+    }
+  } catch {
+    testStatus.value = 'fail'
+    testMessage.value = t('ssh.clipboardReadFailed')
+  }
+}
+
+// 跳板机密钥文件选择
+function pickJumpKeyFile() {
+  jumpFileInputRef.value?.click()
+}
+
+async function onJumpKeyFilePicked(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  if (file.size > MAX_KEY_SIZE) {
+    testStatus.value = 'fail'
+    testMessage.value = t('ssh.keyTooLarge')
+    input.value = ''
+    return
+  }
+
+  try {
+    const text = await file.text()
+    jumpPrivateKey.value = text
+    jumpPrivateKeyName.value = file.name
+  } catch (err) {
+    testStatus.value = 'fail'
+    testMessage.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    input.value = ''
+  }
+}
+
+function clearJumpKey() {
+  jumpPrivateKey.value = ''
+  jumpPrivateKeyName.value = ''
+}
+
+async function pasteJumpKeyFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText()
+    if (text && text.includes('PRIVATE KEY')) {
+      jumpPrivateKey.value = text
+      jumpPrivateKeyName.value = t('ssh.pastedFromClipboard')
+    }
+  } catch {
+    testStatus.value = 'fail'
+    testMessage.value = t('ssh.clipboardReadFailed')
   }
 }
 </script>
@@ -253,6 +413,44 @@ function onKeydown(e: KeyboardEvent) {
               <span class="required">*</span>
               <span class="optional">{{ t('ssh.pemFormat') }}</span>
             </label>
+            <!-- 隐藏 file input,由按钮触发 -->
+            <input
+              ref="fileInputRef"
+              type="file"
+              class="hidden-file-input"
+              accept=".pem,.key,id_rsa,id_ed25519,id_ecdsa,id_dsa,application/x-pem-file,application/x-ssh-key,text/plain"
+              @change="onKeyFilePicked"
+            />
+            <div class="key-file-row">
+              <button
+                type="button"
+                class="cyber-btn-secondary key-file-btn"
+                @click="pickKeyFile"
+              >
+                <v-icon size="13">mdi-file-key-outline</v-icon>
+                {{ t('ssh.selectKey') }}
+              </button>
+              <button
+                type="button"
+                class="cyber-btn-secondary key-file-btn"
+                @click="pasteKeyFromClipboard"
+              >
+                <v-icon size="13">mdi-clipboard-text-outline</v-icon>
+                {{ t('ssh.pasteFromClipboard') }}
+              </button>
+              <span v-if="privateKeyName" class="key-file-chip">
+                <v-icon size="11">mdi-file-document-outline</v-icon>
+                <span class="chip-name">{{ privateKeyName }}</span>
+                <button
+                  type="button"
+                  class="chip-clear"
+                  :title="t('ssh.clearKey')"
+                  @click="clearKey"
+                >
+                  <v-icon size="11">mdi-close</v-icon>
+                </button>
+              </span>
+            </div>
             <textarea
               v-model="privateKey"
               class="cyber-input code"
@@ -285,6 +483,123 @@ function onKeydown(e: KeyboardEvent) {
             </div>
           </div>
         </template>
+      </div>
+    </div>
+
+    <!-- 跳板机 (可折叠) -->
+    <div class="jump-host-section">
+      <button
+        type="button"
+        class="jump-toggle"
+        :class="{ active: showJumpHost }"
+        @click="showJumpHost = !showJumpHost"
+      >
+        <v-icon size="14">{{ showJumpHost ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
+        {{ t('ssh.jumpHost') }}
+        <span v-if="showJumpHost && jumpHost" class="jump-badge">{{ jumpHost }}</span>
+      </button>
+
+      <div v-if="showJumpHost" class="jump-host-body">
+        <div class="form-body">
+          <div class="form-column">
+            <div class="column-label">{{ t('ssh.jumpServer') }}</div>
+
+            <div class="form-field">
+              <label class="field-label">
+                <v-icon size="12">mdi-server-network</v-icon>
+                {{ t('asset.host') }} : {{ t('asset.port') }}
+              </label>
+              <div class="form-row host-port">
+                <input v-model="jumpHost" type="text" class="cyber-input" :placeholder="t('asset.placeholderHost')" />
+                <input v-model.number="jumpPort" type="number" class="cyber-input mono" :placeholder="'22'" />
+              </div>
+            </div>
+
+            <div class="form-field">
+              <label class="field-label">
+                <v-icon size="12">mdi-account-outline</v-icon>
+                {{ t('asset.username') }}
+              </label>
+              <div class="input-group">
+                <span class="input-prefix">@</span>
+                <input v-model="jumpUsername" type="text" class="cyber-input" :placeholder="t('asset.placeholderUser')" />
+              </div>
+            </div>
+          </div>
+
+          <div class="form-column">
+            <div class="column-label">{{ t('ssh.jumpAuth') }}</div>
+
+            <div class="form-field">
+              <div class="switcher" role="tablist">
+                <div class="switcher-item" :class="{ active: jumpAuthType === 'password' }" @click="jumpAuthType = 'password'" role="tab">
+                  <v-icon size="14">mdi-key-outline</v-icon>
+                  {{ t('asset.password') }}
+                </div>
+                <div class="switcher-item" :class="{ active: jumpAuthType === 'key' }" @click="jumpAuthType = 'key'" role="tab">
+                  <v-icon size="14">mdi-key-variant</v-icon>
+                  {{ t('asset.privateKey') }}
+                </div>
+              </div>
+            </div>
+
+            <div v-if="jumpAuthType === 'password'" class="form-field">
+              <label class="field-label">
+                <v-icon size="12">mdi-lock-outline</v-icon>
+                {{ t('asset.password') }}
+              </label>
+              <div class="input-group">
+                <v-icon class="input-prefix" size="13">mdi-lock-outline</v-icon>
+                <input v-model="jumpPassword" :type="showJumpPassword ? 'text' : 'password'" class="cyber-input" placeholder="••••••••" autocomplete="off" />
+                <button type="button" class="input-suffix-btn" @click="showJumpPassword = !showJumpPassword">
+                  <v-icon size="14">{{ showJumpPassword ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
+                </button>
+              </div>
+            </div>
+
+            <template v-else>
+              <div class="form-field">
+                <label class="field-label">
+                  <v-icon size="12">mdi-code-tags</v-icon>
+                  {{ t('asset.privateKey') }}
+                </label>
+                <input ref="jumpFileInputRef" type="file" class="hidden-file-input" accept=".pem,.key,id_rsa,id_ed25519,id_ecdsa,id_dsa,text/plain" @change="onJumpKeyFilePicked" />
+                <div class="key-file-row">
+                  <button type="button" class="cyber-btn-secondary key-file-btn" @click="pickJumpKeyFile">
+                    <v-icon size="13">mdi-file-key-outline</v-icon>
+                    {{ t('ssh.selectKey') }}
+                  </button>
+                  <button type="button" class="cyber-btn-secondary key-file-btn" @click="pasteJumpKeyFromClipboard">
+                    <v-icon size="13">mdi-clipboard-text-outline</v-icon>
+                    {{ t('ssh.pasteFromClipboard') }}
+                  </button>
+                  <span v-if="jumpPrivateKeyName" class="key-file-chip">
+                    <v-icon size="11">mdi-file-document-outline</v-icon>
+                    <span class="chip-name">{{ jumpPrivateKeyName }}</span>
+                    <button type="button" class="chip-clear" @click="clearJumpKey">
+                      <v-icon size="11">mdi-close</v-icon>
+                    </button>
+                  </span>
+                </div>
+                <textarea v-model="jumpPrivateKey" class="cyber-input code" rows="3" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" />
+              </div>
+              <div class="form-field">
+                <label class="field-label">
+                  <v-icon size="12">mdi-key-alert</v-icon>
+                  {{ t('ssh.passphrase') }}
+                  <span class="optional">{{ t('ssh.passphraseOptional') }}</span>
+                </label>
+                <div class="input-group">
+                  <v-icon class="input-prefix" size="13">mdi-key-alert</v-icon>
+                  <input v-model="jumpPassphrase" :type="showJumpPassphrase ? 'text' : 'password'" class="cyber-input" :placeholder="t('ssh.passphraseEmpty')" autocomplete="off" />
+                  <button type="button" class="input-suffix-btn" @click="showJumpPassphrase = !showJumpPassphrase">
+                    <v-icon size="14">{{ showJumpPassphrase ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -382,6 +697,70 @@ function onKeydown(e: KeyboardEvent) {
 .form-field {
   display: flex;
   flex-direction: column;
+}
+
+/* 私钥文件选择 */
+.hidden-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.key-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.key-file-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.key-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 10px;
+  font-size: 11px;
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  max-width: 100%;
+}
+
+.chip-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-clear {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.chip-clear:hover {
+  color: var(--red);
+  background: rgba(255, 77, 109, 0.12);
 }
 
 /* Input suffix button (eye icon etc.) */
@@ -526,5 +905,52 @@ function onKeydown(e: KeyboardEvent) {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* Jump host section */
+.jump-host-section {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.jump-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.jump-toggle:hover {
+  color: var(--cyan);
+  border-color: rgba(0, 240, 255, 0.2);
+  background: rgba(0, 240, 255, 0.04);
+}
+
+.jump-toggle.active {
+  color: var(--cyan);
+  border-color: rgba(0, 240, 255, 0.3);
+  background: rgba(0, 240, 255, 0.06);
+}
+
+.jump-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+.jump-host-body {
+  margin-top: 12px;
+  animation: fadeIn 0.2s ease;
 }
 </style>

@@ -4,3 +4,9 @@ declare module '*.vue' {
   const component: DefineComponent<{}, {}, any>
   export default component
 }
+
+// 允许从 package.json 导入 version
+declare module '~package.json' {
+  export const version: string
+  export const name: string
+}

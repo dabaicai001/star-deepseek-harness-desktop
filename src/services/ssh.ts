@@ -9,14 +9,20 @@ export interface SshSessionInfo {
   connected: boolean
 }
 
+export interface SshAuthConfig {
+  Password?: string
+  PrivateKey?: { key: string; passphrase?: string }
+}
+
 export interface SshConfig {
   host: string
   port: number
   username: string
-  auth: {
-    Password?: string
-    PrivateKey?: { key: string; passphrase?: string }
-  }
+  auth: SshAuthConfig
+  jump_host?: string | null
+  jump_port?: number | null
+  jump_username?: string | null
+  jump_auth?: SshAuthConfig | null
 }
 
 export async function sshConnect(id: string, config: SshConfig): Promise<SshSessionInfo> {
@@ -39,15 +45,30 @@ export async function sshGetSessions(): Promise<SshSessionInfo[]> {
   return invoke('ssh_get_sessions')
 }
 
+function buildAuth(config: AssetConfig): SshAuthConfig {
+  if (config.password) return { Password: config.password }
+  if (config.privateKey) return { PrivateKey: { key: config.privateKey, passphrase: config.passphrase } }
+  return { Password: '' }
+}
+
 export function assetConfigToSshConfig(config: AssetConfig): SshConfig {
-  return {
+  const sshConfig: SshConfig = {
     host: config.host || '',
     port: config.port || 22,
     username: config.username || '',
-    auth: config.password
-      ? { Password: config.password }
-      : config.privateKey
-        ? { PrivateKey: { key: config.privateKey, passphrase: config.passphrase } }
-        : { Password: '' }
+    auth: buildAuth(config),
   }
+
+  if (config.jumpHost) {
+    sshConfig.jump_host = config.jumpHost
+    sshConfig.jump_port = config.jumpPort || 22
+    sshConfig.jump_username = config.jumpUsername || config.username || ''
+    sshConfig.jump_auth = config.jumpPrivateKey
+      ? { PrivateKey: { key: config.jumpPrivateKey, passphrase: config.jumpPassphrase } }
+      : config.jumpPassword
+        ? { Password: config.jumpPassword }
+        : buildAuth(config)
+  }
+
+  return sshConfig
 }

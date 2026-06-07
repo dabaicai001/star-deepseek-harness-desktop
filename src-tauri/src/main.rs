@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai;
 mod commands;
 mod db;
 mod sidecar;
@@ -15,6 +16,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(SshManager::new())
         .manage(sidecar_manager)
         .setup(|app| {
@@ -22,7 +24,7 @@ fn main() {
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let manager = app_handle.state::<sidecar::SidecarManager>();
-                if let Err(e) = manager.start().await {
+                if let Err(e) = manager.start(&app_handle).await {
                     tracing::error!("Failed to start sidecar: {}", e);
                 }
             });
@@ -42,6 +44,7 @@ fn main() {
             commands::asset::create_asset,
             commands::asset::update_asset,
             commands::asset::delete_asset,
+            commands::asset::toggle_asset_favorite,
             commands::ssh::ssh_connect,
             commands::ssh::ssh_disconnect,
             commands::ssh::ssh_write,
@@ -107,6 +110,9 @@ fn main() {
             commands::docker::docker_pull_image,
             commands::docker::docker_remove_image,
             commands::docker::docker_prune_images,
+            // AI
+            commands::ai::ai_chat,
+            commands::ai::ai_list_models,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

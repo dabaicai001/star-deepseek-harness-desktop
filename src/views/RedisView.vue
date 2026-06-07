@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useDbStore } from '@/stores/db'
+import { parseInstanceId } from '@/utils/tabId'
 import * as dbService from '@/services/db'
 import type { RedisKeyInfo, RedisValueResult, RedisScanResult } from '@/types/db'
 
@@ -12,7 +13,9 @@ const route = useRoute()
 const assetStore = useAssetStore()
 const dbStore = useDbStore()
 
-const assetId = computed(() => route.params.id as string)
+// 路由 :id 是 tab instanceId,需要解析出 assetId 找资产配置
+const instanceId = computed(() => route.params.id as string)
+const assetId = computed(() => parseInstanceId(instanceId.value).assetId)
 const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value))
 
 const connected = ref(false)

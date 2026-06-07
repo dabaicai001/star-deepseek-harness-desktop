@@ -55,6 +55,7 @@ export default {
     favorite: 'Favorite',
     testConnection: 'Test Connection',
     connect: 'Connect',
+    openInNewTab: 'Open in New Tab',
     disconnect: 'Disconnect',
     ssh: 'SSH Terminal',
     db: 'Database',
@@ -104,7 +105,17 @@ export default {
     testing: 'Testing...',
     testSuccess: 'Connection successful',
     testFail: 'Connection failed',
-    testHint: 'Will attempt SSH connection to verify credentials'
+    testHint: 'Will attempt SSH connection to verify credentials',
+    selectKey: 'Select private key file',
+    keyLoaded: 'Loaded',
+    clearKey: 'Clear key',
+    keyTooLarge: 'Key file exceeds 2MB, please check the file',
+    pasteFromClipboard: 'Paste from clipboard',
+    pastedFromClipboard: 'Pasted',
+    clipboardReadFailed: 'Cannot read clipboard',
+    jumpHost: 'Jump Host (ProxyJump)',
+    jumpServer: 'Jump Server',
+    jumpAuth: 'Jump Host Auth'
   },
   sftp: {
     title: 'File Transfer',

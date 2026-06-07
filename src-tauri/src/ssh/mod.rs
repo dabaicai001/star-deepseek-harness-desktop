@@ -10,6 +10,14 @@ pub struct SshConfig {
     pub port: u16,
     pub username: String,
     pub auth: SshAuth,
+    #[serde(default)]
+    pub jump_host: Option<String>,
+    #[serde(default)]
+    pub jump_port: Option<u16>,
+    #[serde(default)]
+    pub jump_username: Option<String>,
+    #[serde(default)]
+    pub jump_auth: Option<SshAuth>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

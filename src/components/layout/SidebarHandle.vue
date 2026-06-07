@@ -195,27 +195,30 @@ onBeforeUnmount(() => {
 
 .sidebar-handle {
   position: absolute;
-  right: -12px;
+  /* 贴边模式:完全嵌在 sidebar 右边线内侧,不再外凸(以前 right:-12px 被父级 overflow 切掉一半) */
+  right: 0;
   top: 50%;
   transform: translateY(-50%);
   z-index: 20;
-  width: 24px;
-  height: 72px;
+  width: 14px;
+  height: 56px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   background: var(--panel-2);
   border: 1px solid rgba(0, 240, 255, 0.3);
-  border-radius: 6px;
+  /* 左侧贴边、右侧圆角:视觉上像"贴在 sidebar 右边缘的一条把手" */
+  border-left: 1px solid rgba(0, 240, 255, 0.5);
+  border-radius: 0 6px 6px 0;
   color: var(--cyan);
   cursor: ew-resize;
   padding: 0;
   font-family: inherit;
   box-shadow:
-    0 2px 12px rgba(0, 0, 0, 0.4),
-    0 0 8px rgba(0, 240, 255, 0.15);
+    0 2px 8px rgba(0, 0, 0, 0.4),
+    0 0 6px rgba(0, 240, 255, 0.15);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   user-select: none;
   -webkit-user-select: none;
@@ -248,9 +251,9 @@ onBeforeUnmount(() => {
     0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
-/* 折叠时:把手 cursor 变 pointer,只响应点击 */
+/* 折叠时:把手 cursor 变 pointer,只响应点击;位置跟展开态一致(贴 sidebar 右内侧) */
 .sidebar-handle[data-collapsed="true"] {
-  right: -12px;
+  right: 0;
   cursor: pointer;
 }
 

@@ -1,20 +1,42 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Asset, AssetGroup, CreateAssetDto, UpdateAssetDto } from '@/types/asset'
+import * as assetService from '@/services/asset'
 
 export const useAssetStore = defineStore('asset', () => {
   const assets = ref<Asset[]>([])
   const groups = ref<AssetGroup[]>([])
   const searchQuery = ref('')
+  const loading = ref(false)
 
   const filteredAssets = computed(() => {
     if (!searchQuery.value) return assets.value
-    const query = searchQuery.value.toLowerCase()
-    return assets.value.filter(asset =>
-      asset.name.toLowerCase().includes(query) ||
-      asset.config.host?.toLowerCase().includes(query) ||
-      asset.tags.some(tag => tag.toLowerCase().includes(query))
-    )
+    const query = searchQuery.value.toLowerCase().trim()
+    // 支持 type: 前缀(如 "type:ssh" 或 "type:db")
+    let typeFilter: string | null = null
+    let textQuery = query
+    const typeMatch = query.match(/^type:(\w+)/)
+    if (typeMatch) {
+      typeFilter = typeMatch[1]
+      textQuery = query.replace(typeMatch[0], '').trim()
+    }
+    return assets.value.filter(asset => {
+      if (typeFilter && !asset.type.startsWith(typeFilter)) return false
+      if (!textQuery) return true
+      const a = asset
+      const c = a.config
+      // 命中字段:name / host / username / tag / 数据库名 / 类型
+      const haystack = [
+        a.name,
+        c.host,
+        c.username,
+        c.database,
+        c.dbType,
+        a.type,
+        ...(a.tags || [])
+      ].filter((s): s is string => Boolean(s)).map(s => s.toLowerCase())
+      return haystack.some(s => s.includes(textQuery))
+    })
   })
 
   const favoriteAssets = computed(() => assets.value.filter(a => a.favorite))
@@ -30,47 +52,40 @@ export const useAssetStore = defineStore('asset', () => {
   })
 
   async function fetchAssets() {
-    // TODO: 调用 Tauri IPC 获取资产
-    assets.value = []
+    loading.value = true
+    try {
+      assets.value = await assetService.fetchAssets()
+    } catch (e) {
+      console.error('Failed to fetch assets:', e)
+    } finally {
+      loading.value = false
+    }
   }
 
   async function createAsset(dto: CreateAssetDto): Promise<Asset> {
-    const asset: Asset = {
-      id: crypto.randomUUID(),
-      type: dto.type,
-      name: dto.name,
-      groupId: dto.groupId || null,
-      config: dto.config,
-      keyId: null,
-      tags: dto.tags || [],
-      favorite: false,
-      lastUsedAt: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    }
+    const asset = await assetService.createAsset(dto)
     assets.value.push(asset)
     return asset
   }
 
   async function updateAsset(id: string, dto: UpdateAssetDto) {
+    const asset = await assetService.updateAsset(id, dto)
     const index = assets.value.findIndex(a => a.id === id)
     if (index > -1) {
-      assets.value[index] = {
-        ...assets.value[index],
-        ...dto,
-        updatedAt: Date.now()
-      }
+      assets.value[index] = asset
     }
   }
 
   async function deleteAsset(id: string) {
+    await assetService.deleteAsset(id)
     assets.value = assets.value.filter(a => a.id !== id)
   }
 
-  function toggleFavorite(id: string) {
-    const asset = assets.value.find(a => a.id === id)
-    if (asset) {
-      asset.favorite = !asset.favorite
+  async function toggleFavorite(id: string) {
+    const asset = await assetService.toggleAssetFavorite(id)
+    const index = assets.value.findIndex(a => a.id === id)
+    if (index > -1) {
+      assets.value[index] = asset
     }
   }
 
@@ -82,6 +97,7 @@ export const useAssetStore = defineStore('asset', () => {
     assets,
     groups,
     searchQuery,
+    loading,
     filteredAssets,
     favoriteAssets,
     assetsByGroup,
@@ -94,6 +110,6 @@ export const useAssetStore = defineStore('asset', () => {
   }
 }, {
   persist: {
-    paths: ['assets', 'groups', 'searchQuery']
+    paths: ['searchQuery']
   }
 })

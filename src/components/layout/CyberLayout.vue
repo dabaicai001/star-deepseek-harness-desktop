@@ -1,21 +1,27 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore, SIDEBAR_COLLAPSED_WIDTH } from '@/stores/app'
+import { useThemeStore } from '@/stores/theme'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import AssetTree from '@/components/asset/AssetTree.vue'
 import SidebarHandle from '@/components/layout/SidebarHandle.vue'
+import CommandPalette from '@/components/layout/CommandPalette.vue'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import * as tauriWindowApi from '@tauri-apps/api/window'
+import { generateInstanceId } from '@/utils/tabId'
+import { version as appVersion } from '~package.json'
 import type { Asset } from '@/types/asset'
 import type { CreateAssetDto } from '@/types/asset'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const router = useRouter()
+const route = useRoute()
 const assetStore = useAssetStore()
 const appStore = useAppStore()
+const themeStore = useThemeStore()
 
 const searchQuery = computed({
   get: () => assetStore.searchQuery,
@@ -99,6 +105,108 @@ onBeforeUnmount(() => {
   }
 })
 
+// ====== 标签栏 + 号:基于当前 tab 类型弹资产选择器,选哪条就开哪条 ======
+const newTabPicker = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
+function closeNewTabPicker() { newTabPicker.value = null }
+
+function openNewTabFromCurrent(e: MouseEvent) {
+  // 推断当前 tab 类型
+  const active = appStore.tabs.find(t => t.id === appStore.activeTab)
+  let assetType: 'ssh' | 'db' | 'docker' = 'ssh'
+  if (active?.type === 'db') assetType = 'db'
+  else if (active?.type === 'docker') assetType = 'docker'
+
+  const list = assetStore.assets.filter(a => a.type === assetType)
+  if (list.length === 0) {
+    // 没该类型资产,直接弹新建连接
+    if (currentRouteName.value !== 'home') router.push({ name: 'home' })
+    showNewConnection.value = true
+    return
+  }
+  // 弹选择器(贴 + 按钮下方)
+  const headerLabel = assetType === 'ssh' ? '打开 SSH 终端'
+    : assetType === 'db' ? '打开数据库连接'
+    : '打开 Docker 主机'
+  const items: MenuItem[] = [
+    { type: 'header', icon: getIcon(assetType), label: headerLabel },
+    ...list.map(a => ({
+      type: 'item' as const,
+      icon: getIcon(assetType),
+      label: a.name,
+      onClick: () => {
+        let routeName: string
+        if (assetType === 'db') {
+          const dbType = a.config.dbType || 'mysql'
+          routeName = dbType === 'redis' ? 'db-redis' : 'db-mysql'
+        } else if (assetType === 'ssh') {
+          routeName = 'ssh-terminal'
+        } else {
+          routeName = 'docker'
+        }
+        const instanceId = generateInstanceId(a.id)
+        appStore.addTab({ id: instanceId, assetId: a.id, title: a.name, type: a.type })
+        router.push({ name: routeName, params: { id: instanceId } })
+        assetStore.updateAsset(a.id, { lastUsedAt: Date.now() })
+      }
+    })),
+    { type: 'divider' },
+    {
+      type: 'item',
+      icon: 'mdi-plus',
+      label: '新建连接…',
+      onClick: () => {
+        if (currentRouteName.value !== 'home') router.push({ name: 'home' })
+        showNewConnection.value = true
+      }
+    }
+  ]
+  // 用 + 按钮位置作为弹出位置
+  const target = e.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  newTabPicker.value = { x: rect.left, y: rect.bottom + 4, items }
+}
+const userMenuOpen = ref(false)
+function toggleUserMenu() { userMenuOpen.value = !userMenuOpen.value }
+function closeUserMenu() { userMenuOpen.value = false }
+
+function onUserMenuAction(action: 'settings' | 'theme' | 'lang' | 'about') {
+  closeUserMenu()
+  switch (action) {
+    case 'settings':
+      appStore.openSettingsTab()
+      router.push('/settings')
+      break
+    case 'theme':
+      themeStore.setTheme(themeStore.theme === 'darkTheme' ? 'lightTheme' : 'darkTheme')
+      break
+    case 'lang':
+      locale.value = locale.value === 'zh-CN' ? 'en-US' : 'zh-CN'
+      break
+    case 'about':
+      // 简单弹窗提示版本
+      alert(`StarHub v${appVersion}\n\n跨平台 DevOps 桌面工具\nGitHub: github.com/dabaicai001/starhub`)
+      break
+  }
+}
+
+// 点页面其他地方关闭用户菜单
+function onDocClick(e: PointerEvent) {
+  if (!userMenuOpen.value) return
+  const target = e.target as HTMLElement
+  if (!target.closest('.user-menu')) {
+    userMenuOpen.value = false
+  }
+}
+onMounted(() => window.addEventListener('pointerdown', onDocClick))
+onBeforeUnmount(() => window.removeEventListener('pointerdown', onDocClick))
+
+// 监听来自 CommandPalette 的"新建连接"事件
+function onNewConnectionEvent() {
+  showNewConnection.value = true
+}
+onMounted(() => window.addEventListener('starhub:new-connection', onNewConnectionEvent))
+onBeforeUnmount(() => window.removeEventListener('starhub:new-connection', onNewConnectionEvent))
+
 const filteredAssets = computed(() => {
   if (!searchQuery.value) return assetStore.assets
   const query = searchQuery.value.toLowerCase()
@@ -108,59 +216,69 @@ const filteredAssets = computed(() => {
   )
 })
 
-// ====== 顶部菜单 ======
-// 每个菜单项一个统一结构:key 决定 action。
-// - 路由跳转 / 打开 NewConnectionDialog / disabled 三个动作
-// - active 由当前路由名决定
-type MenuAction =
-  | { kind: 'route', name: 'home' | 'settings' }
-  | { kind: 'newConnection' }
-  | { kind: 'disabled' }
+// ====== 顶部导航菜单(已删除) ======
+// 之前有一行 6 个导航按钮(首页/资产中心/终端/数据库/Docker/AI 助手),
+// 现在改用侧边栏资产树 + 顶部 + 号新建,这里只保留资产选择器辅助。
 
 const currentRouteName = computed(() => router.currentRoute.value.name as string | undefined)
 
-interface TopMenuItem {
-  key: string
-  label: string
-  i18n: string
-  action: MenuAction
+// ====== 顶部菜单 → 资产选择器 ======
+// 点击"终端 / 数据库 / Docker"时:有该类型资产就弹出选择菜单,点哪条就开哪条;
+// 一个都没有就回退到"新建连接"流程。
+const assetPicker = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
+function closeAssetPicker() { assetPicker.value = null }
+
+function assetTypeIcon(t: 'ssh' | 'db' | 'docker') {
+  return t === 'ssh' ? 'mdi-console' : t === 'db' ? 'mdi-database' : 'mdi-docker'
 }
 
-const topMenus: TopMenuItem[] = [
-  { key: 'home',       label: '首页',     i18n: 'common.home', action: { kind: 'route', name: 'home' } },
-  { key: 'assets',     label: '资产中心', i18n: 'asset.title', action: { kind: 'route', name: 'home' } },
-  { key: 'terminal',   label: '终端',     i18n: 'ssh.terminal', action: { kind: 'newConnection' } },
-  { key: 'db',         label: '数据库',   i18n: 'db.title', action: { kind: 'newConnection' } },
-  { key: 'docker',     label: 'Docker',   i18n: 'docker.title', action: { kind: 'newConnection' } },
-  { key: 'ai',         label: 'AI 助手',  i18n: 'ai.title', action: { kind: 'disabled' } }
-]
-
-function isMenuActive(item: TopMenuItem): boolean {
-  if (item.action.kind !== 'route') return false
-  const name = item.action.name
-  // home 也覆盖 settings(欢迎页语义)
-  if (name === 'home') {
-    return currentRouteName.value === 'home' || currentRouteName.value === 'settings'
+function openAssetPicker(e: MouseEvent, assetType: 'ssh' | 'db' | 'docker', openRoute: string) {
+  const list = assetStore.assets.filter(a => a.type === assetType)
+  if (list.length === 0) {
+    // 没有该类型资产,直接走"新建连接"
+    if (currentRouteName.value !== 'home') router.push({ name: 'home' })
+    showNewConnection.value = true
+    return
   }
-  return currentRouteName.value === name
-}
-
-function isMenuDisabled(item: TopMenuItem): boolean {
-  return item.action.kind === 'disabled'
-}
-
-function onMenuClick(item: TopMenuItem) {
-  if (isMenuDisabled(item)) return
-  switch (item.action.kind) {
-    case 'route':
-      router.push({ name: item.action.name })
-      break
-    case 'newConnection':
-      // 跳回 home + 弹新建连接弹窗,等各类型路由/适配器实现后再细化
-      if (currentRouteName.value !== 'home') router.push({ name: 'home' })
-      showNewConnection.value = true
-      break
-  }
+  // 有就弹选择器;点哪条开哪条
+  const headerLabel = assetType === 'ssh' ? '打开 SSH 终端'
+    : assetType === 'db' ? '打开数据库连接'
+    : '打开 Docker 主机'
+  const items: MenuItem[] = [
+    { type: 'header', icon: assetTypeIcon(assetType), label: headerLabel },
+    ...list.map(a => ({
+      type: 'item' as const,
+      icon: assetTypeIcon(assetType),
+      label: a.name,
+      onClick: () => {
+        // 总是新开 tab(不复用)
+        let routeName: string
+        if (assetType === 'db') {
+          const dbType = a.config.dbType || 'mysql'
+          routeName = dbType === 'redis' ? 'db-redis' : 'db-mysql'
+        } else {
+          routeName = openRoute
+        }
+        const instanceId = generateInstanceId(a.id)
+        appStore.addTab({ id: instanceId, assetId: a.id, title: a.name, type: a.type })
+        router.push({ name: routeName, params: { id: instanceId } })
+        assetStore.updateAsset(a.id, { lastUsedAt: Date.now() })
+      }
+    })),
+    { type: 'divider' },
+    {
+      type: 'item',
+      icon: 'mdi-plus',
+      label: assetType === 'ssh' ? '新建 SSH 连接...'
+        : assetType === 'db' ? '新建数据库连接...'
+        : '新建 Docker 主机...',
+      onClick: () => {
+        if (currentRouteName.value !== 'home') router.push({ name: 'home' })
+        showNewConnection.value = true
+      }
+    }
+  ]
+  assetPicker.value = { x: e.clientX, y: e.clientY + 4, items }
 }
 
 const sshAssets = computed(() => filteredAssets.value.filter(a => a.type === 'ssh'))
@@ -182,6 +300,7 @@ function getIcon(type: string) {
     case 'ssh': return 'mdi-console'
     case 'db': return 'mdi-database'
     case 'docker': return 'mdi-docker'
+    case 'settings': return 'mdi-cog-outline'
     default: return 'mdi-file'
   }
 }
@@ -190,27 +309,49 @@ function getStatusColor(asset: Asset) {
   return asset.lastUsedAt ? 'online' : 'offline'
 }
 
+function _placeholder() {}
+
+function getTabDisplayTitle(tab: { id: string; assetId?: string; title: string; type?: string }): string {
+  // settings / ai 类型的 tab(非资产)按"同 title 出现多次"加序号
+  if (!tab.assetId) {
+    const sameTitleTabs = appStore.tabs.filter(t => t.title === tab.title)
+    if (sameTitleTabs.length <= 1) return tab.title
+    const index = sameTitleTabs.findIndex(t => t.id === tab.id)
+    return `${tab.title} (${index + 1})`
+  }
+  // 资产 tab 按 assetId 维度加序号
+  const sameAssetTabs = appStore.tabs.filter(t => t.assetId === tab.assetId)
+  if (sameAssetTabs.length <= 1) return tab.title
+  const index = sameAssetTabs.findIndex(t => t.id === tab.id)
+  return `${tab.title} (${index + 1})`
+}
+
 function connectToAsset(asset: Asset) {
+  // 单击 = 总是新开 tab(不复用)
+  const instanceId = generateInstanceId(asset.id)
   appStore.addTab({
-    id: asset.id,
+    id: instanceId,
+    assetId: asset.id,
     title: asset.name,
     type: asset.type
   })
   assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
   if (asset.type === 'ssh') {
-    router.push({ name: 'ssh-terminal', params: { id: asset.id } })
+    router.push({ name: 'ssh-terminal', params: { id: instanceId } })
   }
-  // db / docker 路由后续按 type 补
 }
 
 function openSftpForAsset(asset: Asset) {
+  // 总是新开 SFTP tab(看不同目录)
+  const instanceId = `sftp-${generateInstanceId(asset.id)}`
   appStore.addTab({
-    id: `sftp-${asset.id}`,
+    id: instanceId,
+    assetId: asset.id,
     title: `SFTP: ${asset.name}`,
     type: 'ssh'
   })
   assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-  router.push({ name: 'sftp', params: { id: asset.id } })
+  router.push({ name: 'sftp', params: { id: instanceId } })
 }
 
 function openNewConnection() {
@@ -220,30 +361,63 @@ function openNewConnection() {
 async function handleNewConnection(dto: CreateAssetDto) {
   const asset = await assetStore.createAsset(dto)
   if (dto.type === 'ssh') {
+    const instanceId = generateInstanceId(asset.id)
     appStore.addTab({
-      id: asset.id,
+      id: instanceId,
+      assetId: asset.id,
       title: asset.name,
       type: asset.type
     })
-    router.push({ name: 'ssh-terminal', params: { id: asset.id } })
+    router.push({ name: 'ssh-terminal', params: { id: instanceId } })
+  } else if (dto.type === 'db') {
+    const dbType = asset.config.dbType || 'mysql'
+    const instanceId = generateInstanceId(asset.id)
+    appStore.addTab({
+      id: instanceId,
+      assetId: asset.id,
+      title: asset.name,
+      type: asset.type
+    })
+    router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: instanceId } })
+  } else if (dto.type === 'docker') {
+    const instanceId = generateInstanceId(asset.id)
+    appStore.addTab({
+      id: instanceId,
+      assetId: asset.id,
+      title: asset.name,
+      type: asset.type
+    })
+    router.push({ name: 'docker', params: { id: instanceId } })
   }
 }
 
 function navigateTo(path: string) {
+  if (path === '/settings') {
+    // 设置总是开新 tab
+    appStore.openSettingsTab()
+    router.push('/settings')
+    return
+  }
   router.push(path)
 }
 
-function selectTab(tab: { id: string; type: string }) {
+function selectTab(tab: { id: string; assetId?: string; type: string }) {
   appStore.setActiveTab(tab.id)
   if (tab.type === 'ssh') {
     if (tab.id.startsWith('sftp-')) {
-      const assetId = tab.id.replace('sftp-', '')
-      router.push({ name: 'sftp', params: { id: assetId } })
+      router.push({ name: 'sftp', params: { id: tab.id } })
     } else {
       router.push({ name: 'ssh-terminal', params: { id: tab.id } })
     }
+  } else if (tab.type === 'db') {
+    const a = tab.assetId ? assetStore.assets.find(x => x.id === tab.assetId) : null
+    const dbType = a?.config.dbType || 'mysql'
+    router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: tab.id } })
+  } else if (tab.type === 'docker') {
+    router.push({ name: 'docker', params: { id: tab.id } })
+  } else if (tab.type === 'settings') {
+    router.push('/settings')
   }
-  // db / docker 路由后续补
 }
 
 function closeTab(tabId: string) {
@@ -251,12 +425,13 @@ function closeTab(tabId: string) {
   appStore.removeTab(tabId)
   if (appStore.tabs.length === 0) {
     router.push({ name: 'home' })
-  } else if (appStore.activeTab && tab && tab.type === 'ssh') {
-    if (tab.id.startsWith('sftp-')) {
-      const assetId = tab.id.replace('sftp-', '')
-      router.push({ name: 'sftp', params: { id: assetId } })
-    } else {
-      router.push({ name: 'ssh-terminal', params: { id: appStore.activeTab } })
+    return
+  }
+  // 关闭后,跳到当前激活 tab(用 instanceId 跳路由)
+  if (appStore.activeTab) {
+    const activeTab = appStore.tabs.find(t => t.id === appStore.activeTab)
+    if (activeTab) {
+      selectTab(activeTab as any)
     }
   }
 }
@@ -282,11 +457,13 @@ const tabCtxItems = computed<MenuItem[]>(() => {
   const hasRight = idx >= 0 && idx < appStore.tabs.length - 1
   const others = appStore.tabs.filter(t => t.id !== tab.id)
   const activeId = appStore.activeTab
+  const currentTab = appStore.tabs.find(t => t.id === tab.id)
+  const sameAssetTabs = currentTab?.assetId ? appStore.tabs.filter(t => t.assetId === currentTab.assetId && t.id !== tab.id) : []
   return [
     {
       type: 'header',
       icon: getIcon(tab.type),
-      label: tab.title
+      label: getTabDisplayTitle(tab as any)
     },
     {
       type: 'item',
@@ -307,6 +484,17 @@ const tabCtxItems = computed<MenuItem[]>(() => {
         }
         // 跳到当前
         selectTab(tab as any)
+      }
+    },
+    {
+      type: 'item',
+      icon: 'mdi-close-circle-outline',
+      label: '关闭同一资产的其他标签页',
+      disabled: sameAssetTabs.length === 0,
+      onClick: () => {
+        for (const t of sameAssetTabs) {
+          appStore.removeTab(t.id)
+        }
       }
     },
     {
@@ -404,13 +592,52 @@ vueWatch(() => appStore.tabs.length, () => {
       </div>
 
       <div class="top-actions">
-        <button class="action-btn" @click="navigateTo('/settings')" :data-tooltip="t('settings.title')">
-          <v-icon size="16">mdi-cog</v-icon>
-        </button>
-        <button class="action-btn primary" @click="openNewConnection">
-          <v-icon size="16">mdi-plus</v-icon>
-        </button>
-        <div class="avatar">U</div>
+        <div class="top-action-group">
+          <button class="action-btn" @click="navigateTo('/settings')" :data-tooltip="t('settings.title')">
+            <v-icon size="16">mdi-cog</v-icon>
+          </button>
+          <button class="action-btn primary" @click="openNewConnection" :data-tooltip="t('asset.create')">
+            <v-icon size="16">mdi-plus</v-icon>
+          </button>
+        </div>
+
+        <!-- 头像下拉菜单 -->
+        <div class="user-menu" @click.stop="toggleUserMenu">
+          <button class="avatar cyber-tooltip" :data-tooltip="t('user.menu')">
+            <span>U</span>
+          </button>
+          <div v-if="userMenuOpen" class="user-menu-popup">
+            <div class="user-menu-header">
+              <div class="avatar-large">U</div>
+              <div class="info">
+                <div class="name">StarHub User</div>
+                <div class="email">local@starhub.app</div>
+              </div>
+            </div>
+            <div class="user-menu-divider" />
+            <button class="user-menu-item" @click="onUserMenuAction('settings')">
+              <v-icon size="14">mdi-cog-outline</v-icon>
+              <span>{{ t('settings.title') }}</span>
+              <kbd>Ctrl+,</kbd>
+            </button>
+            <button class="user-menu-item" @click="onUserMenuAction('theme')">
+              <v-icon size="14">{{ themeStore.theme === 'darkTheme' ? 'mdi-weather-sunny' : 'mdi-weather-night' }}</v-icon>
+              <span>{{ t('settings.theme') }}: {{ themeStore.theme === 'darkTheme' ? 'Dark' : 'Light' }}</span>
+            </button>
+            <button class="user-menu-item" @click="onUserMenuAction('lang')">
+              <v-icon size="14">mdi-translate</v-icon>
+              <span>{{ t('settings.language') }}: {{ locale === 'zh-CN' ? '中文' : 'EN' }}</span>
+            </button>
+            <div class="user-menu-divider" />
+            <button class="user-menu-item" @click="onUserMenuAction('about')">
+              <v-icon size="14">mdi-information-outline</v-icon>
+              <span>关于 StarHub</span>
+              <kbd>v{{ appVersion }}</kbd>
+            </button>
+          </div>
+        </div>
+
+        <div class="top-action-divider" />
 
         <!-- 自画窗口控件(min / max / close) -->
         <div class="window-controls">
@@ -453,23 +680,9 @@ vueWatch(() => appStore.tabs.length, () => {
       </div>
     </div>
 
-    <!-- Menu Bar -->
+    <!-- Menu Bar (只放 tab 条,顶部导航按钮已删除) -->
     <div class="menubar">
-      <button
-        v-for="item in topMenus"
-        :key="item.key"
-        type="button"
-        class="menu-item"
-        :class="{ active: isMenuActive(item), disabled: isMenuDisabled(item) }"
-        :disabled="isMenuDisabled(item)"
-        :aria-current="isMenuActive(item) ? 'page' : undefined"
-        :data-tooltip="isMenuDisabled(item) ? t('common.soon') || '即将推出' : undefined"
-        @click="onMenuClick(item)"
-      >
-        {{ t(item.i18n) }}
-      </button>
-      
-      <div class="tab-strip-wrap">
+      <div class="tab-strip-wrap" style="margin-left: 12px;">
         <button
           v-show="canScrollLeft"
           class="tab-scroll-btn left"
@@ -492,7 +705,7 @@ vueWatch(() => appStore.tabs.length, () => {
             @auxclick.middle.prevent="closeTab(tab.id)"
           >
             <v-icon size="12">{{ getIcon(tab.type) }}</v-icon>
-            <span class="tab-title">{{ tab.title }}</span>
+            <span class="tab-title">{{ getTabDisplayTitle(tab) }}</span>
             <span class="tab-close" @click.stop="closeTab(tab.id)">
               <v-icon size="10">mdi-close</v-icon>
             </span>
@@ -504,6 +717,14 @@ vueWatch(() => appStore.tabs.length, () => {
           @click="scrollTabs(1)"
         >
           <v-icon size="12">mdi-chevron-right</v-icon>
+        </button>
+        <!-- 标签栏尾部 + 按钮:快速新建 tab -->
+        <button
+          class="tab-new-btn"
+          :data-tooltip="t('common.new') + ' tab'"
+          @click="openNewTabFromCurrent"
+        >
+          <v-icon size="13">mdi-plus</v-icon>
         </button>
       </div>
     </div>
@@ -588,7 +809,7 @@ vueWatch(() => appStore.tabs.length, () => {
         </div>
         
         <div v-else class="workspace-content">
-          <router-view />
+          <router-view :key="route.fullPath" />
         </div>
       </div>
     </div>
@@ -597,7 +818,7 @@ vueWatch(() => appStore.tabs.length, () => {
     <div class="statusbar">
       <div class="sb-item cyan">
         <span class="pulse"></span>
-        <span>{{ t('common.app') }} v0.1.0</span>
+        <span>{{ t('common.app') }} v{{ appVersion }}</span>
       </div>
       <div class="sb-item">
         <v-icon size="10">mdi-console</v-icon>
@@ -637,6 +858,27 @@ vueWatch(() => appStore.tabs.length, () => {
       :items="tabCtxItems"
       @close="closeTabContextMenu"
     />
+
+    <!-- 标签栏 + 号弹出的资产选择器 -->
+    <ContextMenu
+      v-if="newTabPicker"
+      :x="newTabPicker.x"
+      :y="newTabPicker.y"
+      :items="newTabPicker.items"
+      @close="closeNewTabPicker"
+    />
+
+    <!-- 顶部菜单资产选择器(终端/数据库/Docker) -->
+    <ContextMenu
+      v-if="assetPicker"
+      :x="assetPicker.x"
+      :y="assetPicker.y"
+      :items="assetPicker.items"
+      @close="closeAssetPicker"
+    />
+
+    <!-- 全局命令面板 (⌘P) -->
+    <CommandPalette />
   </div>
 </template>
 
@@ -729,7 +971,7 @@ vueWatch(() => appStore.tabs.length, () => {
 
 .top-search {
   flex: 1;
-  max-width: 480px;
+  max-width: 720px;
   background: rgba(20, 25, 40, 0.6);
   border: 1px solid var(--line-2);
   border-radius: 8px;
@@ -781,6 +1023,22 @@ kbd {
   align-items: center;
 }
 
+.top-action-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  background: rgba(0, 240, 255, 0.03);
+  border-radius: 6px;
+}
+
+.top-action-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--line-2);
+  margin: 0 6px;
+}
+
 .action-btn {
   width: 32px;
   height: 32px;
@@ -827,6 +1085,97 @@ kbd {
   font-size: 11px;
   font-weight: 700;
   box-shadow: 0 0 12px rgba(255, 61, 154, 0.4);
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.avatar:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 16px rgba(255, 61, 154, 0.6);
+}
+
+.user-menu {
+  position: relative;
+}
+.user-menu-popup {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 240px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+  z-index: 100;
+  animation: userMenuIn 0.15s ease;
+}
+@keyframes userMenuIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.user-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+}
+.user-menu-header .avatar-large {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--grad-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(255, 61, 154, 0.4);
+}
+.user-menu-header .info { display: flex; flex-direction: column; gap: 2px; }
+.user-menu-header .name { font-size: 13px; font-weight: 600; color: var(--text); }
+.user-menu-header .email {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+.user-menu-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 0;
+}
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.user-menu-item:hover {
+  background: rgba(0, 240, 255, 0.06);
+  color: var(--cyan);
+}
+.user-menu-item span { flex: 1; }
+.user-menu-item kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 1px 5px;
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  color: var(--muted);
 }
 
 .menubar {
@@ -932,6 +1281,29 @@ kbd {
   color: var(--cyan);
   background: rgba(0, 240, 255, 0.12);
   border-color: rgba(0, 240, 255, 0.3);
+}
+
+.tab-new-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  cursor: pointer;
+  margin-left: 6px;
+  margin-right: 12px;
+  transition: all 0.15s;
+}
+.tab-new-btn:hover {
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.1);
+  border-color: rgba(0, 240, 255, 0.4);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
 }
 
 .tab {

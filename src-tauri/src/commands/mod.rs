@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod asset;
 pub mod db;
 pub mod docker;

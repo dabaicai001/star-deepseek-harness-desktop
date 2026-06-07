@@ -9,8 +9,22 @@
 
 ## [未发布]
 
+### 计划中
+- PostgreSQL / SQLite 数据库适配器
+- AI 助手流式输出
+- ZMODEM 文件传输
+
+---
+
+## [0.3.0] - 2026-06-06
+
 ### 新增
-- ✨ feat(sftp): SFTP 文件管理器 — 双面板布局、拖拽传输、传输队列
+- ✨ feat(asset): 资产管理 CRUD — 完整对接 SQLite，新建/编辑/删除/收藏/搜索
+- ✨ feat(ssh): 跳板机 (ProxyJump) 支持 — 通过跳板机连接目标主机，跳板机独立认证
+- ✨ feat(ssh): 私钥「从剪贴板粘贴」按钮 — 支持从 Vault / 1Password 复制私钥
+- ✨ feat(ai): AI 助手基础集成 — 支持 Claude / GPT，自然语言对话界面
+- 🐛 fix(sidecar): Sidecar 路径解析 — 使用 current_exe() 替代 current_dir()，兼容开发和打包环境
+- 🐛 fix(sidecar): Go Sidecar 编译目标修复 — GOOS=windows GOARCH=amd64
 - ✨ feat(sftp): 文件操作 — 列目录、上传、下载、删除、重命名、新建目录
 - ✨ feat(sftp): 断点续传支持
 - ✨ feat(sftp): 文件搜索（glob 模式）
@@ -30,12 +44,6 @@
 - 🎨 style(design-system): SSH 表单 host/port 比例收紧(端口固定 90px)
 - 🎨 style(layout): 顶部"+"按钮克制化、状态栏增加 SFTP 计数、欢迎页 4 卡 + P0/P1 chip
 - 🎨 style(layout): 状态栏时钟改 1s 间隔 HH:MM:SS,标签页关闭按钮默认半透明
-
-### 计划中
-- Tauri 2 + Vue 3 + Rust + Go 项目脚手架
-- MVP: SSH 终端、MySQL / PostgreSQL / SQLite / Redis 基础支持
-- Docker 本地 + SSH 通道管理
-- AI 助手基础集成(Claude / GPT)
 
 ---
 

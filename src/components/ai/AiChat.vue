@@ -1,0 +1,497 @@
+<script setup lang="ts">
+/**
+ * AI Chat 通用组件
+ *
+ * 接收:
+ *  - session: AiSession(从 ai store 拿)
+ *  - sending: bool(从外部控制,因为发送逻辑在外面)
+ *  - onSend(text): 用户按了发送
+ *  - onRetry(): 重试(在出错时)
+ *  - toolConfirm: 等待确认的 tool call(展示 + 用户决策)
+ */
+import { ref, nextTick, watch, computed } from 'vue'
+import type { AiSession, AiToolCallRecord } from '@/stores/ai'
+
+const props = defineProps<{
+  session: AiSession
+  sending: boolean
+  placeholder?: string
+}>()
+
+const emit = defineEmits<{
+  send: [text: string]
+  retry: []
+  confirmTool: [recordId: string, decision: 'approve' | 'reject']
+}>()
+
+const inputText = ref('')
+const messagesRef = ref<HTMLElement | null>(null)
+
+watch(() => props.session.messages.length, () => scrollToBottom())
+watch(() => props.session.toolCalls.length, () => scrollToBottom())
+watch(() => props.sending, () => scrollToBottom())
+
+function scrollToBottom() {
+  nextTick(() => {
+    if (messagesRef.value) {
+      messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+    }
+  })
+}
+
+function onSend() {
+  const text = inputText.value.trim()
+  if (!text || props.sending) return
+  inputText.value = ''
+  emit('send', text)
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    onSend()
+  }
+}
+
+function formatTime(ts: number): string {
+  const d = new Date(ts)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+const pendingToolCall = computed<AiToolCallRecord | undefined>(() =>
+  props.session.toolCalls.find(t => t.status === 'awaiting-confirm')
+)
+
+function approve() {
+  if (pendingToolCall.value) emit('confirmTool', pendingToolCall.value.id, 'approve')
+}
+function reject() {
+  if (pendingToolCall.value) emit('confirmTool', pendingToolCall.value.id, 'reject')
+}
+
+function toolCallSummary(rec: AiToolCallRecord): string {
+  if (rec.name === 'ssh_exec' || rec.name === 'ssh_exec_confirmed') {
+    return String(rec.args.command ?? '')
+  }
+  if (rec.name === 'db_query' || rec.name === 'db_query_confirmed') {
+    return String(rec.args.sql ?? '')
+  }
+  if (rec.name === 'docker_exec' || rec.name === 'docker_exec_confirmed') {
+    return `${rec.args.container} ← ${rec.args.command}`
+  }
+  if (rec.name === 'docker_logs') {
+    return `logs: ${rec.args.container} (tail ${rec.args.tail ?? 200})`
+  }
+  if (rec.name === 'docker_list_containers') {
+    return 'list containers'
+  }
+  if (rec.name === 'docker_inspect') {
+    return `inspect: ${rec.args.target}`
+  }
+  return JSON.stringify(rec.args)
+}
+
+function shortResult(s: string, max = 240): string {
+  if (!s) return ''
+  if (s.length <= max) return s
+  return s.slice(0, max) + `\n… (+${s.length - max} chars)`
+}
+</script>
+
+<template>
+  <div class="ai-chat">
+    <!-- 消息流 -->
+    <div ref="messagesRef" class="chat-messages">
+      <!-- 空状态 -->
+      <div v-if="session.messages.length === 0" class="empty-state">
+        <v-icon size="36" color="muted">mdi-robot-outline</v-icon>
+        <div class="empty-title">AI 助手</div>
+        <div class="empty-desc">问我关于这台 {{ session.assetType.toUpperCase() }} 的任何事,例如"查一下磁盘使用情况"</div>
+      </div>
+
+      <!-- 消息 -->
+      <div v-for="(msg, idx) in session.messages" :key="idx" class="msg" :class="msg.role">
+        <div class="msg-avatar">
+          <v-icon size="14" v-if="msg.role === 'user'">mdi-account</v-icon>
+          <v-icon size="14" v-else-if="msg.role === 'tool'">mdi-tools</v-icon>
+          <v-icon size="14" v-else>mdi-robot</v-icon>
+        </div>
+        <div class="msg-body">
+          <div class="msg-meta">
+            <span class="msg-role">
+              {{ msg.role === 'user' ? '你' : msg.role === 'tool' ? '工具' : 'AI' }}
+            </span>
+          </div>
+          <div v-if="msg.role === 'tool'" class="msg-content tool-content">
+            <pre>{{ shortResult(msg.content ?? '') }}</pre>
+          </div>
+          <div v-else class="msg-content">{{ msg.content }}</div>
+        </div>
+      </div>
+
+      <!-- Tool call 记录(横排小卡片) -->
+      <div v-for="rec in session.toolCalls" :key="rec.id" class="tool-call" :class="`status-${rec.status}`">
+        <div class="tool-head">
+          <v-icon size="13" :class="rec.status">
+            <template v-if="rec.status === 'running'">mdi-loading mdi-spin</template>
+            <template v-else-if="rec.status === 'success'">mdi-check-circle</template>
+            <template v-else-if="rec.status === 'error'">mdi-alert-circle</template>
+            <template v-else-if="rec.status === 'awaiting-confirm'">mdi-shield-alert-outline</template>
+            <template v-else-if="rec.status === 'rejected'">mdi-cancel</template>
+            <template v-else>mdi-tools</template>
+          </v-icon>
+          <span class="tool-name">{{ rec.name }}</span>
+          <span class="tool-summary">{{ toolCallSummary(rec) }}</span>
+        </div>
+        <pre v-if="rec.result" class="tool-result">{{ shortResult(rec.result, 600) }}</pre>
+        <pre v-if="rec.errorMessage" class="tool-error">{{ rec.errorMessage }}</pre>
+        <div v-if="rec.status === 'awaiting-confirm'" class="tool-confirm">
+          <span class="confirm-hint">执行这条操作?</span>
+          <button class="cyber-btn-secondary confirm-btn reject" @click="reject">
+            <v-icon size="12">mdi-close</v-icon>
+            拒绝
+          </button>
+          <button class="cyber-btn confirm-btn" @click="approve">
+            <v-icon size="12">mdi-check</v-icon>
+            批准
+          </button>
+        </div>
+      </div>
+
+      <!-- 加载指示 -->
+      <div v-if="sending" class="msg assistant">
+        <div class="msg-avatar">
+          <v-icon size="14" color="cyan">mdi-loading mdi-spin</v-icon>
+        </div>
+        <div class="msg-body">
+          <div class="msg-content thinking">AI 思考中…</div>
+        </div>
+      </div>
+
+      <!-- 错误 + 重试 -->
+      <div v-if="session.error" class="error-bar">
+        <v-icon size="14" color="red">mdi-alert-circle</v-icon>
+        <span>{{ session.error }}</span>
+        <button class="retry-btn" @click="emit('retry')">
+          <v-icon size="12">mdi-refresh</v-icon>
+          重试
+        </button>
+      </div>
+    </div>
+
+    <!-- 输入框 -->
+    <div class="chat-input">
+      <textarea
+        v-model="inputText"
+        class="cyber-input"
+        rows="2"
+        :placeholder="placeholder ?? '问我关于这个连接的任何事…'"
+        :disabled="sending"
+        @keydown="onKeydown"
+      />
+      <button class="cyber-btn send-btn" :disabled="!inputText.trim() || sending" @click="onSend">
+        <v-icon size="14">{{ sending ? 'mdi-loading mdi-spin' : 'mdi-send' }}</v-icon>
+        {{ sending ? '发送中' : '发送' }}
+      </button>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.ai-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 12px;
+  color: var(--muted);
+  gap: 6px;
+  margin-top: 40px;
+}
+
+.empty-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.empty-desc {
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 280px;
+}
+
+.msg {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.msg.user {
+  flex-direction: row-reverse;
+}
+
+.msg-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  margin-top: 2px;
+}
+
+.msg.user .msg-avatar {
+  background: rgba(0, 240, 255, 0.1);
+  border-color: rgba(0, 240, 255, 0.3);
+  color: var(--cyan);
+}
+
+.msg.assistant .msg-avatar {
+  background: rgba(181, 107, 255, 0.1);
+  border-color: rgba(181, 107, 255, 0.3);
+  color: var(--purple);
+}
+
+.msg.tool .msg-avatar {
+  background: rgba(120, 160, 255, 0.08);
+  border-color: rgba(120, 160, 255, 0.2);
+  color: var(--muted);
+}
+
+.msg-body {
+  flex: 1;
+  min-width: 0;
+  max-width: calc(100% - 32px);
+}
+
+.msg.user .msg-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.msg-meta {
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 2px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.04em;
+}
+
+.msg-content {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.msg.user .msg-content {
+  background: rgba(0, 240, 255, 0.06);
+  border-color: rgba(0, 240, 255, 0.2);
+}
+
+.msg-content.thinking {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.msg-content.tool-content pre {
+  margin: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-call {
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--cyan);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-call.status-awaiting-confirm {
+  border-left-color: var(--yellow);
+  background: rgba(255, 215, 64, 0.04);
+}
+
+.tool-call.status-error {
+  border-left-color: var(--red);
+  background: rgba(255, 77, 109, 0.04);
+}
+
+.tool-call.status-success {
+  border-left-color: var(--green);
+}
+
+.tool-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tool-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: var(--cyan);
+}
+
+.tool-summary {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-2);
+  font-size: 10px;
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-result {
+  margin: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-2);
+  background: var(--bg-2);
+  padding: 6px 8px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.tool-error {
+  margin: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--red);
+  background: rgba(255, 77, 109, 0.06);
+  padding: 6px 8px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.confirm-hint {
+  font-size: 11px;
+  color: var(--yellow);
+  flex: 1;
+}
+
+.confirm-btn {
+  padding: 4px 8px !important;
+  font-size: 11px !important;
+}
+
+.confirm-btn.reject {
+  color: var(--red) !important;
+  border-color: rgba(255, 77, 109, 0.3) !important;
+}
+
+.error-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(255, 77, 109, 0.08);
+  border: 1px solid rgba(255, 77, 109, 0.2);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--red);
+}
+
+.retry-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid rgba(255, 77, 109, 0.3);
+  border-radius: 4px;
+  color: var(--red);
+  font-size: 10px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.retry-btn:hover {
+  background: rgba(255, 77, 109, 0.1);
+}
+
+.chat-input {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line-2);
+  background: var(--panel-solid);
+  align-items: flex-end;
+}
+
+.chat-input textarea {
+  flex: 1;
+  resize: none;
+  min-height: 36px;
+  max-height: 120px;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.chat-input textarea:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.1);
+}
+
+.send-btn {
+  padding: 6px 12px !important;
+  font-size: 12px !important;
+  white-space: nowrap;
+}
+</style>

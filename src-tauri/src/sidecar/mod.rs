@@ -42,20 +42,33 @@ impl SidecarManager {
         }
     }
 
-    pub async fn start(&self) -> Result<(), String> {
-        let sidecar_path = std::env::current_dir()
-            .map_err(|e| e.to_string())?
-            .join("sidecar")
-            .join("bin")
-            .join(if cfg!(target_os = "windows") {
-                "starhub-sidecar.exe"
-            } else {
-                "starhub-sidecar"
-            });
+    pub async fn start(&self, _app: &tauri::AppHandle) -> Result<(), String> {
+        let sidecar_name = if cfg!(target_os = "windows") {
+            "starhub-sidecar.exe"
+        } else {
+            "starhub-sidecar"
+        };
 
-        if !sidecar_path.exists() {
-            return Err(format!("Sidecar not found: {:?}", sidecar_path));
-        }
+        let exe_dir = std::env::current_exe()
+            .map_err(|e| e.to_string())?
+            .parent()
+            .ok_or("Failed to get exe directory")?
+            .to_path_buf();
+
+        let candidates = vec![
+            exe_dir.join(sidecar_name),
+            exe_dir.join("sidecar").join(sidecar_name),
+            exe_dir.join("..").join("sidecar").join("bin").join(sidecar_name),
+            exe_dir.join("..").join("..").join("sidecar").join("bin").join(sidecar_name),
+            exe_dir.join("..").join("..").join("..").join("sidecar").join("bin").join(sidecar_name),
+        ];
+
+        let sidecar_path = candidates
+            .into_iter()
+            .find(|p| p.exists())
+            .ok_or_else(|| format!("Sidecar not found. Looked relative to exe at {:?}", exe_dir))?;
+
+        tracing::info!("Sidecar path: {:?}", sidecar_path);
 
         let mut child = Command::new(sidecar_path)
             .stdin(Stdio::piped())

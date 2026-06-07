@@ -55,6 +55,7 @@ export default {
     favorite: '收藏',
     testConnection: '测试连接',
     connect: '连接',
+    openInNewTab: '在新标签页中打开',
     disconnect: '断开',
     ssh: 'SSH 终端',
     db: '数据库',
@@ -104,7 +105,17 @@ export default {
     testing: '正在测试...',
     testSuccess: '连接成功',
     testFail: '连接失败',
-    testHint: '将尝试 SSH 连接到目标主机,验证凭据是否有效'
+    testHint: '将尝试 SSH 连接到目标主机,验证凭据是否有效',
+    selectKey: '选择私钥文件',
+    keyLoaded: '已加载',
+    clearKey: '清除私钥',
+    keyTooLarge: '私钥文件超过 2MB,请检查文件是否正确',
+    pasteFromClipboard: '从剪贴板粘贴',
+    pastedFromClipboard: '已粘贴',
+    clipboardReadFailed: '无法读取剪贴板',
+    jumpHost: '跳板机 (ProxyJump)',
+    jumpServer: '跳板服务器',
+    jumpAuth: '跳板机认证'
   },
   sftp: {
     title: '文件传输',

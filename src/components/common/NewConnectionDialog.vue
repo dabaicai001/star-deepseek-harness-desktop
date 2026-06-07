@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SshConnectionForm from '@/components/ssh/SshConnectionForm.vue'
 import DbConnectionForm from '@/components/db/DbConnectionForm.vue'
@@ -34,6 +34,29 @@ function selectType(type: string) {
   }
 }
 
+function syncDockerFromAsset() {
+  if (!props.asset || props.asset.type !== 'docker') return
+  dockerName.value = props.asset.name
+  dockerSocket.value = props.asset.config.socketPath || ''
+}
+
+// 编辑模式打开 dialog 时,直接跳到对应 step 并回填 docker 字段
+watch(
+  () => [props.modelValue, props.asset] as const,
+  ([open, asset]) => {
+    if (!open) return
+    if (asset && asset.type === 'ssh') {
+      step.value = 'ssh'
+    } else if (asset && asset.type === 'db') {
+      step.value = 'db'
+    } else if (asset && asset.type === 'docker') {
+      step.value = 'docker'
+      syncDockerFromAsset()
+    }
+  },
+  { immediate: true }
+)
+
 function handleSshSubmit(dto: CreateAssetDto) {
   if (mode.value === 'edit' && props.asset) {
     emit('update', { id: props.asset.id, dto })
@@ -63,6 +86,8 @@ function handleDockerSubmit(dto: CreateAssetDto) {
 
 function close() {
   step.value = 'type'
+  dockerName.value = ''
+  dockerSocket.value = ''
   emit('update:modelValue', false)
 }
 </script>
@@ -72,7 +97,6 @@ function close() {
     :model-value="modelValue"
     @update:model-value="emit('update:modelValue', $event)"
     max-width="640"
-    persistent
     transition="dialog-bottom-transition"
     scrollable
   >
@@ -150,7 +174,13 @@ function close() {
               username: asset.config.username || '',
               password: asset.config.password || '',
               privateKey: asset.config.privateKey || '',
-              passphrase: asset.config.passphrase || ''
+              passphrase: asset.config.passphrase || '',
+              jumpHost: asset.config.jumpHost || '',
+              jumpPort: asset.config.jumpPort || 22,
+              jumpUsername: asset.config.jumpUsername || '',
+              jumpPassword: asset.config.jumpPassword || '',
+              jumpPrivateKey: asset.config.jumpPrivateKey || '',
+              jumpPassphrase: asset.config.jumpPassphrase || ''
             } : undefined"
             @submit="handleSshSubmit"
             @cancel="close"

@@ -5,16 +5,29 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import TerminalPane from './TerminalPane.vue'
 import SftpBrowser from './SftpBrowser.vue'
+import RightPanel from '@/components/layout/RightPanel.vue'
+import AiChat from '@/components/ai/AiChat.vue'
 import { useAssetStore } from '@/stores/asset'
+import { useAiStore } from '@/stores/ai'
+import { parseInstanceId } from '@/utils/tabId'
+import { SSH_SYSTEM_PROMPT, sshTools, makeSshToolCaller } from '@/utils/aiTools'
+import type { LlmToolCall } from '@/services/ai'
 
 const { t } = useI18n()
 const assetStore = useAssetStore()
+const aiStore = useAiStore()
 
 const props = defineProps<{
+  /**
+   * Tab instance id(由路由 ssh/:id 传入)
+   * 同资产多个 tab 会有不同的 instanceId,各自独立 session
+   */
   id: string
 }>()
 
-const asset = computed(() => assetStore.assets.find((a) => a.id === props.id))
+/** 从 instanceId 解析出资产 id,再用资产 id 找资产配置 */
+const instanceInfo = computed(() => parseInstanceId(props.id))
+const asset = computed(() => assetStore.assets.find((a) => a.id === instanceInfo.value.assetId))
 
 const terminalRef = ref<InstanceType<typeof TerminalPane>>()
 const connected = ref(false)
@@ -25,6 +38,13 @@ let unlisten: (() => void) | null = null
 let unlistenClose: (() => void) | null = null
 let connectedAt = 0
 let timerId: number | null = null
+
+// ====== AI 助手用:收集 SSH 输出 ======
+// 每次 SSH 收到数据,都 push 到这里;captureOutput(timeout) 等固定时间后返回这段输出
+const dataBuffer = ref<string[]>([])
+let captureBaseline = 0  // captureOutput 调用前的 buffer 长度
+let captureResolve: ((s: string) => void) | null = null
+let captureTimer: number | null = null
 
 // SFTP 分栏宽度(终端:SFTP),默认 65:35,从 localStorage 记忆
 const SPLIT_KEY = 'starhub.ssh.split'
@@ -114,6 +134,73 @@ const searchQuery = ref('')
 // SFTP 面板显示开关(连接成功后默认开启,跟终端并排)
 const showSftp = ref(true)
 
+// ====== 右侧 Panel(SFTP / AI 切换) ======
+const showRightPanel = ref(true)
+const rightActiveTab = ref<string>('sftp')
+
+const rightPanelTabs = computed(() => [
+  { key: 'sftp', label: 'SFTP', icon: 'mdi-folder-network-outline' },
+  { key: 'ai', label: 'AI 助手', icon: 'mdi-robot-outline' }
+])
+
+// 把现有 SFTP 显示开关接进 RightPanel(共用一个 modelValue)
+watch(showSftp, (v) => {
+  if (!v) showRightPanel.value = false
+})
+watch(showRightPanel, (v) => {
+  if (v && !showSftp.value && rightActiveTab.value === 'sftp') showSftp.value = true
+})
+
+// ====== AI 助手(每个 tab 独立) ======
+const aiSession = computed(() => {
+  if (!asset.value) return null
+  const session = aiStore.getOrCreateSession(props.id, asset.value.id, 'ssh')
+  return session
+})
+
+async function onAiSend(text: string) {
+  if (!aiSession.value) return
+  aiSession.value.messages.push({ role: 'user', content: text })
+  await runSshAgent()
+}
+
+async function onAiRetry() {
+  if (!aiSession.value) return
+  // 删最后一条 assistant + user 对,重发最后一条 user
+  const msgs = aiSession.value.messages
+  while (msgs.length && msgs[msgs.length - 1].role !== 'user') {
+    msgs.pop()
+  }
+  if (msgs.length) await runSshAgent()
+}
+
+function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject') {
+  // MVP: 自动批准(真正的 UI 确认弹窗留到下一步)
+  if (!aiSession.value) return
+  const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
+  if (rec) {
+    rec.status = decision === 'approve' ? 'success' : 'rejected'
+    if (decision === 'reject') {
+      rec.result = '[Rejected by user]'
+    }
+  }
+}
+
+async function runSshAgent() {
+  if (!aiSession.value) return
+  const timeoutSec = aiStore.settings.commandTimeoutSec
+  const caller = makeSshToolCaller(
+    async (cmd) => { await writeCommand(cmd) },
+    async (ms) => { return await captureOutput(ms || timeoutSec * 1000) },
+    () => aiStore.settings.commandWhitelist
+  )
+  // 包装一层,把 LlmToolCall 转成 caller 期望的格式
+  const toolExec = async (call: LlmToolCall) => {
+    return await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+  }
+  await aiStore.runAgent(props.id, sshTools, toolExec, SSH_SYSTEM_PROMPT)
+}
+
 onMounted(async () => {
   if (asset.value) {
     await connect()
@@ -152,6 +239,8 @@ async function connect() {
     terminalRef.value?.writeln('\x1b[31mError: Missing host or username\x1b[0m')
     return
   }
+  // 后端按 instanceId(不是 assetId)管 session,这样同资产多 tab 各自独立
+  const sessionId = props.id
 
   // 防御性清理:重连 / 重复调用时,先把旧 listener 解绑,避免双写
   if (unlisten) { unlisten(); unlisten = null }
@@ -176,16 +265,21 @@ async function connect() {
           : { Password: '' }
     }
 
-    await invoke('ssh_connect', { id: a.id, config })
+    await invoke('ssh_connect', { id: sessionId, config })
     connected.value = true
     terminalRef.value?.writeln('\x1b[32m✓ Connected\x1b[0m')
     startTimer()
 
-    unlisten = await listen(`ssh:data:${a.id}`, (event) => {
-      terminalRef.value?.write(event.payload as string)
+    unlisten = await listen(`ssh:data:${sessionId}`, (event) => {
+      const chunk = event.payload as string
+      terminalRef.value?.write(chunk)
+      // 收集到 buffer(AI 助手用)
+      dataBuffer.value.push(chunk)
+      // 唤醒正在等待的 captureOutput
+      maybeResolveCapture()
     })
 
-    unlistenClose = await listen(`ssh:close:${a.id}`, () => {
+    unlistenClose = await listen(`ssh:close:${sessionId}`, () => {
       connected.value = false
       stopTimer()
       terminalRef.value?.writeln('\r\n\x1b[33m! Connection closed by remote host\x1b[0m')
@@ -208,9 +302,9 @@ async function disconnect() {
     unlistenClose = null
   }
 
-  if (connected.value && asset.value) {
+  if (connected.value) {
     try {
-      await invoke('ssh_disconnect', { id: asset.value.id })
+      await invoke('ssh_disconnect', { id: props.id })
     } catch (error) {
       console.error('Failed to disconnect:', error)
     }
@@ -220,9 +314,9 @@ async function disconnect() {
 }
 
 async function handleData(data: string) {
-  if (connected.value && asset.value) {
+  if (connected.value) {
     try {
-      await invoke('ssh_write', { id: asset.value.id, data })
+      await invoke('ssh_write', { id: props.id, data })
     } catch (error) {
       console.error('Failed to write data:', error)
     }
@@ -230,14 +324,101 @@ async function handleData(data: string) {
 }
 
 async function handleResize(cols: number, rows: number) {
-  if (connected.value && asset.value) {
+  if (connected.value) {
     try {
-      await invoke('ssh_resize', { id: asset.value.id, cols, rows })
+      await invoke('ssh_resize', { id: props.id, cols, rows })
     } catch (error) {
       console.error('Failed to resize:', error)
     }
   }
 }
+
+// ====== AI 助手用:写命令 + 捕获输出 ======
+
+/**
+ * AI 写一条命令到 terminal(用户能看到)
+ * 注意:这里发的是用户输入风格(末尾加 \n),相当于按了回车
+ */
+async function writeCommand(command: string): Promise<void> {
+  if (!connected.value) {
+    throw new Error('SSH not connected')
+  }
+  await invoke('ssh_write', { id: props.id, data: command + '\n' })
+}
+
+// ====== 快速命令栏(连接后顶部一条小横条) ======
+const quickCommands = [
+  { label: 'ls', cmd: 'ls -la', icon: 'mdi-format-list-bulleted' },
+  { label: 'pwd', cmd: 'pwd', icon: 'mdi-map-marker-outline' },
+  { label: 'df', cmd: 'df -h', icon: 'mdi-harddisk' },
+  { label: 'top', cmd: 'top -b -n 1 | head -20', icon: 'mdi-chip' },
+  { label: 'whoami', cmd: 'whoami', icon: 'mdi-account-outline' },
+  { label: 'uptime', cmd: 'uptime', icon: 'mdi-clock-outline' }
+]
+async function runQuickCommand(cmd: string) {
+  try {
+    await writeCommand(cmd)
+  } catch (e) {
+    terminalRef.value?.writeln(`\x1b[31m✗ ${e instanceof Error ? e.message : String(e)}\x1b[0m`)
+  }
+}
+
+/**
+ * 等固定时间收集 SSH 输出。
+ * 调用时记录当前 buffer 长度,等待 timeoutMs 或 buffer 增长 200ms 内无新数据,
+ * 返回 [基线, 现在] 之间的所有数据。
+ *
+ * 简化策略(MVP):
+ *  - 记录 baseline = 当前 buffer.length
+ *  - 设一个 timeoutMs 计时器,到点 resolve 并清空计时器
+ *  - 如果 baseline 之后又来数据,刷新一个"静默计时器"(200ms 无新数据)提前 resolve
+ */
+function captureOutput(timeoutMs: number): Promise<string> {
+  return new Promise(resolve => {
+    if (captureResolve) {
+      // 已有 capture 在进行:合并,直接 return 旧的
+      captureResolve(dataBuffer.value.slice(captureBaseline).join(''))
+      captureResolve = null
+      if (captureTimer) { clearTimeout(captureTimer); captureTimer = null }
+    }
+    captureBaseline = dataBuffer.value.length
+    captureResolve = (s: string) => {
+      resolve(s)
+      captureResolve = null
+      if (captureTimer) { clearTimeout(captureTimer); captureTimer = null }
+    }
+    captureTimer = window.setTimeout(() => {
+      if (captureResolve) {
+        const output = dataBuffer.value.slice(captureBaseline).join('')
+        captureResolve(output)
+      }
+    }, timeoutMs)
+  })
+}
+
+function maybeResolveCapture() {
+  if (!captureResolve) return
+  // 收到新数据 → 重新计时(给"还在输出中"的命令多 200ms 缓冲)
+  if (captureTimer) clearTimeout(captureTimer)
+  captureTimer = window.setTimeout(() => {
+    if (captureResolve) {
+      const output = dataBuffer.value.slice(captureBaseline).join('')
+      captureResolve(output)
+    }
+  }, 200)
+}
+
+function clearBuffer() {
+  dataBuffer.value = []
+  captureBaseline = 0
+}
+
+defineExpose({
+  writeCommand,
+  captureOutput,
+  clearBuffer,
+  isConnected: () => connected.value
+})
 
 // ====== 断线 Enter 重连 ======
 function handleReconnect() {
@@ -376,11 +557,22 @@ function handleSearch() {
       </div>
     </div>
 
-    <div class="workspace" :class="{ 'with-sftp': showSftp, dragging: isDragging }">
-      <div
-        class="terminal-pane"
-        :style="showSftp ? { flex: `0 0 ${splitPercent}%` } : undefined"
-      >
+    <div class="workspace" :class="{ dragging: isDragging }">
+      <div class="terminal-pane">
+        <!-- 快速命令栏:刚连接时给新手指引,常用查看命令一键发 -->
+        <div v-if="connected" class="quick-commands">
+          <span class="qc-label">QUICK</span>
+          <button
+            v-for="qc in quickCommands"
+            :key="qc.cmd"
+            class="qc-btn"
+            :disabled="!connected || connecting"
+            @click="runQuickCommand(qc.cmd)"
+          >
+            <v-icon size="11">{{ qc.icon }}</v-icon>
+            <span>{{ qc.label }}</span>
+          </button>
+        </div>
         <TerminalPane
           ref="terminalRef"
           :session-id="id"
@@ -391,29 +583,28 @@ function handleSearch() {
           @resize="handleResize"
         />
       </div>
-      <div
-        v-if="showSftp"
-        class="pane-divider"
-        :class="{ active: isDragging }"
-        role="separator"
-        aria-orientation="vertical"
-        :aria-valuenow="Math.round(splitPercent)"
-        :title="`拖动调整 · 终端 ${Math.round(splitPercent)}% / SFTP ${Math.round(sftpPercent)}% · 双击重置`"
-        @pointerdown="onDividerPointerDown"
-        @pointermove="onDividerPointerMove"
-        @pointerup="onDividerPointerUp"
-        @pointercancel="onDividerPointerUp"
-        @dblclick="resetSplit"
+
+      <RightPanel
+        v-model="showRightPanel"
+        v-model:active-tab="rightActiveTab"
+        :tabs="rightPanelTabs"
+        :width="380"
       >
-        <span class="divider-grip" />
-      </div>
-      <div
-        v-if="showSftp"
-        class="sftp-pane"
-        :style="{ flex: `0 0 ${sftpPercent}%` }"
-      >
-        <SftpBrowser :session-id="id" :ready="connected" />
-      </div>
+        <template #tab-sftp>
+          <SftpBrowser :session-id="id" :ready="connected" />
+        </template>
+        <template #tab-ai>
+          <AiChat
+            v-if="aiSession"
+            :session="aiSession"
+            :sending="aiSession.loading"
+            placeholder="问我关于这台主机的任何事,例如'看看磁盘空间'"
+            @send="onAiSend"
+            @retry="onAiRetry"
+            @confirm-tool="onAiConfirmTool"
+          />
+        </template>
+      </RightPanel>
     </div>
   </div>
 </template>
@@ -451,7 +642,52 @@ function handleSearch() {
   min-height: 0;
   padding: 8px;
   display: flex;
+  flex-direction: column;
   transition: flex-basis 0s; /* 拖拽时不带过渡,跟手 */
+}
+
+.quick-commands {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: rgba(0, 240, 255, 0.04);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.qc-label {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: 'Orbitron', sans-serif;
+  color: var(--cyan);
+  letter-spacing: 0.12em;
+  margin-right: 4px;
+  text-shadow: 0 0 6px rgba(0, 240, 255, 0.4);
+}
+.qc-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: rgba(0, 240, 255, 0.05);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  color: var(--text-2);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.qc-btn:hover:not(:disabled) {
+  background: rgba(0, 240, 255, 0.12);
+  border-color: rgba(0, 240, 255, 0.4);
+  color: var(--cyan);
+}
+.qc-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .workspace:not(.dragging) .terminal-pane,

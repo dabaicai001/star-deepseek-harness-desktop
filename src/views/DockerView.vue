@@ -4,14 +4,24 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useDockerStore } from '@/stores/docker'
+import { useAiStore } from '@/stores/ai'
+import RightPanel from '@/components/layout/RightPanel.vue'
+import AiChat from '@/components/ai/AiChat.vue'
+import { parseInstanceId } from '@/utils/tabId'
+import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller } from '@/utils/aiTools'
+import * as dockerService from '@/services/docker'
+import type { LlmToolCall } from '@/services/ai'
 import type { ContainerInfo } from '@/types/docker'
 
 const { t } = useI18n()
 const route = useRoute()
 const assetStore = useAssetStore()
 const dockerStore = useDockerStore()
+const aiStore = useAiStore()
 
-const assetId = computed(() => route.params.id as string)
+// 路由 :id 是 tab instanceId,需要解析出 assetId 找资产配置
+const instanceId = computed(() => route.params.id as string)
+const assetId = computed(() => parseInstanceId(instanceId.value).assetId)
 const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value))
 
 const connected = ref(false)
@@ -112,12 +122,82 @@ watch(() => assetId.value, () => {
 })
 
 onBeforeUnmount(() => {
-  if (statsInterval) clearInterval(statsInterval)
+  if (connected.value && dockerStore.currentConnId) {
+    dockerStore.disconnect(dockerStore.currentConnId)
+  }
 })
+
+// ====== AI 助手(每个 tab 独立) ======
+const showRightPanel = ref(true)
+const rightActiveTab = ref('ai')
+const rightPanelTabs = computed(() => [
+  { key: 'ai', label: 'AI 助手', icon: 'mdi-robot-outline' }
+])
+
+const aiSession = computed(() => {
+  if (!asset.value) return null
+  return aiStore.getOrCreateSession(instanceId.value, asset.value.id, 'docker')
+})
+
+async function executeDockerTool(name: string, args: Record<string, unknown>): Promise<string> {
+  const connId = dockerStore.currentConnId
+  if (!connId) throw new Error('Docker 未连接')
+  if (name === 'docker_list_containers') {
+    const showAll = args.all !== 'false'
+    const list = await dockerService.listContainers(connId, showAll)
+    if (list.length === 0) return '(没有容器)'
+    return list.slice(0, 50).map((c: any) =>
+      `${(c.id || '').slice(0, 12)} | ${(c.name || '').padEnd(20)} | ${(c.image || '').padEnd(30)} | ${(c.state || '').padEnd(10)} | ${c.ports || ''}`
+    ).join('\n') + (list.length > 50 ? `\n… (共 ${list.length} 个)` : '')
+  }
+  if (name === 'docker_logs') {
+    const container = String(args.container ?? '')
+    const tail = String(args.tail ?? '200')
+    const logs = await dockerService.containerLogs(connId, container, tail)
+    if (logs.length === 0) return '(无日志)'
+    return logs.map((l: any) => `[${l.stream}] ${l.message}`).join('\n')
+  }
+  if (name === 'docker_inspect') {
+    return `inspect ${args.target} - 后端暂未实现,可以用 docker_list_containers 替代`
+  }
+  if (name === 'docker_exec' || name === 'docker_exec_confirmed') {
+    return `docker exec ${args.container} ← ${args.command} - 后端暂未实现 exec,等下一步`
+  }
+  return `[Unknown tool] ${name}`
+}
+
+async function onAiSend(text: string) {
+  if (!aiSession.value) return
+  aiSession.value.messages.push({ role: 'user', content: text })
+  const caller = makeDockerToolCaller(
+    executeDockerTool,
+    () => aiStore.settings.commandWhitelist
+  )
+  const toolExec = async (call: LlmToolCall) =>
+    await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+  await aiStore.runAgent(instanceId.value, dockerTools, toolExec, DOCKER_SYSTEM_PROMPT)
+}
+
+async function onAiRetry() {
+  if (!aiSession.value) return
+  const msgs = aiSession.value.messages
+  while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
+  if (msgs.length) await onAiSend('')
+}
+
+function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject') {
+  if (!aiSession.value) return
+  const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
+  if (rec) {
+    rec.status = decision === 'approve' ? 'success' : 'rejected'
+    if (decision === 'reject') rec.result = '[Rejected by user]'
+  }
+}
 </script>
 
 <template>
-  <div class="docker-view">
+  <div class="docker-view-with-panel">
+    <div class="docker-view">
     <!-- Sidebar -->
     <div class="docker-sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="sidebar-header">
@@ -395,6 +475,26 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+    </div>
+
+    <RightPanel
+      v-model="showRightPanel"
+      v-model:active-tab="rightActiveTab"
+      :tabs="rightPanelTabs"
+      :width="380"
+    >
+      <template #tab-ai>
+        <AiChat
+          v-if="aiSession"
+          :session="aiSession"
+          :sending="aiSession.loading"
+          placeholder="问我关于这个 Docker 主机的任何事,例如'列一下所有容器'"
+          @send="onAiSend"
+          @retry="onAiRetry"
+          @confirm-tool="onAiConfirmTool"
+        />
+      </template>
+    </RightPanel>
   </div>
 </template>
 

@@ -20,8 +20,13 @@ impl SshSession {
         }
     }
 
-    pub async fn connect(&mut self) -> Result<(), String> {
-        let socket_addr = format!("{}:{}", self.config.host, self.config.port);
+    async fn connect_and_auth(
+        host: &str,
+        port: u16,
+        username: &str,
+        auth: &SshAuth,
+    ) -> Result<client::Handle<SshHandler>, String> {
+        let socket_addr = format!("{}:{}", host, port);
 
         let config = client::Config {
             inactivity_timeout: Some(std::time::Duration::from_secs(300)),
@@ -32,16 +37,16 @@ impl SshSession {
 
         let mut handle = client::connect(Arc::new(config), socket_addr, handler)
             .await
-            .map_err(|e| format!("Failed to connect: {}", e))?;
+            .map_err(|e| format!("Failed to connect to {}:{}: {}", host, port, e))?;
 
-        match &self.config.auth {
+        match auth {
             SshAuth::Password(password) => {
                 let result = handle
-                    .authenticate_password(&self.config.username, password.as_str())
+                    .authenticate_password(username, password.as_str())
                     .await
-                    .map_err(|e| format!("Authentication failed: {}", e))?;
+                    .map_err(|e| format!("Password auth failed on {}:{}: {}", host, port, e))?;
                 if !result.success() {
-                    return Err("Password authentication failed".to_string());
+                    return Err(format!("Password authentication failed on {}:{}", host, port));
                 }
             }
             SshAuth::PrivateKey { key, passphrase } => {
@@ -52,14 +57,92 @@ impl SshSession {
                     None,
                 );
                 let result = handle
-                    .authenticate_publickey(&self.config.username, key_with_hash)
+                    .authenticate_publickey(username, key_with_hash)
                     .await
-                    .map_err(|e| format!("Authentication failed: {}", e))?;
+                    .map_err(|e| format!("Public key auth failed on {}:{}: {}", host, port, e))?;
                 if !result.success() {
-                    return Err("Public key authentication failed".to_string());
+                    return Err(format!("Public key authentication failed on {}:{}", host, port));
                 }
             }
         }
+
+        Ok(handle)
+    }
+
+    pub async fn connect(&mut self) -> Result<(), String> {
+        let handle = if let Some(jump_host) = &self.config.jump_host {
+            let jump_port = self.config.jump_port.unwrap_or(22);
+            let jump_username = self.config.jump_username.as_deref()
+                .unwrap_or(&self.config.username);
+            let jump_auth = self.config.jump_auth.as_ref()
+                .unwrap_or(&self.config.auth);
+
+            let jump_handle = Self::connect_and_auth(
+                jump_host, jump_port, jump_username, jump_auth,
+            ).await?;
+
+            let mut direct_tcpip = jump_handle
+                .channel_open_direct_tcpip(
+                    &self.config.host,
+                    self.config.port as u32,
+                    "127.0.0.1",
+                    0,
+                )
+                .await
+                .map_err(|e| format!("Failed to open tunnel through jump host: {}", e))?;
+
+            let config = client::Config {
+                inactivity_timeout: Some(std::time::Duration::from_secs(300)),
+                ..Default::default()
+            };
+
+            let handler = SshHandler;
+
+            let channel_stream = direct_tcpip.into_stream();
+            let mut handle = client::connect_stream(
+                Arc::new(config),
+                channel_stream,
+                handler,
+            )
+            .await
+            .map_err(|e| format!("Failed to connect to target through tunnel: {}", e))?;
+
+            match &self.config.auth {
+                SshAuth::Password(password) => {
+                    let result = handle
+                        .authenticate_password(&self.config.username, password.as_str())
+                        .await
+                        .map_err(|e| format!("Target password auth failed: {}", e))?;
+                    if !result.success() {
+                        return Err("Target password authentication failed".to_string());
+                    }
+                }
+                SshAuth::PrivateKey { key, passphrase } => {
+                    let key_pair = russh::keys::decode_secret_key(key, passphrase.as_deref())
+                        .map_err(|e| format!("Failed to parse private key: {}", e))?;
+                    let key_with_hash = russh::keys::key::PrivateKeyWithHashAlg::new(
+                        Arc::new(key_pair),
+                        None,
+                    );
+                    let result = handle
+                        .authenticate_publickey(&self.config.username, key_with_hash)
+                        .await
+                        .map_err(|e| format!("Target public key auth failed: {}", e))?;
+                    if !result.success() {
+                        return Err("Target public key authentication failed".to_string());
+                    }
+                }
+            }
+
+            handle
+        } else {
+            Self::connect_and_auth(
+                &self.config.host,
+                self.config.port,
+                &self.config.username,
+                &self.config.auth,
+            ).await?
+        };
 
         self.handle = Some(handle);
         Ok(())
@@ -149,7 +232,6 @@ impl SshSession {
         Ok(channel)
     }
 
-    /// 打开一个 SFTP session(每次新操作都用新 channel)
     pub async fn open_sftp(&mut self) -> Result<russh_sftp::client::SftpSession, String> {
         let channel = self
             .open_sftp_channel()

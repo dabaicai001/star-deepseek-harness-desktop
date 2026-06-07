@@ -34,10 +34,19 @@ export interface AssetConfig {
   privateKey?: string
   passphrase?: string
 
+  // 跳板机配置
+  jumpHost?: string
+  jumpPort?: number
+  jumpUsername?: string
+  jumpPassword?: string
+  jumpPrivateKey?: string
+  jumpPassphrase?: string
+
   // 数据库配置
   dbType?: DatabaseType
   database?: string
   ssl?: boolean
+  redisDb?: number
 
   // Docker 配置
   socketPath?: string
