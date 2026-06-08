@@ -3,11 +3,13 @@ use russh::Channel;
 use russh::ChannelMsg;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
-use tauri::Emitter;
-use tokio::sync::{mpsc, Mutex};
-use tokio::time::timeout;
-use super::{SshAuth, SshConfig};
+    use std::time::Duration;
+    use tauri::Emitter;
+    use tokio::sync::{mpsc, Mutex};
+    use tokio::time::timeout;
+    use super::{SshAuth, SshConfig};
+    
+    const SFTP_OPEN_TIMEOUT: Duration = Duration::from_secs(30);
 use super::auth::SshHandler;
 
 pub struct SshSession {
@@ -288,9 +290,13 @@ impl SshSession {
             .handle
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
-        let mut channel = handle.channel_open_session().await?;
-        channel.request_subsystem(true, "sftp").await?;
-        Ok(channel)
+        timeout(SFTP_OPEN_TIMEOUT, async {
+            let mut channel = handle.channel_open_session().await?;
+            channel.request_subsystem(true, "sftp").await?;
+            Ok(channel)
+        })
+            .await
+            .map_err(|_| anyhow::anyhow!("SFTP channel open timed out ({}s)", SFTP_OPEN_TIMEOUT.as_secs()))?
     }
 
     /// 在 SSH 会话上跑一条命令,等待执行完成,收集 stdout。

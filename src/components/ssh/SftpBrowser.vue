@@ -46,6 +46,9 @@ const errorMsg = ref<string | null>(null)
 const pathInput = ref('')
 const showHidden = ref(false)
 const isDragging = ref(false)
+// 用于取消过期请求:每次 load() 递增,响应对不上就丢弃
+let loadId = 0
+const SFTP_TIMEOUT_MS = 30_000
 // ====== 多选 ======
 const selectedPaths = ref<Set<string>>(new Set())
 
@@ -235,40 +238,52 @@ const transferStats = computed(() => {
 // ====== 加载 ======
 async function load(path?: string) {
   const target = path ?? currentPath.value
+  const thisLoadId = ++loadId
   loading.value = true
   errorMsg.value = null
   selectedPaths.value = new Set()
   try {
-    entries.value = await sftpList(props.sessionId, target)
+    entries.value = await sftpListWithTimeout(props.sessionId, target, thisLoadId)
+    if (thisLoadId !== loadId) return // 过期请求,丢弃
     currentPath.value = target
     pathInput.value = target
   } catch (e: any) {
+    if (thisLoadId !== loadId) return // 过期请求,丢弃
     const msg = String(e?.message ?? e)
     errorMsg.value = msg
     entries.value = []
-    // 修复 race condition:SSH connect 是 async,如果 SftpBrowser 在 SshTerminal
-    // connect() 完成前就发了请求,后端 sessions 还没有这条 id,会报 Session not found。
-    // 遇到这个错误时,等 600ms 再重试 1 次(给后端时间完成注册)
     if (msg.includes('Session not found') && !retrying.value) {
       retrying.value = true
       setTimeout(async () => {
         retrying.value = false
+        const retryLoadId = ++loadId
+        loading.value = true
         try {
-          entries.value = await sftpList(props.sessionId, target)
+          entries.value = await sftpListWithTimeout(props.sessionId, target, retryLoadId)
+          if (retryLoadId !== loadId) return
           currentPath.value = target
           pathInput.value = target
           errorMsg.value = null
         } catch (e2: any) {
+          if (retryLoadId !== loadId) return
           errorMsg.value = String(e2?.message ?? e2)
         } finally {
-          loading.value = false
+          if (retryLoadId === loadId) loading.value = false
         }
       }, 600)
       return
     }
   } finally {
-    loading.value = false
+    if (thisLoadId === loadId) loading.value = false
   }
+}
+
+/** 带超时的 sftpList,超时抛出友好错误 */
+async function sftpListWithTimeout(id: string, path: string, lid: number): Promise<SftpEntry[]> {
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`SFTP 列表超时 (${SFTP_TIMEOUT_MS / 1000}s)`)), SFTP_TIMEOUT_MS)
+  })
+  return Promise.race([sftpList(id, path), timeoutPromise])
 }
 
 const retrying = ref(false)
@@ -882,9 +897,9 @@ onMounted(() => {
   void refreshTransferList()
 })
 
-// 监听 sessionId 变化(同一个组件实例被复用)
-watch(() => props.sessionId, () => {
-  if (props.ready) load()
+// 监听 sessionId 变化(同一个组件实例被复用:重新连接新 SSH 时)
+watch(() => props.sessionId, (newId, oldId) => {
+  if (newId !== oldId && props.ready) load()
 })
 
 // SSH session 就绪后,自动 load 一次
