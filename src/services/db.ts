@@ -90,11 +90,11 @@ export async function mysqlInsertRow(connId: string, table: string, values: Reco
 }
 
 export async function mysqlUpdateRows(connId: string, table: string, sets: Record<string, unknown>, where: string, database?: string): Promise<RowsAffectedResult> {
-  return invoke('db_mysql_update_rows', { connId, table, sets, where, database })
+  return invoke('db_mysql_update_rows', { connId, table, sets, whereClause: where, database })
 }
 
 export async function mysqlDeleteRows(connId: string, table: string, where: string, database?: string): Promise<RowsAffectedResult> {
-  return invoke('db_mysql_delete_rows', { connId, table, where, database })
+  return invoke('db_mysql_delete_rows', { connId, table, whereClause: where, database })
 }
 
 export async function mysqlExportData(connId: string, table: string, format: string, limit?: number, database?: string): Promise<ExportResult> {
