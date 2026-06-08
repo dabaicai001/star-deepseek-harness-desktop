@@ -44,6 +44,7 @@ const successMsg = ref<string | null>(null)
 
 // 新增列(未提交到 edits,等用户填完再加入)
 const addingColumn = ref(false)
+const addedCount = ref(0)
 const newCol = ref<ColumnEdit>({
   name: '', newName: '', type: '', newType: 'VARCHAR(255)',
   dataType: '', nullable: 'YES', newNullable: true,
@@ -102,6 +103,7 @@ function resetColumn(col: ColumnEdit) {
 
 function startAddColumn() {
   addingColumn.value = true
+  addedCount.value = 0
   newCol.value = {
     name: '', newName: '', type: '', newType: 'VARCHAR(255)',
     dataType: '', nullable: 'YES', newNullable: true,
@@ -123,7 +125,15 @@ function confirmAddColumn() {
   }
   edits.value.set(colName, entry)
   edits.value = new Map(edits.value)
-  addingColumn.value = false
+  addedCount.value++
+  // 清空表单继续添加下一个
+  newCol.value = {
+    name: '', newName: '', type: '', newType: 'VARCHAR(255)',
+    dataType: '', nullable: 'YES', newNullable: true,
+    key: '', defaultValue: null, newDefault: '',
+    extra: '', comment: '', newComment: '',
+    ordinalPosition: 0, dirty: true, dropped: false
+  }
 }
 
 function cancelAddColumn() {
@@ -249,19 +259,20 @@ async function loadDDLPreview() {
 
     <!-- Editable table -->
     <div class="struct-scroll">
-      <!-- Inline add-column row -->
+      <!-- Inline add-column form (supports adding multiple columns in one go) -->
       <div v-if="addingColumn" class="add-col-form">
-        <input v-model="newCol.newName" class="cell-input" placeholder="列名" autofocus />
-        <input v-model="newCol.newType" class="cell-input type" placeholder="类型" />
+        <input v-model="newCol.newName" class="cell-input" placeholder="列名" autofocus @keydown.enter.prevent="confirmAddColumn" />
+        <input v-model="newCol.newType" class="cell-input type" placeholder="类型" @keydown.enter.prevent="confirmAddColumn" />
         <label class="add-col-check"><input type="checkbox" v-model="newCol.newNullable" /> NULL</label>
-        <input v-model="newCol.newDefault" class="cell-input" placeholder="默认值" />
-        <input v-model="newCol.newComment" class="cell-input" placeholder="注释" />
+        <input v-model="newCol.newDefault" class="cell-input" placeholder="默认值" @keydown.enter.prevent="confirmAddColumn" />
+        <input v-model="newCol.newComment" class="cell-input" placeholder="注释" @keydown.enter.prevent="confirmAddColumn" />
         <div class="add-col-actions">
+          <span v-if="addedCount > 0" class="add-col-count">+{{ addedCount }}</span>
           <button class="action-btn-sm" :title="t('common.confirm')" @click="confirmAddColumn">
             <v-icon size="12" color="green">mdi-check</v-icon>
           </button>
-          <button class="action-btn-sm" :title="t('common.cancel')" @click="cancelAddColumn">
-            <v-icon size="12" color="red">mdi-close</v-icon>
+          <button class="action-btn-sm" :title="'完成'" @click="cancelAddColumn">
+            <v-icon size="12" color="cyan">mdi-check-all</v-icon>
           </button>
         </div>
       </div>
@@ -646,5 +657,15 @@ input[type="checkbox"].dirty {
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+  align-items: center;
+}
+
+.add-col-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--green);
+  min-width: 20px;
+  text-align: center;
 }
 </style>
