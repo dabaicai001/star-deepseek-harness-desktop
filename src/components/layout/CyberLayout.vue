@@ -1067,7 +1067,11 @@ vueWatch(() => appStore.tabs.length, () => {
         </div>
         
         <div v-else class="workspace-content">
-          <router-view :key="route.fullPath" />
+          <router-view v-slot="{ Component }">
+            <keep-alive>
+              <component :is="Component" :key="route.fullPath" />
+            </keep-alive>
+          </router-view>
         </div>
       </div>
     </div>
