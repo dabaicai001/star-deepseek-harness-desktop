@@ -6,7 +6,7 @@ use crate::ssh::{SshConfig, SshSessionInfo};
 use crate::ssh::session::SshSession;
 
 pub struct SshManager {
-    pub sessions: Arc<Mutex<HashMap<String, SshSession>>>,
+    pub sessions: Arc<Mutex<HashMap<String, Arc<Mutex<SshSession>>>>>,
     channels: Arc<Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
 }
 
@@ -26,8 +26,9 @@ pub async fn ssh_connect(
     config: SshConfig,
     app_handle: tauri::AppHandle,
 ) -> Result<SshSessionInfo, String> {
-    let mut sessions = manager.sessions.lock().await;
-
+    // 网络 I/O 在锁外执行 — 否则 connect() 期间持有 sessions 锁会阻塞
+    // 所有其他 SSH 操作(resize / disconnect / 新 connect),导致第二个 tab
+    // 永远卡在 "Connecting to"。
     let mut session = SshSession::new(config.clone());
     session.connect().await?;
     session.open_shell(&id, app_handle, manager.channels.clone()).await?;
@@ -39,7 +40,10 @@ pub async fn ssh_connect(
         username: config.username,
         connected: true,
     };
-    sessions.insert(id, session);
+
+    // 只在插入 map 时短暂持锁
+    let mut sessions = manager.sessions.lock().await;
+    sessions.insert(id, Arc::new(Mutex::new(session)));
 
     Ok(info)
 }
@@ -49,9 +53,14 @@ pub async fn ssh_disconnect(
     manager: State<'_, SshManager>,
     id: String,
 ) -> Result<(), String> {
-    let mut sessions = manager.sessions.lock().await;
-
-    if let Some(mut session) = sessions.remove(&id) {
+    // 先从 map 中移除(短暂持锁),再对单个 session 加锁断开,
+    // 避免 disconnect 期间阻塞其他 session 的操作。
+    let session_arc = {
+        let mut sessions = manager.sessions.lock().await;
+        sessions.remove(&id)
+    };
+    if let Some(session) = session_arc {
+        let mut session = session.lock().await;
         session.disconnect();
     }
 
@@ -85,10 +94,15 @@ pub async fn ssh_resize(
     cols: u32,
     rows: u32,
 ) -> Result<(), String> {
-    // 调 session.resize() 走 SSH window-change 协议,
-    // 让远端 PTY(以及 vi / vim / top / less 等)感知到实际窗口尺寸。
-    let sessions = manager.sessions.lock().await;
-    if let Some(session) = sessions.get(&id) {
+    // 先从 map 中取出 Arc(只持有主锁一瞬间),然后释放主锁,
+    // 再对单个 session 加锁。这样不同 session 的 resize 不会互相阻塞,
+    // 也不会被 connect 阻塞。
+    let session_arc = {
+        let sessions = manager.sessions.lock().await;
+        sessions.get(&id).cloned()
+    };
+    if let Some(session) = session_arc {
+        let session = session.lock().await;
         session.resize(cols, rows).await?;
     }
     Ok(())
@@ -155,11 +169,18 @@ pub async fn ssh_exec(
     command: String,
     timeout_sec: Option<u64>,
 ) -> Result<String, String> {
-    let mut sessions = manager.sessions.lock().await;
-    let session = sessions
-        .get_mut(&id)
-        .ok_or_else(|| format!("SSH session {} not found", id))?;
+    // 先从 sessions map 中取出 Arc(只持有主锁一瞬间),然后释放主锁,
+    // 再对单个 session 加锁执行命令。这样不同 session 的 exec 和 connect
+    // 不会互相阻塞。
+    let session_arc = {
+        let sessions = manager.sessions.lock().await;
+        sessions
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| format!("SSH session {} not found", id))?
+    };
 
+    let mut session = session_arc.lock().await;
     session
         .exec(&command, timeout_sec.unwrap_or(10))
         .await
