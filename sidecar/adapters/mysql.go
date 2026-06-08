@@ -195,12 +195,19 @@ func (a *MySQLAdapter) Execute(sqlStr string) (*QueryResult, error) {
 		return &QueryResult{Error: "empty SQL"}, nil
 	}
 
-	// 判断是否是 SELECT 查询
+	// 判断是否是 SELECT 查询（跳过前置的 USE db; 语句）
+	checkStr := sqlStr
 	upper := strings.ToUpper(sqlStr)
-	isSelect := strings.HasPrefix(upper, "SELECT") ||
-		strings.HasPrefix(upper, "SHOW") ||
-		strings.HasPrefix(upper, "DESCRIBE") ||
-		strings.HasPrefix(upper, "EXPLAIN")
+	if strings.HasPrefix(upper, "USE ") {
+		if idx := strings.Index(sqlStr, ";"); idx != -1 {
+			checkStr = strings.TrimSpace(sqlStr[idx+1:])
+		}
+	}
+	upperCheck := strings.ToUpper(checkStr)
+	isSelect := strings.HasPrefix(upperCheck, "SELECT") ||
+		strings.HasPrefix(upperCheck, "SHOW") ||
+		strings.HasPrefix(upperCheck, "DESCRIBE") ||
+		strings.HasPrefix(upperCheck, "EXPLAIN")
 
 	if isSelect {
 		return a.executeSelect(sqlStr, start)
