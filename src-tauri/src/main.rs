@@ -55,6 +55,7 @@ fn main() {
             commands::ssh::ssh_write,
             commands::ssh::ssh_resize,
             commands::ssh::ssh_get_sessions,
+            commands::ssh::ssh_exec,
             commands::ssh::test_ssh_connection,
             commands::sftp::sftp_list,
             commands::sftp::sftp_read,

@@ -3,8 +3,10 @@ use russh::Channel;
 use russh::ChannelMsg;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::Emitter;
 use tokio::sync::{mpsc, Mutex};
+use tokio::time::timeout;
 use super::{SshAuth, SshConfig};
 use super::auth::SshHandler;
 
@@ -275,6 +277,76 @@ impl SshSession {
         Ok(channel)
     }
 
+    /// 在 SSH 会话上跑一条命令,等待执行完成,收集 stdout。
+    /// 适合仪表盘一次性拉数据(`cat /proc/meminfo`、`df -h` 等)，
+    /// 不做 PTY 分配,纯管道模式,结果干净。
+    ///
+    /// - `command` 要执行的 shell 命令
+    /// - `timeout_sec` 超时(秒),到点强制中断(返回当前已收的数据 + 错误)
+    pub async fn exec(
+        &mut self,
+        command: &str,
+        timeout_sec: u64,
+    ) -> Result<String, String> {
+        let handle = self
+            .handle
+            .as_mut()
+            .ok_or_else(|| "SSH session not connected".to_string())?;
+
+        let mut channel = handle
+            .channel_open_session()
+            .await
+            .map_err(|e| format!("Failed to open exec channel: {}", e))?;
+
+        channel
+            .exec(true, command)
+            .await
+            .map_err(|e| format!("Failed to exec command: {}", e))?;
+
+        let mut output = Vec::<u8>::new();
+        let mut exit_status: Option<u32> = None;
+
+        let collect = async {
+            while let Some(msg) = channel.wait().await {
+                match msg {
+                    ChannelMsg::Data { data } => {
+                        output.extend_from_slice(&data);
+                    }
+                    ChannelMsg::ExtendedData { data, .. } => {
+                        // 暂把 stderr 也并到 stdout,简化前端解析
+                        // 真实场景需要再细分,这里够仪表盘用
+                        output.extend_from_slice(&data);
+                    }
+                    ChannelMsg::ExitStatus { exit_status: code } => {
+                        exit_status = Some(code);
+                    }
+                    ChannelMsg::Eof | ChannelMsg::Close => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        let timeout_duration = Duration::from_secs(timeout_sec.max(1));
+        if timeout(timeout_duration, collect).await.is_err() {
+            let _ = channel.close().await;
+            return Err(format!(
+                "Command timed out after {}s: {}",
+                timeout_sec, command
+            ));
+        }
+
+        let stdout = String::from_utf8_lossy(&output).to_string();
+        match exit_status {
+            Some(0) | None => Ok(stdout),
+            Some(code) => Err(format!(
+                "Command exited with code {}: {}",
+                code,
+                if stdout.is_empty() { "<no output>" } else { stdout.trim() }
+            )),
+        }
+    }
     pub async fn open_sftp(&mut self) -> Result<russh_sftp::client::SftpSession, String> {
         let channel = self
             .open_sftp_channel()

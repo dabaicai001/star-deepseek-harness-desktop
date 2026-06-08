@@ -45,6 +45,20 @@ export async function sshGetSessions(): Promise<SshSessionInfo[]> {
   return invoke('ssh_get_sessions')
 }
 
+/**
+ * 在已有 SSH 会话上跑一条命令,返回 stdout。
+ * 给仪表盘 / 一次性数据采集用(系统指标、配置查询等)。
+ * - `timeoutSec` 默认 10 秒,内部强制 >=1
+ * - 非 0 退出码会 throw
+ */
+export async function sshExec(
+  id: string,
+  command: string,
+  timeoutSec?: number
+): Promise<string> {
+  return invoke('ssh_exec', { id, command, timeoutSec })
+}
+
 function buildAuth(config: AssetConfig): SshAuthConfig {
   if (config.password) return { Password: config.password }
   if (config.privateKey) return { PrivateKey: { key: config.privateKey, passphrase: config.passphrase } }

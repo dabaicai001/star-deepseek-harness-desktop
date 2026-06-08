@@ -141,3 +141,26 @@ pub async fn test_ssh_connection(
         "elapsed_ms": elapsed_ms,
     }))
 }
+
+/// 在已有 SSH 会话上跑一条命令,返回 stdout。
+/// 给仪表盘 / 一次性数据采集用(系统指标、配置查询等)。
+///
+/// - `id` SshManager 中的 session id(由前端用 `assetId-<instanceId>` 形式)
+/// - `command` 要执行的 shell 命令
+/// - `timeout_sec` 超时秒数,默认 10,内部强制 >=1
+#[tauri::command]
+pub async fn ssh_exec(
+    manager: State<'_, SshManager>,
+    id: String,
+    command: String,
+    timeout_sec: Option<u64>,
+) -> Result<String, String> {
+    let mut sessions = manager.sessions.lock().await;
+    let session = sessions
+        .get_mut(&id)
+        .ok_or_else(|| format!("SSH session {} not found", id))?;
+
+    session
+        .exec(&command, timeout_sec.unwrap_or(10))
+        .await
+}
