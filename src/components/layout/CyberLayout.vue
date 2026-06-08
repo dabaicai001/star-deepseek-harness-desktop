@@ -1187,7 +1187,8 @@ vueWatch(() => appStore.tabs.length, () => {
   gap: 14px;
   backdrop-filter: blur(20px);
   position: relative;
-  z-index: 10;
+  /* 保持高栈,搜索下拉 (z:99) 和用户菜单 (z:100) 才能盖在 menubar (z:0) 上面 */
+  z-index: 100;
 }
 
 .titlebar::after {
@@ -1523,7 +1524,11 @@ kbd {
   font-size: 12px;
   color: var(--text-2);
   backdrop-filter: blur(10px);
-  z-index: 10;
+  /* 在栈底:让 titlebar 的子元素(搜索下拉、用户菜单)以及 v-dialog 都能盖在它上面。
+     backdrop-filter 会创建独立的 stacking context,
+     所以必须显式降到比 titlebar (10) 更低,否则同级 DOM 后置会盖住上面所有的弹层。 */
+  z-index: 0;
+  position: relative;
 }
 
 .menu-item {
@@ -2040,7 +2045,9 @@ kbd {
   color: var(--muted);
   backdrop-filter: blur(10px);
   font-family: 'JetBrains Mono', monospace;
-  z-index: 10;
+  /* 跟 .menubar 一致,保持栈底,避免覆盖 v-dialog 等弹层 */
+  z-index: 0;
+  position: relative;
 }
 
 .sb-item {
