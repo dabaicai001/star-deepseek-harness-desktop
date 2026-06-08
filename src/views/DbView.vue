@@ -42,6 +42,7 @@ const databases = ref<string[]>([])
 // databaseTables: dbName -> tables in that db
 const databaseTables = ref<Map<string, TableInfo[]>>(new Map())
 const loadingTables = ref<Set<string>>(new Set())
+const loadingDatabases = ref(false)
 // 每个 db 加载表的失败原因(用于在树上展示"加载失败 · 重试")
 const loadErrors = ref<Map<string, string>>(new Map())
 // selected table 也得带 db, 因为跨库
@@ -128,7 +129,7 @@ async function connect() {
       connId.value = session.connId
       connected.value = true
 
-      // Load databases list
+      // Load databases list (不预加载表 — 用户点哪个库再拉哪个库的表)
       try {
         databases.value = await dbService.mysqlListDatabases(session.connId)
       } catch (err) {
@@ -136,16 +137,6 @@ async function connect() {
         console.warn('[db] list databases failed:', err)
         notify.notify({ message: `列出数据库失败: ${msg}`, color: 'warning' })
         // 允许部分无权限场景,databases 留空,用户可重试或自己 SQL 编辑
-      }
-
-      // 懒加载:不一次性预加载所有 db 的表
-      // - 找到第一个非系统 db,展开并预加载
-      // - 其他 db 保持收起 + 未加载状态,等用户点 toggle 时再懒加载
-      const firstUserDb = databases.value.find(d => !isSystemDb(d))
-      if (firstUserDb) {
-        expandedDatabases.value.add(firstUserDb)
-        expandedDatabases.value = new Set(expandedDatabases.value)
-        void loadTablesForDb(firstUserDb)
       }
     } else if (dbType === 'redis') {
       const session = await dbStore.connectRedis(assetId.value, asset.value.name, {
@@ -165,6 +156,40 @@ async function connect() {
     notify.notify({ message: `连接失败: ${msg}`, color: 'error', timeout: 6000 })
   } finally {
     connecting.value = false
+  }
+}
+
+/**
+ * 刷新数据库列表(顶栏"刷新"按钮触发)
+ * - 重新调 mysqlListDatabases
+ * - 库列表变了,旧的表缓存/展开态/错误都失效,清空
+ * - 保留当前选中的表(只要它还在新库列表里)
+ */
+async function refreshDatabases() {
+  if (!connId.value || !connected.value) return
+  const sel = selectedTable.value
+  const wasExpanded = new Set(expandedDatabases.value)
+  loadingDatabases.value = true
+  try {
+    const list = await dbService.mysqlListDatabases(connId.value)
+    databases.value = list
+    // 清空已加载的表(库列表可能变了,旧缓存不可信)
+    databaseTables.value = new Map()
+    loadingTables.value = new Set()
+    loadErrors.value = new Map()
+    // 清空展开态(用户得重新点开才会懒加载)
+    expandedDatabases.value = new Set()
+    // 如果之前选中的表还属于某个新库,展开那个库
+    if (sel && list.includes(sel.db)) {
+      expandedDatabases.value.add(sel.db)
+      void loadTablesForDb(sel.db)
+    }
+    notify.notify({ message: `已刷新:共 ${list.length} 个库`, color: 'success', timeout: 1500 })
+  } catch (err) {
+    const msg = errMsg(err)
+    notify.notify({ message: `刷新失败: ${msg}`, color: 'error', timeout: 3000 })
+  } finally {
+    loadingDatabases.value = false
   }
 }
 
@@ -528,9 +553,20 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
     <div class="db-sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="sidebar-header">
         <span class="sidebar-title">{{ t('db.title') }}</span>
-        <button class="action-btn" @click="sidebarCollapsed = !sidebarCollapsed">
-          <v-icon size="14">{{ sidebarCollapsed ? 'mdi-chevron-right' : 'mdi-chevron-left' }}</v-icon>
-        </button>
+        <div class="sidebar-header-actions">
+          <button
+            v-if="connected"
+            class="action-btn"
+            :title="'刷新数据库列表'"
+            :disabled="loadingDatabases"
+            @click="refreshDatabases()"
+          >
+            <v-icon size="14" :class="{ spin: loadingDatabases }">mdi-refresh</v-icon>
+          </button>
+          <button class="action-btn" @click="sidebarCollapsed = !sidebarCollapsed">
+            <v-icon size="14">{{ sidebarCollapsed ? 'mdi-chevron-right' : 'mdi-chevron-left' }}</v-icon>
+          </button>
+        </div>
       </div>
 
       <template v-if="!sidebarCollapsed">
@@ -807,6 +843,21 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
+}
+
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .conn-status {
