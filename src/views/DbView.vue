@@ -6,6 +6,7 @@ import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useDbStore } from '@/stores/db'
 import { useAiStore } from '@/stores/ai'
+import { useNotifyStore } from '@/stores/notify'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
@@ -25,6 +26,7 @@ const assetStore = useAssetStore()
 const appStore = useAppStore()
 const dbStore = useDbStore()
 const aiStore = useAiStore()
+const notify = useNotifyStore()
 
 // 路由 :id 是 tab instanceId,需要解析出 assetId 找资产配置
 const instanceId = computed(() => route.params.id as string)
@@ -34,11 +36,14 @@ const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value)
 // State
 const connected = ref(false)
 const connecting = ref(false)
+const connectError = ref<string | null>(null)
 const connId = ref<string | null>(null)
 const databases = ref<string[]>([])
 // databaseTables: dbName -> tables in that db
 const databaseTables = ref<Map<string, TableInfo[]>>(new Map())
 const loadingTables = ref<Set<string>>(new Set())
+// 每个 db 加载表的失败原因(用于在树上展示"加载失败 · 重试")
+const loadErrors = ref<Map<string, string>>(new Map())
 // selected table 也得带 db, 因为跨库
 const selectedTable = ref<{ db: string; name: string } | null>(null)
 const tableColumns = ref<ColumnMeta[]>([])
@@ -106,6 +111,7 @@ const isSystemDb = (db: string) => SYSTEM_DATABASES.includes(db.toLowerCase())
 async function connect() {
   if (!asset.value || connected.value) return
   connecting.value = true
+  connectError.value = null
   try {
     const config = asset.value.config
     const dbType = config.dbType || 'mysql'
@@ -125,12 +131,22 @@ async function connect() {
       // Load databases list
       try {
         databases.value = await dbService.mysqlListDatabases(session.connId)
-      } catch {
-        // might not have permission
+      } catch (err) {
+        const msg = errMsg(err)
+        console.warn('[db] list databases failed:', err)
+        notify.notify({ message: `列出数据库失败: ${msg}`, color: 'warning' })
+        // 允许部分无权限场景,databases 留空,用户可重试或自己 SQL 编辑
       }
 
-      // Load tables for ALL databases (parallel)
-      await loadAllTables()
+      // 懒加载:不一次性预加载所有 db 的表
+      // - 找到第一个非系统 db,展开并预加载
+      // - 其他 db 保持收起 + 未加载状态,等用户点 toggle 时再懒加载
+      const firstUserDb = databases.value.find(d => !isSystemDb(d))
+      if (firstUserDb) {
+        expandedDatabases.value.add(firstUserDb)
+        expandedDatabases.value = new Set(expandedDatabases.value)
+        void loadTablesForDb(firstUserDb)
+      }
     } else if (dbType === 'redis') {
       const session = await dbStore.connectRedis(assetId.value, asset.value.name, {
         host: config.host || '',
@@ -143,52 +159,48 @@ async function connect() {
       connected.value = true
     }
   } catch (err: unknown) {
+    const msg = errMsg(err)
+    connectError.value = msg
     console.error('Connect failed:', err)
+    notify.notify({ message: `连接失败: ${msg}`, color: 'error', timeout: 6000 })
   } finally {
     connecting.value = false
   }
 }
 
-async function loadAllTables() {
-  if (!connId.value) return
-  const dbs = databases.value.filter(d => !isSystemDb(d))
-  // 并行加载每个 db 的表;失败的 db 不阻塞其他
-  await Promise.allSettled(
-    dbs.map(async (db) => {
-      loadingTables.value.add(db)
-      try {
-        const tbls = await dbService.mysqlListTables(connId.value!, db)
-        databaseTables.value.set(db, tbls)
-        // 默认展开第一个 db
-        if (expandedDatabases.value.size === 0) {
-          expandedDatabases.value.add(db)
-        }
-      } catch (err) {
-        console.warn(`Load tables for ${db} failed:`, err)
-        databaseTables.value.set(db, [])
-      } finally {
-        loadingTables.value.delete(db)
-      }
-    })
-  )
-  // 触发响应式更新
-  databaseTables.value = new Map(databaseTables.value)
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 async function loadTablesForDb(db: string) {
   if (!connId.value) return
   if (databaseTables.value.has(db)) return // 已有
   loadingTables.value.add(db)
+  loadErrors.value.delete(db)  // 清除旧错误
+  loadErrors.value = new Map(loadErrors.value)
   try {
     const tbls = await dbService.mysqlListTables(connId.value, db)
     databaseTables.value.set(db, tbls)
   } catch (err) {
-    console.warn(`Load tables for ${db} failed:`, err)
+    const msg = errMsg(err)
+    loadErrors.value.set(db, msg)
+    loadErrors.value = new Map(loadErrors.value)
+    // 设为空数组占位,避免无限重试
     databaseTables.value.set(db, [])
+    // 不弹 toast(用户可能在树上反复点,会很吵),改为树上 inline 显示
+    console.warn(`[db] load tables for ${db} failed:`, err)
   } finally {
     loadingTables.value.delete(db)
     databaseTables.value = new Map(databaseTables.value)
   }
+}
+
+/** 重试某个 db 的表加载(从 loadErrors 中清掉,重新走 loadTablesForDb) */
+function retryLoadTablesForDb(db: string) {
+  if (!connId.value) return
+  databaseTables.value.delete(db)
+  databaseTables.value = new Map(databaseTables.value)
+  void loadTablesForDb(db)
 }
 
 function toggleDatabase(db: string) {
@@ -585,21 +597,33 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                 <v-icon size="10" class="spin">mdi-loading</v-icon>
                 {{ t('common.loading') }}
               </div>
+              <div v-else-if="loadErrors.has(db)" class="empty-search error">
+                <v-icon size="10" color="red">mdi-alert-circle-outline</v-icon>
+                <span class="error-text" :title="loadErrors.get(db)">
+                  加载失败: {{ loadErrors.get(db) }}
+                </span>
+                <button class="retry-btn" :title="'重试'" @click.stop="retryLoadTablesForDb(db)">
+                  <v-icon size="11">mdi-refresh</v-icon>
+                </button>
+              </div>
               <div v-else-if="tbls.length === 0" class="empty-search">
                 {{ t('db.empty') }}
               </div>
             </template>
           </div>
 
-          <div v-if="databaseTables.size === 0 && connecting" class="empty-search">
-            <v-icon size="10" class="spin">mdi-loading</v-icon>
-            {{ t('common.loading') }}
+          <div v-if="connectError" class="empty-search error">
+            <v-icon size="10" color="red">mdi-alert-circle-outline</v-icon>
+            <span class="error-text" :title="connectError">{{ connectError }}</span>
+            <button class="retry-btn" :title="'重连'" @click="connect()">
+              <v-icon size="11">mdi-refresh</v-icon>
+            </button>
           </div>
-          <div v-else-if="databaseTables.size === 0" class="empty-search">
+          <div v-else-if="databases.length === 0 && !connected && !connecting" class="empty-search">
             {{ t('db.noDatabases') }}
           </div>
-          <div v-else-if="filteredDatabaseTables.size === 0" class="empty-search">
-            {{ t('db.noMatch') }}
+          <div v-else-if="filteredDatabaseTablesList.length === 0 && connected" class="empty-search">
+            {{ t('db.noDatabases') }}
           </div>
         </div>
       </template>
@@ -870,6 +894,46 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   font-size: 11px;
   color: var(--muted);
   font-style: italic;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.empty-search.error {
+  color: var(--red);
+  font-style: normal;
+}
+
+.error-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+}
+
+.retry-btn {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s;
+  margin-left: 4px;
+}
+
+.retry-btn:hover {
+  background: rgba(0, 240, 255, 0.1);
+  border-color: var(--cyan);
+  color: var(--cyan);
 }
 
 .action-btn-sm {
