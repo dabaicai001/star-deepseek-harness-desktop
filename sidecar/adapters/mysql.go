@@ -91,6 +91,7 @@ func NewMySQLAdapter(info *MySQLConnInfo) (*MySQLAdapter, error) {
 		Addr:                 fmt.Sprintf("%s:%d", info.Host, info.Port),
 		DBName:               info.Database,
 		AllowNativePasswords: true,
+		MultiStatements:      true,
 		ParseTime:            true,
 		Timeout:              10 * time.Second,
 		ReadTimeout:          30 * time.Second,

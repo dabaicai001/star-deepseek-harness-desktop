@@ -2,7 +2,7 @@
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { EditorView, basicSetup } from 'codemirror'
 import { sql, MySQL, PostgreSQL } from '@codemirror/lang-sql'
-import { EditorState } from '@codemirror/state'
+import { Compartment, EditorState } from '@codemirror/state'
 import { keymap } from '@codemirror/view'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
 
@@ -22,6 +22,7 @@ const emit = defineEmits<{
 
 const editorRef = ref<HTMLElement>()
 let editorView: EditorView | null = null
+const langCompartment = new Compartment()
 
 const cyberTheme = EditorView.theme({
   '&': {
@@ -89,14 +90,14 @@ const cyberTheme = EditorView.theme({
   }
 })
 
-function getLangExtension() {
+function buildLangExtension() {
   if (props.dialect === 'redis') return []
   const dialect = props.dialect === 'postgresql' ? PostgreSQL : MySQL
-  return [sql({
+  return sql({
     dialect,
     schema: {},
     tables: props.tables?.map(t => ({ label: t })) || []
-  })]
+  })
 }
 
 function createEditor() {
@@ -105,7 +106,7 @@ function createEditor() {
   const extensions = [
     basicSetup,
     cyberTheme,
-    ...getLangExtension(),
+    langCompartment.of(buildLangExtension()),
     keymap.of([
       ...defaultKeymap,
       indentWithTab,
@@ -147,6 +148,14 @@ function createEditor() {
     parent: editorRef.value
   })
 }
+
+watch(() => props.tables, () => {
+  if (editorView) {
+    editorView.dispatch({
+      effects: langCompartment.reconfigure(buildLangExtension())
+    })
+  }
+})
 
 watch(() => props.modelValue, (val) => {
   if (editorView && val !== editorView.state.doc.toString()) {
