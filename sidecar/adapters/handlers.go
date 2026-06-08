@@ -228,8 +228,12 @@ func handleMySQLExecute(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		sql := p.SQL
-		if p.Database != "" && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "USE ") {
-			sql = fmt.Sprintf("USE `%s`; %s", p.Database, sql)
+		dbName := p.Database
+		if dbName == "" {
+			dbName = adapter.conn.Database
+		}
+		if dbName != "" && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "USE ") {
+			sql = fmt.Sprintf("USE `%s`; %s", dbName, sql)
 		}
 		return adapter.Execute(sql)
 	}
@@ -250,8 +254,12 @@ func handleMySQLExplain(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		sql := p.SQL
-		if p.Database != "" && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "USE ") {
-			sql = fmt.Sprintf("USE `%s`; %s", p.Database, sql)
+		dbName := p.Database
+		if dbName == "" {
+			dbName = adapter.conn.Database
+		}
+		if dbName != "" && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "USE ") {
+			sql = fmt.Sprintf("USE `%s`; %s", dbName, sql)
 		}
 		return adapter.Explain(sql)
 	}

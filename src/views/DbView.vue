@@ -67,10 +67,13 @@ const tableDataOrderDir = ref<'ASC' | 'DESC'>('ASC')
 // 行的主键(来自 listColumns,用于 inline edit 定位行)
 const tablePrimaryKeys = computed(() => tableColumns.value.filter(c => c.key === 'PRI').map(c => c.name))
 
-// 所有可用的表名(扁平,给 SqlEditor 自动补全)
+// 当前选中库的表名(给 SqlEditor 自动补全)
 const allTableNames = computed(() => {
+  if (selectedDb.value) {
+    return (databaseTables.value.get(selectedDb.value) || []).map(t => t.name)
+  }
   const out: string[] = []
-  for (const [db, tbls] of databaseTables.value) {
+  for (const [, tbls] of databaseTables.value) {
     for (const t of tbls) out.push(t.name)
   }
   return out
@@ -139,6 +142,10 @@ async function connect() {
       // Load databases list (不预加载表 — 用户点哪个库再拉哪个库的表)
       try {
         databases.value = await dbService.mysqlListDatabases(session.connId)
+        // 自动选择连接时指定的默认库
+        if (config.database && databases.value.includes(config.database)) {
+          selectedDb.value = config.database
+        }
       } catch (err) {
         const msg = errMsg(err)
         console.warn('[db] list databases failed:', err)
@@ -708,9 +715,10 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
             v-if="asset?.config.dbType === 'mysql'"
             v-model="selectedDb"
             class="db-selector-inline"
-            :title="selectedDb ? `当前库: ${selectedDb}` : '选择默认数据库'"
+            :class="{ 'no-db': !selectedDb }"
+            :title="selectedDb ? `当前库: ${selectedDb}` : '⚠ 未选择数据库，执行 SQL 将使用连接默认库或报错'"
           >
-            <option value="">-- 选择数据库 --</option>
+            <option value="">⚠ 选择数据库</option>
             <option v-for="db in databases" :key="db" :value="db">{{ db }}</option>
           </select>
           <span class="shortcut-hint">
@@ -1134,6 +1142,20 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 .db-selector-inline:focus {
   border-color: var(--cyan);
   box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.1);
+}
+
+.db-selector-inline.no-db {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+
+.db-selector-inline.no-db:hover {
+  border-color: var(--yellow);
+}
+
+.db-selector-inline.no-db:focus {
+  border-color: var(--yellow);
+  box-shadow: 0 0 0 2px rgba(255, 200, 50, 0.1);
 }
 
 .result-tabs {
