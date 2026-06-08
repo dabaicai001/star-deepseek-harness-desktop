@@ -45,8 +45,8 @@ export async function mysqlListColumns(connId: string, table: string, database?:
   return invoke('db_mysql_list_columns', { connId, table, database })
 }
 
-export async function mysqlListIndexes(connId: string, table: string): Promise<IndexInfo[]> {
-  return invoke('db_mysql_list_indexes', { connId, table })
+export async function mysqlListIndexes(connId: string, table: string, database?: string): Promise<IndexInfo[]> {
+  return invoke('db_mysql_list_indexes', { connId, table, database })
 }
 
 export async function mysqlExecute(connId: string, sql: string): Promise<QueryResult> {
@@ -57,8 +57,8 @@ export async function mysqlExplain(connId: string, sql: string): Promise<QueryRe
   return invoke('db_mysql_explain', { connId, sql })
 }
 
-export async function mysqlGetTableDDL(connId: string, table: string): Promise<DDLResult> {
-  return invoke('db_mysql_get_table_ddl', { connId, table })
+export async function mysqlGetTableDDL(connId: string, table: string, database?: string): Promise<DDLResult> {
+  return invoke('db_mysql_get_table_ddl', { connId, table, database })
 }
 
 export async function mysqlGetTableData(
@@ -67,41 +67,42 @@ export async function mysqlGetTableData(
   limit?: number,
   offset?: number,
   orderBy?: string,
-  orderDir?: string
+  orderDir?: string,
+  database?: string
 ): Promise<QueryResult> {
-  return invoke('db_mysql_get_table_data', { connId, table, limit, offset, orderBy, orderDir })
+  return invoke('db_mysql_get_table_data', { connId, table, limit, offset, orderBy, orderDir, database })
 }
 
-export async function mysqlDropTable(connId: string, table: string, ifExists?: boolean): Promise<void> {
-  return invoke('db_mysql_drop_table', { connId, table, ifExists })
+export async function mysqlDropTable(connId: string, table: string, ifExists?: boolean, database?: string): Promise<void> {
+  return invoke('db_mysql_drop_table', { connId, table, ifExists, database })
 }
 
-export async function mysqlTruncateTable(connId: string, table: string): Promise<void> {
-  return invoke('db_mysql_truncate_table', { connId, table })
+export async function mysqlTruncateTable(connId: string, table: string, database?: string): Promise<void> {
+  return invoke('db_mysql_truncate_table', { connId, table, database })
 }
 
-export async function mysqlRenameTable(connId: string, oldName: string, newName: string): Promise<void> {
-  return invoke('db_mysql_rename_table', { connId, oldName, newName })
+export async function mysqlRenameTable(connId: string, oldName: string, newName: string, database?: string): Promise<void> {
+  return invoke('db_mysql_rename_table', { connId, oldName, newName, database })
 }
 
-export async function mysqlInsertRow(connId: string, table: string, values: Record<string, unknown>): Promise<InsertResult> {
-  return invoke('db_mysql_insert_row', { connId, table, values })
+export async function mysqlInsertRow(connId: string, table: string, values: Record<string, unknown>, database?: string): Promise<InsertResult> {
+  return invoke('db_mysql_insert_row', { connId, table, values, database })
 }
 
-export async function mysqlUpdateRows(connId: string, table: string, sets: Record<string, unknown>, where: string): Promise<RowsAffectedResult> {
-  return invoke('db_mysql_update_rows', { connId, table, sets, where })
+export async function mysqlUpdateRows(connId: string, table: string, sets: Record<string, unknown>, where: string, database?: string): Promise<RowsAffectedResult> {
+  return invoke('db_mysql_update_rows', { connId, table, sets, where, database })
 }
 
-export async function mysqlDeleteRows(connId: string, table: string, where: string): Promise<RowsAffectedResult> {
-  return invoke('db_mysql_delete_rows', { connId, table, where })
+export async function mysqlDeleteRows(connId: string, table: string, where: string, database?: string): Promise<RowsAffectedResult> {
+  return invoke('db_mysql_delete_rows', { connId, table, where, database })
 }
 
-export async function mysqlExportData(connId: string, table: string, format: string, limit?: number): Promise<ExportResult> {
-  return invoke('db_mysql_export_data', { connId, table, format, limit })
+export async function mysqlExportData(connId: string, table: string, format: string, limit?: number, database?: string): Promise<ExportResult> {
+  return invoke('db_mysql_export_data', { connId, table, format, limit, database })
 }
 
-export async function mysqlGetRowCount(connId: string, table: string): Promise<RowCountResult> {
-  return invoke('db_mysql_get_row_count', { connId, table })
+export async function mysqlGetRowCount(connId: string, table: string, database?: string): Promise<RowCountResult> {
+  return invoke('db_mysql_get_row_count', { connId, table, database })
 }
 
 // ─── Redis ───

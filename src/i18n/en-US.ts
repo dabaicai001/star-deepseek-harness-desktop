@@ -225,6 +225,7 @@ export default {
     totalRows: 'total rows',
     pageSize: 'Page',
     dropColumn: 'Drop column',
+    addColumn: 'Add column',
     applyDDL: 'Apply DDL',
     viewDDL: 'View full DDL',
     generatedDDL: 'Generated DDL'

@@ -197,8 +197,9 @@ func handleMySQLListColumns(mgr *pool.Manager) Handler {
 func handleMySQLListIndexes(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
-			ConnID string `json:"connId"`
-			Table  string `json:"table"`
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -207,7 +208,7 @@ func handleMySQLListIndexes(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		return adapter.ListIndexes(p.Table)
+		return adapter.ListIndexes(p.Database, p.Table)
 	}
 }
 
@@ -248,8 +249,9 @@ func handleMySQLExplain(mgr *pool.Manager) Handler {
 func handleMySQLGetTableDDL(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
-			ConnID string `json:"connId"`
-			Table  string `json:"table"`
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -258,7 +260,7 @@ func handleMySQLGetTableDDL(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		ddl, err := adapter.GetTableDDL(p.Table)
+		ddl, err := adapter.GetTableDDL(p.Database, p.Table)
 		if err != nil {
 			return nil, err
 		}
@@ -270,6 +272,7 @@ func handleMySQLGetTableData(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
 			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
 			Table    string `json:"table"`
 			Limit    int    `json:"limit,omitempty"`
 			Offset   int    `json:"offset,omitempty"`
@@ -283,7 +286,7 @@ func handleMySQLGetTableData(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		return adapter.GetTableData(p.Table, p.Limit, p.Offset, p.OrderBy, p.OrderDir)
+		return adapter.GetTableData(p.Database, p.Table, p.Limit, p.Offset, p.OrderBy, p.OrderDir)
 	}
 }
 
@@ -291,6 +294,7 @@ func handleMySQLDropTable(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
 			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
 			Table    string `json:"table"`
 			IfExists bool   `json:"ifExists,omitempty"`
 		}
@@ -301,15 +305,16 @@ func handleMySQLDropTable(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		return nil, adapter.DropTable(p.Table, p.IfExists)
+		return nil, adapter.DropTable(p.Database, p.Table, p.IfExists)
 	}
 }
 
 func handleMySQLTruncateTable(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
-			ConnID string `json:"connId"`
-			Table  string `json:"table"`
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -318,16 +323,17 @@ func handleMySQLTruncateTable(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		return nil, adapter.TruncateTable(p.Table)
+		return nil, adapter.TruncateTable(p.Database, p.Table)
 	}
 }
 
 func handleMySQLRenameTable(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
-			ConnID  string `json:"connId"`
-			OldName string `json:"oldName"`
-			NewName string `json:"newName"`
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			OldName  string `json:"oldName"`
+			NewName  string `json:"newName"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -336,16 +342,17 @@ func handleMySQLRenameTable(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		return nil, adapter.RenameTable(p.OldName, p.NewName)
+		return nil, adapter.RenameTable(p.Database, p.OldName, p.NewName)
 	}
 }
 
 func handleMySQLInsertRow(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
-			ConnID string                 `json:"connId"`
-			Table  string                 `json:"table"`
-			Values map[string]interface{} `json:"values"`
+			ConnID   string                 `json:"connId"`
+			Database string                 `json:"database,omitempty"`
+			Table    string                 `json:"table"`
+			Values   map[string]interface{} `json:"values"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -354,7 +361,7 @@ func handleMySQLInsertRow(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		id, err := adapter.InsertRow(p.Table, p.Values)
+		id, err := adapter.InsertRow(p.Database, p.Table, p.Values)
 		if err != nil {
 			return nil, err
 		}
@@ -365,10 +372,11 @@ func handleMySQLInsertRow(mgr *pool.Manager) Handler {
 func handleMySQLUpdateRows(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
-			ConnID string                 `json:"connId"`
-			Table  string                 `json:"table"`
-			Sets   map[string]interface{} `json:"sets"`
-			Where  string                 `json:"where"`
+			ConnID   string                 `json:"connId"`
+			Database string                 `json:"database,omitempty"`
+			Table    string                 `json:"table"`
+			Sets     map[string]interface{} `json:"sets"`
+			Where    string                 `json:"where"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -377,7 +385,7 @@ func handleMySQLUpdateRows(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		affected, err := adapter.UpdateRows(p.Table, p.Sets, p.Where)
+		affected, err := adapter.UpdateRows(p.Database, p.Table, p.Sets, p.Where)
 		if err != nil {
 			return nil, err
 		}
@@ -388,9 +396,10 @@ func handleMySQLUpdateRows(mgr *pool.Manager) Handler {
 func handleMySQLDeleteRows(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
-			ConnID string `json:"connId"`
-			Table  string `json:"table"`
-			Where  string `json:"where"`
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+			Where    string `json:"where"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -399,7 +408,7 @@ func handleMySQLDeleteRows(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		affected, err := adapter.DeleteRows(p.Table, p.Where)
+		affected, err := adapter.DeleteRows(p.Database, p.Table, p.Where)
 		if err != nil {
 			return nil, err
 		}
@@ -410,10 +419,11 @@ func handleMySQLDeleteRows(mgr *pool.Manager) Handler {
 func handleMySQLExportData(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
-			ConnID string `json:"connId"`
-			Table  string `json:"table"`
-			Format string `json:"format"` // csv, json, sql
-			Limit  int    `json:"limit,omitempty"`
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+			Format   string `json:"format"` // csv, json, sql
+			Limit    int    `json:"limit,omitempty"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -425,13 +435,13 @@ func handleMySQLExportData(mgr *pool.Manager) Handler {
 
 		switch p.Format {
 		case "json":
-			data, err := adapter.ExportJSON(p.Table, p.Limit)
+			data, err := adapter.ExportJSON(p.Database, p.Table, p.Limit)
 			if err != nil {
 				return nil, err
 			}
 			return map[string]interface{}{"data": data, "format": "json"}, nil
 		default: // csv
-			result, err := adapter.ExportCSV(p.Table, p.Limit)
+			result, err := adapter.ExportCSV(p.Database, p.Table, p.Limit)
 			if err != nil {
 				return nil, err
 			}
@@ -443,8 +453,9 @@ func handleMySQLExportData(mgr *pool.Manager) Handler {
 func handleMySQLGetRowCount(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
-			ConnID string `json:"connId"`
-			Table  string `json:"table"`
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -453,7 +464,7 @@ func handleMySQLGetRowCount(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		count, err := adapter.GetRowCount(p.Table)
+		count, err := adapter.GetRowCount(p.Database, p.Table)
 		if err != nil {
 			return nil, err
 		}

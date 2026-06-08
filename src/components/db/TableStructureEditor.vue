@@ -42,6 +42,16 @@ const ddlPreview = ref<string | null>(null)
 const error = ref<string | null>(null)
 const successMsg = ref<string | null>(null)
 
+// 新增列(未提交到 edits,等用户填完再加入)
+const addingColumn = ref(false)
+const newCol = ref<ColumnEdit>({
+  name: '', newName: '', type: '', newType: 'VARCHAR(255)',
+  dataType: '', nullable: 'YES', newNullable: true,
+  key: '', defaultValue: null, newDefault: '',
+  extra: '', comment: '', newComment: '',
+  ordinalPosition: 0, dirty: true, dropped: false
+})
+
 // 每次 columns 变化(切换表)都重置
 watch(() => [props.db, props.table, props.columns], () => {
   edits.value = new Map(
@@ -90,11 +100,58 @@ function resetColumn(col: ColumnEdit) {
   col.dirty = false
 }
 
+function startAddColumn() {
+  addingColumn.value = true
+  newCol.value = {
+    name: '', newName: '', type: '', newType: 'VARCHAR(255)',
+    dataType: '', nullable: 'YES', newNullable: true,
+    key: '', defaultValue: null, newDefault: '',
+    extra: '', comment: '', newComment: '',
+    ordinalPosition: 0, dirty: true, dropped: false
+  }
+}
+
+function confirmAddColumn() {
+  if (!newCol.value.newName.trim()) return
+  const colName = newCol.value.newName.trim()
+  const entry: ColumnEdit = {
+    ...newCol.value,
+    name: colName,
+    newName: colName,
+    dirty: true,
+    dropped: false
+  }
+  edits.value.set(colName, entry)
+  edits.value = new Map(edits.value)
+  addingColumn.value = false
+}
+
+function cancelAddColumn() {
+  addingColumn.value = false
+}
+
 // 生成 ALTER TABLE 语句(仅 dirty 的列)
 function generateDDL(): string[] {
   const parts: string[] = []
-  // MODIFY / CHANGE
+  // ADD COLUMN (新增的列,不在 props.columns 中)
+  const originalNames = new Set(props.columns.map(c => c.name))
   for (const col of editList.value) {
+    if (!originalNames.has(col.name) && !col.dropped) {
+      const typeStr = col.newType.trim()
+      const nullStr = col.newNullable ? 'NULL' : 'NOT NULL'
+      let defStr = ''
+      if (col.newDefault !== '') {
+        const isNum = /^-?\d+(\.\d+)?$/.test(col.newDefault)
+        defStr = ` DEFAULT ${isNum ? col.newDefault : `'${col.newDefault.replace(/'/g, "''")}'`}`
+      }
+      const commentStr = col.newComment ? ` COMMENT '${col.newComment.replace(/'/g, "''")}'` : ''
+      parts.push(`ADD COLUMN \`${col.newName}\` ${typeStr} ${nullStr}${defStr}${commentStr}`)
+      continue
+    }
+  }
+  // MODIFY / CHANGE / DROP
+  for (const col of editList.value) {
+    if (!originalNames.has(col.name)) continue // 已在上面处理
     if (col.dropped) {
       parts.push(`DROP COLUMN \`${col.name}\``)
       continue
@@ -116,7 +173,7 @@ function generateDDL(): string[] {
     }
   }
   if (parts.length === 0) return []
-  return [`ALTER TABLE \`${props.table}\`\n  ${parts.join(',\n  ')}`]
+  return [`ALTER TABLE \`${props.db}\`.\`${props.table}\`\n  ${parts.join(',\n  ')}`]
 }
 
 const pendingDDL = computed(() => generateDDL())
@@ -144,7 +201,7 @@ async function applyChanges() {
 async function loadDDLPreview() {
   if (!props.connId) return
   try {
-    const r = await dbService.mysqlGetTableDDL(props.connId, props.table)
+    const r = await dbService.mysqlGetTableDDL(props.connId, props.table, props.db)
     ddlPreview.value = r.ddl
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -162,6 +219,10 @@ async function loadDDLPreview() {
         <span class="col-count">{{ editList.length }} {{ t('db.column') }}</span>
       </div>
       <div class="toolbar-right">
+        <button class="cyber-btn-secondary" @click="startAddColumn">
+          <v-icon size="14">mdi-plus</v-icon>
+          {{ t('db.addColumn') }}
+        </button>
         <button class="cyber-btn-secondary" @click="loadDDLPreview" :title="t('db.viewDDL')">
           <v-icon size="14">mdi-code-tags</v-icon>
           {{ t('db.viewDDL') }}
@@ -188,6 +249,22 @@ async function loadDDLPreview() {
 
     <!-- Editable table -->
     <div class="struct-scroll">
+      <!-- Inline add-column row -->
+      <div v-if="addingColumn" class="add-col-form">
+        <input v-model="newCol.newName" class="cell-input" placeholder="列名" autofocus />
+        <input v-model="newCol.newType" class="cell-input type" placeholder="类型" />
+        <label class="add-col-check"><input type="checkbox" v-model="newCol.newNullable" /> NULL</label>
+        <input v-model="newCol.newDefault" class="cell-input" placeholder="默认值" />
+        <input v-model="newCol.newComment" class="cell-input" placeholder="注释" />
+        <div class="add-col-actions">
+          <button class="action-btn-sm" :title="t('common.confirm')" @click="confirmAddColumn">
+            <v-icon size="12" color="green">mdi-check</v-icon>
+          </button>
+          <button class="action-btn-sm" :title="t('common.cancel')" @click="cancelAddColumn">
+            <v-icon size="12" color="red">mdi-close</v-icon>
+          </button>
+        </div>
+      </div>
       <table class="struct-table">
         <thead>
           <tr>
@@ -535,5 +612,39 @@ input[type="checkbox"].dirty {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+.add-col-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(0, 240, 255, 0.04);
+  border-bottom: 1px solid var(--line-2);
+}
+
+.add-col-form .cell-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.add-col-form .cell-input.type {
+  max-width: 140px;
+}
+
+.add-col-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.add-col-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
 }
 </style>

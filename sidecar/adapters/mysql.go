@@ -141,8 +141,10 @@ func (a *MySQLAdapter) ListTables(database string) ([]TableInfo, error) {
 	if database == "" {
 		database = a.conn.Database
 	}
-	query := `SELECT TABLE_NAME as name, TABLE_TYPE as type, ENGINE as engine, 
-		TABLE_ROWS as rows, TABLE_COMMENT as comment 
+	query := `SELECT TABLE_NAME as name, TABLE_TYPE as type, 
+		COALESCE(ENGINE, '') as engine, 
+		COALESCE(TABLE_ROWS, 0) as rows, 
+		COALESCE(TABLE_COMMENT, '') as comment 
 		FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`
 	var tables []TableInfo
 	err := a.db.Select(&tables, query, database)
@@ -171,9 +173,12 @@ func (a *MySQLAdapter) ListColumns(database, table string) ([]ColumnMeta, error)
 }
 
 // ListIndexes 列出表的索引
-func (a *MySQLAdapter) ListIndexes(table string) ([]IndexInfo, error) {
+func (a *MySQLAdapter) ListIndexes(database, table string) ([]IndexInfo, error) {
+	if database == "" {
+		database = a.conn.Database
+	}
 	var indexes []IndexInfo
-	err := a.db.Select(&indexes, fmt.Sprintf("SHOW INDEX FROM `%s`", table))
+	err := a.db.Select(&indexes, fmt.Sprintf("SHOW INDEX FROM `%s`.`%s`", database, table))
 	if err != nil {
 		return nil, fmt.Errorf("list indexes: %w", err)
 	}
@@ -271,9 +276,12 @@ func (a *MySQLAdapter) Explain(sqlStr string) (*QueryResult, error) {
 }
 
 // GetTableDDL 获取建表 DDL
-func (a *MySQLAdapter) GetTableDDL(table string) (string, error) {
+func (a *MySQLAdapter) GetTableDDL(database, table string) (string, error) {
+	if database == "" {
+		database = a.conn.Database
+	}
 	var tableName, ddl string
-	err := a.db.QueryRow(fmt.Sprintf("SHOW CREATE TABLE `%s`", table)).Scan(&tableName, &ddl)
+	err := a.db.QueryRow(fmt.Sprintf("SHOW CREATE TABLE `%s`.`%s`", database, table)).Scan(&tableName, &ddl)
 	if err != nil {
 		return "", fmt.Errorf("get ddl: %w", err)
 	}
@@ -281,7 +289,10 @@ func (a *MySQLAdapter) GetTableDDL(table string) (string, error) {
 }
 
 // GetTableData 分页获取表数据
-func (a *MySQLAdapter) GetTableData(table string, limit, offset int, orderBy, orderDir string) (*QueryResult, error) {
+func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, orderBy, orderDir string) (*QueryResult, error) {
+	if database == "" {
+		database = a.conn.Database
+	}
 	if limit <= 0 {
 		limit = 100
 	}
@@ -289,7 +300,7 @@ func (a *MySQLAdapter) GetTableData(table string, limit, offset int, orderBy, or
 		limit = 10000
 	}
 
-	query := fmt.Sprintf("SELECT * FROM `%s`", table)
+	query := fmt.Sprintf("SELECT * FROM `%s`.`%s`", database, table)
 	if orderBy != "" {
 		dir := "ASC"
 		if strings.ToUpper(orderDir) == "DESC" {
@@ -303,37 +314,52 @@ func (a *MySQLAdapter) GetTableData(table string, limit, offset int, orderBy, or
 }
 
 // GetRowCount 获取表行数
-func (a *MySQLAdapter) GetRowCount(table string) (int64, error) {
+func (a *MySQLAdapter) GetRowCount(database, table string) (int64, error) {
+	if database == "" {
+		database = a.conn.Database
+	}
 	var count int64
-	err := a.db.Get(&count, fmt.Sprintf("SELECT COUNT(*) FROM `%s`", table))
+	err := a.db.Get(&count, fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`", database, table))
 	return count, err
 }
 
 // DropTable 删除表
-func (a *MySQLAdapter) DropTable(table string, ifExists bool) error {
+func (a *MySQLAdapter) DropTable(database, table string, ifExists bool) error {
+	if database == "" {
+		database = a.conn.Database
+	}
 	stmt := "DROP TABLE"
 	if ifExists {
 		stmt += " IF EXISTS"
 	}
-	stmt += fmt.Sprintf(" `%s`", table)
+	stmt += fmt.Sprintf(" `%s`.`%s`", database, table)
 	_, err := a.db.Exec(stmt)
 	return err
 }
 
 // TruncateTable 清空表
-func (a *MySQLAdapter) TruncateTable(table string) error {
-	_, err := a.db.Exec(fmt.Sprintf("TRUNCATE TABLE `%s`", table))
+func (a *MySQLAdapter) TruncateTable(database, table string) error {
+	if database == "" {
+		database = a.conn.Database
+	}
+	_, err := a.db.Exec(fmt.Sprintf("TRUNCATE TABLE `%s`.`%s`", database, table))
 	return err
 }
 
 // RenameTable 重命名表
-func (a *MySQLAdapter) RenameTable(oldName, newName string) error {
-	_, err := a.db.Exec(fmt.Sprintf("RENAME TABLE `%s` TO `%s`", oldName, newName))
+func (a *MySQLAdapter) RenameTable(database, oldName, newName string) error {
+	if database == "" {
+		database = a.conn.Database
+	}
+	_, err := a.db.Exec(fmt.Sprintf("RENAME TABLE `%s`.`%s` TO `%s`.`%s`", database, oldName, database, newName))
 	return err
 }
 
 // UpdateRows 批量更新行
-func (a *MySQLAdapter) UpdateRows(table string, sets map[string]interface{}, where string) (int64, error) {
+func (a *MySQLAdapter) UpdateRows(database, table string, sets map[string]interface{}, where string) (int64, error) {
+	if database == "" {
+		database = a.conn.Database
+	}
 	setParts := make([]string, 0, len(sets))
 	args := make([]interface{}, 0, len(sets))
 	for col, val := range sets {
@@ -341,7 +367,7 @@ func (a *MySQLAdapter) UpdateRows(table string, sets map[string]interface{}, whe
 		args = append(args, val)
 	}
 
-	query := fmt.Sprintf("UPDATE `%s` SET %s", table, strings.Join(setParts, ", "))
+	query := fmt.Sprintf("UPDATE `%s`.`%s` SET %s", database, table, strings.Join(setParts, ", "))
 	if where != "" {
 		query += " WHERE " + where
 	}
@@ -354,8 +380,11 @@ func (a *MySQLAdapter) UpdateRows(table string, sets map[string]interface{}, whe
 }
 
 // DeleteRows 删除行
-func (a *MySQLAdapter) DeleteRows(table, where string) (int64, error) {
-	query := fmt.Sprintf("DELETE FROM `%s`", table)
+func (a *MySQLAdapter) DeleteRows(database, table, where string) (int64, error) {
+	if database == "" {
+		database = a.conn.Database
+	}
+	query := fmt.Sprintf("DELETE FROM `%s`.`%s`", database, table)
 	if where != "" {
 		query += " WHERE " + where
 	}
@@ -367,7 +396,10 @@ func (a *MySQLAdapter) DeleteRows(table, where string) (int64, error) {
 }
 
 // InsertRow 插入一行
-func (a *MySQLAdapter) InsertRow(table string, values map[string]interface{}) (int64, error) {
+func (a *MySQLAdapter) InsertRow(database, table string, values map[string]interface{}) (int64, error) {
+	if database == "" {
+		database = a.conn.Database
+	}
 	cols := make([]string, 0, len(values))
 	placeholders := make([]string, 0, len(values))
 	args := make([]interface{}, 0, len(values))
@@ -377,7 +409,7 @@ func (a *MySQLAdapter) InsertRow(table string, values map[string]interface{}) (i
 		args = append(args, val)
 	}
 
-	query := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)", table,
+	query := fmt.Sprintf("INSERT INTO `%s`.`%s` (%s) VALUES (%s)", database, table,
 		strings.Join(cols, ", "), strings.Join(placeholders, ", "))
 	result, err := a.db.Exec(query, args...)
 	if err != nil {
@@ -387,17 +419,20 @@ func (a *MySQLAdapter) InsertRow(table string, values map[string]interface{}) (i
 }
 
 // ExportCSV 导出表为 CSV（返回 JSON 编码的结果）
-func (a *MySQLAdapter) ExportCSV(table string, limit int) (*QueryResult, error) {
+func (a *MySQLAdapter) ExportCSV(database, table string, limit int) (*QueryResult, error) {
+	if database == "" {
+		database = a.conn.Database
+	}
 	if limit <= 0 {
 		limit = 100000
 	}
-	query := fmt.Sprintf("SELECT * FROM `%s` LIMIT %d", table, limit)
+	query := fmt.Sprintf("SELECT * FROM `%s`.`%s` LIMIT %d", database, table, limit)
 	return a.executeSelect(query, time.Now())
 }
 
 // ExportJSON 导出表为 JSON
-func (a *MySQLAdapter) ExportJSON(table string, limit int) (string, error) {
-	result, err := a.ExportCSV(table, limit)
+func (a *MySQLAdapter) ExportJSON(database, table string, limit int) (string, error) {
+	result, err := a.ExportCSV(database, table, limit)
 	if err != nil {
 		return "", err
 	}

@@ -80,10 +80,16 @@ const tableSearch = ref('')
 const expandedDatabases = ref<Set<string>>(new Set())
 
 // 搜索时如果 db 没展开，自动展开匹配项所在的 db
+//
+// 关键:库节点列表的来源是 `databases`(connect/refresh 时拿到的库名数组),
+// 而不是 `databaseTables` Map 的 key。否则用户没点开过任何库时,
+// Map 是空的,UI 就显示"没有可用的数据库"——这是误导,因为库其实是存在的。
+// `databaseTables` Map 只用来存"该库的表是否已加载 + 表内容"。
 const filteredDatabaseTables = computed(() => {
   const q = tableSearch.value.trim().toLowerCase()
   const map = new Map<string, TableInfo[]>()
-  for (const [db, tbls] of databaseTables.value) {
+  for (const db of databases.value) {
+    const tbls = databaseTables.value.get(db) || []
     if (!q) {
       map.set(db, tbls)
     } else {
@@ -199,7 +205,9 @@ function errMsg(err: unknown): string {
 
 async function loadTablesForDb(db: string) {
   if (!connId.value) return
-  if (databaseTables.value.has(db)) return // 已有
+  if (databaseTables.value.has(db) && !loadErrors.value.has(db)) {
+    return // 已有表数据且没失败过 → 跳过
+  }
   loadingTables.value.add(db)
   loadErrors.value.delete(db)  // 清除旧错误
   loadErrors.value = new Map(loadErrors.value)
@@ -259,7 +267,7 @@ async function loadTableData() {
   try {
     // 总行数
     try {
-      const rc = await dbService.mysqlGetRowCount(connId.value, selectedTable.value.name)
+      const rc = await dbService.mysqlGetRowCount(connId.value, selectedTable.value.name, selectedTable.value.db)
       tableDataTotal.value = rc.count
     } catch (err) {
       console.warn('getRowCount failed:', err)
@@ -273,7 +281,8 @@ async function loadTableData() {
       tableDataPageSize.value,
       offset,
       tableDataOrderBy.value || undefined,
-      tableDataOrderDir.value
+      tableDataOrderDir.value,
+      selectedTable.value.db
     )
   } catch (err: unknown) {
     tableData.value = {
@@ -346,7 +355,7 @@ async function onCellEdit(rowIdx: number, col: string, value: unknown) {
     .join(' AND ')
   if (!where) return
   try {
-    await dbService.mysqlUpdateRows(connId.value, selectedTable.value.name, { [col]: value }, where)
+    await dbService.mysqlUpdateRows(connId.value, selectedTable.value.name, { [col]: value }, where, selectedTable.value.db)
     // 刷新当前页
     await loadTableData()
   } catch (err: unknown) {
@@ -404,7 +413,7 @@ async function explainSql(sql: string) {
 
 function handleExport(format: string) {
   if (!connId.value || !selectedTable.value) return
-  dbService.mysqlExportData(connId.value, selectedTable.value.name, format)
+  dbService.mysqlExportData(connId.value, selectedTable.value.name, format, undefined, selectedTable.value.db)
 }
 
 function insertTableName(name: string) {
@@ -612,7 +621,9 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               </v-icon>
               <v-icon size="12" class="type-icon">mdi-database</v-icon>
               <span class="label">{{ db }}</span>
-              <span class="count">{{ tbls.length }}</span>
+              <!-- 已加载显示数量;未加载显示个明显的「未加载」标记 -->
+              <span v-if="databaseTables.has(db)" class="count">{{ tbls.length }}</span>
+              <span v-else class="count unloaded" :title="'点击展开以加载表'">—</span>
             </div>
 
             <!-- Tables list (only when expanded) -->
@@ -629,10 +640,12 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                 <span class="item-name">{{ tbl.name }}</span>
                 <span v-if="tbl.rows != null" class="item-meta">{{ tbl.rows }}</span>
               </div>
-              <div v-if="tbls.length === 0 && loadingTables.has(db)" class="empty-search">
+              <!-- 展开但还在加载中 -->
+              <div v-if="loadingTables.has(db)" class="empty-search">
                 <v-icon size="10" class="spin">mdi-loading</v-icon>
                 {{ t('common.loading') }}
               </div>
+              <!-- 加载失败(优先于「空目录」,方便用户看到错误) -->
               <div v-else-if="loadErrors.has(db)" class="empty-search error">
                 <v-icon size="10" color="red">mdi-alert-circle-outline</v-icon>
                 <span class="error-text" :title="loadErrors.get(db)">
@@ -642,7 +655,8 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                   <v-icon size="11">mdi-refresh</v-icon>
                 </button>
               </div>
-              <div v-else-if="tbls.length === 0" class="empty-search">
+              <!-- 已加载但没表(用户能看到这库是空的,不是「没有数据库」) -->
+              <div v-else-if="databaseTables.has(db) && tbls.length === 0" class="empty-search">
                 {{ t('db.empty') }}
               </div>
             </template>
@@ -655,11 +669,17 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               <v-icon size="11">mdi-refresh</v-icon>
             </button>
           </div>
-          <div v-else-if="databases.length === 0 && !connected && !connecting" class="empty-search">
-            {{ t('db.noDatabases') }}
+          <!-- 真正"0 个库"的情况(已连上但 SHOW DATABASES 返回空,
+              通常是权限不足 / 用户被限制到 0 个库) -->
+          <div v-else-if="databases.length === 0 && connected" class="empty-search">
+            <v-icon size="10" color="muted">mdi-database-off-outline</v-icon>
+            <span class="error-text">{{ t('db.noDatabases') }}</span>
           </div>
+          <!-- 库节点从 databases 数组渲染,只要有库就不会走到这里;
+              保留这个分支是兜底(比如 databases 数组意外被清空) -->
           <div v-else-if="filteredDatabaseTablesList.length === 0 && connected" class="empty-search">
-            {{ t('db.noDatabases') }}
+            <v-icon size="10" color="muted">mdi-database-off-outline</v-icon>
+            <span class="error-text">{{ t('db.noDatabases') }}</span>
           </div>
         </div>
       </template>

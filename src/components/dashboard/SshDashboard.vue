@@ -3,7 +3,7 @@
  * SSH 服务器仪表盘
  * 全部数据来自 ssh_exec 真实命令采集,无任何 mock。
  */
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onActivated, onDeactivated, computed, watch } from 'vue'
 import DashboardCard from './DashboardCard.vue'
 import { sshExec } from '@/services/ssh'
 import {
@@ -106,15 +106,36 @@ function refresh() {
 
 let refreshTimer: number | null = null
 
-onMounted(() => {
-  loadAll()
+function startTimer() {
+  stopTimer()
   refreshTimer = window.setInterval(() => {
     if (props.connected) refresh()
   }, 30000)
+}
+
+function stopTimer() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
+onMounted(() => {
+  loadAll()
+  startTimer()
 })
 
 onBeforeUnmount(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
+  stopTimer()
+})
+
+// <KeepAlive> 失活时暂停定时器(节省资源),激活时恢复
+onDeactivated(() => {
+  stopTimer()
+})
+
+onActivated(() => {
+  startTimer()
 })
 
 // session 变化 / 重连时重新拉

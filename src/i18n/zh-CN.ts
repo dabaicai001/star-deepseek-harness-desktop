@@ -226,6 +226,7 @@ export default {
     totalRows: '总行数',
     pageSize: '单页',
     dropColumn: '删除该列',
+    addColumn: '新增字段',
     applyDDL: '应用 DDL',
     viewDDL: '查看完整 DDL',
     generatedDDL: '生成的 DDL'
