@@ -30,7 +30,29 @@ export default {
     quickActionsHint: 'QUICK ACTIONS',
     noMatch: 'No matches',
     emptyWelcome: 'Create your first connection',
-    tryAi: 'Try the AI assistant'
+    tryAi: 'Try the AI assistant',
+    // Top stat cards
+    statTotal: 'Total',
+    statSsh: 'SSH Hosts',
+    statDb: 'Databases',
+    statDocker: 'Docker Hosts',
+    statHosts: 'Configured hosts',
+    statFavorite: 'favorited',
+    statNoDb: 'No database configured',
+    thisWeek: 'this week',
+    // Analytics section
+    activityTitle: 'Activity',
+    typeDistribution: 'Asset Type Distribution',
+    last7Days: 'Last 7 Days Usage',
+    totalAssets: 'Total assets',
+    avgPerDay: 'Avg / day',
+    today: 'Today',
+    dbBreakdown: 'Database Type Breakdown',
+    justNow: 'just now',
+    minutesAgo: 'min ago',
+    hoursAgo: 'hr ago',
+    daysAgo: 'd ago',
+    homeTitle: 'Home'
   },
   settings: {
     title: 'Settings',

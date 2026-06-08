@@ -1,11 +1,21 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
+import StatCard from '@/components/dashboard/StatCard.vue'
+import DonutChart from '@/components/dashboard/charts/DonutChart.vue'
+import BarChart from '@/components/dashboard/charts/BarChart.vue'
 import { generateInstanceId } from '@/utils/tabId'
+import {
+  summarizeByType,
+  summarizeFavorites,
+  summarizeLast7Days,
+  summarizeTags,
+  summarizeByDbType,
+} from '@/utils/assetStats'
 import type { Asset, CreateAssetDto } from '@/types/asset'
 
 const { t } = useI18n()
@@ -13,14 +23,46 @@ const router = useRouter()
 const assetStore = useAssetStore()
 const appStore = useAppStore()
 const showNewConnection = ref(false)
-// 顶栏 Quick Action 卡片传进来的预设类型(跳 type 选择页)
 const quickInitialType = ref<'ssh' | 'db' | 'docker' | undefined>(undefined)
-// 关闭 dialog 时清掉 quickInitialType,避免污染 + 按钮
 import { watch as vueWatch } from 'vue'
 vueWatch(showNewConnection, (open) => {
   if (!open) quickInitialType.value = undefined
 })
 
+// ─── 拉取资产 ───
+onMounted(async () => {
+  if (assetStore.assets.length === 0) {
+    await assetStore.fetchAssets()
+  }
+})
+
+// ─── 派生指标(全部基于真实 assetStore) ───
+const typeSummary = computed(() => summarizeByType(assetStore.assets))
+const favorites = computed(() => summarizeFavorites(assetStore.assets))
+const last7Days = computed(() => summarizeLast7Days(assetStore.assets))
+const tags = computed(() => summarizeTags(assetStore.assets))
+const dbBreakdown = computed(() => summarizeByDbType(assetStore.assets))
+
+const sshCount = computed(() => typeSummary.value.buckets.find(b => b.type === 'ssh')?.count ?? 0)
+const dbCount = computed(() => typeSummary.value.buckets.find(b => b.type === 'db')?.count ?? 0)
+const dockerCount = computed(() => typeSummary.value.buckets.find(b => b.type === 'docker')?.count ?? 0)
+
+// 今日活跃:最近 7 天桶的最后一项(count > 0 表示今天用过)
+const todayActive = computed(() => last7Days.value[6]?.count ?? 0)
+
+// 本周新加:7 天内创建的资产
+const weekNew = computed(() => {
+  const now = Date.now()
+  return assetStore.assets.filter(a => a.createdAt && (now - a.createdAt) < 7 * 86400_000).length
+})
+
+// 平均每天使用次数(过去 7 天)
+const avgPerDay = computed(() => {
+  const total = last7Days.value.reduce((s, b) => s + b.count, 0)
+  return (total / 7).toFixed(1)
+})
+
+// ─── 最近用过的资产 ───
 const recentAssets = computed<Asset[]>(() => {
   return [...assetStore.assets]
     .filter(a => typeof a.lastUsedAt === 'number')
@@ -28,23 +70,34 @@ const recentAssets = computed<Asset[]>(() => {
     .slice(0, 6)
 })
 
+// ─── Donut 用的 segments(只有 count > 0 才显示) ───
+const donutSegments = computed(() =>
+  typeSummary.value.buckets.filter(b => b.count > 0)
+)
+const dbDonutSegments = computed(() => {
+  // 把数据库类型分布加进总分布后显示
+  // 这里独立显示"数据库子类型分布",更细致
+  return dbBreakdown.value
+    .filter(b => b.count > 0)
+    .map(b => ({ label: b.type.toUpperCase(), count: b.count, color: b.color }))
+})
+
 function relativeTime(ms: number | null | undefined): string {
   if (!ms) return ''
   const diff = Date.now() - ms
   if (diff < 0) return ''
   const min = Math.floor(diff / 60000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min} 分钟前`
+  if (min < 1) return t('home.justNow')
+  if (min < 60) return `${min} ${t('home.minutesAgo')}`
   const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr} 小时前`
+  if (hr < 24) return `${hr} ${t('home.hoursAgo')}`
   const day = Math.floor(hr / 24)
-  if (day < 30) return `${day} 天前`
+  if (day < 30) return `${day} ${t('home.daysAgo')}`
   const d = new Date(ms)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function connectToAsset(asset: Asset) {
-  // 单击 = 总是新开 tab(不复用)
   const instanceId = generateInstanceId(asset.id)
   appStore.addTab({
     id: instanceId,
@@ -85,22 +138,17 @@ function openNewConnection() {
   showNewConnection.value = true
 }
 
-/** Quick Action 卡片点击:有同类资产就直接跳,没有就弹新建 dialog(预设类型) */
 function onQuickAction(type: 'ssh' | 'db' | 'docker' | 'ai') {
   if (type === 'ai') {
-    // AI 是页内入口,直接跳
     router.push({ name: 'ai' })
     return
   }
   const sameType = assetStore.assets.filter(a => a.type === type)
   if (sameType.length === 1) {
-    // 唯一一条直接开
     connectToAsset(sameType[0])
   } else if (sameType.length > 1) {
-    // 多条跳 home 通过 sidebar 让用户选(简单方案:聚焦最近一条)
     connectToAsset(sameType.sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))[0])
   } else {
-    // 没有同类资产 → 弹新建 dialog 并预设类型
     quickInitialType.value = type
     nextTick(() => { showNewConnection.value = true })
   }
@@ -149,101 +197,202 @@ async function handleNewConnection(dto: CreateAssetDto) {
       </div>
     </div>
 
-    <!-- 最近用过 -->
-    <div v-if="recentAssets.length > 0" class="section">
-      <div class="section-header">
-        <span class="section-number">01</span>
-        <span class="section-title">{{ t('home.recent') }}</span>
-        <span class="section-hint">RECENT</span>
-      </div>
-
-      <div class="connections-grid">
-        <div
-          v-for="asset in recentAssets"
-          :key="asset.id"
-          class="connection-card"
-          @click="connectToAsset(asset)"
-        >
-          <div class="connection-icon" :class="asset.type">
-            <v-icon :color="getIconColor(asset.type)">{{ getIcon(asset.type) }}</v-icon>
-          </div>
-          <div class="connection-info">
-            <div class="connection-name">{{ asset.name }}</div>
-            <div class="connection-host">{{ asset.config.host || asset.config.dbType || 'Docker' }}</div>
-          </div>
-          <div class="connection-status">
-            <span class="last-used">{{ relativeTime(asset.lastUsedAt) }}</span>
-            <span class="status-dot online" />
-          </div>
+    <!-- 有资产:完整仪表盘 -->
+    <template v-else>
+      <!-- 顶部 4 个统计卡(全部基于真实 assetStore) -->
+      <div class="section">
+        <div class="stats-row">
+          <StatCard
+            :title="t('home.statTotal')"
+            :value="typeSummary.total"
+            :subtitle="`${favorites.total} ${t('home.statFavorite')}`"
+            icon="mdi-server-network"
+            color="cyan"
+            :trend="weekNew > 0 ? 'up' : 'stable'"
+            :trend-text="`+${weekNew} ${t('home.thisWeek')}`"
+          />
+          <StatCard
+            :title="t('home.statSsh')"
+            :value="sshCount"
+            :subtitle="t('home.statHosts')"
+            icon="mdi-console"
+            color="cyan"
+          />
+          <StatCard
+            :title="t('home.statDb')"
+            :value="dbCount"
+            :subtitle="dbBreakdown.length > 0 ? dbBreakdown.map(b => `${b.type.toUpperCase()} ${b.count}`).join(' · ') : t('home.statNoDb')"
+            icon="mdi-database"
+            color="purple"
+          />
+          <StatCard
+            :title="t('home.statDocker')"
+            :value="dockerCount"
+            :subtitle="t('home.statHosts')"
+            icon="mdi-docker"
+            color="green"
+          />
         </div>
       </div>
-    </div>
 
-    <!-- 全部资产 -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-number">{{ recentAssets.length > 0 ? '02' : '01' }}</span>
-        <span class="section-title">{{ t('asset.title') }}</span>
-      </div>
-
-      <div class="connections-grid">
-        <div
-          v-for="asset in assetStore.assets"
-          :key="asset.id"
-          class="connection-card"
-          @click="connectToAsset(asset)"
-        >
-          <div class="connection-icon" :class="asset.type">
-            <v-icon :color="getIconColor(asset.type)">{{ getIcon(asset.type) }}</v-icon>
-          </div>
-          <div class="connection-info">
-            <div class="connection-name">{{ asset.name }}</div>
-            <div class="connection-host">{{ asset.config.host || asset.config.dbType || 'Docker' }}</div>
-          </div>
-          <div class="connection-status">
-            <span class="status-dot" :class="asset.lastUsedAt ? 'online' : 'offline'"></span>
-          </div>
+      <!-- 第二行:分布图 + 7 天活跃 -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">02</span>
+          <span class="section-title">{{ t('home.activityTitle') }}</span>
+          <span class="section-hint">ACTIVITY</span>
         </div>
 
-        <div class="connection-card add-new" @click="openNewConnection">
-          <div class="connection-icon add">
-            <v-icon color="cyan">mdi-plus</v-icon>
+        <div class="analytics-grid">
+          <div class="analytics-card">
+            <div class="analytics-card-head">
+              <span class="analytics-card-title">{{ t('home.typeDistribution') }}</span>
+              <span class="analytics-card-meta">{{ t('home.totalAssets') }}: {{ typeSummary.total }}</span>
+            </div>
+            <DonutChart
+              :segments="donutSegments"
+              :center-value="typeSummary.total"
+              :center-label="t('home.assets')"
+            />
           </div>
-          <div class="connection-info">
-            <div class="connection-name">{{ t('asset.create') }}</div>
-            <div class="connection-host">{{ t('ssh.title') }} / {{ t('db.title') }} / {{ t('docker.title') }}</div>
+
+          <div class="analytics-card">
+            <div class="analytics-card-head">
+              <span class="analytics-card-title">{{ t('home.last7Days') }}</span>
+              <span class="analytics-card-meta">{{ t('home.avgPerDay') }} {{ avgPerDay }} · {{ t('home.today') }} {{ todayActive }}</span>
+            </div>
+            <BarChart :bars="last7Days.map(b => ({ label: b.label, value: b.count }))" />
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Quick Actions -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-number">{{ recentAssets.length > 0 ? '03' : '02' }}</span>
-        <span class="section-title">{{ t('home.quickActions') }}</span>
-        <span class="section-hint">{{ t('home.quickActionsHint') }}</span>
+      <!-- 第三行:数据库子类型分布(只在有 db 资产时显示) -->
+      <div v-if="dbCount > 0" class="section">
+        <div class="section-header">
+          <span class="section-number">03</span>
+          <span class="section-title">{{ t('home.dbBreakdown') }}</span>
+          <span class="section-hint">DB TYPES</span>
+        </div>
+        <div class="db-breakdown-card">
+          <div v-for="(b, i) in dbDonutSegments" :key="b.label" class="db-type-row">
+            <div class="db-type-info">
+              <span class="db-type-dot" :style="{ background: b.color }" />
+              <span class="db-type-name">{{ b.label }}</span>
+            </div>
+            <div class="db-type-bar-wrap">
+              <div
+                class="db-type-bar"
+                :style="{
+                  width: ((b.count / dbCount) * 100) + '%',
+                  background: `linear-gradient(90deg, ${b.color}40, ${b.color})`
+                }"
+              />
+            </div>
+            <span class="db-type-count">{{ b.count }}</span>
+          </div>
+        </div>
       </div>
 
-      <div class="quick-actions-grid">
-        <div class="action-card" @click="onQuickAction('ssh')">
-          <v-icon size="24" color="cyan">mdi-console</v-icon>
-          <span>{{ t('ssh.newTerminal') }}</span>
+      <!-- 第四行:最近用过 -->
+      <div v-if="recentAssets.length > 0" class="section">
+        <div class="section-header">
+          <span class="section-number">04</span>
+          <span class="section-title">{{ t('home.recent') }}</span>
+          <span class="section-hint">RECENT</span>
         </div>
-        <div class="action-card" @click="onQuickAction('db')">
-          <v-icon size="24" color="purple">mdi-database</v-icon>
-          <span>{{ t('db.query') }}</span>
-        </div>
-        <div class="action-card" @click="onQuickAction('docker')">
-          <v-icon size="24" color="green">mdi-docker</v-icon>
-          <span>{{ t('docker.containers') }}</span>
-        </div>
-        <div class="action-card" @click="onQuickAction('ai')">
-          <v-icon size="24" color="pink">mdi-robot</v-icon>
-          <span>{{ t('ai.newChat') }}</span>
+
+        <div class="connections-grid">
+          <div
+            v-for="asset in recentAssets"
+            :key="asset.id"
+            class="connection-card"
+            @click="connectToAsset(asset)"
+          >
+            <div class="connection-icon" :class="asset.type">
+              <v-icon :color="getIconColor(asset.type)">{{ getIcon(asset.type) }}</v-icon>
+            </div>
+            <div class="connection-info">
+              <div class="connection-name">{{ asset.name }}</div>
+              <div class="connection-host">{{ asset.config.host || asset.config.dbType || 'Docker' }}</div>
+            </div>
+            <div class="connection-status">
+              <span class="last-used">{{ relativeTime(asset.lastUsedAt) }}</span>
+              <span class="status-dot online" />
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+
+      <!-- 第五行:全部资产 -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">{{ recentAssets.length > 0 ? '05' : '04' }}</span>
+          <span class="section-title">{{ t('asset.title') }}</span>
+        </div>
+
+        <div class="connections-grid">
+          <div
+            v-for="asset in assetStore.assets"
+            :key="asset.id"
+            class="connection-card"
+            @click="connectToAsset(asset)"
+          >
+            <div class="connection-icon" :class="asset.type">
+              <v-icon :color="getIconColor(asset.type)">{{ getIcon(asset.type) }}</v-icon>
+            </div>
+            <div class="connection-info">
+              <div class="connection-name">{{ asset.name }}</div>
+              <div class="connection-host">{{ asset.config.host || asset.config.dbType || 'Docker' }}</div>
+              <div v-if="asset.tags && asset.tags.length" class="connection-tags">
+                <span v-for="tag in asset.tags.slice(0, 3)" :key="tag" class="tag-chip">{{ tag }}</span>
+              </div>
+            </div>
+            <div class="connection-status">
+              <v-icon v-if="asset.favorite" size="12" color="yellow">mdi-star</v-icon>
+              <span class="status-dot" :class="asset.lastUsedAt ? 'online' : 'offline'"></span>
+            </div>
+          </div>
+
+          <div class="connection-card add-new" @click="openNewConnection">
+            <div class="connection-icon add">
+              <v-icon color="cyan">mdi-plus</v-icon>
+            </div>
+            <div class="connection-info">
+              <div class="connection-name">{{ t('asset.create') }}</div>
+              <div class="connection-host">{{ t('ssh.title') }} / {{ t('db.title') }} / {{ t('docker.title') }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 第六行:Quick Actions -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">{{ recentAssets.length > 0 ? '06' : '05' }}</span>
+          <span class="section-title">{{ t('home.quickActions') }}</span>
+          <span class="section-hint">{{ t('home.quickActionsHint') }}</span>
+        </div>
+
+        <div class="quick-actions-grid">
+          <div class="action-card" @click="onQuickAction('ssh')">
+            <v-icon size="24" color="cyan">mdi-console</v-icon>
+            <span>{{ t('ssh.newTerminal') }}</span>
+          </div>
+          <div class="action-card" @click="onQuickAction('db')">
+            <v-icon size="24" color="purple">mdi-database</v-icon>
+            <span>{{ t('db.query') }}</span>
+          </div>
+          <div class="action-card" @click="onQuickAction('docker')">
+            <v-icon size="24" color="green">mdi-docker</v-icon>
+            <span>{{ t('docker.containers') }}</span>
+          </div>
+          <div class="action-card" @click="onQuickAction('ai')">
+            <v-icon size="24" color="pink">mdi-robot</v-icon>
+            <span>{{ t('ai.newChat') }}</span>
+          </div>
+        </div>
+      </div>
+    </template>
   </div>
 
   <NewConnectionDialog
@@ -288,6 +437,142 @@ async function handleNewConnection(dto: CreateAssetDto) {
   color: var(--text);
 }
 
+.section-hint {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.18em;
+  opacity: 0.5;
+}
+
+/* ─── 顶部 4 个统计卡 ─── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 1100px) {
+  .stats-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ─── 分析区(分布 + 7 天活跃) ─── */
+.analytics-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .analytics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.analytics-card {
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  padding: 18px;
+  position: relative;
+  overflow: hidden;
+}
+
+.analytics-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--grad-primary);
+  opacity: 0.3;
+}
+
+.analytics-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.analytics-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.analytics-card-meta {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ─── 数据库子类型分布 ─── */
+.db-breakdown-card {
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.db-type-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 32px;
+  align-items: center;
+  gap: 12px;
+}
+
+.db-type-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.db-type-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.db-type-name {
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-2);
+}
+
+.db-type-bar-wrap {
+  height: 8px;
+  background: var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.db-type-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.db-type-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: right;
+}
+
+/* ─── 资产卡(原风格保留) ─── */
 .connections-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -342,6 +627,7 @@ async function handleNewConnection(dto: CreateAssetDto) {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .connection-icon.ssh {
@@ -379,6 +665,27 @@ async function handleNewConnection(dto: CreateAssetDto) {
   font-size: 12px;
   color: var(--muted);
   font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.connection-tags {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.tag-chip {
+  font-size: 9px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(0, 240, 255, 0.06);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 240, 255, 0.15);
+  letter-spacing: 0.04em;
 }
 
 .connection-status {
@@ -386,6 +693,7 @@ async function handleNewConnection(dto: CreateAssetDto) {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .last-used {
@@ -394,16 +702,6 @@ async function handleNewConnection(dto: CreateAssetDto) {
   color: var(--muted);
   letter-spacing: 0.04em;
   white-space: nowrap;
-}
-
-.section-hint {
-  margin-left: auto;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  font-weight: 700;
-  color: var(--muted);
-  letter-spacing: 0.18em;
-  opacity: 0.5;
 }
 
 .status-dot {
@@ -459,7 +757,7 @@ async function handleNewConnection(dto: CreateAssetDto) {
   50% { opacity: 0.4; transform: scale(0.8); }
 }
 
-/* ====== 空态欢迎卡 ====== */
+/* ─── 空态欢迎卡 ─── */
 .empty-welcome {
   display: flex;
   align-items: center;
@@ -472,6 +770,7 @@ async function handleNewConnection(dto: CreateAssetDto) {
   position: relative;
   overflow: hidden;
 }
+
 .empty-welcome::before {
   content: "";
   position: absolute;
@@ -481,15 +780,18 @@ async function handleNewConnection(dto: CreateAssetDto) {
     radial-gradient(circle at 70% 60%, rgba(181, 107, 255, 0.06) 0%, transparent 50%);
   pointer-events: none;
 }
+
 .empty-welcome-inner {
   text-align: center;
   padding: 40px 32px;
   position: relative;
 }
+
 .welcome-icon {
   margin-bottom: 16px;
   filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.4));
 }
+
 .welcome-title {
   font-family: 'Orbitron', sans-serif;
   font-size: 24px;
@@ -500,12 +802,14 @@ async function handleNewConnection(dto: CreateAssetDto) {
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+
 .welcome-sub {
   font-size: 13px;
   color: var(--muted);
   margin: 0 0 24px;
   line-height: 1.6;
 }
+
 .welcome-actions {
   display: flex;
   gap: 12px;
