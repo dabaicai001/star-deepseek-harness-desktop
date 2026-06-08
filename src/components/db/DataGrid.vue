@@ -1,32 +1,70 @@
 <script setup lang="ts">
+/**
+ * DataGrid — 数据结果表
+ *
+ * 支持两种模式:
+ * 1. 自定义 SQL 结果(走 props.result,客户端分页)
+ * 2. 表格数据浏览(走 props.result + totalRows + page + pageSize,服务端分页)
+ *
+ * - 默认 pageSize 1000,可在 toolbar 切换 [100, 500, 1000, 2000, 5000]
+ * - 显示总行数(从 props.totalRows 拿,没传就显示 result.rows.length)
+ * - 单击列名排序(触发 sort-change)
+ * - editable=true + pkCols 非空时,行内编辑(emit cell-edit)
+ */
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { QueryResult, ColumnInfo } from '@/types/db'
 
 const { t } = useI18n()
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   result: QueryResult | null
   loading?: boolean
-}>()
+  /** 服务端分页:总行数 */
+  totalRows?: number
+  /** 当前页(0-based) */
+  page?: number
+  /** 每页大小 */
+  pageSize?: number
+  /** 可选页大小 */
+  pageSizeOptions?: number[]
+  /** 是否可编辑 */
+  editable?: boolean
+  /** 主键列(用于构造 WHERE 定位行) */
+  pkCols?: string[]
+}>(), {
+  totalRows: undefined,
+  page: 0,
+  pageSize: 1000,
+  pageSizeOptions: () => [100, 500, 1000, 2000, 5000],
+  editable: false,
+  pkCols: () => []
+})
 
 const emit = defineEmits<{
   cellEdit: [row: number, col: string, value: unknown]
   rowDelete: [row: number]
   export: [format: string]
+  'page-change': [page: number]
+  'page-size-change': [size: number]
+  'sort-change': [col: string]
 }>()
 
+// 客户端过滤(只对客户端分页模式有效)
+const filterText = ref('')
 const sortColumn = ref<string | null>(null)
 const sortDir = ref<'ASC' | 'DESC'>('ASC')
-const filterText = ref('')
-const currentPage = ref(0)
-const pageSize = ref(100)
+
+// 服务端模式 vs 客户端模式:有 totalRows 走服务端
+const isServerMode = computed(() => props.totalRows != null)
 
 const columns = computed(() => props.result?.columns || [])
 const allRows = computed(() => props.result?.rows || [])
 
+// 客户端模式下,先过滤再排序再分页
 const sortedRows = computed(() => {
   let rows = [...allRows.value]
+  if (isServerMode.value) return rows // 服务端已经处理
   if (sortColumn.value && columns.value.length > 0) {
     const colIdx = columns.value.findIndex(c => c.name === sortColumn.value)
     if (colIdx >= 0) {
@@ -45,6 +83,7 @@ const sortedRows = computed(() => {
 })
 
 const filteredRows = computed(() => {
+  if (isServerMode.value) return sortedRows.value
   if (!filterText.value) return sortedRows.value
   const q = filterText.value.toLowerCase()
   return sortedRows.value.filter(row =>
@@ -52,31 +91,50 @@ const filteredRows = computed(() => {
   )
 })
 
-const totalPages = computed(() => Math.ceil(filteredRows.value.length / pageSize.value))
-
+// 服务端模式:直接显示所有返回的行,翻页走 emit
+// 客户端模式:在 filteredRows 基础上分页
 const pagedRows = computed(() => {
-  const start = currentPage.value * pageSize.value
-  return filteredRows.value.slice(start, start + pageSize.value)
+  if (isServerMode.value) return filteredRows.value
+  const start = (props.page || 0) * (props.pageSize || 1000)
+  return filteredRows.value.slice(start, start + (props.pageSize || 1000))
 })
+
+const totalForPaging = computed(() => {
+  if (isServerMode.value) return props.totalRows || 0
+  return filteredRows.value.length
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(totalForPaging.value / (props.pageSize || 1000))))
 
 const visibleRange = computed(() => {
-  const start = currentPage.value * pageSize.value + 1
-  const end = Math.min(start + pageSize.value - 1, filteredRows.value.length)
-  return { start, end, total: filteredRows.value.length }
+  const size = props.pageSize || 1000
+  const cur = props.page || 0
+  const start = cur * size + 1
+  const end = Math.min(start + size - 1, totalForPaging.value)
+  return { start, end, total: totalForPaging.value }
 })
 
+// 当 result 变化(查询完成)时重置
 watch(() => props.result, () => {
-  currentPage.value = 0
-  sortColumn.value = null
-  filterText.value = ''
+  if (!isServerMode.value) {
+    sortColumn.value = null
+    filterText.value = ''
+  }
 })
 
 function toggleSort(col: string) {
-  if (sortColumn.value === col) {
-    sortDir.value = sortDir.value === 'ASC' ? 'DESC' : 'ASC'
-  } else {
+  if (isServerMode.value) {
+    // 服务端模式:由父组件发 sort-change
     sortColumn.value = col
-    sortDir.value = 'ASC'
+    sortDir.value = sortColumn.value === col && sortDir.value === 'ASC' ? 'DESC' : 'ASC'
+    emit('sort-change', col)
+  } else {
+    if (sortColumn.value === col) {
+      sortDir.value = sortDir.value === 'ASC' ? 'DESC' : 'ASC'
+    } else {
+      sortColumn.value = col
+      sortDir.value = 'ASC'
+    }
   }
 }
 
@@ -94,11 +152,48 @@ function getCellClass(value: unknown): string {
 }
 
 function prevPage() {
-  if (currentPage.value > 0) currentPage.value--
+  if ((props.page || 0) > 0) emit('page-change', (props.page || 0) - 1)
+}
+function nextPage() {
+  if ((props.page || 0) < totalPages.value - 1) emit('page-change', (props.page || 0) + 1)
+}
+function onPageSizeChange(e: Event) {
+  const v = parseInt((e.target as HTMLSelectElement).value, 10)
+  if (!isNaN(v)) emit('page-size-change', v)
 }
 
-function nextPage() {
-  if (currentPage.value < totalPages.value - 1) currentPage.value++
+// 内联编辑
+const editing = ref<{ row: number; col: string } | null>(null)
+const editValue = ref<string>('')
+
+function startEdit(rowIdx: number, col: string, currentValue: unknown) {
+  if (!props.editable) return
+  editing.value = { row: rowIdx, col }
+  editValue.value = currentValue == null ? '' : String(currentValue)
+}
+
+function commitEdit() {
+  if (!editing.value) return
+  const { row, col } = editing.value
+  let newVal: unknown = editValue.value
+  // 尝试按列类型转换(简单的:数字列变 number)
+  const colDef = columns.value.find(c => c.name === col)
+  if (colDef) {
+    const t = (colDef.type || '').toLowerCase()
+    if (/int|decimal|numeric|float|double|real/.test(t)) {
+      const n = Number(editValue.value)
+      if (!isNaN(n)) newVal = n
+    } else if (/bool/.test(t)) {
+      if (editValue.value === 'true' || editValue.value === '1') newVal = true
+      else if (editValue.value === 'false' || editValue.value === '0') newVal = false
+    }
+  }
+  emit('cellEdit', row, col, newVal)
+  editing.value = null
+}
+
+function cancelEdit() {
+  editing.value = null
 }
 </script>
 
@@ -108,8 +203,10 @@ function nextPage() {
     <div class="grid-toolbar">
       <div class="toolbar-left">
         <v-icon size="14" color="purple">mdi-table</v-icon>
-        <span v-if="result" class="row-count">
-          {{ result.rows.length }} {{ t('db.rows') }}
+        <!-- 总行数(粗体高亮) -->
+        <span v-if="result && !result.error" class="row-count">
+          <span class="total-num">{{ totalForPaging.toLocaleString() }}</span>
+          <span class="total-label">{{ t('db.totalRows') }}</span>
           <span v-if="result.durationMs != null" class="duration">· {{ result.durationMs }}ms</span>
         </span>
         <span v-if="result?.error" class="error-badge">
@@ -118,12 +215,21 @@ function nextPage() {
         </span>
       </div>
       <div class="toolbar-right">
+        <!-- 客户端过滤(自定义 SQL 模式) -->
         <input
+          v-if="!isServerMode"
           v-model="filterText"
           type="text"
           class="cyber-input filter-input"
           :placeholder="t('common.search') + '...'"
         />
+        <!-- 页大小选择器 -->
+        <div class="page-size-selector">
+          <span class="size-label">{{ t('db.pageSize') }}</span>
+          <select :value="pageSize" class="cyber-select" @change="onPageSizeChange">
+            <option v-for="opt in pageSizeOptions" :key="opt" :value="opt">{{ opt.toLocaleString() }}</option>
+          </select>
+        </div>
         <button class="action-btn" @click="emit('export', 'csv')" :title="t('db.export')">
           <v-icon size="14">mdi-download</v-icon>
         </button>
@@ -159,19 +265,34 @@ function nextPage() {
                 <v-icon v-if="sortColumn === col.name" size="10" class="sort-icon">
                   {{ sortDir === 'ASC' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}
                 </v-icon>
+                <span v-if="editable && pkCols.includes(col.name)" class="pk-marker" :title="t('db.primaryKey')">🔑</span>
               </th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(row, rowIdx) in pagedRows" :key="rowIdx">
-              <td class="col-index">{{ currentPage * pageSize + rowIdx + 1 }}</td>
+              <td class="col-index">{{ (page || 0) * (pageSize || 1000) + rowIdx + 1 }}</td>
               <td
                 v-for="(cell, colIdx) in row"
                 :key="colIdx"
-                :class="getCellClass(cell)"
+                :class="[getCellClass(cell), { editable: editable }]"
                 class="cell"
+                @dblclick="startEdit(rowIdx, columns[colIdx].name, cell)"
               >
-                <span class="cell-value" :title="formatCell(cell)">{{ formatCell(cell) }}</span>
+                <input
+                  v-if="editing?.row === rowIdx && editing?.col === columns[colIdx].name"
+                  v-model="editValue"
+                  class="cell-edit-input"
+                  @keyup.enter="commitEdit"
+                  @keyup.esc="cancelEdit"
+                  @blur="commitEdit"
+                  autofocus
+                />
+                <span
+                  v-else
+                  class="cell-value"
+                  :title="formatCell(cell)"
+                >{{ formatCell(cell) }}</span>
               </td>
             </tr>
           </tbody>
@@ -179,13 +300,15 @@ function nextPage() {
       </div>
 
       <!-- Pagination -->
-      <div class="grid-pagination" v-if="totalPages > 1">
-        <span class="page-info">{{ visibleRange.start }}-{{ visibleRange.end }} / {{ visibleRange.total }}</span>
-        <button class="page-btn" :disabled="currentPage === 0" @click="prevPage">
+      <div class="grid-pagination" v-if="totalForPaging > 0">
+        <span class="page-info">
+          {{ visibleRange.start }}-{{ visibleRange.end }} / {{ visibleRange.total.toLocaleString() }}
+        </span>
+        <button class="page-btn" :disabled="(page || 0) === 0" @click="prevPage">
           <v-icon size="14">mdi-chevron-left</v-icon>
         </button>
-        <span class="page-num">{{ currentPage + 1 }} / {{ totalPages }}</span>
-        <button class="page-btn" :disabled="currentPage >= totalPages - 1" @click="nextPage">
+        <span class="page-num">{{ (page || 0) + 1 }} / {{ totalPages.toLocaleString() }}</span>
+        <button class="page-btn" :disabled="(page || 0) >= totalPages - 1" @click="nextPage">
           <v-icon size="14">mdi-chevron-right</v-icon>
         </button>
       </div>
@@ -208,6 +331,7 @@ function nextPage() {
   padding: 6px 10px;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
+  gap: 12px;
 }
 
 .toolbar-left {
@@ -231,12 +355,59 @@ function nextPage() {
 }
 
 .row-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
+}
+
+.total-num {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--cyan);
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+}
+
+.total-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .duration {
   color: var(--muted);
+  font-size: 10px;
+}
+
+.page-size-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.cyber-select {
+  padding: 3px 6px;
+  background: var(--panel-solid-2);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  outline: none;
+  cursor: pointer;
+}
+
+.cyber-select:focus {
+  border-color: var(--cyan);
+}
+
+.size-label {
+  white-space: nowrap;
 }
 
 .error-badge {
@@ -326,8 +497,14 @@ function nextPage() {
   color: var(--purple);
 }
 
+.pk-marker {
+  margin-left: 4px;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
 .col-index {
-  width: 40px;
+  width: 50px;
   text-align: right;
   padding: 4px 8px;
   color: var(--muted);
@@ -342,14 +519,37 @@ function nextPage() {
 .cell {
   padding: 4px 10px;
   border-bottom: 1px solid var(--line);
-  max-width: 300px;
+  max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  position: relative;
 }
 
 .cell:hover {
   background: rgba(0, 240, 255, 0.04);
+}
+
+.cell.editable {
+  cursor: text;
+}
+
+.cell.editable:hover {
+  background: rgba(0, 240, 255, 0.08);
+  outline: 1px dashed var(--cyan);
+  outline-offset: -1px;
+}
+
+.cell-edit-input {
+  width: 100%;
+  padding: 2px 4px;
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid var(--cyan);
+  border-radius: 2px;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  outline: none;
 }
 
 .cell-null {
@@ -372,7 +572,7 @@ function nextPage() {
 
 .cell-value {
   display: inline-block;
-  max-width: 280px;
+  max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -421,7 +621,7 @@ function nextPage() {
 
 .page-num {
   font-family: 'JetBrains Mono', monospace;
-  min-width: 60px;
+  min-width: 80px;
   text-align: center;
 }
 

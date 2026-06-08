@@ -14,6 +14,7 @@ import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
 import SqlEditor from '@/components/db/SqlEditor.vue'
 import DataGrid from '@/components/db/DataGrid.vue'
+import TableStructureEditor from '@/components/db/TableStructureEditor.vue'
 import * as dbService from '@/services/db'
 import type { TableInfo, ColumnMeta, QueryResult } from '@/types/db'
 
@@ -35,15 +36,72 @@ const connected = ref(false)
 const connecting = ref(false)
 const connId = ref<string | null>(null)
 const databases = ref<string[]>([])
-const currentDatabase = ref('')
-const tables = ref<TableInfo[]>([])
-const selectedTable = ref<string | null>(null)
+// databaseTables: dbName -> tables in that db
+const databaseTables = ref<Map<string, TableInfo[]>>(new Map())
+const loadingTables = ref<Set<string>>(new Set())
+// selected table 也得带 db, 因为跨库
+const selectedTable = ref<{ db: string; name: string } | null>(null)
 const tableColumns = ref<ColumnMeta[]>([])
 const sqlText = ref('')
 const queryResult = ref<QueryResult | null>(null)
 const isExecuting = ref(false)
 const sidebarCollapsed = ref(false)
-const activeTab = ref<'result' | 'structure'>('result')
+const activeTab = ref<'data' | 'result' | 'structure'>('data')
+
+// 表格数据(选中表的服务端分页)
+const tableData = ref<QueryResult | null>(null)
+const tableDataTotal = ref(0)
+const tableDataLoading = ref(false)
+const tableDataPage = ref(0)
+const tableDataPageSize = ref(1000)
+const tableDataOrderBy = ref<string | null>(null)
+const tableDataOrderDir = ref<'ASC' | 'DESC'>('ASC')
+
+// 行的主键(来自 listColumns,用于 inline edit 定位行)
+const tablePrimaryKeys = computed(() => tableColumns.value.filter(c => c.key === 'PRI').map(c => c.name))
+
+// 所有可用的表名(扁平,给 SqlEditor 自动补全)
+const allTableNames = computed(() => {
+  const out: string[] = []
+  for (const [db, tbls] of databaseTables.value) {
+    for (const t of tbls) out.push(t.name)
+  }
+  return out
+})
+
+// 表格搜索
+const tableSearch = ref('')
+const expandedDatabases = ref<Set<string>>(new Set())
+
+// 搜索时如果 db 没展开，自动展开匹配项所在的 db
+const filteredDatabaseTables = computed(() => {
+  const q = tableSearch.value.trim().toLowerCase()
+  const map = new Map<string, TableInfo[]>()
+  for (const [db, tbls] of databaseTables.value) {
+    if (!q) {
+      map.set(db, tbls)
+    } else {
+      const filtered = tbls.filter(t => t.name.toLowerCase().includes(q))
+      if (filtered.length > 0) map.set(db, filtered)
+    }
+  }
+  return map
+})
+
+// 渲染用:Map 转 [db, tables] 元组数组,绕过 v-for 类型推断
+const filteredDatabaseTablesList = computed(() =>
+  Array.from(filteredDatabaseTables.value.entries())
+)
+
+const totalTables = computed(() => {
+  let n = 0
+  for (const arr of databaseTables.value.values()) n += arr.length
+  return n
+})
+
+// 系统库默认隐藏
+const SYSTEM_DATABASES = ['information_schema', 'mysql', 'performance_schema', 'sys']
+const isSystemDb = (db: string) => SYSTEM_DATABASES.includes(db.toLowerCase())
 
 async function connect() {
   if (!asset.value || connected.value) return
@@ -64,18 +122,15 @@ async function connect() {
       connId.value = session.connId
       connected.value = true
 
-      // Load databases
+      // Load databases list
       try {
         databases.value = await dbService.mysqlListDatabases(session.connId)
       } catch {
         // might not have permission
       }
 
-      // Load tables for current database
-      if (config.database) {
-        currentDatabase.value = config.database
-        await loadTables()
-      }
+      // Load tables for ALL databases (parallel)
+      await loadAllTables()
     } else if (dbType === 'redis') {
       const session = await dbStore.connectRedis(assetId.value, asset.value.name, {
         host: config.host || '',
@@ -94,24 +149,180 @@ async function connect() {
   }
 }
 
-async function loadTables() {
+async function loadAllTables() {
   if (!connId.value) return
+  const dbs = databases.value.filter(d => !isSystemDb(d))
+  // 并行加载每个 db 的表;失败的 db 不阻塞其他
+  await Promise.allSettled(
+    dbs.map(async (db) => {
+      loadingTables.value.add(db)
+      try {
+        const tbls = await dbService.mysqlListTables(connId.value!, db)
+        databaseTables.value.set(db, tbls)
+        // 默认展开第一个 db
+        if (expandedDatabases.value.size === 0) {
+          expandedDatabases.value.add(db)
+        }
+      } catch (err) {
+        console.warn(`Load tables for ${db} failed:`, err)
+        databaseTables.value.set(db, [])
+      } finally {
+        loadingTables.value.delete(db)
+      }
+    })
+  )
+  // 触发响应式更新
+  databaseTables.value = new Map(databaseTables.value)
+}
+
+async function loadTablesForDb(db: string) {
+  if (!connId.value) return
+  if (databaseTables.value.has(db)) return // 已有
+  loadingTables.value.add(db)
   try {
-    tables.value = await dbService.mysqlListTables(connId.value, currentDatabase.value || undefined)
+    const tbls = await dbService.mysqlListTables(connId.value, db)
+    databaseTables.value.set(db, tbls)
   } catch (err) {
-    console.error('Load tables failed:', err)
+    console.warn(`Load tables for ${db} failed:`, err)
+    databaseTables.value.set(db, [])
+  } finally {
+    loadingTables.value.delete(db)
+    databaseTables.value = new Map(databaseTables.value)
   }
 }
 
-async function selectTable(tableName: string) {
+function toggleDatabase(db: string) {
+  if (expandedDatabases.value.has(db)) {
+    expandedDatabases.value.delete(db)
+  } else {
+    expandedDatabases.value.add(db)
+    // 懒加载:第一次展开时拉表
+    if (!databaseTables.value.has(db)) {
+      loadTablesForDb(db)
+    }
+  }
+  expandedDatabases.value = new Set(expandedDatabases.value)
+}
+
+async function selectTable(db: string, tableName: string) {
   if (!connId.value) return
-  selectedTable.value = tableName
-  activeTab.value = 'structure'
+  selectedTable.value = { db, name: tableName }
+  activeTab.value = 'data'
   try {
-    tableColumns.value = await dbService.mysqlListColumns(connId.value, tableName, currentDatabase.value || undefined)
+    tableColumns.value = await dbService.mysqlListColumns(connId.value, tableName, db)
   } catch (err) {
     console.error('Load columns failed:', err)
   }
+  await loadTableData()
+}
+
+async function loadTableData() {
+  if (!connId.value || !selectedTable.value) return
+  tableDataLoading.value = true
+  try {
+    // 总行数
+    try {
+      const rc = await dbService.mysqlGetRowCount(connId.value, selectedTable.value.name)
+      tableDataTotal.value = rc.count
+    } catch (err) {
+      console.warn('getRowCount failed:', err)
+      tableDataTotal.value = 0
+    }
+    // 分页数据
+    const offset = tableDataPage.value * tableDataPageSize.value
+    tableData.value = await dbService.mysqlGetTableData(
+      connId.value,
+      selectedTable.value.name,
+      tableDataPageSize.value,
+      offset,
+      tableDataOrderBy.value || undefined,
+      tableDataOrderDir.value
+    )
+  } catch (err: unknown) {
+    tableData.value = {
+      columns: [],
+      rows: [],
+      rowsAffected: 0,
+      durationMs: 0,
+      isSelect: true,
+      error: err instanceof Error ? err.message : String(err)
+    }
+  } finally {
+    tableDataLoading.value = false
+  }
+}
+
+async function reloadSelectedTable() {
+  if (!connId.value || !selectedTable.value) return
+  // 重新拉表(可能表结构变了)
+  const tbls = await dbService.mysqlListTables(connId.value, selectedTable.value.db)
+  databaseTables.value.set(selectedTable.value.db, tbls)
+  databaseTables.value = new Map(databaseTables.value)
+  // 重新拉列
+  tableColumns.value = await dbService.mysqlListColumns(
+    connId.value,
+    selectedTable.value.name,
+    selectedTable.value.db
+  )
+  // 重新拉数据
+  await loadTableData()
+}
+
+function onTableDataPageChange(page: number) {
+  tableDataPage.value = page
+  loadTableData()
+}
+
+function onTableDataPageSizeChange(size: number) {
+  tableDataPageSize.value = size
+  tableDataPage.value = 0
+  loadTableData()
+}
+
+function onTableDataSortChange(col: string) {
+  if (tableDataOrderBy.value === col) {
+    tableDataOrderDir.value = tableDataOrderDir.value === 'ASC' ? 'DESC' : 'ASC'
+  } else {
+    tableDataOrderBy.value = col
+    tableDataOrderDir.value = 'ASC'
+  }
+  loadTableData()
+}
+
+async function onCellEdit(rowIdx: number, col: string, value: unknown) {
+  if (!connId.value || !selectedTable.value || tablePrimaryKeys.value.length === 0) {
+    alert('需要主键才能编辑行')
+    return
+  }
+  const result = tableData.value
+  if (!result) return
+  const row = result.rows[rowIdx]
+  // 用主键列构造 WHERE
+  const where = tablePrimaryKeys.value
+    .map(pk => {
+      const pkIdx = result.columns.findIndex(c => c.name === pk)
+      if (pkIdx < 0) return null
+      const v = row[pkIdx]
+      return `\`${pk}\` = ${formatSqlValue(v)}`
+    })
+    .filter(Boolean)
+    .join(' AND ')
+  if (!where) return
+  try {
+    await dbService.mysqlUpdateRows(connId.value, selectedTable.value.name, { [col]: value }, where)
+    // 刷新当前页
+    await loadTableData()
+  } catch (err: unknown) {
+    alert(`更新失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+function formatSqlValue(v: unknown): string {
+  if (v === null || v === undefined) return 'NULL'
+  if (typeof v === 'number') return String(v)
+  if (typeof v === 'boolean') return v ? '1' : '0'
+  // 字符串加引号转义
+  return `'${String(v).replace(/'/g, "''")}'`
 }
 
 async function executeSql(sql: string) {
@@ -156,7 +367,7 @@ async function explainSql(sql: string) {
 
 function handleExport(format: string) {
   if (!connId.value || !selectedTable.value) return
-  dbService.mysqlExportData(connId.value, selectedTable.value, format)
+  dbService.mysqlExportData(connId.value, selectedTable.value.name, format)
 }
 
 function insertTableName(name: string) {
@@ -317,34 +528,78 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           <span class="conn-name">{{ asset?.name || '...' }}</span>
         </div>
 
-        <!-- Database selector -->
-        <div v-if="databases.length > 0" class="db-selector">
-          <select
-            v-model="currentDatabase"
-            class="cyber-select"
-            @change="loadTables"
-          >
-            <option v-for="db in databases" :key="db" :value="db">{{ db }}</option>
-          </select>
+        <!-- Search row -->
+        <div class="search-row">
+          <div class="cyber-search">
+            <v-icon size="14">mdi-magnify</v-icon>
+            <input
+              v-model="tableSearch"
+              type="text"
+              :placeholder="t('db.searchTables')"
+              spellcheck="false"
+            />
+            <kbd v-if="!tableSearch">⌘K</kbd>
+            <button
+              v-else
+              class="action-btn-sm"
+              :title="t('ssh.clear')"
+              @click="tableSearch = ''"
+            >
+              <v-icon size="10">mdi-close</v-icon>
+            </button>
+          </div>
         </div>
 
-        <!-- Tables tree -->
+        <!-- Tables tree (all databases) -->
         <div class="tables-tree">
-          <div class="tree-section">
-            <v-icon size="12" color="purple">mdi-table</v-icon>
-            <span>{{ t('db.table') }} ({{ tables.length }})</span>
-          </div>
           <div
-            v-for="tbl in tables"
-            :key="tbl.name"
-            class="tree-item"
-            :class="{ active: selectedTable === tbl.name }"
-            @click="selectTable(tbl.name)"
-            @dblclick="insertTableName(tbl.name)"
+            v-for="[db, tbls] in filteredDatabaseTablesList"
+            :key="db"
+            class="tree-group db"
           >
-            <v-icon size="12" color="cyan">mdi-table</v-icon>
-            <span class="item-name">{{ tbl.name }}</span>
-            <span v-if="tbl.rows != null" class="item-meta">{{ tbl.rows }}</span>
+            <!-- DB header (expand/collapse) -->
+            <div class="tree-group-head db-head" @click="toggleDatabase(db)">
+              <v-icon size="11" class="type-icon">
+                {{ expandedDatabases.has(db) ? 'mdi-chevron-down' : 'mdi-chevron-right' }}
+              </v-icon>
+              <v-icon size="12" class="type-icon">mdi-database</v-icon>
+              <span class="label">{{ db }}</span>
+              <span class="count">{{ tbls.length }}</span>
+            </div>
+
+            <!-- Tables list (only when expanded) -->
+            <template v-if="expandedDatabases.has(db)">
+              <div
+                v-for="tbl in tbls"
+                :key="`${db}.${tbl.name}`"
+                class="tree-item"
+                :class="{ active: selectedTable?.db === db && selectedTable?.name === tbl.name }"
+                @click="selectTable(db, tbl.name)"
+                @dblclick="insertTableName(tbl.name)"
+              >
+                <v-icon size="11" color="cyan">mdi-table</v-icon>
+                <span class="item-name">{{ tbl.name }}</span>
+                <span v-if="tbl.rows != null" class="item-meta">{{ tbl.rows }}</span>
+              </div>
+              <div v-if="tbls.length === 0 && loadingTables.has(db)" class="empty-search">
+                <v-icon size="10" class="spin">mdi-loading</v-icon>
+                {{ t('common.loading') }}
+              </div>
+              <div v-else-if="tbls.length === 0" class="empty-search">
+                {{ t('db.empty') }}
+              </div>
+            </template>
+          </div>
+
+          <div v-if="databaseTables.size === 0 && connecting" class="empty-search">
+            <v-icon size="10" class="spin">mdi-loading</v-icon>
+            {{ t('common.loading') }}
+          </div>
+          <div v-else-if="databaseTables.size === 0" class="empty-search">
+            {{ t('db.noDatabases') }}
+          </div>
+          <div v-else-if="filteredDatabaseTables.size === 0" class="empty-search">
+            {{ t('db.noMatch') }}
           </div>
         </div>
       </template>
@@ -373,7 +628,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         <SqlEditor
           v-model="sqlText"
           :dialect="asset?.config.dbType === 'redis' ? 'redis' : 'mysql'"
-          :tables="tables.map(t => t.name)"
+          :tables="allTableNames"
           @execute="executeSql"
           @explain="explainSql"
         />
@@ -383,10 +638,19 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
       <div class="result-tabs">
         <div
           class="result-tab"
+          :class="{ active: activeTab === 'data' }"
+          @click="activeTab = 'data'"
+          v-if="selectedTable"
+        >
+          <v-icon size="12">mdi-table-large</v-icon>
+          {{ t('db.data') }}
+        </div>
+        <div
+          class="result-tab"
           :class="{ active: activeTab === 'result' }"
           @click="activeTab = 'result'"
         >
-          <v-icon size="12">mdi-table</v-icon>
+          <v-icon size="12">mdi-database-search</v-icon>
           {{ t('db.query') }}
         </div>
         <div
@@ -402,44 +666,42 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 
       <!-- Result area -->
       <div class="result-area">
+        <!-- 1) 选中的表数据(服务端分页 + 内联编辑) -->
         <DataGrid
-          v-if="activeTab === 'result'"
+          v-if="activeTab === 'data' && selectedTable"
+          :result="tableData"
+          :loading="tableDataLoading"
+          :total-rows="tableDataTotal"
+          :page="tableDataPage"
+          :page-size="tableDataPageSize"
+          :page-size-options="[100, 500, 1000, 2000, 5000]"
+          :editable="tablePrimaryKeys.length > 0"
+          :pk-cols="tablePrimaryKeys"
+          @page-change="onTableDataPageChange"
+          @page-size-change="onTableDataPageSizeChange"
+          @sort-change="onTableDataSortChange"
+          @cell-edit="onCellEdit"
+        />
+
+        <!-- 2) 自定义 SQL 结果 -->
+        <DataGrid
+          v-else-if="activeTab === 'result'"
           :result="queryResult"
           :loading="isExecuting"
+          :editable="false"
           @export="handleExport"
         />
 
-        <!-- Table structure -->
-        <div v-else-if="activeTab === 'structure'" class="structure-view">
-          <table class="structure-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>{{ t('asset.name') }}</th>
-                <th>{{ t('db.column') }}</th>
-                <th>Nullable</th>
-                <th>Key</th>
-                <th>Default</th>
-                <th>Extra</th>
-                <th>Comment</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(col, idx) in tableColumns" :key="col.name">
-                <td class="idx">{{ idx + 1 }}</td>
-                <td class="col-name">{{ col.name }}</td>
-                <td class="col-type">{{ col.type }}</td>
-                <td class="col-nullable">{{ col.nullable }}</td>
-                <td class="col-key">
-                  <span v-if="col.key" class="key-badge" :class="col.key.toLowerCase()">{{ col.key }}</span>
-                </td>
-                <td class="col-default">{{ col.defaultValue ?? 'NULL' }}</td>
-                <td class="col-extra">{{ col.extra }}</td>
-                <td class="col-comment">{{ col.comment }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <!-- 3) 表结构(可编辑:改列名/类型/默认值/注释,生成 ALTER TABLE) -->
+        <TableStructureEditor
+          v-else-if="activeTab === 'structure' && selectedTable"
+          ref="structureEditorRef"
+          :conn-id="connId || ''"
+          :db="selectedTable.db"
+          :table="selectedTable.name"
+          :columns="tableColumns"
+          @reload="reloadSelectedTable"
+        />
       </div>
     </div>
     </div>
@@ -474,8 +736,20 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 </template>
 
 <style scoped>
+.db-view-with-panel {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .db-view {
   display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   height: 100%;
   overflow: hidden;
 }
@@ -557,16 +831,64 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   padding: 4px 0;
 }
 
-.tree-section {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 11px;
+.tree-subgroup {
+  /* 嵌套分组,缩进 */
+}
+
+.tree-group-head.subgroup-head {
+  cursor: pointer;
+  padding: 4px 14px 4px 24px;
+  user-select: none;
+}
+
+.tree-group-head.subgroup-head:hover {
+  color: var(--text-2);
+}
+
+.tree-group-head.subgroup-head .label {
   font-weight: 600;
+  color: var(--text-2);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+}
+
+.tree-group-head .label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.tree-subgroup .tree-item {
+  padding-left: 40px;
+}
+
+.empty-search {
+  padding: 8px 14px 8px 40px;
+  font-size: 11px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-style: italic;
+}
+
+.action-btn-sm {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s;
+}
+
+.action-btn-sm:hover {
+  background: rgba(0, 240, 255, 0.08);
+  color: var(--cyan);
 }
 
 .tree-item {

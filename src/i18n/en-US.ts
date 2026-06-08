@@ -13,6 +13,8 @@ export default {
     confirm: 'Confirm',
     soon: 'Coming soon',
     success: 'Success',
+    reset: 'Reset',
+    actions: 'Actions',
     error: 'Error',
     warning: 'Warning',
     info: 'Info',
@@ -193,7 +195,17 @@ export default {
     noTableSelected: 'Please select a table first',
     connected: 'Connected',
     connecting: 'Connecting...',
-    connectionFailed: 'Connection failed'
+    connectionFailed: 'Connection failed',
+    searchTables: 'Search tables',
+    noMatch: 'No matching tables',
+    empty: '(empty)',
+    noDatabases: 'No databases available',
+    totalRows: 'total rows',
+    pageSize: 'Page',
+    dropColumn: 'Drop column',
+    applyDDL: 'Apply DDL',
+    viewDDL: 'View full DDL',
+    generatedDDL: 'Generated DDL'
   },
   docker: {
     title: 'Docker',

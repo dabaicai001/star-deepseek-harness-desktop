@@ -13,6 +13,8 @@ export default {
     confirm: '确认',
     soon: '即将推出',
     success: '成功',
+    reset: '重置',
+    actions: '操作',
     error: '错误',
     warning: '警告',
     info: '信息',
@@ -193,7 +195,18 @@ export default {
     noTableSelected: '请先选择一个表',
     connected: '已连接',
     connecting: '连接中...',
-    connectionFailed: '连接失败'
+    connectionFailed: '连接失败',
+    searchTables: '搜索表名',
+    noMatch: '没有匹配的表',
+    empty: '(空)',
+    noDatabases: '没有可用的数据库',
+    loading: '加载中...',
+    totalRows: '总行数',
+    pageSize: '单页',
+    dropColumn: '删除该列',
+    applyDDL: '应用 DDL',
+    viewDDL: '查看完整 DDL',
+    generatedDDL: '生成的 DDL'
   },
   docker: {
     title: 'Docker',
