@@ -1011,7 +1011,7 @@ vueWatch(() => appStore.tabs.length, () => {
             : SIDEBAR_COLLAPSED_WIDTH + 'px'
         }"
       >
-        <AssetTree @new-connection="openNewConnection" />
+        <AssetTree @new-connection="openNewConnection" @new-connection-type="openNewConnectionWithType" />
         <SidebarHandle />
       </div>
 

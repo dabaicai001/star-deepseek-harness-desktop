@@ -30,6 +30,7 @@ function expandIfCollapsed(): boolean {
 
 const emit = defineEmits<{
   'new-connection': []
+  'new-connection-type': [type: 'ssh' | 'db' | 'docker']
 }>()
 
 const sshAssets = computed(() =>
@@ -196,6 +197,36 @@ function openContextMenu(e: MouseEvent, asset: Asset) {
 
 function closeContextMenu() {
   ctxMenu.value = null
+}
+
+// ====== 分组标题右键菜单(SSH / DB / Docker) ======
+const groupCtxMenu = ref<{ x: number; y: number; type: 'ssh' | 'db' | 'docker' } | null>(null)
+
+const groupCtxItems = computed<MenuItem[]>(() => {
+  if (!groupCtxMenu.value) return []
+  const gt = groupCtxMenu.value.type
+  const label = gt === 'ssh' ? 'SSH' : gt === 'db' ? t('db.title') : 'Docker'
+  const icon = gt === 'ssh' ? 'mdi-console' : gt === 'db' ? 'mdi-database-outline' : 'mdi-docker'
+  return [
+    { type: 'header', icon, label },
+    {
+      type: 'item',
+      icon: 'mdi-plus',
+      label: `新建${label === 'SSH' ? ' SSH ' : ' '}连接…`,
+      onClick: () => emit('new-connection-type', gt)
+    }
+  ]
+})
+
+function openGroupContextMenu(e: MouseEvent, type: 'ssh' | 'db' | 'docker') {
+  e.preventDefault()
+  e.stopPropagation()
+  if (isCollapsed.value) appStore.sidebarOpen = true
+  groupCtxMenu.value = { x: e.clientX, y: e.clientY, type }
+}
+
+function closeGroupContextMenu() {
+  groupCtxMenu.value = null
 }
 
 // ====== 编辑 dialog ======
@@ -387,6 +418,7 @@ function isGroupExpanded(id: string) {
         role="button"
         :aria-expanded="isGroupExpanded('ssh')"
         @click="toggleGroup('ssh')"
+        @contextmenu="openGroupContextMenu($event, 'ssh')"
       >
         <v-icon class="chevron" size="12">mdi-chevron-down</v-icon>
         <v-icon class="type-icon" size="11">mdi-console</v-icon>
@@ -431,6 +463,7 @@ function isGroupExpanded(id: string) {
         role="button"
         :aria-expanded="isGroupExpanded('db')"
         @click="toggleGroup('db')"
+        @contextmenu="openGroupContextMenu($event, 'db')"
       >
         <v-icon class="chevron" size="12">mdi-chevron-down</v-icon>
         <v-icon class="type-icon" size="11">mdi-database-outline</v-icon>
@@ -475,6 +508,7 @@ function isGroupExpanded(id: string) {
         role="button"
         :aria-expanded="isGroupExpanded('docker')"
         @click="toggleGroup('docker')"
+        @contextmenu="openGroupContextMenu($event, 'docker')"
       >
         <v-icon class="chevron" size="12">mdi-chevron-down</v-icon>
         <v-icon class="type-icon" size="11">mdi-docker</v-icon>
@@ -534,6 +568,15 @@ function isGroupExpanded(id: string) {
     :y="ctxMenu.y"
     :items="ctxItems"
     @close="closeContextMenu"
+  />
+
+  <!-- 分组标题右键菜单 -->
+  <ContextMenu
+    v-if="groupCtxMenu"
+    :x="groupCtxMenu.x"
+    :y="groupCtxMenu.y"
+    :items="groupCtxItems"
+    @close="closeGroupContextMenu"
   />
 
   <!-- 编辑 dialog -->
