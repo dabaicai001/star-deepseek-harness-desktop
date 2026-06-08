@@ -80,11 +80,11 @@ function isActive(asset: Asset) {
 function connectToAsset(asset: Asset) {
   // 折叠态:点击图标等同于"展开 sidebar + 连接",让用户立刻看到反馈
   if (isCollapsed.value) appStore.sidebarOpen = true
-  if (asset.type !== 'ssh') {
-    // db / docker: 暂未实现,后续在 dialog 走类型路由
+  if (asset.type === 'docker') {
+    // Docker 当前是单视图,走主页的 quick action / 头像菜单入口;侧边栏点击不响应
     return
   }
-  // 单击 = 总是新开 tab(不复用)
+  // SSH / DB:单击 = 总是新开 tab(不复用)
   const instanceId = generateInstanceId(asset.id)
   appStore.addTab({
     id: instanceId,
@@ -93,7 +93,12 @@ function connectToAsset(asset: Asset) {
     type: asset.type
   })
   assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-  router.push({ name: 'ssh-terminal', params: { id: instanceId } })
+  if (asset.type === 'ssh') {
+    router.push({ name: 'ssh-terminal', params: { id: instanceId } })
+  } else if (asset.type === 'db') {
+    const dbType = asset.config.dbType || 'mysql'
+    router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: instanceId } })
+  }
 }
 
 // "在新标签页中打开"——每次创建新 tab，支持同一资产多实例
