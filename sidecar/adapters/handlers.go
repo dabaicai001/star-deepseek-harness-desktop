@@ -3,6 +3,7 @@ package adapters
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/starhub/sidecar/pool"
@@ -215,8 +216,9 @@ func handleMySQLListIndexes(mgr *pool.Manager) Handler {
 func handleMySQLExecute(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
-			ConnID string `json:"connId"`
-			SQL    string `json:"sql"`
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			SQL      string `json:"sql"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -225,15 +227,20 @@ func handleMySQLExecute(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		return adapter.Execute(p.SQL)
+		sql := p.SQL
+		if p.Database != "" && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "USE ") {
+			sql = fmt.Sprintf("USE `%s`; %s", p.Database, sql)
+		}
+		return adapter.Execute(sql)
 	}
 }
 
 func handleMySQLExplain(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
-			ConnID string `json:"connId"`
-			SQL    string `json:"sql"`
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			SQL      string `json:"sql"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -242,7 +249,11 @@ func handleMySQLExplain(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		return adapter.Explain(p.SQL)
+		sql := p.SQL
+		if p.Database != "" && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "USE ") {
+			sql = fmt.Sprintf("USE `%s`; %s", p.Database, sql)
+		}
+		return adapter.Explain(sql)
 	}
 }
 

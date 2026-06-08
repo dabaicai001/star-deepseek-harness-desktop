@@ -53,6 +53,7 @@ const queryResult = ref<QueryResult | null>(null)
 const isExecuting = ref(false)
 const sidebarCollapsed = ref(false)
 const activeTab = ref<'data' | 'result' | 'structure'>('data')
+const selectedDb = ref<string>('')
 
 // 表格数据(选中表的服务端分页)
 const tableData = ref<QueryResult | null>(null)
@@ -241,6 +242,7 @@ function toggleDatabase(db: string) {
     expandedDatabases.value.delete(db)
   } else {
     expandedDatabases.value.add(db)
+    selectedDb.value = db
     // 懒加载:第一次展开时拉表
     if (!databaseTables.value.has(db)) {
       loadTablesForDb(db)
@@ -252,6 +254,7 @@ function toggleDatabase(db: string) {
 async function selectTable(db: string, tableName: string) {
   if (!connId.value) return
   selectedTable.value = { db, name: tableName }
+  selectedDb.value = db
   activeTab.value = 'data'
   try {
     tableColumns.value = await dbService.mysqlListColumns(connId.value, tableName, db)
@@ -376,7 +379,7 @@ async function executeSql(sql: string) {
   isExecuting.value = true
   activeTab.value = 'result'
   try {
-    queryResult.value = await dbService.mysqlExecute(connId.value, sql)
+    queryResult.value = await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
   } catch (err: unknown) {
     queryResult.value = {
       columns: [],
@@ -396,7 +399,7 @@ async function explainSql(sql: string) {
   isExecuting.value = true
   activeTab.value = 'result'
   try {
-    queryResult.value = await dbService.mysqlExplain(connId.value, sql)
+    queryResult.value = await dbService.mysqlExplain(connId.value, sql, selectedDb.value || undefined)
   } catch (err: unknown) {
     queryResult.value = {
       columns: [],
@@ -457,7 +460,7 @@ async function executeDbSql(sql: string): Promise<string> {
     if (r.error) return `[Error] ${r.error}`
     return r.result == null ? '(无输出)' : (typeof r.result === 'string' ? r.result : JSON.stringify(r.result, null, 2))
   }
-  const r = await dbService.mysqlExecute(connId.value, sql)
+  const r = await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
   if (r.error) return `[Error] ${r.error}`
   if (r.rows.length === 0) {
     return `(0 行${r.rowsAffected ? `, ${r.rowsAffected} 行受影响` : ''})`
@@ -701,6 +704,15 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           <button class="action-btn" @click="sqlText = ''" :title="t('ssh.clear')">
             <v-icon size="14">mdi-delete-outline</v-icon>
           </button>
+          <select
+            v-if="asset?.config.dbType === 'mysql'"
+            v-model="selectedDb"
+            class="db-selector-inline"
+            :title="selectedDb ? `当前库: ${selectedDb}` : '选择默认数据库'"
+          >
+            <option value="">-- 选择数据库 --</option>
+            <option v-for="db in databases" :key="db" :value="db">{{ db }}</option>
+          </select>
           <span class="shortcut-hint">
             <kbd>⌘</kbd>+<kbd>Enter</kbd> {{ t('db.execute') }}
           </span>
@@ -1099,6 +1111,29 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   border: 1px solid var(--line-2);
   border-radius: 3px;
   color: var(--cyan);
+}
+
+.db-selector-inline {
+  padding: 5px 8px;
+  background: var(--panel-solid-2);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  outline: none;
+  cursor: pointer;
+  max-width: 160px;
+  transition: border-color 0.2s;
+}
+
+.db-selector-inline:hover {
+  border-color: rgba(0, 240, 255, 0.3);
+}
+
+.db-selector-inline:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.1);
 }
 
 .result-tabs {

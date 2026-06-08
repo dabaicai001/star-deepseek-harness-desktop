@@ -49,12 +49,12 @@ export async function mysqlListIndexes(connId: string, table: string, database?:
   return invoke('db_mysql_list_indexes', { connId, table, database })
 }
 
-export async function mysqlExecute(connId: string, sql: string): Promise<QueryResult> {
-  return invoke('db_mysql_execute', { connId, sql })
+export async function mysqlExecute(connId: string, sql: string, database?: string): Promise<QueryResult> {
+  return invoke('db_mysql_execute', { connId, sql, database })
 }
 
-export async function mysqlExplain(connId: string, sql: string): Promise<QueryResult> {
-  return invoke('db_mysql_explain', { connId, sql })
+export async function mysqlExplain(connId: string, sql: string, database?: string): Promise<QueryResult> {
+  return invoke('db_mysql_explain', { connId, sql, database })
 }
 
 export async function mysqlGetTableDDL(connId: string, table: string, database?: string): Promise<DDLResult> {

@@ -82,8 +82,11 @@ pub async fn db_mysql_execute(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
     sql: String,
+    database: Option<String>,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.execute", serde_json::json!({ "connId": conn_id, "sql": sql })).await
+    let mut params = serde_json::json!({ "connId": conn_id, "sql": sql });
+    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    sidecar.call("db.mysql.execute", params).await
 }
 
 #[tauri::command]
@@ -91,8 +94,11 @@ pub async fn db_mysql_explain(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
     sql: String,
+    database: Option<String>,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.explain", serde_json::json!({ "connId": conn_id, "sql": sql })).await
+    let mut params = serde_json::json!({ "connId": conn_id, "sql": sql });
+    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    sidecar.call("db.mysql.explain", params).await
 }
 
 #[tauri::command]

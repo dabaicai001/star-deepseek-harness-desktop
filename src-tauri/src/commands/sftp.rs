@@ -10,6 +10,20 @@ fn map_err<E: std::fmt::Display>(e: E) -> String {
     format!("{}", e)
 }
 
+/// 从 sessions map 中取出 Arc,立即释放主锁。
+/// 返回的 Arc 由调用方持有,保证 MutexGuard 有效。
+macro_rules! get_session_arc {
+    ($manager:expr, $id:expr) => {{
+        let sessions = $manager.sessions.lock().await;
+        let arc = sessions
+            .get(&$id)
+            .cloned()
+            .ok_or_else(|| "Session not found".to_string())?;
+        drop(sessions);
+        arc
+    }};
+}
+
 /// 读取远程目录
 #[tauri::command]
 pub async fn sftp_list(
@@ -17,10 +31,8 @@ pub async fn sftp_list(
     id: String,
     path: String,
 ) -> Result<Vec<SftpEntry>, String> {
-    let mut sessions = manager.sessions.lock().await;
-    let session = sessions
-        .get_mut(&id)
-        .ok_or_else(|| "Session not found".to_string())?;
+    let session_arc = get_session_arc!(manager, id);
+    let mut session = session_arc.lock().await;
     let mut sftp = session.open_sftp().await.map_err(map_err)?;
 
     let read_dir = sftp.read_dir(&path).await.map_err(map_err)?;
@@ -65,10 +77,8 @@ pub async fn sftp_read(
     id: String,
     path: String,
 ) -> Result<Vec<u8>, String> {
-    let mut sessions = manager.sessions.lock().await;
-    let session = sessions
-        .get_mut(&id)
-        .ok_or_else(|| "Session not found".to_string())?;
+    let session_arc = get_session_arc!(manager, id);
+    let mut session = session_arc.lock().await;
     let mut sftp = session.open_sftp().await.map_err(map_err)?;
     sftp.read(&path).await.map_err(map_err)
 }
@@ -81,10 +91,8 @@ pub async fn sftp_write(
     path: String,
     data: Vec<u8>,
 ) -> Result<(), String> {
-    let mut sessions = manager.sessions.lock().await;
-    let session = sessions
-        .get_mut(&id)
-        .ok_or_else(|| "Session not found".to_string())?;
+    let session_arc = get_session_arc!(manager, id);
+    let mut session = session_arc.lock().await;
     let mut sftp = session.open_sftp().await.map_err(map_err)?;
     sftp.write(&path, &data).await.map_err(map_err)
 }
@@ -96,10 +104,8 @@ pub async fn sftp_stat(
     id: String,
     path: String,
 ) -> Result<SftpEntry, String> {
-    let mut sessions = manager.sessions.lock().await;
-    let session = sessions
-        .get_mut(&id)
-        .ok_or_else(|| "Session not found".to_string())?;
+    let session_arc = get_session_arc!(manager, id);
+    let mut session = session_arc.lock().await;
     let mut sftp = session.open_sftp().await.map_err(map_err)?;
     let metadata = sftp.metadata(&path).await.map_err(map_err)?;
     let name = std::path::Path::new(&path)
@@ -126,10 +132,8 @@ pub async fn sftp_remove_file(
     id: String,
     path: String,
 ) -> Result<(), String> {
-    let mut sessions = manager.sessions.lock().await;
-    let session = sessions
-        .get_mut(&id)
-        .ok_or_else(|| "Session not found".to_string())?;
+    let session_arc = get_session_arc!(manager, id);
+    let mut session = session_arc.lock().await;
     let mut sftp = session.open_sftp().await.map_err(map_err)?;
     sftp.remove_file(&path).await.map_err(map_err)
 }
@@ -141,10 +145,8 @@ pub async fn sftp_remove_dir(
     id: String,
     path: String,
 ) -> Result<(), String> {
-    let mut sessions = manager.sessions.lock().await;
-    let session = sessions
-        .get_mut(&id)
-        .ok_or_else(|| "Session not found".to_string())?;
+    let session_arc = get_session_arc!(manager, id);
+    let mut session = session_arc.lock().await;
     let mut sftp = session.open_sftp().await.map_err(map_err)?;
     sftp.remove_dir(&path).await.map_err(map_err)
 }
@@ -156,10 +158,8 @@ pub async fn sftp_remove(
     id: String,
     path: String,
 ) -> Result<(), String> {
-    let mut sessions = manager.sessions.lock().await;
-    let session = sessions
-        .get_mut(&id)
-        .ok_or_else(|| "Session not found".to_string())?;
+    let session_arc = get_session_arc!(manager, id);
+    let mut session = session_arc.lock().await;
     let mut sftp = session.open_sftp().await.map_err(map_err)?;
     let metadata = sftp.metadata(&path).await.map_err(map_err)?;
     if metadata.is_dir() {
@@ -177,10 +177,8 @@ pub async fn sftp_mkdir(
     id: String,
     path: String,
 ) -> Result<(), String> {
-    let mut sessions = manager.sessions.lock().await;
-    let session = sessions
-        .get_mut(&id)
-        .ok_or_else(|| "Session not found".to_string())?;
+    let session_arc = get_session_arc!(manager, id);
+    let mut session = session_arc.lock().await;
     let mut sftp = session.open_sftp().await.map_err(map_err)?;
     sftp.create_dir(&path).await.map_err(map_err)
 }
@@ -193,10 +191,8 @@ pub async fn sftp_rename(
     from: String,
     to: String,
 ) -> Result<(), String> {
-    let mut sessions = manager.sessions.lock().await;
-    let session = sessions
-        .get_mut(&id)
-        .ok_or_else(|| "Session not found".to_string())?;
+    let session_arc = get_session_arc!(manager, id);
+    let mut session = session_arc.lock().await;
     let mut sftp = session.open_sftp().await.map_err(map_err)?;
     sftp.rename(&from, &to).await.map_err(map_err)
 }
@@ -217,10 +213,8 @@ pub async fn sftp_ensure_session(
         return Ok(());
     }
     tracing::info!("[sftp_ensure_session] opening SFTP channel for session {}", id);
-    let mut sessions = manager.sessions.lock().await;
-    let session = sessions
-        .get_mut(&id)
-        .ok_or_else(|| "Session not found".to_string())?;
+    let session_arc = get_session_arc!(manager, id);
+    let mut session = session_arc.lock().await;
     let sftp = session.open_sftp().await.map_err(map_err)?;
     tracing::info!("[sftp_ensure_session] SFTP channel opened, registering to TransferManager");
     transfer_manager

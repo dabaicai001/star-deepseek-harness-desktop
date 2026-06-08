@@ -176,8 +176,16 @@ async function handleNewConnection(dto: CreateAssetDto) {
 
 <template>
   <div class="home-view">
+    <!-- 加载中 -->
+    <div v-if="assetStore.loading" class="loading-state">
+      <div class="loading-inner">
+        <v-icon size="36" color="cyan" class="spin">mdi-loading</v-icon>
+        <span class="loading-text">{{ t('common.loading') }}</span>
+      </div>
+    </div>
+
     <!-- 完全空态:零资产时的欢迎卡 -->
-    <div v-if="assetStore.assets.length === 0" class="empty-welcome">
+    <div v-else-if="assetStore.assets.length === 0" class="empty-welcome">
       <div class="empty-welcome-inner">
         <div class="welcome-icon">
           <v-icon size="48" color="cyan">mdi-rocket-launch-outline</v-icon>
@@ -815,5 +823,39 @@ async function handleNewConnection(dto: CreateAssetDto) {
   gap: 12px;
   justify-content: center;
   flex-wrap: wrap;
+}
+
+/* ─── 加载态 ─── */
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+  margin-bottom: 24px;
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 16px;
+}
+
+.loading-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.loading-text {
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.spin {
+  animation: spin-anim 1s linear infinite;
+}
+
+@keyframes spin-anim {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>
