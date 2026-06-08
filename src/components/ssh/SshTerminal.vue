@@ -12,6 +12,7 @@ import SshDashboard from '@/components/dashboard/SshDashboard.vue'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useAiStore } from '@/stores/ai'
+import { useNotifyStore } from '@/stores/notify'
 import { parseInstanceId } from '@/utils/tabId'
 import { SSH_SYSTEM_PROMPT, sshTools, makeSshToolCaller } from '@/utils/aiTools'
 import { extractWhitelistPrefix } from '@/utils/commandGuard'
@@ -21,6 +22,7 @@ const { t } = useI18n()
 const assetStore = useAssetStore()
 const appStore = useAppStore()
 const aiStore = useAiStore()
+const notify = useNotifyStore()
 const router = useRouter()
 
 const props = defineProps<{
@@ -489,6 +491,26 @@ function handleReconnect() {
   connect()
 }
 
+// ====== 复制 / 粘贴 反馈(子组件 emit) ======
+function handleCopy(text: string) {
+  const lines = text.split('\n').length
+  const chars = text.length
+  notify.notify({
+    message: `已复制 ${lines} 行 · ${chars} 字符`,
+    color: 'success',
+    timeout: 1500
+  })
+}
+
+function handlePaste(text: string) {
+  const chars = text.length
+  notify.notify({
+    message: `已粘贴 ${chars} 字符`,
+    color: 'info',
+    timeout: 1500
+  })
+}
+
 watch(connected, (now, prev) => {
   // 从已连接 → 断开,提示用户按 Enter 重连
   if (prev === true && now === false) {
@@ -644,6 +666,8 @@ function handleSearch() {
           @data="handleData"
           @reconnect="handleReconnect"
           @resize="handleResize"
+          @copy="handleCopy"
+          @paste="handlePaste"
         />
       </div>
 

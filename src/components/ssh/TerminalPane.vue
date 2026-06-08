@@ -16,19 +16,24 @@ const emit = defineEmits<{
   data: [data: string]
   reconnect: []
   resize: [cols: number, rows: number]
+  copy: [text: string]   // 复制成功(让父级弹 toast)
+  paste: [text: string]  // 粘贴成功(让父级弹 toast)
 }>()
 
 const terminalRef = ref<HTMLDivElement>()
 let terminal: Terminal
 let fitAddon: FitAddon
 let searchAddon: SearchAddon
-/** ResizeObserver 监听父元素尺寸变化 ——
- *  关键:HMR 替换 style / 字体加载完 / 父级 layout 变化时,
- *  .terminal-container 自身尺寸会变,我们必须重跑 fit() 让 xterm
- *  重新算 rows,否则 xterm 用的是 onMounted 第一次 fit() 时的老值,
- *  CSS 修改(底部留 buffer)根本反映不到字符网格上。
- *  这一行就把 fit 跟 layout 变化绑定,不再依赖 onMounted 一次。 */
 let resizeObserver: ResizeObserver | null = null
+
+// 右键菜单状态
+type CtxMenu = {
+  visible: boolean
+  x: number
+  y: number
+  hasSelection: boolean
+}
+const ctxMenu = ref<CtxMenu>({ visible: false, x: 0, y: 0, hasSelection: false })
 
 onMounted(() => {
   if (!terminalRef.value) return
@@ -78,7 +83,6 @@ onMounted(() => {
 
   terminal.onData((data) => {
     if (props.reconnectMode) {
-      // 断线状态:只响应 Enter(回车 / 换行 / 0x0d),其他输入丢弃
       if (data === '\r' || data === '\n' || data === '\x0d') {
         emit('reconnect')
       }
@@ -91,24 +95,140 @@ onMounted(() => {
     emit('resize', cols, rows)
   })
 
+  // 选区变化时更新右键菜单的"复制"可用状态
+  terminal.onSelectionChange(() => {
+    if (ctxMenu.value.visible) {
+      ctxMenu.value.hasSelection = terminal.getSelection().length > 0
+    }
+  })
+
+  // ====== 键盘快捷键:复制 / 粘贴 ======
+  // 约定(跟主流终端一致):
+  //   复制: Ctrl+Shift+C / Cmd+Shift+C 总是复制
+  //         Ctrl+C / Cmd+C 有选区时复制(无选区则放行,让 SIGINT 发到进程)
+  //   粘贴: Ctrl+Shift+V / Ctrl+V / Cmd+V / Shift+Insert 总是粘贴
+  terminal.attachCustomKeyEventHandler((event) => {
+    if (event.type !== 'keydown') return true
+
+    const key = event.key.toLowerCase()
+    const isMod = event.ctrlKey || event.metaKey
+    const isShift = event.shiftKey
+    const selection = terminal.getSelection()
+
+    // 复制(Ctrl+Shift+C / Cmd+Shift+C)
+    if (isMod && isShift && key === 'c') {
+      if (selection) doCopy(selection)
+      return false
+    }
+    // 复制(Ctrl+C / Cmd+C,有选区)
+    if (isMod && !isShift && key === 'c' && selection) {
+      doCopy(selection)
+      return false
+    }
+    // 粘贴(Ctrl+Shift+V / Ctrl+V / Cmd+V)
+    if (isMod && key === 'v') {
+      doPaste()
+      return false
+    }
+    // 粘贴(Shift+Insert,Windows 老式约定)
+    if (isShift && event.key === 'Insert') {
+      doPaste()
+      return false
+    }
+    return true
+  })
+
+  // ====== 右键菜单 ======
+  // xterm.js 内部不接管 contextmenu,自己挂一个。
+  terminalRef.value.addEventListener('contextmenu', onContextMenu)
+  // 点别处关菜单
+  document.addEventListener('pointerdown', closeCtxMenu)
+
   window.addEventListener('resize', handleResize)
 
-  // 监听 .terminal-container 自身 + 父元素尺寸变化,自动重 fit
-  // 这覆盖了 HMR 替换 style、字体加载、tab 切换、左侧栏折叠等所有
-  // 会改变终端可用空间的场景,不再依赖 onMounted 一次性 fit
   resizeObserver = new ResizeObserver(() => {
-    // 用 rAF 包一下,确保 DOM 尺寸已经稳定
     requestAnimationFrame(() => fitAddon?.fit())
   })
   resizeObserver.observe(terminalRef.value)
-  // 也监听父元素(.terminal-pane),margin-bottom 改父级时
-  // .terminal-container 也会跟着变,这里双保险
   const parent = terminalRef.value.parentElement
   if (parent) resizeObserver.observe(parent)
 })
 
+function doCopy(text: string) {
+  if (!text) return
+  navigator.clipboard.writeText(text).then(() => {
+    emit('copy', text)
+  }).catch(() => {
+    // 后备:用临时 textarea + execCommand
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    try { document.execCommand('copy') } catch {}
+    document.body.removeChild(ta)
+  })
+  terminal.clearSelection()
+}
+
+function doPaste() {
+  if (props.reconnectMode) return
+  navigator.clipboard.readText().then((text) => {
+    if (!text) return
+    // terminal.paste() 内部会触发 onData 事件,自动通过 SSH 通道发出去
+    terminal.paste(text)
+    emit('paste', text)
+  }).catch(() => {
+    // 不弹错误(权限拒绝/无文本),静默失败
+  })
+}
+
+function onContextMenu(e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  const sel = terminal.getSelection()
+  ctxMenu.value = {
+    visible: true,
+    x: e.clientX,
+    y: e.clientY,
+    hasSelection: sel.length > 0
+  }
+}
+
+function closeCtxMenu() {
+  if (ctxMenu.value.visible) ctxMenu.value.visible = false
+}
+
+function ctxCopy() {
+  const sel = terminal.getSelection()
+  if (sel) doCopy(sel)
+  closeCtxMenu()
+}
+
+function ctxPaste() {
+  doPaste()
+  closeCtxMenu()
+}
+
+function ctxSelectAll() {
+  terminal.selectAll()
+  closeCtxMenu()
+  // 重开菜单显示已选(用户可以接着点复制)
+  // 这里简化,直接关闭;有需要可再开
+}
+
+function ctxClear() {
+  terminal.clear()
+  closeCtxMenu()
+}
+
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
+  document.removeEventListener('pointerdown', closeCtxMenu)
+  if (terminalRef.value) {
+    terminalRef.value.removeEventListener('contextmenu', onContextMenu)
+  }
   resizeObserver?.disconnect()
   resizeObserver = null
   terminal?.dispose()
@@ -171,7 +291,35 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="terminalRef" class="terminal-container" />
+  <div ref="terminalRef" class="terminal-container">
+    <!-- 右键菜单 -->
+    <div
+      v-if="ctxMenu.visible"
+      class="term-ctx-menu"
+      :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+      @pointerdown.stop
+    >
+      <button class="ctx-item" :disabled="!ctxMenu.hasSelection" @click="ctxCopy">
+        <v-icon size="13">mdi-content-copy</v-icon>
+        <span class="label">复制</span>
+        <kbd>Ctrl+Shift+C</kbd>
+      </button>
+      <button class="ctx-item" @click="ctxPaste">
+        <v-icon size="13">mdi-content-paste</v-icon>
+        <span class="label">粘贴</span>
+        <kbd>Ctrl+Shift+V</kbd>
+      </button>
+      <div class="ctx-divider" />
+      <button class="ctx-item" @click="ctxSelectAll">
+        <v-icon size="13">mdi-selection-multiple</v-icon>
+        <span class="label">全选</span>
+      </button>
+      <button class="ctx-item" @click="ctxClear">
+        <v-icon size="13">mdi-eraser</v-icon>
+        <span class="label">清屏</span>
+      </button>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -228,5 +376,70 @@ defineExpose({
 
 .terminal-container :deep(.xterm-screen) {
   padding: 4px;
+}
+
+/* ====== 右键菜单 ====== */
+.term-ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 200px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  padding: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+  font-family: 'Outfit', -apple-system, 'PingFang SC', sans-serif;
+  user-select: none;
+  animation: ctxMenuIn 0.1s ease;
+}
+@keyframes ctxMenuIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.ctx-item:hover:not(:disabled) {
+  background: rgba(0, 240, 255, 0.08);
+  color: var(--cyan);
+}
+.ctx-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ctx-item .label { flex: 1; }
+.ctx-item kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  padding: 1px 5px;
+  background: rgba(0, 240, 255, 0.06);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.ctx-item:hover:not(:disabled) kbd {
+  border-color: rgba(0, 240, 255, 0.3);
+  color: var(--cyan);
+}
+.ctx-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 2px;
 }
 </style>
