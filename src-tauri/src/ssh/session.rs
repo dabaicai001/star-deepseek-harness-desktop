@@ -42,38 +42,54 @@ impl SshSession {
 
         let handler = SshHandler;
 
-        let mut handle = client::connect(Arc::new(config), socket_addr, handler)
-            .await
-            .map_err(|e| format!("Failed to connect to {}:{}: {}", host, port, e))?;
+        // 整体 connect + auth 包一个 10s 兜底
+        // (russh 内部没有为单步设置 timeout — 如果对面 SSH 服务 hang 在
+        // 协议握手或 auth 阶段,await 会一直挂,前端也跟着卡死)
+        let connect_timeout = Duration::from_secs(10);
+        let connect_and_auth_fut = async {
+            let mut handle = client::connect(Arc::new(config), socket_addr, handler)
+                .await
+                .map_err(|e| format!("Failed to connect to {}:{}: {}", host, port, e))?;
 
-        match auth {
-            SshAuth::Password(password) => {
-                let result = handle
-                    .authenticate_password(username, password.as_str())
-                    .await
-                    .map_err(|e| format!("Password auth failed on {}:{}: {}", host, port, e))?;
-                if !result.success() {
-                    return Err(format!("Password authentication failed on {}:{}", host, port));
+            match auth {
+                SshAuth::Password(password) => {
+                    let result = handle
+                        .authenticate_password(username, password.as_str())
+                        .await
+                        .map_err(|e| format!("Password auth failed on {}:{}: {}", host, port, e))?;
+                    if !result.success() {
+                        return Err(format!("Password authentication failed on {}:{}", host, port));
+                    }
+                }
+                SshAuth::PrivateKey { key, passphrase } => {
+                    let key_pair = russh::keys::decode_secret_key(key, passphrase.as_deref())
+                        .map_err(|e| format!("Failed to parse private key: {}", e))?;
+                    let key_with_hash = russh::keys::key::PrivateKeyWithHashAlg::new(
+                        Arc::new(key_pair),
+                        None,
+                    );
+                    let result = handle
+                        .authenticate_publickey(username, key_with_hash)
+                        .await
+                        .map_err(|e| format!("Public key auth failed on {}:{}: {}", host, port, e))?;
+                    if !result.success() {
+                        return Err(format!("Public key authentication failed on {}:{}", host, port));
+                    }
                 }
             }
-            SshAuth::PrivateKey { key, passphrase } => {
-                let key_pair = russh::keys::decode_secret_key(key, passphrase.as_deref())
-                    .map_err(|e| format!("Failed to parse private key: {}", e))?;
-                let key_with_hash = russh::keys::key::PrivateKeyWithHashAlg::new(
-                    Arc::new(key_pair),
-                    None,
-                );
-                let result = handle
-                    .authenticate_publickey(username, key_with_hash)
-                    .await
-                    .map_err(|e| format!("Public key auth failed on {}:{}: {}", host, port, e))?;
-                if !result.success() {
-                    return Err(format!("Public key authentication failed on {}:{}", host, port));
-                }
-            }
+
+            Ok(handle)
+        };
+
+        match timeout(connect_timeout, connect_and_auth_fut).await {
+            Ok(res) => res,
+            Err(_) => Err(format!(
+                "SSH connect/auth timed out after {}s on {}:{}",
+                connect_timeout.as_secs(),
+                host,
+                port
+            )),
         }
-
-        Ok(handle)
     }
 
     pub async fn connect(&mut self) -> Result<(), String> {

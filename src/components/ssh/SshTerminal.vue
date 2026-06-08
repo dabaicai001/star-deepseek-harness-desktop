@@ -46,6 +46,8 @@ let unlisten: (() => void) | null = null
 let unlistenClose: (() => void) | null = null
 let connectedAt = 0
 let timerId: number | null = null
+// 防止旧 connect() 的 finally 误关新连接的状态
+let currentConnectId = 0
 
 // ====== AI 助手用:收集 SSH 输出 ======
 // 每次 SSH 收到数据,都 push 到这里;captureOutput(timeout) 等固定时间后返回这段输出
@@ -318,6 +320,9 @@ async function connect() {
   terminalRef.value?.writeln('')
   terminalRef.value?.writeln(`\x1b[36m» Connecting to ${a.config.username}@${a.config.host}:${a.config.port || 22}...\x1b[0m`)
 
+  // 标记当前 connect 调用,避免老 timeout 杀掉新连接
+  const connectCallId = ++currentConnectId
+
   try {
     const config = {
       host: a.config.host,
@@ -330,7 +335,35 @@ async function connect() {
           : { Password: '' }
     }
 
-    await invoke('ssh_connect', { id: sessionId, config })
+    // Tauri 2 的 invoke 没有内置 timeout,如果 Rust 端 ssh_connect 任何一步 hang
+    // (TCP 连不上 / 协议握手卡住 / auth 死循环),前端就永远 await、connecting 一直 true
+    // → 客户端加 15s 兜底,超时后主动让后端清理 session,避免后端继续耗资源
+    const CONNECT_TIMEOUT_MS = 15_000
+    let timeoutHandle: number | null = null
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = window.setTimeout(() => {
+        reject(new Error(`Connection timed out after ${CONNECT_TIMEOUT_MS / 1000}s`))
+      }, CONNECT_TIMEOUT_MS)
+    })
+
+    try {
+      await Promise.race([
+        invoke<unknown>('ssh_connect', { id: sessionId, config }),
+        timeoutPromise
+      ])
+    } finally {
+      if (timeoutHandle !== null) {
+        window.clearTimeout(timeoutHandle)
+      }
+    }
+
+    // 上面 race resolve 后,可能是 invoke 成功也可能是 timeout 兜底失败
+    // → 如果 connectCallId 已经不是最新的了(用户重连了),本次结果作废
+    if (connectCallId !== currentConnectId) {
+      terminalRef.value?.writeln('\x1b[33m! Superseded by a newer connection attempt\x1b[0m')
+      return
+    }
+
     connected.value = true
     terminalRef.value?.writeln('\x1b[32m✓ Connected\x1b[0m')
     startTimer()
@@ -350,10 +383,25 @@ async function connect() {
       terminalRef.value?.writeln('\r\n\x1b[33m! Connection closed by remote host\x1b[0m')
     })
   } catch (error) {
-    lastError.value = String(error)
-    terminalRef.value?.writeln(`\x1b[31m✗ Connection failed: ${error}\x1b[0m`)
+    const msg = error instanceof Error ? error.message : String(error)
+    lastError.value = msg
+    terminalRef.value?.writeln(`\x1b[31m✗ Connection failed: ${msg}\x1b[0m`)
+    // 通知后端清掉可能半初始化的 session(防止 Rust 端残留)
+    try {
+      await invoke('ssh_disconnect', { id: sessionId })
+    } catch {
+      // 静默 — 后端可能本来就没 insert
+    }
+    notify.notify({
+      message: `SSH 连接失败: ${msg}`,
+      color: 'error',
+      timeout: 5000
+    })
   } finally {
-    connecting.value = false
+    // 只有"自己这一发"才清状态,避免新连接被旧 finally 覆盖
+    if (connectCallId === currentConnectId) {
+      connecting.value = false
+    }
   }
 }
 
