@@ -68,8 +68,13 @@ pub async fn db_mysql_list_indexes(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
     table: String,
+    database: Option<String>,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.listIndexes", serde_json::json!({ "connId": conn_id, "table": table })).await
+    let mut params = serde_json::json!({ "connId": conn_id, "table": table });
+    if let Some(db) = database {
+        params["database"] = serde_json::Value::String(db);
+    }
+    sidecar.call("db.mysql.listIndexes", params).await
 }
 
 #[tauri::command]
@@ -95,8 +100,13 @@ pub async fn db_mysql_get_table_ddl(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
     table: String,
+    database: Option<String>,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.getTableDDL", serde_json::json!({ "connId": conn_id, "table": table })).await
+    let mut params = serde_json::json!({ "connId": conn_id, "table": table });
+    if let Some(db) = database {
+        params["database"] = serde_json::Value::String(db);
+    }
+    sidecar.call("db.mysql.getTableDDL", params).await
 }
 
 #[tauri::command]
@@ -108,12 +118,14 @@ pub async fn db_mysql_get_table_data(
     offset: Option<i64>,
     order_by: Option<String>,
     order_dir: Option<String>,
+    database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table });
     if let Some(l) = limit { params["limit"] = serde_json::json!(l); }
     if let Some(o) = offset { params["offset"] = serde_json::json!(o); }
     if let Some(ob) = order_by { params["orderBy"] = serde_json::json!(ob); }
     if let Some(od) = order_dir { params["orderDir"] = serde_json::json!(od); }
+    if let Some(db) = database { params["database"] = serde_json::json!(db); }
     sidecar.call("db.mysql.getTableData", params).await
 }
 
@@ -123,12 +135,15 @@ pub async fn db_mysql_drop_table(
     conn_id: String,
     table: String,
     if_exists: Option<bool>,
+    database: Option<String>,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.dropTable", serde_json::json!({
+    let mut params = serde_json::json!({
         "connId": conn_id,
         "table": table,
         "ifExists": if_exists.unwrap_or(false)
-    })).await
+    });
+    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    sidecar.call("db.mysql.dropTable", params).await
 }
 
 #[tauri::command]
@@ -136,8 +151,11 @@ pub async fn db_mysql_truncate_table(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
     table: String,
+    database: Option<String>,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.truncateTable", serde_json::json!({ "connId": conn_id, "table": table })).await
+    let mut params = serde_json::json!({ "connId": conn_id, "table": table });
+    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    sidecar.call("db.mysql.truncateTable", params).await
 }
 
 #[tauri::command]
@@ -146,12 +164,15 @@ pub async fn db_mysql_rename_table(
     conn_id: String,
     old_name: String,
     new_name: String,
+    database: Option<String>,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.renameTable", serde_json::json!({
+    let mut params = serde_json::json!({
         "connId": conn_id,
         "oldName": old_name,
         "newName": new_name
-    })).await
+    });
+    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    sidecar.call("db.mysql.renameTable", params).await
 }
 
 #[tauri::command]
@@ -160,12 +181,15 @@ pub async fn db_mysql_insert_row(
     conn_id: String,
     table: String,
     values: Value,
+    database: Option<String>,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.insertRow", serde_json::json!({
+    let mut params = serde_json::json!({
         "connId": conn_id,
         "table": table,
         "values": values
-    })).await
+    });
+    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    sidecar.call("db.mysql.insertRow", params).await
 }
 
 #[tauri::command]
@@ -175,13 +199,16 @@ pub async fn db_mysql_update_rows(
     table: String,
     sets: Value,
     where_clause: String,
+    database: Option<String>,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.updateRows", serde_json::json!({
+    let mut params = serde_json::json!({
         "connId": conn_id,
         "table": table,
         "sets": sets,
         "where": where_clause
-    })).await
+    });
+    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    sidecar.call("db.mysql.updateRows", params).await
 }
 
 #[tauri::command]
@@ -190,12 +217,15 @@ pub async fn db_mysql_delete_rows(
     conn_id: String,
     table: String,
     where_clause: String,
+    database: Option<String>,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.deleteRows", serde_json::json!({
+    let mut params = serde_json::json!({
         "connId": conn_id,
         "table": table,
         "where": where_clause
-    })).await
+    });
+    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    sidecar.call("db.mysql.deleteRows", params).await
 }
 
 #[tauri::command]
@@ -205,9 +235,11 @@ pub async fn db_mysql_export_data(
     table: String,
     format: String,
     limit: Option<i64>,
+    database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table, "format": format });
     if let Some(l) = limit { params["limit"] = serde_json::json!(l); }
+    if let Some(db) = database { params["database"] = serde_json::json!(db); }
     sidecar.call("db.mysql.exportData", params).await
 }
 
@@ -216,8 +248,11 @@ pub async fn db_mysql_get_row_count(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
     table: String,
+    database: Option<String>,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.getRowCount", serde_json::json!({ "connId": conn_id, "table": table })).await
+    let mut params = serde_json::json!({ "connId": conn_id, "table": table });
+    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    sidecar.call("db.mysql.getRowCount", params).await
 }
 
 // ─── Redis Commands ───
