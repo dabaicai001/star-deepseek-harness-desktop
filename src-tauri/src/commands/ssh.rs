@@ -85,11 +85,12 @@ pub async fn ssh_resize(
     cols: u32,
     rows: u32,
 ) -> Result<(), String> {
-    // Resize is not directly supported through the write channel in this architecture.
-    // The PTY size is set at connection time. For a full implementation, we'd need
-    // to store the channel reference and call window_change directly.
-    // For now, this is a no-op - the terminal will work at the initial size.
-    let _ = (manager, id, cols, rows);
+    // 调 session.resize() 走 SSH window-change 协议,
+    // 让远端 PTY(以及 vi / vim / top / less 等)感知到实际窗口尺寸。
+    let sessions = manager.sessions.lock().await;
+    if let Some(session) = sessions.get(&id) {
+        session.resize(cols, rows).await?;
+    }
     Ok(())
 }
 

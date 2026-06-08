@@ -1,4 +1,5 @@
-use russh::client;
+use russh::client::{self, Handle, Msg};
+use russh::Channel;
 use russh::ChannelMsg;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -9,7 +10,10 @@ use super::auth::SshHandler;
 
 pub struct SshSession {
     config: SshConfig,
-    handle: Option<client::Handle<SshHandler>>,
+    handle: Option<Handle<SshHandler>>,
+    /// Shell 通道句柄,共享给 read task 和 ssh_resize。
+    /// vi/vim/top/less 等全屏程序依赖 window-change 信号才能正确布局。
+    shell_channel: Arc<Mutex<Option<Channel<Msg>>>>,
 }
 
 impl SshSession {
@@ -17,6 +21,7 @@ impl SshSession {
         Self {
             config,
             handle: None,
+            shell_channel: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -161,6 +166,9 @@ impl SshSession {
             .await
             .map_err(|e| format!("Failed to open channel: {}", e))?;
 
+        // 初始 80x24 兜底 —— 前端 TerminalPane onMounted → fit() → onResize
+        // 触发后,会通过 ssh_resize 调 window_change 改到真实尺寸。
+        // 这样 vi / vim / top 等全屏程序看到的就是实际窗口大小。
         channel
             .request_pty(true, "xterm-256color", 80, 24, 0, 0, &[])
             .await
@@ -171,6 +179,19 @@ impl SshSession {
             .await
             .map_err(|e| format!("Failed to request shell: {}", e))?;
 
+        // 把 channel 存到 Arc<Mutex<>>,read task 和 ssh_resize 共享
+        let channel_arc = self.shell_channel.clone();
+        *channel_arc.lock().await = Some(channel);
+
+        // 从共享 Arc 里创建 writer(给 write task 用)
+        let mut writer = {
+            let mut guard = channel_arc.lock().await;
+            guard
+                .as_mut()
+                .ok_or("Channel unexpectedly missing after pty+shell")?
+                .make_writer()
+        };
+
         // Create write channel for this session
         let (write_tx, mut write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         {
@@ -180,9 +201,7 @@ impl SshSession {
 
         let id_for_read = session_id.to_string();
         let channels_clone = channels.clone();
-
-        // Create the writer before moving channel into read task
-        let mut writer = channel.make_writer();
+        let channel_for_read = channel_arc;
 
         // Write task: read from write channel and send to SSH
         tokio::spawn(async move {
@@ -197,7 +216,15 @@ impl SshSession {
         // Read task: read from SSH channel and emit to frontend
         tokio::spawn(async move {
             loop {
-                let msg = channel.wait().await;
+                // 拿锁访问 channel,wait() 是 async,会暂时占着锁,
+                // 但 resize 走的也是这个 Arc,会等一小会儿 —— 终端 resize 频率低,可接受
+                let msg = {
+                    let mut guard = channel_for_read.lock().await;
+                    let Some(ch) = guard.as_mut() else {
+                        break;
+                    };
+                    ch.wait().await
+                };
                 match msg {
                     Some(ChannelMsg::Data { data }) => {
                         let payload = String::from_utf8_lossy(&data).to_string();
@@ -206,6 +233,10 @@ impl SshSession {
                     Some(ChannelMsg::ExtendedData { data, .. }) => {
                         let payload = String::from_utf8_lossy(&data).to_string();
                         let _ = app_handle.emit(&format!("ssh:data:{}", id_for_read), payload);
+                    }
+                    Some(ChannelMsg::WindowChange { .. })
+                    | Some(ChannelMsg::Success { .. }) => {
+                        // 这些是协议层 ack / 通知,read task 不需要处理
                     }
                     Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
                         break;
@@ -219,6 +250,18 @@ impl SshSession {
             let _ = app_handle.emit(&format!("ssh:close:{}", id_for_read), ());
         });
 
+        Ok(())
+    }
+
+    /// 调整远端 PTY 尺寸 —— 给 vi / vim / top / less 等全屏程序用。
+    /// 通道还没建好(还在 open_shell)或已断开(被取走)都静默忽略。
+    pub async fn resize(&self, cols: u32, rows: u32) -> Result<(), String> {
+        let mut guard = self.shell_channel.lock().await;
+        if let Some(ch) = guard.as_mut() {
+            ch.window_change(cols, rows, 0, 0)
+                .await
+                .map_err(|e| format!("Failed to send window-change: {}", e))?;
+        }
         Ok(())
     }
 
