@@ -1,10 +1,21 @@
 <script setup lang="ts">
 /**
  * 数据库仪表盘
- * 展示数据库基本信息和运行状态
+ * - Redis: 走 redisInfo + redisDBSize 真实 RPC
+ * - MySQL: 跑 SHOW GLOBAL STATUS / SHOW GLOBAL VARIABLES / information_schema 真实 SQL
+ * 无任何 mock。
  */
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import DashboardCard from './DashboardCard.vue'
+import { redisInfo, redisDBSize, mysqlExecute } from '@/services/db'
+import {
+  parseRedisInfo,
+  parseMysqlMetrics,
+  formatDbBytes,
+  formatDbUptime,
+  type RedisMetrics,
+  type MysqlMetrics,
+} from '@/utils/dbMetrics'
 
 const props = defineProps<{
   connId: string
@@ -12,75 +23,46 @@ const props = defineProps<{
   connected: boolean
 }>()
 
-// 仪表盘数据
 const loading = ref(true)
 const refreshing = ref(false)
-const data = ref({
-  version: '--',
-  uptime: '--',
-  connections: 0,
-  maxConnections: 0,
-  queries: 0,
-  slowQueries: 0,
-  questions: 0,
-  tableCount: 0,
-  dataSize: 0,
-  indexSize: 0,
-  cacheHitRate: 0,
-  bufferPoolSize: 0,
-  bufferPoolUsed: 0,
-  threadsRunning: 0,
-  threadsConnected: 0,
-  bytesReceived: 0,
-  bytesSent: 0
+const error = ref<string | null>(null)
+
+const redis = ref<RedisMetrics>({
+  version: '--', uptimeSeconds: 0, uptimePretty: '--',
+  connectedClients: 0, connectedSlaves: 0, usedMemory: 0, usedMemoryPeak: 0,
+  usedMemoryHuman: '0B', totalKeys: 0, hitRate: 0,
+  totalCommandsProcessed: 0, instantaneousOpsPerSec: 0, role: '--',
+  maxmemory: 0, raw: '',
+})
+const mysql = ref<MysqlMetrics>({
+  version: '--', uptimeSeconds: 0, uptimePretty: '--',
+  threadsConnected: 0, threadsRunning: 0, maxConnections: 151,
+  questions: 0, slowQueries: 0, queries: 0, bytesReceived: 0, bytesSent: 0,
+  innodbBufferPoolSize: 0, innodbBufferPoolUsed: 0, bufferPoolHitRate: 0,
+  tableCount: 0, dataSize: 0, indexSize: 0,
 })
 
-// 格式化字节
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
-}
-
-// 格式化运行时间
-function formatUptime(seconds: number): string {
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
-  const mins = Math.floor((seconds % 3600) / 60)
-  if (days > 0) return `${days}天 ${hours}小时`
-  if (hours > 0) return `${hours}小时 ${mins}分钟`
-  return `${mins}分钟`
-}
-
-// 格式化数字（添加千位分隔符）
-function formatNumber(num: number): string {
-  return num.toLocaleString()
-}
-
-// 连接使用率
-const connectionUsage = computed(() => {
-  if (data.value.maxConnections === 0) return 0
-  return (data.value.connections / data.value.maxConnections) * 100
+// Redis 内存使用率(maxmemory 0 表示未设置上限,这种情况下用 usedMemoryPeak 作为参考)
+const redisMemUsage = computed(() => {
+  if (redis.value.maxmemory > 0) {
+    return (redis.value.usedMemory / redis.value.maxmemory) * 100
+  }
+  return 0
+})
+const redisConnUsage = computed(() => {
+  // Redis 默认 maxclients 10000,这里不做硬编码,直接用 connectedClients 即可
+  return 0
 })
 
-// 连接副标题
-const connectionSubtitle = computed(() => {
-  return `${data.value.threadsRunning} 活跃 / ${data.value.maxConnections} 最大`
+// MySQL 连接使用率
+const mysqlConnUsage = computed(() => {
+  if (mysql.value.maxConnections === 0) return 0
+  return (mysql.value.threadsConnected / mysql.value.maxConnections) * 100
 })
 
-// 缓存命中率副标题
-const cacheSubtitle = computed(() => {
-  return formatBytes(data.value.bufferPoolUsed) + ' / ' + formatBytes(data.value.bufferPoolSize)
-})
+const mysqlConnSubtitle = computed(() =>
+  `${mysql.value.threadsRunning} 活跃 / ${mysql.value.maxConnections} 最大`)
 
-// 数据大小副标题
-const dataSizeSubtitle = computed(() => {
-  return `索引: ${formatBytes(data.value.indexSize)}`
-})
-
-// 数据库类型显示名称
 const dbTypeName = computed(() => {
   switch (props.dbType) {
     case 'mysql': return 'MySQL'
@@ -91,77 +73,95 @@ const dbTypeName = computed(() => {
   }
 })
 
-// 模拟 MySQL 数据
-function loadMockData(silent = false) {
-  if (!silent) {
-    loading.value = true
-  } else {
-    refreshing.value = true
+async function loadRedis() {
+  // info all 返回所有 section
+  const [info, dbSizeResult] = await Promise.allSettled([
+    redisInfo(props.connId, 'all'),
+    redisDBSize(props.connId),
+  ])
+  if (info.status !== 'fulfilled') {
+    throw info.reason
   }
-  setTimeout(() => {
+  const dbSize = dbSizeResult.status === 'fulfilled' ? dbSizeResult.value?.size : undefined
+  redis.value = parseRedisInfo(info.value, dbSize)
+}
+
+async function loadMysql() {
+  // 跑 status + variables + table count + size sum
+  const [status, variables, tableStats, sizeStats] = await Promise.allSettled([
+    mysqlExecute(props.connId, 'SHOW GLOBAL STATUS'),
+    mysqlExecute(props.connId, 'SHOW GLOBAL VARIABLES'),
+    mysqlExecute(
+      props.connId,
+      `SELECT COUNT(*) AS table_count FROM information_schema.tables
+       WHERE table_schema = DATABASE()`,
+    ),
+    mysqlExecute(
+      props.connId,
+      `SELECT COALESCE(SUM(data_length), 0), COALESCE(SUM(index_length), 0)
+       FROM information_schema.tables WHERE table_schema = DATABASE()`,
+    ),
+  ])
+  if (status.status !== 'fulfilled') throw status.reason
+  if (variables.status !== 'fulfilled') throw variables.reason
+  mysql.value = parseMysqlMetrics({
+    status: status.value,
+    variables: variables.value,
+    tableStats: tableStats.status === 'fulfilled' ? tableStats.value : undefined,
+    sizeStats: sizeStats.status === 'fulfilled' ? sizeStats.value : undefined,
+  })
+}
+
+async function loadAll() {
+  if (!props.connId) {
+    loading.value = false
+    return
+  }
+  if (!props.connected) {
+    loading.value = false
+    return
+  }
+  try {
     if (props.dbType === 'redis') {
-      data.value = {
-        version: '7.2.3',
-        uptime: '30天 12小时',
-        connections: 15,
-        maxConnections: 10000,
-        queries: 1258963,
-        slowQueries: 0,
-        questions: 0,
-        tableCount: 0,
-        dataSize: 256 * 1024 * 1024,
-        indexSize: 0,
-        cacheHitRate: 99.2,
-        bufferPoolSize: 512 * 1024 * 1024,
-        bufferPoolUsed: 256 * 1024 * 1024,
-        threadsRunning: 2,
-        threadsConnected: 15,
-        bytesReceived: 2.5 * 1024 * 1024 * 1024,
-        bytesSent: 8.2 * 1024 * 1024 * 1024
-      }
+      await loadRedis()
     } else {
-      data.value = {
-        version: '8.0.35',
-        uptime: '45天 6小时',
-        connections: 28,
-        maxConnections: 151,
-        queries: 5689421,
-        slowQueries: 12,
-        questions: 5689421,
-        tableCount: 156,
-        dataSize: 2.8 * 1024 * 1024 * 1024,
-        indexSize: 1.2 * 1024 * 1024 * 1024,
-        cacheHitRate: 98.5,
-        bufferPoolSize: 4 * 1024 * 1024 * 1024,
-        bufferPoolUsed: 3.2 * 1024 * 1024 * 1024,
-        threadsRunning: 5,
-        threadsConnected: 28,
-        bytesReceived: 15.6 * 1024 * 1024 * 1024,
-        bytesSent: 45.2 * 1024 * 1024 * 1024
+      // 暂支持 MySQL,其他类型走通用 fallback
+      if (props.dbType === 'mysql') {
+        await loadMysql()
+      } else {
+        throw new Error(`仪表盘暂未支持 ${props.dbType}`)
       }
     }
+    error.value = null
+  } catch (e) {
+    error.value = String(e ?? '').slice(0, 200)
+  } finally {
     loading.value = false
     refreshing.value = false
-  }, silent ? 300 : 600)
+  }
 }
 
-// 刷新数据（无感知）
 function refresh() {
-  loadMockData(true)
+  refreshing.value = true
+  loadAll()
 }
 
-// 自动刷新定时器
 let refreshTimer: number | null = null
 
 onMounted(() => {
-  loadMockData()
-  refreshTimer = window.setInterval(refresh, 30000)
+  loadAll()
+  refreshTimer = window.setInterval(() => {
+    if (props.connected) refresh()
+  }, 30000)
 })
 
 onBeforeUnmount(() => {
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-  }
+  if (refreshTimer) clearInterval(refreshTimer)
+})
+
+watch(() => [props.connId, props.dbType, props.connected], () => {
+  loading.value = true
+  loadAll()
 })
 </script>
 
@@ -171,110 +171,198 @@ onBeforeUnmount(() => {
       <div class="header-info">
         <v-icon size="16" color="purple">mdi-database</v-icon>
         <span class="db-type">{{ dbTypeName }}</span>
-        <span class="version">v{{ data.version }}</span>
+        <span class="version">v{{ dbType === 'redis' ? redis.version : mysql.version }}</span>
       </div>
       <button class="refresh-btn" @click="refresh" :disabled="loading">
-        <v-icon size="14" :class="{ spinning: loading }">mdi-refresh</v-icon>
+        <v-icon size="14" :class="{ spinning: refreshing }">mdi-refresh</v-icon>
       </button>
     </div>
 
-    <div class="dashboard-grid">
-      <!-- 运行时间 -->
-      <DashboardCard
-        title="运行时间"
-        icon="mdi-clock-outline"
-        :value="data.uptime"
-        color="cyan"
-        :loading="loading"
-      />
-
-      <!-- 连接数 -->
-      <DashboardCard
-        title="连接数"
-        icon="mdi-connection"
-        :value="data.connections"
-        :subtitle="connectionSubtitle"
-        :progress="connectionUsage"
-        :color="connectionUsage > 80 ? 'red' : connectionUsage > 50 ? 'yellow' : 'green'"
-        :loading="loading"
-      />
-
-      <!-- 查询总数 -->
-      <DashboardCard
-        title="查询总数"
-        icon="mdi-database-search"
-        :value="formatNumber(data.queries)"
-        color="cyan"
-        :loading="loading"
-      />
-
-      <!-- 慢查询 -->
-      <DashboardCard
-        title="慢查询"
-        icon="mdi-turtle"
-        :value="data.slowQueries"
-        :color="data.slowQueries > 100 ? 'red' : data.slowQueries > 10 ? 'yellow' : 'green'"
-        :loading="loading"
-      />
-
-      <!-- 缓存命中率 -->
-      <DashboardCard
-        :title="dbType === 'redis' ? '内存使用' : '缓冲池命中率'"
-        :icon="dbType === 'redis' ? 'mdi-memory' : 'mdi-buffer'"
-        :value="data.cacheHitRate.toFixed(1) + '%'"
-        :subtitle="cacheSubtitle"
-        :progress="data.cacheHitRate"
-        color="purple"
-        :loading="loading"
-      />
-
-      <!-- 数据大小 -->
-      <DashboardCard
-        :title="dbType === 'redis' ? '已用内存' : '数据大小'"
-        icon="mdi-database-arrow-down"
-        :value="formatBytes(data.dataSize)"
-        :subtitle="dbType !== 'redis' ? dataSizeSubtitle : undefined"
-        color="blue"
-        :loading="loading"
-      />
-
-      <!-- 表数量 (MySQL/PostgreSQL) -->
-      <DashboardCard
-        v-if="dbType !== 'redis'"
-        title="表数量"
-        icon="mdi-table"
-        :value="data.tableCount"
-        color="cyan"
-        :loading="loading"
-      />
-
-      <!-- 活跃线程 -->
-      <DashboardCard
-        title="活跃线程"
-        icon="mdi-application-cog"
-        :value="data.threadsRunning"
-        :subtitle="`${data.threadsConnected} 已连接`"
-        color="green"
-        :loading="loading"
-      />
-
-      <!-- 网络流量 -->
-      <DashboardCard
-        title="网络接收"
-        icon="mdi-download-network"
-        :value="formatBytes(data.bytesReceived)"
-        color="blue"
-        :loading="loading"
-      />
-
-      <DashboardCard
-        title="网络发送"
-        icon="mdi-upload-network"
-        :value="formatBytes(data.bytesSent)"
-        color="blue"
-        :loading="loading"
-      />
+    <div v-if="error" class="error-banner">
+      <v-icon size="12">mdi-alert-circle-outline</v-icon>
+      <span>{{ error }}</span>
     </div>
+
+    <div v-if="!connected" class="hint-banner">
+      <v-icon size="12">mdi-information-outline</v-icon>
+      <span>数据库未连接,等待连接后自动采集</span>
+    </div>
+
+    <!-- Redis 真实指标 -->
+    <template v-if="dbType === 'redis'">
+      <div class="dashboard-grid">
+        <DashboardCard
+          title="运行时间"
+          icon="mdi-clock-outline"
+          :value="redis.uptimePretty"
+          :subtitle="`${redis.uptimeSeconds} 秒`"
+          color="cyan"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="已用内存"
+          icon="mdi-memory"
+          :value="redis.usedMemoryHuman"
+          :subtitle="redis.maxmemory > 0 ? `上限 ${formatDbBytes(redis.maxmemory)}` : '未设置上限'"
+          :progress="redisMemUsage"
+          :color="redisMemUsage > 80 ? 'red' : redisMemUsage > 60 ? 'yellow' : 'green'"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="总键数"
+          icon="mdi-key"
+          :value="redis.totalKeys"
+          color="cyan"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="客户端连接"
+          icon="mdi-connection"
+          :value="redis.connectedClients"
+          :subtitle="`${redis.connectedSlaves} 从节点`"
+          color="purple"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="命中率"
+          icon="mdi-target"
+          :value="redis.hitRate.toFixed(2) + '%'"
+          subtitle="keyspace_hits/(hits+misses)"
+          :progress="redis.hitRate"
+          :color="redis.hitRate >= 95 ? 'green' : redis.hitRate >= 80 ? 'cyan' : 'red'"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="峰值内存"
+          icon="mdi-chart-areaspline"
+          :value="formatDbBytes(redis.usedMemoryPeak)"
+          color="yellow"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="累计命令数"
+          icon="mdi-console"
+          :value="redis.totalCommandsProcessed.toLocaleString()"
+          color="cyan"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="每秒操作数"
+          icon="mdi-flash"
+          :value="redis.instantaneousOpsPerSec"
+          subtitle="instantaneous_ops_per_sec"
+          color="green"
+          :loading="loading"
+        />
+      </div>
+    </template>
+
+    <!-- MySQL 真实指标 -->
+    <template v-else-if="dbType === 'mysql'">
+      <div class="dashboard-grid">
+        <DashboardCard
+          title="运行时间"
+          icon="mdi-clock-outline"
+          :value="mysql.uptimePretty"
+          :subtitle="`${mysql.uptimeSeconds} 秒`"
+          color="cyan"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="连接数"
+          icon="mdi-connection"
+          :value="mysql.threadsConnected"
+          :subtitle="mysqlConnSubtitle"
+          :progress="mysqlConnUsage"
+          :color="mysqlConnUsage > 80 ? 'red' : mysqlConnUsage > 50 ? 'yellow' : 'green'"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="累计查询"
+          icon="mdi-database-search"
+          :value="mysql.queries.toLocaleString()"
+          color="cyan"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="慢查询"
+          icon="mdi-turtle"
+          :value="mysql.slowQueries"
+          :color="mysql.slowQueries > 100 ? 'red' : mysql.slowQueries > 10 ? 'yellow' : 'green'"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="缓冲池命中率"
+          icon="mdi-buffer"
+          :value="mysql.bufferPoolHitRate.toFixed(2) + '%'"
+          :subtitle="`使用 ${formatDbBytes(mysql.innodbBufferPoolUsed)} / ${formatDbBytes(mysql.innodbBufferPoolSize)}`"
+          :progress="mysql.bufferPoolHitRate"
+          :color="mysql.bufferPoolHitRate >= 99 ? 'green' : mysql.bufferPoolHitRate >= 95 ? 'cyan' : 'red'"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="数据大小"
+          icon="mdi-database-arrow-down"
+          :value="formatDbBytes(mysql.dataSize)"
+          :subtitle="`索引 ${formatDbBytes(mysql.indexSize)}`"
+          color="blue"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="表数量"
+          icon="mdi-table"
+          :value="mysql.tableCount"
+          color="cyan"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="活跃线程"
+          icon="mdi-application-cog"
+          :value="mysql.threadsRunning"
+          :subtitle="`${mysql.threadsConnected} 已连接`"
+          color="green"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="网络接收"
+          icon="mdi-download-network"
+          :value="formatDbBytes(mysql.bytesReceived)"
+          color="blue"
+          :loading="loading"
+        />
+
+        <DashboardCard
+          title="网络发送"
+          icon="mdi-upload-network"
+          :value="formatDbBytes(mysql.bytesSent)"
+          color="blue"
+          :loading="loading"
+        />
+      </div>
+    </template>
+
+    <!-- 其他数据库类型,等待支持 -->
+    <template v-else>
+      <div class="unsupported">
+        <v-icon size="32" color="muted">mdi-database-off-outline</v-icon>
+        <p>仪表盘暂未支持 {{ dbTypeName }},请先用 SQL 编辑器查询</p>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -289,8 +377,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -327,12 +415,13 @@ onBeforeUnmount(() => {
   color: var(--text-2);
   cursor: pointer;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .refresh-btn:hover {
-  background: rgba(0, 240, 255, 0.08);
-  border-color: var(--cyan);
-  color: var(--cyan);
+  background: rgba(181, 107, 255, 0.08);
+  border-color: var(--purple);
+  color: var(--purple);
 }
 
 .refresh-btn:disabled {
@@ -344,14 +433,51 @@ onBeforeUnmount(() => {
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.error-banner,
+.hint-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  border: 1px solid;
+}
+
+.error-banner {
+  color: var(--red);
+  background: rgba(255, 77, 109, 0.05);
+  border-color: rgba(255, 77, 109, 0.2);
+}
+
+.hint-banner {
+  color: var(--muted);
+  background: rgba(120, 160, 255, 0.04);
+  border-color: var(--line-2);
 }
 
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
+}
+
+.unsupported {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 60px 16px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

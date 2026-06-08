@@ -1,129 +1,106 @@
 <script setup lang="ts">
 /**
  * Docker 仪表盘
- * 展示 Docker 环境信息和资源使用
+ * 数据全部来自 docker_list_containers / docker_list_images 真实 RPC,无 mock。
  */
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import DashboardCard from './DashboardCard.vue'
+import { listContainers, listImages } from '@/services/docker'
+import { formatBytes } from '@/utils/sshMetrics'
+import type { ContainerInfo, ImageInfo } from '@/types/docker'
 
 const props = defineProps<{
   connId: string
   connected: boolean
 }>()
 
-// 仪表盘数据
 const loading = ref(true)
 const refreshing = ref(false)
-const data = ref({
-  version: '--',
-  apiVersion: '--',
-  os: '--',
-  arch: '--',
-  containers: 0,
-  containersRunning: 0,
-  containersPaused: 0,
-  containersStopped: 0,
-  images: 0,
-  volumes: 0,
-  networks: 0,
-  cpuTotal: 0,
-  memTotal: 0,
-  memUsed: 0,
-  diskTotal: 0,
-  diskUsed: 0,
-  layersSize: 0
-})
+const error = ref<string | null>(null)
+const containers = ref<ContainerInfo[]>([])
+const images = ref<ImageInfo[]>([])
 
-// 格式化字节
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
-}
-
-// 容器运行率
-const containerRunningRate = computed(() => {
-  if (data.value.containers === 0) return 0
-  return (data.value.containersRunning / data.value.containers) * 100
-})
-
-// 容器副标题
+const runningCount = computed(() => containers.value.filter(c => c.state === 'running').length)
+const pausedCount = computed(() => containers.value.filter(c => c.state === 'paused').length)
+const stoppedCount = computed(() => containers.value.filter(c => c.state !== 'running' && c.state !== 'paused').length)
+const total = computed(() => containers.value.length)
+const runningRate = computed(() => total.value > 0 ? (runningCount.value / total.value) * 100 : 0)
 const containerSubtitle = computed(() => {
-  const parts = []
-  if (data.value.containersRunning > 0) parts.push(`${data.value.containersRunning} 运行中`)
-  if (data.value.containersPaused > 0) parts.push(`${data.value.containersPaused} 暂停`)
-  if (data.value.containersStopped > 0) parts.push(`${data.value.containersStopped} 已停止`)
+  const parts: string[] = []
+  if (runningCount.value > 0) parts.push(`${runningCount.value} 运行中`)
+  if (pausedCount.value > 0) parts.push(`${pausedCount.value} 暂停`)
+  if (stoppedCount.value > 0) parts.push(`${stoppedCount.value} 已停止`)
   return parts.join(' · ') || '无容器'
 })
-
-// 磁盘使用率
-const diskUsage = computed(() => {
-  if (data.value.diskTotal === 0) return 0
-  return (data.value.diskUsed / data.value.diskTotal) * 100
-})
-
-// 磁盘副标题
-const diskSubtitle = computed(() => {
-  return `${formatBytes(data.value.diskUsed)} / ${formatBytes(data.value.diskTotal)}`
-})
-
-// 容器颜色状态
 const containerColor = computed(() => {
-  if (data.value.containersRunning === 0) return 'cyan'
-  if (data.value.containersStopped > 0) return 'yellow'
+  if (total.value === 0) return 'cyan'
+  if (stoppedCount.value > 0 && runningCount.value > 0) return 'yellow'
+  if (runningCount.value === 0) return 'red'
   return 'green'
 })
 
-// 模拟数据
-function loadMockData(silent = false) {
-  if (!silent) {
-    loading.value = true
-  } else {
-    refreshing.value = true
-  }
-  setTimeout(() => {
-    data.value = {
-      version: '24.0.7',
-      apiVersion: '1.43',
-      os: 'Linux',
-      arch: 'x86_64',
-      containers: 12,
-      containersRunning: 8,
-      containersPaused: 1,
-      containersStopped: 3,
-      images: 25,
-      volumes: 18,
-      networks: 6,
-      cpuTotal: 8,
-      memTotal: 16 * 1024 * 1024 * 1024,
-      memUsed: 8.5 * 1024 * 1024 * 1024,
-      diskTotal: 200 * 1024 * 1024 * 1024,
-      diskUsed: 85 * 1024 * 1024 * 1024,
-      layersSize: 12.5 * 1024 * 1024 * 1024
+// 镜像总大小(累加,VirtualSize 字段不一定有,fallback 到 size)
+const imagesSize = computed(() => images.value.reduce((s, img) => s + (img.size || 0), 0))
+const imagesSizePretty = computed(() => formatBytes(imagesSize.value))
+
+// 网络 / 卷 / 端口 (从第一个运行中容器的 ports 估一下"在用端口数")
+const usedPorts = computed(() => {
+  const set = new Set<string>()
+  for (const c of containers.value) {
+    for (const p of c.ports || []) {
+      if (p.public) set.add(`${p.public}/${p.type}`)
     }
+  }
+  return set.size
+})
+
+async function loadAll() {
+  if (!props.connId) {
+    loading.value = false
+    return
+  }
+  if (!props.connected) {
+    loading.value = false
+    return
+  }
+  try {
+    const [cs, imgs] = await Promise.all([
+      listContainers(props.connId, true),
+      listImages(props.connId, false).catch(() => [] as ImageInfo[]),
+    ])
+    containers.value = cs || []
+    images.value = imgs || []
+    error.value = null
+  } catch (e) {
+    error.value = String(e ?? '').slice(0, 200)
+  } finally {
     loading.value = false
     refreshing.value = false
-  }, silent ? 300 : 700)
+  }
 }
 
-// 刷新数据（无感知）
 function refresh() {
-  loadMockData(true)
+  refreshing.value = true
+  loadAll()
 }
 
-// 自动刷新定时器
 let refreshTimer: number | null = null
 
 onMounted(() => {
-  loadMockData()
-  refreshTimer = window.setInterval(refresh, 30000)
+  loadAll()
+  refreshTimer = window.setInterval(() => {
+    if (props.connected) refresh()
+  }, 30000)
 })
 
 onBeforeUnmount(() => {
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
+  if (refreshTimer) clearInterval(refreshTimer)
+})
+
+watch(() => [props.connId, props.connected], ([id, conn], [oldId, oldConn]) => {
+  if (id !== oldId || (conn && !oldConn)) {
+    loading.value = true
+    loadAll()
   }
 })
 </script>
@@ -133,89 +110,91 @@ onBeforeUnmount(() => {
     <div class="dashboard-header">
       <div class="header-info">
         <v-icon size="16" color="green">mdi-docker</v-icon>
-        <span class="docker-engine">Docker Engine</span>
-        <span class="version">v{{ data.version }}</span>
+        <span class="docker-engine">Docker</span>
+        <span class="version">{{ total }} 容器 · {{ images.length }} 镜像</span>
       </div>
       <button class="refresh-btn" @click="refresh" :disabled="loading">
-        <v-icon size="14" :class="{ spinning: loading }">mdi-refresh</v-icon>
+        <v-icon size="14" :class="{ spinning: refreshing }">mdi-refresh</v-icon>
       </button>
     </div>
 
+    <div v-if="error" class="error-banner">
+      <v-icon size="12">mdi-alert-circle-outline</v-icon>
+      <span>{{ error }}</span>
+    </div>
+
+    <div v-if="!connected" class="hint-banner">
+      <v-icon size="12">mdi-information-outline</v-icon>
+      <span>Docker 未连接,等待连接后自动采集</span>
+    </div>
+
     <div class="dashboard-grid">
-      <!-- 容器总数 -->
       <DashboardCard
-        title="容器"
+        title="容器总数"
         icon="mdi-cube-outline"
-        :value="data.containers"
+        :value="total"
         :subtitle="containerSubtitle"
-        :progress="containerRunningRate"
+        :progress="runningRate"
         :color="containerColor"
         :loading="loading"
       />
 
-      <!-- 运行中 -->
       <DashboardCard
         title="运行中"
         icon="mdi-play-circle-outline"
-        :value="data.containersRunning"
+        :value="runningCount"
         color="green"
         :loading="loading"
       />
 
-      <!-- 镜像 -->
       <DashboardCard
-        title="镜像"
-        icon="mdi-disc"
-        :value="data.images"
-        :subtitle="formatBytes(data.layersSize)"
-        color="cyan"
+        title="已停止"
+        icon="mdi-stop-circle-outline"
+        :value="stoppedCount"
+        :color="stoppedCount > 0 ? 'yellow' : 'cyan'"
         :loading="loading"
       />
 
-      <!-- 卷 -->
       <DashboardCard
-        title="卷"
-        icon="mdi-database-outline"
-        :value="data.volumes"
+        title="暂停中"
+        icon="mdi-pause-circle-outline"
+        :value="pausedCount"
         color="purple"
         :loading="loading"
       />
 
-      <!-- 网络 -->
       <DashboardCard
-        title="网络"
-        icon="mdi-lan"
-        :value="data.networks"
-        color="blue"
-        :loading="loading"
-      />
-
-      <!-- 磁盘使用 -->
-      <DashboardCard
-        title="磁盘使用"
-        icon="mdi-harddisk"
-        :value="diskUsage.toFixed(1) + '%'"
-        :subtitle="diskSubtitle"
-        :progress="diskUsage"
-        :color="diskUsage > 80 ? 'red' : diskUsage > 60 ? 'yellow' : 'cyan'"
-        :loading="loading"
-      />
-
-      <!-- CPU -->
-      <DashboardCard
-        title="CPU 核心"
-        icon="mdi-cpu-64-bit"
-        :value="data.cpuTotal"
+        title="镜像数量"
+        icon="mdi-disc"
+        :value="images.length"
         color="cyan"
         :loading="loading"
       />
 
-      <!-- 内存 -->
       <DashboardCard
-        title="总内存"
-        icon="mdi-memory"
-        :value="formatBytes(data.memTotal)"
-        color="green"
+        title="镜像占用"
+        icon="mdi-database"
+        :value="imagesSizePretty"
+        color="purple"
+        :loading="loading"
+      />
+
+      <DashboardCard
+        title="暴露端口"
+        icon="mdi-lan-connect"
+        :value="usedPorts"
+        :subtitle="`通过 ${runningCount} 个运行中容器`"
+        color="blue"
+        :loading="loading"
+      />
+
+      <DashboardCard
+        title="健康率"
+        icon="mdi-heart-pulse"
+        :value="runningRate.toFixed(0) + '%'"
+        :subtitle="`${runningCount}/${total} 容器运行中`"
+        :progress="runningRate"
+        :color="runningRate === 100 ? 'green' : runningRate >= 50 ? 'cyan' : 'yellow'"
         :loading="loading"
       />
     </div>
@@ -233,8 +212,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -242,6 +221,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .docker-engine {
@@ -254,7 +234,7 @@ onBeforeUnmount(() => {
   font-size: 11px;
   color: var(--muted);
   font-family: 'JetBrains Mono', monospace;
-  background: rgba(0, 255, 136, 0.08);
+  background: rgba(74, 222, 128, 0.08);
   padding: 1px 6px;
   border-radius: 3px;
 }
@@ -271,12 +251,13 @@ onBeforeUnmount(() => {
   color: var(--text-2);
   cursor: pointer;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .refresh-btn:hover {
   background: rgba(0, 240, 255, 0.08);
-  border-color: var(--cyan);
-  color: var(--cyan);
+  border-color: var(--green);
+  color: var(--green);
 }
 
 .refresh-btn:disabled {
@@ -288,14 +269,39 @@ onBeforeUnmount(() => {
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.error-banner,
+.hint-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  border: 1px solid;
+}
+
+.error-banner {
+  color: var(--red);
+  background: rgba(255, 77, 109, 0.05);
+  border-color: rgba(255, 77, 109, 0.2);
+}
+
+.hint-banner {
+  color: var(--muted);
+  background: rgba(120, 160, 255, 0.04);
+  border-color: var(--line-2);
 }
 
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>
