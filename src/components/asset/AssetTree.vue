@@ -127,23 +127,7 @@ function reconnectToAsset(asset: Asset) {
  connectToAsset(asset)
 }
 
-/**
- *打开独立 SFTP视图(SFTP 已从 SSH终端拆出去,变成独立工具)
- * tab.id 用 `sftp-` 前缀,跟 ssh终端的 tab命名空间分开,
- * selectTab() 会根据 id 前缀路由到 /sftp/:id 而不是 /ssh/:id。
- */
-function openSftpForAsset(asset: Asset) {
- if (asset.type !== 'ssh') return
- const instanceId = `sftp-${generateInstanceId(asset.id)}`
- appStore.addTab({
- id: instanceId,
- assetId: asset.id,
- title: `SFTP: ${asset.name}`,
- type: 'ssh'
- })
- assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
- router.push({ name: 'sftp', params: { id: instanceId } })
- }
+
 
 
 // ====== 右键菜单 ======
@@ -168,14 +152,7 @@ const ctxItems = computed<MenuItem[]>(() => {
  disabled: asset.type === 'docker',
  onClick: () => openInNewTab(asset)
  },
- {
- // SFTP 已拆为独立工具,只对 SSH资产显示
- type: 'item',
- icon: 'mdi-folder-network-outline',
- label: t('asset.openSftp') || '打开 SFTP 文件管理器',
- disabled: asset.type !== 'ssh',
- onClick: () => openSftpForAsset(asset)
- },
+
  {
  type: 'item',
  icon: 'mdi-restart',

@@ -61,27 +61,7 @@ const commands = computed<Command[]>(() => {
  }
  })
 
- // SSH资产额外给一条 "打开 SFTP" command(SFTP 已拆为独立工具)
- if (a.type === 'ssh') {
- cmds.push({
- id: `asset-sftp-${a.id}`,
- group: 'asset',
- icon: 'mdi-folder-network-outline',
- label: `${a.name} · SFTP`,
- keywords: ['sftp', 'file', '文件', '传输', typeLabel, a.config.host || '', a.config.username || ''],
- run: () => {
- const instanceId = `sftp-${generateInstanceId(a.id)}`
- appStore.addTab({
- id: instanceId,
- assetId: a.id,
- title: `SFTP: ${a.name}`,
- type: 'ssh'
- })
- assetStore.updateAsset(a.id, { lastUsedAt: Date.now() })
- router.push({ name: 'sftp', params: { id: instanceId } })
- }
- })
- }
+
  }
 
 
@@ -90,15 +70,14 @@ const commands = computed<Command[]>(() => {
     cmds.push({
       id: `tab-${t.id}`,
       group: 'tab',
-      icon: t.id.startsWith('sftp-') ? 'mdi-folder-network' : t.type === 'db' ? 'mdi-database' : t.type === 'docker' ? 'mdi-docker' : t.type === 'settings' ? 'mdi-cog' : 'mdi-console',
+      icon: t.type === 'db' ? 'mdi-database' : t.type === 'docker' ? 'mdi-docker' : t.type === 'settings' ? 'mdi-cog' : 'mdi-console',
       label: `${t.title} · tab`,
       keywords: ['tab', 'switch', '切换'],
       run: () => {
         appStore.setActiveTab(t.id)
         if (t.type === 'settings') router.push('/settings')
         else if (t.type === 'ssh') {
-          if (t.id.startsWith('sftp-')) router.push({ name: 'sftp', params: { id: t.id } })
-          else router.push({ name: 'ssh-terminal', params: { id: t.id } })
+          router.push({ name: 'ssh-terminal', params: { id: t.id } })
         } else if (t.type === 'db') {
           const a = assetStore.assets.find(x => x.id === t.assetId)
           const dbType = a?.config.dbType || 'mysql'

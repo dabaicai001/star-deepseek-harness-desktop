@@ -76,7 +76,6 @@ const showSearch = ref(false)
 const searchQuery = ref('')
 
 // ======右侧 Panel(仪表盘 / AI切换) ======
-// SFTP 已拆为独立路由 /sftp/:id,不再嵌在终端右栏。
 const rightActiveTab = ref<string>('dashboard')
 
 const rightPanelTabs = computed(() => [

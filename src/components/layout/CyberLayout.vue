@@ -398,7 +398,7 @@ function openAssetPicker(e: MouseEvent, assetType: 'ssh' | 'db' | 'docker', open
 const sshAssets = computed(() => filteredAssets.value.filter(a => a.type === 'ssh'))
 const dbAssets = computed(() => filteredAssets.value.filter(a => a.type === 'db'))
 const dockerAssets = computed(() => filteredAssets.value.filter(a => a.type === 'docker'))
-const sftpTabCount = computed(() => appStore.tabs.filter(t => t.id.startsWith('sftp-')).length)
+
 
 /** 顶栏搜索下拉:实时显示匹配资产(最多 8 个) */
 const searchOpen = ref(false)
@@ -562,11 +562,7 @@ function navigateTo(path: string) {
 function selectTab(tab: { id: string; assetId?: string; type: string }) {
   appStore.setActiveTab(tab.id)
   if (tab.type === 'ssh') {
-    if (tab.id.startsWith('sftp-')) {
-      router.push({ name: 'sftp', params: { id: tab.id } })
-    } else {
-      router.push({ name: 'ssh-terminal', params: { id: tab.id } })
-    }
+    router.push({ name: 'ssh-terminal', params: { id: tab.id } })
   } else if (tab.type === 'db') {
     const a = tab.assetId ? assetStore.assets.find(x => x.id === tab.assetId) : null
     const dbType = a?.config.dbType || 'mysql'
@@ -1056,10 +1052,7 @@ vueWatch(() => appStore.tabs.length, () => {
         <v-icon size="10">mdi-console</v-icon>
         <span>{{ sshAssets.length }} SSH</span>
       </div>
-      <div class="sb-item">
-        <v-icon size="10">mdi-folder-network-outline</v-icon>
-        <span>{{ sftpTabCount }} SFTP</span>
-      </div>
+
       <div class="sb-item">
         <v-icon size="10">mdi-database</v-icon>
         <span>{{ dbAssets.length }} DB</span>
