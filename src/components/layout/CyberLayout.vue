@@ -509,18 +509,8 @@ function connectToAsset(asset: Asset) {
   }
 }
 
-function openSftpForAsset(asset: Asset) {
-  // 总是新开 SFTP tab(看不同目录)
-  const instanceId = `sftp-${generateInstanceId(asset.id)}`
-  appStore.addTab({
-    id: instanceId,
-    assetId: asset.id,
-    title: `SFTP: ${asset.name}`,
-    type: 'ssh'
-  })
-  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-  router.push({ name: 'sftp', params: { id: instanceId } })
-}
+// `openSftpForAsset` 已迁移到 AssetTree.vue 的右键菜单
+// (SFTP拆为独立工具后,逻辑跟着 UI走),这里不再保留死代码。
 
 function openNewConnection() {
   showNewConnection.value = true

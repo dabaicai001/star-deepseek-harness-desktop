@@ -48,21 +48,44 @@ const commands = computed<Command[]>(() => {
       group: 'asset',
       icon: a.type === 'ssh' ? 'mdi-console' : a.type === 'db' ? 'mdi-database' : 'mdi-docker',
       label: a.name,
-      keywords: [typeLabel, a.config.host || '', a.config.username || '', ...(a.tags || [])],
-      run: () => {
-        let routeName: string
-        if (a.type === 'ssh') routeName = 'ssh-terminal'
-        else if (a.type === 'docker') routeName = 'docker'
-        else routeName = a.config.dbType === 'redis' ? 'db-redis' : 'db-mysql'
-        const instanceId = generateInstanceId(a.id)
-        appStore.addTab({ id: instanceId, assetId: a.id, title: a.name, type: a.type })
-        router.push({ name: routeName, params: { id: instanceId } })
-        assetStore.updateAsset(a.id, { lastUsedAt: Date.now() })
-      }
-    })
-  }
+    keywords: [typeLabel, a.config.host || '', a.config.username || '', ...(a.tags || [])],
+ run: () => {
+ let routeName: string
+ if (a.type === 'ssh') routeName = 'ssh-terminal'
+ else if (a.type === 'docker') routeName = 'docker'
+ else routeName = a.config.dbType === 'redis' ? 'db-redis' : 'db-mysql'
+ const instanceId = generateInstanceId(a.id)
+ appStore.addTab({ id: instanceId, assetId: a.id, title: a.name, type: a.type })
+ router.push({ name: routeName, params: { id: instanceId } })
+ assetStore.updateAsset(a.id, { lastUsedAt: Date.now() })
+ }
+ })
 
-  // 当前 tabs(切换)
+ // SSH资产额外给一条 "打开 SFTP" command(SFTP 已拆为独立工具)
+ if (a.type === 'ssh') {
+ cmds.push({
+ id: `asset-sftp-${a.id}`,
+ group: 'asset',
+ icon: 'mdi-folder-network-outline',
+ label: `${a.name} · SFTP`,
+ keywords: ['sftp', 'file', '文件', '传输', typeLabel, a.config.host || '', a.config.username || ''],
+ run: () => {
+ const instanceId = `sftp-${generateInstanceId(a.id)}`
+ appStore.addTab({
+ id: instanceId,
+ assetId: a.id,
+ title: `SFTP: ${a.name}`,
+ type: 'ssh'
+ })
+ assetStore.updateAsset(a.id, { lastUsedAt: Date.now() })
+ router.push({ name: 'sftp', params: { id: instanceId } })
+ }
+ })
+ }
+ }
+
+
+ // 当前 tabs(切换)
   for (const t of appStore.tabs) {
     cmds.push({
       id: `tab-${t.id}`,
