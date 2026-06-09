@@ -73,6 +73,7 @@ fn main() {
             commands::sftp::sftp_cancel_transfer,
             commands::sftp::sftp_list_transfers,
             commands::sftp::sftp_set_speed_limit,
+            commands::sftp::sftp_retry_transfer,
             // MySQL
             commands::db::db_mysql_connect,
             commands::db::db_mysql_test,

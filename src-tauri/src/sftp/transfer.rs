@@ -256,7 +256,15 @@ impl TransferManager {
                 let tasks_for_speed = tasks.clone();
                 let tid_for_speed = tid.clone();
 
-                let result = upload_file(&sftp, local_path, &remote_path, 0, move |trans, total| {
+                // Read per-file resume offset from task
+                let resume_from = {
+                    let tasks_guard = tasks.lock().await;
+                    tasks_guard.get(&tid)
+                        .and_then(|t| t.files.get(i))
+                        .map(|f| f.transferred)
+                        .unwrap_or(0)
+                };
+                let result = upload_file(&sftp, local_path, &remote_path, resume_from, move |trans, total| {
                     let file_progress = trans;
                     let _ = ah.emit(
                         "sftp://transfer-progress",
@@ -472,8 +480,16 @@ impl TransferManager {
                 let tasks_for_speed = tasks.clone();
                 let tid_for_speed = tid.clone();
 
+                // Read per-file resume offset from task
+                let resume_from = {
+                    let tasks_guard = tasks.lock().await;
+                    tasks_guard.get(&tid)
+                        .and_then(|t| t.files.get(i))
+                        .map(|f| f.transferred)
+                        .unwrap_or(0)
+                };
                 let result =
-                    download_file(&sftp, remote_path, &local_path, 0, move |trans, total| {
+                    download_file(&sftp, remote_path, &local_path, resume_from, move |trans, total| {
                         let file_progress = trans;
                         let _ = ah.emit(
                             "sftp://transfer-progress",
@@ -570,6 +586,45 @@ impl TransferManager {
         let tokens = self.cancel_tokens.lock().await;
         if let Some(token) = tokens.get(transfer_id) {
             token.cancel();
+        }
+    }
+
+    /// Retry a failed transfer — creates a new transfer that resumes from per-file offsets
+    pub async fn retry(&self, transfer_id: &str) -> Result<String> {
+        let (session_id, direction, speed_limit) = {
+            let tasks = self.tasks.lock().await;
+            let task = tasks
+                .get(transfer_id)
+                .ok_or_else(|| anyhow::anyhow!("Transfer not found: {}", transfer_id))?;
+            if task.status != TransferStatus::Failed {
+                return Err(anyhow::anyhow!("Can only retry failed transfers"));
+            }
+            (task.session_id.clone(), task.direction.clone(), task.speed_limit)
+        };
+
+        match direction {
+            TransferDirection::Upload => {
+                let (local_paths, remote_dir) = {
+                    let tasks = self.tasks.lock().await;
+                    let task = tasks.get(transfer_id).unwrap();
+                    (
+                        task.upload_local_paths.clone().unwrap_or_default(),
+                        task.upload_remote_dir.clone().unwrap_or_default(),
+                    )
+                };
+                self.upload(&session_id, local_paths, remote_dir, speed_limit).await
+            }
+            TransferDirection::Download => {
+                let (remote_paths, local_dir) = {
+                    let tasks = self.tasks.lock().await;
+                    let task = tasks.get(transfer_id).unwrap();
+                    (
+                        task.download_remote_paths.clone().unwrap_or_default(),
+                        task.download_local_dir.clone().unwrap_or_default(),
+                    )
+                };
+                self.download(&session_id, remote_paths, local_dir, speed_limit).await
+            }
         }
     }
 

@@ -277,6 +277,19 @@ pub async fn sftp_set_speed_limit(
     Ok(())
 }
 
+/// 重试失败的传输(创建新传输,从失败文件处继续)
+#[tauri::command]
+pub async fn sftp_retry_transfer(
+    transfer_manager: State<'_, TransferManager>,
+    _id: String,
+    transfer_id: String,
+) -> Result<String, String> {
+    transfer_manager
+        .retry(&transfer_id)
+        .await
+        .map_err(map_err)
+}
+
 /// 列出某 session 的所有传输任务(给前端刷新/重连用)
 #[tauri::command]
 pub async fn sftp_list_transfers(
