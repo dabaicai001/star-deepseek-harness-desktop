@@ -101,7 +101,7 @@ const currentTab = computed(() => props.tabs.find(t => t.key === activeTab.value
 .right-panel-rail {
   width: 56px;
   flex-shrink: 0;
-  background: rgba(10, 14, 26, 0.5);
+  background: var(--chrome-glass-soft);
   border-right: 1px solid var(--line-2);
   padding: 8px 0;
   display: flex;

@@ -1265,7 +1265,7 @@ onBeforeUnmount(() => {
   gap: 4px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--line);
-  background: rgba(10, 14, 26, 0.5);
+  background: var(--chrome-glass-strong);
   flex-shrink: 0;
 }
 
@@ -1363,7 +1363,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--line);
-  background: rgba(10, 14, 26, 0.3);
+  background: var(--chrome-glass-soft);
   flex-shrink: 0;
 }
 
@@ -1450,7 +1450,7 @@ onBeforeUnmount(() => {
   gap: 6px;
   height: 32px;
   padding: 0 8px 0 10px;
-  background: rgba(10, 14, 26, 0.6);
+  background: var(--chrome-glass-strong);
   border-bottom: 1px solid var(--line);
   cursor: grab;
   font-size: 11px;
@@ -1620,7 +1620,7 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 8px;
   padding: 6px 12px;
-  background: rgba(10, 14, 26, 0.4);
+  background: var(--chrome-glass);
   border-bottom: 1px solid var(--line);
   font-size: 10px;
   color: var(--muted);

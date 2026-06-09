@@ -1173,8 +1173,8 @@ vueWatch(() => appStore.tabs.length, () => {
   position: fixed;
   inset: 0;
   background-image:
-    linear-gradient(rgba(0, 240, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 240, 255, 0.025) 1px, transparent 1px);
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 40px 40px;
   pointer-events: none;
   z-index: 0;
@@ -1183,7 +1183,7 @@ vueWatch(() => appStore.tabs.length, () => {
 
 .titlebar {
   grid-area: titlebar;
-  background: rgba(10, 14, 26, 0.7);
+  background: var(--chrome-glass-strong);
   border-bottom: 1px solid var(--line-2);
   display: flex;
   align-items: center;
@@ -1224,7 +1224,7 @@ vueWatch(() => appStore.tabs.length, () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #050810;
+  color: var(--bg);
   font-size: 14px;
   font-weight: 900;
   box-shadow: var(--glow-cyan);
@@ -1245,7 +1245,7 @@ vueWatch(() => appStore.tabs.length, () => {
 .top-search {
   flex: 1;
   max-width: 720px;
-  background: rgba(20, 25, 40, 0.6);
+  background: var(--bg-input);
   border: 1px solid var(--line-2);
   border-radius: 8px;
   padding: 5px 12px;
@@ -1259,12 +1259,12 @@ vueWatch(() => appStore.tabs.length, () => {
 }
 
 .top-search:hover {
-  border-color: rgba(0, 240, 255, 0.3);
+  border-color: var(--focus-cyan);
 }
 
 .top-search:focus-within {
   border-color: var(--cyan);
-  box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1);
+  box-shadow: 0 0 0 3px var(--focus-cyan);
 }
 
 .search-input {
@@ -1287,9 +1287,9 @@ vueWatch(() => appStore.tabs.length, () => {
   left: 0;
   right: 0;
   background: var(--panel-solid);
-  border: 1px solid rgba(0, 240, 255, 0.25);
+  border: 1px solid var(--focus-cyan);
   border-radius: 10px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow);
   padding: 4px;
   z-index: 99;
   animation: searchDropdownIn 0.12s ease;
@@ -1310,7 +1310,7 @@ vueWatch(() => appStore.tabs.length, () => {
   transition: all 0.1s;
 }
 .search-result.selected {
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--icon-bg-cyan);
   color: var(--cyan);
 }
 .search-result-info {
@@ -1349,7 +1349,7 @@ kbd {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   padding: 2px 6px;
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--kbd-bg);
   border: 1px solid var(--line-2);
   border-radius: 4px;
   color: var(--cyan);
@@ -1519,7 +1519,7 @@ kbd {
 
 .menubar {
   grid-area: menubar;
-  background: rgba(15, 20, 32, 0.5);
+  background: var(--chrome-glass);
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
@@ -1794,7 +1794,7 @@ kbd {
 
 .sidebar {
   flex-shrink: 0;
-  background: rgba(10, 14, 26, 0.5);
+  background: var(--chrome-glass-soft);
   border-right: 1px solid var(--line);
   padding: 14px 0;
   overflow: hidden auto;
@@ -2039,7 +2039,7 @@ kbd {
 
 .statusbar {
   grid-area: statusbar;
-  background: rgba(10, 14, 26, 0.7);
+  background: var(--chrome-glass-strong);
   border-top: 1px solid var(--line-2);
   padding: 0 16px;
   display: flex;

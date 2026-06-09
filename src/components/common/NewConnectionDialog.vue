@@ -331,7 +331,7 @@ function close() {
 }
 
 .type-card {
-  background: rgba(20, 25, 40, 0.6);
+  background: var(--bg-input);
   border: 1px solid var(--line-2);
   border-radius: 10px;
   padding: 14px 16px;

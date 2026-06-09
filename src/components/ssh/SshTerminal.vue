@@ -973,7 +973,7 @@ function handleSearch() {
 }
 
 .cyber-search-input {
-  background: rgba(20, 25, 40, 0.6);
+  background: var(--bg-input);
   border: 1px solid var(--line-2);
   border-radius: 6px;
   padding: 4px 8px;

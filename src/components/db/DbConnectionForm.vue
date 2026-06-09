@@ -381,7 +381,7 @@ function onKeydown(e: KeyboardEvent) {
   padding: 10px 16px;
   border-radius: 8px;
   border: 1px solid var(--line-2);
-  background: rgba(20, 25, 40, 0.6);
+  background: var(--bg-input);
   color: var(--text-2);
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);

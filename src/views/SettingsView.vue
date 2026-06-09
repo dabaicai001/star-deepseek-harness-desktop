@@ -540,7 +540,7 @@ const PRESET_MODELS = [
   height: 24px;
   border-radius: 4px;
   background: var(--grad-primary);
-  color: #050810;
+  color: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -767,7 +767,7 @@ const PRESET_MODELS = [
   height: 72px;
   border-radius: 16px;
   background: var(--grad-primary);
-  color: #050810;
+  color: var(--bg);
   font-size: 36px;
   font-weight: 900;
   display: flex;

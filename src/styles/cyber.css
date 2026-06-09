@@ -60,6 +60,11 @@
   --close-hover-bg: rgba(255, 77, 109, 0.15);
   --danger-hover-bg: rgba(255, 77, 109, 0.1);
   --kbd-bg: rgba(0, 240, 255, 0.08);
+
+  /* 顶栏/菜单栏/状态栏玻璃背景(暗色用深蓝半透明) */
+  --chrome-glass-strong: rgba(10, 14, 26, 0.7);
+  --chrome-glass: rgba(15, 20, 32, 0.5);
+  --chrome-glass-soft: rgba(20, 25, 40, 0.4);
 }
 
 .v-theme--lightTheme {
@@ -119,6 +124,11 @@
   --close-hover-bg: rgba(225, 29, 72, 0.12);
   --danger-hover-bg: rgba(225, 29, 72, 0.08);
   --kbd-bg: rgba(8, 145, 178, 0.08);
+
+  /* 顶栏/菜单栏/状态栏玻璃背景(白底用近白半透明) */
+  --chrome-glass-strong: rgba(255, 255, 255, 0.85);
+  --chrome-glass: rgba(255, 255, 255, 0.6);
+  --chrome-glass-soft: rgba(255, 255, 255, 0.4);
 }
 
 /* Global styles */
