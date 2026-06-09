@@ -23,12 +23,12 @@ pub struct TransferStatusEvent {
     pub error: Option<String>,
 }
 
-/// Recursively collect all files under `path`, returning `(local_path, relative_path)` pairs.
+/// Recursively collect all files under `path`, returning `(local_path, remote_relative_path, size)` tuples.
 /// `relative_prefix` is the base name used to build the remote relative path.
-async fn collect_local_files(path: &str, relative_prefix: &str) -> Result<Vec<(String, String)>> {
+async fn collect_local_files(path: &str, relative_prefix: &str) -> Result<Vec<(String, String, u64)>> {
     let meta = tokio::fs::metadata(path).await?;
     if meta.is_file() {
-        return Ok(vec![(path.to_string(), relative_prefix.to_string())]);
+        return Ok(vec![(path.to_string(), relative_prefix.to_string(), meta.len())]);
     }
 
     let mut results = Vec::new();
@@ -45,6 +45,19 @@ async fn collect_local_files(path: &str, relative_prefix: &str) -> Result<Vec<(S
         results.extend(sub);
     }
     Ok(results)
+}
+
+/// Recursively create directories on remote (like `mkdir -p`).
+/// Silently succeeds if directories already exist.
+async fn mkdir_p(sftp: &Arc<Mutex<SftpSession>>, path: &str) {
+    let mut current = String::new();
+    for segment in path.split('/').filter(|s| !s.is_empty()) {
+        current.push('/');
+        current.push_str(segment);
+        if let Err(e) = mkdir(sftp, &current).await {
+            tracing::debug!("mkdir {} failed (may already exist): {}", current, e);
+        }
+    }
 }
 
 pub struct TransferManager {
@@ -135,7 +148,7 @@ impl TransferManager {
 
         let mut files = Vec::new();
         let mut total_bytes: u64 = 0;
-        let mut all_files: Vec<(String, String)> = Vec::new();
+        let mut all_files: Vec<(String, String, u64)> = Vec::new();
 
         for local_path in &local_paths {
             let base_name = Path::new(local_path)
@@ -143,12 +156,10 @@ impl TransferManager {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| local_path.clone());
             let collected = collect_local_files(local_path, &base_name).await?;
-            for (lp, rp) in &collected {
-                let meta = tokio::fs::metadata(lp).await?;
-                let size = meta.len();
+            for (lp, rp, size) in &collected {
                 files.push(TransferFile {
                     name: rp.clone(),
-                    size,
+                    size: *size,
                     transferred: 0,
                 });
                 total_bytes += size;
@@ -205,7 +216,7 @@ impl TransferManager {
             let mut cumulative_transferred: u64 = 0;
             let mut final_status: Option<(TransferStatus, Option<String>)> = None;
 
-            for (i, (local_path, relative_path)) in all_files.iter().enumerate() {
+            for (i, (local_path, relative_path, _size)) in all_files.iter().enumerate() {
                 if cancel_token.is_cancelled() {
                     let mut tasks = tasks.lock().await;
                     if let Some(t) = tasks.get_mut(&tid) {
@@ -221,10 +232,12 @@ impl TransferManager {
                     format!("{}/{}", remote_dir, relative_path)
                 };
 
-                // Ensure parent directory exists on remote
+                // Ensure parent directory exists on remote (mkdir -p)
                 if let Some(parent) = Path::new(&remote_path).parent() {
                     let parent_str = parent.to_string_lossy().to_string();
-                    let _ = mkdir(&sftp, &parent_str).await;
+                    if !parent_str.is_empty() && parent_str != "/" {
+                        mkdir_p(&sftp, &parent_str).await;
+                    }
                 }
 
                 tracing::info!("[TransferManager::upload] uploading file {}: {} -> {}", i, local_path, remote_path);
