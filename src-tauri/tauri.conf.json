@@ -43,6 +43,9 @@
       "icons/icon.png",
       "icons/icon.ico"
     ],
+    "externalBin": [
+      "../sidecar/bin/starhub-sidecar"
+    ],
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",
