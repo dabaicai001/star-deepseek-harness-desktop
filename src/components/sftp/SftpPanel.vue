@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useAssetStore } from '@/stores/asset'
 import { useNotifyStore } from '@/stores/notify'
 import { sftpList, sftpEnsureSession, joinPath, parentPath, formatSize, type SftpEntry } from '@/services/sftp'
+
+const { t } = useI18n()
 
 const assetStore = useAssetStore()
 const notify = useNotifyStore()
@@ -27,7 +30,7 @@ let currentConnectId = 0
 
 // SFTP 专用 session ID（与 SSH terminal 的 session 完全独立）
 // onMounted 时生成一次，生命周期内不变
-const sftpSessionId = ref<string | null>(null)
+let sftpSessionId: string | null = null
 
 const statusKind = computed<'connecting' | 'online' | 'offline' | 'error'>(() => {
   if (connecting.value) return 'connecting'
@@ -44,7 +47,7 @@ async function connect() {
     return
   }
 
-  const sessionId = sftpSessionId.value
+  const sessionId = sftpSessionId
   if (!sessionId) return
 
   if (unlistenClose) { unlistenClose(); unlistenClose = null }
@@ -102,7 +105,7 @@ async function connect() {
     try {
       await invoke('ssh_disconnect', { id: sessionId })
     } catch { /* 静默 */ }
-    notify.notify({ message: `SFTP 连接失败: ${msg}`, color: 'error', timeout: 5000 })
+    notify.notify({ message: `${t('sftp.connectFailed')}: ${msg}`, color: 'error', timeout: 5000 })
   } finally {
     if (connectCallId === currentConnectId) {
       connecting.value = false
@@ -111,7 +114,7 @@ async function connect() {
 }
 
 async function disconnect() {
-  const sessionId = sftpSessionId.value
+  const sessionId = sftpSessionId
   if (unlistenClose) { unlistenClose(); unlistenClose = null }
   if (connected.value && sessionId) {
     try {
@@ -135,8 +138,10 @@ const visibleEntries = computed(() => {
   return entries.value.filter(e => !e.name.startsWith('.'))
 })
 
+const pathSegments = computed(() => currentPath.value.split('/').filter(Boolean))
+
 async function loadDir(path: string) {
-  const sessionId = sftpSessionId.value
+  const sessionId = sftpSessionId
   if (!sessionId || !connected.value) return
 
   loading.value = true
@@ -154,7 +159,7 @@ async function loadDir(path: string) {
   } catch (error) {
     if (thisLoadId !== loadId) return
     const msg = error instanceof Error ? error.message : String(error)
-    notify.notify({ message: `加载目录失败: ${msg}`, color: 'error', timeout: 3000 })
+    notify.notify({ message: `${t('sftp.loadDirFailed')}: ${msg}`, color: 'error', timeout: 3000 })
   } finally {
     if (thisLoadId === loadId) {
       loading.value = false
@@ -175,7 +180,7 @@ function navigateTo(entry: SftpEntry) {
 // ====== 生命周期 ======
 onMounted(async () => {
   if (asset.value) {
-    sftpSessionId.value = `sftp-panel-${props.assetId}__${Date.now()}`
+    sftpSessionId = `sftp-panel-${props.assetId}__${Date.now()}`
     await connect()
   }
 })
@@ -189,7 +194,7 @@ watch(() => props.assetId, async (newId, oldId) => {
   if (newId !== oldId) {
     await disconnect()
     if (asset.value) {
-      sftpSessionId.value = `sftp-panel-${newId}__${Date.now()}`
+      sftpSessionId = `sftp-panel-${newId}__${Date.now()}`
       await connect()
     }
   }
@@ -212,7 +217,7 @@ watch(() => props.assetId, async (newId, oldId) => {
     <!-- 连接中 / 错误 / 未连接状态 -->
     <div v-if="connecting" class="state-overlay">
       <v-icon size="24" class="spin">mdi-loading</v-icon>
-      <span class="state-text">连接中...</span>
+      <span class="state-text">{{ t('sftp.connecting') }}</span>
     </div>
     <div v-else-if="lastError && !connected" class="state-overlay error">
       <v-icon size="24">mdi-alert-circle-outline</v-icon>
@@ -223,20 +228,20 @@ watch(() => props.assetId, async (newId, oldId) => {
     </div>
     <div v-else-if="!connected" class="state-overlay">
       <v-icon size="24">mdi-folder-open-outline</v-icon>
-      <span class="state-text">未连接</span>
+      <span class="state-text">{{ t('sftp.disconnected') }}</span>
     </div>
 
     <!-- 已连接:文件浏览区 -->
     <template v-else>
       <!-- 工具栏 -->
       <div class="sftp-toolbar">
-        <button class="tb-btn" data-tooltip="上一级" @click="navigateUp">
+        <button class="tb-btn" :title="t('sftp.up')" @click="navigateUp">
           <v-icon size="14">mdi-arrow-up</v-icon>
         </button>
-        <button class="tb-btn" data-tooltip="刷新" :disabled="loading" @click="loadDir(currentPath)">
+        <button class="tb-btn" :title="t('sftp.refresh')" :disabled="loading" @click="loadDir(currentPath)">
           <v-icon size="14">mdi-refresh</v-icon>
         </button>
-        <button class="tb-btn" data-tooltip="显示隐藏文件" :class="{ active: showHidden }" @click="showHidden = !showHidden">
+        <button class="tb-btn" :title="t('sftp.showHidden')" :class="{ active: showHidden }" @click="showHidden = !showHidden">
           <v-icon size="14">mdi-eye-off-outline</v-icon>
         </button>
       </div>
@@ -244,10 +249,10 @@ watch(() => props.assetId, async (newId, oldId) => {
       <!-- 面包屑路径 -->
       <div class="sftp-breadcrumb">
         <span
-          v-for="(seg, i) in currentPath.split('/').filter(Boolean)"
+          v-for="(seg, i) in pathSegments"
           :key="i"
           class="crumb"
-          @click="loadDir('/' + currentPath.split('/').filter(Boolean).slice(0, i + 1).join('/'))"
+          @click="loadDir('/' + pathSegments.slice(0, i + 1).join('/'))"
         >/ {{ seg }}</span>
         <span v-if="currentPath === '/'" class="crumb root">/</span>
       </div>
@@ -259,7 +264,7 @@ watch(() => props.assetId, async (newId, oldId) => {
         </div>
         <div v-else-if="visibleEntries.length === 0" class="list-empty">
           <v-icon size="20">mdi-folder-open-outline</v-icon>
-          <span>空目录</span>
+          <span>{{ t('sftp.empty') }}</span>
         </div>
         <template v-else>
           <!-- 上级目录 -->
@@ -315,11 +320,6 @@ watch(() => props.assetId, async (newId, oldId) => {
 .status.connecting .dot { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); animation: pulse 1s infinite; }
 .status.offline .dot { background: var(--muted); }
 .status.error .dot { background: var(--red); box-shadow: 0 0 6px var(--red); }
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
 
 .status-label {
   font-family: 'Orbitron', sans-serif;
