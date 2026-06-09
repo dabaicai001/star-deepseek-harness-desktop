@@ -253,6 +253,8 @@ impl TransferManager {
                 let tid_clone = tid.clone();
                 let fname = relative_path.clone();
                 let tasks_ref = tasks.clone();
+                let tasks_for_speed = tasks.clone();
+                let tid_for_speed = tid.clone();
 
                 let result = upload_file(&sftp, local_path, &remote_path, 0, move |trans, total| {
                     let file_progress = trans;
@@ -274,7 +276,12 @@ impl TransferManager {
                             }
                         }
                     }
-                }, 0, tasks.clone(), tid.clone())
+                }, move || {
+                    tasks_for_speed.try_lock()
+                        .ok()
+                        .and_then(|g| g.get(&tid_for_speed).map(|t| t.speed_limit))
+                        .unwrap_or(0)
+                })
                 .await;
 
                 if result.is_err() && cancel_token.is_cancelled() {
@@ -462,6 +469,8 @@ impl TransferManager {
                 let tid_clone = tid.clone();
                 let fname = file_name.clone();
                 let tasks_ref = tasks.clone();
+                let tasks_for_speed = tasks.clone();
+                let tid_for_speed = tid.clone();
 
                 let result =
                     download_file(&sftp, remote_path, &local_path, 0, move |trans, total| {
@@ -484,8 +493,13 @@ impl TransferManager {
                                 }
                             }
                         }
-                    }, 0, tasks.clone(), tid.clone())
-                    .await;
+                }, move || {
+                    tasks_for_speed.try_lock()
+                        .ok()
+                        .and_then(|g| g.get(&tid_for_speed).map(|t| t.speed_limit))
+                        .unwrap_or(0)
+                })
+                .await;
 
                 if result.is_err() && cancel_token.is_cancelled() {
                     let mut tasks = tasks.lock().await;

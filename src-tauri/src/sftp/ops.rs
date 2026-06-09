@@ -2,13 +2,11 @@ use anyhow::{Context, Result};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::FileAttributes;
 use russh_sftp::protocol::OpenFlags;
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
-use super::TransferTask;
 use super::FileEntry;
 use glob_match::glob_match;
 
@@ -134,18 +132,17 @@ pub async fn set_permissions(
     Ok(())
 }
 
-pub async fn upload_file<F>(
+pub async fn upload_file<F, G>(
     sftp: &Arc<Mutex<SftpSession>>,
     local_path: &str,
     remote_path: &str,
     resume_from: u64,
     on_progress: F,
-    _speed_limit: u64,
-    tasks: Arc<Mutex<HashMap<String, TransferTask>>>,
-    transfer_id: String,
+    get_speed_limit: G,
 ) -> Result<()>
 where
     F: Fn(u64, u64) + Send + 'static,
+    G: Fn() -> u64 + Send + 'static,
 {
     tracing::info!("[upload_file] start: local={}, remote={}, resume_from={}", local_path, remote_path, resume_from);
 
@@ -221,11 +218,8 @@ where
         }
         on_progress(transferred, total_size);
 
-        // Speed limit throttle: read current limit from shared task each iteration
-        let current_speed_limit = {
-            let tasks_guard = tasks.lock().await;
-            tasks_guard.get(&transfer_id).map(|t| t.speed_limit).unwrap_or(0)
-        };
+        // Speed limit throttle
+        let current_speed_limit = get_speed_limit();
         if current_speed_limit > 0 {
             let expected_ms = (transferred * 1000) / current_speed_limit;
             let elapsed_ms = start_time.elapsed().as_millis() as u64;
@@ -245,18 +239,17 @@ where
     Ok(())
 }
 
-pub async fn download_file<F>(
+pub async fn download_file<F, G>(
     sftp: &Arc<Mutex<SftpSession>>,
     remote_path: &str,
     local_path: &str,
     resume_from: u64,
     on_progress: F,
-    _speed_limit: u64,
-    tasks: Arc<Mutex<HashMap<String, TransferTask>>>,
-    transfer_id: String,
+    get_speed_limit: G,
 ) -> Result<()>
 where
     F: Fn(u64, u64) + Send + 'static,
+    G: Fn() -> u64 + Send + 'static,
 {
     let mut remote_file = {
         let sftp = sftp.lock().await;
@@ -322,11 +315,8 @@ where
         transferred += n as u64;
         on_progress(transferred, total_size);
 
-        // Speed limit throttle: read current limit from shared task each iteration
-        let current_speed_limit = {
-            let tasks_guard = tasks.lock().await;
-            tasks_guard.get(&transfer_id).map(|t| t.speed_limit).unwrap_or(0)
-        };
+        // Speed limit throttle
+        let current_speed_limit = get_speed_limit();
         if current_speed_limit > 0 {
             let expected_ms = (transferred * 1000) / current_speed_limit;
             let elapsed_ms = start_time.elapsed().as_millis() as u64;
