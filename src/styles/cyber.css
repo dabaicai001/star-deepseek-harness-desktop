@@ -1,10 +1,10 @@
 /* StarHub Cyber Theme Styles
- * 双主题 token:暗色走 .v-theme--dark,白底走 .v-theme--light
- * token 通过 :root 暴露默认值(暗色),Vuetify 切到 light 时由下方覆盖块接管
+ * 双主题 token:暗色走 .v-theme--darkTheme,白底走 .v-theme--lightTheme
+ * (Vuetify 会给 <html> 加 v-theme--<themeName> class,themeName 来自 themes 配置的 key)
  */
 
 :root,
-.v-theme--dark {
+.v-theme--darkTheme {
   --bg: #050810;
   --bg-2: #0a0e1a;
   --bg-input: rgba(20, 25, 40, 0.6);
@@ -62,7 +62,7 @@
   --kbd-bg: rgba(0, 240, 255, 0.08);
 }
 
-.v-theme--light {
+.v-theme--lightTheme {
   --bg: #f5f7ff;
   --bg-2: #eef1fa;
   --bg-input: rgba(241, 245, 249, 0.85);
