@@ -8,6 +8,7 @@ import TerminalPane from './TerminalPane.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import SshDashboard from '@/components/dashboard/SshDashboard.vue'
+import SftpPanel from '@/components/sftp/SftpPanel.vue'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useAiStore } from '@/stores/ai'
@@ -79,8 +80,9 @@ const searchQuery = ref('')
 const rightActiveTab = ref<string>('dashboard')
 
 const rightPanelTabs = computed(() => [
- { key: 'dashboard', label: '仪表盘', icon: 'mdi-view-dashboard-outline' },
- { key: 'ai', label: 'AI助手', icon: 'mdi-robot-outline' }
+  { key: 'dashboard', label: '仪表盘', icon: 'mdi-view-dashboard-outline' },
+  { key: 'ai', label: 'AI助手', icon: 'mdi-robot-outline' },
+  { key: 'sftp', label: '文件', icon: 'mdi-folder-network-outline' }
 ])
 
 // ====== AI助手(每个 tab独立) ======
@@ -640,19 +642,22 @@ function handleSearch() {
  <template #tab-dashboard>
  <SshDashboard :session-id="id" :connected="connected" />
  </template>
- <template #tab-ai>
- <AiChat
- v-if="aiSession"
- :session="aiSession"
- :sending="aiSession.loading"
- placeholder="问我关于这台主机的任何事,例如'看看磁盘空间'"
- @send="onAiSend"
- @retry="onAiRetry"
- @confirm-tool="onAiConfirmTool"
- @new-chat="onAiNewChat"
- @stop="onAiStop"
- />
- </template>
+  <template #tab-ai>
+    <AiChat
+      v-if="aiSession"
+      :session="aiSession"
+      :sending="aiSession.loading"
+      placeholder="问我关于这台主机的任何事,例如'看看磁盘空间'"
+      @send="onAiSend"
+      @retry="onAiRetry"
+      @confirm-tool="onAiConfirmTool"
+      @new-chat="onAiNewChat"
+      @stop="onAiStop"
+    />
+  </template>
+  <template #tab-sftp>
+    <SftpPanel :asset-id="asset?.id" />
+  </template>
  </RightPanel>
  </div>
  </div>
