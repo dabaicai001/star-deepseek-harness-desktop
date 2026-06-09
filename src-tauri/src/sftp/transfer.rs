@@ -204,7 +204,7 @@ impl TransferManager {
                 let fname = file_name.clone();
                 let tasks_ref = tasks.clone();
 
-                let result = upload_file(&sftp, local_path, &remote_path, move |trans, total| {
+                let result = upload_file(&sftp, local_path, &remote_path, 0, move |trans, total| {
                     let file_progress = trans;
                     let _ = ah.emit(
                         "sftp://transfer-progress",

@@ -135,12 +135,13 @@ pub async fn upload_file<F>(
     sftp: &Arc<Mutex<SftpSession>>,
     local_path: &str,
     remote_path: &str,
+    resume_from: u64,
     on_progress: F,
 ) -> Result<()>
 where
     F: Fn(u64, u64) + Send + 'static,
 {
-    tracing::info!("[upload_file] start: local={}, remote={}", local_path, remote_path);
+    tracing::info!("[upload_file] start: local={}, remote={}, resume_from={}", local_path, remote_path, resume_from);
 
     let total_size = tokio::fs::metadata(local_path)
         .await
@@ -155,20 +156,36 @@ where
 
     let remote_file = {
         let sftp = sftp.lock().await;
-        tracing::info!("[upload_file] creating remote file: {}", remote_path);
-        let f = sftp.create(remote_path)
-            .await
-            .with_context(|| format!("create remote file failed: {}", remote_path))?;
-        tracing::info!("[upload_file] remote file created successfully");
-        f
+        if resume_from > 0 {
+            tracing::info!("[upload_file] opening remote file for resume at {}: {}", resume_from, remote_path);
+            sftp.open(remote_path)
+                .await
+                .with_context(|| format!("open remote file failed: {}", remote_path))?
+        } else {
+            tracing::info!("[upload_file] creating remote file: {}", remote_path);
+            sftp.create(remote_path)
+                .await
+                .with_context(|| format!("create remote file failed: {}", remote_path))?
+        }
     };
 
     let mut remote_file = remote_file;
     let mut buf = vec![0u8; 65536];
-    let mut transferred: u64 = 0;
+    let mut transferred: u64 = resume_from;
     let mut chunk_count: u64 = 0;
 
-    on_progress(0, total_size);
+    if resume_from > 0 {
+        remote_file
+            .seek(std::io::SeekFrom::Start(resume_from))
+            .await
+            .with_context(|| "seek remote file failed")?;
+        local_file
+            .seek(std::io::SeekFrom::Start(resume_from))
+            .await
+            .with_context(|| "seek local file failed")?;
+    }
+
+    on_progress(transferred, total_size);
 
     loop {
         let n = local_file
