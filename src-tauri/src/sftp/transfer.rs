@@ -264,6 +264,29 @@ impl TransferManager {
                         .map(|f| f.transferred)
                         .unwrap_or(0)
                 };
+
+                // Skip already-completed files (retry scenario)
+                let file_size = {
+                    let tasks_guard = tasks.lock().await;
+                    tasks_guard.get(&tid)
+                        .and_then(|t| t.files.get(i))
+                        .map(|f| f.size)
+                        .unwrap_or(0)
+                };
+                if resume_from > 0 && resume_from >= file_size {
+                    cumulative_transferred += file_size;
+                    {
+                        let mut tasks_guard = tasks.lock().await;
+                        if let Some(t) = tasks_guard.get_mut(&tid) {
+                            t.transferred_bytes = cumulative_transferred;
+                            if let Some(f) = t.files.get_mut(i) {
+                                f.transferred = file_size;
+                            }
+                        }
+                    }
+                    continue;
+                }
+
                 let result = upload_file(&sftp, local_path, &remote_path, resume_from, move |trans, total| {
                     let file_progress = trans;
                     let _ = ah.emit(
@@ -488,6 +511,29 @@ impl TransferManager {
                         .map(|f| f.transferred)
                         .unwrap_or(0)
                 };
+
+                // Skip already-completed files (retry scenario)
+                let file_size = {
+                    let tasks_guard = tasks.lock().await;
+                    tasks_guard.get(&tid)
+                        .and_then(|t| t.files.get(i))
+                        .map(|f| f.size)
+                        .unwrap_or(0)
+                };
+                if resume_from > 0 && resume_from >= file_size {
+                    cumulative_transferred += file_size;
+                    {
+                        let mut tasks_guard = tasks.lock().await;
+                        if let Some(t) = tasks_guard.get_mut(&tid) {
+                            t.transferred_bytes = cumulative_transferred;
+                            if let Some(f) = t.files.get_mut(i) {
+                                f.transferred = file_size;
+                            }
+                        }
+                    }
+                    continue;
+                }
+
                 let result =
                     download_file(&sftp, remote_path, &local_path, resume_from, move |trans, total| {
                         let file_progress = trans;
@@ -591,7 +637,7 @@ impl TransferManager {
 
     /// Retry a failed transfer — creates a new transfer that resumes from per-file offsets
     pub async fn retry(&self, transfer_id: &str) -> Result<String> {
-        let (session_id, direction, speed_limit) = {
+        let (session_id, direction, speed_limit, upload_local_paths, upload_remote_dir, download_remote_paths, download_local_dir) = {
             let tasks = self.tasks.lock().await;
             let task = tasks
                 .get(transfer_id)
@@ -599,31 +645,23 @@ impl TransferManager {
             if task.status != TransferStatus::Failed {
                 return Err(anyhow::anyhow!("Can only retry failed transfers"));
             }
-            (task.session_id.clone(), task.direction.clone(), task.speed_limit)
+            (
+                task.session_id.clone(),
+                task.direction.clone(),
+                task.speed_limit,
+                task.upload_local_paths.clone().unwrap_or_default(),
+                task.upload_remote_dir.clone().unwrap_or_default(),
+                task.download_remote_paths.clone().unwrap_or_default(),
+                task.download_local_dir.clone().unwrap_or_default(),
+            )
         };
 
         match direction {
             TransferDirection::Upload => {
-                let (local_paths, remote_dir) = {
-                    let tasks = self.tasks.lock().await;
-                    let task = tasks.get(transfer_id).unwrap();
-                    (
-                        task.upload_local_paths.clone().unwrap_or_default(),
-                        task.upload_remote_dir.clone().unwrap_or_default(),
-                    )
-                };
-                self.upload(&session_id, local_paths, remote_dir, speed_limit).await
+                self.upload(&session_id, upload_local_paths, upload_remote_dir, speed_limit).await
             }
             TransferDirection::Download => {
-                let (remote_paths, local_dir) = {
-                    let tasks = self.tasks.lock().await;
-                    let task = tasks.get(transfer_id).unwrap();
-                    (
-                        task.download_remote_paths.clone().unwrap_or_default(),
-                        task.download_local_dir.clone().unwrap_or_default(),
-                    )
-                };
-                self.download(&session_id, remote_paths, local_dir, speed_limit).await
+                self.download(&session_id, download_remote_paths, download_local_dir, speed_limit).await
             }
         }
     }
