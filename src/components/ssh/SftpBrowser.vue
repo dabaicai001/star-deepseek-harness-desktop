@@ -909,43 +909,10 @@ function fmtPerms(p: number) {
   return s((p >> 6) & 7) + s((p >> 3) & 7) + s(p & 7)
 }
 
-/**
- * 主动等待 ready:不依赖 Vue watch 的响应式追踪时机。
- *
- * 背景:
- * - SshTerminal onMounted 里 `await connect()`,connected 从 false → true 是异步的
- * - SftpBrowser 在 RightPanel 里通过 `<div v-if="currentTab" :key="...">` 渲染,
- *   首次切到 SFTP tab 时 SftpBrowser 才挂载,此时 props.ready 的值取决于
- *   用户切换 tab 与 SSH 连接完成的先后顺序
- * - 旧实现是 onMounted + watch 两路兜底,但在某些时序下会漏掉 (例如 ready
- *   在 onMounted 跑之前已经从 false 变成 true、或者 watch 注册时 props.ready
- *   已经稳定在 true 上),导致 SFTP 列表不会自动 load,用户必须手动回车/重连
- *
- * 这里改成主动轮询:无论 watch/onMounted 时机如何,只要 ready 在 30s 内变成
- * true,就保证 load() 被调用一次。
- */
-async function waitForReadyAndLoad(timeoutMs = 30_000): Promise<void> {
-  if (props.ready) {
-    void load()
-    return
-  }
-  const deadline = Date.now() + timeoutMs
-  while (!props.ready && Date.now() < deadline) {
-    await new Promise<void>((r) => setTimeout(r, 100))
-  }
-  if (props.ready) {
-    void load()
-  }
-}
-
-// 初始加载:主动等到 ready=true 再 load,避开父子组件 mount 时序坑
+// 初始加载:注册 Tauri 2 拖拽监听、传输事件等
 onMounted(() => {
-  void waitForReadyAndLoad()
-  // 注册 Tauri 2 拖拽监听(浏览器 input.files 拿不到本地路径,必须走 webview 事件)
   void setupTauriDragDrop()
-  // 订阅 TransferManager 的 progress / status 事件
   void setupTransferListeners()
-  // 拉一下已有的传输(应对刷新/重连场景)
   void refreshTransferList()
 })
 
@@ -958,11 +925,10 @@ watch(() => props.sessionId, (newId, oldId) => {
   }
 })
 
-// SSH session 就绪后,自动 load 一次(主动轮询已覆盖大部分场景,
-// 这里保留 watch 作为冗余保险:在轮询超时后 ready 才到位时仍能触发)
-watch(() => props.ready, (now, prev) => {
-  if (now && !prev) load()
-})
+// ready 变为 true 时立即 load(immediate 确保挂载时若已 ready 也能触发)
+watch(() => props.ready, (now) => {
+  if (now) load()
+}, { immediate: true })
 
 // 容器尺寸变化时同步,触发 effectiveColWidths 重算
 onMounted(() => {
@@ -1350,14 +1316,14 @@ onBeforeUnmount(() => {
 
 .sftp-toolbar .toggle:hover {
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--hover-cyan);
 }
 
 .sftp-toolbar .toggle input { display: none; }
 
 .sftp-toolbar .toggle:has(input:checked) {
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--active-cyan);
 }
 
 .upload-btn {
@@ -1365,8 +1331,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.2);
+  background: var(--hover-cyan);
+  border: 1px solid var(--focus-cyan);
   border-radius: 6px;
   color: var(--cyan);
   cursor: pointer;
@@ -1374,8 +1340,8 @@ onBeforeUnmount(() => {
 }
 
 .upload-btn:hover {
-  background: rgba(0, 240, 255, 0.15);
-  border-color: rgba(0, 240, 255, 0.4);
+  background: var(--active-cyan);
+  border-color: var(--focus-cyan);
 }
 
 .btn-label {
@@ -1403,8 +1369,8 @@ onBeforeUnmount(() => {
 }
 
 .upload-status.active {
-  background: rgba(0, 240, 255, 0.12);
-  border-color: rgba(0, 240, 255, 0.3);
+  background: var(--active-cyan);
+  border-color: var(--focus-cyan);
   color: var(--cyan);
 }
 
@@ -1448,7 +1414,7 @@ onBeforeUnmount(() => {
 }
 
 .crumb:hover {
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   color: var(--cyan);
 }
 
@@ -1475,10 +1441,7 @@ onBeforeUnmount(() => {
   background: var(--panel-solid);
   border: 1px solid var(--line-2);
   border-radius: 10px;
-  box-shadow:
-    0 16px 48px -12px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(0, 240, 255, 0.06),
-    0 0 24px rgba(0, 240, 255, 0.08);
+  box-shadow: var(--shadow), 0 0 0 1px var(--hover-cyan-faint), 0 0 24px var(--glow-soft);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   display: flex;
@@ -1548,7 +1511,7 @@ onBeforeUnmount(() => {
 }
 
 .tq-icon-btn:hover {
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--active-cyan);
   color: var(--cyan);
   border-color: var(--line-2);
 }
@@ -1569,12 +1532,12 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 6px 10px;
   font-size: 11px;
-  border-bottom: 1px solid rgba(120, 160, 255, 0.05);
+  border-bottom: 1px solid var(--line);
 }
 
 .tq-item:last-child { border-bottom: none; }
 
-.tq-item:hover { background: rgba(0, 240, 255, 0.04); }
+.tq-item:hover { background: var(--hover-cyan-faint); }
 
 .tq-item.upload .tq-item-icon { color: var(--cyan); }
 .tq-item.download .tq-item-icon { color: var(--purple); }
@@ -1647,7 +1610,7 @@ onBeforeUnmount(() => {
   background: linear-gradient(90deg, var(--cyan), var(--purple));
   border-radius: 2px;
   transition: width 0.18s ease;
-  box-shadow: 0 0 6px rgba(0, 240, 255, 0.4);
+  box-shadow: var(--glow-cyan);
 }
 .tq-item.error .tq-progress-fill { background: var(--red); box-shadow: 0 0 6px rgba(255, 77, 109, 0.4); }
 .tq-item.done .tq-progress-fill { background: var(--green); box-shadow: 0 0 6px rgba(74, 222, 128, 0.4); }
@@ -1732,18 +1695,18 @@ onBeforeUnmount(() => {
   color: var(--text-2);
   cursor: pointer;
   transition: background 0.1s;
-  border-bottom: 1px solid rgba(120, 160, 255, 0.04);
+  border-bottom: 1px solid var(--line);
   align-items: center;
   user-select: none;
 }
 
 .sftp-row:hover {
-  background: rgba(0, 240, 255, 0.05);
+  background: var(--hover-cyan-soft);
   color: var(--text);
 }
 
 .sftp-row.selected {
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--active-cyan);
   color: var(--text);
   border-left: 2px solid var(--cyan);
 }
@@ -1797,7 +1760,7 @@ onBeforeUnmount(() => {
 .drop-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--hover-cyan);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -1829,6 +1792,6 @@ onBeforeUnmount(() => {
 
 @keyframes pulse-cyan {
   0%, 100% { border-color: var(--cyan); }
-  50% { border-color: rgba(0, 240, 255, 0.3); }
+  50% { border-color: var(--focus-cyan); }
 }
 </style>
