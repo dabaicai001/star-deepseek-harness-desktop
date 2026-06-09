@@ -279,15 +279,6 @@ function onUserMenuAction(action: 'settings' | 'theme' | 'lang' | 'about' | 'qui
       // 简单弹窗提示版�?
       alert(`StarHub v${appVersion}\n\n跨平�?DevOps 桌面工具\nGitHub: github.com/dabaicai001/starhub`)
       break
-    case 'quick-db':
-      // 跳到主页(如果不在)并弹出新建连接对话框,预设数据库类型
-      if (currentRouteName.value !== 'home') router.push({ name: 'home' })
-      nextTick(() => { newConnectionInitialType.value = 'db'; showNewConnection.value = true })
-      break
-    case 'quick-docker':
-      if (currentRouteName.value !== 'home') router.push({ name: 'home' })
-      nextTick(() => { newConnectionInitialType.value = 'docker'; showNewConnection.value = true })
-      break
   }
 }
 
@@ -848,17 +839,6 @@ vueWatch(() => appStore.tabs.length, () => {
             <button class="user-menu-item" @click="onUserMenuAction('lang')">
               <v-icon size="14">mdi-translate</v-icon>
               <span>{{ t('settings.language') }}: {{ locale === 'zh-CN' ? '中文' : 'EN' }}</span>
-            </button>
-            <div class="user-menu-divider" />
-            <button class="user-menu-item" @click="onUserMenuAction('quick-db')">
-              <v-icon size="14">mdi-database</v-icon>
-              <span>数据库</span>
-              <kbd>新建</kbd>
-            </button>
-            <button class="user-menu-item" @click="onUserMenuAction('quick-docker')">
-              <v-icon size="14">mdi-docker</v-icon>
-              <span>Docker</span>
-              <kbd>新建</kbd>
             </button>
             <div class="user-menu-divider" />
             <button class="user-menu-item" @click="onUserMenuAction('about')">
