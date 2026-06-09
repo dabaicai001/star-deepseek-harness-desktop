@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::FileAttributes;
+use russh_sftp::protocol::OpenFlags;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
@@ -154,11 +155,15 @@ where
         .await
         .with_context(|| format!("open local file failed: {}", local_path))?;
 
+    if resume_from > 0 && resume_from >= total_size {
+        anyhow::bail!("resume_from ({}) >= file size ({})", resume_from, total_size);
+    }
+
     let remote_file = {
         let sftp = sftp.lock().await;
         if resume_from > 0 {
             tracing::info!("[upload_file] opening remote file for resume at {}: {}", resume_from, remote_path);
-            sftp.open(remote_path)
+            sftp.open_with_flags(remote_path, OpenFlags::WRITE)
                 .await
                 .with_context(|| format!("open remote file failed: {}", remote_path))?
         } else {
