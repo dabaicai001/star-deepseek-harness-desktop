@@ -26,6 +26,13 @@ let fitAddon: FitAddon
 let searchAddon: SearchAddon
 let resizeObserver: ResizeObserver | null = null
 
+// 从 :root 读取当前主题下的 CSS 变量,xterm 主题色跟 token 走,
+// 这样 light theme 下终端底色也能跟着切。
+function getCssVar(name: string): string {
+  if (typeof document === 'undefined') return ''
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
+
 // 右键菜单状态
 type CtxMenu = {
   visible: boolean
@@ -47,20 +54,23 @@ onMounted(() => {
     scrollback: 5000,
     allowProposedApi: true,
     theme: {
-      background: '#03060d',
-      foreground: '#e8efff',
-      cursor: '#00f0ff',
-      cursorAccent: '#03060d',
-      selectionBackground: 'rgba(0, 240, 255, 0.3)',
+      // 终端永远深色,但具体色值走 --bg-terminal / --text token,
+      // 跟 .terminal-container 容器底色保持一致,
+      // 这样 light theme 下容器和 xterm 不会出现"中间缝"
+      background: getCssVar('--bg-terminal') || '#03060d',
+      foreground: getCssVar('--text') || '#e8efff',
+      cursor: getCssVar('--cyan') || '#00f0ff',
+      cursorAccent: getCssVar('--bg-terminal') || '#03060d',
+      selectionBackground: getCssVar('--hover-cyan') || 'rgba(0, 240, 255, 0.3)',
       black: '#000000',
-      red: '#ff4d6d',
-      green: '#4ade80',
-      yellow: '#facc15',
+      red: getCssVar('--red') || '#ff4d6d',
+      green: getCssVar('--green') || '#4ade80',
+      yellow: getCssVar('--yellow') || '#facc15',
       blue: '#4d6bff',
-      magenta: '#b56bff',
-      cyan: '#00f0ff',
-      white: '#e8efff',
-      brightBlack: '#5a6a96',
+      magenta: getCssVar('--purple') || '#b56bff',
+      cyan: getCssVar('--cyan') || '#00f0ff',
+      white: getCssVar('--text') || '#e8efff',
+      brightBlack: getCssVar('--muted') || '#5a6a96',
       brightRed: '#ff7a92',
       brightGreen: '#7fffaa',
       brightYellow: '#ffe066',
@@ -343,7 +353,7 @@ defineExpose({
      statusbar 遮住。 */
   box-sizing: border-box;
   margin-bottom: 3.2em;
-  background: #03060d;
+  background: var(--bg-terminal);
   border-radius: 8px;
   border: 1px solid var(--line-2);
   padding: 8px;
