@@ -1,10 +1,15 @@
 /* StarHub Cyber Theme Styles
- * 双主题 token:暗色走 .v-theme--darkTheme,白底走 .v-theme--lightTheme
- * (Vuetify 会给 <html> 加 v-theme--<themeName> class,themeName 来自 themes 配置的 key)
+ * 双主题 token
+ * - Vuetify 把 v-theme--<name> 加在 <div class="v-application"> 上
+ * - store 同步把同名 class 也加在 <html> 上,
+ *   这样 teleport 到 body 的元素(v-dialog / .context-menu / tooltip / xterm / Monaco)
+ *   也能匹配 token,不需要塞进 .v-application 容器里
+ * - 暗色放 :root 兜底,light 通过 :root.v-theme--lightTheme 覆盖
  */
 
 :root,
-.v-theme--darkTheme {
+.v-theme--darkTheme,
+html.v-theme--darkTheme {
   --bg: #050810;
   --bg-2: #0a0e1a;
   --bg-input: rgba(20, 25, 40, 0.6);
@@ -67,7 +72,11 @@
   --chrome-glass-soft: rgba(20, 25, 40, 0.4);
 }
 
-.v-theme--lightTheme {
+/* 注意:light 主题必须挂到 <html> 上,这样 teleport 到 body 的元素也能拿到 token。
+ * 单纯用 .v-theme--lightTheme 选择器只匹配 <div class="v-application"> 容器自身,
+ * 它的子元素会继承 token,但 menu/dialog/tooltip 都被 teleport 走了,继承不到。 */
+:root.v-theme--lightTheme,
+html.v-theme--lightTheme {
   --bg: #f5f7ff;
   --bg-2: #eef1fa;
   --bg-input: rgba(241, 245, 249, 0.85);

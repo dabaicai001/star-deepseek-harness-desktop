@@ -28,6 +28,16 @@ export const useThemeStore = defineStore('theme', () => {
     theme.value = newTheme
   }
 
+  // 把主题 class 同步到 <html> 上,这样 teleport 到 body 的元素
+  // (v-dialog overlay / .context-menu / tooltip / xterm / Monaco) 也能匹配
+  // token 作用域,不依赖 .v-application 容器
+  function syncHtmlClass(current: ThemeMode) {
+    if (typeof document === 'undefined') return
+    const html = document.documentElement
+    html.classList.remove('v-theme--darkTheme', 'v-theme--lightTheme')
+    html.classList.add(`v-theme--${current}`)
+  }
+
   function setAccent(color: AccentColor) {
     accent.value = color
   }
@@ -59,6 +69,11 @@ export const useThemeStore = defineStore('theme', () => {
     const { primary, secondary } = ACCENT_MAP[next]
     root.style.setProperty('--cyan', primary)
     root.style.setProperty('--purple', secondary)
+  }, { immediate: true })
+
+  // 主题切换时同步 class 到 <html>,让 teleport 出来的元素也能拿到 token
+  watch(theme, (next) => {
+    syncHtmlClass(next)
   }, { immediate: true })
 
   return {
