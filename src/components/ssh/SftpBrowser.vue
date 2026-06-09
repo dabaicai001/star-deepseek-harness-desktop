@@ -236,6 +236,20 @@ const transferStats = computed(() => {
 })
 
 // ====== 加载 ======
+/**
+ * 是否已经 warm-up 过 SFTP channel。
+ *
+ * sftpList 第一次调用会触发 Rust 端 session.open_sftp() (开 SFTP subsystem),
+ * 这个 RPC 在 russh 里需要和 shell channel 抢 session 互斥锁,某些服务端
+ * (OpenSSH 8.0+) 首次开 SFTP 子系统会卡几百 ms 到几秒,导致首屏空白 + loading
+ * 长时间不结束,看起来像"卡死"。
+ *
+ * sftpEnsure_session 会预开 SFTP channel 并注册到 TransferManager,后续
+ * sftpList 复用同一个 channel(更快、不会跟 shell channel 抢锁)。我们只在
+ * 每个 session 的首次 load 前调一次,后续 load 直接 sftpList。
+ */
+let sessionWarmedUp = false
+
 async function load(path?: string) {
   const target = path ?? currentPath.value
   const thisLoadId = ++loadId
@@ -243,6 +257,16 @@ async function load(path?: string) {
   errorMsg.value = null
   selectedPaths.value = new Set()
   try {
+    // 首次 load 先 warm-up SFTP channel(后续 load 跳过这一步)
+    if (!sessionWarmedUp) {
+      try {
+        await sftpEnsureSession(props.sessionId)
+      } catch (warmupErr: any) {
+        // warm-up 失败不致命 —— sftpList 内部会再 open_sftp 一次,只是更慢
+        console.warn('[sftp] ensure_session warmup failed:', warmupErr)
+      }
+      sessionWarmedUp = true
+    }
     entries.value = await sftpListWithTimeout(props.sessionId, target, thisLoadId)
     if (thisLoadId !== loadId) return // 过期请求,丢弃
     currentPath.value = target
@@ -885,10 +909,38 @@ function fmtPerms(p: number) {
   return s((p >> 6) & 7) + s((p >> 3) & 7) + s(p & 7)
 }
 
-// 初始加载:只有 ready=true 才发请求,避免在 SSH 还在 connecting 阶段去打
-// 后端(那时候 manager.sessions 里还没有这条 id,会立刻拿到 "Session not found")
+/**
+ * 主动等待 ready:不依赖 Vue watch 的响应式追踪时机。
+ *
+ * 背景:
+ * - SshTerminal onMounted 里 `await connect()`,connected 从 false → true 是异步的
+ * - SftpBrowser 在 RightPanel 里通过 `<div v-if="currentTab" :key="...">` 渲染,
+ *   首次切到 SFTP tab 时 SftpBrowser 才挂载,此时 props.ready 的值取决于
+ *   用户切换 tab 与 SSH 连接完成的先后顺序
+ * - 旧实现是 onMounted + watch 两路兜底,但在某些时序下会漏掉 (例如 ready
+ *   在 onMounted 跑之前已经从 false 变成 true、或者 watch 注册时 props.ready
+ *   已经稳定在 true 上),导致 SFTP 列表不会自动 load,用户必须手动回车/重连
+ *
+ * 这里改成主动轮询:无论 watch/onMounted 时机如何,只要 ready 在 30s 内变成
+ * true,就保证 load() 被调用一次。
+ */
+async function waitForReadyAndLoad(timeoutMs = 30_000): Promise<void> {
+  if (props.ready) {
+    void load()
+    return
+  }
+  const deadline = Date.now() + timeoutMs
+  while (!props.ready && Date.now() < deadline) {
+    await new Promise<void>((r) => setTimeout(r, 100))
+  }
+  if (props.ready) {
+    void load()
+  }
+}
+
+// 初始加载:主动等到 ready=true 再 load,避开父子组件 mount 时序坑
 onMounted(() => {
-  if (props.ready) load()
+  void waitForReadyAndLoad()
   // 注册 Tauri 2 拖拽监听(浏览器 input.files 拿不到本地路径,必须走 webview 事件)
   void setupTauriDragDrop()
   // 订阅 TransferManager 的 progress / status 事件
@@ -899,10 +951,15 @@ onMounted(() => {
 
 // 监听 sessionId 变化(同一个组件实例被复用:重新连接新 SSH 时)
 watch(() => props.sessionId, (newId, oldId) => {
-  if (newId !== oldId && props.ready) load()
+  if (newId !== oldId) {
+    // 切换到新 session,旧的 SFTP channel 不能复用,重置 warm-up 标记
+    sessionWarmedUp = false
+    if (props.ready) load()
+  }
 })
 
-// SSH session 就绪后,自动 load 一次
+// SSH session 就绪后,自动 load 一次(主动轮询已覆盖大部分场景,
+// 这里保留 watch 作为冗余保险:在轮询超时后 ready 才到位时仍能触发)
 watch(() => props.ready, (now, prev) => {
   if (now && !prev) load()
 })
