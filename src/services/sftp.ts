@@ -94,23 +94,35 @@ export async function sftpEnsureSession(id: string): Promise<void> {
 export async function sftpStartUpload(
   id: string,
   localPaths: string[],
-  remoteDir: string
+  remoteDir: string,
+  speedLimit: number = 0
 ): Promise<string> {
-  return invoke('sftp_start_upload', { id, localPaths, remoteDir })
+  return invoke('sftp_start_upload', { id, localPaths, remoteDir, speedLimit })
 }
 
 /** 启动流式下载,返回 transfer_id */
 export async function sftpStartDownload(
   id: string,
   remotePaths: string[],
-  localDir: string
+  localDir: string,
+  speedLimit: number = 0
 ): Promise<string> {
-  return invoke('sftp_start_download', { id, remotePaths, localDir })
+  return invoke('sftp_start_download', { id, remotePaths, localDir, speedLimit })
 }
 
 /** 取消一个传输 */
 export async function sftpCancelTransfer(id: string, transferId: string): Promise<void> {
   return invoke('sftp_cancel_transfer', { id, transferId })
+}
+
+/** 重试一个失败/已取消的传输 */
+export async function sftpRetryTransfer(id: string, transferId: string): Promise<string> {
+  return invoke('sftp_retry_transfer', { id, transferId })
+}
+
+/** 动态设置传输任务的速度限制(bytes/s,0 表示不限) */
+export async function sftpSetSpeedLimit(id: string, transferId: string, speedLimit: number): Promise<void> {
+  return invoke('sftp_set_speed_limit', { id, transferId, speedLimit })
 }
 
 /** 列出某 session 的所有传输任务 */
