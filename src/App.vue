@@ -44,8 +44,8 @@ html, body {
 
 body {
   font-family: 'Outfit', -apple-system, 'PingFang SC', sans-serif;
-  background: var(--bg, #050810);
-  color: var(--text, #e8efff);
+  background: var(--bg);
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
 

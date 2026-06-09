@@ -1,8 +1,17 @@
-/* StarHub Cyber Theme Styles */
+/* StarHub Cyber Theme Styles
+ * 双主题 token:暗色走 .v-theme--dark,白底走 .v-theme--light
+ * token 通过 :root 暴露默认值(暗色),Vuetify 切到 light 时由下方覆盖块接管
+ */
 
-:root {
+:root,
+.v-theme--dark {
   --bg: #050810;
   --bg-2: #0a0e1a;
+  --bg-input: rgba(20, 25, 40, 0.6);
+  --bg-input-solid: #141928;
+  --bg-modal-footer: rgba(10, 14, 26, 0.4);
+  --bg-terminal: #03060d;
+  --bg-terminal-header: rgba(10, 14, 26, 0.8);
   --panel: rgba(15, 20, 32, 0.72);
   --panel-2: rgba(20, 25, 40, 0.85);
   --panel-solid: #0f1420;
@@ -28,6 +37,88 @@
   --glow-pink: 0 0 20px rgba(255, 61, 154, 0.5), 0 0 40px rgba(255, 61, 154, 0.2);
   --glow-soft: 0 0 30px rgba(0, 240, 255, 0.1);
   --shadow: 0 16px 48px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(120, 160, 255, 0.06);
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.4);
+
+  /* 半透明叠色:白底需要更淡 */
+  --hover-cyan: rgba(0, 240, 255, 0.08);
+  --hover-cyan-soft: rgba(0, 240, 255, 0.05);
+  --hover-cyan-faint: rgba(0, 240, 255, 0.04);
+  --active-cyan: rgba(0, 240, 255, 0.12);
+  --focus-cyan: rgba(0, 240, 255, 0.1);
+  --grid-line: rgba(0, 240, 255, 0.025);
+  --icon-bg-cyan: rgba(0, 240, 255, 0.1);
+  --icon-bg-purple: rgba(181, 107, 255, 0.1);
+  --icon-bg-green: rgba(74, 222, 128, 0.1);
+  --status-online-bg: rgba(74, 222, 128, 0.12);
+  --status-online-border: rgba(74, 222, 128, 0.3);
+  --status-connecting-bg: rgba(0, 240, 255, 0.12);
+  --status-connecting-border: rgba(0, 240, 255, 0.3);
+  --status-offline-bg: rgba(90, 106, 150, 0.12);
+  --status-offline-border: rgba(90, 106, 150, 0.3);
+  --status-error-bg: rgba(255, 77, 109, 0.12);
+  --status-error-border: rgba(255, 77, 109, 0.3);
+  --close-hover-bg: rgba(255, 77, 109, 0.15);
+  --danger-hover-bg: rgba(255, 77, 109, 0.1);
+  --kbd-bg: rgba(0, 240, 255, 0.08);
+}
+
+.v-theme--light {
+  --bg: #f5f7ff;
+  --bg-2: #eef1fa;
+  --bg-input: rgba(241, 245, 249, 0.85);
+  --bg-input-solid: #ffffff;
+  --bg-modal-footer: rgba(238, 241, 250, 0.6);
+  --bg-terminal: #0f172a;
+  --bg-terminal-header: #1e293b;
+  --panel: rgba(255, 255, 255, 0.82);
+  --panel-2: rgba(255, 255, 255, 0.95);
+  --panel-solid: #ffffff;
+  --panel-solid-2: #f8fafc;
+  --line: rgba(15, 23, 42, 0.08);
+  --line-2: rgba(15, 23, 42, 0.12);
+  --text: #0f172a;
+  --text-2: #475569;
+  --muted: #94a3b8;
+  /* 主题色保持青色家族,但用更深的 hue,白底上对比度够 */
+  --cyan: #0891b2;
+  --cyan-2: #06b6d4;
+  --purple: #7c3aed;
+  --pink: #db2777;
+  --green: #16a34a;
+  --yellow: #ca8a04;
+  --red: #e11d48;
+  --grad-primary: linear-gradient(135deg, #0891b2 0%, #7c3aed 100%);
+  --grad-accent: linear-gradient(135deg, #db2777 0%, #ea580c 100%);
+  --grad-cool: linear-gradient(135deg, #0891b2 0%, #4f46e5 100%);
+  --grad-success: linear-gradient(135deg, #16a34a 0%, #0891b2 100%);
+  --glow-cyan: 0 0 16px rgba(8, 145, 178, 0.25), 0 0 32px rgba(8, 145, 178, 0.1);
+  --glow-purple: 0 0 16px rgba(124, 58, 237, 0.25), 0 0 32px rgba(124, 58, 237, 0.1);
+  --glow-pink: 0 0 16px rgba(219, 39, 119, 0.25), 0 0 32px rgba(219, 39, 119, 0.1);
+  --glow-soft: 0 0 24px rgba(8, 145, 178, 0.08);
+  --shadow: 0 4px 24px -8px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.05);
+  --shadow-soft: 0 2px 8px rgba(15, 23, 42, 0.08);
+
+  /* 白底叠色需要更淡、更"低饱" */
+  --hover-cyan: rgba(8, 145, 178, 0.08);
+  --hover-cyan-soft: rgba(8, 145, 178, 0.05);
+  --hover-cyan-faint: rgba(8, 145, 178, 0.04);
+  --active-cyan: rgba(8, 145, 178, 0.1);
+  --focus-cyan: rgba(8, 145, 178, 0.12);
+  --grid-line: rgba(8, 145, 178, 0.04);
+  --icon-bg-cyan: rgba(8, 145, 178, 0.1);
+  --icon-bg-purple: rgba(124, 58, 237, 0.1);
+  --icon-bg-green: rgba(22, 163, 74, 0.1);
+  --status-online-bg: rgba(22, 163, 74, 0.1);
+  --status-online-border: rgba(22, 163, 74, 0.3);
+  --status-connecting-bg: rgba(8, 145, 178, 0.1);
+  --status-connecting-border: rgba(8, 145, 178, 0.3);
+  --status-offline-bg: rgba(148, 163, 184, 0.15);
+  --status-offline-border: rgba(148, 163, 184, 0.3);
+  --status-error-bg: rgba(225, 29, 72, 0.1);
+  --status-error-border: rgba(225, 29, 72, 0.3);
+  --close-hover-bg: rgba(225, 29, 72, 0.12);
+  --danger-hover-bg: rgba(225, 29, 72, 0.08);
+  --kbd-bg: rgba(8, 145, 178, 0.08);
 }
 
 /* Global styles */
@@ -73,14 +164,14 @@
   align-items: center;
   gap: 8px;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 16px rgba(0, 240, 255, 0.3);
+  box-shadow: 0 4px 16px var(--glow-soft);
   position: relative;
   overflow: hidden;
 }
 
 .cyber-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(0, 240, 255, 0.5);
+  box-shadow: var(--glow-cyan);
 }
 
 .cyber-btn::after {
@@ -110,9 +201,9 @@
 }
 
 .cyber-btn-secondary:hover {
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   border-color: var(--cyan);
-  box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1);
+  box-shadow: 0 0 0 3px var(--focus-cyan);
 }
 
 /* Card styles */
@@ -141,13 +232,13 @@
 
 .cyber-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 12px 40px rgba(0, 240, 255, 0.2);
-  border-color: rgba(0, 240, 255, 0.3);
+  box-shadow: 0 12px 40px var(--glow-soft);
+  border-color: var(--focus-cyan);
 }
 
 /* Input styles */
 .cyber-input {
-  background: rgba(20, 25, 40, 0.6);
+  background: var(--bg-input);
   border: 1px solid var(--line-2);
   border-radius: 8px;
   padding: 8px 12px;
@@ -162,7 +253,7 @@
 .cyber-input:focus {
   outline: none;
   border-color: var(--cyan);
-  box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1);
+  box-shadow: 0 0 0 3px var(--focus-cyan);
 }
 
 .cyber-input::placeholder {
@@ -184,15 +275,15 @@
 }
 
 .tree-item:hover {
-  background: rgba(0, 240, 255, 0.05);
+  background: var(--hover-cyan-soft);
   color: var(--text);
 }
 
 .tree-item.active {
-  background: linear-gradient(90deg, rgba(0, 240, 255, 0.15) 0%, transparent 100%);
+  background: linear-gradient(90deg, var(--focus-cyan) 0%, transparent 100%);
   color: var(--cyan);
   border-left-color: var(--cyan);
-  text-shadow: 0 0 12px rgba(0, 240, 255, 0.5);
+  text-shadow: 0 0 12px var(--focus-cyan);
 }
 
 /* Status indicators */
@@ -224,8 +315,8 @@
   font-size: 10px;
   padding: 2px 8px;
   border-radius: 4px;
-  background: rgba(0, 240, 255, 0.1);
-  border: 1px solid rgba(0, 240, 255, 0.25);
+  background: var(--icon-bg-cyan);
+  border: 1px solid var(--focus-cyan);
   color: var(--cyan);
   font-weight: 600;
   font-family: 'JetBrains Mono', monospace;
@@ -251,12 +342,12 @@
 
 .cyber-tab:hover {
   color: var(--text-2);
-  background: rgba(0, 240, 255, 0.04);
+  background: var(--hover-cyan-faint);
 }
 
 .cyber-tab.active {
   color: var(--cyan);
-  background: linear-gradient(180deg, rgba(0, 240, 255, 0.1) 0%, transparent 100%);
+  background: linear-gradient(180deg, var(--focus-cyan) 0%, transparent 100%);
   border-bottom-color: var(--cyan);
 }
 
@@ -291,8 +382,8 @@
 }
 
 @keyframes glow {
-  0%, 100% { box-shadow: 0 0 20px rgba(0, 240, 255, 0.3); }
-  50% { box-shadow: 0 0 40px rgba(0, 240, 255, 0.6); }
+  0%, 100% { box-shadow: 0 0 20px var(--focus-cyan); }
+  50% { box-shadow: var(--glow-cyan); }
 }
 
 @keyframes float {
@@ -306,8 +397,8 @@
   position: fixed;
   inset: 0;
   background-image:
-    linear-gradient(rgba(0, 240, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 240, 255, 0.025) 1px, transparent 1px);
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 40px 40px;
   pointer-events: none;
   z-index: 0;
@@ -355,16 +446,16 @@
   letter-spacing: 0.1em;
 }
 
-/* Terminal styles */
+/* Terminal styles(终端永远深底,白底 app 不变) */
 .terminal-container {
-  background: #03060d;
+  background: var(--bg-terminal);
   border-radius: 8px;
   border: 1px solid var(--line-2);
   overflow: hidden;
 }
 
 .terminal-header {
-  background: rgba(10, 14, 26, 0.8);
+  background: var(--bg-terminal-header);
   border-bottom: 1px solid var(--line-2);
   padding: 8px 14px;
   display: flex;
@@ -400,8 +491,8 @@
 
 .connection-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(0, 240, 255, 0.2);
-  border-color: rgba(0, 240, 255, 0.3);
+  box-shadow: 0 8px 32px var(--glow-soft);
+  border-color: var(--focus-cyan);
 }
 
 .connection-icon {
@@ -415,17 +506,17 @@
 }
 
 .connection-icon.ssh {
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--icon-bg-cyan);
   color: var(--cyan);
 }
 
 .connection-icon.db {
-  background: rgba(181, 107, 255, 0.1);
+  background: var(--icon-bg-purple);
   color: var(--purple);
 }
 
 .connection-icon.docker {
-  background: rgba(74, 222, 128, 0.1);
+  background: var(--icon-bg-green);
   color: var(--green);
 }
 
@@ -445,7 +536,7 @@
 }
 
 .action-btn:hover {
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   color: var(--cyan);
   border-color: var(--line-2);
 }
@@ -454,11 +545,11 @@
   background: var(--grad-primary);
   color: var(--bg);
   border: 0;
-  box-shadow: 0 4px 16px rgba(0, 240, 255, 0.3);
+  box-shadow: 0 4px 16px var(--glow-soft);
 }
 
 .action-btn.primary:hover {
-  box-shadow: 0 6px 24px rgba(0, 240, 255, 0.5);
+  box-shadow: var(--glow-cyan);
   transform: translateY(-1px);
 }
 
@@ -505,7 +596,7 @@
   color: var(--text);
   white-space: nowrap;
   pointer-events: none;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-soft);
   animation: tt-appear 0.15s ease;
 }
 .action-btn[data-tooltip] {
@@ -649,7 +740,7 @@
 /* Switcher: 二选一切换(密码 / 私钥),替代 v-btn-toggle */
 .switcher {
   display: inline-flex;
-  background: rgba(20, 25, 40, 0.6);
+  background: var(--bg-input);
   border: 1px solid var(--line-2);
   border-radius: 8px;
   padding: 3px;
@@ -675,9 +766,9 @@
 }
 
 .switcher-item.active {
-  background: rgba(0, 240, 255, 0.12);
+  background: var(--active-cyan);
   color: var(--cyan);
-  box-shadow: inset 0 0 0 1px rgba(0, 240, 255, 0.25);
+  box-shadow: inset 0 0 0 1px var(--focus-cyan);
 }
 
 .switcher-item .mdi {
@@ -746,12 +837,12 @@
 
 .input-suffix-btn:hover {
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
 }
 
-/* Terminal header (mac-style dots + 状态 + 操作) */
+/* Terminal toolbar(终端深底,token 切换也保持深色) */
 .terminal-toolbar {
-  background: rgba(10, 14, 26, 0.8);
+  background: var(--bg-terminal-header);
   border-bottom: 1px solid var(--line-2);
   padding: 8px 14px;
   display: flex;
@@ -807,27 +898,27 @@
 }
 
 .terminal-toolbar .status.online {
-  background: rgba(74, 222, 128, 0.12);
+  background: var(--status-online-bg);
   color: var(--green);
-  border: 1px solid rgba(74, 222, 128, 0.3);
+  border: 1px solid var(--status-online-border);
 }
 
 .terminal-toolbar .status.connecting {
-  background: rgba(0, 240, 255, 0.12);
+  background: var(--status-connecting-bg);
   color: var(--cyan);
-  border: 1px solid rgba(0, 240, 255, 0.3);
+  border: 1px solid var(--status-connecting-border);
 }
 
 .terminal-toolbar .status.offline {
-  background: rgba(90, 106, 150, 0.12);
+  background: var(--status-offline-bg);
   color: var(--muted);
-  border: 1px solid rgba(90, 106, 150, 0.3);
+  border: 1px solid var(--status-offline-border);
 }
 
 .terminal-toolbar .status.error {
-  background: rgba(255, 77, 109, 0.12);
+  background: var(--status-error-bg);
   color: var(--red);
-  border: 1px solid rgba(255, 77, 109, 0.3);
+  border: 1px solid var(--status-error-border);
 }
 
 /* Modal header(与 terminal-toolbar 类似的横向布局) */
@@ -865,8 +956,8 @@
   width: 28px;
   height: 28px;
   border-radius: 7px;
-  background: rgba(0, 240, 255, 0.1);
-  border: 1px solid rgba(0, 240, 255, 0.2);
+  background: var(--icon-bg-cyan);
+  border: 1px solid var(--focus-cyan);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -886,8 +977,8 @@
   border-radius: 10px;
   padding: 4px;
   box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(0, 240, 255, 0.06);
+    0 12px 32px var(--shadow-soft),
+    0 0 0 1px var(--focus-cyan);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   display: flex;
@@ -961,7 +1052,7 @@
 }
 
 .context-menu .cm-item:hover:not(.disabled) {
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   color: var(--text);
 }
 
@@ -979,7 +1070,7 @@
 }
 
 .context-menu .cm-item.danger:hover:not(.disabled) {
-  background: rgba(255, 77, 109, 0.1);
+  background: var(--danger-hover-bg);
   color: var(--red);
 }
 
@@ -1052,12 +1143,12 @@
 }
 
 .window-controls .win-btn:hover {
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--icon-bg-cyan);
   color: var(--cyan);
 }
 
 .window-controls .win-btn.close:hover {
-  background: rgba(255, 77, 109, 0.15);
+  background: var(--close-hover-bg);
   color: var(--red);
 }
 
@@ -1127,13 +1218,13 @@
   cursor: pointer;
   border: none;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 16px rgba(0, 240, 255, 0.25);
+  box-shadow: 0 4px 16px var(--glow-soft);
   font-family: inherit;
 }
 
 .new-conn-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(0, 240, 255, 0.4);
+  box-shadow: var(--glow-cyan);
 }
 
 .new-conn-btn .mdi {
@@ -1167,7 +1258,7 @@
   white-space: nowrap;
   z-index: 100;
   pointer-events: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-soft);
 }
 
 .modal-body {
@@ -1180,7 +1271,7 @@
   gap: 8px;
   padding: 14px 20px;
   border-top: 1px solid var(--line);
-  background: rgba(10, 14, 26, 0.4);
+  background: var(--bg-modal-footer);
 }
 
 .modal-footer .spacer {
@@ -1222,7 +1313,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  background: rgba(20, 25, 40, 0.6);
+  background: var(--bg-input);
   border: 1px solid var(--line-2);
   border-radius: 8px;
   padding: 6px 10px;
@@ -1232,7 +1323,7 @@
 
 .cyber-search:focus-within {
   border-color: var(--cyan);
-  box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1);
+  box-shadow: 0 0 0 3px var(--focus-cyan);
 }
 
 .cyber-search .mdi {
@@ -1257,7 +1348,7 @@
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   padding: 1px 5px;
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--kbd-bg);
   border: 1px solid var(--line-2);
   border-radius: 3px;
   color: var(--cyan);
