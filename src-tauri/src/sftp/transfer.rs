@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use super::ops::{download_file, stat, upload_file};
+use super::ops::{download_file, mkdir, stat, upload_file};
 use super::{TransferDirection, TransferFile, TransferProgress, TransferStatus, TransferTask};
 
 /// 状态变更事件 payload(emit 到 `sftp://transfer-status`)
@@ -21,6 +21,30 @@ pub struct TransferStatusEvent {
     pub direction: TransferDirection,
     pub status: TransferStatus,
     pub error: Option<String>,
+}
+
+/// Recursively collect all files under `path`, returning `(local_path, relative_path)` pairs.
+/// `relative_prefix` is the base name used to build the remote relative path.
+async fn collect_local_files(path: &str, relative_prefix: &str) -> Result<Vec<(String, String)>> {
+    let meta = tokio::fs::metadata(path).await?;
+    if meta.is_file() {
+        return Ok(vec![(path.to_string(), relative_prefix.to_string())]);
+    }
+
+    let mut results = Vec::new();
+    let mut read_dir = tokio::fs::read_dir(path).await?;
+    while let Some(entry) = read_dir.next_entry().await? {
+        let child_name = entry.file_name().to_string_lossy().to_string();
+        let child_path = entry.path().to_string_lossy().to_string();
+        let child_relative = if relative_prefix.is_empty() {
+            child_name.clone()
+        } else {
+            format!("{}/{}", relative_prefix, child_name)
+        };
+        let sub = Box::pin(collect_local_files(&child_path, &child_relative)).await?;
+        results.extend(sub);
+    }
+    Ok(results)
 }
 
 pub struct TransferManager {
@@ -111,20 +135,25 @@ impl TransferManager {
 
         let mut files = Vec::new();
         let mut total_bytes: u64 = 0;
+        let mut all_files: Vec<(String, String)> = Vec::new();
 
         for local_path in &local_paths {
-            let meta = tokio::fs::metadata(local_path).await?;
-            let size = meta.len();
-            let name = Path::new(local_path)
+            let base_name = Path::new(local_path)
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| local_path.clone());
-            files.push(TransferFile {
-                name,
-                size,
-                transferred: 0,
-            });
-            total_bytes += size;
+            let collected = collect_local_files(local_path, &base_name).await?;
+            for (lp, rp) in &collected {
+                let meta = tokio::fs::metadata(lp).await?;
+                let size = meta.len();
+                files.push(TransferFile {
+                    name: rp.clone(),
+                    size,
+                    transferred: 0,
+                });
+                total_bytes += size;
+            }
+            all_files.extend(collected);
         }
 
         let task = TransferTask {
@@ -176,7 +205,7 @@ impl TransferManager {
             let mut cumulative_transferred: u64 = 0;
             let mut final_status: Option<(TransferStatus, Option<String>)> = None;
 
-            for (i, local_path) in local_paths.iter().enumerate() {
+            for (i, (local_path, relative_path)) in all_files.iter().enumerate() {
                 if cancel_token.is_cancelled() {
                     let mut tasks = tasks.lock().await;
                     if let Some(t) = tasks.get_mut(&tid) {
@@ -186,22 +215,24 @@ impl TransferManager {
                     break;
                 }
 
-                let file_name = Path::new(local_path)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| local_path.clone());
                 let remote_path = if remote_dir.ends_with('/') {
-                    format!("{}{}", remote_dir, file_name)
+                    format!("{}{}", remote_dir, relative_path)
                 } else {
-                    format!("{}/{}", remote_dir, file_name)
+                    format!("{}/{}", remote_dir, relative_path)
                 };
+
+                // Ensure parent directory exists on remote
+                if let Some(parent) = Path::new(&remote_path).parent() {
+                    let parent_str = parent.to_string_lossy().to_string();
+                    let _ = mkdir(&sftp, &parent_str).await;
+                }
 
                 tracing::info!("[TransferManager::upload] uploading file {}: {} -> {}", i, local_path, remote_path);
 
                 let offset = cumulative_transferred;
                 let ah = app_handle.clone();
                 let tid_clone = tid.clone();
-                let fname = file_name.clone();
+                let fname = relative_path.clone();
                 let tasks_ref = tasks.clone();
 
                 let result = upload_file(&sftp, local_path, &remote_path, 0, move |trans, total| {
