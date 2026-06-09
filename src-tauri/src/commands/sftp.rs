@@ -231,9 +231,10 @@ pub async fn sftp_start_upload(
     id: String,
     local_paths: Vec<String>,
     remote_dir: String,
+    speed_limit: u64,
 ) -> Result<String, String> {
     transfer_manager
-        .upload(&id, local_paths, remote_dir)
+        .upload(&id, local_paths, remote_dir, speed_limit)
         .await
         .map_err(map_err)
 }
@@ -245,9 +246,10 @@ pub async fn sftp_start_download(
     id: String,
     remote_paths: Vec<String>,
     local_dir: String,
+    speed_limit: u64,
 ) -> Result<String, String> {
     transfer_manager
-        .download(&id, remote_paths, local_dir)
+        .download(&id, remote_paths, local_dir, speed_limit)
         .await
         .map_err(map_err)
 }
@@ -260,6 +262,18 @@ pub async fn sftp_cancel_transfer(
     transfer_id: String,
 ) -> Result<(), String> {
     transfer_manager.cancel(&transfer_id).await;
+    Ok(())
+}
+
+/// 动态修改传输速度限制(bytes/sec, 0 = 不限)
+#[tauri::command]
+pub async fn sftp_set_speed_limit(
+    transfer_manager: State<'_, TransferManager>,
+    _id: String,
+    transfer_id: String,
+    speed_limit: u64,
+) -> Result<(), String> {
+    transfer_manager.set_speed_limit(&transfer_id, speed_limit).await;
     Ok(())
 }
 

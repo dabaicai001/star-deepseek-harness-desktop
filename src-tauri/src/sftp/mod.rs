@@ -58,7 +58,12 @@ pub struct TransferTask {
     pub status: TransferStatus,
     pub total_bytes: u64,
     pub transferred_bytes: u64,
+    pub speed_limit: u64,
     pub error: Option<String>,
+    pub upload_local_paths: Option<Vec<String>>,
+    pub upload_remote_dir: Option<String>,
+    pub download_remote_paths: Option<Vec<String>>,
+    pub download_local_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

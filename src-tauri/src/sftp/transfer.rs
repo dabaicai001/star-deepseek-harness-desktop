@@ -127,6 +127,7 @@ impl TransferManager {
         session_id: &str,
         local_paths: Vec<String>,
         remote_dir: String,
+        speed_limit: u64,
     ) -> Result<String> {
         tracing::info!("[TransferManager::upload] start: session={}, files={}, remote_dir={}", session_id, local_paths.len(), remote_dir);
 
@@ -175,7 +176,12 @@ impl TransferManager {
             status: TransferStatus::Queued,
             total_bytes,
             transferred_bytes: 0,
+            speed_limit,
             error: None,
+            upload_local_paths: Some(local_paths.clone()),
+            upload_remote_dir: Some(remote_dir.clone()),
+            download_remote_paths: None,
+            download_local_dir: None,
         };
 
         {
@@ -268,7 +274,7 @@ impl TransferManager {
                             }
                         }
                     }
-                })
+                }, 0, tasks.clone(), tid.clone())
                 .await;
 
                 if result.is_err() && cancel_token.is_cancelled() {
@@ -345,6 +351,7 @@ impl TransferManager {
         session_id: &str,
         remote_paths: Vec<String>,
         local_dir: String,
+        speed_limit: u64,
     ) -> Result<String> {
         // 早转 owned,后面 spawn 闭包要 'static
         let session_id = session_id.to_string();
@@ -385,7 +392,12 @@ impl TransferManager {
             status: TransferStatus::Queued,
             total_bytes,
             transferred_bytes: 0,
+            speed_limit,
             error: None,
+            upload_local_paths: None,
+            upload_remote_dir: None,
+            download_remote_paths: Some(remote_paths.clone()),
+            download_local_dir: Some(local_dir.clone()),
         };
 
         {
@@ -472,7 +484,7 @@ impl TransferManager {
                                 }
                             }
                         }
-                    })
+                    }, 0, tasks.clone(), tid.clone())
                     .await;
 
                 if result.is_err() && cancel_token.is_cancelled() {
@@ -544,6 +556,13 @@ impl TransferManager {
         let tokens = self.cancel_tokens.lock().await;
         if let Some(token) = tokens.get(transfer_id) {
             token.cancel();
+        }
+    }
+
+    pub async fn set_speed_limit(&self, transfer_id: &str, speed_limit: u64) {
+        let mut tasks = self.tasks.lock().await;
+        if let Some(t) = tasks.get_mut(transfer_id) {
+            t.speed_limit = speed_limit;
         }
     }
 

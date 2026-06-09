@@ -2,11 +2,13 @@ use anyhow::{Context, Result};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::FileAttributes;
 use russh_sftp::protocol::OpenFlags;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
+use super::TransferTask;
 use super::FileEntry;
 use glob_match::glob_match;
 
@@ -138,6 +140,9 @@ pub async fn upload_file<F>(
     remote_path: &str,
     resume_from: u64,
     on_progress: F,
+    _speed_limit: u64,
+    tasks: Arc<Mutex<HashMap<String, TransferTask>>>,
+    transfer_id: String,
 ) -> Result<()>
 where
     F: Fn(u64, u64) + Send + 'static,
@@ -192,6 +197,8 @@ where
 
     on_progress(transferred, total_size);
 
+    let start_time = std::time::Instant::now();
+
     loop {
         let n = local_file
             .read(&mut buf)
@@ -213,6 +220,19 @@ where
             tracing::info!("[upload_file] chunk {}: wrote {} bytes, total {} / {}", chunk_count, n, transferred, total_size);
         }
         on_progress(transferred, total_size);
+
+        // Speed limit throttle: read current limit from shared task each iteration
+        let current_speed_limit = {
+            let tasks_guard = tasks.lock().await;
+            tasks_guard.get(&transfer_id).map(|t| t.speed_limit).unwrap_or(0)
+        };
+        if current_speed_limit > 0 {
+            let expected_ms = (transferred * 1000) / current_speed_limit;
+            let elapsed_ms = start_time.elapsed().as_millis() as u64;
+            if expected_ms > elapsed_ms {
+                tokio::time::sleep(tokio::time::Duration::from_millis(expected_ms - elapsed_ms)).await;
+            }
+        }
     }
 
     tracing::info!("[upload_file] calling shutdown/flush...");
@@ -231,6 +251,9 @@ pub async fn download_file<F>(
     local_path: &str,
     resume_from: u64,
     on_progress: F,
+    _speed_limit: u64,
+    tasks: Arc<Mutex<HashMap<String, TransferTask>>>,
+    transfer_id: String,
 ) -> Result<()>
 where
     F: Fn(u64, u64) + Send + 'static,
@@ -280,6 +303,8 @@ where
 
     on_progress(transferred, total_size);
 
+    let start_time = std::time::Instant::now();
+
     loop {
         let n = remote_file
             .read(&mut buf)
@@ -296,6 +321,19 @@ where
 
         transferred += n as u64;
         on_progress(transferred, total_size);
+
+        // Speed limit throttle: read current limit from shared task each iteration
+        let current_speed_limit = {
+            let tasks_guard = tasks.lock().await;
+            tasks_guard.get(&transfer_id).map(|t| t.speed_limit).unwrap_or(0)
+        };
+        if current_speed_limit > 0 {
+            let expected_ms = (transferred * 1000) / current_speed_limit;
+            let elapsed_ms = start_time.elapsed().as_millis() as u64;
+            if expected_ms > elapsed_ms {
+                tokio::time::sleep(tokio::time::Duration::from_millis(expected_ms - elapsed_ms)).await;
+            }
+        }
     }
 
     local_file
