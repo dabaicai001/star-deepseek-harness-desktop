@@ -5,8 +5,9 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useAssetStore } from '@/stores/asset'
 import { useNotifyStore } from '@/stores/notify'
-import { sftpList, sftpEnsureSession, sftpStartUpload, joinPath, parentPath, formatSize, type SftpEntry } from '@/services/sftp'
+import { sftpList, sftpEnsureSession, sftpStartUpload, sftpStartDownload, joinPath, parentPath, formatSize, type SftpEntry } from '@/services/sftp'
 import { open } from '@tauri-apps/plugin-dialog'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import SftpTransferQueue from './SftpTransferQueue.vue'
 
 const { t } = useI18n()
@@ -135,6 +136,15 @@ const loading = ref(false)
 const showHidden = ref(false)
 const showTransfers = ref(false)
 const uploadMenuOpen = ref(false)
+const showDropOverlay = ref(false)
+let unlistenDragDrop: (() => void) | null = null
+
+const selectedPaths = ref<Set<string>>(new Set())
+const lastClickedIndex = ref<number>(-1)
+
+const contextMenu = ref<{ x: number; y: number; entry: SftpEntry | null }>({ x: 0, y: 0, entry: null })
+const contextMenuVisible = ref(false)
+
 let loadId = 0
 
 const visibleEntries = computed(() => {
@@ -145,6 +155,9 @@ const visibleEntries = computed(() => {
 const pathSegments = computed(() => currentPath.value.split('/').filter(Boolean))
 
 async function loadDir(path: string) {
+  closeContextMenu()
+  selectedPaths.value.clear()
+
   const sessionId = sftpSessionId
   if (!sessionId || !connected.value) return
 
@@ -212,15 +225,178 @@ async function uploadFolder() {
   }
 }
 
+// ====== Multi-select ======
+function onFileClick(entry: SftpEntry, index: number, event: MouseEvent) {
+  if (event.ctrlKey || event.metaKey) {
+    const newSet = new Set(selectedPaths.value)
+    if (newSet.has(entry.path)) {
+      newSet.delete(entry.path)
+    } else {
+      newSet.add(entry.path)
+    }
+    selectedPaths.value = newSet
+  } else if (event.shiftKey && lastClickedIndex.value >= 0) {
+    const start = Math.min(lastClickedIndex.value, index)
+    const end = Math.max(lastClickedIndex.value, index)
+    const evts = visibleEntries.value
+    const newSet = new Set(selectedPaths.value)
+    for (let i = start; i <= end; i++) {
+      if (evts[i]) newSet.add(evts[i].path)
+    }
+    selectedPaths.value = newSet
+  } else {
+    selectedPaths.value = new Set([entry.path])
+  }
+  lastClickedIndex.value = index
+}
+
+// ====== Download ======
+async function downloadSelected() {
+  if (selectedPaths.value.size === 0) return
+  const dir = await open({ directory: true })
+  if (!dir) return
+  const remotePaths = [...selectedPaths.value]
+  try {
+    await sftpStartDownload(sftpSessionId!, remotePaths, dir as string)
+    showTransfers.value = true
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    notify.notify({ message: `Download failed: ${msg}`, color: 'error', timeout: 5000 })
+  }
+}
+
+// ====== Context menu ======
+function onContextMenu(event: MouseEvent, entry: SftpEntry | null) {
+  event.preventDefault()
+  contextMenu.value = { x: event.clientX, y: event.clientY, entry }
+  contextMenuVisible.value = true
+}
+
+function closeContextMenu() {
+  contextMenuVisible.value = false
+}
+
+async function ctxOpen() {
+  closeContextMenu()
+  if (contextMenu.value.entry?.isDir) {
+    navigateTo(contextMenu.value.entry)
+  }
+}
+
+async function ctxDownload() {
+  closeContextMenu()
+  const paths = selectedPaths.value.size > 0
+    ? [...selectedPaths.value]
+    : contextMenu.value.entry
+    ? [contextMenu.value.entry.path]
+    : []
+  if (paths.length === 0) return
+  const dir = await open({ directory: true })
+  if (!dir) return
+  try {
+    await sftpStartDownload(sftpSessionId!, paths, dir as string)
+    showTransfers.value = true
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    notify.notify({ message: `Download failed: ${msg}`, color: 'error', timeout: 5000 })
+  }
+}
+
+async function ctxNewFolder() {
+  closeContextMenu()
+  const name = prompt(t('sftp.newFolderPrompt'))
+  if (!name) return
+  try {
+    await invoke('sftp_mkdir', { id: sftpSessionId, path: joinPath(currentPath.value, name) })
+    await loadDir(currentPath.value)
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    notify.notify({ message: `Create folder failed: ${msg}`, color: 'error', timeout: 3000 })
+  }
+}
+
+async function ctxRename() {
+  closeContextMenu()
+  const entry = contextMenu.value.entry
+  if (!entry) return
+  const newName = prompt(t('sftp.renamePrompt'), entry.name)
+  if (!newName || newName === entry.name) return
+  try {
+    await invoke('sftp_rename', {
+      id: sftpSessionId,
+      from: entry.path,
+      to: joinPath(parentPath(entry.path), newName),
+    })
+    await loadDir(currentPath.value)
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    notify.notify({ message: `Rename failed: ${msg}`, color: 'error', timeout: 3000 })
+  }
+}
+
+async function ctxDelete() {
+  closeContextMenu()
+  const paths = selectedPaths.value.size > 0
+    ? [...selectedPaths.value]
+    : contextMenu.value.entry
+    ? [contextMenu.value.entry.path]
+    : []
+  if (paths.length === 0) return
+  if (!confirm(t('sftp.deleteConfirm'))) return
+  try {
+    for (const p of paths) {
+      await invoke('sftp_remove', { id: sftpSessionId, path: p })
+    }
+    selectedPaths.value.clear()
+    await loadDir(currentPath.value)
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    notify.notify({ message: `Delete failed: ${msg}`, color: 'error', timeout: 3000 })
+  }
+}
+
+async function ctxCopyPath() {
+  closeContextMenu()
+  const entry = contextMenu.value.entry
+  if (!entry) return
+  await navigator.clipboard.writeText(entry.path)
+}
+
 // ====== 生命周期 ======
 onMounted(async () => {
   if (asset.value) {
     sftpSessionId = `sftp-panel-${props.assetId}__${Date.now()}`
     await connect()
   }
+
+  const webview = getCurrentWebview()
+  unlistenDragDrop = await webview.onDragDropEvent((event) => {
+    if (event.payload.type === 'over') {
+      showDropOverlay.value = true
+    }
+    if (event.payload.type === 'leave') {
+      showDropOverlay.value = false
+    }
+    if (event.payload.type === 'drop') {
+      showDropOverlay.value = false
+      const paths = event.payload.paths
+      if (paths.length > 0 && sftpSessionId) {
+        sftpStartUpload(sftpSessionId, paths, currentPath.value)
+          .then(() => {
+            showTransfers.value = true
+            setTimeout(() => loadDir(currentPath.value), 2000)
+          })
+          .catch((error) => {
+            const msg = error instanceof Error ? error.message : String(error)
+            notify.notify({ message: `Upload failed: ${msg}`, color: 'error', timeout: 5000 })
+          })
+      }
+    }
+  })
 })
 
 onBeforeUnmount(async () => {
+  unlistenDragDrop?.()
   await disconnect()
 })
 
@@ -293,7 +469,7 @@ watch(() => props.assetId, async (newId, oldId) => {
             </button>
           </div>
         </div>
-        <button class="tb-btn" :title="t('sftp.download')" disabled>
+        <button class="tb-btn" :title="t('sftp.download')" :disabled="selectedPaths.size === 0" @click="downloadSelected">
           <v-icon size="14">mdi-download</v-icon>
         </button>
         <div class="tb-separator" />
@@ -314,7 +490,11 @@ watch(() => props.assetId, async (newId, oldId) => {
       </div>
 
       <!-- 文件列表 -->
-      <div class="sftp-file-list" @click="uploadMenuOpen = false">
+      <div class="sftp-file-list" @click="uploadMenuOpen = false" @contextmenu.prevent="onContextMenu($event, null)">
+        <div v-if="showDropOverlay" class="drop-overlay">
+          <v-icon size="32" color="cyan">mdi-cloud-upload-outline</v-icon>
+          <span class="drop-text">{{ t('sftp.dropToUpload') }}</span>
+        </div>
         <div v-if="loading" class="list-loading">
           <v-icon size="16" class="spin">mdi-loading</v-icon>
         </div>
@@ -324,15 +504,18 @@ watch(() => props.assetId, async (newId, oldId) => {
         </div>
         <template v-else>
           <!-- 上级目录 -->
-          <div v-if="currentPath !== '/'" class="file-row" @dblclick="navigateUp">
+          <div v-if="currentPath !== '/'" class="file-row" @dblclick="navigateUp" @contextmenu.prevent="onContextMenu($event, null)">
             <v-icon size="14" class="file-icon">mdi-folder-arrow-up</v-icon>
             <span class="file-name">..</span>
           </div>
           <div
-            v-for="entry in visibleEntries"
+            v-for="(entry, index) in visibleEntries"
             :key="entry.path"
             class="file-row"
+            :class="{ selected: selectedPaths.has(entry.path) }"
+            @click="onFileClick(entry, index, $event)"
             @dblclick="navigateTo(entry)"
+            @contextmenu.prevent="onContextMenu($event, entry)"
           >
             <v-icon size="14" class="file-icon" :class="{ 'is-dir': entry.isDir }">
               {{ entry.isDir ? 'mdi-folder' : 'mdi-file-outline' }}
@@ -341,6 +524,43 @@ watch(() => props.assetId, async (newId, oldId) => {
             <span class="file-size">{{ entry.isDir ? '—' : formatSize(entry.size) }}</span>
           </div>
         </template>
+      </div>
+
+      <!-- Context menu backdrop -->
+      <div v-if="contextMenuVisible" class="ctx-backdrop" @click="closeContextMenu" />
+
+      <!-- Context menu -->
+      <div
+        v-if="contextMenuVisible"
+        class="context-menu"
+        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+      >
+        <button v-if="contextMenu.entry?.isDir" class="ctx-item" @click="ctxOpen">
+          <v-icon size="12">mdi-folder-open</v-icon> {{ t('sftp.open') }}
+        </button>
+        <button class="ctx-item" @click="ctxDownload">
+          <v-icon size="12">mdi-download</v-icon> {{ t('sftp.download') }}
+        </button>
+        <div class="ctx-sep" />
+        <button v-if="!contextMenu.entry" class="ctx-item" @click="uploadFiles">
+          <v-icon size="12">mdi-file-upload</v-icon> {{ t('sftp.uploadFile') }}
+        </button>
+        <button v-if="!contextMenu.entry" class="ctx-item" @click="uploadFolder">
+          <v-icon size="12">mdi-folder-upload</v-icon> {{ t('sftp.uploadFolder') }}
+        </button>
+        <button v-if="!contextMenu.entry" class="ctx-item" @click="ctxNewFolder">
+          <v-icon size="12">mdi-folder-plus</v-icon> {{ t('sftp.newFolder') }}
+        </button>
+        <div v-if="!contextMenu.entry" class="ctx-sep" />
+        <button v-if="contextMenu.entry && selectedPaths.size <= 1" class="ctx-item" @click="ctxRename">
+          <v-icon size="12">mdi-rename-box</v-icon> {{ t('sftp.rename') }}
+        </button>
+        <button class="ctx-item" @click="ctxDelete">
+          <v-icon size="12">mdi-delete-outline</v-icon> {{ t('sftp.delete') }}
+        </button>
+        <button v-if="contextMenu.entry && selectedPaths.size <= 1" class="ctx-item" @click="ctxCopyPath">
+          <v-icon size="12">mdi-content-copy</v-icon> {{ t('sftp.copyPath') }}
+        </button>
       </div>
 
       <SftpTransferQueue v-model:visible="showTransfers" :session-id="sftpSessionId!" />
@@ -541,10 +761,32 @@ watch(() => props.assetId, async (newId, oldId) => {
 .crumb.root { color: var(--muted); }
 
 .sftp-file-list {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 2px 0;
+}
+
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(0, 240, 255, 0.08);
+  border: 2px dashed var(--cyan);
+  border-radius: 8px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.drop-text {
+  font-size: 12px;
+  color: var(--cyan);
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .list-loading,
@@ -570,6 +812,10 @@ watch(() => props.assetId, async (newId, oldId) => {
 }
 .file-row:hover {
   background: var(--hover-cyan-faint);
+}
+.file-row.selected {
+  background: var(--active-cyan);
+  border-left: 2px solid var(--cyan);
 }
 
 .file-icon {
@@ -597,5 +843,48 @@ watch(() => props.assetId, async (newId, oldId) => {
   color: var(--muted);
   min-width: 50px;
   text-align: right;
+}
+
+.ctx-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 10;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 160px;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.5);
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.ctx-item:hover {
+  background: var(--hover-cyan-faint);
+  color: var(--cyan);
+}
+
+.ctx-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 6px;
 }
 </style>
