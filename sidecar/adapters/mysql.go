@@ -3,6 +3,7 @@ package adapters
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -263,6 +264,9 @@ func (a *MySQLAdapter) Execute(sqlStr string) (*QueryResult, error) {
 		strings.HasPrefix(upperCheck, "EXPLAIN")
 
 	if isSelect {
+		if !regexp.MustCompile(`(?i)\bLIMIT\s+\d+`).MatchString(checkStr) {
+			sqlStr = sqlStr + " LIMIT 100"
+		}
 		return a.executeSelect(sqlStr, start)
 	}
 	return a.executeExec(sqlStr, start)
