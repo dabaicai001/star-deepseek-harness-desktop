@@ -1,11 +1,22 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import { generateBatchColumnDDL, type ColumnEdit } from '@/utils/ddlGenerator'
 import type { ColumnMeta } from '@/types/db'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
+
+// 字段类型候选兜底(MySQL 常用),列里出现过的类型会前置展示
+const COMMON_TYPES = [
+  'TINYINT', 'TINYINT(1)', 'SMALLINT', 'MEDIUMINT', 'INT', 'INT(11)', 'BIGINT',
+  'FLOAT', 'DOUBLE', 'DECIMAL(10,2)',
+  'CHAR(36)', 'VARCHAR(64)', 'VARCHAR(128)', 'VARCHAR(255)', 'VARCHAR(500)',
+  'TEXT', 'MEDIUMTEXT', 'LONGTEXT',
+  'TINYBLOB', 'BLOB', 'MEDIUMBLOB', 'LONGBLOB',
+  'DATE', 'TIME', 'DATETIME', 'TIMESTAMP', 'YEAR',
+  'JSON', 'BOOLEAN', 'BIT', 'ENUM', 'SET', 'BINARY', 'VARBINARY'
+]
 
 const { t } = useI18n()
 
@@ -38,6 +49,75 @@ const filteredList = computed(() => {
   const q = typeSearch.value.toLowerCase()
   return editList.value.filter(c => (c.type || c.newType).toLowerCase().includes(q))
 })
+
+// 模糊匹配候选:该列已用过的类型(去重) + 通用兜底
+const existingTypes = computed(() => {
+  const set = new Set<string>()
+  for (const c of editList.value) {
+    const t = (c.type || c.newType || '').trim()
+    if (t) set.add(t)
+  }
+  return Array.from(set)
+})
+
+const typeCandidateFor = ref<string | null>(null)  // 当前打开下拉的列 newName
+const typeQueryFor = ref<string>('')                // 候选下拉的输入
+const typeHighlight = ref<number>(0)                // 键盘上下高亮
+const typeInputEl = ref<HTMLInputElement | null>(null)
+
+function openTypePicker(col: ColumnEdit) {
+  typeCandidateFor.value = col.newName
+  typeQueryFor.value = col.newType ?? ''
+  typeHighlight.value = 0
+  nextTick(() => typeInputEl.value?.focus())
+}
+
+function closeTypePicker() {
+  typeCandidateFor.value = null
+  typeQueryFor.value = ''
+}
+
+const typeCandidates = computed(() => {
+  const q = typeQueryFor.value.trim().toLowerCase()
+  const merged: string[] = []
+  const seen = new Set<string>()
+  for (const t of existingTypes.value) {
+    if (!q || t.toLowerCase().includes(q)) { merged.push(t); seen.add(t.toUpperCase()) }
+  }
+  for (const t of COMMON_TYPES) {
+    const up = t.toUpperCase()
+    if (seen.has(up)) continue
+    if (!q || t.toLowerCase().includes(q)) merged.push(t)
+  }
+  return merged
+})
+
+function pickType(col: ColumnEdit, val: string) {
+  col.newType = val
+  markDirty(col)
+  closeTypePicker()
+}
+
+function onTypeKeydown(e: KeyboardEvent, col: ColumnEdit) {
+  const list = typeCandidates.value
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    typeHighlight.value = Math.min(typeHighlight.value + 1, Math.max(list.length - 1, 0))
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    typeHighlight.value = Math.max(typeHighlight.value - 1, 0)
+  } else if (e.key === 'Enter') {
+    e.preventDefault()
+    if (list.length && typeHighlight.value < list.length) {
+      pickType(col, list[typeHighlight.value])
+    } else if (typeQueryFor.value.trim()) {
+      pickType(col, typeQueryFor.value.trim())
+    }
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    closeTypePicker()
+  }
+}
 
 const selectedColIdx = ref<number | null>(null)
 const colCtxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
@@ -208,8 +288,33 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
                 <td>
                   <input v-model="col.newName" class="cell-input" @input="markDirty(col)" />
                 </td>
-                <td>
-                  <input v-model="col.newType" class="cell-input" @input="markDirty(col)" />
+                <td style="position: relative;">
+                  <input
+                    v-model="col.newType"
+                    class="cell-input"
+                    @input="markDirty(col)"
+                    @focus="openTypePicker(col)"
+                    @keydown="onTypeKeydown($event, col)"
+                    @blur="closeTypePicker"
+                    placeholder="VARCHAR(255)"
+                  />
+                  <div v-if="typeCandidateFor === col.newName" class="type-picker">
+                    <div class="type-picker-hint">↑↓ 选择 · Enter 确认 · Esc 取消</div>
+                    <div v-if="typeCandidates.length === 0" class="type-picker-empty">
+                      无匹配 · 直接回车用 "{{ typeQueryFor }}" 即可
+                    </div>
+                    <div
+                      v-for="(t, i) in typeCandidates"
+                      :key="t"
+                      class="type-picker-item"
+                      :class="{ active: i === typeHighlight }"
+                      @mousedown.prevent="pickType(col, t)"
+                      @mouseenter="typeHighlight = i"
+                    >
+                      <span class="type-picker-label">{{ t }}</span>
+                      <v-icon v-if="existingTypes.includes(t)" size="10" color="cyan" class="type-picker-tag">mdi-database</v-icon>
+                    </div>
+                  </div>
                 </td>
                 <td class="td-center">
                   <input type="checkbox" v-model="col.newNullable" @change="markDirty(col)" />
@@ -308,4 +413,28 @@ tr.dropped td { opacity: 0.4; text-decoration: line-through; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .row-selected td { background: rgba(0, 240, 255, 0.06); }
 .td-idx.selected { color: var(--cyan); font-weight: 700; }
+
+.type-picker {
+  position: absolute; top: 100%; left: 0; z-index: 10;
+  margin-top: 2px; min-width: 200px; max-width: 320px; max-height: 240px; overflow: auto;
+  background: var(--panel-solid-2); border: 1px solid var(--line-2);
+  border-radius: 6px; box-shadow: var(--shadow), 0 0 0 1px rgba(0, 240, 255, 0.1);
+  padding: 4px;
+}
+.type-picker-hint {
+  padding: 4px 8px; font-size: 9px; color: var(--muted);
+  border-bottom: 1px solid var(--line); margin-bottom: 2px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.type-picker-empty {
+  padding: 6px 8px; font-size: 10px; color: var(--muted); font-style: italic;
+}
+.type-picker-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 4px; cursor: pointer;
+  font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--text-2);
+}
+.type-picker-item.active { background: rgba(0, 240, 255, 0.1); color: var(--cyan); }
+.type-picker-item:hover { background: rgba(0, 240, 255, 0.06); }
+.type-picker-tag { margin-left: auto; opacity: 0.7; }
 </style>
