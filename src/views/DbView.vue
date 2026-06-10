@@ -1081,9 +1081,6 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
             :title="tab.subtitle"
             @click="selectSubTab(tab.id)"
           >
-            <v-icon size="11" :class="`kind-${tab.kind}`">
-              {{ tab.kind === 'table' ? 'mdi-table' : 'mdi-database-search' }}
-            </v-icon>
             <span class="sub-tab-title">{{ tab.title }}</span>
             <span v-if="tab.loading" class="sub-tab-spin">
               <v-icon size="9" class="spin">mdi-loading</v-icon>
@@ -1639,8 +1636,6 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 .sub-tab.loading .sub-tab-spin { display: inline-flex; }
 .sub-tab.loading .sub-tab-close { display: none; }
 .sub-tab.error { color: var(--red); }
-.sub-tab.error .kind-table,
-.sub-tab.error .kind-sql { color: var(--red); }
 
 .sub-tab-title {
   white-space: nowrap;
@@ -1649,8 +1644,6 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   min-width: 0;
   flex: 1;
 }
-.sub-tab .kind-table { color: var(--cyan); }
-.sub-tab .kind-sql { color: var(--purple); }
 .sub-tab-close {
   display: inline-flex;
   align-items: center;
