@@ -222,7 +222,7 @@ export default {
     dropColumn: 'Drop Column',
     addColumn: 'Add column',
     applyDDL: 'Apply DDL',
-    viewDDL: 'View full DDL',
+    viewDDL: 'View CREATE TABLE',
     generatedDDL: 'Generated DDL',
     elasticsearch: 'Elasticsearch',
     indices: 'Indices',

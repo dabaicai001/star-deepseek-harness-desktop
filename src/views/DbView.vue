@@ -24,6 +24,8 @@ import ColumnDropDialog from '@/components/db/ColumnDropDialog.vue'
 import IndexListDialog from '@/components/db/IndexListDialog.vue'
 import IndexFormDialog from '@/components/db/IndexFormDialog.vue'
 import IndexDropDialog from '@/components/db/IndexDropDialog.vue'
+import CreateTableDialog from '@/components/db/CreateTableDialog.vue'
+import { addHistory } from '@/utils/sqlHistory'
 import * as dbService from '@/services/db'
 import type { TableInfo, ColumnMeta, QueryResult } from '@/types/db'
 
@@ -128,6 +130,7 @@ const showIndexForm = ref(false)
 const indexFormMode = ref<'create' | 'modify'>('create')
 const indexFormTarget = ref<{ name: string; columns: string[]; unique: boolean; indexType: string } | undefined>(undefined)
 const showIndexDrop = ref(false)
+const showCreateTableDDL = ref(false)
 
 // Helper: cached columns for column picker
 const ctxTableColumns = ref<import('@/types/db').ColumnMeta[]>([])
@@ -481,6 +484,8 @@ async function onTableContextMenu(e: MouseEvent, db: string, table: string) {
     items.push({ type: 'item', label: t('db.modifyField'), icon: 'mdi-pencil-circle', onClick: openModifyColumn })
     items.push({ type: 'item', label: t('db.deleteField'), icon: 'mdi-delete-circle', danger: true, onClick: () => { showColumnDrop.value = true } })
     items.push({ type: 'divider' })
+    items.push({ type: 'item', label: t('db.viewDDL'), icon: 'mdi-code-tags', onClick: () => { showCreateTableDDL.value = true } })
+    items.push({ type: 'divider' })
     items.push({ type: 'item', label: t('db.viewIndexes'), icon: 'mdi-key-variant', onClick: () => { showIndexList.value = true } })
     items.push({ type: 'item', label: t('db.createIndex'), icon: 'mdi-key-plus', onClick: () => { indexFormMode.value = 'create'; indexFormTarget.value = undefined; showIndexForm.value = true } })
     items.push({ type: 'item', label: t('db.modifyIndex'), icon: 'mdi-key-edit', onClick: openModifyIndex })
@@ -615,6 +620,7 @@ async function executeSql(sql: string) {
   isExecutingAny.value = true
   try {
     tab.result = await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
+    addHistory(sql, selectedDb.value || '')
     if (tab.result?.error) tab.error = true
   } catch (err: unknown) {
     tab.result = {
@@ -1125,6 +1131,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               :page-size-options="[100, 500, 1000, 2000, 5000]"
               :editable="tablePrimaryKeys.length > 0"
               :pk-cols="tablePrimaryKeys"
+              :table-name="activeTableTab.table"
               @page-change="onTableDataPageChange"
               @page-size-change="onTableDataPageSizeChange"
               @sort-change="onTableDataSortChange"
@@ -1160,6 +1167,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         <IndexListDialog v-model="showIndexList" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" />
         <IndexFormDialog v-model="showIndexForm" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" :mode="indexFormMode" :index="indexFormTarget" @reload="reloadActiveTable" />
         <IndexDropDialog v-model="showIndexDrop" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" @reload="reloadActiveTable" />
+        <CreateTableDialog v-model="showCreateTableDDL" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" />
       </div>
     </div>
     </div>

@@ -223,7 +223,7 @@ export default {
     dropColumn: '删除字段',
     addColumn: '新增字段',
     applyDDL: '应用 DDL',
-    viewDDL: '查看完整 DDL',
+    viewDDL: '查看建表语句',
     generatedDDL: '生成的 DDL',
     elasticsearch: 'Elasticsearch',
     indices: '索引列表',
