@@ -31,7 +31,7 @@ func main() {
 		return map[string]string{
 			"version": "0.2.0",
 			"go":      "1.22+",
-			"modules": "mysql,redis",
+			"modules": "mysql,redis,elasticsearch",
 		}, nil
 	})
 

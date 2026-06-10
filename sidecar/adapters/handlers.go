@@ -55,6 +55,27 @@ func RegisterDBHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("db.redis.bigkeyScan", handleRedisBigKeyScan(mgr))
 	server.Register("db.redis.memoryAnalysis", handleRedisMemoryAnalysis(mgr))
 	server.Register("db.redis.flushDb", handleRedisFlushDB(mgr))
+
+	// Elasticsearch
+	server.Register("db.es.connect", handleESConnect(mgr))
+	server.Register("db.es.test", handleESTest())
+	server.Register("db.es.disconnect", handleDisconnect(mgr))
+	server.Register("db.es.clusterHealth", handleESClusterHealth(mgr))
+	server.Register("db.es.clusterStats", handleESClusterStats(mgr))
+	server.Register("db.es.listIndices", handleESListIndices(mgr))
+	server.Register("db.es.getIndexMapping", handleESGetMapping(mgr))
+	server.Register("db.es.getIndexSettings", handleESGetSettings(mgr))
+	server.Register("db.es.createIndex", handleESCreateIndex(mgr))
+	server.Register("db.es.deleteIndex", handleESDeleteIndex(mgr))
+	server.Register("db.es.search", handleESSearch(mgr))
+	server.Register("db.es.count", handleESCount(mgr))
+	server.Register("db.es.getDocument", handleESGetDocument(mgr))
+	server.Register("db.es.indexDocument", handleESIndexDocument(mgr))
+	server.Register("db.es.updateDocument", handleESUpdateDocument(mgr))
+	server.Register("db.es.deleteDocument", handleESDeleteDocument(mgr))
+	server.Register("db.es.bulkIndex", handleESBulkIndex(mgr))
+	server.Register("db.es.exportJSON", handleESExportJSON(mgr))
+	server.Register("db.es.scrollSearch", handleESScrollSearch(mgr))
 }
 
 // ServerInterface 定义 server 需要的方法（避免循环导入）
@@ -1153,5 +1174,369 @@ func handleDockerPruneImages(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		return adapter.PruneImages()
+	}
+}
+
+// ─── Elasticsearch Handlers ───
+
+func getESAdapter(mgr *pool.Manager, connID string) (*ElasticsearchAdapter, error) {
+	adapter, info, err := mgr.Get(connID)
+	if err != nil {
+		return nil, err
+	}
+	if info.Type != pool.ConnES {
+		return nil, fmt.Errorf("connection %s is not Elasticsearch (type=%s)", connID, info.Type)
+	}
+	return adapter.(*ElasticsearchAdapter), nil
+}
+
+func handleESConnect(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var info ElasticsearchConnInfo
+		if err := json.Unmarshal(params, &info); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+		adapter, err := NewElasticsearchAdapter(&info)
+		if err != nil {
+			return nil, err
+		}
+		connID := fmt.Sprintf("es_%s_%d_%d", info.Host, info.Port, time.Now().UnixNano())
+		mgr.Register(connID, adapter, pool.ConnInfo{
+			ID:   connID,
+			Type: pool.ConnES,
+			Host: info.Host,
+			Port: info.Port,
+		})
+		return map[string]interface{}{
+			"connId":      connID,
+			"host":        info.Host,
+			"port":        info.Port,
+			"clusterName": adapter.clusterName,
+			"version":     adapter.version,
+		}, nil
+	}
+}
+
+func handleESTest() Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var info ElasticsearchConnInfo
+		if err := json.Unmarshal(params, &info); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+		start := time.Now()
+		adapter, err := NewElasticsearchAdapter(&info)
+		if err != nil {
+			return map[string]interface{}{"ok": false, "message": err.Error()}, nil
+		}
+		defer adapter.Close()
+		if err := adapter.Ping(); err != nil {
+			return map[string]interface{}{"ok": false, "message": err.Error()}, nil
+		}
+		elapsed := time.Since(start).Milliseconds()
+		return map[string]interface{}{
+			"ok":         true,
+			"message":    fmt.Sprintf("OK in %dms (es@%s:%d)", elapsed, info.Host, info.Port),
+			"elapsed_ms": elapsed,
+		}, nil
+	}
+}
+
+func handleESClusterHealth(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct{ ConnID string `json:"connId"` }
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.ClusterHealth()
+	}
+}
+
+func handleESClusterStats(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct{ ConnID string `json:"connId"` }
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.ClusterStats()
+	}
+}
+
+func handleESListIndices(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct{ ConnID string `json:"connId"` }
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.ListIndices()
+	}
+}
+
+func handleESGetMapping(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+			Index  string `json:"index"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.GetMapping(p.Index)
+	}
+}
+
+func handleESGetSettings(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+			Index  string `json:"index"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.GetSettings(p.Index)
+	}
+}
+
+func handleESCreateIndex(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string                 `json:"connId"`
+			Index    string                 `json:"index"`
+			Mappings map[string]interface{} `json:"mappings,omitempty"`
+			Settings map[string]interface{} `json:"settings,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.CreateIndex(p.Index, p.Mappings, p.Settings)
+	}
+}
+
+func handleESDeleteIndex(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+			Index  string `json:"index"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.DeleteIndex(p.Index)
+	}
+}
+
+func handleESSearch(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string                 `json:"connId"`
+			Index  string                 `json:"index"`
+			Body   map[string]interface{} `json:"body"`
+			From   int                    `json:"from,omitempty"`
+			Size   int                    `json:"size,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if p.Size <= 0 {
+			p.Size = 20
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.Search(p.Index, p.Body, p.From, p.Size)
+	}
+}
+
+func handleESCount(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string                 `json:"connId"`
+			Index  string                 `json:"index"`
+			Body   map[string]interface{} `json:"body,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		count, err := adapter.Count(p.Index, p.Body)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"count": count}, nil
+	}
+}
+
+func handleESGetDocument(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+			Index  string `json:"index"`
+			ID     string `json:"id"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.GetDocument(p.Index, p.ID)
+	}
+}
+
+func handleESIndexDocument(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string                 `json:"connId"`
+			Index  string                 `json:"index"`
+			ID     string                 `json:"id,omitempty"`
+			Body   map[string]interface{} `json:"body"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.IndexDocument(p.Index, p.ID, p.Body)
+	}
+}
+
+func handleESUpdateDocument(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string                 `json:"connId"`
+			Index  string                 `json:"index"`
+			ID     string                 `json:"id"`
+			Body   map[string]interface{} `json:"body"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.UpdateDocument(p.Index, p.ID, p.Body)
+	}
+}
+
+func handleESDeleteDocument(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+			Index  string `json:"index"`
+			ID     string `json:"id"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.DeleteDocument(p.Index, p.ID)
+	}
+}
+
+func handleESBulkIndex(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string                   `json:"connId"`
+			Index     string                   `json:"index"`
+			Documents []map[string]interface{} `json:"documents"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.BulkIndex(p.Index, p.Documents)
+	}
+}
+
+func handleESExportJSON(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string                 `json:"connId"`
+			Index  string                 `json:"index"`
+			Body   map[string]interface{} `json:"body,omitempty"`
+			Size   int                    `json:"size,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if p.Size <= 0 {
+			p.Size = 1000
+		}
+		if p.Body == nil {
+			p.Body = map[string]interface{}{"query": map[string]interface{}{"match_all": map[string]interface{}{}}}
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		docs, err := adapter.ExportDocuments(p.Index, p.Body, p.Size)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"documents": docs, "count": len(docs)}, nil
+	}
+}
+
+func handleESScrollSearch(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string                 `json:"connId"`
+			Index  string                 `json:"index"`
+			Body   map[string]interface{} `json:"body"`
+			Size   int                    `json:"size,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if p.Size <= 0 {
+			p.Size = 100
+		}
+		adapter, err := getESAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.ScrollSearch(p.Index, p.Body, p.Size)
 	}
 }
