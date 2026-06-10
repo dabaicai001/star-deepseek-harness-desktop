@@ -7,6 +7,14 @@
 
 ---
 
+## [0.4.0] - 2026-06-10
+
+### 新增
+- ✨ feat(elasticsearch): 新增 Elasticsearch 完整支持 — Go sidecar 19 个 RPC 方法、Rust 透传、前端 ElasticsearchView.vue 四 Tab 视图(概览/搜索/索引/导入导出)
+- ✨ feat(elasticsearch): DSL 查询编辑器 + 表格/JSON 双视图搜索结果 + 索引字段映射树形展示 + 集群健康仪表板
+
+---
+
 ## [未发布]
 
 ### 新增

@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.3.4(修复删除资产报错) |
+| 当前版本 | v0.4.0(Elasticsearch 支持) |
 
 ---
 
@@ -75,6 +75,7 @@ starhub/
 │   │   ├── postgres.go        # jackc/pgx/v5
 │   │   ├── sqlite.go          # modernc.org/sqlite
 │   │   ├── redis.go           # redis/go-redis/v9
+│   │   ├── elasticsearch.go    # elastic/go-elasticsearch/v8
 │   │   ├── clickhouse.go
 │   │   ├── mssql.go
 │   │   └── oracle.go
@@ -140,6 +141,7 @@ starhub/
 | ClickHouse | `github.com/ClickHouse/clickhouse-go/v2` | 官方 |
 | SQL Server | `github.com/microsoft/go-mssqldb` | 微软官方 |
 | Oracle | `github.com/sijms/go-ora` | 纯 Go,无需 Instant Client |
+| Elasticsearch | `github.com/elastic/go-elasticsearch/v8` | 官方 |
 | MongoDB | `go.mongodb.org/mongo-driver` | |
 | 国产库兜底 | `github.com/alexbrainman/odbc` | 达梦/金仓 ODBC 桥 |
 | SQL 工具 | `github.com/jmoiron/sqlx` | Struct 映射 + 命名参数 |
@@ -591,4 +593,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-06-07 (v0.3.4)*
+*最后更新: 2026-06-10 (v0.4.0)*
