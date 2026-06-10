@@ -36,6 +36,8 @@ func RegisterDBHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("db.mysql.exportData", handleMySQLExportData(mgr))
 	server.Register("db.mysql.getRowCount", handleMySQLGetRowCount(mgr))
 	server.Register("db.mysql.getTableMeta", handleMySQLGetTableMeta(mgr))
+	server.Register("db.mysql.createIndex", handleMySQLCreateIndex(mgr))
+	server.Register("db.mysql.dropIndex", handleMySQLDropIndex(mgr))
 
 	// Redis
 	server.Register("db.redis.connect", handleRedisConnect(mgr))
@@ -238,6 +240,47 @@ func handleMySQLListIndexes(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		return adapter.ListIndexes(p.Database, p.Table)
+	}
+}
+
+func handleMySQLCreateIndex(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string   `json:"connId"`
+			Database  string   `json:"database,omitempty"`
+			Table     string   `json:"table"`
+			IndexName string   `json:"indexName"`
+			Columns   []string `json:"columns"`
+			Unique    bool     `json:"unique"`
+			IndexType string   `json:"indexType"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, adapter.CreateIndex(p.Database, p.Table, p.IndexName, p.Columns, p.Unique, p.IndexType)
+	}
+}
+
+func handleMySQLDropIndex(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			Database  string `json:"database,omitempty"`
+			Table     string `json:"table"`
+			IndexName string `json:"indexName"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, adapter.DropIndex(p.Database, p.Table, p.IndexName)
 	}
 }
 
