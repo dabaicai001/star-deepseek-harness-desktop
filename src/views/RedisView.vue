@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useDbStore } from '@/stores/db'
-import { useAppStore } from '@/stores/app'
 import { useAiStore } from '@/stores/ai'
 import { parseInstanceId } from '@/utils/tabId'
 import * as dbService from '@/services/db'
@@ -16,14 +15,11 @@ import RightPanel from '@/components/layout/RightPanel.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import type { RightPanelTab } from '@/components/layout/RightPanel.vue'
-import { redisTools, makeRedisToolCaller } from '@/utils/aiTools'
-import type { LlmToolCall } from '@/services/ai'
 
 const { t } = useI18n()
 const route = useRoute()
 const assetStore = useAssetStore()
 const dbStore = useDbStore()
-const appStore = useAppStore()
 const aiStore = useAiStore()
 
 const instanceId = computed(() => route.params.id as string)
@@ -40,17 +36,17 @@ const rightPanelOpen = ref(false)
 const keyBrowserRef = ref<InstanceType<typeof KeyBrowser> | null>(null)
 const valueEditorRef = ref<InstanceType<typeof RedisValueEditor> | null>(null)
 
-const rightPanelTabs = computed<RightPanelTab[]>(() => [
-  { key: 'dashboard', label: t('redis.dashboard', '仪表盘'), icon: 'mdi-view-dashboard-outline' },
-  { key: 'ai', label: t('redis.ai', 'AI 助手'), icon: 'mdi-robot-outline' },
-  { key: 'tools', label: t('redis.tools', '工具'), icon: 'mdi-tools' }
-])
+const rightPanelTabs: RightPanelTab[] = [
+  { key: 'dashboard', label: 'Dashboard', icon: 'mdi-view-dashboard' },
+  { key: 'ai', label: 'AI', icon: 'mdi-robot' },
+  { key: 'tools', label: 'Tools', icon: 'mdi-tools' },
+]
 
 const activeRightTab = ref('dashboard')
 
 const aiSession = computed(() => {
-  if (!asset.value) return null
-  return aiStore.getOrCreateSession(instanceId.value, asset.value.id, 'db')
+  if (!connId.value) return null
+  return aiStore.getOrCreateSession(instanceId.value, assetId.value, 'db')
 })
 
 async function connect() {
@@ -78,8 +74,7 @@ async function connect() {
 async function refreshDBSize() {
   if (!connId.value) return
   try {
-    const result = await dbService.redisDBSize(connId.value)
-    dbsize.value = result.size
+    dbsize.value = (await dbService.redisDBSize(connId.value)).size
   } catch { /* ignore */ }
 }
 
@@ -111,7 +106,7 @@ function onSelectKey(key: string, type: string) {
 
 async function onFlushDb() {
   if (!connId.value) return
-  if (!confirm(t('redis.flushConfirm', '确定要清空当前数据库 db{0} 吗?此操作不可撤销。', [currentDb.value]))) return
+  if (!confirm(`FLUSHDB — This will delete ALL keys in db${currentDb.value}. Continue?`)) return
   try {
     await dbService.redisFlushDB(connId.value)
     dbsize.value = 0
@@ -119,50 +114,6 @@ async function onFlushDb() {
   } catch (err) {
     console.error('Flush DB failed:', err)
   }
-}
-
-// AI event handlers
-async function onAiSend(text: string) {
-  if (!aiSession.value || !connId.value) return
-  aiSession.value.messages.push({ role: 'user', content: text })
-  try {
-    const session = aiSession.value!
-    session.loading = true
-    session.error = null
-    const systemPrompt = '你是一个 Redis 数据库助手。当前连接: ' + asset.value?.name
-    const runner = makeRedisToolCaller(connId.value)
-    await aiStore.runAgent(session.instanceId, systemPrompt, redisTools, runner)
-  } catch (err) {
-    if (aiSession.value) aiSession.value.error = String(err ?? '')
-  } finally {
-    if (aiSession.value) aiSession.value.loading = false
-  }
-}
-
-function onAiRetry() {
-  if (!aiSession.value) return
-  const msgs = aiSession.value.messages
-  const lastUser = [...msgs].reverse().find(m => m.role === 'user')
-  if (lastUser) {
-    msgs.splice(msgs.indexOf(lastUser) + 1)
-    aiSession.value.error = null
-    onAiSend(lastUser.content)
-  }
-}
-
-function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {
-  if (!aiSession.value) return
-  aiStore.resolveConfirm(aiSession.value.instanceId, recordId, decision)
-}
-
-function onAiNewChat() {
-  if (!instanceId.value) return
-  aiStore.clearSession(instanceId.value)
-}
-
-function onAiStop() {
-  if (!instanceId.value) return
-  aiStore.stopAgent(instanceId.value)
 }
 
 onMounted(() => {
@@ -238,13 +189,13 @@ watch(() => assetId.value, () => {
     <!-- Right Panel -->
     <RightPanel
       v-model="rightPanelOpen"
-      v-model:active-tab="activeRightTab"
       :tabs="rightPanelTabs"
       default-tab="dashboard"
     >
       <template #tab-dashboard>
         <DbDashboard
-          :conn-id="connId || ''"
+          v-if="connId"
+          :conn-id="connId"
           :db-type="'redis'"
           :connected="connected"
         />
@@ -253,18 +204,13 @@ watch(() => assetId.value, () => {
         <AiChat
           v-if="aiSession"
           :session="aiSession"
-          :sending="aiSession.loading"
-          :placeholder="t('redis.aiPlaceholder', '问我关于这个 Redis 的任何事…')"
-          @send="onAiSend"
-          @retry="onAiRetry"
-          @confirm-tool="onAiConfirmTool"
-          @new-chat="onAiNewChat"
-          @stop="onAiStop"
+          :sending="false"
         />
       </template>
       <template #tab-tools>
         <RedisTools
-          :conn-id="connId || ''"
+          v-if="connId"
+          :conn-id="connId"
           :current-db="currentDb"
         />
       </template>
@@ -317,30 +263,5 @@ watch(() => assetId.value, () => {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.action-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 1px solid var(--line-2);
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-}
-
-.action-btn:hover {
-  border-color: var(--cyan);
-  color: var(--cyan);
-}
-
-.action-btn.active {
-  border-color: var(--cyan);
-  color: var(--cyan);
-  background: rgba(0, 240, 255, 0.08);
 }
 </style>
