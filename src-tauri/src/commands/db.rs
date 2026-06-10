@@ -261,6 +261,20 @@ pub async fn db_mysql_get_row_count(
     sidecar.call("db.mysql.getRowCount", params).await
 }
 
+#[tauri::command]
+pub async fn db_mysql_get_table_meta(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    table: String,
+    database: Option<String>,
+) -> Result<Value, String> {
+    let mut params = serde_json::json!({ "connId": conn_id, "table": table });
+    if let Some(db) = database {
+        params["database"] = serde_json::Value::String(db);
+    }
+    sidecar.call("db.mysql.getTableMeta", params).await
+}
+
 // ─── Redis Commands ───
 
 #[tauri::command]

@@ -85,6 +85,11 @@ export interface RowCountResult {
   count: number
 }
 
+export interface TableMetaResult {
+  columns: ColumnMeta[]
+  rowCount: number
+}
+
 export interface InsertResult {
   lastInsertId: number
 }

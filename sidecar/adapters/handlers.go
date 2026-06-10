@@ -35,6 +35,7 @@ func RegisterDBHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("db.mysql.deleteRows", handleMySQLDeleteRows(mgr))
 	server.Register("db.mysql.exportData", handleMySQLExportData(mgr))
 	server.Register("db.mysql.getRowCount", handleMySQLGetRowCount(mgr))
+	server.Register("db.mysql.getTableMeta", handleMySQLGetTableMeta(mgr))
 
 	// Redis
 	server.Register("db.redis.connect", handleRedisConnect(mgr))
@@ -515,6 +516,24 @@ func handleMySQLGetRowCount(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		return map[string]interface{}{"count": count}, nil
+	}
+}
+
+func handleMySQLGetTableMeta(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.GetTableMeta(p.Database, p.Table)
 	}
 }
 

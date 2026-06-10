@@ -10,6 +10,7 @@ import type {
   IndexInfo,
   DDLResult,
   RowCountResult,
+  TableMetaResult,
   InsertResult,
   RowsAffectedResult,
   ExportResult,
@@ -115,6 +116,10 @@ export async function mysqlExportData(connId: string, table: string, format: str
 
 export async function mysqlGetRowCount(connId: string, table: string, database?: string): Promise<RowCountResult> {
   return invoke('db_mysql_get_row_count', { connId, table, database })
+}
+
+export async function mysqlGetTableMeta(connId: string, table: string, database?: string): Promise<TableMetaResult> {
+  return invoke('db_mysql_get_table_meta', { connId, table, database })
 }
 
 // ─── Redis ───

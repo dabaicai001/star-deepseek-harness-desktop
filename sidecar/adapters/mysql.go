@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -76,6 +77,12 @@ type IndexInfo struct {
 	ColumnName string `json:"columnName" db:"Column_name"`
 	IndexType  string `json:"indexType" db:"Index_type"`
 	Comment    string `json:"comment" db:"Index_comment"`
+}
+
+// TableMeta 表元信息（列 + 行数，一次请求并行获取）
+type TableMeta struct {
+	Columns  []ColumnMeta `json:"columns"`
+	RowCount int64        `json:"rowCount"`
 }
 
 // NewMySQLAdapter 创建 MySQL 适配器
@@ -329,6 +336,38 @@ func (a *MySQLAdapter) GetRowCount(database, table string) (int64, error) {
 	var count int64
 	err := a.db.Get(&count, fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`", database, table))
 	return count, err
+}
+
+// GetTableMeta 批量获取表元信息（列元数据 + 行数），并行查询减少延迟
+func (a *MySQLAdapter) GetTableMeta(database, table string) (*TableMeta, error) {
+	if database == "" {
+		database = a.conn.Database
+	}
+	var (
+		columns  []ColumnMeta
+		rowCount int64
+		colsErr  error
+		cntErr   error
+		wg       sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		columns, colsErr = a.ListColumns(database, table)
+	}()
+	go func() {
+		defer wg.Done()
+		rowCount, cntErr = a.GetRowCount(database, table)
+	}()
+	wg.Wait()
+
+	if colsErr != nil {
+		return nil, fmt.Errorf("list columns: %w", colsErr)
+	}
+	if cntErr != nil {
+		return nil, fmt.Errorf("get row count: %w", cntErr)
+	}
+	return &TableMeta{Columns: columns, RowCount: rowCount}, nil
 }
 
 // DropTable 删除表

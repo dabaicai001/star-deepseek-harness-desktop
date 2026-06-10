@@ -94,6 +94,7 @@ fn main() {
             commands::db::db_mysql_delete_rows,
             commands::db::db_mysql_export_data,
             commands::db::db_mysql_get_row_count,
+            commands::db::db_mysql_get_table_meta,
             // Redis
             commands::db::db_redis_connect,
             commands::db::db_redis_test,

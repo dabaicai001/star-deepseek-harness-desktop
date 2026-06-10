@@ -53,6 +53,9 @@ const isExecutingAny = ref(false) // 任一 SQL 结果 tab 在加载中
 const sidebarCollapsed = ref(false)
 const selectedDb = ref<string>('')
 
+// tableDataCache: key = "db.table", caches columns + rowCount + data to avoid refetch on tab switch
+const tableDataVersion = ref(0)
+
 // ============ 子标签系统:打开的表 + SQL 结果 ============
 // 设计:把"点哪个表"和"执行 SQL"统一为一组 sub-tab,每个 tab 独立持有状态,
 // 切换 tab 不互相覆盖。SQL 编辑器是共享的(顶部),
@@ -371,31 +374,31 @@ async function selectTable(db: string, tableName: string) {
   void loadTableDataFor(subTabs.value[subTabs.value.length - 1] as TableSubTab)
 }
 
-async function loadTableDataFor(tab: TableSubTab) {
+async function loadTableDataFor(tab: TableSubTab, force = false) {
   if (!connId.value) return
+  // 缓存:如果已加载且未强制刷新则跳过
+  if (!force && tab.data && tab.columns.length > 0) return
+
   tab.dataLoading = true
   tab.error = false
   try {
-    if (tab.columns.length === 0) {
-      tab.columns = await dbService.mysqlListColumns(connId.value, tab.table, tab.db)
-    }
-    try {
-      const rc = await dbService.mysqlGetRowCount(connId.value, tab.table, tab.db)
-      tab.dataTotal = rc.count
-    } catch (err) {
-      console.warn('getRowCount failed:', err)
-      tab.dataTotal = 0
-    }
     const offset = tab.dataPage * tab.dataPageSize
-    tab.data = await dbService.mysqlGetTableData(
-      connId.value,
-      tab.table,
-      tab.dataPageSize,
-      offset,
-      tab.dataOrderBy || undefined,
-      tab.dataOrderDir,
-      tab.db
+    // 并行:元信息(列+行数) + 表数据,减少等待
+    const metaPromise = tab.columns.length === 0
+      ? dbService.mysqlGetTableMeta(connId.value, tab.table, tab.db)
+      : null
+    const dataPromise = dbService.mysqlGetTableData(
+      connId.value, tab.table, tab.dataPageSize, offset,
+      tab.dataOrderBy || undefined, tab.dataOrderDir, tab.db
     )
+    if (metaPromise) {
+      const [meta, data] = await Promise.all([metaPromise, dataPromise])
+      tab.columns = meta.columns
+      tab.dataTotal = meta.rowCount
+      tab.data = data
+    } else {
+      tab.data = await dataPromise
+    }
   } catch (err: unknown) {
     tab.data = {
       columns: [],
@@ -411,6 +414,17 @@ async function loadTableDataFor(tab: TableSubTab) {
   }
 }
 
+/** 强制刷新当前激活的表(清缓存后重新拉) */
+function refreshCurrentTable() {
+  const tab = activeTableTab.value
+  if (!tab || !connId.value) return
+  tab.columns = []
+  tab.data = null
+  tab.dataTotal = 0
+  tableDataVersion.value++
+  void loadTableDataFor(tab, true)
+}
+
 async function reloadActiveTable() {
   const tab = activeTableTab.value
   if (!tab || !connId.value) return
@@ -421,22 +435,21 @@ async function reloadActiveTable() {
   // 重新拉列
   tab.columns = await dbService.mysqlListColumns(connId.value, tab.table, tab.db)
   // 重新拉数据
-  await loadTableDataFor(tab)
+  await loadTableDataFor(tab, true)
 }
 
 function onTableDataPageChange(page: number) {
   const tab = activeTableTab.value
   if (!tab) return
   tab.dataPage = page
-  void loadTableDataFor(tab)
+  void loadTableDataFor(tab, true)
 }
-
 function onTableDataPageSizeChange(size: number) {
   const tab = activeTableTab.value
   if (!tab) return
   tab.dataPageSize = size
   tab.dataPage = 0
-  void loadTableDataFor(tab)
+  void loadTableDataFor(tab, true)
 }
 
 function onTableDataSortChange(col: string) {
@@ -448,7 +461,7 @@ function onTableDataSortChange(col: string) {
     tab.dataOrderBy = col
     tab.dataOrderDir = 'ASC'
   }
-  void loadTableDataFor(tab)
+  void loadTableDataFor(tab, true)
 }
 
 async function onCellEdit(rowIdx: number, col: string, value: unknown) {
@@ -1024,6 +1037,15 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               <v-icon size="11">mdi-table-column</v-icon>
               {{ t('db.column') }}
             </div>
+            <div class="inner-tab-spacer" />
+            <button
+              class="action-btn"
+              :title="'强制刷新当前表数据'"
+              :disabled="activeTableTab.dataLoading"
+              @click="refreshCurrentTable"
+            >
+              <v-icon size="13" :class="{ spin: activeTableTab.dataLoading }">mdi-refresh</v-icon>
+            </button>
           </div>
           <div class="inner-tab-body">
             <DataGrid
@@ -1592,6 +1614,9 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 .inner-tab.active {
   color: var(--cyan);
   border-bottom-color: var(--cyan);
+}
+.inner-tab-spacer {
+  flex: 1;
 }
 
 .inner-tab-body {
