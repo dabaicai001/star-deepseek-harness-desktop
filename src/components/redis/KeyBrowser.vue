@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import * as dbService from '@/services/db'
 import type { RedisKeyInfo } from '@/types/db'
 
@@ -28,7 +28,155 @@ interface DbState {
 
 const dbStates = ref<Record<number, DbState>>({})
 const expandedDbs = ref<Set<number>>(new Set())
+const expandedFolders = ref<Record<number, Set<string>>>({})
 const collapsed = ref(false)
+
+// ─── Namespace tree ───
+interface FlatNode {
+  id: string
+  name: string
+  fullKey: string
+  keyType: string
+  ttl: number
+  isLeaf: boolean
+  depth: number
+  keyCount: number
+  expanded: boolean
+}
+
+function buildNamespaceTree(db: number): FlatNode[] {
+  const state = getDbState(db)
+  const keys = state.keys
+  if (keys.length === 0) return []
+
+  // Build trie
+  interface TrieNode {
+    name: string
+    fullKey: string
+    keyType: string
+    ttl: number
+    isLeaf: boolean
+    children: Map<string, TrieNode>
+    keyCount: number
+  }
+
+  const root = new Map<string, TrieNode>()
+
+  for (const k of keys) {
+    const parts = k.key.split(':')
+    let level = root
+    let path = ''
+
+    for (let i = 0; i < parts.length; i++) {
+      const seg = parts[i]
+      path = path ? `${path}:${seg}` : seg
+      const isLast = i === parts.length - 1
+
+      let node = level.get(seg)
+      if (!node) {
+        node = {
+          name: seg,
+          fullKey: isLast ? k.key : path,
+          keyType: isLast ? k.type : '',
+          ttl: isLast ? k.ttl : 0,
+          isLeaf: isLast,
+          children: new Map(),
+          keyCount: 0,
+        }
+        level.set(seg, node)
+      }
+
+      if (isLast) {
+        node.isLeaf = true
+        node.keyType = k.type
+        node.ttl = k.ttl
+        node.fullKey = k.key
+        node.keyCount = 1
+      }
+
+      level = node.children
+    }
+  }
+
+  // Calculate keyCounts
+  function calcCount(node: TrieNode): number {
+    let sum = node.isLeaf ? 1 : 0
+    for (const child of node.children.values()) {
+      sum += calcCount(child)
+    }
+    node.keyCount = sum
+    return sum
+  }
+  for (const node of root.values()) calcCount(node)
+
+  // Flatten to render list
+  const folders = expandedFolders.value[db] || new Set()
+  const result: FlatNode[] = []
+
+  function flatten(nodes: Map<string, TrieNode>, depth: number) {
+    // Sort: folders first (by count desc), then leaves (alpha)
+    const arr = Array.from(nodes.values()).sort((a, b) => {
+      if (a.isLeaf !== b.isLeaf) return a.isLeaf ? 1 : -1
+      if (!a.isLeaf) return b.keyCount - a.keyCount || a.name.localeCompare(b.name)
+      return a.name.localeCompare(b.name)
+    })
+
+    for (const node of arr) {
+      if (node.isLeaf) {
+        // Type filter
+        const tf = state.typeFilter
+        if (tf !== 'all' && node.keyType !== tf) continue
+        result.push({
+          id: node.fullKey,
+          name: node.name,
+          fullKey: node.fullKey,
+          keyType: node.keyType,
+          ttl: node.ttl,
+          isLeaf: true,
+          depth,
+          keyCount: 1,
+          expanded: false,
+        })
+      } else {
+        const isExpanded = folders.has(node.fullKey)
+        // Only show folder if it has visible children
+        const hasVisible = node.keyCount > 0
+        if (!hasVisible) continue
+        result.push({
+          id: node.fullKey,
+          name: node.name,
+          fullKey: node.fullKey,
+          keyType: '',
+          ttl: 0,
+          isLeaf: false,
+          depth,
+          keyCount: node.keyCount,
+          expanded: isExpanded,
+        })
+        if (isExpanded && node.children.size > 0) {
+          flatten(node.children, depth + 1)
+        }
+      }
+    }
+  }
+
+  flatten(new Map(root), 0)
+  return result
+}
+
+function toggleFolder(db: number, path: string) {
+  if (!expandedFolders.value[db]) {
+    expandedFolders.value[db] = new Set()
+  }
+  const set = expandedFolders.value[db]
+  if (set.has(path)) {
+    set.delete(path)
+  } else {
+    set.add(path)
+  }
+  // Trigger reactivity
+  expandedFolders.value = { ...expandedFolders.value }
+}
 
 // ─── Helpers ───
 function getDbState(db: number): DbState {
@@ -69,21 +217,6 @@ function formatDbSize(db: number): string {
   const size = props.dbSizes?.[db]
   if (size === undefined || size === null) return ''
   return `${size.toLocaleString()} keys`
-}
-
-// ─── Grouped keys for a DB ───
-function groupedKeysForDb(db: number) {
-  const state = getDbState(db)
-  const groups: Record<string, RedisKeyInfo[]> = {}
-  for (const k of state.keys) {
-    const t = k.type || 'string'
-    if (state.typeFilter !== 'all' && t !== state.typeFilter) continue
-    if (!groups[t]) groups[t] = []
-    groups[t].push(k)
-  }
-  return Object.entries(groups)
-    .map(([type, items]) => ({ type, keys: items, count: items.length }))
-    .sort((a, b) => b.count - a.count)
 }
 
 // ─── Actions ───
@@ -142,15 +275,15 @@ async function onDbSearch(db: number) {
   await loadDbKeys(db)
 }
 
-function onKeyClick(k: RedisKeyInfo) {
-  emit('select-key', k.key, k.type)
+function onKeyClick(node: FlatNode) {
+  emit('select-key', node.fullKey, node.keyType)
 }
 
-function onDeleteKey(e: MouseEvent, db: number, k: RedisKeyInfo) {
+function onDeleteKey(e: MouseEvent, db: number, node: FlatNode) {
   e.stopPropagation()
   const state = getDbState(db)
-  state.keys = state.keys.filter(x => x.key !== k.key)
-  emit('delete-key', k.key)
+  state.keys = state.keys.filter(x => x.key !== node.fullKey)
+  emit('delete-key', node.fullKey)
 }
 
 function toggleCollapse() {
@@ -225,28 +358,38 @@ defineExpose({ loadKeys: reloadCurrentDb })
               <span>Loading...</span>
             </div>
 
-            <!-- Grouped key tree -->
-            <template v-for="group in groupedKeysForDb(db - 1)" :key="group.type">
-              <div class="tree-section">
-                <div class="tree-section-header">
-                  <v-icon :size="12" :style="{ color: typeColor(group.type) }">{{ typeIcon(group.type) }}</v-icon>
-                  <span class="tree-section-label">{{ typeLabel(group.type) }}</span>
-                  <span class="tree-section-count">{{ group.count }}</span>
-                </div>
-                <div
-                  v-for="k in group.keys"
-                  :key="k.key"
-                  class="tree-item key-row"
-                  :class="{ active: selectedKey === k.key }"
-                  @click="onKeyClick(k)"
-                >
-                  <span class="tree-item-label">{{ k.key }}</span>
-                  <span v-if="k.ttl > 0" class="key-ttl">{{ formatTTL(k.ttl) }}</span>
-                  <span v-else-if="k.ttl === -2" class="key-ttl expired">Exp</span>
-                  <button class="key-del-btn" @click="(e: MouseEvent) => onDeleteKey(e, db - 1, k)" title="Delete">
-                    <v-icon :size="11">mdi-delete-outline</v-icon>
-                  </button>
-                </div>
+            <!-- Namespace tree -->
+            <template v-for="node in buildNamespaceTree(db - 1)" :key="node.id">
+              <!-- Folder -->
+              <div
+                v-if="!node.isLeaf"
+                class="tree-item folder-row"
+                :style="{ paddingLeft: (node.depth * 16 + 28) + 'px' }"
+                @click="toggleFolder(db - 1, node.id)"
+              >
+                <v-icon :size="12" class="expand-icon">
+                  {{ node.expanded ? 'mdi-chevron-down' : 'mdi-chevron-right' }}
+                </v-icon>
+                <v-icon :size="14" color="cyan">mdi-folder-outline</v-icon>
+                <span class="tree-item-label">{{ node.name }}</span>
+                <span class="folder-count">{{ node.keyCount }}</span>
+              </div>
+
+              <!-- Leaf -->
+              <div
+                v-else
+                class="tree-item key-row"
+                :class="{ active: selectedKey === node.fullKey }"
+                :style="{ paddingLeft: (node.depth * 16 + 40) + 'px' }"
+                @click="onKeyClick(node)"
+              >
+                <v-icon :size="12" :style="{ color: typeColor(node.keyType) }">{{ typeIcon(node.keyType) }}</v-icon>
+                <span class="tree-item-label">{{ node.name }}</span>
+                <span v-if="node.ttl > 0" class="key-ttl">{{ formatTTL(node.ttl) }}</span>
+                <span v-else-if="node.ttl === -2" class="key-ttl expired">Exp</span>
+                <button class="key-del-btn" @click="(e: MouseEvent) => onDeleteKey(e, db - 1, node)" title="Delete">
+                  <v-icon :size="11">mdi-delete-outline</v-icon>
+                </button>
               </div>
             </template>
 
@@ -413,37 +556,37 @@ defineExpose({ loadKeys: reloadCurrentDb })
   flex-shrink: 0;
 }
 
-/* ─── Key rows ─── */
-.db-keys {
-  background: var(--panel-solid-2);
-}
-
-.tree-section {
-  margin-bottom: 0;
-}
-
-.tree-section-header {
+/* ─── Namespace tree ─── */
+.folder-row {
+  padding: 4px 8px;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px 4px 32px;
-  font-family: 'Outfit', sans-serif;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 11px;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all 0.15s;
+  border-left: 2px solid transparent;
 }
 
-.tree-section-label {
-  flex: 1;
+.folder-row:hover {
+  color: var(--text);
+  background: var(--hover-cyan-faint);
 }
 
-.tree-section-count {
+.folder-count {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--cyan);
-  font-weight: 500;
+  font-size: 9px;
+  color: var(--muted);
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(0, 240, 255, 0.06);
+  flex-shrink: 0;
+}
+
+/* ─── Key rows ─── */
+.db-keys {
+  background: var(--panel-solid-2);
 }
 
 .key-row {
