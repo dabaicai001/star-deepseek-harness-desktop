@@ -25,15 +25,31 @@ let editorView: EditorView | null = null
 const langCompartment = new Compartment()
 
 const cyberTheme = EditorView.theme({
+  // 关键:CodeMirror basicSetup 默认会注入白底主题,
+  // 必须把 .cm-editor / .cm-scroller 显式拉成透明,才看得到外层的深色面板
   '&': {
-    backgroundColor: 'transparent',
+    backgroundColor: 'transparent !important',
     fontSize: '13px',
-    fontFamily: "'JetBrains Mono', 'Fira Code', monospace"
+    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+    height: '100%'
+  },
+  '.cm-editor': {
+    backgroundColor: 'transparent !important'
+  },
+  '.cm-scroller': {
+    backgroundColor: 'transparent !important',
+    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+    lineHeight: '1.7'
   },
   '.cm-content': {
     caretColor: '#00f0ff',
     color: '#e8efff',
-    padding: '8px 0'
+    padding: '14px 12px',
+    // 让光标在多行代码之间更明显
+    minHeight: '80px'
+  },
+  '.cm-line': {
+    padding: '0 4px'
   },
   '.cm-cursor': {
     borderLeftColor: '#00f0ff',
@@ -41,6 +57,22 @@ const cyberTheme = EditorView.theme({
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
     backgroundColor: 'rgba(0, 240, 255, 0.12) !important'
+  },
+  // 覆盖 CodeMirror 默认的未聚焦 selection 虚线 outline —
+  // 未聚焦时也保持主色高亮,避免视觉上的"虚线/残影"
+  '&:not(.cm-focused) .cm-selectionBackground, .cm-selectionBackground': {
+    backgroundColor: 'rgba(0, 240, 255, 0.08) !important'
+  },
+  // ::selection 是浏览器原生的虚线框,默认会在编辑器未聚焦时出现
+  '& .cm-content ::selection': {
+    backgroundColor: 'rgba(0, 240, 255, 0.18)'
+  },
+  // 关掉 focus ring(我们已经在外层 .sql-editor:focus-within 加了 box-shadow)
+  '& .cm-editor': {
+    outline: 'none !important'
+  },
+  '& .cm-editor.cm-focused': {
+    outline: 'none !important'
   },
   '.cm-gutters': {
     backgroundColor: 'transparent',
@@ -192,24 +224,44 @@ defineExpose({ focus })
 <style scoped>
 .sql-editor {
   width: 100%;
-  min-height: 120px;
+  min-height: 140px;
   max-height: 400px;
   overflow: auto;
   border: 1px solid var(--line-2);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--panel-solid-2);
+  /* 左侧 2px accent 条 + 顶部 1px 高光,跟下面的"数据结果"区分开 */
+  box-shadow:
+    inset 2px 0 0 var(--cyan),
+    0 1px 0 rgba(0, 240, 255, 0.08);
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .sql-editor:focus-within {
-  border-color: rgba(0, 240, 255, 0.3);
-  box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.1);
+  border-color: rgba(0, 240, 255, 0.35);
+  box-shadow:
+    inset 2px 0 0 var(--cyan),
+    0 0 0 1px rgba(0, 240, 255, 0.18),
+    0 0 16px -4px rgba(0, 240, 255, 0.25);
 }
 
 .sql-editor :deep(.cm-editor) {
   height: 100%;
+  background: transparent !important;
+}
+
+.sql-editor :deep(.cm-editor.cm-focused) {
+  outline: none !important;
 }
 
 .sql-editor :deep(.cm-scroller) {
   overflow: auto;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* placeholder 提示(空编辑器时显示一句灰色提示) */
+.sql-editor :deep(.cm-placeholder) {
+  color: var(--muted);
+  font-style: italic;
 }
 </style>

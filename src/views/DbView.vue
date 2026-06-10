@@ -45,27 +45,85 @@ const loadingTables = ref<Set<string>>(new Set())
 const loadingDatabases = ref(false)
 // 每个 db 加载表的失败原因(用于在树上展示"加载失败 · 重试")
 const loadErrors = ref<Map<string, string>>(new Map())
-// selected table 也得带 db, 因为跨库
-const selectedTable = ref<{ db: string; name: string } | null>(null)
-const tableColumns = ref<ColumnMeta[]>([])
+// 共享 SQL 编辑器文本(整个 DbView 一个)
 const sqlText = ref('')
-const queryResult = ref<QueryResult | null>(null)
-const isExecuting = ref(false)
+const isExecutingAny = ref(false) // 任一 SQL 结果 tab 在加载中
 const sidebarCollapsed = ref(false)
-const activeTab = ref<'data' | 'result' | 'structure'>('data')
 const selectedDb = ref<string>('')
 
-// 表格数据(选中表的服务端分页)
-const tableData = ref<QueryResult | null>(null)
-const tableDataTotal = ref(0)
-const tableDataLoading = ref(false)
-const tableDataPage = ref(0)
-const tableDataPageSize = ref(1000)
-const tableDataOrderBy = ref<string | null>(null)
-const tableDataOrderDir = ref<'ASC' | 'DESC'>('ASC')
+// ============ 子标签系统:打开的表 + SQL 结果 ============
+// 设计:把"点哪个表"和"执行 SQL"统一为一组 sub-tab,每个 tab 独立持有状态,
+// 切换 tab 不互相覆盖。SQL 编辑器是共享的(顶部),
+// 结果区按当前激活的 sub-tab 渲染对应内容。
+//
+// 类型:
+// - table tab: 选中某张表 → 包含 data + structure 两个内部视图
+// - sql tab: 执行 SQL 后的结果;每次执行都开新 tab,SQL 文本进 tab title 预览
 
-// 行的主键(来自 listColumns,用于 inline edit 定位行)
-const tablePrimaryKeys = computed(() => tableColumns.value.filter(c => c.key === 'PRI').map(c => c.name))
+type SubTabKind = 'table' | 'sql'
+
+interface BaseSubTab {
+  id: string
+  kind: SubTabKind
+  title: string
+  /** 完整 dbName,tableName 或 sql 摘要,用于 tooltip */
+  subtitle: string
+  /** loading/error 状态(用于标签上的小图标) */
+  loading?: boolean
+  error?: boolean
+}
+
+interface TableSubTab extends BaseSubTab {
+  kind: 'table'
+  db: string
+  table: string
+  /** 内部视图:数据区 or 结构区 */
+  innerTab: 'data' | 'structure'
+  columns: ColumnMeta[]
+  data: QueryResult | null
+  dataTotal: number
+  dataLoading: boolean
+  dataPage: number
+  dataPageSize: number
+  dataOrderBy: string | null
+  dataOrderDir: 'ASC' | 'DESC'
+}
+
+interface SqlSubTab extends BaseSubTab {
+  kind: 'sql'
+  sql: string
+  result: QueryResult | null
+}
+
+type SubTab = TableSubTab | SqlSubTab
+
+const subTabs = ref<SubTab[]>([])
+const activeSubTabId = ref<string | null>(null)
+/** 内部视图(data / structure)按激活的表 tab 自身持有,模板用 computed 取出 */
+const activeSubTab = computed(() => subTabs.value.find(t => t.id === activeSubTabId.value) || null)
+/** 给模板用:当前激活的表 tab(供内部视图切换按钮判断) */
+const activeTableTab = computed(() => {
+  const t = activeSubTab.value
+  return t && t.kind === 'table' ? t : null
+})
+/** 给模板用:当前激活的 SQL 结果 tab */
+const activeSqlTab = computed(() => {
+  const t = activeSubTab.value
+  return t && t.kind === 'sql' ? t : null
+})
+
+// 行的主键(从当前激活的表 tab 的 columns 拿)
+const tablePrimaryKeys = computed(() =>
+  activeTableTab.value ? activeTableTab.value.columns.filter(c => c.key === 'PRI').map(c => c.name) : []
+)
+
+/** 同一张表是否已经开过 tab(用于"点击表是否激活已有 tab 而非新建") */
+function findTableTabId(db: string, table: string): string | null {
+  for (const t of subTabs.value) {
+    if (t.kind === 'table' && t.db === db && t.table === table) return t.id
+  }
+  return null
+}
 
 // 当前选中库的表名(给 SqlEditor 自动补全)
 const allTableNames = computed(() => {
@@ -181,8 +239,10 @@ async function connect() {
  */
 async function refreshDatabases() {
   if (!connId.value || !connected.value) return
-  const sel = selectedTable.value
-  const wasExpanded = new Set(expandedDatabases.value)
+  // 记录当前所有打开的表 tab(刷新后按 db 重新定位)
+  const openTableTabs = subTabs.value
+    .filter((t): t is TableSubTab => t.kind === 'table')
+    .map(t => ({ db: t.db, table: t.table, id: t.id }))
   loadingDatabases.value = true
   try {
     const list = await dbService.mysqlListDatabases(connId.value)
@@ -193,10 +253,21 @@ async function refreshDatabases() {
     loadErrors.value = new Map()
     // 清空展开态(用户得重新点开才会懒加载)
     expandedDatabases.value = new Set()
-    // 如果之前选中的表还属于某个新库,展开那个库
-    if (sel && list.includes(sel.db)) {
-      expandedDatabases.value.add(sel.db)
-      void loadTablesForDb(sel.db)
+    // 关闭那些所属 db 已经不存在的表 tab
+    const stillExists = new Set(list)
+    subTabs.value = subTabs.value.filter(t => {
+      if (t.kind !== 'table') return true
+      return stillExists.has(t.db)
+    })
+    if (activeSubTabId.value && !subTabs.value.find(t => t.id === activeSubTabId.value)) {
+      activeSubTabId.value = subTabs.value[0]?.id ?? null
+    }
+    // 自动展开还存在的表 tab 所在 db
+    for (const t of openTableTabs) {
+      if (stillExists.has(t.db)) {
+        expandedDatabases.value.add(t.db)
+        void loadTablesForDb(t.db)
+      }
     }
     notify.notify({ message: `已刷新:共 ${list.length} 个库`, color: 'success', timeout: 1500 })
   } catch (err) {
@@ -260,42 +331,70 @@ function toggleDatabase(db: string) {
 
 async function selectTable(db: string, tableName: string) {
   if (!connId.value) return
-  selectedTable.value = { db, name: tableName }
   selectedDb.value = db
-  activeTab.value = 'data'
-  try {
-    tableColumns.value = await dbService.mysqlListColumns(connId.value, tableName, db)
-  } catch (err) {
-    console.error('Load columns failed:', err)
+
+  // 已有同表 tab → 激活它(不重建)
+  const existingId = findTableTabId(db, tableName)
+  if (existingId) {
+    activeSubTabId.value = existingId
+    const t = subTabs.value.find(x => x.id === existingId)
+    if (t && t.kind === 'table' && t.data == null && !t.dataLoading) {
+      void loadTableDataFor(t)
+    }
+    return
   }
-  await loadTableData()
+
+  // 新建表 tab(默认展示数据区)
+  const tab: TableSubTab = {
+    id: `tbl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    kind: 'table',
+    db,
+    table: tableName,
+    title: tableName,
+    subtitle: `${db}.${tableName}`,
+    innerTab: 'data',
+    columns: [],
+    data: null,
+    dataTotal: 0,
+    dataLoading: false,
+    dataPage: 0,
+    dataPageSize: 1000,
+    dataOrderBy: null,
+    dataOrderDir: 'ASC'
+  }
+  subTabs.value.push(tab)
+  activeSubTabId.value = tab.id
+  // 懒加载:不阻塞 UI,后台拉 columns + data
+  void loadTableDataFor(tab)
 }
 
-async function loadTableData() {
-  if (!connId.value || !selectedTable.value) return
-  tableDataLoading.value = true
+async function loadTableDataFor(tab: TableSubTab) {
+  if (!connId.value) return
+  tab.dataLoading = true
+  tab.error = false
   try {
-    // 总行数
+    if (tab.columns.length === 0) {
+      tab.columns = await dbService.mysqlListColumns(connId.value, tab.table, tab.db)
+    }
     try {
-      const rc = await dbService.mysqlGetRowCount(connId.value, selectedTable.value.name, selectedTable.value.db)
-      tableDataTotal.value = rc.count
+      const rc = await dbService.mysqlGetRowCount(connId.value, tab.table, tab.db)
+      tab.dataTotal = rc.count
     } catch (err) {
       console.warn('getRowCount failed:', err)
-      tableDataTotal.value = 0
+      tab.dataTotal = 0
     }
-    // 分页数据
-    const offset = tableDataPage.value * tableDataPageSize.value
-    tableData.value = await dbService.mysqlGetTableData(
+    const offset = tab.dataPage * tab.dataPageSize
+    tab.data = await dbService.mysqlGetTableData(
       connId.value,
-      selectedTable.value.name,
-      tableDataPageSize.value,
+      tab.table,
+      tab.dataPageSize,
       offset,
-      tableDataOrderBy.value || undefined,
-      tableDataOrderDir.value,
-      selectedTable.value.db
+      tab.dataOrderBy || undefined,
+      tab.dataOrderDir,
+      tab.db
     )
   } catch (err: unknown) {
-    tableData.value = {
+    tab.data = {
       columns: [],
       rows: [],
       rowsAffected: 0,
@@ -303,57 +402,61 @@ async function loadTableData() {
       isSelect: true,
       error: err instanceof Error ? err.message : String(err)
     }
+    tab.error = true
   } finally {
-    tableDataLoading.value = false
+    tab.dataLoading = false
   }
 }
 
-async function reloadSelectedTable() {
-  if (!connId.value || !selectedTable.value) return
+async function reloadActiveTable() {
+  const tab = activeTableTab.value
+  if (!tab || !connId.value) return
   // 重新拉表(可能表结构变了)
-  const tbls = await dbService.mysqlListTables(connId.value, selectedTable.value.db)
-  databaseTables.value.set(selectedTable.value.db, tbls)
+  const tbls = await dbService.mysqlListTables(connId.value, tab.db)
+  databaseTables.value.set(tab.db, tbls)
   databaseTables.value = new Map(databaseTables.value)
   // 重新拉列
-  tableColumns.value = await dbService.mysqlListColumns(
-    connId.value,
-    selectedTable.value.name,
-    selectedTable.value.db
-  )
+  tab.columns = await dbService.mysqlListColumns(connId.value, tab.table, tab.db)
   // 重新拉数据
-  await loadTableData()
+  await loadTableDataFor(tab)
 }
 
 function onTableDataPageChange(page: number) {
-  tableDataPage.value = page
-  loadTableData()
+  const tab = activeTableTab.value
+  if (!tab) return
+  tab.dataPage = page
+  void loadTableDataFor(tab)
 }
 
 function onTableDataPageSizeChange(size: number) {
-  tableDataPageSize.value = size
-  tableDataPage.value = 0
-  loadTableData()
+  const tab = activeTableTab.value
+  if (!tab) return
+  tab.dataPageSize = size
+  tab.dataPage = 0
+  void loadTableDataFor(tab)
 }
 
 function onTableDataSortChange(col: string) {
-  if (tableDataOrderBy.value === col) {
-    tableDataOrderDir.value = tableDataOrderDir.value === 'ASC' ? 'DESC' : 'ASC'
+  const tab = activeTableTab.value
+  if (!tab) return
+  if (tab.dataOrderBy === col) {
+    tab.dataOrderDir = tab.dataOrderDir === 'ASC' ? 'DESC' : 'ASC'
   } else {
-    tableDataOrderBy.value = col
-    tableDataOrderDir.value = 'ASC'
+    tab.dataOrderBy = col
+    tab.dataOrderDir = 'ASC'
   }
-  loadTableData()
+  void loadTableDataFor(tab)
 }
 
 async function onCellEdit(rowIdx: number, col: string, value: unknown) {
-  if (!connId.value || !selectedTable.value || tablePrimaryKeys.value.length === 0) {
+  const tab = activeTableTab.value
+  if (!tab || !connId.value || tablePrimaryKeys.value.length === 0) {
     alert('需要主键才能编辑行')
     return
   }
-  const result = tableData.value
+  const result = tab.data
   if (!result) return
   const row = result.rows[rowIdx]
-  // 用主键列构造 WHERE
   const where = tablePrimaryKeys.value
     .map(pk => {
       const pkIdx = result.columns.findIndex(c => c.name === pk)
@@ -365,9 +468,8 @@ async function onCellEdit(rowIdx: number, col: string, value: unknown) {
     .join(' AND ')
   if (!where) return
   try {
-    await dbService.mysqlUpdateRows(connId.value, selectedTable.value.name, { [col]: value }, where, selectedTable.value.db)
-    // 刷新当前页
-    await loadTableData()
+    await dbService.mysqlUpdateRows(connId.value, tab.table, { [col]: value }, where, tab.db)
+    await loadTableDataFor(tab)
   } catch (err: unknown) {
     alert(`更新失败: ${err instanceof Error ? err.message : String(err)}`)
   }
@@ -377,18 +479,35 @@ function formatSqlValue(v: unknown): string {
   if (v === null || v === undefined) return 'NULL'
   if (typeof v === 'number') return String(v)
   if (typeof v === 'boolean') return v ? '1' : '0'
-  // 字符串加引号转义
   return `'${String(v).replace(/'/g, "''")}'`
+}
+
+/** 给 SQL 标签生成一个简洁的 title(取第一行关键字 + 时间戳) */
+function makeSqlTitle(sql: string): string {
+  const first = sql.trim().split(/\s+/).slice(0, 2).join(' ').toUpperCase()
+  return first.length > 14 ? first.slice(0, 14) + '…' : first || 'SQL'
 }
 
 async function executeSql(sql: string) {
   if (!connId.value || !sql.trim()) return
-  isExecuting.value = true
-  activeTab.value = 'result'
+  // 每次执行开一个新 SQL 结果 tab,自动激活
+  const tab: SqlSubTab = {
+    id: `sql-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    kind: 'sql',
+    sql,
+    title: makeSqlTitle(sql),
+    subtitle: sql.length > 60 ? sql.slice(0, 60) + '…' : sql,
+    result: null,
+    loading: true
+  }
+  subTabs.value.push(tab)
+  activeSubTabId.value = tab.id
+  isExecutingAny.value = true
   try {
-    queryResult.value = await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
+    tab.result = await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
+    if (tab.result?.error) tab.error = true
   } catch (err: unknown) {
-    queryResult.value = {
+    tab.result = {
       columns: [],
       rows: [],
       rowsAffected: 0,
@@ -396,19 +515,32 @@ async function executeSql(sql: string) {
       isSelect: false,
       error: err instanceof Error ? err.message : String(err)
     }
+    tab.error = true
   } finally {
-    isExecuting.value = false
+    tab.loading = false
+    isExecutingAny.value = subTabs.value.some(t => t.kind === 'sql' && t.loading)
   }
 }
 
 async function explainSql(sql: string) {
   if (!connId.value || !sql.trim()) return
-  isExecuting.value = true
-  activeTab.value = 'result'
+  const tab: SqlSubTab = {
+    id: `sql-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    kind: 'sql',
+    sql,
+    title: 'EXPLAIN',
+    subtitle: sql.length > 60 ? sql.slice(0, 60) + '…' : sql,
+    result: null,
+    loading: true
+  }
+  subTabs.value.push(tab)
+  activeSubTabId.value = tab.id
+  isExecutingAny.value = true
   try {
-    queryResult.value = await dbService.mysqlExplain(connId.value, sql, selectedDb.value || undefined)
+    tab.result = await dbService.mysqlExplain(connId.value, sql, selectedDb.value || undefined)
+    if (tab.result?.error) tab.error = true
   } catch (err: unknown) {
-    queryResult.value = {
+    tab.result = {
       columns: [],
       rows: [],
       rowsAffected: 0,
@@ -416,15 +548,73 @@ async function explainSql(sql: string) {
       isSelect: false,
       error: err instanceof Error ? err.message : String(err)
     }
+    tab.error = true
   } finally {
-    isExecuting.value = false
+    tab.loading = false
+    isExecutingAny.value = subTabs.value.some(t => t.kind === 'sql' && t.loading)
   }
 }
 
 function handleExport(format: string) {
-  if (!connId.value || !selectedTable.value) return
-  dbService.mysqlExportData(connId.value, selectedTable.value.name, format, undefined, selectedTable.value.db)
+  if (!connId.value) return
+  const tab = activeTableTab.value
+  if (!tab) return
+  dbService.mysqlExportData(connId.value, tab.table, format, undefined, tab.db)
 }
+
+function closeSubTab(id: string) {
+  const idx = subTabs.value.findIndex(t => t.id === id)
+  if (idx < 0) return
+  subTabs.value.splice(idx, 1)
+  if (activeSubTabId.value === id) {
+    // 关闭后:优先激活右边的 tab,没有就激活左边的,都没有就 null
+    const next = subTabs.value[idx] || subTabs.value[idx - 1] || null
+    activeSubTabId.value = next ? next.id : null
+  }
+}
+
+function selectSubTab(id: string) {
+  activeSubTabId.value = id
+  // 激活表 tab 时,如果数据还没加载过,触发一次懒加载
+  const t = subTabs.value.find(x => x.id === id)
+  if (t && t.kind === 'table' && t.data == null && !t.dataLoading && t.columns.length === 0) {
+    void loadTableDataFor(t)
+  }
+}
+
+/** 当外部资产被删除时,清理与之相关的子标签 */
+watch(() => assetId.value, () => {
+  // 资产/路由切换:重置子标签(因为连接实例变了)
+  subTabs.value = []
+  activeSubTabId.value = null
+  sqlText.value = ''
+})
+
+/** 单子标签栏横向滚动溢出检测 */
+const subTabStripRef = ref<HTMLElement | null>(null)
+const canScrollLeft = ref(false)
+const canScrollRight = ref(false)
+
+function updateSubTabScrollState() {
+  const el = subTabStripRef.value
+  if (!el) return
+  canScrollLeft.value = el.scrollLeft > 2
+  canScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 2
+}
+
+function scrollSubTabs(dir: -1 | 1) {
+  const el = subTabStripRef.value
+  if (!el) return
+  el.scrollBy({ left: dir * 160, behavior: 'smooth' })
+}
+
+// 监听 subTabs 数量变化,刷新滚动状态
+watch(() => subTabs.value.length, () => {
+  setTimeout(updateSubTabScrollState, 50)
+})
+watch(activeSubTabId, () => {
+  setTimeout(updateSubTabScrollState, 50)
+})
 
 function insertTableName(name: string) {
   sqlText.value += (sqlText.value && !sqlText.value.endsWith(' ') ? ' ' : '') + name
@@ -642,7 +832,9 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                 v-for="tbl in tbls"
                 :key="`${db}.${tbl.name}`"
                 class="tree-item"
-                :class="{ active: selectedTable?.db === db && selectedTable?.name === tbl.name }"
+                :class="{
+                  active: activeTableTab?.db === db && activeTableTab?.table === tbl.name
+                }"
                 @click="selectTable(db, tbl.name)"
                 @dblclick="insertTableName(tbl.name)"
               >
@@ -699,12 +891,19 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
     <div class="db-main">
       <!-- SQL Editor area -->
       <div class="sql-area">
+        <div class="sql-section-label">
+          <span class="sql-section-tag">
+            <v-icon size="12">mdi-code-tags</v-icon>
+            SQL
+          </span>
+          <span class="sql-section-hint">{{ t('db.editorHint', '在此输入 SQL,⌘+Enter 执行') }}</span>
+        </div>
         <div class="sql-toolbar">
-          <button class="cyber-btn" @click="executeSql(sqlText)" :disabled="isExecuting">
+          <button class="cyber-btn" @click="executeSql(sqlText)" :disabled="isExecutingAny">
             <v-icon size="14">mdi-play</v-icon>
             {{ t('db.execute') }}
           </button>
-          <button class="cyber-btn-secondary" @click="explainSql(sqlText)" :disabled="isExecuting">
+          <button class="cyber-btn-secondary" @click="explainSql(sqlText)" :disabled="isExecutingAny">
             <v-icon size="14">mdi-chart-timeline-variant</v-icon>
             {{ t('db.explain') }}
           </button>
@@ -734,73 +933,124 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         />
       </div>
 
-      <!-- Tabs -->
-      <div class="result-tabs">
-        <div
-          class="result-tab"
-          :class="{ active: activeTab === 'data' }"
-          @click="activeTab = 'data'"
-          v-if="selectedTable"
+      <!-- 子标签栏:打开的表 + SQL 结果(放在 SQL 编辑器和结果区之间) -->
+      <div v-if="subTabs.length > 0" class="sub-tab-strip-wrap">
+        <button
+          v-show="canScrollLeft"
+          class="sub-tab-scroll-btn left"
+          @click="scrollSubTabs(-1)"
         >
-          <v-icon size="12">mdi-table-large</v-icon>
-          {{ t('db.data') }}
-        </div>
+          <v-icon size="12">mdi-chevron-left</v-icon>
+        </button>
         <div
-          class="result-tab"
-          :class="{ active: activeTab === 'result' }"
-          @click="activeTab = 'result'"
+          ref="subTabStripRef"
+          class="sub-tab-strip"
+          @scroll="updateSubTabScrollState"
         >
-          <v-icon size="12">mdi-database-search</v-icon>
-          {{ t('db.query') }}
+          <div
+            v-for="tab in subTabs"
+            :key="tab.id"
+            class="sub-tab"
+            :class="{
+              active: activeSubTabId === tab.id,
+              loading: tab.loading,
+              error: tab.error
+            }"
+            :title="tab.subtitle"
+            @click="selectSubTab(tab.id)"
+          >
+            <v-icon size="11" :class="`kind-${tab.kind}`">
+              {{ tab.kind === 'table' ? 'mdi-table' : 'mdi-database-search' }}
+            </v-icon>
+            <span class="sub-tab-title">{{ tab.title }}</span>
+            <span v-if="tab.loading" class="sub-tab-spin">
+              <v-icon size="9" class="spin">mdi-loading</v-icon>
+            </span>
+            <span
+              v-else
+              class="sub-tab-close"
+              :title="'关闭'"
+              @click.stop="closeSubTab(tab.id)"
+            >
+              <v-icon size="9">mdi-close</v-icon>
+            </span>
+          </div>
         </div>
-        <div
-          class="result-tab"
-          :class="{ active: activeTab === 'structure' }"
-          @click="activeTab = 'structure'"
-          v-if="selectedTable"
+        <button
+          v-show="canScrollRight"
+          class="sub-tab-scroll-btn right"
+          @click="scrollSubTabs(1)"
         >
-          <v-icon size="12">mdi-table-column</v-icon>
-          {{ t('db.column') }}
-        </div>
+          <v-icon size="12">mdi-chevron-right</v-icon>
+        </button>
       </div>
 
-      <!-- Result area -->
+      <!-- Result area:根据当前激活的子标签渲染对应内容 -->
       <div class="result-area">
-        <!-- 1) 选中的表数据(服务端分页 + 内联编辑) -->
-        <DataGrid
-          v-if="activeTab === 'data' && selectedTable"
-          :result="tableData"
-          :loading="tableDataLoading"
-          :total-rows="tableDataTotal"
-          :page="tableDataPage"
-          :page-size="tableDataPageSize"
-          :page-size-options="[100, 500, 1000, 2000, 5000]"
-          :editable="tablePrimaryKeys.length > 0"
-          :pk-cols="tablePrimaryKeys"
-          @page-change="onTableDataPageChange"
-          @page-size-change="onTableDataPageSizeChange"
-          @sort-change="onTableDataSortChange"
-          @cell-edit="onCellEdit"
-        />
+        <!-- 空状态:无任何 sub-tab 时,提示用户从左侧选表或上方执行 SQL -->
+        <div v-if="!activeSubTab" class="empty-state">
+          <v-icon size="40" color="muted">mdi-database-search-outline</v-icon>
+          <div class="empty-state-title">从左侧选一张表,或在上方执行 SQL</div>
+          <div class="empty-state-hint">
+            选表/执行后,这里会变成多标签页,可以并行浏览多张表或对比多次查询结果
+          </div>
+        </div>
 
-        <!-- 2) 自定义 SQL 结果 -->
+        <!-- 1) 表 tab - 数据视图 -->
+        <template v-else-if="activeTableTab">
+          <!-- 表 tab 内部视图切换(data / structure),贴在 sub-tab 栏下方 -->
+          <div class="inner-tabs">
+            <div
+              class="inner-tab"
+              :class="{ active: activeTableTab.innerTab === 'data' }"
+              @click="activeTableTab.innerTab = 'data'"
+            >
+              <v-icon size="11">mdi-table-large</v-icon>
+              {{ t('db.data') }}
+            </div>
+            <div
+              class="inner-tab"
+              :class="{ active: activeTableTab.innerTab === 'structure' }"
+              @click="activeTableTab.innerTab = 'structure'"
+            >
+              <v-icon size="11">mdi-table-column</v-icon>
+              {{ t('db.column') }}
+            </div>
+          </div>
+          <div class="inner-tab-body">
+            <DataGrid
+              v-if="activeTableTab.innerTab === 'data'"
+              :result="activeTableTab.data"
+              :loading="activeTableTab.dataLoading"
+              :total-rows="activeTableTab.dataTotal"
+              :page="activeTableTab.dataPage"
+              :page-size="activeTableTab.dataPageSize"
+              :page-size-options="[100, 500, 1000, 2000, 5000]"
+              :editable="tablePrimaryKeys.length > 0"
+              :pk-cols="tablePrimaryKeys"
+              @page-change="onTableDataPageChange"
+              @page-size-change="onTableDataPageSizeChange"
+              @sort-change="onTableDataSortChange"
+              @cell-edit="onCellEdit"
+            />
+            <TableStructureEditor
+              v-else
+              :conn-id="connId || ''"
+              :db="activeTableTab.db"
+              :table="activeTableTab.table"
+              :columns="activeTableTab.columns"
+              @reload="reloadActiveTable"
+            />
+          </div>
+        </template>
+
+        <!-- 2) SQL 结果 tab -->
         <DataGrid
-          v-else-if="activeTab === 'result'"
-          :result="queryResult"
-          :loading="isExecuting"
+          v-else-if="activeSqlTab"
+          :result="activeSqlTab.result"
+          :loading="activeSqlTab.loading"
           :editable="false"
           @export="handleExport"
-        />
-
-        <!-- 3) 表结构(可编辑:改列名/类型/默认值/注释,生成 ALTER TABLE) -->
-        <TableStructureEditor
-          v-else-if="activeTab === 'structure' && selectedTable"
-          ref="structureEditorRef"
-          :conn-id="connId || ''"
-          :db="selectedTable.db"
-          :table="selectedTable.name"
-          :columns="tableColumns"
-          @reload="reloadSelectedTable"
         />
       </div>
     </div>
@@ -1094,8 +1344,36 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 
 .sql-area {
   flex-shrink: 0;
-  padding: 8px 12px;
+  padding: 10px 12px 12px;
   border-bottom: 1px solid var(--line);
+}
+
+.sql-section-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding-left: 2px;
+}
+
+.sql-section-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  border-radius: 4px;
+}
+
+.sql-section-hint {
+  font-size: 10px;
+  color: var(--muted);
 }
 
 .sql-toolbar {
@@ -1158,32 +1436,190 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   box-shadow: 0 0 0 2px rgba(255, 200, 50, 0.1);
 }
 
-.result-tabs {
+/* ====== 子标签栏(打开的表 + SQL 结果) ====== */
+.sub-tab-strip-wrap {
   display: flex;
-  gap: 0;
+  align-items: center;
+  flex-shrink: 0;
   border-bottom: 1px solid var(--line);
+  background: rgba(5, 8, 16, 0.4);
+  min-height: 30px;
+  position: relative;
+}
+
+.sub-tab-strip {
+  flex: 1;
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 0 4px;
+  min-width: 0;
+}
+.sub-tab-strip::-webkit-scrollbar { display: none; }
+
+.sub-tab-scroll-btn {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  margin: 0 2px;
+  transition: all 0.15s;
+}
+.sub-tab-scroll-btn:hover {
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.08);
+  border-color: rgba(0, 240, 255, 0.3);
+}
+
+.sub-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-2);
+  cursor: pointer;
+  border-radius: 4px 4px 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+  flex-shrink: 0;
+  max-width: 200px;
+  user-select: none;
+  position: relative;
+  transition: all 0.15s;
+  background: transparent;
+}
+.sub-tab:hover {
+  background: rgba(0, 240, 255, 0.05);
+  color: var(--text);
+}
+.sub-tab.active {
+  background: var(--panel-solid-2);
+  color: var(--cyan);
+  border-color: var(--line);
+  /* active 标签底部留出一行,让它"接上"下面的 result-area,像贴边 */
+  margin-bottom: -1px;
+}
+.sub-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+.sub-tab.loading .sub-tab-spin { display: inline-flex; }
+.sub-tab.loading .sub-tab-close { display: none; }
+.sub-tab.error { color: var(--red); }
+.sub-tab.error .kind-table,
+.sub-tab.error .kind-sql { color: var(--red); }
+
+.sub-tab-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+.sub-tab .kind-table { color: var(--cyan); }
+.sub-tab .kind-sql { color: var(--purple); }
+.sub-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  color: var(--muted);
+  flex-shrink: 0;
+  margin-left: 2px;
+  opacity: 0.6;
+  transition: all 0.15s;
+}
+.sub-tab-close:hover {
+  background: rgba(255, 77, 109, 0.2);
+  color: var(--red);
+  opacity: 1;
+}
+.sub-tab:hover .sub-tab-close { opacity: 1; }
+.sub-tab-spin {
+  display: none;
+  align-items: center;
+  color: var(--cyan);
   flex-shrink: 0;
 }
 
-.result-tab {
+/* ====== 表 tab 内部视图(data / structure) ====== */
+.inner-tabs {
   display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+  background: rgba(5, 8, 16, 0.2);
+}
+.inner-tab {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
-  font-size: 12px;
+  padding: 6px 14px;
+  font-size: 11px;
   color: var(--muted);
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: all 0.2s;
+  transition: all 0.15s;
 }
-
-.result-tab:hover {
-  color: var(--text-2);
-}
-
-.result-tab.active {
+.inner-tab:hover { color: var(--text-2); }
+.inner-tab.active {
   color: var(--cyan);
   border-bottom-color: var(--cyan);
+}
+
+.inner-tab-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.inner-tab-body > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ====== 空状态(无任何 sub-tab 时) ====== */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 20px;
+  color: var(--muted);
+  text-align: center;
+}
+.empty-state-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-top: 4px;
+}
+.empty-state-hint {
+  font-size: 11px;
+  color: var(--muted);
+  max-width: 360px;
+  line-height: 1.6;
 }
 
 .result-area {
