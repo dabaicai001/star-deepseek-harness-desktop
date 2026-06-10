@@ -24,6 +24,26 @@ const emit = defineEmits<{
 
 const name = ref('')
 const type = ref('VARCHAR(255)')
+const typeOptions = ['VARCHAR(255)', 'INT', 'BIGINT', 'TINYINT', 'DECIMAL(10,2)', 'TEXT', 'LONGTEXT', 'DATETIME', 'DATE', 'BOOLEAN', 'FLOAT', 'DOUBLE', 'JSON']
+const typeSearch = ref('')
+const typeDropdown = ref(false)
+const filteredTypes = ref([...typeOptions])
+
+function filterTypeOptions() {
+  const q = typeSearch.value.toLowerCase()
+  filteredTypes.value = q ? typeOptions.filter(t => t.toLowerCase().includes(q)) : [...typeOptions]
+}
+
+function selectType(t: string) {
+  type.value = t
+  typeSearch.value = ''
+  typeDropdown.value = false
+}
+
+function closeTypeDropdown() {
+  setTimeout(() => { typeDropdown.value = false }, 150)
+}
+
 const nullable = ref(true)
 const defaultValue = ref('')
 const comment = ref('')
@@ -32,11 +52,11 @@ const afterCol = ref('')
 const executing = ref(false)
 const error = ref<string | null>(null)
 
-const typeOptions = ['VARCHAR(255)', 'INT', 'BIGINT', 'TINYINT', 'DECIMAL(10,2)', 'TEXT', 'LONGTEXT', 'DATETIME', 'DATE', 'BOOLEAN', 'FLOAT', 'DOUBLE', 'JSON']
-
 watch(() => props.modelValue, (v) => {
   if (!v) return
   error.value = null
+  typeSearch.value = ''
+  typeDropdown.value = false
   if (props.mode === 'modify' && props.column) {
     name.value = props.column.name
     type.value = props.column.type
@@ -99,10 +119,25 @@ async function submit() {
 
         <div class="form-row">
           <label class="form-label">{{ t('db.type') }}</label>
-          <select v-model="type" class="cyber-select" style="flex: 1;">
-            <option v-for="t in typeOptions" :key="t" :value="t">{{ t }}</option>
-          </select>
-          <input v-if="!typeOptions.includes(type)" v-model="type" class="cyber-input" style="flex: 1;" placeholder="custom type" />
+          <div class="type-combobox" style="flex: 1; position: relative;">
+            <input
+              v-model="typeSearch"
+              class="cyber-input"
+              style="width: 100%;"
+              :placeholder="type || 'VARCHAR(255)'"
+              @focus="typeDropdown = true"
+              @blur="closeTypeDropdown"
+              @input="filterTypeOptions"
+            />
+            <div v-if="typeDropdown && filteredTypes.length > 0" class="type-dropdown">
+              <div
+                v-for="t in filteredTypes"
+                :key="t"
+                class="type-option"
+                @mousedown.prevent="selectType(t)"
+              >{{ t }}</div>
+            </div>
+          </div>
         </div>
 
         <div class="form-row">
@@ -164,4 +199,17 @@ async function submit() {
 .form-label { width: 80px; font-size: 11px; color: var(--muted); text-align: right; text-transform: uppercase; letter-spacing: 0.06em; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.type-combobox { position: relative; }
+.type-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
+  max-height: 180px; overflow: auto;
+  background: var(--panel-solid); border: 1px solid var(--line-2);
+  border-radius: 4px; padding: 2px;
+}
+.type-option {
+  padding: 4px 8px; font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  color: var(--text); cursor: pointer; border-radius: 2px;
+}
+.type-option:hover { background: rgba(0, 240, 255, 0.08); color: var(--cyan); }
 </style>
