@@ -70,13 +70,12 @@ const commands = computed<Command[]>(() => {
     cmds.push({
       id: `tab-${t.id}`,
       group: 'tab',
-      icon: t.type === 'db' ? 'mdi-database' : t.type === 'docker' ? 'mdi-docker' : t.type === 'settings' ? 'mdi-cog' : 'mdi-console',
+      icon: t.type === 'db' ? 'mdi-database' : t.type === 'docker' ? 'mdi-docker' : 'mdi-console',
       label: `${t.title} · tab`,
       keywords: ['tab', 'switch', '切换'],
       run: () => {
         appStore.setActiveTab(t.id)
-        if (t.type === 'settings') router.push('/settings')
-        else if (t.type === 'ssh') {
+        if (t.type === 'ssh') {
           router.push({ name: 'ssh-terminal', params: { id: t.id } })
         } else if (t.type === 'db') {
           const a = assetStore.assets.find(x => x.id === t.assetId)
@@ -109,8 +108,7 @@ const commands = computed<Command[]>(() => {
       label: '打开设置',
       keywords: ['settings', 'preferences', '配置'],
       run: () => {
-        appStore.openSettingsTab()
-        router.push('/settings')
+        setTimeout(() => window.dispatchEvent(new CustomEvent('starhub:open-settings')), 50)
       }
     },
     {

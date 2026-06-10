@@ -5,14 +5,15 @@ import type { AssetType } from '@/types/asset'
 /**
  * Tab 的 type:
  *  - 'ssh' | 'db' | 'docker':真实资产 tab
- *  - 'settings':系统设置页 tab(可以同时开多个实例,每实例独立路由状态)
  *  - 'ai':全局 AI 助手(预留)
+ *
+ * 注:settings 已改为独立 dialog,不再是 tab 类型
  */
-export type TabType = AssetType | 'settings' | 'ai'
+export type TabType = AssetType | 'ai'
 
 export interface Tab {
   id: string
-  /** 对应资产 tab 是 asset.id;对 settings/ai 是占位标识(本类型 tab 不关联具体资产) */
+  /** 对应资产 tab 是 asset.id;对 ai 是占位标识(本类型 tab 不关联具体资产) */
   assetId: string
   title: string
   type: TabType
@@ -80,25 +81,6 @@ export const useAppStore = defineStore('app', () => {
     activeTab.value = tabId
   }
 
-  /**
-   * 打开/激活设置 tab。
-   * 设置页是单例 tab:已存在就直接激活(不再开新 tab),
-   * 多次点设置按钮不会产生多个"设置" tab 污染标签栏。
-   * 返回最终激活的 tab id。
-   */
-  function openSettingsTab() {
-    // 复用:找第一个 type === 'settings' 的 tab,激活它
-    const existing = tabs.value.find(t => t.type === 'settings')
-    if (existing) {
-      activeTab.value = existing.id
-      return existing.id
-    }
-    // 首次打开,新建一个固定 id 的 settings tab
-    const id = 'settings'
-    addTab({ id, assetId: 'settings', title: '设置', type: 'settings' })
-    return id
-  }
-
   return {
     sidebarOpen,
     sidebarWidth,
@@ -114,8 +96,7 @@ export const useAppStore = defineStore('app', () => {
     setRightPanelWidth,
     addTab,
     removeTab,
-    setActiveTab,
-    openSettingsTab
+    setActiveTab
   }
 }, {
   // pinia-plugin-persistedstate: 整个 store 自动落 localStorage,
@@ -140,30 +121,16 @@ export const useAppStore = defineStore('app', () => {
       }
       
       if (Array.isArray(state.tabs)) {
-        // 1) 过滤掉无 assetId 的 tab(旧格式)
+        // 1) 过滤掉无 assetId 的 tab(旧格式) 与已废弃的 settings tab
         // 2) 顺带去重(同样的 id 不该出现两次)
         const seen = new Set<string>()
         state.tabs = state.tabs.filter(t => {
           if (!t?.assetId) return false
+          if (t.type === 'settings') return false // settings 已改为 dialog,不再作为 tab
           if (seen.has(t.id)) return false
           seen.add(t.id)
           return true
         })
-        // 2.5) 合并旧的 settings-<ts> tab 为单例 `settings` tab
-        // (v0.3.5 之前 openSettingsTab 每次新建一个 settings-<ts>,
-        //  现在改为单例,需要在启动时把残留的多余 settings tab 收掉)
-        const settingsTabs = state.tabs.filter(t => t.type === 'settings')
-        if (settingsTabs.length > 0) {
-          const first = settingsTabs[0]
-          const oldIds = new Set(settingsTabs.map(t => t.id))
-          state.tabs = [
-            { ...first, id: 'settings' },
-            ...state.tabs.filter(t => t.type !== 'settings' && !oldIds.has(t.id))
-          ]
-          if (state.activeTab && oldIds.has(state.activeTab)) {
-            state.activeTab = 'settings'
-          }
-        }
         // 3) activeTab 指向不存在的 tab 时,清空让它落到 home
         if (state.activeTab && !state.tabs.find(t => t.id === state.activeTab)) {
           state.activeTab = null

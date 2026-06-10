@@ -9,6 +9,7 @@ import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import AssetTree from '@/components/asset/AssetTree.vue'
 import SidebarHandle from '@/components/layout/SidebarHandle.vue'
 import CommandPalette from '@/components/layout/CommandPalette.vue'
+import SettingsView from '@/views/SettingsView.vue'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import * as tauriWindowApi from '@tauri-apps/api/window'
 import { generateInstanceId } from '@/utils/tabId'
@@ -42,6 +43,7 @@ function onSearchShortcut(e: KeyboardEvent) {
   }
 }
 const showNewConnection = ref(false)
+const showSettings = ref(false)
 // 从顶栏菜单"快速新建"入口传入,弹 dialog 时直接跳过 type 选择
 const newConnectionInitialType = ref<'ssh' | 'db' | 'docker' | undefined>(undefined)
 
@@ -263,8 +265,7 @@ function onUserMenuAction(action: 'settings' | 'theme' | 'lang' | 'about' | 'qui
   closeUserMenu()
   switch (action) {
     case 'settings':
-      appStore.openSettingsTab()
-      router.push('/settings')
+      showSettings.value = true
       break
     case 'theme':
       themeStore.setTheme(themeStore.theme === 'darkTheme' ? 'lightTheme' : 'darkTheme')
@@ -317,6 +318,13 @@ function onNewConnectionEvent() {
 }
 onMounted(() => window.addEventListener('starhub:new-connection', onNewConnectionEvent))
 onBeforeUnmount(() => window.removeEventListener('starhub:new-connection', onNewConnectionEvent))
+
+// 监听来自 CommandPalette 的"打开设置"事件
+function onOpenSettingsEvent() {
+  showSettings.value = true
+}
+onMounted(() => window.addEventListener('starhub:open-settings', onOpenSettingsEvent))
+onBeforeUnmount(() => window.removeEventListener('starhub:open-settings', onOpenSettingsEvent))
 
 const filteredAssets = computed(() => {
   if (!searchQuery.value) return assetStore.assets
@@ -473,7 +481,7 @@ function getStatusColor(asset: Asset) {
 function _placeholder() {}
 
 function getTabDisplayTitle(tab: { id: string; assetId?: string; title: string; type?: string }): string {
-  // settings / ai 类型的 tab(非资产)按"同 title 出现多次"加序号
+  // ai 类型的 tab(非资产)按"同 title 出现多次"加序号
   if (!tab.assetId) {
     const sameTitleTabs = appStore.tabs.filter(t => t.title === tab.title)
     if (sameTitleTabs.length <= 1) return tab.title
@@ -543,12 +551,6 @@ async function handleNewConnection(dto: CreateAssetDto) {
 }
 
 function navigateTo(path: string) {
-  if (path === '/settings') {
-    // 设置总是开新 tab
-    appStore.openSettingsTab()
-    router.push('/settings')
-    return
-  }
   router.push(path)
 }
 
@@ -562,8 +564,6 @@ function selectTab(tab: { id: string; assetId?: string; type: string }) {
     router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: tab.id } })
   } else if (tab.type === 'docker') {
     router.push({ name: 'docker', params: { id: tab.id } })
-  } else if (tab.type === 'settings') {
-    router.push('/settings')
   }
 }
 
@@ -787,7 +787,7 @@ vueWatch(() => appStore.tabs.length, () => {
 
       <div class="top-actions">
         <div class="top-action-group">
-          <button class="action-btn" @click="navigateTo('/settings')" :data-tooltip="t('settings.title')">
+          <button class="action-btn" @click="showSettings = true" :data-tooltip="t('settings.title')">
             <v-icon size="16">mdi-cog</v-icon>
           </button>
           <button class="action-btn primary" @click="openNewConnection" :data-tooltip="t('asset.create')">
@@ -1071,6 +1071,28 @@ vueWatch(() => appStore.tabs.length, () => {
       :initial-type="newConnectionInitialType"
       @submit="handleNewConnection"
     />
+
+    <!-- Settings Dialog -->
+    <v-dialog
+      v-model="showSettings"
+      max-width="960"
+      scrollable
+      transition="dialog-bottom-transition"
+    >
+      <div class="settings-dialog cyber-panel">
+        <div class="settings-dialog-header">
+          <span class="section-number">⚙</span>
+          <span class="section-title">{{ t('settings.title') }}</span>
+          <v-spacer />
+          <button class="action-btn" @click="showSettings = false" :data-tooltip="t('common.close')">
+            <v-icon size="16">mdi-close</v-icon>
+          </button>
+        </div>
+        <div class="settings-dialog-body">
+          <SettingsView />
+        </div>
+      </div>
+    </v-dialog>
 
     <!-- Tab context menu -->
     <ContextMenu
@@ -2048,5 +2070,47 @@ kbd {
 @keyframes float {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-8px); }
+}
+
+/* ====== Settings Dialog ====== */
+.settings-dialog {
+  display: flex;
+  flex-direction: column;
+  height: 90vh;
+  max-height: 840px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+}
+
+.settings-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+  background: var(--panel-solid-2);
+}
+
+.settings-dialog-header .section-number {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--cyan);
+  text-shadow: 0 0 8px var(--cyan);
+}
+
+.settings-dialog-header .section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-dialog-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
 }
 </style>
