@@ -356,7 +356,7 @@ async function selectTable(db: string, tableName: string) {
     columns: [],
     data: null,
     dataTotal: 0,
-    dataLoading: false,
+    dataLoading: true,
     dataPage: 0,
     dataPageSize: 1000,
     dataOrderBy: null,
@@ -1020,6 +1020,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           <div class="inner-tab-body">
             <DataGrid
               v-if="activeTableTab.innerTab === 'data'"
+              :key="`${activeTableTab.db}.${activeTableTab.table}.${activeTableTab.data ? 'loaded' : 'loading'}`"
               :result="activeTableTab.data"
               :loading="activeTableTab.dataLoading"
               :total-rows="activeTableTab.dataTotal"
