@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -610,6 +611,204 @@ func parseRedisCommand(command string) []string {
 	}
 
 	return parts
+}
+
+// SlowlogEntry 慢查询条目
+type SlowlogEntry struct {
+	ID        int64  `json:"id"`
+	Duration  int64  `json:"duration"`
+	Timestamp int64  `json:"timestamp"`
+	Command   string `json:"command"`
+}
+
+// SlowlogGet 获取慢查询日志
+func (a *RedisAdapter) SlowlogGet(count int64) ([]SlowlogEntry, error) {
+	result, err := a.client.SlowLogGet(a.ctx, count).Result()
+	if err != nil {
+		return nil, fmt.Errorf("slowlog get: %w", err)
+	}
+	entries := make([]SlowlogEntry, len(result))
+	for i, r := range result {
+		entries[i] = SlowlogEntry{
+			ID:        r.ID,
+			Duration:  r.Duration.Microseconds(),
+			Timestamp: r.Time.Unix(),
+			Command:   strings.Join(r.Args, " "),
+		}
+	}
+	return entries, nil
+}
+
+// SlowlogReset 重置慢查询日志
+func (a *RedisAdapter) SlowlogReset() error {
+	_, err := a.client.SlowLogReset(a.ctx).Result()
+	if err != nil {
+		return fmt.Errorf("slowlog reset: %w", err)
+	}
+	return nil
+}
+
+// ScanAll 全量扫描所有 key（带类型过滤）
+func (a *RedisAdapter) ScanAll(match string, count int64, typeFilter string) ([]RedisKeyInfo, error) {
+	var allKeys []RedisKeyInfo
+	var cursor uint64 = 0
+	if count <= 0 {
+		count = 200
+	}
+	for {
+		keys, nextCursor, err := a.client.Scan(a.ctx, cursor, match, count).Result()
+		if err != nil {
+			return nil, fmt.Errorf("scan all: %w", err)
+		}
+		for _, key := range keys {
+			keyType, err := a.client.Type(a.ctx, key).Result()
+			if err != nil {
+				continue
+			}
+			if typeFilter != "" && typeFilter != "all" && keyType != typeFilter {
+				continue
+			}
+			ttl, _ := a.client.TTL(a.ctx, key).Result()
+			allKeys = append(allKeys, RedisKeyInfo{
+				Key:  key,
+				Type: keyType,
+				TTL:  int64(ttl.Seconds()),
+			})
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	return allKeys, nil
+}
+
+// BigKeyEntry 大 key 条目
+type BigKeyEntry struct {
+	Key    string `json:"key"`
+	Type   string `json:"type"`
+	Size   int64  `json:"size"`
+	Length int64  `json:"length"`
+}
+
+// BigKeyScan 扫描大 key
+func (a *RedisAdapter) BigKeyScan(match string, stringThreshold, memberThreshold int64) ([]BigKeyEntry, error) {
+	var results []BigKeyEntry
+	var cursor uint64 = 0
+	for {
+		keys, nextCursor, err := a.client.Scan(a.ctx, cursor, match, 200).Result()
+		if err != nil {
+			return nil, fmt.Errorf("bigkey scan: %w", err)
+		}
+		for _, key := range keys {
+			keyType, err := a.client.Type(a.ctx, key).Result()
+			if err != nil {
+				continue
+			}
+			switch keyType {
+			case "string":
+				if size, err := a.client.StrLen(a.ctx, key).Result(); err == nil && size >= stringThreshold {
+					results = append(results, BigKeyEntry{Key: key, Type: keyType, Size: size})
+				}
+			case "hash":
+				if length, err := a.client.HLen(a.ctx, key).Result(); err == nil && length >= memberThreshold {
+					results = append(results, BigKeyEntry{Key: key, Type: keyType, Length: length})
+				}
+			case "list":
+				if length, err := a.client.LLen(a.ctx, key).Result(); err == nil && length >= memberThreshold {
+					results = append(results, BigKeyEntry{Key: key, Type: keyType, Length: length})
+				}
+			case "set":
+				if length, err := a.client.SCard(a.ctx, key).Result(); err == nil && length >= memberThreshold {
+					results = append(results, BigKeyEntry{Key: key, Type: keyType, Length: length})
+				}
+			case "zset":
+				if length, err := a.client.ZCard(a.ctx, key).Result(); err == nil && length >= memberThreshold {
+					results = append(results, BigKeyEntry{Key: key, Type: keyType, Length: length})
+				}
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Size+results[i].Length > results[j].Size+results[j].Length
+	})
+	return results, nil
+}
+
+// MemoryAnalysisEntry 内存分析条目
+type MemoryAnalysisEntry struct {
+	Prefix     string  `json:"prefix"`
+	Keys       int64   `json:"keys"`
+	Memory     int64   `json:"memory"`
+	Percentage float64 `json:"percentage"`
+}
+
+// MemoryAnalysis 按 key 前缀分析内存使用
+func (a *RedisAdapter) MemoryAnalysis(match string, sampleSize int) ([]MemoryAnalysisEntry, error) {
+	type agg struct {
+		Keys, Memory int64
+	}
+	prefixes := map[string]*agg{}
+	var cursor uint64 = 0
+	var total int64 = 0
+	for {
+		keys, nextCursor, err := a.client.Scan(a.ctx, cursor, match, 200).Result()
+		if err != nil {
+			return nil, fmt.Errorf("memory scan: %w", err)
+		}
+		for _, key := range keys {
+			prefix := key
+			if idx := strings.Index(key, ":"); idx != -1 {
+				prefix = key[:idx+1] + "*"
+			} else {
+				prefix = "<no prefix>"
+			}
+			if _, ok := prefixes[prefix]; !ok {
+				prefixes[prefix] = &agg{}
+			}
+			prefixes[prefix].Keys++
+			if sampleSize <= 0 || prefixes[prefix].Keys <= int64(sampleSize) {
+				if mem, err := a.client.MemoryUsage(a.ctx, key, 0).Result(); err == nil {
+					prefixes[prefix].Memory += mem
+					total += mem
+				}
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	var results []MemoryAnalysisEntry
+	for prefix, a := range prefixes {
+		pct := float64(0)
+		if total > 0 {
+			pct = float64(a.Memory) / float64(total) * 100
+		}
+		results = append(results, MemoryAnalysisEntry{
+			Prefix:     prefix,
+			Keys:       a.Keys,
+			Memory:     a.Memory,
+			Percentage: pct,
+		})
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Memory > results[j].Memory
+	})
+	return results, nil
+}
+
+// FlushDB 清空当前数据库
+func (a *RedisAdapter) FlushDB() error {
+	_, err := a.client.FlushDB(a.ctx).Result()
+	if err != nil {
+		return fmt.Errorf("flushdb: %w", err)
+	}
+	return nil
 }
 
 // MarshalJSON 为 RedisAdapter 提供自定义 JSON 序列化（避免导出 ctx）

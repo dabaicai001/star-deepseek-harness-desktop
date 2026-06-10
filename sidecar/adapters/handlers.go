@@ -49,6 +49,12 @@ func RegisterDBHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("db.redis.execute", handleRedisExecute(mgr))
 	server.Register("db.redis.info", handleRedisInfo(mgr))
 	server.Register("db.redis.dbSize", handleRedisDBSize(mgr))
+	server.Register("db.redis.slowlogGet", handleRedisSlowlogGet(mgr))
+	server.Register("db.redis.slowlogReset", handleRedisSlowlogReset(mgr))
+	server.Register("db.redis.scanAll", handleRedisScanAll(mgr))
+	server.Register("db.redis.bigkeyScan", handleRedisBigKeyScan(mgr))
+	server.Register("db.redis.memoryAnalysis", handleRedisMemoryAnalysis(mgr))
+	server.Register("db.redis.flushDb", handleRedisFlushDB(mgr))
 }
 
 // ServerInterface 定义 server 需要的方法（避免循环导入）
@@ -733,6 +739,124 @@ func handleRedisDBSize(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		return map[string]interface{}{"size": size}, nil
+	}
+}
+
+func handleRedisSlowlogGet(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+			Count  int64  `json:"count"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if p.Count <= 0 {
+			p.Count = 50
+		}
+		adapter, err := getRedisAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.SlowlogGet(p.Count)
+	}
+}
+
+func handleRedisSlowlogReset(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getRedisAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, adapter.SlowlogReset()
+	}
+}
+
+func handleRedisScanAll(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID     string `json:"connId"`
+			Match      string `json:"match,omitempty"`
+			Count      int64  `json:"count,omitempty"`
+			TypeFilter string `json:"typeFilter,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getRedisAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		keys, err := adapter.ScanAll(p.Match, p.Count, p.TypeFilter)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"keys": keys, "cursor": 0, "total": len(keys)}, nil
+	}
+}
+
+func handleRedisBigKeyScan(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID          string `json:"connId"`
+			Match           string `json:"match,omitempty"`
+			StringThreshold int64  `json:"stringThreshold,omitempty"`
+			MemberThreshold int64  `json:"memberThreshold,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if p.StringThreshold <= 0 {
+			p.StringThreshold = 10240
+		}
+		if p.MemberThreshold <= 0 {
+			p.MemberThreshold = 1000
+		}
+		adapter, err := getRedisAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.BigKeyScan(p.Match, p.StringThreshold, p.MemberThreshold)
+	}
+}
+
+func handleRedisMemoryAnalysis(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID     string `json:"connId"`
+			Match      string `json:"match,omitempty"`
+			SampleSize int    `json:"sampleSize,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getRedisAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.MemoryAnalysis(p.Match, p.SampleSize)
+	}
+}
+
+func handleRedisFlushDB(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getRedisAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, adapter.FlushDB()
 	}
 }
 
