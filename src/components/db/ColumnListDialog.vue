@@ -119,6 +119,53 @@ function onTypeKeydown(e: KeyboardEvent, col: ColumnEdit) {
   }
 }
 
+// 新增字段行的 picker:直接用 newCol.type 作为查询,避免双向同步的坑
+const newColCandidates = computed(() => {
+  const q = (newCol.value.type || '').trim().toLowerCase()
+  const merged: string[] = []
+  const seen = new Set<string>()
+  for (const t of existingTypes.value) {
+    if (!q || t.toLowerCase().includes(q)) { merged.push(t); seen.add(t.toUpperCase()) }
+  }
+  for (const t of COMMON_TYPES) {
+    const up = t.toUpperCase()
+    if (seen.has(up)) continue
+    if (!q || t.toLowerCase().includes(q)) merged.push(t)
+  }
+  return merged
+})
+
+function openNewColTypePicker() {
+  typeCandidateFor.value = '__new__'
+  typeHighlight.value = 0
+}
+
+function pickNewColType(val: string) {
+  newCol.value.type = val
+  closeTypePicker()
+}
+
+function onNewColTypeKeydown(e: KeyboardEvent) {
+  const list = newColCandidates.value
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    typeHighlight.value = Math.min(typeHighlight.value + 1, Math.max(list.length - 1, 0))
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    typeHighlight.value = Math.max(typeHighlight.value - 1, 0)
+  } else if (e.key === 'Enter') {
+    // 选中候选(若有),并提交新增
+    if (list.length && typeHighlight.value < list.length) {
+      newCol.value.type = list[typeHighlight.value]
+    }
+    closeTypePicker()
+    addNewCol()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    closeTypePicker()
+  }
+}
+
 const selectedColIdx = ref<number | null>(null)
 const colCtxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 
@@ -342,7 +389,33 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
 
           <div class="add-row">
             <input v-model="newCol.name" class="cell-input" :placeholder="t('db.newColumn')" style="width: 120px;" @keyup.enter="addNewCol" />
-            <input v-model="newCol.type" class="cell-input" placeholder="VARCHAR(255)" style="width: 120px;" @keyup.enter="addNewCol" />
+            <div style="position: relative; width: 120px;">
+              <input
+                v-model="newCol.type"
+                class="cell-input"
+                placeholder="VARCHAR(255)"
+                @focus="openNewColTypePicker"
+                @keydown="onNewColTypeKeydown"
+                @blur="closeTypePicker"
+              />
+              <div v-if="typeCandidateFor === '__new__'" class="type-picker" style="left: 0; right: auto;">
+                <div class="type-picker-hint">↑↓ 选择 · Enter 新增 · Esc 取消</div>
+                <div v-if="newColCandidates.length === 0" class="type-picker-empty">
+                  无匹配 · 直接回车用 "{{ newCol.type }}" 新增
+                </div>
+                <div
+                  v-for="(t, i) in newColCandidates"
+                  :key="t"
+                  class="type-picker-item"
+                  :class="{ active: i === typeHighlight }"
+                  @mousedown.prevent="pickNewColType(t)"
+                  @mouseenter="typeHighlight = i"
+                >
+                  <span class="type-picker-label">{{ t }}</span>
+                  <v-icon v-if="existingTypes.includes(t)" size="10" color="cyan" class="type-picker-tag">mdi-database</v-icon>
+                </div>
+              </div>
+            </div>
             <label><input type="checkbox" v-model="newCol.nullable" /> NULL</label>
             <input v-model="newCol.defaultVal" class="cell-input" placeholder="default" style="width: 80px;" @keyup.enter="addNewCol" />
             <input v-model="newCol.comment" class="cell-input" placeholder="comment" style="width: 120px;" @keyup.enter="addNewCol" />
