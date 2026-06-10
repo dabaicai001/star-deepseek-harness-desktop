@@ -134,7 +134,7 @@ function close() {
               </div>
               <div class="type-meta">
                 <span class="type-name">{{ t('db.title') }}</span>
-                <span class="type-desc">MySQL · Redis</span>
+                <span class="type-desc">MySQL · Redis · Elasticsearch</span>
               </div>
               <v-icon class="arrow" size="14">mdi-arrow-right</v-icon>
             </div>

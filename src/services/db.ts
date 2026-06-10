@@ -19,7 +19,16 @@ import type {
   DeleteResult,
   SlowlogEntry,
   BigKeyEntry,
-  MemoryAnalysisEntry
+  MemoryAnalysisEntry,
+  EsConnectParams,
+  EsConnectResult,
+  ClusterHealthInfo,
+  EsIndexInfo,
+  IndexMappingInfo,
+  EsSearchResult,
+  EsDocument,
+  BulkResult,
+  ScrollResult
 } from '@/types/db'
 
 // ─── MySQL ───
@@ -190,4 +199,105 @@ export async function redisSubscribe(connId: string, channels: string[], pattern
 
 export async function redisUnsubscribe(connId: string, channels: string[]): Promise<void> {
   return invoke('db_redis_unsubscribe', { connId, channels })
+}
+
+// ─── Elasticsearch ───
+
+export async function esConnect(params: EsConnectParams): Promise<EsConnectResult> {
+  return invoke('db_es_connect', { params })
+}
+
+export async function esTest(params: EsConnectParams): Promise<TestResult> {
+  return invoke('db_es_test', { params })
+}
+
+export async function esDisconnect(connId: string): Promise<void> {
+  return invoke('db_es_disconnect', { connId })
+}
+
+export async function esClusterHealth(connId: string): Promise<ClusterHealthInfo> {
+  return invoke('db_es_cluster_health', { connId })
+}
+
+export async function esClusterStats(connId: string): Promise<Record<string, unknown>> {
+  return invoke('db_es_cluster_stats', { connId })
+}
+
+export async function esListIndices(connId: string): Promise<EsIndexInfo[]> {
+  return invoke('db_es_list_indices', { connId })
+}
+
+export async function esGetMapping(connId: string, index: string): Promise<IndexMappingInfo> {
+  return invoke('db_es_get_index_mapping', { connId, index })
+}
+
+export async function esGetSettings(connId: string, index: string): Promise<Record<string, unknown>> {
+  return invoke('db_es_get_index_settings', { connId, index })
+}
+
+export async function esCreateIndex(
+  connId: string, index: string,
+  mappings?: Record<string, unknown>,
+  settings?: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  return invoke('db_es_create_index', { connId, index, mappings, settings })
+}
+
+export async function esDeleteIndex(connId: string, index: string): Promise<Record<string, unknown>> {
+  return invoke('db_es_delete_index', { connId, index })
+}
+
+export async function esSearch(
+  connId: string, index: string, body: Record<string, unknown>,
+  from?: number, size?: number
+): Promise<EsSearchResult> {
+  return invoke('db_es_search', { connId, index, body, from, size })
+}
+
+export async function esCount(
+  connId: string, index: string, body?: Record<string, unknown>
+): Promise<{ count: number }> {
+  return invoke('db_es_count', { connId, index, body })
+}
+
+export async function esGetDocument(
+  connId: string, index: string, id: string
+): Promise<EsDocument> {
+  return invoke('db_es_get_document', { connId, index, id })
+}
+
+export async function esIndexDocument(
+  connId: string, index: string, body: Record<string, unknown>, id?: string
+): Promise<Record<string, unknown>> {
+  return invoke('db_es_index_document', { connId, index, body, id })
+}
+
+export async function esUpdateDocument(
+  connId: string, index: string, id: string, body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  return invoke('db_es_update_document', { connId, index, id, body })
+}
+
+export async function esDeleteDocument(
+  connId: string, index: string, id: string
+): Promise<Record<string, unknown>> {
+  return invoke('db_es_delete_document', { connId, index, id })
+}
+
+export async function esBulkIndex(
+  connId: string, index: string, documents: Record<string, unknown>[]
+): Promise<BulkResult> {
+  return invoke('db_es_bulk_index', { connId, index, documents })
+}
+
+export async function esExportJSON(
+  connId: string, index: string, body?: Record<string, unknown>, size?: number
+): Promise<{ documents: Record<string, unknown>[]; count: number }> {
+  return invoke('db_es_export_json', { connId, index, body, size })
+}
+
+export async function esScrollSearch(
+  connId: string, index: string, body: Record<string, unknown>, size?: number
+): Promise<ScrollResult> {
+  return invoke('db_es_scroll_search', { connId, index, body, size })
 }

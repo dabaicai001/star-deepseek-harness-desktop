@@ -37,6 +37,12 @@ const router = createRouter({
           props: true,
         },
         {
+          path: 'db/elasticsearch/:id',
+          name: 'db-elasticsearch',
+          component: () => import('@/views/ElasticsearchView.vue'),
+          props: true,
+        },
+        {
           path: 'docker/:id',
           name: 'docker',
           component: () => import('@/views/DockerView.vue'),

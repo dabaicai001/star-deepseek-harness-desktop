@@ -1,4 +1,4 @@
-export type DatabaseType = 'mysql' | 'redis'
+export type DatabaseType = 'mysql' | 'redis' | 'elasticsearch'
 
 export interface DbConnectionInfo {
   connId: string
@@ -170,4 +170,89 @@ export interface DbSession {
   connected: boolean
   name: string
   assetId: string
+}
+
+// Elasticsearch types
+export interface EsConnectParams {
+  host: string
+  port: number
+  username?: string
+  password?: string
+  useSSL?: boolean
+  apiKey?: string
+}
+
+export interface EsConnectResult {
+  connId: string
+  host: string
+  port: number
+  clusterName: string
+  version: string
+}
+
+export interface ClusterHealthInfo {
+  clusterName: string
+  status: 'green' | 'yellow' | 'red'
+  numberOfNodes: number
+  numberOfDataNodes: number
+  activePrimaryShards: number
+  activeShards: number
+  activeShardsPercent: number
+}
+
+export interface EsIndexInfo {
+  name: string
+  docsCount: number
+  storeSize: string
+  health: string
+  status: string
+  primaryShards: number
+  replicaShards: number
+}
+
+export interface EsFieldInfo {
+  name: string
+  type: string
+  children?: EsFieldInfo[]
+}
+
+export interface IndexMappingInfo {
+  indexName: string
+  fields: EsFieldInfo[]
+}
+
+export interface EsSearchResult {
+  took: number
+  timedOut: boolean
+  totalHits: number
+  maxScore: number | null
+  hits: EsSearchHit[]
+  aggregations: Record<string, unknown>
+}
+
+export interface EsSearchHit {
+  index: string
+  id: string
+  score: number | null
+  source: Record<string, unknown>
+}
+
+export interface EsDocument {
+  index: string
+  id: string
+  version: number
+  found: boolean
+  source: Record<string, unknown>
+}
+
+export interface BulkResult {
+  took: number
+  errors: boolean
+  items: Record<string, unknown>[]
+}
+
+export interface ScrollResult {
+  scrollId: string
+  totalHits: number
+  hits: EsSearchHit[]
 }

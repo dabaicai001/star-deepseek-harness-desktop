@@ -36,6 +36,8 @@ const password = ref(props.initialValues?.password ?? '')
 const database = ref(props.initialValues?.database ?? '')
 const ssl = ref(props.initialValues?.ssl ?? false)
 const redisDb = ref<number>(props.initialValues?.redisDb ?? 0)
+const esApiKey = ref('')
+const esAuthMode = ref<'password' | 'apikey'>('password')
 const showPassword = ref(false)
 
 const testStatus = ref<'idle' | 'testing' | 'success' | 'fail'>('idle')
@@ -46,6 +48,8 @@ watch(dbType, (type) => {
     port.value = 3306
   } else if (type === 'redis') {
     port.value = 6379
+  } else if (type === 'elasticsearch') {
+    port.value = 9200
   }
 })
 
@@ -68,12 +72,14 @@ watch(
 const canSubmit = computed(() => {
   if (!name.value || !host.value) return false
   if (dbType.value === 'mysql') return !!username.value
-  return true // Redis only needs host
+  if (dbType.value === 'elasticsearch') return esAuthMode.value === 'apikey' ? !!esApiKey.value : true
+  return true
 })
 
 const canTest = computed(() => {
   if (!host.value) return false
   if (dbType.value === 'mysql') return !!username.value
+  if (dbType.value === 'elasticsearch') return esAuthMode.value === 'apikey' ? !!esApiKey.value : true
   return true
 })
 
@@ -100,6 +106,17 @@ async function onTestConnection() {
         password: password.value || undefined,
         db: redisDb.value,
         ssl: ssl.value
+      })
+      testStatus.value = result.ok ? 'success' : 'fail'
+      testMessage.value = result.message
+    } else if (dbType.value === 'elasticsearch') {
+      const result = await dbService.esTest({
+        host: host.value,
+        port: port.value,
+        username: esAuthMode.value === 'password' ? username.value : undefined,
+        password: esAuthMode.value === 'password' ? password.value : undefined,
+        useSSL: ssl.value,
+        apiKey: esAuthMode.value === 'apikey' ? esApiKey.value : undefined
       })
       testStatus.value = result.ok ? 'success' : 'fail'
       testMessage.value = result.message
@@ -165,6 +182,14 @@ function onKeydown(e: KeyboardEvent) {
       >
         <v-icon size="16">mdi-database-eye</v-icon>
         <span>Redis</span>
+      </div>
+      <div
+        class="db-type-btn"
+        :class="{ active: dbType === 'elasticsearch' }"
+        @click="dbType = 'elasticsearch'"
+      >
+        <v-icon size="16">mdi-database-search</v-icon>
+        <span>Elasticsearch</span>
       </div>
     </div>
 
@@ -292,6 +317,63 @@ function onKeydown(e: KeyboardEvent) {
             min="0"
             max="15"
             placeholder="0"
+          />
+        </div>
+
+        <!-- Elasticsearch 认证方式 -->
+        <div v-if="dbType === 'elasticsearch'" class="form-field">
+          <label class="field-label">
+            <v-icon size="12">mdi-shield-key-outline</v-icon>
+            {{ t('db.authMode') }}
+          </label>
+          <div class="auth-mode-switch">
+            <button
+              type="button"
+              class="auth-mode-btn"
+              :class="{ active: esAuthMode === 'password' }"
+              @click="esAuthMode = 'password'"
+            >
+              Basic Auth
+            </button>
+            <button
+              type="button"
+              class="auth-mode-btn"
+              :class="{ active: esAuthMode === 'apikey' }"
+              @click="esAuthMode = 'apikey'"
+            >
+              API Key
+            </button>
+          </div>
+        </div>
+
+        <!-- Elasticsearch 用户名 (Basic Auth) -->
+        <div v-if="dbType === 'elasticsearch' && esAuthMode === 'password'" class="form-field">
+          <label class="field-label">
+            <v-icon size="12">mdi-account-outline</v-icon>
+            {{ t('asset.username') }}
+          </label>
+          <div class="input-group">
+            <span class="input-prefix">@</span>
+            <input
+              v-model="username"
+              type="text"
+              class="cyber-input"
+              :placeholder="t('asset.placeholderUser')"
+            />
+          </div>
+        </div>
+
+        <!-- Elasticsearch API Key -->
+        <div v-if="dbType === 'elasticsearch' && esAuthMode === 'apikey'" class="form-field">
+          <label class="field-label">
+            <v-icon size="12">mdi-key-outline</v-icon>
+            {{ t('db.apiKey') }}
+          </label>
+          <input
+            v-model="esApiKey"
+            type="password"
+            class="cyber-input mono"
+            placeholder="id:api_key"
           />
         </div>
 
@@ -596,5 +678,37 @@ function onKeydown(e: KeyboardEvent) {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+.auth-mode-switch {
+  display: flex;
+  gap: 6px;
+}
+
+.auth-mode-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-input);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.auth-mode-btn.active {
+  border-color: var(--purple);
+  background: rgba(181, 107, 255, 0.1);
+  color: var(--purple);
+}
+
+.auth-mode-btn:hover:not(.active) {
+  border-color: rgba(181, 107, 255, 0.3);
 }
 </style>

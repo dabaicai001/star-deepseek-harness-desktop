@@ -77,6 +77,30 @@ export const useDbStore = defineStore('db', () => {
     return session
   }
 
+  async function connectElasticsearch(assetId: string, name: string, params: {
+    host: string
+    port: number
+    username?: string
+    password?: string
+    useSSL?: boolean
+    apiKey?: string
+  }): Promise<DbSession> {
+    const info = await dbService.esConnect(params)
+    const session: DbSession = {
+      connId: info.connId,
+      dbType: 'elasticsearch' as DatabaseType,
+      host: info.host,
+      port: info.port,
+      database: info.clusterName,
+      connected: true,
+      name,
+      assetId
+    }
+    sessions.value.set(info.connId, session)
+    currentConnId.value = info.connId
+    return session
+  }
+
   async function disconnect(connId: string) {
     const session = sessions.value.get(connId)
     if (!session) return
@@ -86,6 +110,8 @@ export const useDbStore = defineStore('db', () => {
         await dbService.mysqlDisconnect(connId)
       } else if (session.dbType === 'redis') {
         await dbService.redisDisconnect(connId)
+      } else if (session.dbType === 'elasticsearch') {
+        await dbService.esDisconnect(connId)
       }
     } catch {
       // ignore disconnect errors
@@ -169,6 +195,7 @@ export const useDbStore = defineStore('db', () => {
     currentResult,
     connectMySQL,
     connectRedis,
+    connectElasticsearch,
     disconnect,
     setCurrentSession,
     executeQuery,

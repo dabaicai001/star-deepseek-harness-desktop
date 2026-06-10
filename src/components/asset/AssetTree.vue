@@ -43,12 +43,28 @@ const dockerAssets = computed(() =>
   assetStore.filteredAssets.filter(a => a.type === 'docker' && !a.favorite)
 )
 
-function getIcon(type: string) {
+function getIcon(type: string, dbType?: string) {
+  // DB 类型下根据 dbType 区分图标;MDI 没有 mdi-redis,用 mdi-key-variant(KV 语义)代替
+  // 其他类型统一走 mdi-database,类型识别交给下方等宽小字徽章(REDIS/MYSQL/PG/SQLITE)
+  if (type === 'db') {
+    if (dbType === 'redis') return 'mdi-key-variant'
+    return 'mdi-database'
+  }
   switch (type) {
     case 'ssh': return 'mdi-console'
-    case 'db': return 'mdi-database-outline'
     case 'docker': return 'mdi-docker'
     default: return 'mdi-file-outline'
+  }
+}
+
+function getDbLabel(dbType?: string): string {
+  switch (dbType) {
+    case 'redis': return 'REDIS'
+    case 'postgresql': return 'PG'
+    case 'sqlite': return 'SQLITE'
+    case 'elasticsearch': return 'ES'
+    case 'mysql':
+    default: return 'MYSQL'
   }
 }
 
@@ -98,7 +114,7 @@ function connectToAsset(asset: Asset) {
     router.push({ name: 'ssh-terminal', params: { id: instanceId } })
   } else if (asset.type === 'db') {
     const dbType = asset.config.dbType || 'mysql'
-    router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: instanceId } })
+    router.push({ name: dbType === 'redis' ? 'db-redis' : dbType === 'elasticsearch' ? 'db-elasticsearch' : 'db-mysql', params: { id: instanceId } })
   }
 }
 
@@ -113,7 +129,7 @@ function openInNewTab(asset: Asset) {
     router.push({ name: 'ssh-terminal', params: { id: instanceId } })
   } else if (asset.type === 'db') {
     const dbType = asset.config.dbType || 'mysql'
-    router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: instanceId } })
+    router.push({ name: dbType === 'redis' ? 'db-redis' : dbType === 'elasticsearch' ? 'db-elasticsearch' : 'db-mysql', params: { id: instanceId } })
   }
 }
 
@@ -319,7 +335,7 @@ async function duplicateAsset(asset: Asset) {
     router.push({ name: 'ssh-terminal', params: { id: instanceId } })
   } else if (newAsset.type === 'db') {
     const dbType = newAsset.config.dbType || 'mysql'
-    router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: instanceId } })
+    router.push({ name: dbType === 'redis' ? 'db-redis' : dbType === 'elasticsearch' ? 'db-elasticsearch' : 'db-mysql', params: { id: instanceId } })
   }
 }
 
@@ -404,9 +420,11 @@ function isGroupExpanded(id: string) {
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
-        <v-icon size="13" :class="asset.type">{{ getIcon(asset.type) }}</v-icon>
+        <span class="db-badge-wrap">
+          <v-icon size="13" :class="[asset.type, `db-${asset.config.dbType || 'mysql'}`]">{{ getIcon(asset.type, asset.config.dbType) }}</v-icon>
+          <span class="db-type-label" :class="`db-${asset.config.dbType || 'mysql'}`">{{ getDbLabel(asset.config.dbType) }}</span>
+        </span>
         <span class="name">{{ asset.name }}</span>
-        <span v-if="asset.lastUsedAt" class="last-used">{{ shortTimeAgo(asset.lastUsedAt) }}</span>
         <span class="status-dot" :class="getStatus(asset)" />
         <button
           class="action-btn"
@@ -493,7 +511,10 @@ function isGroupExpanded(id: string) {
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
-        <v-icon size="13" :class="asset.type">{{ getIcon(asset.type) }}</v-icon>
+        <span class="db-badge-wrap">
+          <v-icon size="13" :class="[asset.type, `db-${asset.config.dbType || 'mysql'}`]">{{ getIcon(asset.type, asset.config.dbType) }}</v-icon>
+          <span class="db-type-label" :class="`db-${asset.config.dbType || 'mysql'}`">{{ getDbLabel(asset.config.dbType) }}</span>
+        </span>
         <span class="name">{{ asset.name }}</span>
         <span class="status-dot" :class="getStatus(asset)" />
         <button
@@ -624,6 +645,7 @@ function isGroupExpanded(id: string) {
 .asset-tree.collapsed .tree-item .name,
 .asset-tree.collapsed .tree-item .status-dot,
 .asset-tree.collapsed .tree-item .action-btn,
+.asset-tree.collapsed .tree-item .db-type-label,
 .asset-tree.collapsed .tree-empty span,
 .asset-tree.collapsed .empty-state {
   display: none;
@@ -807,6 +829,40 @@ function isGroupExpanded(id: string) {
 .tree-item .v-icon.ssh { color: var(--cyan); }
 .tree-item .v-icon.db { color: var(--purple); }
 .tree-item .v-icon.docker { color: var(--green); }
+/* DB 子类型区分:Redis 走 Redis 官方红,其他 DB 走紫色 */
+.tree-item .v-icon.db-redis { color: #dc382d; }
+.tree-item .v-icon.db-mysql { color: var(--purple); }
+.tree-item .v-icon.db-postgresql { color: #336791; }
+.tree-item .v-icon.db-sqlite { color: #6cae50; }
+.tree-item .v-icon.db-elasticsearch { color: var(--purple); }
+
+/* DB 图标下方挂一个等宽小徽章,扫一眼就知道是 MYSQL / REDIS / PG / SQLITE */
+.db-badge-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.db-badge-wrap .v-icon { margin-bottom: 2px; }
+.db-type-label {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: rgba(120, 160, 255, 0.08);
+  color: var(--text-2);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.db-type-label.db-redis    { color: #ff6b6b; background: rgba(220, 56, 45, 0.12); }
+.db-type-label.db-mysql    { color: var(--purple); background: rgba(181, 107, 255, 0.12); }
+.db-type-label.db-postgresql { color: #6ba3d6; background: rgba(51, 103, 145, 0.18); }
+.db-type-label.db-sqlite   { color: #8fc870; background: rgba(108, 174, 80, 0.12); }
+.db-type-label.db-elasticsearch { color: var(--purple); background: rgba(181, 107, 255, 0.12); }
 
 .tree-empty {
   padding: 4px 28px;
