@@ -29,7 +29,7 @@ const cyberTheme = EditorView.theme({
   // 必须把 .cm-editor / .cm-scroller 显式拉成透明,才看得到外层的深色面板
   '&': {
     backgroundColor: 'transparent !important',
-    fontSize: '13px',
+    fontSize: '14px',
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
     height: '100%'
   },
@@ -43,9 +43,8 @@ const cyberTheme = EditorView.theme({
   },
   '.cm-content': {
     caretColor: '#00f0ff',
-    color: '#e8efff',
+    color: '#f0f4ff',
     padding: '14px 12px',
-    // 让光标在多行代码之间更明显
     minHeight: '80px'
   },
   '.cm-line': {
@@ -54,6 +53,32 @@ const cyberTheme = EditorView.theme({
   '.cm-cursor': {
     borderLeftColor: '#00f0ff',
     borderLeftWidth: '2px'
+  },
+  '.cm-keyword': {
+    color: '#00f0ff',
+    fontWeight: '600'
+  },
+  '.cm-string': {
+    color: '#64ffa0'
+  },
+  '.cm-number': {
+    color: '#ffb864'
+  },
+  '.cm-atom, .cm-bool': {
+    color: '#ff6eb4'
+  },
+  '.cm-comment': {
+    color: '#4a5a80',
+    fontStyle: 'italic'
+  },
+  '.cm-operator': {
+    color: '#00f0ff'
+  },
+  '.cm-typeName': {
+    color: '#b56bff'
+  },
+  '.cm-variableName': {
+    color: '#d0d8f0'
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
     backgroundColor: 'rgba(0, 240, 255, 0.12) !important'
@@ -261,7 +286,7 @@ defineExpose({ focus })
 
 /* placeholder 提示(空编辑器时显示一句灰色提示) */
 .sql-editor :deep(.cm-placeholder) {
-  color: var(--muted);
+  color: var(--text-2);
   font-style: italic;
 }
 </style>
