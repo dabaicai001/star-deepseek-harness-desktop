@@ -7,6 +7,7 @@ const props = defineProps<{
   connId: string
   currentDb: number
   totalKeys: number
+  dbSizes: Record<number, number>
   selectedKey?: string
 }>()
 
@@ -22,6 +23,7 @@ const scanMatch = ref<string>('*')
 const typeFilter = ref<'all' | 'string' | 'hash' | 'list' | 'set' | 'zset'>('all')
 const loading = ref(false)
 const collapsed = ref(false)
+const dbsExpanded = ref(true)
 
 function typeLabel(t: string): string {
   switch (t) {
@@ -106,11 +108,17 @@ function onSearch() {
   loadKeys()
 }
 
-function onDbChange(event: Event) {
-  const db = Number((event.target as HTMLSelectElement).value)
+function onDbClick(db: number) {
+  if (db === props.currentDb) return
   cursor.value = 0
   keys.value = []
   emit('switch-db', db)
+}
+
+function formatDbSize(db: number): string {
+  const size = props.dbSizes?.[db]
+  if (size === undefined || size === null) return '...'
+  return `${size.toLocaleString()} keys`
 }
 
 function onKeyClick(k: RedisKeyInfo) {
@@ -140,11 +148,25 @@ defineExpose({ loadKeys })
     </div>
 
     <div v-if="!collapsed" class="browser-body">
-      <div class="browser-controls">
-        <select class="cyber-input db-select" :value="currentDb" @change="onDbChange">
-          <option v-for="db in 16" :key="db - 1" :value="db - 1">db{{ db - 1 }}</option>
-        </select>
-        <span class="key-count">{{ totalKeys }} keys</span>
+      <div class="tree-section db-section">
+        <div class="tree-section-header" @click="dbsExpanded = !dbsExpanded">
+          <v-icon :size="12">{{ dbsExpanded ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
+          <v-icon :size="14" color="cyan">mdi-database</v-icon>
+          <span class="tree-section-label">Databases</span>
+          <span class="tree-section-count">{{ totalKeys }}</span>
+        </div>
+        <div v-if="dbsExpanded" class="db-list">
+          <div
+            v-for="db in 16"
+            :key="db - 1"
+            class="tree-item db-item"
+            :class="{ active: db - 1 === currentDb }"
+            @click="onDbClick(db - 1)"
+          >
+            <span class="db-name">db{{ db - 1 }}</span>
+            <span class="db-size">{{ formatDbSize(db - 1) }}</span>
+          </div>
+        </div>
       </div>
 
       <div class="browser-filters">
@@ -272,13 +294,62 @@ defineExpose({ loadKeys })
   border-bottom: 1px solid var(--line);
 }
 
-.db-select {
-  width: 80px;
-  padding: 4px 8px;
+.db-section {
+  border-bottom: 1px solid var(--line);
+}
+
+.db-section .tree-section-header {
+  cursor: pointer;
+  padding: 8px 12px;
+}
+
+.db-section .tree-section-header:hover {
+  background: var(--hover-cyan-faint);
+}
+
+.db-list {
+  padding: 2px 0 4px;
+}
+
+.db-item {
+  padding: 4px 14px 4px 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 11px;
+  color: var(--text-2);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s;
+  border-left: 2px solid transparent;
+}
+
+.db-item:hover {
+  color: var(--text);
+  background: var(--hover-cyan-faint);
+}
+
+.db-item.active {
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.06);
+  border-left-color: var(--cyan);
+}
+
+.db-name {
   font-family: 'JetBrains Mono', monospace;
-  border-radius: 6px;
-  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.db-size {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.db-item.active .db-size {
+  color: var(--cyan);
 }
 
 .key-count {

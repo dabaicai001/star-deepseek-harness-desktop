@@ -31,6 +31,7 @@ const connecting = ref(false)
 const connId = ref<string | null>(null)
 const currentDb = ref(0)
 const dbsize = ref(0)
+const dbSizes = ref<Record<number, number>>({})
 const rightPanelOpen = ref(false)
 
 const keyBrowserRef = ref<InstanceType<typeof KeyBrowser> | null>(null)
@@ -64,6 +65,7 @@ async function connect() {
     connId.value = session.connId
     connected.value = true
     await refreshDBSize()
+    await refreshAllDBSizes()
   } catch (err) {
     console.error('Redis connect failed:', err)
   } finally {
@@ -78,12 +80,32 @@ async function refreshDBSize() {
   } catch { /* ignore */ }
 }
 
+async function refreshAllDBSizes() {
+  if (!connId.value) return
+  try {
+    const raw = await dbService.redisInfo(connId.value, 'keyspace')
+    const sizes: Record<number, number> = {}
+    for (const line of raw.split('\n')) {
+      const m = line.match(/^db(\d+):keys=(\d+)/)
+      if (m) {
+        sizes[Number(m[1])] = Number(m[2])
+      }
+    }
+    dbSizes.value = sizes
+  } catch { /* ignore */ }
+}
+
+function getDbSize(db: number): number {
+  return dbSizes.value[db] ?? -1
+}
+
 async function onSwitchDb(db: number) {
   if (!connId.value) return
   try {
     await dbService.redisSelect(connId.value, db)
     currentDb.value = db
     await refreshDBSize()
+    await refreshAllDBSizes()
   } catch (err) {
     console.error('Switch DB failed:', err)
   }
@@ -94,6 +116,7 @@ async function onDeleteKey(key: string) {
   try {
     await dbService.redisDel(connId.value, [key])
     await refreshDBSize()
+    await refreshAllDBSizes()
     keyBrowserRef.value?.loadKeys()
   } catch (err) {
     console.error('Delete key failed:', err)
@@ -136,6 +159,7 @@ watch(() => assetId.value, () => {
       :conn-id="connId"
       :current-db="currentDb"
       :total-keys="dbsize"
+      :db-sizes="dbSizes"
       @select-key="onSelectKey"
       @delete-key="onDeleteKey"
       @switch-db="onSwitchDb"
