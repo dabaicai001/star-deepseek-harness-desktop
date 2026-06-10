@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import { generateBatchColumnDDL, type ColumnEdit } from '@/utils/ddlGenerator'
 import type { ColumnMeta } from '@/types/db'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import type { MenuItem } from '@/components/common/ContextMenu.vue'
 
 const { t } = useI18n()
 
@@ -29,6 +31,38 @@ const adding = ref(false)
 const newCol = ref({ name: '', type: 'VARCHAR(255)', nullable: true, defaultVal: '', comment: '' })
 
 const editList = computed(() => Array.from(edits.value.values()))
+
+const typeSearch = ref('')
+const filteredList = computed(() => {
+  if (!typeSearch.value) return editList.value
+  const q = typeSearch.value.toLowerCase()
+  return editList.value.filter(c => (c.type || c.newType).toLowerCase().includes(q))
+})
+
+const selectedColIdx = ref<number | null>(null)
+const colCtxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
+
+function selectColumn(idx: number) {
+  selectedColIdx.value = selectedColIdx.value === idx ? null : idx
+}
+
+function onColContextMenu(e: MouseEvent, idx: number) {
+  selectColumn(idx)
+  const col = filteredList.value[idx]
+  if (!col) return
+  const nullStr = col.newNullable ? 'NULL' : 'NOT NULL'
+  const defStr = col.newDefault ? ` DEFAULT '${col.newDefault}'` : ''
+  const commentStr = col.newComment ? ` COMMENT '${col.newComment}'` : ''
+  const alter = `ALTER TABLE \`${props.db}\`.\`${props.table}\` MODIFY COLUMN \`${col.newName || col.name}\` ${col.newType || col.type} ${nullStr}${defStr}${commentStr};`
+  colCtxMenu.value = {
+    x: e.clientX, y: e.clientY,
+    items: [
+      { type: 'item', label: 'Copy ALTER', icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(alter).catch(() => {}) } },
+    ]
+  }
+}
+
+function closeColCtxMenu() { colCtxMenu.value = null }
 
 async function load() {
   loading.value = true
@@ -140,6 +174,11 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
         <v-btn variant="text" size="small" icon="mdi-close" @click="emit('update:modelValue', false)" />
       </div>
 
+      <div class="search-row" style="padding: 8px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center;">
+        <input v-model="typeSearch" class="cyber-input" style="flex: 1; font-size: 11px;" :placeholder="t('db.searchTypeHint')" />
+        <v-icon v-if="typeSearch" size="12" @click="typeSearch = ''" style="cursor: pointer; color: var(--muted); margin-left: 4px;">mdi-close</v-icon>
+      </div>
+
       <div v-if="loading" class="dialog-loading">
         <v-icon size="20" class="spin">mdi-loading</v-icon>
         {{ t('db.loadingColumns') }}
@@ -164,8 +203,8 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(col, idx) in editList" :key="col.name" :class="{ dirty: col.dirty, dropped: col.dropped }">
-                <td class="td-idx">{{ idx + 1 }}</td>
+              <tr v-for="(col, idx) in filteredList" :key="col.name" :class="{ dirty: col.dirty, dropped: col.dropped, 'row-selected': selectedColIdx === idx }" @contextmenu.prevent="onColContextMenu($event, idx)">
+                <td class="td-idx" :class="{ selected: selectedColIdx === idx }" @click="selectColumn(idx)" style="cursor: pointer;">{{ idx + 1 }}</td>
                 <td>
                   <input v-model="col.newName" class="cell-input" @input="markDirty(col)" />
                 </td>
@@ -218,6 +257,14 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
       </template>
     </div>
   </v-dialog>
+
+  <ContextMenu
+    v-if="colCtxMenu"
+    :x="colCtxMenu.x"
+    :y="colCtxMenu.y"
+    :items="colCtxMenu.items"
+    @close="closeColCtxMenu"
+  />
 </template>
 
 <style scoped>
@@ -259,4 +306,6 @@ tr.dropped td { opacity: 0.4; text-decoration: line-through; }
 .action-btn-sm:hover, .action-btn-sm.active { border-color: var(--cyan); color: var(--cyan); }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.row-selected td { background: rgba(0, 240, 255, 0.06); }
+.td-idx.selected { color: var(--cyan); font-weight: 700; }
 </style>

@@ -273,6 +273,7 @@ export default {
     after: '在...之后',
     afterColumn: '在该字段后',
     saveChanges: '保存更改',
+    searchTypeHint: '按类型搜索，如 VARCHAR',
     dropColumnTitle: '删除字段',
     selectColumn: '-- 选择字段 --',
     dropColumnWarning: '此操作不可撤销，该列所有数据将丢失。',

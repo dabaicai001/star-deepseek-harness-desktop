@@ -272,6 +272,7 @@ export default {
     after: 'AFTER...',
     afterColumn: 'After column',
     saveChanges: 'Save Changes',
+    searchTypeHint: 'Filter by type, e.g. VARCHAR',
     dropColumnTitle: 'Drop Column',
     selectColumn: '-- Select column --',
     dropColumnWarning: 'This action cannot be undone. All data in this column will be lost.',
