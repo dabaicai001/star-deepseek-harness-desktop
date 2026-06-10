@@ -5,7 +5,9 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useAssetStore } from '@/stores/asset'
 import { useNotifyStore } from '@/stores/notify'
-import { sftpList, sftpEnsureSession, joinPath, parentPath, formatSize, type SftpEntry } from '@/services/sftp'
+import { sftpList, sftpEnsureSession, sftpStartUpload, joinPath, parentPath, formatSize, type SftpEntry } from '@/services/sftp'
+import { open } from '@tauri-apps/plugin-dialog'
+import SftpTransferQueue from './SftpTransferQueue.vue'
 
 const { t } = useI18n()
 
@@ -131,6 +133,8 @@ const currentPath = ref('/')
 const entries = ref<SftpEntry[]>([])
 const loading = ref(false)
 const showHidden = ref(false)
+const showTransfers = ref(false)
+const uploadMenuOpen = ref(false)
 let loadId = 0
 
 const visibleEntries = computed(() => {
@@ -174,6 +178,37 @@ function navigateUp() {
 function navigateTo(entry: SftpEntry) {
   if (entry.isDir) {
     loadDir(joinPath(currentPath.value, entry.name))
+  }
+}
+
+// ====== 上传/下载 ======
+async function uploadFiles() {
+  uploadMenuOpen.value = false
+  const selected = await open({ multiple: true, directory: false })
+  if (!selected || (Array.isArray(selected) && selected.length === 0)) return
+  const paths = Array.isArray(selected) ? selected : [selected]
+  try {
+    await sftpStartUpload(sftpSessionId!, paths, currentPath.value)
+    showTransfers.value = true
+    setTimeout(() => loadDir(currentPath.value), 2000)
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    notify.notify({ message: `Upload failed: ${msg}`, color: 'error', timeout: 5000 })
+  }
+}
+
+async function uploadFolder() {
+  uploadMenuOpen.value = false
+  const selected = await open({ directory: true })
+  if (!selected) return
+  const paths = Array.isArray(selected) ? selected : [selected]
+  try {
+    await sftpStartUpload(sftpSessionId!, paths, currentPath.value)
+    showTransfers.value = true
+    setTimeout(() => loadDir(currentPath.value), 2000)
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    notify.notify({ message: `Upload failed: ${msg}`, color: 'error', timeout: 5000 })
   }
 }
 
@@ -244,6 +279,27 @@ watch(() => props.assetId, async (newId, oldId) => {
         <button class="tb-btn" :title="t('sftp.showHidden')" :class="{ active: showHidden }" @click="showHidden = !showHidden">
           <v-icon size="14">mdi-eye-off-outline</v-icon>
         </button>
+        <div class="tb-separator" />
+        <div class="upload-group">
+          <button class="tb-btn" :title="t('sftp.upload')" @click="uploadMenuOpen = !uploadMenuOpen">
+            <v-icon size="14">mdi-upload</v-icon>
+          </button>
+          <div v-if="uploadMenuOpen" class="upload-menu">
+            <button class="upload-menu-item" @click="uploadFiles">
+              <v-icon size="12">mdi-file-outline</v-icon> {{ t('sftp.uploadFile') }}
+            </button>
+            <button class="upload-menu-item" @click="uploadFolder">
+              <v-icon size="12">mdi-folder</v-icon> {{ t('sftp.uploadFolder') }}
+            </button>
+          </div>
+        </div>
+        <button class="tb-btn" :title="t('sftp.download')" disabled>
+          <v-icon size="14">mdi-download</v-icon>
+        </button>
+        <div class="tb-separator" />
+        <button class="tb-btn" :title="t('sftp.transfers')" @click="showTransfers = true">
+          <v-icon size="14">mdi-progress-download</v-icon>
+        </button>
       </div>
 
       <!-- 面包屑路径 -->
@@ -258,7 +314,7 @@ watch(() => props.assetId, async (newId, oldId) => {
       </div>
 
       <!-- 文件列表 -->
-      <div class="sftp-file-list">
+      <div class="sftp-file-list" @click="uploadMenuOpen = false">
         <div v-if="loading" class="list-loading">
           <v-icon size="16" class="spin">mdi-loading</v-icon>
         </div>
@@ -286,6 +342,8 @@ watch(() => props.assetId, async (newId, oldId) => {
           </div>
         </template>
       </div>
+
+      <SftpTransferQueue v-model:visible="showTransfers" :session-id="sftpSessionId!" />
     </template>
   </div>
 </template>
@@ -394,6 +452,51 @@ watch(() => props.assetId, async (newId, oldId) => {
   height: 32px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--line);
+}
+
+.tb-separator {
+  width: 1px;
+  height: 14px;
+  background: var(--line);
+  margin: 0 4px;
+}
+
+.upload-group {
+  position: relative;
+}
+
+.upload-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px;
+  min-width: 140px;
+  z-index: 10;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.5);
+}
+
+.upload-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.upload-menu-item:hover {
+  background: var(--hover-cyan-faint);
+  color: var(--cyan);
 }
 
 .tb-btn {
