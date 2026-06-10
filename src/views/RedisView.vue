@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useDbStore } from '@/stores/db'
 import { useAiStore } from '@/stores/ai'
+import { useAppStore } from '@/stores/app'
 import { parseInstanceId } from '@/utils/tabId'
 import * as dbService from '@/services/db'
 import KeyBrowser from '@/components/redis/KeyBrowser.vue'
@@ -21,6 +22,7 @@ const route = useRoute()
 const assetStore = useAssetStore()
 const dbStore = useDbStore()
 const aiStore = useAiStore()
+const appStore = useAppStore()
 
 const instanceId = computed(() => route.params.id as string)
 const assetId = computed(() => parseInstanceId(instanceId.value).assetId)
@@ -32,7 +34,6 @@ const connId = ref<string | null>(null)
 const currentDb = ref(0)
 const dbsize = ref(0)
 const dbSizes = ref<Record<number, number>>({})
-const rightPanelOpen = ref(false)
 
 const keyBrowserRef = ref<InstanceType<typeof KeyBrowser> | null>(null)
 const valueEditorRef = ref<InstanceType<typeof RedisValueEditor> | null>(null)
@@ -185,9 +186,9 @@ watch(() => assetId.value, () => {
           </button>
           <button
             class="action-btn"
-            :class="{ active: rightPanelOpen }"
+            :class="{ active: appStore.rightPanelOpen }"
             title="Toggle Panel"
-            @click="rightPanelOpen = !rightPanelOpen"
+            @click="appStore.toggleRightPanel()"
           >
             <v-icon size="16">mdi-panel-right</v-icon>
           </button>
@@ -212,9 +213,9 @@ watch(() => assetId.value, () => {
 
     <!-- Right Panel -->
     <RightPanel
-      v-model="rightPanelOpen"
+      v-model="appStore.rightPanelOpen"
+      v-model:active-tab="activeRightTab"
       :tabs="rightPanelTabs"
-      default-tab="dashboard"
     >
       <template #tab-dashboard>
         <DbDashboard
