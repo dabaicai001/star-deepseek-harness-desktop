@@ -25,8 +25,6 @@ let editorView: EditorView | null = null
 const langCompartment = new Compartment()
 
 const cyberTheme = EditorView.theme({
-  // 关键:CodeMirror basicSetup 默认会注入白底主题,
-  // 必须把 .cm-editor / .cm-scroller 显式拉成透明,才看得到外层的深色面板
   '&': {
     backgroundColor: 'transparent !important',
     fontSize: '14px',
@@ -42,8 +40,8 @@ const cyberTheme = EditorView.theme({
     lineHeight: '1.7'
   },
   '.cm-content': {
-    caretColor: '#00f0ff',
-    color: '#f0f4ff',
+    caretColor: 'var(--cyan)',
+    color: 'var(--text)',
     padding: '14px 12px',
     minHeight: '80px'
   },
@@ -51,48 +49,44 @@ const cyberTheme = EditorView.theme({
     padding: '0 4px'
   },
   '.cm-cursor': {
-    borderLeftColor: '#00f0ff',
+    borderLeftColor: 'var(--cyan)',
     borderLeftWidth: '2px'
   },
   '.cm-keyword': {
-    color: '#00f0ff',
+    color: 'var(--cyan)',
     fontWeight: '600'
   },
   '.cm-string': {
-    color: '#64ffa0'
+    color: 'var(--green)'
   },
   '.cm-number': {
-    color: '#ffb864'
+    color: 'var(--yellow)'
   },
   '.cm-atom, .cm-bool': {
-    color: '#ff6eb4'
+    color: 'var(--pink)'
   },
   '.cm-comment': {
-    color: '#4a5a80',
+    color: 'var(--muted)',
     fontStyle: 'italic'
   },
   '.cm-operator': {
-    color: '#00f0ff'
+    color: 'var(--cyan)'
   },
   '.cm-typeName': {
-    color: '#b56bff'
+    color: 'var(--purple)'
   },
   '.cm-variableName': {
-    color: '#d0d8f0'
+    color: 'var(--text-2)'
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: 'rgba(0, 240, 255, 0.12) !important'
+    backgroundColor: 'var(--active-cyan) !important'
   },
-  // 覆盖 CodeMirror 默认的未聚焦 selection 虚线 outline —
-  // 未聚焦时也保持主色高亮,避免视觉上的"虚线/残影"
   '&:not(.cm-focused) .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: 'rgba(0, 240, 255, 0.08) !important'
+    backgroundColor: 'var(--hover-cyan) !important'
   },
-  // ::selection 是浏览器原生的虚线框,默认会在编辑器未聚焦时出现
   '& .cm-content ::selection': {
-    backgroundColor: 'rgba(0, 240, 255, 0.18)'
+    backgroundColor: 'var(--focus-cyan)'
   },
-  // 关掉 focus ring(我们已经在外层 .sql-editor:focus-within 加了 box-shadow)
   '& .cm-editor': {
     outline: 'none !important'
   },
@@ -101,47 +95,47 @@ const cyberTheme = EditorView.theme({
   },
   '.cm-gutters': {
     backgroundColor: 'transparent',
-    borderRight: '1px solid rgba(120, 160, 255, 0.08)',
-    color: '#5a6a96'
+    borderRight: '1px solid var(--line)',
+    color: 'var(--muted)'
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'rgba(0, 240, 255, 0.06)',
-    color: '#00f0ff'
+    backgroundColor: 'var(--hover-cyan-soft)',
+    color: 'var(--cyan)'
   },
   '.cm-activeLine': {
-    backgroundColor: 'rgba(0, 240, 255, 0.04)'
+    backgroundColor: 'var(--hover-cyan-faint)'
   },
   '.cm-foldPlaceholder': {
-    backgroundColor: 'rgba(181, 107, 255, 0.1)',
-    border: '1px solid rgba(181, 107, 255, 0.2)',
-    color: '#b56bff'
+    backgroundColor: 'var(--icon-bg-purple)',
+    border: '1px solid var(--line-2)',
+    color: 'var(--purple)'
   },
   '.cm-tooltip': {
-    backgroundColor: '#141928',
-    border: '1px solid rgba(120, 160, 255, 0.15)',
+    backgroundColor: 'var(--panel-solid-2)',
+    border: '1px solid var(--line-2)',
     borderRadius: '8px',
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)'
+    boxShadow: 'var(--shadow)'
   },
   '.cm-tooltip-autocomplete': {
     '& > ul > li': {
       padding: '4px 8px'
     },
     '& > ul > li[aria-selected]': {
-      backgroundColor: 'rgba(0, 240, 255, 0.1)',
-      color: '#00f0ff'
+      backgroundColor: 'var(--focus-cyan)',
+      color: 'var(--cyan)'
     }
   },
   '.cm-panels': {
-    backgroundColor: '#0a0e1a',
-    borderColor: 'rgba(120, 160, 255, 0.15)'
+    backgroundColor: 'var(--bg-2)',
+    borderColor: 'var(--line-2)'
   },
   '.cm-panel.cm-search': {
     '& input, & button, & label': {
-      color: '#e8efff'
+      color: 'var(--text)'
     },
     '& input': {
-      backgroundColor: '#141928',
-      border: '1px solid rgba(120, 160, 255, 0.15)',
+      backgroundColor: 'var(--panel-solid-2)',
+      border: '1px solid var(--line-2)',
       borderRadius: '4px'
     }
   }
