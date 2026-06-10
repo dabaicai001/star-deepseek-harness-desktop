@@ -422,3 +422,208 @@ pub async fn db_redis_memory_analysis(sidecar: State<'_, SidecarManager>, conn_i
 pub async fn db_redis_flush_db(sidecar: State<'_, SidecarManager>, conn_id: String) -> Result<Value, String> {
     sidecar.call("db.redis.flushDb", serde_json::json!({ "connId": conn_id })).await
 }
+
+// ─── Elasticsearch Commands ───
+
+#[tauri::command]
+pub async fn db_es_connect(
+    sidecar: State<'_, SidecarManager>,
+    params: Value,
+) -> Result<Value, String> {
+    sidecar.call("db.es.connect", params).await
+}
+
+#[tauri::command]
+pub async fn db_es_test(
+    sidecar: State<'_, SidecarManager>,
+    params: Value,
+) -> Result<Value, String> {
+    sidecar.call("db.es.test", params).await
+}
+
+#[tauri::command]
+pub async fn db_es_disconnect(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+) -> Result<Value, String> {
+    sidecar.call("db.es.disconnect", serde_json::json!({ "connId": conn_id })).await
+}
+
+#[tauri::command]
+pub async fn db_es_cluster_health(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+) -> Result<Value, String> {
+    sidecar.call("db.es.clusterHealth", serde_json::json!({ "connId": conn_id })).await
+}
+
+#[tauri::command]
+pub async fn db_es_cluster_stats(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+) -> Result<Value, String> {
+    sidecar.call("db.es.clusterStats", serde_json::json!({ "connId": conn_id })).await
+}
+
+#[tauri::command]
+pub async fn db_es_list_indices(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+) -> Result<Value, String> {
+    sidecar.call("db.es.listIndices", serde_json::json!({ "connId": conn_id })).await
+}
+
+#[tauri::command]
+pub async fn db_es_get_index_mapping(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+) -> Result<Value, String> {
+    sidecar.call("db.es.getIndexMapping", serde_json::json!({ "connId": conn_id, "index": index })).await
+}
+
+#[tauri::command]
+pub async fn db_es_get_index_settings(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+) -> Result<Value, String> {
+    sidecar.call("db.es.getIndexSettings", serde_json::json!({ "connId": conn_id, "index": index })).await
+}
+
+#[tauri::command]
+pub async fn db_es_create_index(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+    mappings: Option<Value>,
+    settings: Option<Value>,
+) -> Result<Value, String> {
+    let mut params = serde_json::json!({ "connId": conn_id, "index": index });
+    if let Some(m) = mappings { params["mappings"] = m; }
+    if let Some(s) = settings { params["settings"] = s; }
+    sidecar.call("db.es.createIndex", params).await
+}
+
+#[tauri::command]
+pub async fn db_es_delete_index(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+) -> Result<Value, String> {
+    sidecar.call("db.es.deleteIndex", serde_json::json!({ "connId": conn_id, "index": index })).await
+}
+
+#[tauri::command]
+pub async fn db_es_search(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+    body: Value,
+    from: Option<usize>,
+    size: Option<usize>,
+) -> Result<Value, String> {
+    let mut params = serde_json::json!({ "connId": conn_id, "index": index, "body": body });
+    if let Some(f) = from { params["from"] = serde_json::json!(f); }
+    if let Some(s) = size { params["size"] = serde_json::json!(s); }
+    sidecar.call("db.es.search", params).await
+}
+
+#[tauri::command]
+pub async fn db_es_count(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+    body: Option<Value>,
+) -> Result<Value, String> {
+    let mut params = serde_json::json!({ "connId": conn_id, "index": index });
+    if let Some(b) = body { params["body"] = b; }
+    sidecar.call("db.es.count", params).await
+}
+
+#[tauri::command]
+pub async fn db_es_get_document(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+    id: String,
+) -> Result<Value, String> {
+    sidecar.call("db.es.getDocument", serde_json::json!({ "connId": conn_id, "index": index, "id": id })).await
+}
+
+#[tauri::command]
+pub async fn db_es_index_document(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+    id: Option<String>,
+    body: Value,
+) -> Result<Value, String> {
+    let mut params = serde_json::json!({ "connId": conn_id, "index": index, "body": body });
+    if let Some(doc_id) = id { params["id"] = serde_json::json!(doc_id); }
+    sidecar.call("db.es.indexDocument", params).await
+}
+
+#[tauri::command]
+pub async fn db_es_update_document(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+    id: String,
+    body: Value,
+) -> Result<Value, String> {
+    sidecar.call("db.es.updateDocument", serde_json::json!({
+        "connId": conn_id, "index": index, "id": id, "body": body
+    })).await
+}
+
+#[tauri::command]
+pub async fn db_es_delete_document(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+    id: String,
+) -> Result<Value, String> {
+    sidecar.call("db.es.deleteDocument", serde_json::json!({
+        "connId": conn_id, "index": index, "id": id
+    })).await
+}
+
+#[tauri::command]
+pub async fn db_es_bulk_index(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+    documents: Value,
+) -> Result<Value, String> {
+    sidecar.call("db.es.bulkIndex", serde_json::json!({
+        "connId": conn_id, "index": index, "documents": documents
+    })).await
+}
+
+#[tauri::command]
+pub async fn db_es_export_json(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+    body: Option<Value>,
+    size: Option<i64>,
+) -> Result<Value, String> {
+    let mut params = serde_json::json!({ "connId": conn_id, "index": index });
+    if let Some(b) = body { params["body"] = b; }
+    if let Some(s) = size { params["size"] = serde_json::json!(s); }
+    sidecar.call("db.es.exportJSON", params).await
+}
+
+#[tauri::command]
+pub async fn db_es_scroll_search(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    index: String,
+    body: Value,
+    size: Option<i64>,
+) -> Result<Value, String> {
+    let mut params = serde_json::json!({ "connId": conn_id, "index": index, "body": body });
+    if let Some(s) = size { params["size"] = serde_json::json!(s); }
+    sidecar.call("db.es.scrollSearch", params).await
+}
