@@ -26,10 +26,9 @@ watch(() => props.modelValue, async (v) => {
   loading.value = true
   error.value = null
   try {
+    console.log('IndexListDialog: loading indexes for', props.connId, props.db, props.table)
     indexes.value = await dbService.mysqlListIndexes(props.connId, props.table, props.db)
-    if (indexes.value.length === 0) {
-      error.value = 'No indexes returned'
-    }
+    console.log('IndexListDialog: got', indexes.value.length, 'indexes', indexes.value)
   } catch (err: unknown) {
     console.error('IndexListDialog: failed to load indexes', err)
     error.value = err instanceof Error ? err.message : String(err)

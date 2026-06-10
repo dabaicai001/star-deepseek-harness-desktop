@@ -36,7 +36,9 @@ watch(() => props.modelValue, async (v) => {
   error.value = null
   try {
     columns.value = await dbService.mysqlListColumns(props.connId, props.table, props.db)
-  } catch {
+  } catch (err: unknown) {
+    console.error('IndexFormDialog: failed to load columns', err)
+    error.value = err instanceof Error ? err.message : String(err)
     columns.value = []
   }
   if (props.mode === 'modify' && props.index) {
