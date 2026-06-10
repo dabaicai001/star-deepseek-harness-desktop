@@ -4,6 +4,7 @@ import { useTheme } from 'vuetify'
 import { useThemeStore } from '@/stores/theme'
 import { useI18n } from 'vue-i18n'
 import ErrorBoundary from '@/components/common/ErrorBoundary.vue'
+import GlobalDialogHost from '@/components/common/GlobalDialogHost.vue'
 
 const themeStore = useThemeStore()
 const { t } = useI18n()
@@ -24,6 +25,7 @@ watch(
     <ErrorBoundary>
       <router-view />
     </ErrorBoundary>
+    <GlobalDialogHost />
   </v-app>
 </template>
 

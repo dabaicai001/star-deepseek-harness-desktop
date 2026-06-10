@@ -5,6 +5,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore, SIDEBAR_COLLAPSED_WIDTH } from '@/stores/app'
 import { useThemeStore } from '@/stores/theme'
+import { useDialogStore } from '@/stores/dialog'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import AssetTree from '@/components/asset/AssetTree.vue'
 import SidebarHandle from '@/components/layout/SidebarHandle.vue'
@@ -23,6 +24,7 @@ const route = useRoute()
 const assetStore = useAssetStore()
 const appStore = useAppStore()
 const themeStore = useThemeStore()
+const dlg = useDialogStore()
 
 // menubar 水平 padding(.menubar 上写的 0 12px),
 // tab-strip 的左边距要减去这个,才能正好对齐到 workspace 左边缘
@@ -274,8 +276,11 @@ function onUserMenuAction(action: 'settings' | 'theme' | 'lang' | 'about' | 'qui
       locale.value = locale.value === 'zh-CN' ? 'en-US' : 'zh-CN'
       break
     case 'about':
-      // 简单弹窗提示版�?
-      alert(`StarHub v${appVersion}\n\n跨平�?DevOps 桌面工具\nGitHub: github.com/dabaicai001/starhub`)
+      void dlg.alert({
+        title: `StarHub v${appVersion}`,
+        message: `跨平台 DevOps 桌面工具\nGitHub: github.com/dabaicai001/starhub`,
+        color: 'info',
+      })
       break
   }
 }
@@ -471,6 +476,23 @@ function getIcon(type: string) {
     case 'docker': return 'mdi-docker'
     case 'settings': return 'mdi-cog-outline'
     default: return 'mdi-file'
+  }
+}
+
+/** DB 类型细分图标:与侧边栏 AssetTree 保持一致,redis 走 mdi-key-variant,其他走 mdi-database */
+function getDbChipIcon(asset: Asset): string {
+  if (asset.config.dbType === 'redis') return 'mdi-key-variant'
+  return 'mdi-database'
+}
+
+/** DB 类型徽章文本:REDIS / PG / SQLITE / MYSQL,跟侧边栏一致 */
+function getDbLabel(dbType?: string): string {
+  switch (dbType) {
+    case 'redis': return 'REDIS'
+    case 'postgresql': return 'PG'
+    case 'sqlite': return 'SQLITE'
+    case 'mysql':
+    default: return 'MYSQL'
   }
 }
 
@@ -875,7 +897,7 @@ vueWatch(() => appStore.tabs.length, () => {
     </div>
 
     <!-- Menu Bar (只放 tab 条,顶部导航按钮已删除) -->
-    <div class="menubar">
+    <div class="menubar" :class="{ 'menubar--empty': appStore.tabs.length === 0 }">
       <div
         class="tab-strip-wrap"
         :style="{
@@ -941,7 +963,13 @@ vueWatch(() => appStore.tabs.length, () => {
             :data-tooltip="`${a.config.host || a.config.dbType || ''} · ${shortTimeAgo(a.lastUsedAt)}`"
             @click="connectToAsset(a)"
           >
-            <v-icon size="12" :class="a.type">{{ getIcon(a.type) }}</v-icon>
+            <!-- DB 类型:与侧边栏一致,用 db-badge-wrap(图标 + 类型徽章),区分 mysql/redis/pg/sqlite -->
+            <span v-if="a.type === 'db'" class="db-badge-wrap">
+              <v-icon size="13" :class="[a.type, `db-${a.config.dbType || 'mysql'}`]">{{ getDbChipIcon(a) }}</v-icon>
+              <span class="db-type-label" :class="`db-${a.config.dbType || 'mysql'}`">{{ getDbLabel(a.config.dbType) }}</span>
+            </span>
+            <!-- SSH / Docker:裸图标,与侧边栏一致 -->
+            <v-icon v-else size="13" :class="a.type">{{ getIcon(a.type) }}</v-icon>
             <span class="qs-name">{{ a.name }}</span>
             <span class="qs-time">{{ shortTimeAgo(a.lastUsedAt) }}</span>
           </button>
@@ -1587,6 +1615,11 @@ kbd {
   transition: margin-left 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* 无 tab 时,tab-strip-wrap 不要吃满空间,让 quick-start-bar 紧贴「+」按钮 */
+.menubar--empty .tab-strip-wrap {
+  flex: 0 0 auto;
+}
+
 .tab-scroll-btn {
   flex-shrink: 0;
   width: 22px;
@@ -1634,7 +1667,7 @@ kbd {
 
 /* 无 tab 时,tab 栏居中显示"最近用过"快速启动条 */
 .quick-start-bar {
-  flex: 1;
+  flex: 0 0 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -1679,6 +1712,13 @@ kbd {
 .quick-start-bar .qs-chip .v-icon.ssh { color: var(--cyan); }
 .quick-start-bar .qs-chip .v-icon.db { color: var(--purple); }
 .quick-start-bar .qs-chip .v-icon.docker { color: var(--green); }
+/* chip 内的 DB 类型徽章:复用侧边栏 .db-badge-wrap 的色板,但改成水平排版以适配 chip 高度 */
+.quick-start-bar .qs-chip .db-badge-wrap {
+  flex-direction: row;
+  gap: 3px;
+}
+.quick-start-bar .qs-chip .db-badge-wrap .v-icon { margin-bottom: 0; }
+.quick-start-bar .qs-chip .db-type-label { font-size: 8px; padding: 1px 4px; }
 .quick-start-bar .qs-name {
   font-weight: 500;
 }
@@ -1693,7 +1733,6 @@ kbd {
 .quick-start-bar .qs-hint {
   font-size: 10px;
   color: var(--muted);
-  margin-left: auto;
   font-style: italic;
   flex-shrink: 0;
 }

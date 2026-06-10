@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useAssetStore } from '@/stores/asset'
 import { useNotifyStore } from '@/stores/notify'
+import { useDialogStore } from '@/stores/dialog'
 import { sftpList, sftpEnsureSession, sftpStartUpload, sftpStartDownload, joinPath, parentPath, formatSize, type SftpEntry } from '@/services/sftp'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
@@ -14,6 +15,7 @@ const { t } = useI18n()
 
 const assetStore = useAssetStore()
 const notify = useNotifyStore()
+const dlg = useDialogStore()
 
 const props = defineProps<{
   /** SSH 资产 ID */
@@ -304,7 +306,11 @@ async function ctxDownload() {
 
 async function ctxNewFolder() {
   closeContextMenu()
-  const name = prompt(t('sftp.newFolderPrompt'))
+  const name = await dlg.prompt({
+    message: t('sftp.newFolderPrompt'),
+    placeholder: 'new-folder',
+    requireNonEmpty: true,
+  })
   if (!name) return
   try {
     await invoke('sftp_mkdir', { id: sftpSessionId, path: joinPath(currentPath.value, name) })
@@ -319,7 +325,11 @@ async function ctxRename() {
   closeContextMenu()
   const entry = contextMenu.value.entry
   if (!entry) return
-  const newName = prompt(t('sftp.renamePrompt'), entry.name)
+  const newName = await dlg.prompt({
+    message: t('sftp.renamePrompt'),
+    defaultValue: entry.name,
+    requireNonEmpty: true,
+  })
   if (!newName || newName === entry.name) return
   try {
     await invoke('sftp_rename', {
@@ -342,7 +352,12 @@ async function ctxDelete() {
     ? [contextMenu.value.entry.path]
     : []
   if (paths.length === 0) return
-  if (!confirm(t('sftp.deleteConfirm'))) return
+  const ok = await dlg.confirm({
+    message: t('sftp.deleteConfirm'),
+    confirmText: t('common.delete'),
+    danger: true,
+  })
+  if (!ok) return
   try {
     for (const p of paths) {
       await invoke('sftp_remove', { id: sftpSessionId, path: p })

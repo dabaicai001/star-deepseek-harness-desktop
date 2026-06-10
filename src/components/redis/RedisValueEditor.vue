@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, markRaw, type Component } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useDialogStore } from '@/stores/dialog'
 import StringEditor from './editors/StringEditor.vue'
 import HashEditor from './editors/HashEditor.vue'
 import ListEditor from './editors/ListEditor.vue'
@@ -7,6 +9,9 @@ import SetEditor from './editors/SetEditor.vue'
 import ZSetEditor from './editors/ZSetEditor.vue'
 
 const props = defineProps<{ connId: string; currentDb: number }>()
+
+const dlg = useDialogStore()
+const { t } = useI18n()
 
 interface EditorTab {
   id: string; key: string; type: string; title: string
@@ -33,18 +38,32 @@ function openKey(key: string, type: string) {
   activeTabId.value = id
 }
 
-function closeTab(id: string) {
+async function closeTab(id: string) {
   const idx = tabs.value.findIndex(t => t.id === id)
   if (idx === -1) return
-  if (tabs.value[idx].isDirty && !confirm(`Unsaved changes on "${tabs.value[idx].key}". Close?`)) return
+  if (tabs.value[idx].isDirty) {
+    const ok = await dlg.confirm({
+      message: `Unsaved changes on "${tabs.value[idx].key}". Close?`,
+      confirmText: t('common.confirm'),
+    })
+    if (!ok) return
+  }
   tabs.value.splice(idx, 1)
   if (activeTabId.value === id) activeTabId.value = tabs.value[Math.min(idx, tabs.value.length - 1)]?.id ?? null
 }
 
-function openNewKey() {
-  const key = prompt('Enter new key name:')
+async function openNewKey() {
+  const key = await dlg.prompt({
+    message: 'Enter new key name:',
+    placeholder: 'my-key',
+    requireNonEmpty: true,
+  })
   if (!key) return
-  const type = prompt('Type (string/hash/list/set/zset):', 'string') || 'string'
+  const type = await dlg.prompt({
+    message: 'Type (string/hash/list/set/zset):',
+    selectOptions: ['string', 'hash', 'list', 'set', 'zset'],
+    selectDefault: 'string',
+  }) || 'string'
   if (!editorMap[type]) return
   const id = `new-${key}-${Date.now()}`
   tabs.value.push({ id, key, type, title: key, isDirty: true, isNew: true, component: editorMap[type] })

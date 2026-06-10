@@ -75,8 +75,13 @@ onMounted(() => {
   terminal = new Terminal({
     cursorBlink: true,
     fontSize: props.fontSize ?? 14,
-    fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, monospace',
-    lineHeight: 1.4,
+    fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, Consolas, monospace',
+    // xterm 5.x 会把 lineHeight 乘以 fontSize 后取整作为每行 <div> 的 height。
+    // 1.4 * 14 = 19.6 → 20px,行间留白 ≈ 6px;贴得太紧主要是 fallback 字体
+    // (Menlo / Monaco / Consolas) 在 Windows 上 metrics 偏矮,canvas 渲染时
+    // 字符基线和 DOM 行盒对不齐,视觉上挤成一团。
+    // 提到 1.6 给字符上下都留更松的空间,fallback 字体下也不会贴边。
+    lineHeight: 1.6,
     letterSpacing: 0,
     scrollback: 5000,
     allowProposedApi: true,
@@ -384,14 +389,24 @@ defineExpose({
 
 .terminal-container :deep(.xterm-viewport) {
   background-color: transparent !important;
-  /* 底部留白:让光标/最后一行命令与容器底边保持约 1 行距离,
-     避免回车到底时命令行贴边。2.4em ≈ 1.7(行高) × 1.4(lineHeight) */
-  padding-bottom: 2.4em;
+  padding-bottom: 200px;
   box-sizing: border-box;
 }
 
 .terminal-container :deep(.xterm-screen) {
-  padding: 4px;
+  padding: 4px 4px 200px 4px;
+}
+
+/* 防御性兜底:有些浏览器(JetBrains Mono 没装,回退到
+   Menlo / Monaco / Consolas)对字体的 line-box 计算比 xterm
+   的 canvas 渲染要紧,会出现「字符底部被裁」「行间贴边」。
+   这里强制把每行 div 的 line-height 锁成 normal,让
+   xterm 自己算的 height 决定盒子高度,避免双重计算。*/
+.terminal-container :deep(.xterm-rows) {
+  line-height: 1;
+}
+.terminal-container :deep(.xterm-rows > div) {
+  line-height: normal;
 }
 
 /* ====== 右键菜单 ====== */
