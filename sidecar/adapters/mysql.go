@@ -193,6 +193,44 @@ func (a *MySQLAdapter) ListIndexes(database, table string) ([]IndexInfo, error) 
 	return indexes, nil
 }
 
+// CreateIndex 创建索引
+func (a *MySQLAdapter) CreateIndex(database, table, indexName string, columns []string, unique bool, indexType string) error {
+	if database == "" {
+		database = a.conn.Database
+	}
+	if indexType == "" {
+		indexType = "BTREE"
+	}
+	cols := make([]string, len(columns))
+	for i, c := range columns {
+		cols[i] = fmt.Sprintf("`%s`", c)
+	}
+	uniqueStr := ""
+	if unique {
+		uniqueStr = "UNIQUE "
+	}
+	query := fmt.Sprintf("CREATE %sINDEX `%s` ON `%s`.`%s` (%s) USING %s",
+		uniqueStr, indexName, database, table, strings.Join(cols, ", "), indexType)
+	_, err := a.db.Exec(query)
+	if err != nil {
+		return fmt.Errorf("create index: %w", err)
+	}
+	return nil
+}
+
+// DropIndex 删除索引
+func (a *MySQLAdapter) DropIndex(database, table, indexName string) error {
+	if database == "" {
+		database = a.conn.Database
+	}
+	query := fmt.Sprintf("DROP INDEX `%s` ON `%s`.`%s`", indexName, database, table)
+	_, err := a.db.Exec(query)
+	if err != nil {
+		return fmt.Errorf("drop index: %w", err)
+	}
+	return nil
+}
+
 // Execute 执行 SQL（支持多语句分号分割）
 func (a *MySQLAdapter) Execute(sqlStr string) (*QueryResult, error) {
 	start := time.Now()
