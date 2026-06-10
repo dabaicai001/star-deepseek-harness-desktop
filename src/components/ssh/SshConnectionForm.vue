@@ -735,8 +735,8 @@ async function pasteJumpKeyFromClipboard() {
   padding: 4px 4px 4px 10px;
   font-size: 11px;
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.2);
+  background: var(--hover-cyan);
+  border: 1px solid var(--focus-cyan);
   border-radius: 6px;
   font-family: 'JetBrains Mono', monospace;
   max-width: 100%;
@@ -789,7 +789,7 @@ async function pasteJumpKeyFromClipboard() {
 
 .input-suffix-btn:hover {
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
 }
 
 /* Test status feedback */
@@ -805,8 +805,8 @@ async function pasteJumpKeyFromClipboard() {
 }
 
 .test-status.testing {
-  background: rgba(0, 240, 255, 0.06);
-  border: 1px solid rgba(0, 240, 255, 0.15);
+  background: var(--hover-cyan);
+  border: 1px solid var(--focus-cyan);
   color: var(--cyan);
 }
 
@@ -860,7 +860,7 @@ async function pasteJumpKeyFromClipboard() {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   padding: 2px 5px;
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--kbd-bg);
   border: 1px solid var(--line-2);
   border-radius: 3px;
   color: var(--cyan);
@@ -877,16 +877,16 @@ async function pasteJumpKeyFromClipboard() {
   font-weight: 500;
   font-family: inherit;
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.06);
-  border: 1px solid rgba(0, 240, 255, 0.2);
+  background: var(--hover-cyan);
+  border: 1px solid var(--focus-cyan);
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .cyber-btn-test:hover:not(:disabled) {
-  background: rgba(0, 240, 255, 0.12);
-  border-color: rgba(0, 240, 255, 0.35);
-  box-shadow: 0 0 12px rgba(0, 240, 255, 0.15);
+  background: var(--active-cyan);
+  border-color: var(--focus-cyan);
+  box-shadow: var(--glow-soft);
 }
 
 .cyber-btn-test:disabled {
@@ -896,13 +896,13 @@ async function pasteJumpKeyFromClipboard() {
 
 .cyber-btn-test.testing {
   color: var(--cyan);
-  border-color: rgba(0, 240, 255, 0.3);
+  border-color: var(--focus-cyan);
   animation: testPulse 1.5s infinite;
 }
 
 @keyframes testPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 240, 255, 0.2); }
-  50% { box-shadow: 0 0 0 6px rgba(0, 240, 255, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 var(--focus-cyan); }
+  50% { box-shadow: 0 0 0 6px transparent; }
 }
 
 :deep(.mdi-spin) {
@@ -939,14 +939,14 @@ async function pasteJumpKeyFromClipboard() {
 
 .jump-toggle:hover {
   color: var(--cyan);
-  border-color: rgba(0, 240, 255, 0.2);
-  background: rgba(0, 240, 255, 0.04);
+  border-color: var(--focus-cyan);
+  background: var(--hover-cyan-faint);
 }
 
 .jump-toggle.active {
   color: var(--cyan);
-  border-color: rgba(0, 240, 255, 0.3);
-  background: rgba(0, 240, 255, 0.06);
+  border-color: var(--focus-cyan);
+  background: var(--hover-cyan);
 }
 
 .jump-badge {

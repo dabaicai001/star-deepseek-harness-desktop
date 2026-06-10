@@ -304,7 +304,7 @@ watch(() => [props.sessionId, props.connected], ([id, conn], [oldId, oldConn]) =
 }
 
 .refresh-btn:hover {
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   border-color: var(--cyan);
   color: var(--cyan);
 }

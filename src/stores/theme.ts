@@ -14,7 +14,7 @@ const ACCENT_MAP: Record<AccentColor, { primary: string; secondary: string }> = 
 }
 
 export const useThemeStore = defineStore('theme', () => {
-  const theme = ref<ThemeMode>('darkTheme')
+  const theme = ref<ThemeMode>('lightTheme')
   const accent = ref<AccentColor>('cyan')
   const isDark = computed(() => theme.value === 'darkTheme')
 
