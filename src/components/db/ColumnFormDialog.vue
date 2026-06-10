@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import { generateAddColumnDDL, generateModifyColumnDDL } from '@/utils/ddlGenerator'
 import type { ColumnMeta } from '@/types/db'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   connId: string
@@ -80,7 +83,7 @@ async function submit() {
     <div class="cyber-panel" style="padding: 0;">
       <div class="dialog-header">
         <v-icon size="16" color="purple">{{ mode === 'create' ? 'mdi-plus-circle' : 'mdi-pencil-circle' }}</v-icon>
-        <span class="dialog-title">{{ mode === 'create' ? 'Add Column' : 'Modify Column' }}</span>
+        <span class="dialog-title">{{ mode === 'create' ? t('db.addColumnTitle') : t('db.modifyColumnTitle') }}</span>
         <span class="dialog-subtitle">{{ db }}.{{ table }}</span>
         <v-spacer />
         <v-btn variant="text" size="small" icon="mdi-close" @click="emit('update:modelValue', false)" />
@@ -90,12 +93,12 @@ async function submit() {
         <div v-if="error" class="dialog-error">{{ error }}</div>
 
         <div class="form-row">
-          <label class="form-label">Name</label>
+          <label class="form-label">{{ t('db.name') }}</label>
           <input v-model="name" class="cyber-input" style="flex: 1;" placeholder="column_name" :disabled="mode === 'modify'" />
         </div>
 
         <div class="form-row">
-          <label class="form-label">Type</label>
+          <label class="form-label">{{ t('db.type') }}</label>
           <select v-model="type" class="cyber-select" style="flex: 1;">
             <option v-for="t in typeOptions" :key="t" :value="t">{{ t }}</option>
           </select>
@@ -103,31 +106,31 @@ async function submit() {
         </div>
 
         <div class="form-row">
-          <label class="form-label">Nullable</label>
+          <label class="form-label">{{ t('db.nullable') }}</label>
           <input type="checkbox" v-model="nullable" />
         </div>
 
         <div class="form-row">
-          <label class="form-label">Default</label>
+          <label class="form-label">{{ t('db.default') }}</label>
           <input v-model="defaultValue" class="cyber-input" style="flex: 1;" placeholder="NULL" />
         </div>
 
         <div class="form-row">
-          <label class="form-label">Comment</label>
+          <label class="form-label">{{ t('db.comment') }}</label>
           <input v-model="comment" class="cyber-input" style="flex: 1;" placeholder="column comment" />
         </div>
 
         <div v-if="mode === 'create'" class="form-row">
-          <label class="form-label">Position</label>
+          <label class="form-label">{{ t('db.position') }}</label>
           <select v-model="position" class="cyber-select" style="flex: 1;">
-            <option value="LAST">LAST (default)</option>
-            <option value="FIRST">FIRST</option>
-            <option value="AFTER">AFTER...</option>
+            <option value="LAST">{{ t('db.lastDefault') }}</option>
+            <option value="FIRST">{{ t('db.first') }}</option>
+            <option value="AFTER">{{ t('db.after') }}</option>
           </select>
         </div>
 
         <div v-if="mode === 'create' && position === 'AFTER'" class="form-row">
-          <label class="form-label">After column</label>
+          <label class="form-label">{{ t('db.afterColumn') }}</label>
           <select v-model="afterCol" class="cyber-select" style="flex: 1;">
             <option v-for="c in (existingColumns || [])" :key="c.name" :value="c.name">{{ c.name }}</option>
           </select>
@@ -135,10 +138,10 @@ async function submit() {
       </div>
 
       <div class="dialog-footer">
-        <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">Cancel</button>
+        <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">{{ t('common.cancel') }}</button>
         <button class="cyber-btn" :disabled="executing || !name.trim()" @click="submit">
           <v-icon size="14" :class="{ spin: executing }">{{ executing ? 'mdi-loading' : 'mdi-check' }}</v-icon>
-          {{ mode === 'create' ? 'Add Column' : 'Save Changes' }}
+          {{ mode === 'create' ? t('db.addColumnTitle') : t('db.saveChanges') }}
         </button>
       </div>
     </div>

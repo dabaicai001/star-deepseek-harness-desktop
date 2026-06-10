@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import { generateBatchColumnDDL, type ColumnEdit } from '@/utils/ddlGenerator'
 import type { ColumnMeta } from '@/types/db'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   connId: string
@@ -139,7 +142,7 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
 
       <div v-if="loading" class="dialog-loading">
         <v-icon size="20" class="spin">mdi-loading</v-icon>
-        Loading columns...
+        {{ t('db.loadingColumns') }}
       </div>
 
       <template v-else>
@@ -151,13 +154,13 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
             <thead>
               <tr>
                 <th style="width: 28px;">#</th>
-                <th>Name</th>
-                <th>Type</th>
-                <th style="width: 60px;">Nullable</th>
-                <th>Default</th>
-                <th>Comment</th>
-                <th style="width: 44px;">Key</th>
-                <th style="width: 80px;">Actions</th>
+                <th>{{ t('db.name') }}</th>
+                <th>{{ t('db.type') }}</th>
+                <th style="width: 60px;">{{ t('db.nullable') }}</th>
+                <th>{{ t('db.default') }}</th>
+                <th>{{ t('db.comment') }}</th>
+                <th style="width: 44px;">{{ t('db.key') }}</th>
+                <th style="width: 80px;">{{ t('db.actions') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -194,22 +197,22 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
           </table>
 
           <div class="add-row">
-            <input v-model="newCol.name" class="cell-input" placeholder="new column" style="width: 120px;" @keyup.enter="addNewCol" />
+            <input v-model="newCol.name" class="cell-input" :placeholder="t('db.newColumn')" style="width: 120px;" @keyup.enter="addNewCol" />
             <input v-model="newCol.type" class="cell-input" placeholder="VARCHAR(255)" style="width: 120px;" @keyup.enter="addNewCol" />
             <label><input type="checkbox" v-model="newCol.nullable" /> NULL</label>
             <input v-model="newCol.defaultVal" class="cell-input" placeholder="default" style="width: 80px;" @keyup.enter="addNewCol" />
             <input v-model="newCol.comment" class="cell-input" placeholder="comment" style="width: 120px;" @keyup.enter="addNewCol" />
             <button class="cyber-btn-secondary" @click="addNewCol" style="padding: 2px 8px; font-size: 11px;">
-              <v-icon size="12">mdi-plus</v-icon> Add
+              <v-icon size="12">mdi-plus</v-icon> {{ t('db.newColumn') }}
             </button>
           </div>
         </div>
 
         <div class="dialog-footer">
-          <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">Cancel</button>
+          <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">{{ t('common.cancel') }}</button>
           <button class="cyber-btn" :disabled="executing" @click="applyChanges">
             <v-icon size="14" :class="{ spin: executing }">{{ executing ? 'mdi-loading' : 'mdi-content-save' }}</v-icon>
-            Apply Changes
+            {{ t('db.applyChanges') }}
           </button>
         </div>
       </template>

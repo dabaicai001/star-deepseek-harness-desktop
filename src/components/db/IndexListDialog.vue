@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import type { IndexInfo } from '@/types/db'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   connId: string
@@ -46,7 +49,7 @@ const groupedIndexes = computed(() => {
     <div class="cyber-panel" style="padding: 0; max-height: 70vh; display: flex; flex-direction: column;">
       <div class="dialog-header">
         <v-icon size="16" color="var(--yellow)">mdi-key-variant</v-icon>
-        <span class="dialog-title">Indexes</span>
+        <span class="dialog-title">{{ t('db.indexesTitle') }}</span>
         <span class="dialog-subtitle">{{ db }}.{{ table }}</span>
         <v-spacer />
         <v-btn variant="text" size="small" icon="mdi-close" @click="emit('update:modelValue', false)" />
@@ -54,7 +57,7 @@ const groupedIndexes = computed(() => {
 
       <div v-if="loading" class="dialog-loading">
         <v-icon size="20" class="spin">mdi-loading</v-icon>
-        Loading indexes...
+        {{ t('db.loadingIndexes') }}
       </div>
 
       <template v-else>
@@ -62,16 +65,16 @@ const groupedIndexes = computed(() => {
           <table class="struct-table">
             <thead>
               <tr>
-                <th>Index Name</th>
-                <th>Columns</th>
-                <th style="width: 80px;">Unique</th>
-                <th style="width: 80px;">Type</th>
-                <th>Comment</th>
+                <th>{{ t('db.indexName') }}</th>
+                <th>{{ t('db.indexColumns') }}</th>
+                <th style="width: 80px;">{{ t('db.uniqueTitle') }}</th>
+                <th style="width: 80px;">{{ t('db.type') }}</th>
+                <th>{{ t('db.comment') }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="groupedIndexes.length === 0">
-                <td colspan="5" style="text-align: center; color: var(--muted); padding: 24px;">No indexes found</td>
+                <td colspan="5" style="text-align: center; color: var(--muted); padding: 24px;">{{ t('db.noIndexes') }}</td>
               </tr>
               <tr v-for="idx in groupedIndexes" :key="idx.name">
                 <td>
@@ -93,7 +96,7 @@ const groupedIndexes = computed(() => {
         </div>
 
         <div class="dialog-footer">
-          <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">Close</button>
+          <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">{{ t('common.cancel') }}</button>
         </div>
       </template>
     </div>

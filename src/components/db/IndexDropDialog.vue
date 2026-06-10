@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import { generateDropIndexDDL } from '@/utils/ddlGenerator'
 import type { IndexInfo } from '@/types/db'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   connId: string
@@ -65,7 +68,7 @@ async function drop() {
     <div class="cyber-panel" style="padding: 0;">
       <div class="dialog-header">
         <v-icon size="16" color="var(--red)">mdi-key-remove</v-icon>
-        <span class="dialog-title">Drop Index</span>
+        <span class="dialog-title">{{ t('db.dropIndexTitle') }}</span>
         <span class="dialog-subtitle">{{ db }}.{{ table }}</span>
         <v-spacer />
         <v-btn variant="text" size="small" icon="mdi-close" @click="emit('update:modelValue', false)" />
@@ -75,9 +78,9 @@ async function drop() {
         <div v-if="error" class="dialog-error">{{ error }}</div>
 
         <div class="form-row">
-          <label class="form-label">Index</label>
+          <label class="form-label">{{ t('db.index') }}</label>
           <select v-model="selectedIndex" class="cyber-select" style="flex: 1;">
-            <option value="">-- Select index --</option>
+            <option value="">{{ t('db.selectIndex') }}</option>
             <option v-for="name in indexNames" :key="name" :value="name">{{ name }}</option>
           </select>
         </div>
@@ -88,15 +91,15 @@ async function drop() {
 
         <div class="warning-box">
           <v-icon size="16" color="var(--red)">mdi-alert</v-icon>
-          <span>This action cannot be undone.</span>
+          <span>{{ t('db.dropIndexWarning') }}</span>
         </div>
       </div>
 
       <div class="dialog-footer">
-        <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">Cancel</button>
+        <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">{{ t('common.cancel') }}</button>
         <button class="cyber-btn" style="background: var(--red);" :disabled="executing || !selectedIndex" @click="drop">
           <v-icon size="14" :class="{ spin: executing }">{{ executing ? 'mdi-loading' : 'mdi-delete' }}</v-icon>
-          Drop Index
+          {{ t('db.dropIndex') }}
         </button>
       </div>
     </div>

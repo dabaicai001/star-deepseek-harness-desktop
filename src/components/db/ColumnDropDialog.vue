@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import { generateDropColumnDDL } from '@/utils/ddlGenerator'
 import type { ColumnMeta } from '@/types/db'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   connId: string
@@ -55,7 +58,7 @@ async function drop() {
     <div class="cyber-panel" style="padding: 0;">
       <div class="dialog-header">
         <v-icon size="16" color="var(--red)">mdi-delete-circle</v-icon>
-        <span class="dialog-title">Drop Column</span>
+        <span class="dialog-title">{{ t('db.dropColumnTitle') }}</span>
         <span class="dialog-subtitle">{{ db }}.{{ table }}</span>
         <v-spacer />
         <v-btn variant="text" size="small" icon="mdi-close" @click="emit('update:modelValue', false)" />
@@ -65,24 +68,24 @@ async function drop() {
         <div v-if="error" class="dialog-error">{{ error }}</div>
 
         <div class="form-row">
-          <label class="form-label">Column</label>
+          <label class="form-label">{{ t('db.column') }}</label>
           <select v-model="selectedColumn" class="cyber-select" style="flex: 1;">
-            <option value="">-- Select column --</option>
+            <option value="">{{ t('db.selectColumn') }}</option>
             <option v-for="c in columns" :key="c.name" :value="c.name">{{ c.name }} ({{ c.type }})</option>
           </select>
         </div>
 
         <div class="warning-box">
           <v-icon size="16" color="var(--red)">mdi-alert</v-icon>
-          <span>This action cannot be undone. All data in this column will be lost.</span>
+          <span>{{ t('db.dropColumnWarning') }}</span>
         </div>
       </div>
 
       <div class="dialog-footer">
-        <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">Cancel</button>
+        <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">{{ t('common.cancel') }}</button>
         <button class="cyber-btn" style="background: var(--red);" :disabled="executing || !selectedColumn" @click="drop">
           <v-icon size="14" :class="{ spin: executing }">{{ executing ? 'mdi-loading' : 'mdi-delete' }}</v-icon>
-          Drop Column
+          {{ t('db.dropColumn') }}
         </button>
       </div>
     </div>

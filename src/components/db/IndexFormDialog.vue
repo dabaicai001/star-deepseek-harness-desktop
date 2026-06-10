@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import { generateCreateIndexDDL, generateDropIndexDDL } from '@/utils/ddlGenerator'
 import type { ColumnMeta } from '@/types/db'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   connId: string
@@ -85,7 +88,7 @@ async function submit() {
         <v-icon size="16" color="var(--yellow)">
           {{ mode === 'create' ? 'mdi-key-plus' : 'mdi-key-edit' }}
         </v-icon>
-        <span class="dialog-title">{{ mode === 'create' ? 'Create Index' : 'Modify Index' }}</span>
+        <span class="dialog-title">{{ mode === 'create' ? t('db.createIndexTitle') : t('db.modifyIndexTitle') }}</span>
         <span class="dialog-subtitle">{{ db }}.{{ table }}</span>
         <v-spacer />
         <v-btn variant="text" size="small" icon="mdi-close" @click="emit('update:modelValue', false)" />
@@ -95,12 +98,12 @@ async function submit() {
         <div v-if="error" class="dialog-error">{{ error }}</div>
 
         <div class="form-row">
-          <label class="form-label">Name</label>
+          <label class="form-label">{{ t('db.indexName') }}</label>
           <input v-model="indexName" class="cyber-input" style="flex: 1;" placeholder="idx_name" />
         </div>
 
         <div class="form-row" style="align-items: flex-start;">
-          <label class="form-label">Columns</label>
+          <label class="form-label">{{ t('db.indexColumns') }}</label>
           <div class="col-check-list">
             <label v-for="c in columns" :key="c.name" class="col-check-item">
               <input type="checkbox" :checked="selectedColumns.includes(c.name)" @change="toggleColumn(c.name)" />
@@ -111,23 +114,23 @@ async function submit() {
         </div>
 
         <div class="form-row">
-          <label class="form-label">Type</label>
+          <label class="form-label">{{ t('db.indexType') }}</label>
           <select v-model="indexType" class="cyber-select" style="flex: 1;">
             <option v-for="t in indexTypeOptions" :key="t" :value="t">{{ t }}</option>
           </select>
         </div>
 
         <div class="form-row">
-          <label class="form-label">Unique</label>
+          <label class="form-label">{{ t('db.uniqueTitle') }}</label>
           <input type="checkbox" v-model="unique" :disabled="indexType === 'FULLTEXT'" />
         </div>
       </div>
 
       <div class="dialog-footer">
-        <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">Cancel</button>
+        <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">{{ t('common.cancel') }}</button>
         <button class="cyber-btn" :disabled="executing || !indexName.trim() || selectedColumns.length === 0" @click="submit">
           <v-icon size="14" :class="{ spin: executing }">{{ executing ? 'mdi-loading' : 'mdi-check' }}</v-icon>
-          {{ mode === 'create' ? 'Create Index' : 'Save Changes' }}
+          {{ mode === 'create' ? t('db.createIndex') : t('db.saveChanges') }}
         </button>
       </div>
     </div>
