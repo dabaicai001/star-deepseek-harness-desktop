@@ -81,12 +81,20 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /**
-   * 打开一个新的 settings tab(总是新开,不复用)。
-   * 多次点设置按钮会得到多个独立的 settings tab(虽然实际内容一样,
-   * 但用户能从 tab 栏看出"我从哪条入口进来的")。
+   * 打开/激活设置 tab。
+   * 设置页是单例 tab:已存在就直接激活(不再开新 tab),
+   * 多次点设置按钮不会产生多个"设置" tab 污染标签栏。
+   * 返回最终激活的 tab id。
    */
   function openSettingsTab() {
-    const id = `settings-${Date.now()}`
+    // 复用:找第一个 type === 'settings' 的 tab,激活它
+    const existing = tabs.value.find(t => t.type === 'settings')
+    if (existing) {
+      activeTab.value = existing.id
+      return existing.id
+    }
+    // 首次打开,新建一个固定 id 的 settings tab
+    const id = 'settings'
     addTab({ id, assetId: 'settings', title: '设置', type: 'settings' })
     return id
   }
@@ -121,7 +129,7 @@ export const useAppStore = defineStore('app', () => {
     // 兜底:即使有人手动把旧数据塞回,格式不对(无 assetId 字段)也清掉
     afterRestore: (ctx) => {
       const state = ctx.store as unknown as { 
-        tabs?: Array<{ id: string; assetId?: string }>
+        tabs?: Array<{ id: string; assetId?: string; type?: string; title?: string }>
         activeTab?: string | null
         rightPanelOpen?: boolean
       }
@@ -141,6 +149,21 @@ export const useAppStore = defineStore('app', () => {
           seen.add(t.id)
           return true
         })
+        // 2.5) 合并旧的 settings-<ts> tab 为单例 `settings` tab
+        // (v0.3.5 之前 openSettingsTab 每次新建一个 settings-<ts>,
+        //  现在改为单例,需要在启动时把残留的多余 settings tab 收掉)
+        const settingsTabs = state.tabs.filter(t => t.type === 'settings')
+        if (settingsTabs.length > 0) {
+          const first = settingsTabs[0]
+          const oldIds = new Set(settingsTabs.map(t => t.id))
+          state.tabs = [
+            { ...first, id: 'settings' },
+            ...state.tabs.filter(t => t.type !== 'settings' && !oldIds.has(t.id))
+          ]
+          if (state.activeTab && oldIds.has(state.activeTab)) {
+            state.activeTab = 'settings'
+          }
+        }
         // 3) activeTab 指向不存在的 tab 时,清空让它落到 home
         if (state.activeTab && !state.tabs.find(t => t.id === state.activeTab)) {
           state.activeTab = null
