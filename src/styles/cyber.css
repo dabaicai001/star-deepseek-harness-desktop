@@ -313,6 +313,31 @@ html.v-theme--lightTheme {
   color: var(--muted);
 }
 
+.cyber-select {
+  background: var(--bg-input);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  transition: all 0.3s;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+}
+
+.cyber-select:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px var(--focus-cyan);
+}
+
+.cyber-select option {
+  background: var(--panel-solid-2);
+  color: var(--text);
+}
+
 /* Tree item styles */
 .tree-item {
   padding: 6px 14px;
