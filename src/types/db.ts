@@ -73,8 +73,16 @@ export interface IndexInfo {
   keyName: string
   seqInIndex: number
   columnName: string
+  collation: string
+  cardinality: number | null
+  subPart: number | null
+  packed: string | null
+  null: string
   indexType: string
   comment: string
+  indexComment: string
+  visible: string
+  expression: string | null
 }
 
 export interface DDLResult {

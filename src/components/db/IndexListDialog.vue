@@ -42,7 +42,7 @@ const groupedIndexes = computed(() => {
   const map = new Map<string, { nonUnique: number; indexType: string; comment: string; columns: string[] }>()
   for (const idx of indexes.value) {
     if (!map.has(idx.keyName)) {
-      map.set(idx.keyName, { nonUnique: idx.nonUnique, indexType: idx.indexType, comment: idx.comment, columns: [] })
+      map.set(idx.keyName, { nonUnique: idx.nonUnique, indexType: idx.indexType, comment: idx.indexComment, columns: [] })
     }
     map.get(idx.keyName)!.columns.push(idx.columnName)
   }

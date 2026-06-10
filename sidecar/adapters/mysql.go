@@ -70,13 +70,21 @@ type ColumnMeta struct {
 
 // IndexInfo 索引信息
 type IndexInfo struct {
-	TableName  string `json:"tableName" db:"Table"`
-	NonUnique  int    `json:"nonUnique" db:"Non_unique"`
-	KeyName    string `json:"keyName" db:"Key_name"`
-	SeqInIndex int    `json:"seqInIndex" db:"Seq_in_index"`
-	ColumnName string `json:"columnName" db:"Column_name"`
-	IndexType  string `json:"indexType" db:"Index_type"`
-	Comment    string `json:"comment" db:"Index_comment"`
+	TableName   string `json:"tableName" db:"Table"`
+	NonUnique   int    `json:"nonUnique" db:"Non_unique"`
+	KeyName     string `json:"keyName" db:"Key_name"`
+	SeqInIndex  int    `json:"seqInIndex" db:"Seq_in_index"`
+	ColumnName  string `json:"columnName" db:"Column_name"`
+	Collation   string `json:"collation" db:"Collation"`
+	Cardinality *int64 `json:"cardinality" db:"Cardinality"`
+	SubPart     *int64 `json:"subPart" db:"Sub_part"`
+	Packed      *string `json:"packed" db:"Packed"`
+	Null        string `json:"null" db:"Null"`
+	IndexType   string `json:"indexType" db:"Index_type"`
+	Comment     string `json:"comment" db:"Comment"`
+	IndexComment string `json:"indexComment" db:"Index_comment"`
+	Visible     string `json:"visible" db:"Visible"`
+	Expression  *string `json:"expression" db:"Expression"`
 }
 
 // TableMeta 表元信息（列 + 行数，一次请求并行获取）
