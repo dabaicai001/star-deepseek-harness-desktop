@@ -107,6 +107,12 @@ fn main() {
             commands::db::db_redis_execute,
             commands::db::db_redis_info,
             commands::db::db_redis_db_size,
+            commands::db::db_redis_slowlog_get,
+            commands::db::db_redis_slowlog_reset,
+            commands::db::db_redis_scan_all,
+            commands::db::db_redis_bigkey_scan,
+            commands::db::db_redis_memory_analysis,
+            commands::db::db_redis_flush_db,
             // Docker
             commands::docker::docker_connect,
             commands::docker::docker_test,

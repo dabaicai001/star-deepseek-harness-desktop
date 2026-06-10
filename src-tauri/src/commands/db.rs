@@ -382,3 +382,43 @@ pub async fn db_redis_db_size(
 ) -> Result<Value, String> {
     sidecar.call("db.redis.dbSize", serde_json::json!({ "connId": conn_id })).await
 }
+
+#[tauri::command]
+pub async fn db_redis_slowlog_get(sidecar: State<'_, SidecarManager>, conn_id: String, count: i64) -> Result<Value, String> {
+    sidecar.call("db.redis.slowlogGet", serde_json::json!({ "connId": conn_id, "count": count })).await
+}
+
+#[tauri::command]
+pub async fn db_redis_slowlog_reset(sidecar: State<'_, SidecarManager>, conn_id: String) -> Result<Value, String> {
+    sidecar.call("db.redis.slowlogReset", serde_json::json!({ "connId": conn_id })).await
+}
+
+#[tauri::command]
+pub async fn db_redis_scan_all(sidecar: State<'_, SidecarManager>, conn_id: String, match_pattern: Option<String>, count: Option<i64>) -> Result<Value, String> {
+    let mut params = serde_json::json!({ "connId": conn_id });
+    if let Some(m) = match_pattern { params["match"] = serde_json::json!(m); }
+    if let Some(c) = count { params["count"] = serde_json::json!(c); }
+    sidecar.call("db.redis.scanAll", params).await
+}
+
+#[tauri::command]
+pub async fn db_redis_bigkey_scan(sidecar: State<'_, SidecarManager>, conn_id: String, match_pattern: Option<String>, string_threshold: Option<i64>, member_threshold: Option<i64>) -> Result<Value, String> {
+    let mut params = serde_json::json!({ "connId": conn_id });
+    if let Some(m) = match_pattern { params["match"] = serde_json::json!(m); }
+    if let Some(s) = string_threshold { params["stringThreshold"] = serde_json::json!(s); }
+    if let Some(c) = member_threshold { params["memberThreshold"] = serde_json::json!(c); }
+    sidecar.call("db.redis.bigkeyScan", params).await
+}
+
+#[tauri::command]
+pub async fn db_redis_memory_analysis(sidecar: State<'_, SidecarManager>, conn_id: String, match_pattern: Option<String>, sample_size: Option<i32>) -> Result<Value, String> {
+    let mut params = serde_json::json!({ "connId": conn_id });
+    if let Some(m) = match_pattern { params["match"] = serde_json::json!(m); }
+    if let Some(s) = sample_size { params["sampleSize"] = serde_json::json!(s); }
+    sidecar.call("db.redis.memoryAnalysis", params).await
+}
+
+#[tauri::command]
+pub async fn db_redis_flush_db(sidecar: State<'_, SidecarManager>, conn_id: String) -> Result<Value, String> {
+    sidecar.call("db.redis.flushDb", serde_json::json!({ "connId": conn_id })).await
+}
