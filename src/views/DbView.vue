@@ -476,15 +476,15 @@ async function onTableContextMenu(e: MouseEvent, db: string, table: string) {
   if (connId.value) {
     items.push({ type: 'header', label: table })
     items.push({ type: 'divider' })
-    items.push({ label: 'View Fields', icon: 'mdi-table-column', onClick: () => { showColumnList.value = true } })
-    items.push({ label: 'Add Field', icon: 'mdi-plus-circle', onClick: () => { columnFormMode.value = 'create'; columnFormTarget.value = undefined; showColumnForm.value = true } })
-    items.push({ label: 'Modify Field', icon: 'mdi-pencil-circle', onClick: openModifyColumn })
-    items.push({ label: 'Delete Field', icon: 'mdi-delete-circle', danger: true, onClick: () => { showColumnDrop.value = true } })
+    items.push({ label: t('db.viewFields'), icon: 'mdi-table-column', onClick: () => { showColumnList.value = true } })
+    items.push({ label: t('db.addField'), icon: 'mdi-plus-circle', onClick: () => { columnFormMode.value = 'create'; columnFormTarget.value = undefined; showColumnForm.value = true } })
+    items.push({ label: t('db.modifyField'), icon: 'mdi-pencil-circle', onClick: openModifyColumn })
+    items.push({ label: t('db.deleteField'), icon: 'mdi-delete-circle', danger: true, onClick: () => { showColumnDrop.value = true } })
     items.push({ type: 'divider' })
-    items.push({ label: 'View Indexes', icon: 'mdi-key-variant', onClick: () => { showIndexList.value = true } })
-    items.push({ label: 'Create Index', icon: 'mdi-key-plus', onClick: () => { indexFormMode.value = 'create'; indexFormTarget.value = undefined; showIndexForm.value = true } })
-    items.push({ label: 'Modify Index', icon: 'mdi-key-edit', onClick: openModifyIndex })
-    items.push({ label: 'Delete Index', icon: 'mdi-key-remove', danger: true, onClick: () => { showIndexDrop.value = true } })
+    items.push({ label: t('db.viewIndexes'), icon: 'mdi-key-variant', onClick: () => { showIndexList.value = true } })
+    items.push({ label: t('db.createIndex'), icon: 'mdi-key-plus', onClick: () => { indexFormMode.value = 'create'; indexFormTarget.value = undefined; showIndexForm.value = true } })
+    items.push({ label: t('db.modifyIndex'), icon: 'mdi-key-edit', onClick: openModifyIndex })
+    items.push({ label: t('db.deleteIndex'), icon: 'mdi-key-remove', danger: true, onClick: () => { showIndexDrop.value = true } })
   }
 
   ctxMenu.value = { x: e.clientX, y: e.clientY, items }
