@@ -1,0 +1,164 @@
+<script setup lang="ts">
+import { ref, watch } from 'vue'
+import * as dbService from '@/services/db'
+import { generateAddColumnDDL, generateModifyColumnDDL } from '@/utils/ddlGenerator'
+import type { ColumnMeta } from '@/types/db'
+
+const props = defineProps<{
+  connId: string
+  db: string
+  table: string
+  mode: 'create' | 'modify'
+  column?: ColumnMeta
+  existingColumns?: ColumnMeta[]
+  modelValue: boolean
+}>()
+
+const emit = defineEmits<{
+  'update:modelValue': [v: boolean]
+  reload: []
+}>()
+
+const name = ref('')
+const type = ref('VARCHAR(255)')
+const nullable = ref(true)
+const defaultValue = ref('')
+const comment = ref('')
+const position = ref<'LAST' | 'FIRST' | 'AFTER'>('LAST')
+const afterCol = ref('')
+const executing = ref(false)
+const error = ref<string | null>(null)
+
+const typeOptions = ['VARCHAR(255)', 'INT', 'BIGINT', 'TINYINT', 'DECIMAL(10,2)', 'TEXT', 'LONGTEXT', 'DATETIME', 'DATE', 'BOOLEAN', 'FLOAT', 'DOUBLE', 'JSON']
+
+watch(() => props.modelValue, (v) => {
+  if (!v) return
+  error.value = null
+  if (props.mode === 'modify' && props.column) {
+    name.value = props.column.name
+    type.value = props.column.type
+    nullable.value = props.column.nullable === 'YES'
+    defaultValue.value = props.column.defaultValue ?? ''
+    comment.value = props.column.comment ?? ''
+  } else {
+    name.value = ''
+    type.value = 'VARCHAR(255)'
+    nullable.value = true
+    defaultValue.value = ''
+    comment.value = ''
+    position.value = 'LAST'
+    afterCol.value = ''
+  }
+})
+
+async function submit() {
+  if (!name.value.trim()) return
+  executing.value = true
+  error.value = null
+  try {
+    let ddl: string
+    if (props.mode === 'create') {
+      ddl = generateAddColumnDDL(props.db, props.table, name.value.trim(), type.value, nullable.value, defaultValue.value, comment.value,
+        position.value === 'AFTER' ? afterCol.value : undefined)
+    } else {
+      ddl = generateModifyColumnDDL(props.db, props.table, name.value.trim(), type.value, nullable.value, defaultValue.value, comment.value)
+    }
+    const r = await dbService.mysqlExecute(props.connId, ddl)
+    if (r.error) throw new Error(r.error)
+    emit('reload')
+    emit('update:modelValue', false)
+  } catch (err: unknown) {
+    error.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    executing.value = false
+  }
+}
+</script>
+
+<template>
+  <v-dialog :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" max-width="480">
+    <div class="cyber-panel" style="padding: 0;">
+      <div class="dialog-header">
+        <v-icon size="16" color="purple">{{ mode === 'create' ? 'mdi-plus-circle' : 'mdi-pencil-circle' }}</v-icon>
+        <span class="dialog-title">{{ mode === 'create' ? 'Add Column' : 'Modify Column' }}</span>
+        <span class="dialog-subtitle">{{ db }}.{{ table }}</span>
+        <v-spacer />
+        <v-btn variant="text" size="small" icon="mdi-close" @click="emit('update:modelValue', false)" />
+      </div>
+
+      <div class="dialog-body" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+        <div v-if="error" class="dialog-error">{{ error }}</div>
+
+        <div class="form-row">
+          <label class="form-label">Name</label>
+          <input v-model="name" class="cyber-input" style="flex: 1;" placeholder="column_name" :disabled="mode === 'modify'" />
+        </div>
+
+        <div class="form-row">
+          <label class="form-label">Type</label>
+          <select v-model="type" class="cyber-select" style="flex: 1;">
+            <option v-for="t in typeOptions" :key="t" :value="t">{{ t }}</option>
+          </select>
+          <input v-if="!typeOptions.includes(type)" v-model="type" class="cyber-input" style="flex: 1;" placeholder="custom type" />
+        </div>
+
+        <div class="form-row">
+          <label class="form-label">Nullable</label>
+          <input type="checkbox" v-model="nullable" />
+        </div>
+
+        <div class="form-row">
+          <label class="form-label">Default</label>
+          <input v-model="defaultValue" class="cyber-input" style="flex: 1;" placeholder="NULL" />
+        </div>
+
+        <div class="form-row">
+          <label class="form-label">Comment</label>
+          <input v-model="comment" class="cyber-input" style="flex: 1;" placeholder="column comment" />
+        </div>
+
+        <div v-if="mode === 'create'" class="form-row">
+          <label class="form-label">Position</label>
+          <select v-model="position" class="cyber-select" style="flex: 1;">
+            <option value="LAST">LAST (default)</option>
+            <option value="FIRST">FIRST</option>
+            <option value="AFTER">AFTER...</option>
+          </select>
+        </div>
+
+        <div v-if="mode === 'create' && position === 'AFTER'" class="form-row">
+          <label class="form-label">After column</label>
+          <select v-model="afterCol" class="cyber-select" style="flex: 1;">
+            <option v-for="c in (existingColumns || [])" :key="c.name" :value="c.name">{{ c.name }}</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="dialog-footer">
+        <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">Cancel</button>
+        <button class="cyber-btn" :disabled="executing || !name.trim()" @click="submit">
+          <v-icon size="14" :class="{ spin: executing }">{{ executing ? 'mdi-loading' : 'mdi-check' }}</v-icon>
+          {{ mode === 'create' ? 'Add Column' : 'Save Changes' }}
+        </button>
+      </div>
+    </div>
+  </v-dialog>
+</template>
+
+<style scoped>
+.dialog-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+.dialog-title { font-weight: 600; font-size: 14px; color: var(--text); }
+.dialog-subtitle { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.dialog-error { padding: 8px 12px; font-size: 11px; color: var(--red); background: rgba(255,77,109,.08); border-radius: 6px; }
+.dialog-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 10px 16px; border-top: 1px solid var(--line); flex-shrink: 0;
+}
+.form-row { display: flex; align-items: center; gap: 12px; }
+.form-label { width: 80px; font-size: 11px; color: var(--muted); text-align: right; text-transform: uppercase; letter-spacing: 0.06em; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+</style>
