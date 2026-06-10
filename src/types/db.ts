@@ -131,6 +131,35 @@ export interface DeleteResult {
   deleted: number
 }
 
+// Redis extended types
+export interface SlowlogEntry {
+  id: number
+  duration: number
+  timestamp: number
+  command: string
+}
+
+export interface BigKeyEntry {
+  key: string
+  type: string
+  size: number
+  length: number
+}
+
+export interface MemoryAnalysisEntry {
+  prefix: string
+  keys: number
+  memory: number
+  percentage: number
+}
+
+export interface PubSubMessage {
+  channel: string
+  pattern?: string
+  payload: string
+  time: string
+}
+
 // DB session info (for frontend state)
 export interface DbSession {
   connId: string

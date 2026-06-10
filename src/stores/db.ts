@@ -144,6 +144,21 @@ export const useDbStore = defineStore('db', () => {
     return queryHistory.value
   }
 
+  // ─── Redis CLI History ───
+
+  const redisCliHistory = ref<string[]>([])
+
+  function addCliHistory(cmd: string) {
+    redisCliHistory.value.unshift(cmd)
+    if (redisCliHistory.value.length > 200) {
+      redisCliHistory.value = redisCliHistory.value.slice(0, 200)
+    }
+  }
+
+  function getCliHistory(): string[] {
+    return redisCliHistory.value
+  }
+
   return {
     sessions,
     currentConnId,
@@ -158,7 +173,10 @@ export const useDbStore = defineStore('db', () => {
     setCurrentSession,
     executeQuery,
     clearResult,
-    getHistory
+    getHistory,
+    redisCliHistory,
+    addCliHistory,
+    getCliHistory
   }
 }, {
   persist: {

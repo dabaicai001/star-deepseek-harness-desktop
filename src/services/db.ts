@@ -16,7 +16,10 @@ import type {
   RedisScanResult,
   RedisValueResult,
   RedisCommandResult,
-  DeleteResult
+  DeleteResult,
+  SlowlogEntry,
+  BigKeyEntry,
+  MemoryAnalysisEntry
 } from '@/types/db'
 
 // ─── MySQL ───
@@ -153,4 +156,38 @@ export async function redisInfo(connId: string, section?: string): Promise<strin
 
 export async function redisDBSize(connId: string): Promise<{ size: number }> {
   return invoke('db_redis_db_size', { connId })
+}
+
+// ─── Redis Extended ───
+
+export async function redisSlowlogGet(connId: string, count: number): Promise<SlowlogEntry[]> {
+  return invoke('db_redis_slowlog_get', { connId, count })
+}
+
+export async function redisSlowlogReset(connId: string): Promise<void> {
+  return invoke('db_redis_slowlog_reset', { connId })
+}
+
+export async function redisScanAll(connId: string, match?: string, count?: number): Promise<RedisScanResult> {
+  return invoke('db_redis_scan_all', { connId, match, count })
+}
+
+export async function redisBigKeyScan(connId: string, match?: string, stringThreshold?: number, memberThreshold?: number): Promise<BigKeyEntry[]> {
+  return invoke('db_redis_bigkey_scan', { connId, match, stringThreshold, memberThreshold })
+}
+
+export async function redisMemoryAnalysis(connId: string, match?: string, sampleSize?: number): Promise<MemoryAnalysisEntry[]> {
+  return invoke('db_redis_memory_analysis', { connId, match, sampleSize })
+}
+
+export async function redisFlushDB(connId: string): Promise<void> {
+  return invoke('db_redis_flush_db', { connId })
+}
+
+export async function redisSubscribe(connId: string, channels: string[], patterns: string[]): Promise<void> {
+  return invoke('db_redis_subscribe', { connId, channels, patterns })
+}
+
+export async function redisUnsubscribe(connId: string, channels: string[]): Promise<void> {
+  return invoke('db_redis_unsubscribe', { connId, channels })
 }
