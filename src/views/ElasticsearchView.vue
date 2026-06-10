@@ -86,7 +86,7 @@ async function initConnection() {
   }
   if (!connId.value) {
     try {
-      const asset = assetStore.getAssetById(tab.value.assetId)
+      const asset = assetStore.assets.find(a => a.id === tab.value!.assetId)
       if (!asset) throw new Error('Asset not found')
       const config = asset.config
       const params = {

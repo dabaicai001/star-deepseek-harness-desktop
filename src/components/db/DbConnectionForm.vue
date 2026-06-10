@@ -99,7 +99,7 @@ async function onTestConnection() {
       })
       testStatus.value = result.ok ? 'success' : 'fail'
       testMessage.value = result.message
-    } else {
+    } else if (dbType.value === 'redis') {
       const result = await dbService.redisTest({
         host: host.value,
         port: port.value,
