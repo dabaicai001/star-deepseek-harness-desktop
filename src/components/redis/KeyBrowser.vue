@@ -27,7 +27,7 @@ interface DbState {
 }
 
 const dbStates = ref<Record<number, DbState>>({})
-const expandedDbs = ref<Set<number>>(new Set([0]))
+const expandedDbs = ref<Set<number>>(new Set())
 const collapsed = ref(false)
 
 // ─── Helpers ───
