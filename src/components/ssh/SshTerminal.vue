@@ -86,6 +86,7 @@ const rightPanelTabs = computed(() => [
 ])
 
 // ====== AI助手(每个 tab独立) ======
+const sshCwd = ref<string>('')
 const aiSession = computed(() => {
  if (!asset.value) return null
  const session = aiStore.getOrCreateSession(props.id, asset.value.id, 'ssh')
@@ -95,6 +96,13 @@ const aiSession = computed(() => {
 async function onAiSend(text: string) {
  if (!aiSession.value) return
  aiSession.value.messages.push({ role: 'user', content: text })
+ // 先获取当前工作目录
+ try {
+   await writeCommand('pwd')
+   const cwdOutput = await captureOutput(1000)
+   const pwdMatch = cwdOutput.match(/\/[\w\-./]+/)
+   if (pwdMatch) sshCwd.value = pwdMatch[0]
+ } catch { /* ignore */ }
  await runSshAgent()
 }
 
@@ -188,7 +196,10 @@ async function runSshAgent() {
  const toolExec = async (call: LlmToolCall) => {
  return await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
  }
- await aiStore.runAgent(props.id, sshTools, toolExec, SSH_SYSTEM_PROMPT)
+ const sysPrompt = sshCwd.value
+   ? SSH_SYSTEM_PROMPT.replace('当前已连接到远程服务器', `当前已连接到远程服务器,当前工作目录: ${sshCwd.value}`)
+   : SSH_SYSTEM_PROMPT
+ await aiStore.runAgent(props.id, sshTools, toolExec, sysPrompt)
 }
 
 onMounted(async () => {

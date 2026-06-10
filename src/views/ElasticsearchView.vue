@@ -4,8 +4,12 @@ import { useRoute } from 'vue-router'
 import { useDbStore } from '@/stores/db'
 import { useAppStore } from '@/stores/app'
 import { useAssetStore } from '@/stores/asset'
+import { useAiStore } from '@/stores/ai'
 import { useI18n } from 'vue-i18n'
 import * as esService from '@/services/db'
+import { ES_SYSTEM_PROMPT, esTools, makeEsToolCaller } from '@/utils/aiTools'
+import type { LlmToolCall } from '@/services/ai'
+import AiChat from '@/components/ai/AiChat.vue'
 import type { EsIndexInfo, EsSearchResult } from '@/types/db'
 
 const { t } = useI18n()
@@ -13,6 +17,7 @@ const route = useRoute()
 const dbStore = useDbStore()
 const appStore = useAppStore()
 const assetStore = useAssetStore()
+const aiStore = useAiStore()
 
 const instanceId = computed(() => route.params.id as string)
 const tab = computed(() => appStore.tabs.find(t => t.id === instanceId.value))
@@ -28,7 +33,7 @@ const connId = ref<string | null>(session.value?.connId || null)
 const isLoading = ref(false)
 const error = ref<string | null>(null)
 
-const activeTab = ref<'overview' | 'search' | 'index' | 'importexport'>('overview')
+const activeTab = ref<'overview' | 'search' | 'index' | 'importexport' | 'ai'>('overview')
 
 const indices = ref<EsIndexInfo[]>([])
 const selectedIndex = ref<string | null>(null)
@@ -71,6 +76,154 @@ function getFieldValue(source: Record<string, unknown>, field: string): string {
   if (val === null || val === undefined) return ''
   if (typeof val === 'object') return JSON.stringify(val)
   return String(val)
+}
+
+// ====== AI 助手 ======
+const aiSession = computed(() => {
+  if (!connId.value) return null
+  return aiStore.getOrCreateSession(instanceId.value, tab.value?.assetId || '', 'db')
+})
+
+async function executeEsTool(name: string, args: Record<string, unknown>): Promise<string> {
+  if (!connId.value) throw new Error('ES 未连接')
+  try {
+    switch (name) {
+      case 'es_list_indices': {
+        const idxs = await esService.esListIndices(connId.value)
+        return JSON.stringify(idxs.map(i => ({ name: i.name, docs: i.docsCount, size: i.storeSize, health: i.health, status: i.status })), null, 2)
+      }
+      case 'es_cluster_health': {
+        const h = await esService.esClusterHealth(connId.value)
+        return JSON.stringify(h, null, 2)
+      }
+      case 'es_get_mapping': {
+        const m = await esService.esGetMapping(connId.value, String(args.index))
+        if (m && m.fields) {
+          return JSON.stringify(m.fields.map(f => ({ name: f.name, type: f.type, children: f.children })), null, 2)
+        }
+        return JSON.stringify(m, null, 2)
+      }
+      case 'es_search': {
+        let body: Record<string, unknown>
+        try { body = JSON.parse(String(args.query)) } catch { return '[Error] Invalid JSON in query DSL' }
+        const size = args.size ? Number(args.size) : 20
+        const from = args.from ? Number(args.from) : 0
+        const r = await esService.esSearch(connId.value, String(args.index), body, from, size)
+        const hits = r.hits?.map(h => ({ _id: h.id, _index: h.index, _score: h.score, ...h.source })) || []
+        return `总计: ${r.totalHits} 条, 耗时: ${r.took}ms\n${JSON.stringify(hits.slice(0, 20), null, 2)}${r.totalHits > 20 ? `\n... (还有 ${r.totalHits - 20} 条)` : ''}`
+      }
+      case 'es_get_document': {
+        const doc = await esService.esGetDocument(connId.value, String(args.index), String(args.id))
+        return JSON.stringify(doc, null, 2)
+      }
+      case 'es_count': {
+        let body: Record<string, unknown> | undefined
+        if (args.query) {
+          try { body = JSON.parse(String(args.query)) } catch { return '[Error] Invalid JSON in query' }
+        }
+        const r = await esService.esCount(connId.value, String(args.index), body)
+        return `count: ${r.count}`
+      }
+      case 'es_index_document_confirmed': {
+        let body: Record<string, unknown>
+        try { body = JSON.parse(String(args.body)) } catch { return '[Error] Invalid JSON in body' }
+        const id = args.id ? String(args.id) : undefined
+        const r = await esService.esIndexDocument(connId.value, String(args.index), body, id)
+        return JSON.stringify(r, null, 2)
+      }
+      case 'es_delete_document_confirmed': {
+        const r = await esService.esDeleteDocument(connId.value, String(args.index), String(args.id))
+        return JSON.stringify(r, null, 2)
+      }
+      case 'es_delete_index_confirmed': {
+        const r = await esService.esDeleteIndex(connId.value, String(args.index))
+        return JSON.stringify(r, null, 2)
+      }
+      default:
+        return `[Unknown tool] ${name}`
+    }
+  } catch (e: any) {
+    return `[Error] ${e?.message || String(e)}`
+  }
+}
+
+const esPendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
+
+async function onAiSend(text: string) {
+  if (!aiSession.value) return
+  aiSession.value.messages.push({ role: 'user', content: text })
+
+  const confirmFn: import('@/utils/aiTools').ToolConfirmFn = async (ctx) => {
+    const session = aiSession.value!
+    const running = [...session.toolCalls].reverse().find(t => t.status === 'running' || t.status === 'awaiting-confirm')
+    const recordId = running?.id || `pending-${Date.now()}`
+    if (running) {
+      running.status = 'awaiting-confirm'
+      running.result = ctx.message
+    } else {
+      session.toolCalls.push({
+        id: recordId, name: ctx.toolName, args: ctx.args,
+        status: 'awaiting-confirm', result: ctx.message, startedAt: Date.now()
+      })
+    }
+    return new Promise<boolean>((resolve) => {
+      esPendingConfirms.value.set(recordId, resolve)
+    })
+  }
+
+  const caller = makeEsToolCaller(
+    executeEsTool,
+    () => aiStore.settings.commandWhitelist,
+    confirmFn
+  )
+  const toolExec = async (call: LlmToolCall) =>
+    await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+  const sysPrompt = selectedIndex.value
+    ? ES_SYSTEM_PROMPT.replace('Elasticsearch 集群', `Elasticsearch 集群,当前选中的索引是 "${selectedIndex.value}"`)
+    : ES_SYSTEM_PROMPT
+  await aiStore.runAgent(instanceId.value, esTools, toolExec, sysPrompt)
+}
+
+async function onAiRetry() {
+  if (!aiSession.value) return
+  const msgs = aiSession.value.messages
+  while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
+  if (msgs.length) await onAiSend('')
+}
+
+function onAiNewChat() {
+  aiStore.resetSession(instanceId.value)
+}
+
+function onAiStop() {
+  aiStore.stopAgent(instanceId.value)
+}
+
+function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {
+  if (!aiSession.value) return
+  const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
+  if (rec) {
+    if (decision === 'whitelist') {
+      const cmd = String(rec.args.query ?? rec.args.body ?? '')
+      const prefix = rec.name
+      if (prefix) {
+        aiStore.addToWhitelist(prefix)
+      }
+      rec.status = 'success'
+      rec.result = `✓ 已加入白名单 (${prefix}),正在执行…`
+    } else if (decision === 'approve') {
+      rec.status = 'success'
+      rec.result = '✓ 已批准,正在执行…'
+    } else {
+      rec.status = 'rejected'
+      rec.result = '✗ 已拒绝'
+    }
+  }
+  const resolve = esPendingConfirms.value.get(recordId)
+  if (resolve) {
+    resolve(decision === 'approve' || decision === 'whitelist')
+    esPendingConfirms.value.delete(recordId)
+  }
 }
 
 async function initConnection() {
@@ -186,7 +339,7 @@ onMounted(() => initConnection())
 
       <div class="es-main">
         <div class="es-tabs">
-          <button v-for="tb in [{ key: 'overview' as const, label: t('home.welcome'), icon: 'mdi-view-dashboard' }, { key: 'search' as const, label: t('db.query'), icon: 'mdi-magnify' }, { key: 'index' as const, label: t('db.index'), icon: 'mdi-file-document' }, { key: 'importexport' as const, label: t('db.export'), icon: 'mdi-import' }]" :key="tb.key" :class="['cyber-tab', { active: activeTab === tb.key }]" @click="activeTab = tb.key"><v-icon size="14">{{ tb.icon }}</v-icon>{{ tb.label }}</button>
+          <button v-for="tb in [{ key: 'overview' as const, label: t('home.welcome'), icon: 'mdi-view-dashboard' }, { key: 'search' as const, label: t('db.query'), icon: 'mdi-magnify' }, { key: 'index' as const, label: t('db.index'), icon: 'mdi-file-document' }, { key: 'importexport' as const, label: t('db.export'), icon: 'mdi-import' }, { key: 'ai' as const, label: 'AI', icon: 'mdi-robot' }]" :key="tb.key" :class="['cyber-tab', { active: activeTab === tb.key }]" @click="activeTab = tb.key"><v-icon size="14">{{ tb.icon }}</v-icon>{{ tb.label }}</button>
         </div>
 
         <div v-if="activeTab === 'overview'" class="es-tab-content">
@@ -238,6 +391,21 @@ onMounted(() => initConnection())
             <div class="cyber-card"><div class="card-title">{{ t('db.importJSON') }}</div><p class="card-desc">JSON file (array of objects or NDJSON)</p><div class="import-placeholder"><v-icon size="40">mdi-cloud-upload-outline</v-icon><span>{{ t('db.dragOrClick') }}</span></div></div>
             <div class="cyber-card"><div class="card-title">{{ t('db.exportJSON') }}</div><div class="export-controls"><select v-model="searchIndex" class="cyber-input"><option value="">Select index...</option><option v-for="idx in indices" :key="idx.name" :value="idx.name">{{ idx.name }}</option></select><button class="cyber-btn" :disabled="!searchIndex">Export</button></div></div>
           </div>
+        </div>
+
+        <div v-if="activeTab === 'ai'" class="es-tab-content">
+          <AiChat
+            v-if="aiSession"
+            :session="aiSession"
+            :sending="aiSession.loading"
+            placeholder="问我关于 ES 的任何事,例如'列出所有索引'或'在 logs-* 中搜索最近1小时的错误日志'"
+            @send="onAiSend"
+            @retry="onAiRetry"
+            @confirm-tool="onAiConfirmTool"
+            @new-chat="onAiNewChat"
+            @stop="onAiStop"
+          />
+          <div v-else class="empty-state"><v-icon size="32">mdi-robot-dead</v-icon><span>连接后可使用 AI 助手</span></div>
         </div>
       </div>
     </div>

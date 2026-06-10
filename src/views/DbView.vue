@@ -7,6 +7,7 @@ import { useAppStore } from '@/stores/app'
 import { useDbStore } from '@/stores/db'
 import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
+import { useDialogStore } from '@/stores/dialog'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
@@ -27,6 +28,7 @@ const appStore = useAppStore()
 const dbStore = useDbStore()
 const aiStore = useAiStore()
 const notify = useNotifyStore()
+const dlg = useDialogStore()
 
 // 路由 :id 是 tab instanceId,需要解析出 assetId 找资产配置
 const instanceId = computed(() => route.params.id as string)
@@ -452,7 +454,7 @@ function onTableDataSortChange(col: string) {
 async function onCellEdit(rowIdx: number, col: string, value: unknown) {
   const tab = activeTableTab.value
   if (!tab || !connId.value || tablePrimaryKeys.value.length === 0) {
-    alert('需要主键才能编辑行')
+    void dlg.alert({ message: '需要主键才能编辑行', color: 'warning' })
     return
   }
   const result = tab.data
@@ -472,7 +474,7 @@ async function onCellEdit(rowIdx: number, col: string, value: unknown) {
     await dbService.mysqlUpdateRows(connId.value, tab.table, { [col]: value }, where, tab.db)
     await loadTableDataFor(tab)
   } catch (err: unknown) {
-    alert(`更新失败: ${err instanceof Error ? err.message : String(err)}`)
+    void dlg.alert({ message: `更新失败: ${err instanceof Error ? err.message : String(err)}`, color: 'error' })
   }
 }
 
@@ -712,7 +714,10 @@ async function onAiSend(text: string) {
   )
   const toolExec = async (call: LlmToolCall) =>
     await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
-  await aiStore.runAgent(instanceId.value, dbTools, toolExec, DB_SYSTEM_PROMPT)
+  const sysPrompt = selectedDb.value
+    ? DB_SYSTEM_PROMPT.replace('当前已连接到数据库', `当前已连接到数据库,当前数据库: ${selectedDb.value}`)
+    : DB_SYSTEM_PROMPT
+  await aiStore.runAgent(instanceId.value, dbTools, toolExec, sysPrompt)
 }
 
 async function onAiRetry() {

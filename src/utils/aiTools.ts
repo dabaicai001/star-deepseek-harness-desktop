@@ -232,6 +232,277 @@ export function makeDbToolCaller(
 }
 
 // ============================================================
+// Redis 工具
+// ============================================================
+
+export const REDIS_SYSTEM_PROMPT = `你是一个 Redis 运维助手。当前已连接到 Redis 服务器,默认操作 db0(可通过 SELECT 切换)。
+
+工具使用规则:
+- 查询类操作(GET, HGET, LRANGE, SMEMBERS, ZRANGE, KEYS, SCAN, TYPE, TTL, INFO, DBSIZE 等)直接调用 redis_exec
+- 修改类操作(SET, DEL, EXPIRE, RENAME, FLUSHDB 等)使用 redis_exec_confirmed(每次都会弹确认框)
+- FLUSHDB / FLUSHALL 是高危操作,即使使用 confirmed 工具也会被系统规则拦截
+- 一次只发一条命令,等结果回来再决定下一步
+- KEYS * 在生产环境禁止使用,请改用 SCAN
+- 输出 Redis 结果时,把 key/value/type 清晰呈现`
+
+export const redisTools: LlmTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'redis_exec',
+      description: '在当前 Redis 连接中执行一条只读命令(GET/HGET/LRANGE/SMEMBERS/ZRANGE/KEYS/SCAN/TYPE/TTL/INFO/DBSIZE 等)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'Redis 命令,例如 "GET mykey" 或 "HGETALL user:1001"' }
+        },
+        required: ['command']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'redis_exec_confirmed',
+      description: '在当前 Redis 连接中执行一条写命令(SET/DEL/EXPIRE/RENAME/FLUSHDB 等),每次都会弹确认框。',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'Redis 命令,例如 "SET mykey myvalue" 或 "DEL oldkey"' }
+        },
+        required: ['command']
+      }
+    }
+  }
+]
+
+export type RedisToolExecutor = (command: string) => Promise<string>
+
+export function makeRedisToolCaller(
+  execute: RedisToolExecutor,
+  getWhitelist: () => string[],
+  confirmFn: ToolConfirmFn,
+  printStatus?: StatusPrinter
+) {
+  return async (call: { function: { name: string; arguments: string } }): Promise<string> => {
+    const args = safeParse(call.function.arguments)
+    const command = String(args.command ?? '').trim()
+    if (!command) return '[Error] Empty command'
+
+    const forceConfirm = call.function.name === 'redis_exec_confirmed'
+    const check = checkCommand(command, getWhitelist())
+
+    if (check.isRisky) {
+      const approved = await confirmFn({
+        toolName: call.function.name,
+        args: { command },
+        reason: 'risk',
+        message: check.confirmMessage
+      })
+      if (!approved) throw new Error(`[Rejected by user] ${check.riskReason}`)
+    } else if (forceConfirm || check.needsConfirm) {
+      const approved = await confirmFn({
+        toolName: call.function.name,
+        args: { command },
+        reason: forceConfirm ? 'always-confirm' : 'whitelist-miss',
+        message: check.confirmMessage
+      })
+      if (!approved) throw new Error('[Rejected by user]')
+    }
+
+    const result = await execute(command)
+    if (printStatus) {
+      const err = result.startsWith('[Error]') || /error|failed|denied/i.test(result)
+      printStatus(err ? 'ERR' : 'OK', command.length > 60 ? command.slice(0, 60) + '...' : command)
+    }
+    return result
+  }
+}
+
+// ============================================================
+// Elasticsearch 工具
+// ============================================================
+
+export const ES_SYSTEM_PROMPT = `你是一个 Elasticsearch 运维助手。当前已连接到 Elasticsearch 集群。
+
+工具使用规则:
+- 查询类操作(list_indices, cluster_health, get_mapping, search, get_document, count)直接调用对应工具
+- 写操作(index_document, update_document, delete_document, delete_index, create_index)使用 _confirmed 版本,会弹确认框
+- DELETE INDEX 是高危操作,即使使用 confirmed 工具也会被系统规则拦截
+- 搜索时优先使用 match / term / range 等结构化查询
+- 输出搜索结果要简洁,挑关键字段呈现
+- 默认每次搜索返回前 20 条,加 LIMIT 避免全量拉取`
+
+export const esTools: LlmTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'es_list_indices',
+      description: '列出 ES 集群中所有索引及其基本信息(文档数、大小、健康状态)',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'es_cluster_health',
+      description: '获取 ES 集群健康状态(状态、节点数、分片数)',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'es_get_mapping',
+      description: '获取指定索引的字段映射(mapping)定义',
+      parameters: {
+        type: 'object',
+        properties: {
+          index: { type: 'string', description: '索引名称' }
+        },
+        required: ['index']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'es_search',
+      description: '在 ES 索引中执行搜索,使用 ES Query DSL(JSON 格式),返回匹配的文档',
+      parameters: {
+        type: 'object',
+        properties: {
+          index: { type: 'string', description: '索引名称,多个索引用逗号分隔' },
+          query: { type: 'string', description: 'ES Query DSL JSON 字符串,例如 {"query":{"match_all":{}},"size":20}' },
+          size: { type: 'string', description: '返回文档数,默认 20' },
+          from: { type: 'string', description: '分页偏移,默认 0' }
+        },
+        required: ['index', 'query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'es_get_document',
+      description: '按 _id 获取单条文档',
+      parameters: {
+        type: 'object',
+        properties: {
+          index: { type: 'string', description: '索引名称' },
+          id: { type: 'string', description: '文档 _id' }
+        },
+        required: ['index', 'id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'es_count',
+      description: '统计索引中的文档数量(支持 Query DSL 过滤)',
+      parameters: {
+        type: 'object',
+        properties: {
+          index: { type: 'string', description: '索引名称' },
+          query: { type: 'string', description: '可选的 Query DSL JSON 过滤条件' }
+        },
+        required: ['index']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'es_index_document_confirmed',
+      description: '向索引写入一篇新文档(创建或替换),会弹确认框',
+      parameters: {
+        type: 'object',
+        properties: {
+          index: { type: 'string', description: '索引名称' },
+          id: { type: 'string', description: '文档 _id(可选,不填则自动生成)' },
+          body: { type: 'string', description: '文档 JSON 字符串' }
+        },
+        required: ['index', 'body']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'es_delete_document_confirmed',
+      description: '按 _id 删除一篇文档,会弹确认框',
+      parameters: {
+        type: 'object',
+        properties: {
+          index: { type: 'string', description: '索引名称' },
+          id: { type: 'string', description: '文档 _id' }
+        },
+        required: ['index', 'id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'es_delete_index_confirmed',
+      description: '删除整个索引(高危操作),会弹确认框',
+      parameters: {
+        type: 'object',
+        properties: {
+          index: { type: 'string', description: '索引名称' }
+        },
+        required: ['index']
+      }
+    }
+  }
+]
+
+export type EsToolExecutor = (name: string, args: Record<string, unknown>) => Promise<string>
+
+export function makeEsToolCaller(
+  exec: EsToolExecutor,
+  getWhitelist: () => string[],
+  confirmFn: ToolConfirmFn,
+  printStatus?: StatusPrinter
+) {
+  return async (call: { function: { name: string; arguments: string } }): Promise<string> => {
+    const args = safeParse(call.function.arguments)
+    const name = call.function.name
+
+    // 写操作需要确认
+    const writeOps = ['es_index_document_confirmed', 'es_update_document_confirmed', 'es_delete_document_confirmed', 'es_delete_index_confirmed']
+    if (writeOps.includes(name)) {
+      const check = checkCommand(`${name} ${args.index || ''}`, getWhitelist())
+      if (check.isRisky) {
+        const approved = await confirmFn({
+          toolName: name,
+          args,
+          reason: 'risk',
+          message: check.confirmMessage
+        })
+        if (!approved) throw new Error(`[Rejected by user] ${check.riskReason}`)
+      } else {
+        const approved = await confirmFn({
+          toolName: name,
+          args,
+          reason: 'always-confirm',
+          message: `确认执行 ${name.replace('_confirmed', '')}: ${JSON.stringify(args)}`
+        })
+        if (!approved) throw new Error('[Rejected by user]')
+      }
+    }
+
+    const result = await exec(name, args)
+    if (printStatus) {
+      const err = result.startsWith('[Error]') || /error|failed|denied|not found/i.test(result)
+      printStatus(err ? 'ERR' : 'OK', name)
+    }
+    return result
+  }
+}
+
+// ============================================================
 // Docker 工具
 // ============================================================
 
