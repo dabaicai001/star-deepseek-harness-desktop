@@ -19,13 +19,20 @@ const emit = defineEmits<{
 
 const indexes = ref<IndexInfo[]>([])
 const loading = ref(false)
+const error = ref<string | null>(null)
 
 watch(() => props.modelValue, async (v) => {
   if (!v) return
   loading.value = true
+  error.value = null
   try {
     indexes.value = await dbService.mysqlListIndexes(props.connId, props.table, props.db)
-  } catch {
+    if (indexes.value.length === 0) {
+      error.value = 'No indexes returned'
+    }
+  } catch (err: unknown) {
+    console.error('IndexListDialog: failed to load indexes', err)
+    error.value = err instanceof Error ? err.message : String(err)
     indexes.value = []
   } finally {
     loading.value = false
@@ -61,6 +68,7 @@ const groupedIndexes = computed(() => {
       </div>
 
       <template v-else>
+        <div v-if="error" class="dialog-error">{{ error }}</div>
         <div class="dialog-scroll" style="flex: 1; overflow: auto; min-height: 0;">
           <table class="struct-table">
             <thead>
