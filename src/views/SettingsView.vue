@@ -368,6 +368,7 @@ const PRESET_MODELS = [
           <span class="about-version-label">{{ t('settings.aboutVersion') }}</span>
         </div>
         <p class="about-desc">{{ t('settings.aboutDesc') }}</p>
+        <p class="about-slogan">{{ t('home.slogan') }}</p>
         <div class="about-links">
           <a class="about-link" href="https://github.com/dabaicai001/starhub" target="_blank" rel="noopener">
             <v-icon size="14">mdi-github</v-icon>
@@ -820,6 +821,17 @@ const PRESET_MODELS = [
   max-width: 480px;
   margin: 0 auto 20px;
   position: relative;
+}
+.about-slogan {
+  font-family: 'Orbitron', 'JetBrains Mono', monospace;
+  font-style: italic;
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  color: var(--cyan);
+  opacity: 0.75;
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+  margin: -8px auto 24px;
 }
 .about-links {
   display: flex;

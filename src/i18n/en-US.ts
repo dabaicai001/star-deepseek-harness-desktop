@@ -24,7 +24,8 @@ export default {
   },
   home: {
     welcome: 'Welcome to StarHub',
-    subtitle: 'All-in-One DevOps desktop hub — SSH / Database / Docker / AI in one window'
+    subtitle: 'All-in-One DevOps desktop hub — SSH / Database / Docker / AI in one window',
+    slogan: 'Ad astra per aspera.'
   },
   settings: {
     title: 'Settings',

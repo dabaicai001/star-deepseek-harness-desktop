@@ -16,7 +16,14 @@ import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
 import SqlEditor from '@/components/db/SqlEditor.vue'
 import DataGrid from '@/components/db/DataGrid.vue'
-import TableStructureEditor from '@/components/db/TableStructureEditor.vue'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import type { MenuItem } from '@/components/common/ContextMenu.vue'
+import ColumnListDialog from '@/components/db/ColumnListDialog.vue'
+import ColumnFormDialog from '@/components/db/ColumnFormDialog.vue'
+import ColumnDropDialog from '@/components/db/ColumnDropDialog.vue'
+import IndexListDialog from '@/components/db/IndexListDialog.vue'
+import IndexFormDialog from '@/components/db/IndexFormDialog.vue'
+import IndexDropDialog from '@/components/db/IndexDropDialog.vue'
 import * as dbService from '@/services/db'
 import type { TableInfo, ColumnMeta, QueryResult } from '@/types/db'
 
@@ -82,8 +89,6 @@ interface TableSubTab extends BaseSubTab {
   kind: 'table'
   db: string
   table: string
-  /** 内部视图:数据区 or 结构区 */
-  innerTab: 'data' | 'structure'
   columns: ColumnMeta[]
   data: QueryResult | null
   dataTotal: number
@@ -104,6 +109,28 @@ type SubTab = TableSubTab | SqlSubTab
 
 const subTabs = ref<SubTab[]>([])
 const activeSubTabId = ref<string | null>(null)
+
+// Context menu
+const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
+const ctxDb = ref('')
+const ctxTable = ref('')
+
+// Column dialog state
+const showColumnList = ref(false)
+const showColumnForm = ref(false)
+const columnFormMode = ref<'create' | 'modify'>('create')
+const columnFormTarget = ref<import('@/types/db').ColumnMeta | undefined>(undefined)
+const showColumnDrop = ref(false)
+
+// Index dialog state
+const showIndexList = ref(false)
+const showIndexForm = ref(false)
+const indexFormMode = ref<'create' | 'modify'>('create')
+const indexFormTarget = ref<{ name: string; columns: string[]; unique: boolean; indexType: string } | undefined>(undefined)
+const showIndexDrop = ref(false)
+
+// Helper: cached columns for column picker
+const ctxTableColumns = ref<import('@/types/db').ColumnMeta[]>([])
 /** 内部视图(data / structure)按激活的表 tab 自身持有,模板用 computed 取出 */
 const activeSubTab = computed(() => subTabs.value.find(t => t.id === activeSubTabId.value) || null)
 /** 给模板用:当前激活的表 tab(供内部视图切换按钮判断) */
@@ -357,7 +384,6 @@ async function selectTable(db: string, tableName: string) {
     table: tableName,
     title: tableName,
     subtitle: `${db}.${tableName}`,
-    innerTab: 'data',
     columns: [],
     data: null,
     dataTotal: 0,
@@ -436,6 +462,74 @@ async function reloadActiveTable() {
   tab.columns = await dbService.mysqlListColumns(connId.value, tab.table, tab.db)
   // 重新拉数据
   await loadTableDataFor(tab, true)
+}
+
+function closeCtxMenu() {
+  ctxMenu.value = null
+}
+
+async function onTableContextMenu(e: MouseEvent, db: string, table: string) {
+  ctxDb.value = db
+  ctxTable.value = table
+
+  const items: MenuItem[] = []
+  if (connId.value) {
+    items.push({ type: 'header', label: table })
+    items.push({ type: 'divider' })
+    items.push({ label: 'View Fields', icon: 'mdi-table-column', onClick: () => { showColumnList.value = true } })
+    items.push({ label: 'Add Field', icon: 'mdi-plus-circle', onClick: () => { columnFormMode.value = 'create'; columnFormTarget.value = undefined; showColumnForm.value = true } })
+    items.push({ label: 'Modify Field', icon: 'mdi-pencil-circle', onClick: openModifyColumn })
+    items.push({ label: 'Delete Field', icon: 'mdi-delete-circle', danger: true, onClick: () => { showColumnDrop.value = true } })
+    items.push({ type: 'divider' })
+    items.push({ label: 'View Indexes', icon: 'mdi-key-variant', onClick: () => { showIndexList.value = true } })
+    items.push({ label: 'Create Index', icon: 'mdi-key-plus', onClick: () => { indexFormMode.value = 'create'; indexFormTarget.value = undefined; showIndexForm.value = true } })
+    items.push({ label: 'Modify Index', icon: 'mdi-key-edit', onClick: openModifyIndex })
+    items.push({ label: 'Delete Index', icon: 'mdi-key-remove', danger: true, onClick: () => { showIndexDrop.value = true } })
+  }
+
+  ctxMenu.value = { x: e.clientX, y: e.clientY, items }
+}
+
+async function openModifyColumn() {
+  try {
+    ctxTableColumns.value = await dbService.mysqlListColumns(connId.value!, ctxTable.value, ctxDb.value)
+    const col = await pickFromList(ctxTableColumns.value.map(c => ({ text: `${c.name} (${c.type})`, value: c })))
+    if (col) {
+      columnFormMode.value = 'modify'
+      columnFormTarget.value = col
+      showColumnForm.value = true
+    }
+  } catch { /* ignore */ }
+}
+
+async function openModifyIndex() {
+  try {
+    const indexes = await dbService.mysqlListIndexes(connId.value!, ctxTable.value, ctxDb.value)
+    const uniqueNames = [...new Set(indexes.map(i => i.keyName))]
+    const name = await pickFromList(uniqueNames.map(n => ({ text: n, value: n })))
+    if (name) {
+      const cols = indexes.filter(i => i.keyName === name).map(i => i.columnName)
+      const nonUnique = indexes.find(i => i.keyName === name)?.nonUnique ?? 1
+      const idxType = indexes.find(i => i.keyName === name)?.indexType ?? 'BTREE'
+      indexFormMode.value = 'modify'
+      indexFormTarget.value = { name, columns: cols, unique: nonUnique === 0, indexType: idxType }
+      showIndexForm.value = true
+    }
+  } catch { /* ignore */ }
+}
+
+async function pickFromList<T>(options: { text: string; value: T }[]): Promise<T | null> {
+  return new Promise((resolve) => {
+    const msg = options.map((o, i) => `${i + 1}. ${o.text}`).join('\n')
+    const choice = prompt(`Select:\n${msg}`)
+    if (choice) {
+      const idx = parseInt(choice) - 1
+      if (idx >= 0 && idx < options.length) resolve(options[idx].value)
+      else resolve(null)
+    } else {
+      resolve(null)
+    }
+  })
 }
 
 function onTableDataPageChange(page: number) {
@@ -858,6 +952,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                 }"
                 @click="selectTable(db, tbl.name)"
                 @dblclick="insertTableName(tbl.name)"
+                @contextmenu.prevent="onTableContextMenu($event, db, tbl.name)"
               >
                 <v-icon size="11" color="cyan">mdi-table</v-icon>
                 <span class="item-name">{{ tbl.name }}</span>
@@ -1019,37 +1114,8 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 
         <!-- 1) 表 tab - 数据视图 -->
         <template v-else-if="activeTableTab">
-          <!-- 表 tab 内部视图切换(data / structure),贴在 sub-tab 栏下方 -->
-          <div class="inner-tabs">
-            <div
-              class="inner-tab"
-              :class="{ active: activeTableTab.innerTab === 'data' }"
-              @click="activeTableTab.innerTab = 'data'"
-            >
-              <v-icon size="11">mdi-table-large</v-icon>
-              {{ t('db.data') }}
-            </div>
-            <div
-              class="inner-tab"
-              :class="{ active: activeTableTab.innerTab === 'structure' }"
-              @click="activeTableTab.innerTab = 'structure'"
-            >
-              <v-icon size="11">mdi-table-column</v-icon>
-              {{ t('db.column') }}
-            </div>
-            <div class="inner-tab-spacer" />
-            <button
-              class="action-btn"
-              :title="'强制刷新当前表数据'"
-              :disabled="activeTableTab.dataLoading"
-              @click="refreshCurrentTable"
-            >
-              <v-icon size="13" :class="{ spin: activeTableTab.dataLoading }">mdi-refresh</v-icon>
-            </button>
-          </div>
           <div class="inner-tab-body">
             <DataGrid
-              v-if="activeTableTab.innerTab === 'data'"
               :key="`${activeTableTab.db}.${activeTableTab.table}.${activeTableTab.data ? 'loaded' : 'loading'}`"
               :result="activeTableTab.data"
               :loading="activeTableTab.dataLoading"
@@ -1064,14 +1130,6 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               @sort-change="onTableDataSortChange"
               @cell-edit="onCellEdit"
             />
-            <TableStructureEditor
-              v-else
-              :conn-id="connId || ''"
-              :db="activeTableTab.db"
-              :table="activeTableTab.table"
-              :columns="activeTableTab.columns"
-              @reload="reloadActiveTable"
-            />
           </div>
         </template>
 
@@ -1083,6 +1141,25 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           :editable="false"
           @export="handleExport"
         />
+
+        <!-- Context Menu -->
+        <ContextMenu
+          v-if="ctxMenu"
+          :x="ctxMenu.x"
+          :y="ctxMenu.y"
+          :items="ctxMenu.items"
+          @close="closeCtxMenu"
+        />
+
+        <!-- Column Dialogs -->
+        <ColumnListDialog v-model="showColumnList" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" @reload="reloadActiveTable" />
+        <ColumnFormDialog v-model="showColumnForm" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" :mode="columnFormMode" :column="columnFormTarget" :existing-columns="ctxTableColumns" @reload="reloadActiveTable" />
+        <ColumnDropDialog v-model="showColumnDrop" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" @reload="reloadActiveTable" />
+
+        <!-- Index Dialogs -->
+        <IndexListDialog v-model="showIndexList" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" />
+        <IndexFormDialog v-model="showIndexForm" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" :mode="indexFormMode" :index="indexFormTarget" @reload="reloadActiveTable" />
+        <IndexDropDialog v-model="showIndexDrop" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" @reload="reloadActiveTable" />
       </div>
     </div>
     </div>
@@ -1592,33 +1669,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   flex-shrink: 0;
 }
 
-/* ====== 表 tab 内部视图(data / structure) ====== */
-.inner-tabs {
-  display: flex;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--line);
-  background: rgba(5, 8, 16, 0.2);
-}
-.inner-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  font-size: 11px;
-  color: var(--muted);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all 0.15s;
-}
-.inner-tab:hover { color: var(--text-2); }
-.inner-tab.active {
-  color: var(--cyan);
-  border-bottom-color: var(--cyan);
-}
-.inner-tab-spacer {
-  flex: 1;
-}
-
+/* ====== 表 tab 内部视图(data) ====== */
 .inner-tab-body {
   flex: 1;
   min-height: 0;

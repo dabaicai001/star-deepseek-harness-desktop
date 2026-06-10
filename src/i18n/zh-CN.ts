@@ -24,7 +24,8 @@ export default {
   },
   home: {
     welcome: '欢迎使用 StarHub',
-    subtitle: 'All-in-One 开发运维桌面中枢 — SSH / 数据库 / Docker / AI 一个窗口搞定'
+    subtitle: 'All-in-One 开发运维桌面中枢 — SSH / 数据库 / Docker / AI 一个窗口搞定',
+    slogan: '愿此行,终抵群星。'
   },
   settings: {
     title: '设置',
