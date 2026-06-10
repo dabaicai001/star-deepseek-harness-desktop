@@ -78,6 +78,50 @@ pub async fn db_mysql_list_indexes(
 }
 
 #[tauri::command]
+pub async fn db_mysql_create_index(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    table: String,
+    index_name: String,
+    columns: Vec<String>,
+    unique: bool,
+    index_type: String,
+    database: Option<String>,
+) -> Result<Value, String> {
+    let mut params = serde_json::json!({
+        "connId": conn_id,
+        "table": table,
+        "indexName": index_name,
+        "columns": columns,
+        "unique": unique,
+        "indexType": index_type,
+    });
+    if let Some(db) = database {
+        params["database"] = serde_json::Value::String(db);
+    }
+    sidecar.call("db.mysql.createIndex", params).await
+}
+
+#[tauri::command]
+pub async fn db_mysql_drop_index(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    table: String,
+    index_name: String,
+    database: Option<String>,
+) -> Result<Value, String> {
+    let mut params = serde_json::json!({
+        "connId": conn_id,
+        "table": table,
+        "indexName": index_name,
+    });
+    if let Some(db) = database {
+        params["database"] = serde_json::Value::String(db);
+    }
+    sidecar.call("db.mysql.dropIndex", params).await
+}
+
+#[tauri::command]
 pub async fn db_mysql_execute(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,

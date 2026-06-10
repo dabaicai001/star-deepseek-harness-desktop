@@ -82,6 +82,8 @@ fn main() {
             commands::db::db_mysql_list_tables,
             commands::db::db_mysql_list_columns,
             commands::db::db_mysql_list_indexes,
+            commands::db::db_mysql_create_index,
+            commands::db::db_mysql_drop_index,
             commands::db::db_mysql_execute,
             commands::db::db_mysql_explain,
             commands::db::db_mysql_get_table_ddl,
