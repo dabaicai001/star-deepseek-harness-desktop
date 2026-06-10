@@ -14,6 +14,8 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { QueryResult, ColumnInfo } from '@/types/db'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import type { MenuItem } from '@/components/common/ContextMenu.vue'
 
 const { t } = useI18n()
 
@@ -28,6 +30,8 @@ const props = withDefaults(defineProps<{
   pageSize?: number
   /** 可选页大小 */
   pageSizeOptions?: number[]
+  /** 表名(用于生成 INSERT 语句) */
+  tableName?: string
   /** 是否可编辑 */
   editable?: boolean
   /** 主键列(用于构造 WHERE 定位行) */
@@ -37,6 +41,7 @@ const props = withDefaults(defineProps<{
   page: 0,
   pageSize: 100,
   pageSizeOptions: () => [100, 500, 1000, 2000, 5000],
+  tableName: '',
   editable: false,
   pkCols: () => []
 })
@@ -49,6 +54,59 @@ const emit = defineEmits<{
   'page-size-change': [size: number]
   'sort-change': [col: string]
 }>()
+
+// Row selection
+const selectedRows = ref<Set<number>>(new Set())
+
+// Row context menu
+const rowCtxMenu = ref<{ x: number; y: number; rowIdx: number; items: MenuItem[] } | null>(null)
+
+function toggleRow(e: MouseEvent, rowIdx: number) {
+  let set = new Set(selectedRows.value)
+  if (e.ctrlKey || e.metaKey) {
+    if (set.has(rowIdx)) set.delete(rowIdx)
+    else set.add(rowIdx)
+  } else {
+    if (set.has(rowIdx) && set.size === 1) {
+      set.clear()
+    } else {
+      set = new Set([rowIdx])
+    }
+  }
+  selectedRows.value = set
+}
+
+function closeRowCtxMenu() {
+  rowCtxMenu.value = null
+}
+
+function onRowContextMenu(e: MouseEvent, rowIdx: number) {
+  if (!selectedRows.value.has(rowIdx)) {
+    toggleRow(e, rowIdx)
+  }
+  const items: MenuItem[] = [
+    { type: 'item', label: 'Copy INSERT', icon: 'mdi-content-copy', onClick: () => copyInsert(rowIdx) },
+    { type: 'item', label: 'Delete Row', icon: 'mdi-delete', danger: true, onClick: () => deleteRow(rowIdx) },
+  ]
+  rowCtxMenu.value = { x: e.clientX, y: e.clientY, rowIdx, items }
+}
+
+function copyInsert(rowIdx: number) {
+  const row = pagedRows.value[rowIdx]
+  if (!row) return
+  const cols = columns.value.map(c => `\`${c.name}\``).join(', ')
+  const vals = row.map(cell => {
+    if (cell === null || cell === undefined) return 'NULL'
+    if (typeof cell === 'number') return String(cell)
+    return `'${String(cell).replace(/'/g, "''")}'`
+  }).join(', ')
+  const sql = `INSERT INTO \`${props.tableName || 'table'}\` (${cols}) VALUES (${vals});`
+  navigator.clipboard.writeText(sql).catch(() => {})
+}
+
+function deleteRow(rowIdx: number) {
+  emit('rowDelete', rowIdx)
+}
 
 // 客户端过滤(只对客户端分页模式有效)
 const filterText = ref('')
@@ -252,7 +310,7 @@ function cancelEdit() {
         <table class="grid-table">
           <thead>
             <tr>
-              <th class="col-index">#</th>
+              <th class="col-index" style="cursor: pointer;">#</th>
               <th
                 v-for="col in columns"
                 :key="col.name"
@@ -270,8 +328,18 @@ function cancelEdit() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(row, rowIdx) in pagedRows" :key="rowIdx">
-              <td class="col-index">{{ (page || 0) * (pageSize || 1000) + rowIdx + 1 }}</td>
+            <tr
+              v-for="(row, rowIdx) in pagedRows"
+              :key="rowIdx"
+              :class="{ 'row-selected': selectedRows.has(rowIdx) }"
+              @contextmenu.prevent="onRowContextMenu($event, rowIdx)"
+            >
+              <td
+                class="col-index"
+                :class="{ selected: selectedRows.has(rowIdx) }"
+                @click="toggleRow($event, rowIdx)"
+                style="cursor: pointer;"
+              >{{ (page || 0) * (pageSize || 1000) + rowIdx + 1 }}</td>
               <td
                 v-for="(cell, colIdx) in row"
                 :key="colIdx"
@@ -312,6 +380,14 @@ function cancelEdit() {
           <v-icon size="14">mdi-chevron-right</v-icon>
         </button>
       </div>
+
+      <ContextMenu
+        v-if="rowCtxMenu"
+        :x="rowCtxMenu.x"
+        :y="rowCtxMenu.y"
+        :items="rowCtxMenu.items"
+        @close="closeRowCtxMenu"
+      />
     </template>
   </div>
 </template>
@@ -643,4 +719,8 @@ function cancelEdit() {
   border-color: var(--cyan);
   color: var(--cyan);
 }
+
+.row-selected td { background: rgba(0, 240, 255, 0.06); }
+.row-selected:hover td { background: rgba(0, 240, 255, 0.1); }
+.col-index.selected { color: var(--cyan); font-weight: 700; }
 </style>
