@@ -167,12 +167,12 @@ where
             tracing::info!("[upload_file] opening remote file for resume at {}: {}", resume_from, remote_path);
             sftp.open_with_flags(remote_path, OpenFlags::WRITE)
                 .await
-                .with_context(|| format!("open remote file failed: {}", remote_path))?
+                .map_err(|e| anyhow::anyhow!("open remote file failed: {} (SFTP error: {})", remote_path, e))?
         } else {
             tracing::info!("[upload_file] creating remote file: {}", remote_path);
             sftp.create(remote_path)
                 .await
-                .with_context(|| format!("create remote file failed: {}", remote_path))?
+                .map_err(|e| anyhow::anyhow!("create remote file failed: {} (SFTP error: {})", remote_path, e))?
         }
     };
 
@@ -255,13 +255,13 @@ where
         let sftp = sftp.lock().await;
         sftp.open(remote_path)
             .await
-            .with_context(|| format!("open remote file failed: {}", remote_path))?
+            .map_err(|e| anyhow::anyhow!("open remote file failed: {} (SFTP error: {})", remote_path, e))?
     };
 
     let total_size = remote_file
         .metadata()
         .await
-        .with_context(|| format!("stat remote file failed: {}", remote_path))?
+        .map_err(|e| anyhow::anyhow!("stat remote file failed: {} (SFTP error: {})", remote_path, e))?
         .size
         .unwrap_or(0);
 

@@ -55,7 +55,13 @@ async fn mkdir_p(sftp: &Arc<Mutex<SftpSession>>, path: &str) {
         current.push('/');
         current.push_str(segment);
         if let Err(e) = mkdir(sftp, &current).await {
-            tracing::debug!("mkdir {} failed (may already exist): {}", current, e);
+            let err_str = e.to_string();
+            // "File already exists" is expected for mkdir -p
+            if err_str.contains("Failure") || err_str.contains("already exists") {
+                tracing::debug!("mkdir {} already exists, skipping", current);
+            } else {
+                tracing::warn!("mkdir {} failed: {}", current, err_str);
+            }
         }
     }
 }
