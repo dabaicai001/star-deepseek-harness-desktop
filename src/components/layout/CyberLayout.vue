@@ -1014,6 +1014,7 @@ vueWatch(() => appStore.tabs.length, () => {
             </div>
             <h2 class="text-gradient">{{ t('home.welcome') }}</h2>
             <p>{{ t('home.subtitle') }}</p>
+            <p class="welcome-slogan">{{ t('home.slogan') }}</p>
 
             <div class="quick-actions">
               <button class="cyber-btn" @click="openNewConnection">
@@ -1934,6 +1935,19 @@ kbd {
   color: var(--text-2);
   font-size: 16px;
   margin-bottom: 32px;
+}
+
+.welcome-slogan {
+  margin-top: -16px;
+  margin-bottom: 32px;
+  font-family: 'Orbitron', 'JetBrains Mono', monospace;
+  font-style: italic;
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.15em;
+  color: var(--cyan);
+  opacity: 0.75;
+  text-shadow: 0 0 12px rgba(0, 240, 255, 0.35);
 }
 
 .quick-actions {
