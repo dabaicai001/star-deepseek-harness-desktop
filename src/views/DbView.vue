@@ -363,7 +363,7 @@ async function selectTable(db: string, tableName: string) {
     dataTotal: 0,
     dataLoading: true,
     dataPage: 0,
-    dataPageSize: 1000,
+    dataPageSize: 100,
     dataOrderBy: null,
     dataOrderDir: 'ASC'
   }

@@ -35,7 +35,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   totalRows: undefined,
   page: 0,
-  pageSize: 1000,
+  pageSize: 100,
   pageSizeOptions: () => [100, 500, 1000, 2000, 5000],
   editable: false,
   pkCols: () => []
