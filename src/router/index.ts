@@ -8,9 +8,10 @@ const router = createRouter({
       component: () => import('@/components/layout/CyberLayout.vue'),
       children: [
         {
+          // 根路径:无匹配子路由时落到 CyberLayout 的欢迎页(tabs.length === 0)
+          // 用一个空 div 占位即可 —— workspace 外的 v-if 已经处理"无 tab"的展示
           path: '',
-          name: 'home',
-          component: () => import('@/views/HomeView.vue')
+          component: { template: '<div />' }
         },
         {
           path: 'settings',

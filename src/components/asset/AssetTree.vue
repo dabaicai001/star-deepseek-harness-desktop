@@ -278,9 +278,9 @@ async function handleDelete() {
   for (const tab of tabsToRemove) {
     appStore.removeTab(tab.id)
   }
-  // 路由回 home(如果当前路由在被关的 tab 上)
+  // 路由回根(workspace 自动落到欢迎页,见 tabs.length === 0 分支)
   if (removingCurrent) {
-    router.push({ name: 'home' })
+    router.push('/')
   }
   try {
     await assetStore.deleteAsset(target.id)

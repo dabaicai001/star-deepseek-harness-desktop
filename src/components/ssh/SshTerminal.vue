@@ -192,12 +192,13 @@ async function runSshAgent() {
 }
 
 onMounted(async () => {
- if (asset.value) {
- await connect()
- } else {
- //资产已被删除 → 自动回主页,避免卡在空 tab
- router.push({ name: 'home' })
- }
+if (asset.value) {
+  await connect()
+  } else {
+  //资产已被删除 → 关闭对应 tab,workspace 自动落到欢迎页
+  if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
+  router.push('/')
+  }
 })
 
 onBeforeUnmount(async () => {

@@ -15,7 +15,7 @@ type TabKey = 'general' | 'appearance' | 'ai' | 'about'
 const activeTab = ref<TabKey>('general')
 
 /** 通用设置(用 localStorage 持久化,P2 阶段先不上 store) */
-const startPage = ref<'home' | 'restore'>('home')
+const startPage = ref<'welcome' | 'restore'>('welcome')
 const confirmClose = ref(true)
 const maxTabs = ref(20)
 const STORAGE_KEY = 'starhub.settings.general'
@@ -25,7 +25,10 @@ function loadGeneral() {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return
     const v = JSON.parse(raw)
-    if (v.startPage === 'home' || v.startPage === 'restore') startPage.value = v.startPage
+    // 兼容旧值 'home':等同于 'welcome'
+    if (v.startPage === 'welcome' || v.startPage === 'home' || v.startPage === 'restore') {
+      startPage.value = v.startPage === 'home' ? 'welcome' : v.startPage
+    }
     if (typeof v.confirmClose === 'boolean') confirmClose.value = v.confirmClose
     if (typeof v.maxTabs === 'number' && v.maxTabs > 0) maxTabs.value = v.maxTabs
   } catch {}
@@ -158,7 +161,7 @@ const PRESET_MODELS = [
         </div>
         <div class="form-grid">
           <label class="radio-row">
-            <input type="radio" value="home" v-model="startPage" @change="saveGeneral" />
+            <input type="radio" value="welcome" v-model="startPage" @change="saveGeneral" />
             <span>{{ t('settings.generalStartPageHome') }}</span>
           </label>
           <label class="radio-row">

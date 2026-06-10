@@ -22,37 +22,7 @@ export default {
   },
   home: {
     welcome: '欢迎使用 StarHub',
-    subtitle: 'All-in-One 开发运维桌面中枢 — SSH / 数据库 / Docker / AI 一个窗口搞定',
-    hint: '从左侧资产树选择连接开始',
-    recent: '最近用过',
-    assets: '资产中心',
-    quickActions: '快捷操作',
-    quickActionsHint: 'QUICK ACTIONS',
-    noMatch: '没有匹配项',
-    emptyWelcome: '新建第一个连接',
-    tryAi: '试试 AI 助手',
-    // 顶部统计卡
-    statTotal: '总资产',
-    statSsh: 'SSH 主机',
-    statDb: '数据库',
-    statDocker: 'Docker 主机',
-    statHosts: '已配置主机',
-    statFavorite: '收藏',
-    statNoDb: '尚未配置数据库',
-    thisWeek: '本周',
-    // 分析区
-    activityTitle: '活动概览',
-    typeDistribution: '资产类型分布',
-    last7Days: '近 7 天使用频次',
-    totalAssets: '资产总数',
-    avgPerDay: '日均',
-    today: '今日',
-    dbBreakdown: '数据库类型分布',
-    justNow: '刚刚',
-    minutesAgo: '分钟前',
-    hoursAgo: '小时前',
-    daysAgo: '天前',
-    homeTitle: '主页'
+    subtitle: 'All-in-One 开发运维桌面中枢 — SSH / 数据库 / Docker / AI 一个窗口搞定'
   },
   settings: {
     title: '设置',

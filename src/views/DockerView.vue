@@ -119,14 +119,18 @@ onMounted(() => {
   if (asset.value && asset.value.type === 'docker') {
     connect()
   } else if (!asset.value) {
-    // 资产不存在(被删除)→ 自动回主页
-    router.push({ name: 'home' })
+    // 资产不存在(被删除)→ 关闭对应 tab,workspace 自动落到欢迎页
+    if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
+    router.push('/')
   }
 })
 
 watch(() => assetId.value, () => {
   if (asset.value && !connected.value) connect()
-  else if (!asset.value) router.push({ name: 'home' })
+  else if (!asset.value) {
+    if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
+    router.push('/')
+  }
 })
 
 onBeforeUnmount(() => {

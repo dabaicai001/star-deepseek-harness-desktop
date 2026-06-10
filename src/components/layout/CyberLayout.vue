@@ -175,12 +175,12 @@ const tabBarCtxItems = computed<MenuItem[]>(() => {
     {
       type: 'item',
       icon: 'mdi-arrow-right',
-      label: '关闭所有并回首页',
+      label: '关闭所有',
       danger: true,
       disabled: !hasTabs,
       onClick: () => {
         for (const t of [...appStore.tabs]) appStore.removeTab(t.id)
-        router.push({ name: 'home' })
+        // tabs 清空后,workspace 自动落到欢迎页(v-if="tabs.length === 0" 分支)
       }
     }
   ]
@@ -195,10 +195,9 @@ function openTabBarContextMenu(e: MouseEvent) {
   closeTabContextMenu()
 }
 
-/** 预设类型打开新建连接弹窗;非 home 路由先回首页避免 dialog 套在子视图上 */
+/** 预设类型打开新建连接弹窗 */
 function openNewConnectionWithType(type: 'ssh' | 'db' | 'docker') {
   newConnectionInitialType.value = type
-  if (currentRouteName.value !== 'home') router.push({ name: 'home' })
   showNewConnection.value = true
 }
 
@@ -212,7 +211,6 @@ function openNewTabFromCurrent(e: MouseEvent) {
   const list = assetStore.assets.filter(a => a.type === assetType)
   if (list.length === 0) {
     // 没该类型资产,直接弹新建连接
-    if (currentRouteName.value !== 'home') router.push({ name: 'home' })
     showNewConnection.value = true
     return
   }
@@ -248,7 +246,6 @@ function openNewTabFromCurrent(e: MouseEvent) {
       icon: 'mdi-plus',
       label: '新建连接…',
       onClick: () => {
-        if (currentRouteName.value !== 'home') router.push({ name: 'home' })
         showNewConnection.value = true
       }
     }
@@ -334,8 +331,6 @@ const filteredAssets = computed(() => {
 // 之前有一行 6 个导航按钮(首页/资产中心/终端/数据库/Docker/AI 助手),
 // 现在改用侧边栏资产树 + 顶部 + 号新建,这里只保留资产选择器辅助。
 
-const currentRouteName = computed(() => router.currentRoute.value.name as string | undefined)
-
 // ====== 顶部菜单 → 资产选择器 ======
 // 点击"终端 / 数据库 / Docker"时:有该类型资产就弹出选择菜单,点哪条就开哪条;
 // 一个都没有就回退到"新建连接"流程。
@@ -350,7 +345,6 @@ function openAssetPicker(e: MouseEvent, assetType: 'ssh' | 'db' | 'docker', open
   const list = assetStore.assets.filter(a => a.type === assetType)
   if (list.length === 0) {
     // 没有该类型资产,直接走"新建连接"
-    if (currentRouteName.value !== 'home') router.push({ name: 'home' })
     showNewConnection.value = true
     return
   }
@@ -387,7 +381,6 @@ function openAssetPicker(e: MouseEvent, assetType: 'ssh' | 'db' | 'docker', open
         : assetType === 'db' ? '新建数据库连接...'
         : '新建 Docker 主机...',
       onClick: () => {
-        if (currentRouteName.value !== 'home') router.push({ name: 'home' })
         showNewConnection.value = true
       }
     }
@@ -578,7 +571,9 @@ function closeTab(tabId: string) {
   const tab = appStore.tabs.find((t) => t.id === tabId)
   appStore.removeTab(tabId)
   if (appStore.tabs.length === 0) {
-    router.push({ name: 'home' })
+    // tabs 清空后,workspace 自动落到欢迎页(v-if="tabs.length === 0" 分支)
+    // 同时把路由拉回 '/',URL 跟着清掉
+    router.push('/')
     return
   }
   // 关闭后,跳到当前激活 tab(用 instanceId 跳路由)
@@ -677,12 +672,13 @@ const tabCtxItems = computed<MenuItem[]>(() => {
     {
       type: 'item',
       icon: 'mdi-arrow-right',
-      label: '关闭所有并回首页',
+      label: '关闭所有',
       danger: true,
       disabled: appStore.tabs.length === 0,
       onClick: () => {
         for (const t of [...appStore.tabs]) appStore.removeTab(t.id)
-        router.push({ name: 'home' })
+        // tabs 清空后,workspace 自动落到欢迎页(v-if="tabs.length === 0" 分支)
+        router.push('/')
       }
     }
   ]

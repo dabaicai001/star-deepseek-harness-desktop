@@ -170,25 +170,27 @@ export const useAppStore = defineStore('app', () => {
         }
       }
 
-      // 4) 启动行为 = 打开主页 时,清空上次残留的 tabs / activeTab,
+      // 4) 启动行为 = 打开欢迎页 时,清空上次残留的 tabs / activeTab,
       //    让 UI 落到欢迎视图(workspace 的 v-if="tabs.length === 0" 分支)
       //
       // 设置项在 SettingsView.vue 里读写,存于 localStorage 'starhub.settings.general'
-      // 默认 'home' —— 跟 SettingsView 的默认值保持一致,免得老用户从未设过
-      // 也能享受"启动打开主页"的预期行为
-      let startPage: 'home' | 'restore' = 'home'
+      // 默认 'welcome' —— 跟 SettingsView 的默认值保持一致,免得老用户从未设过
+      // 也能享受"启动打开欢迎页"的预期行为
+      //
+      // 兼容:历史数据可能存的是旧值 'home',按 welcome 处理
+      let startPage: 'welcome' | 'restore' = 'welcome'
       try {
         const raw = localStorage.getItem('starhub.settings.general')
         if (raw) {
           const v = JSON.parse(raw)
-          if (v.startPage === 'home' || v.startPage === 'restore') {
-            startPage = v.startPage
+          if (v.startPage === 'welcome' || v.startPage === 'home' || v.startPage === 'restore') {
+            startPage = v.startPage === 'home' ? 'welcome' : v.startPage
           }
         }
       } catch {
-        // 隐私模式 / localStorage 不可用 → 维持默认 home
+        // 隐私模式 / localStorage 不可用 → 维持默认 welcome
       }
-      if (startPage === 'home') {
+      if (startPage === 'welcome') {
         state.tabs = []
         state.activeTab = null
       }

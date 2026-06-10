@@ -99,7 +99,6 @@ const commands = computed<Command[]>(() => {
       keywords: ['new', 'create', 'add'],
       run: () => {
         // 通过 window 自定义事件通知 CyberLayout 打开 dialog
-        if (router.currentRoute.value.name !== 'home') router.push({ name: 'home' })
         setTimeout(() => window.dispatchEvent(new CustomEvent('starhub:new-connection')), 50)
       }
     },
@@ -138,7 +137,7 @@ const commands = computed<Command[]>(() => {
       keywords: ['close', 'all', 'tabs'],
       run: () => {
         for (const t of [...appStore.tabs]) appStore.removeTab(t.id)
-        router.push({ name: 'home' })
+        // tabs 清空后,workspace 自动落到欢迎页
       }
     }
   )
