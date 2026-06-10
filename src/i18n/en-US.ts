@@ -187,6 +187,7 @@ export default {
     explain: 'Explain',
     format: 'Format',
     history: 'History',
+    sqlHistory: 'SQL History',
     export: 'Export',
     import: 'Import',
     table: 'Table',

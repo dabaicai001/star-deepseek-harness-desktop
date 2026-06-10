@@ -187,6 +187,7 @@ export default {
     explain: '执行计划',
     format: '格式化',
     history: '历史',
+    sqlHistory: 'SQL 历史',
     export: '导出',
     import: '导入',
     table: '表',
