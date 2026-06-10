@@ -1660,6 +1660,14 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* SQL 结果 DataGrid 作为 .result-area 的直接子元素时,占满剩余空间 */
+.result-area .data-grid {
+  flex: 1;
+  min-height: 0;
 }
 
 .structure-view {
