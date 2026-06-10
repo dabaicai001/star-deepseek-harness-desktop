@@ -62,6 +62,27 @@ export async function mysqlListIndexes(connId: string, table: string, database?:
   return invoke('db_mysql_list_indexes', { connId, table, database })
 }
 
+export async function mysqlCreateIndex(
+  connId: string,
+  table: string,
+  indexName: string,
+  columns: string[],
+  unique: boolean,
+  indexType: string,
+  database?: string
+): Promise<void> {
+  return invoke('db_mysql_create_index', { connId, table, indexName, columns, unique, indexType, database })
+}
+
+export async function mysqlDropIndex(
+  connId: string,
+  table: string,
+  indexName: string,
+  database?: string
+): Promise<void> {
+  return invoke('db_mysql_drop_index', { connId, table, indexName, database })
+}
+
 export async function mysqlExecute(connId: string, sql: string, database?: string): Promise<QueryResult> {
   return invoke('db_mysql_execute', { connId, sql, database })
 }
