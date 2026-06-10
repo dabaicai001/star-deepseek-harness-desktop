@@ -17,50 +17,47 @@ const emit = defineEmits<{
   'switch-db': [db: number]
 }>()
 
-const keys = ref<RedisKeyInfo[]>([])
-const cursor = ref<number>(0)
-const scanMatch = ref<string>('*')
-const typeFilter = ref<'all' | 'string' | 'hash' | 'list' | 'set' | 'zset'>('all')
-const loading = ref(false)
+// ─── Per-DB state ───
+interface DbState {
+  keys: RedisKeyInfo[]
+  cursor: number
+  scanMatch: string
+  typeFilter: 'all' | 'string' | 'hash' | 'list' | 'set' | 'zset'
+  loading: boolean
+}
+
+const dbStates = ref<Record<number, DbState>>({})
+const expandedDbs = ref<Set<number>>(new Set([0]))
 const collapsed = ref(false)
-const dbsExpanded = ref(true)
+
+// ─── Helpers ───
+function getDbState(db: number): DbState {
+  if (!dbStates.value[db]) {
+    dbStates.value[db] = {
+      keys: [],
+      cursor: 0,
+      scanMatch: '*',
+      typeFilter: 'all',
+      loading: false,
+    }
+  }
+  return dbStates.value[db]
+}
 
 function typeLabel(t: string): string {
-  switch (t) {
-    case 'string': return 'String'
-    case 'hash': return 'Hash'
-    case 'list': return 'List'
-    case 'set': return 'Set'
-    case 'zset': return 'ZSet'
-    case 'all': return 'All'
-    default: return t
-  }
+  return { string: 'String', hash: 'Hash', list: 'List', set: 'Set', zset: 'ZSet' }[t] || t
 }
 
 function typeIcon(t: string): string {
-  switch (t) {
-    case 'string': return 'mdi-format-text'
-    case 'hash': return 'mdi-pound'
-    case 'list': return 'mdi-format-list-bulleted'
-    case 'set': return 'mdi-set'
-    case 'zset': return 'mdi-sort'
-    default: return 'mdi-help-circle-outline'
-  }
+  return { string: 'mdi-format-text', hash: 'mdi-pound', list: 'mdi-format-list-bulleted', set: 'mdi-set-center', zset: 'mdi-sort-numeric-ascending' }[t] || 'mdi-key'
 }
 
 function typeColor(t: string): string {
-  switch (t) {
-    case 'string': return 'var(--green)'
-    case 'hash': return 'var(--purple)'
-    case 'list': return 'var(--cyan)'
-    case 'set': return 'var(--yellow)'
-    case 'zset': return 'var(--pink)'
-    default: return 'var(--muted)'
-  }
+  return { string: 'var(--green)', hash: 'var(--purple)', list: 'var(--cyan)', set: 'var(--yellow)', zset: 'var(--pink)' }[t] || 'var(--muted)'
 }
 
 function formatTTL(ttl: number): string {
-  if (ttl === -1) return '-1'
+  if (ttl === -1) return ''
   if (ttl === -2) return 'Exp'
   if (ttl < 60) return `${ttl}s`
   if (ttl < 3600) return `${Math.floor(ttl / 60)}m`
@@ -68,65 +65,91 @@ function formatTTL(ttl: number): string {
   return `${Math.floor(ttl / 86400)}d`
 }
 
-function filteredKeys(items: RedisKeyInfo[]): RedisKeyInfo[] {
-  if (typeFilter.value === 'all') return items
-  return items.filter(k => k.type === typeFilter.value)
+function formatDbSize(db: number): string {
+  const size = props.dbSizes?.[db]
+  if (size === undefined || size === null) return ''
+  return `${size.toLocaleString()} keys`
 }
 
-const groupedKeys = computed(() => {
+// ─── Grouped keys for a DB ───
+function groupedKeysForDb(db: number) {
+  const state = getDbState(db)
   const groups: Record<string, RedisKeyInfo[]> = {}
-  for (const k of keys.value) {
-    if (!groups[k.type]) groups[k.type] = []
-    groups[k.type].push(k)
+  for (const k of state.keys) {
+    const t = k.type || 'string'
+    if (state.typeFilter !== 'all' && t !== state.typeFilter) continue
+    if (!groups[t]) groups[t] = []
+    groups[t].push(k)
   }
   return Object.entries(groups)
     .map(([type, items]) => ({ type, keys: items, count: items.length }))
     .sort((a, b) => b.count - a.count)
-})
+}
 
-async function loadKeys(append: boolean = false) {
-  if (loading.value) return
-  loading.value = true
+// ─── Actions ───
+async function loadDbKeys(db: number, append = false) {
+  const state = getDbState(db)
+  if (state.loading) return
+  state.loading = true
   try {
-    const cursorParam = append ? cursor.value : 0
-    const matchParam = scanMatch.value || '*'
-    const result = await dbService.redisScan(props.connId, cursorParam, matchParam, 200)
+    const cursorParam = append ? state.cursor : 0
+    const matchParam = state.scanMatch || '*'
+    const result = await dbService.redisScan(props.connId, cursorParam, matchParam, 500)
     if (append) {
-      keys.value.push(...result.keys)
+      state.keys.push(...result.keys)
     } else {
-      keys.value = result.keys
+      state.keys = result.keys
     }
-    cursor.value = result.cursor
+    state.cursor = result.cursor
   } finally {
-    loading.value = false
+    state.loading = false
   }
 }
 
-function onSearch() {
-  cursor.value = 0
-  keys.value = []
-  loadKeys()
-}
+async function onDbClick(db: number) {
+  // If clicking the same DB, toggle collapse
+  if (db === props.currentDb) {
+    if (expandedDbs.value.has(db)) {
+      expandedDbs.value.delete(db)
+    } else {
+      expandedDbs.value.add(db)
+      // Reload keys if empty
+      const state = getDbState(db)
+      if (state.keys.length === 0) {
+        await loadDbKeys(db)
+      }
+    }
+    expandedDbs.value = new Set(expandedDbs.value)
+    return
+  }
 
-function onDbClick(db: number) {
-  if (db === props.currentDb) return
-  cursor.value = 0
-  keys.value = []
+  // Switch to new DB
   emit('switch-db', db)
+  expandedDbs.value.add(db)
+  expandedDbs.value = new Set(expandedDbs.value)
+
+  // Load keys for the new DB
+  const state = getDbState(db)
+  if (state.keys.length === 0) {
+    await loadDbKeys(db)
+  }
 }
 
-function formatDbSize(db: number): string {
-  const size = props.dbSizes?.[db]
-  if (size === undefined || size === null) return '...'
-  return `${size.toLocaleString()} keys`
+async function onDbSearch(db: number) {
+  const state = getDbState(db)
+  state.cursor = 0
+  state.keys = []
+  await loadDbKeys(db)
 }
 
 function onKeyClick(k: RedisKeyInfo) {
   emit('select-key', k.key, k.type)
 }
 
-function onDeleteKey(e: MouseEvent, k: RedisKeyInfo) {
+function onDeleteKey(e: MouseEvent, db: number, k: RedisKeyInfo) {
   e.stopPropagation()
+  const state = getDbState(db)
+  state.keys = state.keys.filter(x => x.key !== k.key)
   emit('delete-key', k.key)
 }
 
@@ -134,92 +157,111 @@ function toggleCollapse() {
   collapsed.value = !collapsed.value
 }
 
-defineExpose({ loadKeys })
+// Expose for parent to trigger reload
+async function reloadCurrentDb() {
+  const state = getDbState(props.currentDb)
+  state.cursor = 0
+  state.keys = []
+  await loadDbKeys(props.currentDb)
+}
+
+defineExpose({ loadKeys: reloadCurrentDb })
 </script>
 
 <template>
   <div class="key-browser" :class="{ collapsed }">
     <div class="section-header">
       <span class="section-number">01</span>
-      <span class="section-title">Keys</span>
+      <span class="section-title">Databases</span>
       <button class="collapse-btn" @click="toggleCollapse" :title="collapsed ? 'Expand' : 'Collapse'">
         <v-icon :size="14">{{ collapsed ? 'mdi-chevron-right' : 'mdi-chevron-left' }}</v-icon>
       </button>
     </div>
 
     <div v-if="!collapsed" class="browser-body">
-      <div class="tree-section db-section">
-        <div class="tree-section-header" @click="dbsExpanded = !dbsExpanded">
-          <v-icon :size="12">{{ dbsExpanded ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
-          <v-icon :size="14" color="cyan">mdi-database</v-icon>
-          <span class="tree-section-label">Databases</span>
-          <span class="tree-section-count">{{ totalKeys }}</span>
-        </div>
-        <div v-if="dbsExpanded" class="db-list">
+      <div class="db-tree">
+        <div
+          v-for="db in 16"
+          :key="db - 1"
+          class="db-node"
+        >
+          <!-- DB row -->
           <div
-            v-for="db in 16"
-            :key="db - 1"
-            class="tree-item db-item"
+            class="tree-item db-row"
             :class="{ active: db - 1 === currentDb }"
             @click="onDbClick(db - 1)"
           >
+            <v-icon :size="12" class="expand-icon">
+              {{ expandedDbs.has(db - 1) ? 'mdi-chevron-down' : 'mdi-chevron-right' }}
+            </v-icon>
+            <v-icon :size="14" :color="db - 1 === currentDb ? 'cyan' : undefined">mdi-database</v-icon>
             <span class="db-name">db{{ db - 1 }}</span>
-            <span class="db-size">{{ formatDbSize(db - 1) }}</span>
+            <span class="db-size">{{ dbSizes[db - 1] !== undefined ? `${(dbSizes[db - 1] ?? 0).toLocaleString()} keys` : '...' }}</span>
           </div>
-        </div>
-      </div>
 
-      <div class="browser-filters">
-        <input
-          class="cyber-input search-input"
-          v-model="scanMatch"
-          placeholder="Search pattern..."
-          @keyup.enter="onSearch"
-        />
-        <select class="cyber-input type-select" v-model="typeFilter">
-          <option value="all">All</option>
-          <option value="string">String</option>
-          <option value="hash">Hash</option>
-          <option value="list">List</option>
-          <option value="set">Set</option>
-          <option value="zset">ZSet</option>
-        </select>
-      </div>
-
-      <div class="key-tree">
-        <template v-for="group in groupedKeys" :key="group.type">
-          <div class="tree-section">
-            <div class="tree-section-header">
-              <v-icon :size="12" :style="{ color: typeColor(group.type) }">{{ typeIcon(group.type) }}</v-icon>
-              <span class="tree-section-label">{{ typeLabel(group.type) }}</span>
-              <span class="tree-section-count">{{ filteredKeys(group.keys).length }}</span>
+          <!-- Keys under this DB -->
+          <div v-if="expandedDbs.has(db - 1)" class="db-keys">
+            <!-- Search & filter for this DB -->
+            <div class="browser-filters">
+              <input
+                class="cyber-input search-input"
+                v-model="getDbState(db - 1).scanMatch"
+                placeholder="Pattern..."
+                @keyup.enter="onDbSearch(db - 1)"
+              />
+              <select class="cyber-input type-select" v-model="getDbState(db - 1).typeFilter">
+                <option value="all">All</option>
+                <option value="string">Str</option>
+                <option value="hash">Hsh</option>
+                <option value="list">Lst</option>
+                <option value="set">Set</option>
+                <option value="zset">ZSet</option>
+              </select>
             </div>
-            <div
-              v-for="k in filteredKeys(group.keys)"
-              :key="k.key"
-              class="tree-item"
-              :class="{ active: selectedKey === k.key }"
-              @click="onKeyClick(k)"
-            >
-              <v-icon :size="13" :style="{ color: typeColor(k.type) }">{{ typeIcon(k.type) }}</v-icon>
-              <span class="tree-item-label">{{ k.key }}</span>
-              <span class="key-ttl" :class="{ expired: k.ttl === -2 }">{{ formatTTL(k.ttl) }}</span>
-              <button class="key-del-btn" @click="(e: MouseEvent) => onDeleteKey(e, k)" title="Delete key">
-                <v-icon :size="11">mdi-delete-outline</v-icon>
-              </button>
+
+            <!-- Loading indicator -->
+            <div v-if="getDbState(db - 1).loading" class="db-loading">
+              <v-icon size="14" class="spin">mdi-loading</v-icon>
+              <span>Loading...</span>
+            </div>
+
+            <!-- Grouped key tree -->
+            <template v-for="group in groupedKeysForDb(db - 1)" :key="group.type">
+              <div class="tree-section">
+                <div class="tree-section-header">
+                  <v-icon :size="12" :style="{ color: typeColor(group.type) }">{{ typeIcon(group.type) }}</v-icon>
+                  <span class="tree-section-label">{{ typeLabel(group.type) }}</span>
+                  <span class="tree-section-count">{{ group.count }}</span>
+                </div>
+                <div
+                  v-for="k in group.keys"
+                  :key="k.key"
+                  class="tree-item key-row"
+                  :class="{ active: selectedKey === k.key }"
+                  @click="onKeyClick(k)"
+                >
+                  <span class="tree-item-label">{{ k.key }}</span>
+                  <span v-if="k.ttl > 0" class="key-ttl">{{ formatTTL(k.ttl) }}</span>
+                  <span v-else-if="k.ttl === -2" class="key-ttl expired">Exp</span>
+                  <button class="key-del-btn" @click="(e: MouseEvent) => onDeleteKey(e, db - 1, k)" title="Delete">
+                    <v-icon :size="11">mdi-delete-outline</v-icon>
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <!-- Load more -->
+            <div v-if="getDbState(db - 1).cursor !== 0" class="load-more" @click="loadDbKeys(db - 1, true)">
+              <v-icon :size="14">mdi-chevron-down</v-icon>
+              <span>Load more</span>
+            </div>
+
+            <!-- Empty -->
+            <div v-if="getDbState(db - 1).keys.length === 0 && !getDbState(db - 1).loading" class="db-empty">
+              <v-icon size="20" class="empty-icon">mdi-key-remove</v-icon>
+              <span>No keys</span>
             </div>
           </div>
-        </template>
-
-        <div v-if="cursor !== 0" class="load-more" @click="loadKeys(true)">
-          <v-icon :size="14">mdi-chevron-down</v-icon>
-          <span>Load more</span>
-        </div>
-
-        <div v-if="keys.length === 0 && !loading" class="empty-state" style="padding: 32px 16px;">
-          <v-icon class="empty-state-icon" size="36">mdi-key-remove</v-icon>
-          <div class="empty-state-title">No Keys</div>
-          <div class="empty-state-desc" style="font-size: 11px;">No keys found in this database</div>
         </div>
       </div>
     </div>
@@ -286,127 +328,111 @@ defineExpose({ loadKeys })
   overflow: hidden;
 }
 
-.browser-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+.db-tree {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0;
+}
+
+/* ─── DB row ─── */
+.db-node {
   border-bottom: 1px solid var(--line);
 }
 
-.db-section {
-  border-bottom: 1px solid var(--line);
-}
-
-.db-section .tree-section-header {
-  cursor: pointer;
-  padding: 8px 12px;
-}
-
-.db-section .tree-section-header:hover {
-  background: var(--hover-cyan-faint);
-}
-
-.db-list {
-  padding: 2px 0 4px;
-}
-
-.db-item {
-  padding: 4px 14px 4px 40px;
+.db-row {
+  padding: 6px 12px 6px 8px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 11px;
+  gap: 6px;
+  font-size: 12px;
   color: var(--text-2);
   cursor: pointer;
-  position: relative;
   transition: all 0.2s;
   border-left: 2px solid transparent;
 }
 
-.db-item:hover {
+.db-row:hover {
   color: var(--text);
   background: var(--hover-cyan-faint);
 }
 
-.db-item.active {
+.db-row.active {
   color: var(--cyan);
   background: rgba(0, 240, 255, 0.06);
   border-left-color: var(--cyan);
+}
+
+.expand-icon {
+  flex-shrink: 0;
+  color: var(--muted);
 }
 
 .db-name {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   font-weight: 600;
+  flex: 1;
 }
 
 .db-size {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   color: var(--muted);
-  margin-left: auto;
 }
 
-.db-item.active .db-size {
+.db-row.active .db-size {
   color: var(--cyan);
 }
 
-.key-count {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: var(--muted);
-  margin-left: auto;
-}
-
+/* ─── Filters per DB ─── */
 .browser-filters {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--line);
+  gap: 4px;
+  padding: 4px 8px 4px 28px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--panel-solid-2);
 }
 
 .search-input {
-  padding: 4px 8px;
-  font-size: 11px;
+  padding: 3px 6px;
+  font-size: 10px;
   font-family: 'JetBrains Mono', monospace;
-  border-radius: 6px;
+  border-radius: 4px;
   flex: 1;
   min-width: 0;
 }
 
 .type-select {
-  width: 64px;
-  padding: 4px 4px;
-  font-size: 11px;
+  width: 48px;
+  padding: 3px 2px;
+  font-size: 10px;
   font-family: 'Outfit', sans-serif;
-  border-radius: 6px;
+  border-radius: 4px;
   flex-shrink: 0;
 }
 
-.key-tree {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 4px 0;
+/* ─── Key rows ─── */
+.db-keys {
+  background: var(--panel-solid-2);
 }
 
 .tree-section {
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 
 .tree-section-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 14px;
+  padding: 4px 12px 4px 32px;
   font-family: 'Outfit', sans-serif;
   font-size: 10px;
   font-weight: 700;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
 }
 
 .tree-section-label {
@@ -420,23 +446,33 @@ defineExpose({ loadKeys })
   font-weight: 500;
 }
 
-.tree-item {
-  padding: 6px 14px 6px 32px;
+.key-row {
+  padding: 4px 12px 4px 40px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 11px;
   color: var(--text-2);
   cursor: pointer;
-  position: relative;
-  transition: all 0.2s;
+  transition: all 0.15s;
   border-left: 2px solid transparent;
+}
+
+.key-row:hover {
+  color: var(--text);
+  background: var(--hover-cyan-faint);
+}
+
+.key-row.active {
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.08);
+  border-left-color: var(--cyan);
 }
 
 .tree-item-label {
   flex: 1;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -444,10 +480,10 @@ defineExpose({ loadKeys })
 
 .key-ttl {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  padding: 1px 6px;
+  font-size: 9px;
+  padding: 1px 5px;
   border-radius: 3px;
-  background: var(--icon-bg-cyan);
+  background: rgba(0, 240, 255, 0.08);
   color: var(--cyan);
   font-weight: 500;
   flex-shrink: 0;
@@ -459,8 +495,8 @@ defineExpose({ loadKeys })
 }
 
 .key-del-btn {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 3px;
   display: flex;
   align-items: center;
@@ -470,11 +506,11 @@ defineExpose({ loadKeys })
   color: var(--muted);
   cursor: pointer;
   opacity: 0;
-  transition: all 0.2s;
+  transition: all 0.15s;
   flex-shrink: 0;
 }
 
-.tree-item:hover .key-del-btn {
+.key-row:hover .key-del-btn {
   opacity: 1;
 }
 
@@ -484,12 +520,13 @@ defineExpose({ loadKeys })
   border-color: rgba(255, 77, 109, 0.3);
 }
 
+/* ─── Load more / empty ─── */
 .load-more {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 10px;
+  padding: 8px;
   font-size: 11px;
   color: var(--muted);
   cursor: pointer;
@@ -500,5 +537,39 @@ defineExpose({ loadKeys })
 .load-more:hover {
   color: var(--cyan);
   background: var(--hover-cyan-faint);
+}
+
+.db-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.db-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 24px 16px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.empty-icon {
+  color: var(--muted);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+  color: var(--cyan);
+}
+
+@keyframes spin {
+  100% { transform: rotate(360deg); }
 }
 </style>
