@@ -4,6 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
+import { useThemeStore } from '@/stores/theme'
 import '@xterm/xterm/css/xterm.css'
 
 const props = defineProps<{
@@ -20,17 +21,43 @@ const emit = defineEmits<{
   paste: [text: string]  // 粘贴成功(让父级弹 toast)
 }>()
 
+const themeStore = useThemeStore()
+
 const terminalRef = ref<HTMLDivElement>()
 let terminal: Terminal
 let fitAddon: FitAddon
 let searchAddon: SearchAddon
 let resizeObserver: ResizeObserver | null = null
 
-// 从 :root 读取当前主题下的 CSS 变量,xterm 主题色跟 token 走,
-// 这样 light theme 下终端底色也能跟着切。
 function getCssVar(name: string): string {
   if (typeof document === 'undefined') return ''
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
+
+function buildTerminalTheme() {
+  return {
+    background: getCssVar('--bg-terminal') || '#03060d',
+    foreground: getCssVar('--terminal-fg') || '#e8efff',
+    cursor: getCssVar('--cyan') || '#00f0ff',
+    cursorAccent: getCssVar('--bg-terminal') || '#03060d',
+    selectionBackground: getCssVar('--hover-cyan') || 'rgba(0, 240, 255, 0.3)',
+    black: getCssVar('--term-black') || '#000000',
+    red: getCssVar('--term-red') || '#ff4d6d',
+    green: getCssVar('--term-green') || '#4ade80',
+    yellow: getCssVar('--term-yellow') || '#facc15',
+    blue: getCssVar('--term-blue') || '#4d6bff',
+    magenta: getCssVar('--term-magenta') || '#b56bff',
+    cyan: getCssVar('--term-cyan') || '#00f0ff',
+    white: getCssVar('--term-white') || '#e8efff',
+    brightBlack: getCssVar('--term-bright-black') || '#5a6a96',
+    brightRed: getCssVar('--term-bright-red') || '#ff7a92',
+    brightGreen: getCssVar('--term-bright-green') || '#7fffaa',
+    brightYellow: getCssVar('--term-bright-yellow') || '#ffe066',
+    brightBlue: getCssVar('--term-bright-blue') || '#7d95ff',
+    brightMagenta: getCssVar('--term-bright-magenta') || '#d49aff',
+    brightCyan: getCssVar('--term-bright-cyan') || '#4dd9ff',
+    brightWhite: getCssVar('--term-bright-white') || '#ffffff'
+  }
 }
 
 // 右键菜单状态
@@ -53,32 +80,7 @@ onMounted(() => {
     letterSpacing: 0,
     scrollback: 5000,
     allowProposedApi: true,
-    theme: {
-      // 终端永远深色,但具体色值走 --bg-terminal / --text token,
-      // 跟 .terminal-container 容器底色保持一致,
-      // 这样 light theme 下容器和 xterm 不会出现"中间缝"
-      background: getCssVar('--bg-terminal') || '#03060d',
-      foreground: getCssVar('--text') || '#e8efff',
-      cursor: getCssVar('--cyan') || '#00f0ff',
-      cursorAccent: getCssVar('--bg-terminal') || '#03060d',
-      selectionBackground: getCssVar('--hover-cyan') || 'rgba(0, 240, 255, 0.3)',
-      black: '#000000',
-      red: getCssVar('--red') || '#ff4d6d',
-      green: getCssVar('--green') || '#4ade80',
-      yellow: getCssVar('--yellow') || '#facc15',
-      blue: '#4d6bff',
-      magenta: getCssVar('--purple') || '#b56bff',
-      cyan: getCssVar('--cyan') || '#00f0ff',
-      white: getCssVar('--text') || '#e8efff',
-      brightBlack: getCssVar('--muted') || '#5a6a96',
-      brightRed: '#ff7a92',
-      brightGreen: '#7fffaa',
-      brightYellow: '#ffe066',
-      brightBlue: '#7d95ff',
-      brightMagenta: '#d49aff',
-      brightCyan: '#4dd9ff',
-      brightWhite: '#ffffff'
-    }
+    theme: buildTerminalTheme()
   })
 
   fitAddon = new FitAddon()
@@ -254,6 +256,12 @@ watch(
   }
 )
 
+watch(() => themeStore.theme, () => {
+  if (terminal) {
+    terminal.options.theme = buildTerminalTheme()
+  }
+})
+
 function handleResize() {
   fitAddon?.fit()
 }
@@ -357,7 +365,7 @@ defineExpose({
   border-radius: 8px;
   border: 1px solid var(--line-2);
   padding: 8px;
-  box-shadow: inset 0 0 0 1px rgba(0, 240, 255, 0.04);
+  box-shadow: inset 0 0 0 1px var(--hover-cyan-faint);
   position: relative;
   overflow: hidden;
 }
@@ -376,11 +384,9 @@ defineExpose({
 
 .terminal-container :deep(.xterm-viewport) {
   background-color: transparent !important;
-  /* 视觉 buffer 兜底:
-     即便 fit() 因任何原因没及时重算 rows,viewport 滚动到底时,
-     屏幕底部仍然多出 1 行空白,光标视觉上不会贴 viewport 底。
-     注意:这只影响视觉留白,不影响 fitAddon 算的 rows。 */
-  padding-bottom: 1.6em;
+  /* 底部留白:让光标/最后一行命令与容器底边保持约 1 行距离,
+     避免回车到底时命令行贴边。2.4em ≈ 1.7(行高) × 1.4(lineHeight) */
+  padding-bottom: 2.4em;
   box-sizing: border-box;
 }
 
@@ -425,7 +431,7 @@ defineExpose({
   transition: all 0.12s;
 }
 .ctx-item:hover:not(:disabled) {
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   color: var(--cyan);
 }
 .ctx-item:disabled {
@@ -437,14 +443,14 @@ defineExpose({
   font-family: 'JetBrains Mono', monospace;
   font-size: 9px;
   padding: 1px 5px;
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--kbd-bg);
   border: 1px solid var(--line-2);
   border-radius: 3px;
   color: var(--muted);
   letter-spacing: 0;
 }
 .ctx-item:hover:not(:disabled) kbd {
-  border-color: rgba(0, 240, 255, 0.3);
+  border-color: var(--focus-cyan);
   color: var(--cyan);
 }
 .ctx-divider {
