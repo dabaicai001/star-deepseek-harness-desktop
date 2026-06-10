@@ -365,7 +365,8 @@ async function selectTable(db: string, tableName: string) {
   subTabs.value.push(tab)
   activeSubTabId.value = tab.id
   // 懒加载:不阻塞 UI,后台拉 columns + data
-  void loadTableDataFor(tab)
+  // 必须取 reactive 版本(Proxy),否则 loadTableDataFor 修改不触发响应式
+  void loadTableDataFor(subTabs.value[subTabs.value.length - 1] as TableSubTab)
 }
 
 async function loadTableDataFor(tab: TableSubTab) {
@@ -624,8 +625,9 @@ onMounted(() => {
   if (asset.value && asset.value.type === 'db') {
     connect()
   } else if (!asset.value) {
-    // 资产不存在(被删除)→ 自动回主页,避免卡在空 tab
-    router.push({ name: 'home' })
+    // 资产不存在(被删除)→ 关闭对应 tab,workspace 自动落到欢迎页
+    if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
+    router.push('/')
   }
 })
 
@@ -633,7 +635,8 @@ watch(() => assetId.value, () => {
   if (asset.value && asset.value.type === 'db' && !connected.value) {
     connect()
   } else if (!asset.value) {
-    router.push({ name: 'home' })
+    if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
+    router.push('/')
   }
 })
 
