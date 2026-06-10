@@ -11,8 +11,10 @@ import {
   type TransferProgress,
   type TransferStatusEvent,
 } from '@/services/sftp'
+import { useNotifyStore } from '@/stores/notify'
 
 const { t } = useI18n()
+const notify = useNotifyStore()
 
 const props = defineProps<{
   sessionId: string
@@ -111,12 +113,16 @@ onMounted(async () => {
     const { transferId, fileName, transferred, total } = event.payload
     const item = transfers.value.get(transferId)
     if (!item) return
-    const file = item.files.find(f => f.name === fileName)
-    if (file) {
-      const delta = transferred - file.transferred
-      file.transferred = transferred
-      item.transferredBytes += delta
+    let file = item.files.find(f => f.name === fileName)
+    if (!file) {
+      // First progress event for this file — add it to the list
+      file = { name: fileName, size: total, transferred: 0 }
+      item.files.push(file)
     }
+    const delta = transferred - file.transferred
+    file.transferred = transferred
+    file.size = total || file.size
+    item.transferredBytes += delta
     if (total > 0 && item.totalBytes === 0) {
       item.totalBytes = item.files.reduce((s, f) => s + f.size, 0)
     }
@@ -142,6 +148,16 @@ onMounted(async () => {
     item.status = status
     item.error = error ?? null
     transfers.value = new Map(transfers.value)
+
+    // Show popup notification on failure
+    if (status === 'failed' && error) {
+      const dirLabel = direction === 'upload' ? t('sftp.upload') : t('sftp.download')
+      notify.notify({
+        message: `${dirLabel} ${t('sftp.transferFailed')}: ${error}`,
+        color: 'error',
+        timeout: 8000,
+      })
+    }
 
     if (status === 'done') {
       setTimeout(() => {
