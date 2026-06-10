@@ -14,6 +14,7 @@ const (
 	ConnMySQL  ConnType = "mysql"
 	ConnRedis  ConnType = "redis"
 	ConnDocker ConnType = "docker"
+	ConnES     ConnType = "elasticsearch"
 )
 
 // ConnInfo 存储连接元信息
