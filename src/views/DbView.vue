@@ -1873,12 +1873,23 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   flex-shrink: 0;
 }
 
+/* 修复:SQL 编辑器在标签页内不使用 height:100%,避免高度计算循环导致溢出 */
+.sql-area-inline :deep(.sql-editor-wrap) {
+  height: auto;
+}
+
 .sql-result-area {
   flex: 1;
   min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* DataGrid 在 sql-result-area 内撑满 */
+.sql-result-area :deep(.data-grid) {
+  flex: 1;
+  min-height: 0;
 }
 
 .inner-loading {
