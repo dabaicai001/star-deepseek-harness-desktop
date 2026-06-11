@@ -47,6 +47,8 @@ const emit = defineEmits<{
 onBeforeUnmount(() => {
   unlistenTestKb?.()
   unlistenTestKb = null
+  unlistenTestHostkey?.()
+  unlistenTestHostkey = null
 })
 
 const name = ref(props.initialValues?.name ?? '')
@@ -67,10 +69,11 @@ const changedPassword = ref(false)
 const changedMfaPassword = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
-// 测试连接时的临时 MFA 弹窗
+// 测试连接时的临时 MFA / Hostkey 弹窗
 const kbDialogRef = ref<InstanceType<typeof KbInteractiveDialog>>()
 const testSessionId = ref('')
 let unlistenTestKb: UnlistenFn | null = null
+let unlistenTestHostkey: UnlistenFn | null = null
 let testSessionIdCounter = 0
 
 // 「密码 + TOTP 拼接」工作流(写入资产 config,每次连接都弹)
@@ -229,6 +232,19 @@ async function onTestConnection() {
       (event) => kbDialogRef.value?.open(event.payload)
     )
 
+    // 测试连接自动接受 host key (不持久化)
+    unlistenTestHostkey?.()
+    unlistenTestHostkey = await listen<{ hostname: string; port: number }>(
+      `ssh:hostkey-confirm:${testSessionId.value}`,
+      () => {
+        invoke('ssh_hostkey_response', {
+          id: testSessionId.value,
+          allowed: true,
+          persist: false
+        })
+      }
+    )
+
     // 互斥 chip 单选 → 对应后端 SshAuthConfig 三个枚举
     // 「密码 + TOTP 拼接」分支:把用户填的 6 位码拼到密码末尾
     const finalPassword =
@@ -281,6 +297,8 @@ async function onTestConnection() {
     // 清理:关闭可能还开着的弹窗 + 解除事件订阅
     unlistenTestKb?.()
     unlistenTestKb = null
+    unlistenTestHostkey?.()
+    unlistenTestHostkey = null
     kbDialogRef.value?.close()
     testSessionId.value = ''
     pendingResolve = null

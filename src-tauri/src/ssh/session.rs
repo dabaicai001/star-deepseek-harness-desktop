@@ -35,7 +35,7 @@ impl SshSession {
         session_id: &str,
         app_handle: Option<&tauri::AppHandle>,
         pending_kb: &Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>,
-        pending_hostkey: &Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+        pending_hostkey: &Arc<Mutex<HashMap<String, oneshot::Sender<(bool, bool)>>>>,
     ) -> Result<client::Handle<super::auth::SshHandler>, String> {
         let socket_addr = format!("{}:{}", host, port);
 
@@ -93,7 +93,7 @@ impl SshSession {
         session_id: &str,
         app_handle: Option<&tauri::AppHandle>,
         pending_kb: &Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>,
-        pending_hostkey: &Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+        pending_hostkey: &Arc<Mutex<HashMap<String, oneshot::Sender<(bool, bool)>>>>,
     ) -> Result<(), String> {
         let handle = if let Some(jump_host) = &self.config.jump_host {
             let jump_port = self.config.jump_port.unwrap_or(22);

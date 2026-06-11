@@ -9,7 +9,7 @@ use tokio::sync::{Mutex, oneshot};
 pub struct SshHandler {
     pub session_id: String,
     pub app_handle: Option<tauri::AppHandle>,
-    pub pending_hostkey: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+    pub pending_hostkey: Arc<Mutex<HashMap<String, oneshot::Sender<(bool, bool)>>>>,
     pub host: String,
     pub port: u16,
 }
@@ -18,7 +18,7 @@ impl SshHandler {
     pub fn new(
         session_id: String,
         app_handle: Option<tauri::AppHandle>,
-        pending_hostkey: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+        pending_hostkey: Arc<Mutex<HashMap<String, oneshot::Sender<(bool, bool)>>>>,
         host: String,
         port: u16,
     ) -> Self {
@@ -73,13 +73,13 @@ impl client::Handler for SshHandler {
             payload,
         );
 
-        let (tx, rx) = oneshot::channel::<bool>();
+        let (tx, rx) = oneshot::channel::<(bool, bool)>();
         {
             let mut pending = self.pending_hostkey.lock().await;
             pending.insert(self.session_id.clone(), tx);
         }
 
-        let allowed = match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
+        let (allowed, persist) = match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
             Ok(Ok(v)) => v,
             Ok(Err(_)) => {
                 return Err(anyhow::anyhow!("Host key prompt channel dropped"));
@@ -96,7 +96,9 @@ impl client::Handler for SshHandler {
         };
 
         if allowed {
-            let _ = super::known_hosts::add_host(&self.host, self.port, server_public_key).await;
+            if persist {
+                let _ = super::known_hosts::add_host(&self.host, self.port, server_public_key).await;
+            }
             Ok(true)
         } else {
             Ok(false)

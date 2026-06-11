@@ -9,7 +9,7 @@ pub struct SshManager {
     pub sessions: Arc<Mutex<HashMap<String, Arc<Mutex<SshSession>>>>>,
     channels: Arc<Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
     pub pending_kb: Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>,
-    pub pending_hostkey: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+    pub pending_hostkey: Arc<Mutex<HashMap<String, oneshot::Sender<(bool, bool)>>>>,
 }
 
 impl SshManager {
@@ -229,6 +229,7 @@ pub async fn ssh_hostkey_response(
     manager: State<'_, SshManager>,
     id: String,
     allowed: bool,
+    #[allow(unused)] persist: bool,
 ) -> Result<(), String> {
     let sender = {
         let mut map = manager.pending_hostkey.lock().await;
@@ -236,6 +237,6 @@ pub async fn ssh_hostkey_response(
             .ok_or_else(|| format!("No pending hostkey prompt for session {}", id))?
     };
     sender
-        .send(allowed)
+        .send((allowed, persist))
         .map_err(|_| "Failed to send hostkey response (handler dropped)".to_string())
 }
