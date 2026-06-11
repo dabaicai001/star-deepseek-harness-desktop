@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { CreateAssetDto } from '@/types/asset'
+import type { KbInteractiveEvent } from '@/services/ssh'
+import KbInteractiveDialog from './KbInteractiveDialog.vue'
 
 const { t } = useI18n()
 
@@ -19,6 +22,9 @@ export interface SshFormInitialValues {
   jumpPassword?: string
   jumpPrivateKey?: string
   jumpPassphrase?: string
+  /** 认证方式: 'password' | 'key' | 'both' | 'mfa' */
+  authMode?: 'password' | 'key' | 'both' | 'mfa'
+  /** 兼容旧字段:usePasswordAuth + useKeyAuth = both,只用 usePasswordAuth = password,以此类推 */
   usePasswordAuth?: boolean
   useKeyAuth?: boolean
   mfaEnabled?: boolean
@@ -35,24 +41,46 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
+onBeforeUnmount(() => {
+  unlistenTestKb?.()
+  unlistenTestKb = null
+})
+
 const name = ref(props.initialValues?.name ?? '')
 const host = ref(props.initialValues?.host ?? '')
 const port = ref<number>(props.initialValues?.port ?? 22)
 const username = ref(props.initialValues?.username ?? '')
-const showPasswordAuth = ref(props.initialValues?.usePasswordAuth !== undefined ? props.initialValues.usePasswordAuth : !props.initialValues?.privateKey)
-const showKeyAuth = ref(props.initialValues?.useKeyAuth ?? Boolean(props.initialValues?.privateKey))
 const password = ref(props.initialValues?.password ?? '')
 const privateKey = ref(props.initialValues?.privateKey ?? '')
 const privateKeyName = ref('')
 const passphrase = ref(props.initialValues?.passphrase ?? '')
 const showPassword = ref(false)
 const showPassphrase = ref(false)
-const showMfaPanel = ref(false)
-const mfaEnabled = ref(false)
-const mfaPassword = ref('')
-const totpSecret = ref('')
+const mfaPassword = ref(props.initialValues?.mfaPassword ?? '')
+const totpSecret = ref(props.initialValues?.totpSecret ?? '')
 const showMfaPassword = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+
+// 测试连接时的临时 MFA 弹窗
+const kbDialogRef = ref<InstanceType<typeof KbInteractiveDialog>>()
+const testSessionId = ref('')
+let unlistenTestKb: UnlistenFn | null = null
+let testSessionIdCounter = 0
+
+// 认证方式:互斥 chip 单选 — 密码 / 私钥 / 密码+私钥 / MFA
+type AuthMode = 'password' | 'key' | 'both' | 'mfa'
+function resolveInitialAuthMode(): AuthMode {
+  const init = props.initialValues
+  if (init?.authMode) return init.authMode
+  // 兼容旧字段
+  if (init?.mfaEnabled) return 'mfa'
+  const usePwd = init?.usePasswordAuth !== undefined ? init.usePasswordAuth : !init?.privateKey
+  const useKey = init?.useKeyAuth ?? Boolean(init?.privateKey)
+  if (usePwd && useKey) return 'both'
+  if (useKey) return 'key'
+  return 'password'
+}
+const authMode = ref<AuthMode>(resolveInitialAuthMode())
 
 // 跳板机
 const showJumpHost = ref(false)
@@ -83,12 +111,16 @@ watch(
     privateKey.value = next.privateKey ?? ''
     privateKeyName.value = next.privateKey ? 'Loaded' : ''
     passphrase.value = next.passphrase ?? ''
-    showPasswordAuth.value = next.usePasswordAuth !== undefined ? next.usePasswordAuth : !next.privateKey
-    showKeyAuth.value = next.useKeyAuth ?? Boolean(next.privateKey)
-    mfaEnabled.value = next.mfaEnabled ?? false
+    authMode.value = next.authMode
+      ?? (next.mfaEnabled
+        ? 'mfa'
+        : ((next.usePasswordAuth !== undefined ? next.usePasswordAuth : !next.privateKey) && (next.useKeyAuth ?? Boolean(next.privateKey))
+            ? 'both'
+            : (next.useKeyAuth ?? Boolean(next.privateKey))
+              ? 'key'
+              : 'password'))
     mfaPassword.value = next.mfaPassword ?? ''
     totpSecret.value = next.totpSecret ?? ''
-    showMfaPanel.value = next.mfaEnabled ?? false
     jumpHost.value = next.jumpHost ?? ''
     jumpPort.value = next.jumpPort ?? 22
     jumpUsername.value = next.jumpUsername ?? ''
@@ -101,17 +133,20 @@ watch(
   }
 )
 
+// 派生:不同 authMode 对应的填写校验
+const needPassword = computed(() => authMode.value === 'password' || authMode.value === 'both')
+const needKey = computed(() => authMode.value === 'key' || authMode.value === 'both')
+const needMfa = computed(() => authMode.value === 'mfa')
+
 const canSubmit = computed(() =>
   Boolean(name.value && host.value && username.value) &&
-  (showPasswordAuth.value || showKeyAuth.value) &&
-  (!showKeyAuth.value || privateKey.value.length > 0) &&
+  (!needKey.value || privateKey.value.length > 0) &&
   (!showJumpHost.value || !jumpHost.value || (jumpAuthType.value === 'password' ? true : jumpPrivateKey.value.length > 0))
 )
 
 const canTest = computed(() =>
   Boolean(host.value && username.value) &&
-  (showPasswordAuth.value || showKeyAuth.value) &&
-  (!showKeyAuth.value || privateKey.value.length > 0) &&
+  (!needKey.value || privateKey.value.length > 0) &&
   (!showJumpHost.value || !jumpHost.value || (jumpAuthType.value === 'password' ? true : jumpPrivateKey.value.length > 0))
 )
 
@@ -119,13 +154,27 @@ async function onTestConnection() {
   if (!canTest.value) return
   testStatus.value = 'testing'
   testMessage.value = ''
+  // 分配临时 sessionId,让测试连接期间触发的 keyboard-interactive 弹窗能正确订阅
+  testSessionIdCounter += 1
+  testSessionId.value = `test-${Date.now()}-${testSessionIdCounter}`
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    const auth = showKeyAuth.value && showPasswordAuth.value && password.value && privateKey.value
-      ? { PasswordAndKey: { password: password.value || '', key: privateKey.value, passphrase: passphrase.value || null } }
-      : showPasswordAuth.value
-        ? { Password: password.value || '' }
-        : { PrivateKey: { key: privateKey.value, passphrase: passphrase.value || null } }
+    const { listen } = await import('@tauri-apps/api/event')
+
+    // 订阅本次测试的 kb 事件(后端在测试连接期间会通过 ssh:kb-interactive:<testId> 弹密码)
+    unlistenTestKb?.()
+    unlistenTestKb = await listen<KbInteractiveEvent>(
+      `ssh:kb-interactive:${testSessionId.value}`,
+      (event) => kbDialogRef.value?.open(event.payload)
+    )
+
+    // 互斥 chip 单选 → 对应后端 SshAuthConfig 三个枚举
+    const auth: Record<string, unknown> =
+      authMode.value === 'both' && password.value && privateKey.value
+        ? { PasswordAndKey: { password: password.value || '', key: privateKey.value, passphrase: passphrase.value || null } }
+        : authMode.value === 'key' || (authMode.value === 'both' && !password.value)
+          ? { PrivateKey: { key: privateKey.value, passphrase: passphrase.value || null } }
+          : { Password: password.value || '' }
 
     const config: Record<string, unknown> = {
       host: host.value,
@@ -143,7 +192,7 @@ async function onTestConnection() {
         : { PrivateKey: { key: jumpPrivateKey.value, passphrase: jumpPassphrase.value || null } }
     }
 
-    if (mfaEnabled.value) {
+    if (authMode.value === 'mfa') {
       (config as Record<string, unknown>).kb_interactive = {
         enabled: true,
         password: mfaPassword.value || null,
@@ -161,6 +210,12 @@ async function onTestConnection() {
   } catch (err: unknown) {
     testStatus.value = 'fail'
     testMessage.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    // 清理:关闭可能还开着的弹窗 + 解除事件订阅
+    unlistenTestKb?.()
+    unlistenTestKb = null
+    kbDialogRef.value?.close()
+    testSessionId.value = ''
   }
 }
 
@@ -171,14 +226,17 @@ function onSubmit() {
     host: host.value,
     port: port.value,
     username: username.value,
-    password: showPasswordAuth.value ? password.value : undefined,
-    privateKey: showKeyAuth.value ? privateKey.value : undefined,
-    passphrase: showKeyAuth.value ? passphrase.value : undefined,
-    usePasswordAuth: showPasswordAuth.value,
-    useKeyAuth: showKeyAuth.value,
+    authMode: authMode.value,
+    // 旧字段继续写,保持后端 buildAuth 兼容(详见 src/services/ssh.ts)
+    usePasswordAuth: needPassword.value,
+    useKeyAuth: needKey.value,
   }
-
-  if (mfaEnabled.value) {
+  if (needPassword.value) config.password = password.value || undefined
+  if (needKey.value) {
+    config.privateKey = privateKey.value || undefined
+    config.passphrase = passphrase.value || undefined
+  }
+  if (authMode.value === 'mfa') {
     config.mfaEnabled = true
     config.mfaPassword = mfaPassword.value || null
     config.totpSecret = totpSecret.value || null
@@ -384,48 +442,89 @@ async function pasteJumpKeyFromClipboard() {
 
       <!-- 右列: 认证 -->
       <div class="form-column">
-        <div class="column-label">Authentication</div>
+        <div class="column-label">{{ t('ssh.authMethod') }}</div>
 
-        <!-- 密码 checkbox -->
-        <div class="form-field">
-          <label class="auth-checkbox">
-            <input type="checkbox" v-model="showPasswordAuth" />
+        <!-- 互斥 chip 单选组:密码 / 私钥 / 密码+私钥 / MFA -->
+        <div class="auth-chip-group" role="radiogroup" :aria-label="t('ssh.authMethod')">
+          <button
+            type="button"
+            class="auth-chip"
+            :class="{ active: authMode === 'password' }"
+            role="radio"
+            :aria-checked="authMode === 'password'"
+            @click="authMode = 'password'"
+          >
             <v-icon size="14">mdi-key-outline</v-icon>
-            <span>Password</span>
-          </label>
-        </div>
-
-        <div v-if="showPasswordAuth" class="form-field auth-detail">
-          <div class="input-group">
-            <v-icon class="input-prefix" size="13">mdi-lock-outline</v-icon>
-            <input
-              v-model="password"
-              :type="showPassword ? 'text' : 'password'"
-              class="cyber-input"
-              placeholder="••••••••"
-              autocomplete="off"
-            />
-            <button
-              type="button"
-              class="input-suffix-btn"
-              @click="showPassword = !showPassword"
-            >
-              <v-icon size="14">{{ showPassword ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
-            </button>
-          </div>
-        </div>
-
-        <!-- 密钥 checkbox -->
-        <div class="form-field">
-          <label class="auth-checkbox">
-            <input type="checkbox" v-model="showKeyAuth" />
+            <span>{{ t('asset.password') }}</span>
+          </button>
+          <button
+            type="button"
+            class="auth-chip"
+            :class="{ active: authMode === 'key' }"
+            role="radio"
+            :aria-checked="authMode === 'key'"
+            @click="authMode = 'key'"
+          >
             <v-icon size="14">mdi-key-variant</v-icon>
-            <span>Private Key</span>
-          </label>
+            <span>{{ t('asset.privateKey') }}</span>
+          </button>
+          <button
+            type="button"
+            class="auth-chip"
+            :class="{ active: authMode === 'both' }"
+            role="radio"
+            :aria-checked="authMode === 'both'"
+            @click="authMode = 'both'"
+          >
+            <v-icon size="14">mdi-shield-key-outline</v-icon>
+            <span>{{ t('ssh.authBoth') }}</span>
+          </button>
+          <button
+            type="button"
+            class="auth-chip"
+            :class="{ active: authMode === 'mfa' }"
+            role="radio"
+            :aria-checked="authMode === 'mfa'"
+            @click="authMode = 'mfa'"
+          >
+            <v-icon size="14">mdi-two-factor-authentication</v-icon>
+            <span>{{ t('ssh.mfa2fa') }}</span>
+          </button>
         </div>
 
-        <template v-if="showKeyAuth">
+        <!-- 详情区:仅展示当前 chip 对应的字段 -->
+        <template v-if="authMode === 'password' || authMode === 'both'">
           <div class="form-field auth-detail">
+            <label class="field-label">
+              <v-icon size="12">mdi-lock-outline</v-icon>
+              {{ t('asset.password') }}
+            </label>
+            <div class="input-group">
+              <v-icon class="input-prefix" size="13">mdi-lock-outline</v-icon>
+              <input
+                v-model="password"
+                :type="showPassword ? 'text' : 'password'"
+                class="cyber-input"
+                placeholder="••••••••"
+                autocomplete="off"
+              />
+              <button
+                type="button"
+                class="input-suffix-btn"
+                @click="showPassword = !showPassword"
+              >
+                <v-icon size="14">{{ showPassword ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <template v-if="authMode === 'key' || authMode === 'both'">
+          <div class="form-field auth-detail">
+            <label class="field-label">
+              <v-icon size="12">mdi-code-tags</v-icon>
+              {{ t('asset.privateKey') }}
+            </label>
             <input
               ref="fileInputRef"
               type="file"
@@ -453,18 +552,23 @@ async function pasteJumpKeyFromClipboard() {
             <textarea
               v-model="privateKey"
               class="cyber-input code"
-              rows="5"
+              :rows="authMode === 'both' ? 3 : 5"
               placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
             />
           </div>
           <div class="form-field auth-detail">
+            <label class="field-label">
+              <v-icon size="12">mdi-key-alert</v-icon>
+              {{ t('ssh.passphrase') }}
+              <span class="optional">{{ t('ssh.passphraseOptional') }}</span>
+            </label>
             <div class="input-group">
               <v-icon class="input-prefix" size="13">mdi-key-alert</v-icon>
               <input
                 v-model="passphrase"
                 :type="showPassphrase ? 'text' : 'password'"
                 class="cyber-input"
-                placeholder="Leave empty if none"
+                :placeholder="t('ssh.passphraseEmpty')"
                 autocomplete="off"
               />
               <button type="button" class="input-suffix-btn" @click="showPassphrase = !showPassphrase">
@@ -473,35 +577,12 @@ async function pasteJumpKeyFromClipboard() {
             </div>
           </div>
         </template>
-      </div>
-    </div>
 
-    <!-- MFA (Keyboard-Interactive) -->
-    <div class="mfa-section">
-      <button
-        type="button"
-        class="mfa-toggle"
-        :class="{ active: showMfaPanel }"
-        @click="showMfaPanel = !showMfaPanel"
-      >
-        <v-icon size="14">{{ showMfaPanel ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
-        MFA (Keyboard-Interactive)
-      </button>
-
-      <div v-if="showMfaPanel" class="mfa-body">
-        <div class="form-field">
-          <label class="auth-checkbox">
-            <input type="checkbox" v-model="mfaEnabled" />
-            <v-icon size="14">mdi-shield-key-outline</v-icon>
-            <span>Enable Keyboard-Interactive</span>
-          </label>
-        </div>
-
-        <template v-if="mfaEnabled">
+        <template v-if="authMode === 'mfa'">
           <div class="form-field auth-detail">
             <label class="field-label">
               <v-icon size="12">mdi-lock-outline</v-icon>
-              Pre-filled password
+              {{ t('ssh.mfaPrefilled') }}
             </label>
             <div class="input-group">
               <v-icon class="input-prefix" size="13">mdi-lock-outline</v-icon>
@@ -694,6 +775,16 @@ async function pasteJumpKeyFromClipboard() {
         </button>
       </div>
     </div>
+
+    <!-- 测试连接触发的 MFA 弹窗(临时 sessionId) -->
+    <KbInteractiveDialog
+      v-if="testSessionId"
+      ref="kbDialogRef"
+      :session-id="testSessionId"
+      :host="host"
+      @done="() => {}"
+      @cancelled="() => {}"
+    />
   </form>
 </template>
 
@@ -962,6 +1053,16 @@ async function pasteJumpKeyFromClipboard() {
   to { transform: rotate(360deg); }
 }
 
+/* 字段标签里的「可选」灰字 */
+.optional {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 400;
+  margin-left: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 /* Jump host section */
 .jump-host-section {
   margin-top: 16px;
@@ -1009,67 +1110,7 @@ async function pasteJumpKeyFromClipboard() {
   animation: fadeIn 0.2s ease;
 }
 
-/* MFA section */
-.mfa-section {
-  margin-top: 16px;
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-}
-
-.mfa-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--line-2);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-2);
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.mfa-toggle:hover {
-  color: var(--cyan);
-  border-color: var(--focus-cyan);
-  background: var(--hover-cyan-faint);
-}
-
-.mfa-toggle.active {
-  color: var(--cyan);
-  border-color: var(--focus-cyan);
-  background: var(--hover-cyan);
-}
-
-.mfa-body {
-  margin-top: 12px;
-  padding: 12px;
-  background: var(--panel-solid);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  animation: fadeIn 0.2s ease;
-}
-
-.auth-checkbox {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
-  cursor: pointer;
-  user-select: none;
-}
-
-.auth-checkbox input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--cyan);
-  cursor: pointer;
-}
+/* MFA 详情区已并入右列 authMode 联动,旧 .mfa-section 样式废弃 */
 
 .auth-detail {
   margin-left: 24px;
