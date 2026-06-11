@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import { generateBatchIndexDDL } from '@/utils/ddlGenerator'
-import type { IndexInfo, ColumnMeta } from '@/types/db'
+import type { IndexInfo } from '@/types/db'
 import type { IndexEdit } from '@/utils/ddlGenerator'
 
 const INDEX_TYPES = ['BTREE', 'HASH', 'FULLTEXT', 'SPATIAL']
@@ -33,11 +33,13 @@ const searchText = ref('')
 
 const newIdx = ref({ name: '', columns: '', unique: false, indexType: 'BTREE' })
 
-// ── Column picker state ──
-const colPickerTarget = ref<string | null>(null) // index name, or '__new__' for add-row
+// ── Column picker state (fixed-position, outside scroll container) ──
+const colPickerVisible = ref(false)
+const colPickerTarget = ref<string | null>(null) // index name, or '__new__'
 const colPickerQuery = ref('')
 const colPickerHighlight = ref(0)
-const colPickerInputEl = ref<HTMLInputElement | null>(null)
+const colPickerRect = ref({ top: 0, left: 0, width: 0 })
+const colPickerRef = ref<HTMLElement | null>(null)
 
 const groupedEdits = computed(() => Array.from(edits.value.values()))
 
@@ -47,26 +49,45 @@ const filteredEdits = computed(() => {
   return groupedEdits.value.filter(e => e.name.toLowerCase().includes(q))
 })
 
-// 匹配的列名(模糊搜索)
 const matchingColumns = computed(() => {
   const q = colPickerQuery.value.trim().toLowerCase()
   if (!q) return tableColumns.value
   return tableColumns.value.filter(c => c.toLowerCase().includes(q))
 })
 
-// 当前编辑行的 columns 输入值对应的字符串
-function getColStr(e: IndexEdit): string {
-  return e.newColumns
+// ── Click outside to close picker ──
+function onDocumentMouseDown(e: MouseEvent) {
+  if (!colPickerVisible.value) return
+  const el = colPickerRef.value
+  if (!el) return
+  const target = e.target as HTMLElement
+  if (!el.contains(target)) {
+    // Check if the click is on the input that triggered the picker
+    const colInputs = document.querySelectorAll('.col-picker-input')
+    let clickedOnInput = false
+    colInputs.forEach(inp => { if (inp.contains(target)) clickedOnInput = true })
+    if (!clickedOnInput) {
+      closeColPicker()
+    }
+  }
 }
 
-function openColPicker(target: string) {
+onMounted(() => document.addEventListener('mousedown', onDocumentMouseDown, true))
+onBeforeUnmount(() => document.removeEventListener('mousedown', onDocumentMouseDown, true))
+
+// ── Picker actions ──
+
+function openColPicker(target: string, inputEl: HTMLElement) {
   colPickerTarget.value = target
   colPickerQuery.value = ''
   colPickerHighlight.value = 0
-  nextTick(() => colPickerInputEl.value?.focus())
+  const r = inputEl.getBoundingClientRect()
+  colPickerRect.value = { top: r.bottom + 2, left: r.left, width: Math.max(r.width, 220) }
+  colPickerVisible.value = true
 }
 
 function closeColPicker() {
+  colPickerVisible.value = false
   colPickerTarget.value = null
   colPickerQuery.value = ''
 }
@@ -267,41 +288,15 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
                 <td>
                   <input v-model="e.newName" class="cell-input" @input="markDirty(e)" />
                 </td>
-                <td style="position: relative;">
+                <td>
                   <input
                     v-model="e.newColumns"
-                    class="cell-input"
+                    class="cell-input col-picker-input"
                     @input="markDirty(e)"
-                    @focus="openColPicker(e.name)"
-                    @keydown="onColPickerKeydown"
-                    @blur="closeColPicker"
+                    @focus="openColPicker(e.name, $event.target as HTMLElement)"
+                    @keydown="colPickerVisible && colPickerTarget === e.name ? onColPickerKeydown($event) : undefined"
                     placeholder="col1, col2"
                   />
-                  <div v-if="colPickerTarget === e.name" class="col-picker">
-                    <div class="col-picker-hint">↑↓ 选择 · Enter 追加 · Esc 取消 · 输入过滤</div>
-                    <input
-                      ref="colPickerInputEl"
-                      v-model="colPickerQuery"
-                      class="col-picker-search"
-                      placeholder="搜索列名..."
-                      @keydown.stop="onColPickerKeydown"
-                    />
-                    <div v-if="matchingColumns.length === 0" class="col-picker-empty">
-                      无匹配列名
-                    </div>
-                    <div
-                      v-for="(c, i) in matchingColumns"
-                      :key="c"
-                      class="col-picker-item"
-                      :class="{ active: i === colPickerHighlight }"
-                      @mousedown.prevent="appendColumn(e.name, c)"
-                      @mouseenter="colPickerHighlight = i"
-                    >
-                      <v-icon size="10" color="var(--cyan)">mdi-table-column</v-icon>
-                      <span>{{ c }}</span>
-                      <span v-if="e.newColumns.includes(c)" class="col-picker-selected">已选</span>
-                    </div>
-                  </div>
                 </td>
                 <td class="td-center">
                   <input type="checkbox" :checked="e.newUnique" @change="e.newUnique = ($event.target as HTMLInputElement).checked; markDirty(e)" />
@@ -325,38 +320,15 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
 
           <div class="add-row">
             <input v-model="newIdx.name" class="cell-input" :placeholder="t('db.newIndex')" style="width: 120px;" @keyup.enter="addNewIdx" />
-            <div style="position: relative; width: 180px;">
+            <div style="width: 180px;">
               <input
                 v-model="newIdx.columns"
-                class="cell-input"
+                class="cell-input col-picker-input"
                 placeholder="col1, col2"
-                @focus="openColPicker('__new__')"
-                @keydown="onColPickerKeydown"
-                @blur="closeColPicker"
-                @keyup.enter="addNewIdx"
+                @focus="openColPicker('__new__', $event.target as HTMLElement)"
+                @keydown="colPickerVisible && colPickerTarget === '__new__' ? onColPickerKeydown($event) : undefined"
+                @keyup.enter="colPickerVisible ? undefined : addNewIdx()"
               />
-              <div v-if="colPickerTarget === '__new__'" class="col-picker" style="left: 0; right: auto;">
-                <div class="col-picker-hint">↑↓ 选择 · Enter 追加 · Esc 取消</div>
-                <input
-                  ref="colPickerInputEl"
-                  v-model="colPickerQuery"
-                  class="col-picker-search"
-                  placeholder="搜索列名..."
-                  @keydown.stop="onColPickerKeydown"
-                />
-                <div v-if="matchingColumns.length === 0" class="col-picker-empty">无匹配列名</div>
-                <div
-                  v-for="(c, i) in matchingColumns"
-                  :key="c"
-                  class="col-picker-item"
-                  :class="{ active: i === colPickerHighlight }"
-                  @mousedown.prevent="appendColumn('__new__', c)"
-                  @mouseenter="colPickerHighlight = i"
-                >
-                  <v-icon size="10" color="var(--cyan)">mdi-table-column</v-icon>
-                  <span>{{ c }}</span>
-                </div>
-              </div>
             </div>
             <label style="display: flex; align-items: center; gap: 2px; font-size: 10px;">
               <input type="checkbox" v-model="newIdx.unique" /> UNIQUE
@@ -379,6 +351,36 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
         </div>
       </template>
     </div>
+
+    <!-- Column picker (fixed-position, renders outside dialog scroll) -->
+    <Teleport to="body">
+      <div
+        v-if="colPickerVisible"
+        ref="colPickerRef"
+        class="col-picker-fixed"
+        :style="{ top: colPickerRect.top + 'px', left: colPickerRect.left + 'px', width: colPickerRect.width + 'px' }"
+      >
+        <div class="col-picker-hint">↑↓ 选择 · Enter 追加 · Esc 取消 · 输入过滤</div>
+        <input
+          v-model="colPickerQuery"
+          class="col-picker-search"
+          placeholder="搜索列名..."
+          @keydown.stop="onColPickerKeydown"
+        />
+        <div v-if="matchingColumns.length === 0" class="col-picker-empty">无匹配列名</div>
+        <div
+          v-for="(c, i) in matchingColumns"
+          :key="c"
+          class="col-picker-item"
+          :class="{ active: i === colPickerHighlight }"
+          @mousedown.prevent="appendColumn(colPickerTarget!, c)"
+          @mouseenter="colPickerHighlight = i"
+        >
+          <v-icon size="10" color="var(--cyan)">mdi-table-column</v-icon>
+          <span>{{ c }}</span>
+        </div>
+      </div>
+    </Teleport>
   </v-dialog>
 </template>
 
@@ -425,13 +427,19 @@ tr.dropped td { opacity: 0.4; text-decoration: line-through; }
 .action-btn-sm:hover, .action-btn-sm.active { border-color: var(--cyan); color: var(--cyan); }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+</style>
 
-/* ── Column picker dropdown ── */
-.col-picker {
-  position: absolute; top: 100%; left: 0; z-index: 20;
-  margin-top: 2px; min-width: 200px; max-width: 300px; max-height: 240px; overflow: auto;
-  background: var(--panel-solid-2); border: 1px solid var(--line-2);
-  border-radius: 6px; box-shadow: var(--shadow), 0 0 0 1px rgba(0, 240, 255, 0.1);
+<style>
+/* global: fixed-position column picker (Teleport to body) */
+.col-picker-fixed {
+  position: fixed;
+  z-index: 9999;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--panel-solid-2);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  box-shadow: 0 16px 48px -12px rgba(0,0,0,.6), 0 0 0 1px rgba(0, 240, 255, 0.15);
   padding: 4px;
 }
 .col-picker-hint {
@@ -455,8 +463,4 @@ tr.dropped td { opacity: 0.4; text-decoration: line-through; }
 }
 .col-picker-item.active { background: rgba(0, 240, 255, 0.1); color: var(--cyan); }
 .col-picker-item:hover { background: rgba(0, 240, 255, 0.06); }
-.col-picker-selected {
-  margin-left: auto; font-size: 9px; color: var(--green);
-  padding: 1px 4px; border-radius: 3px; background: rgba(0, 255, 140, 0.08);
-}
 </style>
