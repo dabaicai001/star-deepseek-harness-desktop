@@ -558,6 +558,7 @@ function applyTableFilters() {
   const tab = activeTableTab.value
   if (!tab) return
   tab.dataPage = 0
+  tableDataVersion.value++
   void loadTableDataFor(tab, true)
 }
 
@@ -567,6 +568,7 @@ function removeColumnFilter(col: string) {
   delete tab.columnFilters[col]
   tab.columnFilters = { ...tab.columnFilters }
   tab.dataPage = 0
+  tableDataVersion.value++
   void loadTableDataFor(tab, true)
 }
 
@@ -576,6 +578,7 @@ function clearAllFilters() {
   tab.whereClause = ''
   tab.columnFilters = {}
   tab.dataPage = 0
+  tableDataVersion.value++
   void loadTableDataFor(tab, true)
 }
 
@@ -589,6 +592,7 @@ function setColumnFilter(col: string, value: string) {
     tab.columnFilters = { ...tab.columnFilters }
   }
   tab.dataPage = 0
+  tableDataVersion.value++
   void loadTableDataFor(tab, true)
 }
 
@@ -1342,7 +1346,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               </button>
             </div>
             <DataGrid
-              :key="`${activeTableTab.db}.${activeTableTab.table}.${activeTableTab.data ? 'loaded' : 'loading'}`"
+              :key="`${activeTableTab.db}.${activeTableTab.table}.v${tableDataVersion}`"
               :result="activeTableTab.data"
               :loading="activeTableTab.dataLoading"
               :total-rows="activeTableTab.dataTotal"
