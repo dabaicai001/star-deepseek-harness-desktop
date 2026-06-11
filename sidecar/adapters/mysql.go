@@ -453,22 +453,29 @@ func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, o
 	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
 
 	var result *QueryResult
+	var execErr error
 	if len(args) > 0 {
-		result, _ = a.executeSelectArgs(query, args, time.Now())
+		result, execErr = a.executeSelectArgs(query, args, time.Now())
 	} else {
-		result, _ = a.executeSelect(query, time.Now())
+		result, execErr = a.executeSelect(query, time.Now())
+	}
+	if execErr != nil {
+		return nil, fmt.Errorf("get table data: %w", execErr)
 	}
 
 	// When filters are active, also return filtered row count for pagination
-	if whereClause != "" {
+	if whereClause != "" && result.Error == "" {
 		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`%s", database, table, whereClause)
 		var totalRows int64
 		if len(args) > 0 {
-			a.db.Get(&totalRows, countQuery, args...)
+			if err := a.db.Get(&totalRows, countQuery, args...); err == nil {
+				result.TotalRows = totalRows
+			}
 		} else {
-			a.db.Get(&totalRows, countQuery)
+			if err := a.db.Get(&totalRows, countQuery); err == nil {
+				result.TotalRows = totalRows
+			}
 		}
-		result.TotalRows = totalRows
 	}
 
 	return result, nil

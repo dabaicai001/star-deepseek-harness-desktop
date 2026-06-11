@@ -527,12 +527,31 @@ function onTableDataSortChange(col: string) {
 
 // ─── 表数据筛选 ───
 let filterDebounceTimer: ReturnType<typeof setTimeout> | null = null
+const whereInputRef = ref<HTMLInputElement | null>(null)
 
 const hasActiveFilters = computed(() => {
   const tab = activeTableTab.value
   if (!tab) return false
   return !!tab.whereClause || Object.keys(tab.columnFilters).length > 0
 })
+
+function insertColumnName(colName: string) {
+  const input = whereInputRef.value
+  if (!input) return
+  const start = input.selectionStart ?? input.value.length
+  const end = input.selectionEnd ?? start
+  const before = input.value.slice(0, start)
+  const after = input.value.slice(end)
+  const tab = activeTableTab.value
+  if (!tab) return
+  tab.whereClause = before + '`' + colName + '`' + after
+  void input.focus()
+  // 把光标放到插入的字段名后面
+  requestAnimationFrame(() => {
+    const pos = start + colName.length + 2
+    input.setSelectionRange(pos, pos)
+  })
+}
 
 function applyTableFilters() {
   const tab = activeTableTab.value
@@ -1275,20 +1294,32 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               <div class="filter-where-wrap">
                 <span class="filter-where-prefix mono">WHERE</span>
                 <input
+                  ref="whereInputRef"
                   v-model="activeTableTab.whereClause"
                   type="text"
                   class="cyber-input filter-where-input"
                   placeholder="name = 'test' AND age > 18"
                   @keyup.enter="applyTableFilters"
+                  @blur="applyTableFilters"
                 />
                 <button
-                  v-if="activeTableTab.whereClause"
                   class="filter-where-apply"
+                  :class="{ visible: activeTableTab.whereClause }"
                   @click="applyTableFilters"
-                  title="应用筛选"
+                  title="应用筛选 (Enter)"
                 >
                   <v-icon size="14">mdi-play</v-icon>
                 </button>
+              </div>
+              <!-- 字段名快捷提示 -->
+              <div class="filter-column-chips" v-if="activeTableTab.columns.length > 0">
+                <button
+                  v-for="col in activeTableTab.columns"
+                  :key="col.name"
+                  class="filter-col-chip"
+                  :title="`${col.name} (${col.type})`"
+                  @click="insertColumnName(col.name)"
+                >{{ col.name }}</button>
               </div>
               <span
                 v-for="(val, col) in activeTableTab.columnFilters"
@@ -2009,9 +2040,41 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   color: var(--cyan);
   cursor: pointer;
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.filter-where-apply.visible {
+  opacity: 1;
 }
 .filter-where-apply:hover {
   background: rgba(0, 240, 255, 0.2);
+}
+
+/* 字段快捷提示 chips */
+.filter-column-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.filter-col-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-2);
+  background: var(--panel-solid-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.filter-col-chip:hover {
+  color: var(--cyan);
+  border-color: rgba(0, 240, 255, 0.4);
+  background: rgba(0, 240, 255, 0.08);
 }
 .filter-chip {
   display: inline-flex;
