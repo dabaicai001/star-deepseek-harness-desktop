@@ -93,7 +93,7 @@ interface TableSubTab extends BaseSubTab {
   dataPageSize: number
   dataOrderBy: string | null
   dataOrderDir: 'ASC' | 'DESC'
-  filterText: string
+  whereClause: string
   columnFilters: Record<string, string>
 }
 
@@ -397,7 +397,7 @@ async function selectTable(db: string, tableName: string) {
     dataPageSize: 100,
     dataOrderBy: null,
     dataOrderDir: 'ASC',
-    filterText: '',
+    whereClause: '',
     columnFilters: {}
   }
   subTabs.value.push(tab)
@@ -423,7 +423,7 @@ async function loadTableDataFor(tab: TableSubTab, force = false) {
     const dataPromise = dbService.mysqlGetTableData(
       connId.value, tab.table, tab.dataPageSize, offset,
       tab.dataOrderBy || undefined, tab.dataOrderDir, tab.db,
-      tab.filterText || undefined,
+      tab.whereClause || undefined,
       Object.keys(tab.columnFilters).length > 0 ? tab.columnFilters : undefined
     )
     if (metaPromise) {
@@ -531,7 +531,7 @@ let filterDebounceTimer: ReturnType<typeof setTimeout> | null = null
 const hasActiveFilters = computed(() => {
   const tab = activeTableTab.value
   if (!tab) return false
-  return !!tab.filterText || Object.keys(tab.columnFilters).length > 0
+  return !!tab.whereClause || Object.keys(tab.columnFilters).length > 0
 })
 
 function applyTableFilters() {
@@ -553,7 +553,7 @@ function removeColumnFilter(col: string) {
 function clearAllFilters() {
   const tab = activeTableTab.value
   if (!tab) return
-  tab.filterText = ''
+  tab.whereClause = ''
   tab.columnFilters = {}
   tab.dataPage = 0
   void loadTableDataFor(tab, true)
@@ -1272,16 +1272,23 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           <div class="inner-tab-body">
             <!-- 筛选栏 -->
             <div class="table-filter-bar">
-              <div class="filter-search-wrap">
-                <v-icon size="14" class="filter-search-icon">mdi-magnify</v-icon>
+              <div class="filter-where-wrap">
+                <span class="filter-where-prefix mono">WHERE</span>
                 <input
-                  v-model="activeTableTab.filterText"
+                  v-model="activeTableTab.whereClause"
                   type="text"
-                  class="cyber-input filter-search-input"
-                  :placeholder="t('common.search') + '...'"
+                  class="cyber-input filter-where-input"
+                  placeholder="name = 'test' AND age > 18"
                   @keyup.enter="applyTableFilters"
-                  @blur="applyTableFilters"
                 />
+                <button
+                  v-if="activeTableTab.whereClause"
+                  class="filter-where-apply"
+                  @click="applyTableFilters"
+                  title="应用筛选"
+                >
+                  <v-icon size="14">mdi-play</v-icon>
+                </button>
               </div>
               <span
                 v-for="(val, col) in activeTableTab.columnFilters"
@@ -1962,23 +1969,49 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
 }
-.filter-search-wrap {
-  position: relative;
+.filter-where-wrap {
   display: flex;
   align-items: center;
+  gap: 0;
 }
-.filter-search-icon {
-  position: absolute;
-  left: 8px;
-  color: var(--muted);
-  pointer-events: none;
+.filter-where-prefix {
+  padding: 0 8px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid var(--line-2);
+  border-right: none;
+  border-radius: 4px 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cyan);
+  white-space: nowrap;
 }
-.filter-search-input {
-  width: 200px;
-  padding-left: 28px !important;
-  padding-right: 8px !important;
+.filter-where-input {
+  width: 280px;
   height: 28px;
   font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  border-radius: 0 !important;
+  border-left: none !important;
+}
+.filter-where-apply {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: rgba(0, 240, 255, 0.12);
+  border: 1px solid var(--line-2);
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+  color: var(--cyan);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.filter-where-apply:hover {
+  background: rgba(0, 240, 255, 0.2);
 }
 .filter-chip {
   display: inline-flex;

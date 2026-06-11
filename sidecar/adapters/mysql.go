@@ -420,32 +420,16 @@ func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, o
 
 	query := fmt.Sprintf("SELECT * FROM `%s`.`%s`", database, table)
 
-	// Build WHERE clause from filters
+	// Build WHERE clause
 	var conditions []string
 	var args []interface{}
 
-	// 全局文本搜索:对所有文本列做 LIKE
+	// 用户输入的 raw WHERE 条件(如: name = 'test' AND age > 18)
 	if filter != "" {
-		cols, err := a.ListColumns(database, table)
-		if err == nil {
-			var textConds []string
-			for _, c := range cols {
-				typeLower := strings.ToLower(c.Type)
-				if strings.Contains(typeLower, "char") ||
-					strings.Contains(typeLower, "text") ||
-					strings.Contains(typeLower, "enum") ||
-					strings.Contains(typeLower, "set") {
-					textConds = append(textConds, fmt.Sprintf("`%s` LIKE ?", c.Name))
-					args = append(args, "%"+filter+"%")
-				}
-			}
-			if len(textConds) > 0 {
-				conditions = append(conditions, "("+strings.Join(textConds, " OR ")+")")
-			}
-		}
+		conditions = append(conditions, "("+filter+")")
 	}
 
-	// 精确列筛选
+	// 列头精确筛选
 	if len(columnFilters) > 0 {
 		for col, val := range columnFilters {
 			conditions = append(conditions, fmt.Sprintf("`%s` = ?", col))
@@ -453,8 +437,10 @@ func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, o
 		}
 	}
 
+	whereClause := ""
 	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
+		whereClause = " WHERE " + strings.Join(conditions, " AND ")
+		query += whereClause
 	}
 
 	if orderBy != "" {
@@ -474,9 +460,8 @@ func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, o
 	}
 
 	// When filters are active, also return filtered row count for pagination
-	if len(conditions) > 0 {
-		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`", database, table)
-		countQuery += " WHERE " + strings.Join(conditions, " AND ")
+	if whereClause != "" {
+		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`%s", database, table, whereClause)
 		var totalRows int64
 		if len(args) > 0 {
 			a.db.Get(&totalRows, countQuery, args...)
