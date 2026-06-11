@@ -133,6 +133,7 @@ export default {
     testing: 'Testing...',
     testSuccess: 'Connection successful',
     testFail: 'Connection failed',
+    testNeedPassword: 'Please enter the password first before testing the connection',
     testHint: 'Will attempt SSH connection to verify credentials',
     selectKey: 'Select private key file',
     keyLoaded: 'Loaded',

@@ -133,6 +133,7 @@ export default {
     testing: '正在测试...',
     testSuccess: '连接成功',
     testFail: '连接失败',
+    testNeedPassword: '请先在密码框输入密码再测试连接',
     testHint: '将尝试 SSH 连接到目标主机,验证凭据是否有效',
     selectKey: '选择私钥文件',
     keyLoaded: '已加载',
