@@ -33,7 +33,7 @@ impl SshSession {
         auth: &SshAuth,
         kb_interactive: &Option<super::KeyboardInteractiveConfig>,
         session_id: &str,
-        app_handle: &tauri::AppHandle,
+        app_handle: Option<&tauri::AppHandle>,
         pending_kb: &Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>,
     ) -> Result<client::Handle<super::auth::SshHandler>, String> {
         let socket_addr = format!("{}:{}", host, port);
@@ -84,7 +84,7 @@ impl SshSession {
     pub async fn connect(
         &mut self,
         session_id: &str,
-        app_handle: &tauri::AppHandle,
+        app_handle: Option<&tauri::AppHandle>,
         pending_kb: &Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>,
     ) -> Result<(), String> {
         let handle = if let Some(jump_host) = &self.config.jump_host {
@@ -320,7 +320,7 @@ async fn authenticate_keyboard_interactive(
     username: &str,
     kb_config: &Option<super::KeyboardInteractiveConfig>,
     session_id: &str,
-    app_handle: &tauri::AppHandle,
+    app_handle: Option<&tauri::AppHandle>,
     pending_kb: &Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>,
 ) -> Result<(), String> {
     let kb = kb_config.as_ref().ok_or("kb_interactive config missing")?;
@@ -357,7 +357,9 @@ async fn authenticate_keyboard_interactive(
                     "prompts": prompts.iter().map(|p| serde_json::json!({"prompt": p.prompt, "echo": p.echo})).collect::<Vec<_>>(),
                     "autoFill": auto_fill,
                 });
-                let _ = app_handle.emit(&format!("ssh:kb-interactive:{}", session_id), payload);
+                if let Some(app) = app_handle {
+                    let _ = app.emit(&format!("ssh:kb-interactive:{}", session_id), payload);
+                }
 
                 // 创建 oneshot 等待前端响应
                 let (resp_tx, resp_rx) = oneshot::channel();

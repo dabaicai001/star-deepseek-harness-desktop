@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, oneshot};
 use tauri::State;
 use crate::ssh::{SshConfig, SshSessionInfo};
 use crate::ssh::session::SshSession;
@@ -8,6 +8,7 @@ use crate::ssh::session::SshSession;
 pub struct SshManager {
     pub sessions: Arc<Mutex<HashMap<String, Arc<Mutex<SshSession>>>>>,
     channels: Arc<Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
+    pub pending_kb: Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>,
 }
 
 impl SshManager {
@@ -15,6 +16,7 @@ impl SshManager {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             channels: Arc::new(Mutex::new(HashMap::new())),
+            pending_kb: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -30,8 +32,8 @@ pub async fn ssh_connect(
     // 所有其他 SSH 操作(resize / disconnect / 新 connect),导致第二个 tab
     // 永远卡在 "Connecting to"。
     let mut session = SshSession::new(config.clone());
-    session.connect().await?;
-    session.open_shell(&id, app_handle, manager.channels.clone()).await?;
+    session.connect(&id, Some(&app_handle), &manager.pending_kb).await?;
+    session.open_shell(&id, app_handle.clone(), manager.channels.clone()).await?;
 
     let info = SshSessionInfo {
         id: id.clone(),
@@ -134,9 +136,10 @@ pub async fn test_ssh_connection(
 ) -> Result<serde_json::Value, String> {
     use std::time::Duration;
     let mut session = SshSession::new(config.clone());
-
+    let pending_kb: Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let test_id = uuid::Uuid::new_v4().to_string();
     let start = std::time::Instant::now();
-    if let Err(e) = session.connect().await {
+    if let Err(e) = session.connect(&test_id, None, &pending_kb).await {
         return Ok(serde_json::json!({
             "ok": false,
             "message": e,
@@ -184,4 +187,20 @@ pub async fn ssh_exec(
     session
         .exec(&command, timeout_sec.unwrap_or(10))
         .await
+}
+
+/// 前端回复 keyboard-interactive 响应
+#[tauri::command]
+pub async fn ssh_kb_response(
+    manager: State<'_, SshManager>,
+    id: String,
+    responses: Vec<String>,
+) -> Result<(), String> {
+    let sender = {
+        let mut map = manager.pending_kb.lock().await;
+        map.remove(&id)
+            .ok_or_else(|| format!("No pending kb prompt for session {}", id))?
+    };
+    sender.send(responses)
+        .map_err(|_| "Failed to send kb response (handler dropped)".to_string())
 }
