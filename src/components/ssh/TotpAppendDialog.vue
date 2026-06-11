@@ -15,6 +15,8 @@ export type ConcatFormat = 'none' | 'space' | 'manual'
 const props = defineProps<{
   host: string
   username: string
+  /** 默认拼接格式(由父组件传入,如 'none' | 'space' | 'manual') */
+  defaultFormat?: ConcatFormat
 }>()
 
 const emit = defineEmits<{
@@ -31,9 +33,9 @@ const countdown = ref(30)
 
 const visible = ref(false)
 
-function open() {
+function open(_defaultFormat?: ConcatFormat) {
   code.value = ''
-  format.value = 'none'
+  format.value = _defaultFormat ?? props.defaultFormat ?? 'none'
   submitting.value = false
   countdown.value = 30
   visible.value = true

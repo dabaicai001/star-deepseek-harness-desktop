@@ -31,6 +31,8 @@ export interface SshFormInitialValues {
   mfaEnabled?: boolean
   mfaPassword?: string
   totpSecret?: string
+  appendTotpToPassword?: boolean
+  totpAppendFormat?: 'none' | 'space' | 'manual'
 }
 
 const props = defineProps<{
@@ -68,9 +70,10 @@ const testSessionId = ref('')
 let unlistenTestKb: UnlistenFn | null = null
 let testSessionIdCounter = 0
 
-// 「密码 + TOTP 拼接」工作流(只存内存,不入库)
+// 「密码 + TOTP 拼接」工作流(写入资产 config,每次连接都弹)
 const totpDialogRef = ref<InstanceType<typeof TotpAppendDialog>>()
-const needTotpAppend = ref(false) // 是否需要在连接瞬间弹码输入框
+const appendTotpToPassword = ref(props.initialValues?.appendTotpToPassword ?? false)
+const totpAppendFormat = ref<'none' | 'space' | 'manual'>(props.initialValues?.totpAppendFormat ?? 'none')
 let pendingTotpCode: string | null = null
 let pendingTotpFormat: ConcatFormat | null = null
 let pendingResolve: ((v: { code: string; format: ConcatFormat } | null) => void) | null = null
@@ -129,6 +132,8 @@ watch(
               : 'password'))
     mfaPassword.value = next.mfaPassword ?? ''
     totpSecret.value = next.totpSecret ?? ''
+    appendTotpToPassword.value = next.appendTotpToPassword ?? false
+    totpAppendFormat.value = next.totpAppendFormat ?? 'none'
     jumpHost.value = next.jumpHost ?? ''
     jumpPort.value = next.jumpPort ?? 22
     jumpUsername.value = next.jumpUsername ?? ''
@@ -165,7 +170,7 @@ const canTest = computed(() =>
 function requestTotpAppend(): Promise<{ code: string; format: ConcatFormat } | null> {
   return new Promise((resolve) => {
     pendingResolve = resolve
-    totpDialogRef.value?.open()
+    totpDialogRef.value?.open(totpAppendFormat.value)
   })
 }
 
@@ -198,7 +203,7 @@ async function onTestConnection() {
 
   // 「密码 + TOTP 拼接」分支:连接瞬间弹码输入框
   let totpResult: { code: string; format: ConcatFormat } | null = null
-  if (needTotpAppend.value && authMode.value === 'password') {
+  if (appendTotpToPassword.value && authMode.value === 'password') {
     totpResult = await requestTotpAppend()
     if (!totpResult) {
       // 用户取消 → 退出,不算失败
@@ -300,6 +305,11 @@ function onSubmit() {
     config.mfaEnabled = true
     config.mfaPassword = mfaPassword.value || null
     config.totpSecret = totpSecret.value || null
+  }
+  if (authMode.value === 'password') {
+    // 阿里云堡垒机风格:每次连接弹 6 位 TOTP 码拼到密码末尾
+    config.appendTotpToPassword = appendTotpToPassword.value
+    config.totpAppendFormat = totpAppendFormat.value
   }
 
   if (showJumpHost.value && jumpHost.value) {
@@ -576,15 +586,54 @@ async function pasteJumpKeyFromClipboard() {
                 <v-icon size="14">{{ showPassword ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
               </button>
             </div>
-            <!-- 阿里云堡垒机风格:把 6 位 TOTP 一次性拼到密码末尾提交 -->
-            <label v-if="authMode === 'password'" class="totp-append-toggle">
-              <input
-                type="checkbox"
-                v-model="needTotpAppend"
-              />
-              <v-icon size="13">mdi-two-factor-authentication</v-icon>
-              <span>{{ t('ssh.mfaAppendAtConnect') }}</span>
-            </label>
+            <!-- 阿里云堡垒机风格:每次连接都弹 6 位 TOTP 码,自动拼到密码末尾 -->
+            <div v-if="authMode === 'password'" class="totp-append-block">
+              <label class="totp-append-toggle">
+                <input
+                  type="checkbox"
+                  v-model="appendTotpToPassword"
+                />
+                <v-icon size="13">mdi-two-factor-authentication</v-icon>
+                <span>{{ t('ssh.mfaAppendAtConnect') }}</span>
+              </label>
+              <div v-if="appendTotpToPassword" class="totp-append-format">
+                <div class="auth-chip-group" role="radiogroup">
+                  <button
+                    type="button"
+                    class="auth-chip"
+                    :class="{ active: totpAppendFormat === 'none' }"
+                    role="radio"
+                    :aria-checked="totpAppendFormat === 'none'"
+                    @click="totpAppendFormat = 'none'"
+                  >
+                    <v-icon size="12">mdi-format-letter-case</v-icon>
+                    <span>密码123456</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="auth-chip"
+                    :class="{ active: totpAppendFormat === 'space' }"
+                    role="radio"
+                    :aria-checked="totpAppendFormat === 'space'"
+                    @click="totpAppendFormat = 'space'"
+                  >
+                    <v-icon size="12">mdi-keyboard-space</v-icon>
+                    <span>密码<span class="sep">␣</span>123456</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="auth-chip"
+                    :class="{ active: totpAppendFormat === 'manual' }"
+                    role="radio"
+                    :aria-checked="totpAppendFormat === 'manual'"
+                    @click="totpAppendFormat = 'manual'"
+                  >
+                    <v-icon size="12">mdi-pencil-outline</v-icon>
+                    <span>{{ t('ssh.mfaAppendManual') }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </template>
 
@@ -855,11 +904,12 @@ async function pasteJumpKeyFromClipboard() {
       @cancelled="() => {}"
     />
 
-    <!-- 「密码 + TOTP 拼接」弹窗(只存内存,不入库) -->
+    <!-- 「密码 + TOTP 拼接」弹窗(写入资产 config,每次连接都弹) -->
     <TotpAppendDialog
       ref="totpDialogRef"
       :host="host"
       :username="username"
+      :default-format="totpAppendFormat"
       @submit="onTotpSubmit"
       @cancelled="onTotpCancelled"
     />

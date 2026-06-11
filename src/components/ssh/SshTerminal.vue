@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import KbInteractiveDialog from './KbInteractiveDialog.vue'
+import TotpAppendDialog, { type ConcatFormat } from './TotpAppendDialog.vue'
 import type { KbInteractiveEvent } from '@/services/ssh'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -60,6 +61,29 @@ let captureResolve: ((s: string) => void) | null = null
 let captureTimer: number | null = null
 
 const kbDialogRef = ref<InstanceType<typeof KbInteractiveDialog>>()
+const totpDialogRef = ref<InstanceType<typeof TotpAppendDialog>>()
+let pendingTotpResolve: ((v: { code: string; format: ConcatFormat } | null) => void) | null = null
+
+function requestTotpAppend(defaultFormat: ConcatFormat): Promise<{ code: string; format: ConcatFormat } | null> {
+  return new Promise((resolve) => {
+    pendingTotpResolve = resolve
+    totpDialogRef.value?.open(defaultFormat)
+  })
+}
+function onTotpSubmit(result: { code: string; format: ConcatFormat }) {
+  pendingTotpResolve?.(result)
+  pendingTotpResolve = null
+}
+function onTotpCancelled() {
+  pendingTotpResolve?.(null)
+  pendingTotpResolve = null
+}
+
+function concatPassword(pwd: string, code: string, format: ConcatFormat): string {
+  if (format === 'manual') return code
+  if (format === 'space') return `${pwd} ${code}`
+  return `${pwd}${code}`
+}
 
 const statusKind = computed<'connecting' | 'online' | 'offline' | 'error'>(() => {
  if (connecting.value) return 'connecting'
@@ -264,19 +288,31 @@ async function connect() {
  //标记当前 connect 调用,避免老 timeout杀掉新连接
  const connectCallId = ++currentConnectId
 
- try {
-  const config: Record<string, unknown> = {
-    host: a.config.host,
-    port: a.config.port || 22,
-    username: a.config.username,
-    auth: a.config.useKeyAuth && a.config.usePasswordAuth !== false && a.config.password && a.config.privateKey
-      ? { PasswordAndKey: { password: a.config.password, key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
-      : a.config.password
-        ? { Password: a.config.password }
-        : a.config.privateKey
-          ? { PrivateKey: { key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
-          : { Password: '' }
-  }
+  try {
+   // 「密码 + TOTP 拼接」分支:每次连接弹 6 位 TOTP 码
+   let effectivePassword = a.config.password
+   if (a.config.appendTotpToPassword && effectivePassword) {
+     const totpResult = await requestTotpAppend(a.config.totpAppendFormat ?? 'none')
+     if (!totpResult) {
+       // 用户取消 → 退出,不算失败
+       connecting.value = false
+       return
+     }
+     effectivePassword = concatPassword(effectivePassword, totpResult.code, totpResult.format)
+   }
+
+   const config: Record<string, unknown> = {
+     host: a.config.host,
+     port: a.config.port || 22,
+     username: a.config.username,
+     auth: a.config.useKeyAuth && a.config.usePasswordAuth !== false && effectivePassword && a.config.privateKey
+       ? { PasswordAndKey: { password: effectivePassword, key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
+       : effectivePassword
+         ? { Password: effectivePassword }
+         : a.config.privateKey
+           ? { PrivateKey: { key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
+           : { Password: '' }
+   }
 
   if (a.config.mfaEnabled) {
     (config as Record<string, unknown>).kb_interactive = {
@@ -713,6 +749,14 @@ function handleKbCancelled() {
       :host="asset?.config.host ?? ''"
       @done="handleKbDone"
       @cancelled="handleKbCancelled"
+    />
+    <TotpAppendDialog
+      ref="totpDialogRef"
+      :host="asset?.config.host ?? ''"
+      :username="asset?.config.username ?? ''"
+      :default-format="asset?.config.totpAppendFormat"
+      @submit="onTotpSubmit"
+      @cancelled="onTotpCancelled"
     />
   </div>
 </template>
