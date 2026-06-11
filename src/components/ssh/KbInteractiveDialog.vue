@@ -31,6 +31,11 @@ function open(eventData: KbInteractiveEvent) {
   startCountdown()
 }
 
+function close() {
+  stopCountdown()
+  data.value = null
+}
+
 function startCountdown() {
   stopCountdown()
   countdownTimer = window.setInterval(() => {
@@ -74,7 +79,7 @@ onBeforeUnmount(() => {
   stopCountdown()
 })
 
-defineExpose({ open })
+defineExpose({ open, close })
 
 const visible = computed(() => data.value !== null)
 </script>

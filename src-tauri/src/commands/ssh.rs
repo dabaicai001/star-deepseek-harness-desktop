@@ -132,14 +132,27 @@ pub async fn ssh_get_sessions(
 /// 测试 SSH 连接:不写入 SshManager,connect 完立即 disconnect,仅返回成功/失败
 #[tauri::command]
 pub async fn test_ssh_connection(
+    manager: State<'_, SshManager>,
     config: SshConfig,
+    app_handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
     use std::time::Duration;
     let mut session = SshSession::new(config.clone());
-    let pending_kb: Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>> = Arc::new(Mutex::new(HashMap::new()));
     let test_id = uuid::Uuid::new_v4().to_string();
     let start = std::time::Instant::now();
-    if let Err(e) = session.connect(&test_id, None, &pending_kb).await {
+
+    // 走全局 manager.pending_kb,让前端 ssh_kb_response 能找到这次测试的 oneshot
+    // 测试结束(无论成功失败)统一清理,避免 map 膨胀
+    let result = session
+        .connect(&test_id, Some(&app_handle), &manager.pending_kb)
+        .await;
+
+    {
+        let mut map = manager.pending_kb.lock().await;
+        map.remove(&test_id);
+    }
+
+    if let Err(e) = result {
         return Ok(serde_json::json!({
             "ok": false,
             "message": e,
