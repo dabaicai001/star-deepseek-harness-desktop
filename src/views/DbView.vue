@@ -110,6 +110,12 @@ interface SqlEditorSubTab extends BaseSubTab {
   sqlText: string
   result: QueryResult | null
   selectedDb: string
+  /** 最近一次成功执行的原始 SQL(用于翻页重建 LIMIT/OFFSET) */
+  lastSql: string
+  /** 服务端分页:总行数(来自 COUNT 查询) */
+  dataTotal: number
+  dataPage: number
+  dataPageSize: number
 }
 
 type SubTab = TableSubTab | SqlSubTab | SqlEditorSubTab
@@ -607,10 +613,68 @@ function formatSqlValue(v: unknown): string {
   return `'${String(v).replace(/'/g, "''")}'`
 }
 
+/** SQL 编辑器标签页分页 */
+async function onSqlEditorPageChange(page: number) {
+  const tab = activeSqlEditorTab.value
+  if (!tab || !tab.lastSql || !connId.value) return
+  tab.dataPage = page
+  tab.loading = true
+  const offset = page * tab.dataPageSize
+  const pagedSql = injectLimit(tab.lastSql, offset, tab.dataPageSize)
+  try {
+    tab.result = await dbService.mysqlExecute(connId.value, pagedSql, tab.selectedDb || undefined)
+  } catch (err: unknown) {
+    tab.result = {
+      columns: [],
+      rows: [],
+      rowsAffected: 0,
+      durationMs: 0,
+      isSelect: true,
+      error: err instanceof Error ? err.message : String(err)
+    }
+  } finally {
+    tab.loading = false
+  }
+}
+
+async function onSqlEditorPageSizeChange(size: number) {
+  const tab = activeSqlEditorTab.value
+  if (!tab || !tab.lastSql || !connId.value) return
+  tab.dataPageSize = size
+  tab.dataPage = 0
+  // 重新执行第一页(COUNT 不变,只重新拉数据)
+  await onSqlEditorPageChange(0)
+}
+
 /** 给 SQL 标签生成一个简洁的 title(取第一行关键字 + 时间戳) */
 function makeSqlTitle(sql: string): string {
   const first = sql.trim().split(/\s+/).slice(0, 2).join(' ').toUpperCase()
   return first.length > 14 ? first.slice(0, 14) + '…' : first || 'SQL'
+}
+
+/** 检测是否 SELECT 语句 */
+function isSelectSql(sql: string): boolean {
+  return /^\s*SELECT\b/i.test(sql)
+}
+
+/** 为 SELECT 注入 LIMIT offset, pageSize(不覆盖已有的 LIMIT) */
+function injectLimit(sql: string, offset: number, limit: number): string {
+  let s = sql.trim()
+  if (s.endsWith(';')) s = s.slice(0, -1).trim()
+  // 已有 LIMIT 则不改
+  if (/\bLIMIT\s+\d+/i.test(s)) return s
+  return `${s} LIMIT ${limit} OFFSET ${offset}`
+}
+
+/** 为 SELECT 构建 COUNT 查询 */
+function buildCountSql(sql: string): string | null {
+  if (!isSelectSql(sql)) return null
+  let s = sql.trim()
+  if (s.endsWith(';')) s = s.slice(0, -1).trim()
+  // 去除末尾 LIMIT / OFFSET(简单处理)
+  s = s.replace(/\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?\s*$/i, '')
+  s = s.replace(/\s+OFFSET\s+\d+\s*$/i, '')
+  return `SELECT COUNT(*) AS _total FROM (${s}) AS _count_sub`
 }
 
 let queryCounter = 0
@@ -623,7 +687,11 @@ function newSqlQuery() {
     subtitle: '新建查询',
     sqlText: '',
     result: null,
-    selectedDb: selectedDb.value
+    selectedDb: selectedDb.value,
+    lastSql: '',
+    dataTotal: 0,
+    dataPage: 0,
+    dataPageSize: 100
   }
   subTabs.value.push(tab)
   activeSubTabId.value = tab.id
@@ -638,11 +706,34 @@ async function executeSql(sql: string) {
     editorTab.loading = true
     editorTab.title = makeSqlTitle(sql)
     editorTab.subtitle = sql.length > 60 ? sql.slice(0, 60) + '…' : sql
+    editorTab.lastSql = sql
+    editorTab.dataPage = 0
+    editorTab.error = false
     isExecutingAny.value = true
+
+    const db = editorTab.selectedDb || undefined
     try {
-      editorTab.result = await dbService.mysqlExecute(connId.value, sql, editorTab.selectedDb || undefined)
+      if (isSelectSql(sql)) {
+        // SELECT:注入 LIMIT + 并行跑 COUNT
+        const pagedSql = injectLimit(sql, 0, editorTab.dataPageSize)
+        const countSql = buildCountSql(sql) as string
+        const [dataResult, countResult] = await Promise.all([
+          dbService.mysqlExecute(connId.value, pagedSql, db),
+          countSql ? dbService.mysqlExecute(connId.value, countSql, db) : Promise.resolve(null)
+        ])
+        editorTab.result = dataResult
+        if (dataResult?.error) {
+          editorTab.error = true
+        } else if (countResult && !countResult.error && countResult.rows.length > 0) {
+          editorTab.dataTotal = Number((countResult.rows[0] as unknown[])[0]) || dataResult.rows.length
+        }
+      } else {
+        // 非 SELECT:直接执行
+        editorTab.result = await dbService.mysqlExecute(connId.value, sql, db)
+        editorTab.dataTotal = 0
+        if (editorTab.result?.error) editorTab.error = true
+      }
       addHistory(sql, editorTab.selectedDb || '')
-      if (editorTab.result?.error) editorTab.error = true
     } catch (err: unknown) {
       editorTab.result = {
         columns: [],
@@ -1248,9 +1339,16 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
             <div class="sql-result-area">
               <DataGrid
                 v-if="activeSqlEditorTab.result"
+                :key="`sqled-${activeSqlEditorTab.id}-p${activeSqlEditorTab.dataPage}`"
                 :result="activeSqlEditorTab.result"
                 :loading="activeSqlEditorTab.loading"
                 :editable="false"
+                :total-rows="activeSqlEditorTab.dataTotal > 0 ? activeSqlEditorTab.dataTotal : undefined"
+                :page="activeSqlEditorTab.dataPage"
+                :page-size="activeSqlEditorTab.dataPageSize"
+                :page-size-options="[100, 500, 1000, 2000, 5000]"
+                @page-change="onSqlEditorPageChange"
+                @page-size-change="onSqlEditorPageSizeChange"
               />
               <div v-else-if="activeSqlEditorTab.loading" class="inner-loading">
                 <v-icon size="18" class="spin">mdi-loading</v-icon>
