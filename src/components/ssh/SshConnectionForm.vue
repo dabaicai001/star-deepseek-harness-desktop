@@ -62,6 +62,9 @@ const showPassphrase = ref(false)
 const mfaPassword = ref(props.initialValues?.mfaPassword ?? '')
 const totpSecret = ref(props.initialValues?.totpSecret ?? '')
 const showMfaPassword = ref(false)
+const isEditing = computed(() => !!props.initialValues?.name)
+const changedPassword = ref(false)
+const changedMfaPassword = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
 // 测试连接时的临时 MFA 弹窗
@@ -296,14 +299,16 @@ function onSubmit() {
     usePasswordAuth: needPassword.value,
     useKeyAuth: needKey.value,
   }
-  if (needPassword.value) config.password = password.value || undefined
+  if (needPassword.value) {
+    config.password = isEditing.value && !changedPassword.value ? undefined : (password.value || undefined)
+  }
   if (needKey.value) {
     config.privateKey = privateKey.value || undefined
     config.passphrase = passphrase.value || undefined
   }
   if (authMode.value === 'mfa') {
     config.mfaEnabled = true
-    config.mfaPassword = mfaPassword.value || null
+    config.mfaPassword = isEditing.value && !changedMfaPassword.value ? undefined : (mfaPassword.value || null)
     config.totpSecret = totpSecret.value || null
   }
   if (authMode.value === 'password') {
@@ -572,10 +577,11 @@ async function pasteJumpKeyFromClipboard() {
             <div class="input-group">
               <v-icon class="input-prefix" size="13">mdi-lock-outline</v-icon>
               <input
-                v-model="password"
+                :model-value="isEditing && !changedPassword ? '' : password"
+                @update:model-value="(v: string) => { password = v; changedPassword = true }"
                 :type="showPassword ? 'text' : 'password'"
                 class="cyber-input"
-                placeholder="••••••••"
+                :placeholder="isEditing && !changedPassword ? '*'.repeat(8) : '••••••••'"
                 autocomplete="off"
               />
               <button
@@ -705,10 +711,11 @@ async function pasteJumpKeyFromClipboard() {
             <div class="input-group">
               <v-icon class="input-prefix" size="13">mdi-lock-outline</v-icon>
               <input
-                v-model="mfaPassword"
+                :model-value="isEditing && !changedMfaPassword ? '' : mfaPassword"
+                @update:model-value="(v: string) => { mfaPassword = v; changedMfaPassword = true }"
                 :type="showMfaPassword ? 'text' : 'password'"
                 class="cyber-input"
-                placeholder="••••••••"
+                :placeholder="isEditing && !changedMfaPassword ? '*'.repeat(8) : '••••••••'"
                 autocomplete="off"
               />
               <button type="button" class="input-suffix-btn" @click="showMfaPassword = !showMfaPassword">

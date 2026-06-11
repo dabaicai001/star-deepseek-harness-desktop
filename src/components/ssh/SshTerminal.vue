@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import KbInteractiveDialog from './KbInteractiveDialog.vue'
 import TotpAppendDialog, { type ConcatFormat } from './TotpAppendDialog.vue'
+import HostKeyConfirmDialog, { type HostKeyInfo } from './HostKeyConfirmDialog.vue'
+import BroadcastDialog, { type BroadcastSession } from './BroadcastDialog.vue'
 import type { KbInteractiveEvent } from '@/services/ssh'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -48,10 +50,18 @@ const sessionDuration = ref('00:00:00')
 let unlisten: (() => void) | null = null
 let unlistenKb: (() => void) | null = null
 let unlistenClose: (() => void) | null = null
+let unlistenHostkey: (() => void) | null = null
 let connectedAt =0
 let timerId: number | null = null
 //防止旧 connect() 的 finally误关新连接的状态
 let currentConnectId =0
+let reconnectTimer: number | null = null
+let beforeUnloadHandler: ((e: BeforeUnloadEvent) => void) | null = null
+
+const autoReconnect = ref(true)
+const reconnectAttempt = ref(0)
+const broadcastDialogRef = ref<InstanceType<typeof BroadcastDialog>>()
+const hostKeyDialogRef = ref<InstanceType<typeof HostKeyConfirmDialog>>()
 
 // ====== AI助手用:收集 SSH 输出 ======
 //每次 SSH收到数据,都 push 到这里;captureOutput(timeout) 等固定时间后返回这段输出
@@ -232,18 +242,34 @@ async function runSshAgent() {
 }
 
 onMounted(async () => {
-if (asset.value) {
-  await connect()
-  } else {
-  //资产已被删除 → 关闭对应 tab,workspace 自动落到欢迎页
-  if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
-  router.push('/')
-  }
+ beforeUnloadHandler = (e: BeforeUnloadEvent) => {
+   if (connected.value) {
+     e.preventDefault()
+     e.returnValue = ''
+   }
+ }
+ window.addEventListener('beforeunload', beforeUnloadHandler)
+
+ if (asset.value) {
+   await connect()
+   } else {
+   //资产已被删除 → 关闭对应 tab,workspace 自动落到欢迎页
+   if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
+   router.push('/')
+   }
 })
 
 onBeforeUnmount(async () => {
- stopTimer()
- await disconnect()
+  if (beforeUnloadHandler) {
+    window.removeEventListener('beforeunload', beforeUnloadHandler)
+    beforeUnloadHandler = null
+  }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  stopTimer()
+  await disconnect()
 })
 
 function startTimer() {
@@ -274,10 +300,13 @@ async function connect() {
  // 后端按 instanceId(不是 assetId)管 session,这样同资产多 tab各自独立
  const sessionId = props.id
 
- //防御性清理:重连 /重复调用时,先把旧 listener 解绑,避免双写
- if (unlisten) { unlisten(); unlisten = null }
- if (unlistenClose) { unlistenClose(); unlistenClose = null }
- stopTimer()
+  //防御性清理:重连 /重复调用时,先把旧 listener 解绑,避免双写
+  if (unlisten) { unlisten(); unlisten = null }
+  if (unlistenKb) { unlistenKb(); unlistenKb = null }
+  if (unlistenClose) { unlistenClose(); unlistenClose = null }
+  if (unlistenHostkey) { unlistenHostkey(); unlistenHostkey = null }
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+  stopTimer()
  connected.value = false
  connecting.value = true
 
@@ -351,23 +380,32 @@ async function connect() {
  return
  }
 
- connected.value = true
- terminalRef.value?.writeln('\x1b[32m✓ Connected\x1b[0m')
- startTimer()
+  connected.value = true
+  reconnectAttempt.value = 0
+  terminalRef.value?.writeln('\x1b[32m✓ Connected\x1b[0m')
+  startTimer()
 
- unlisten = await listen(`ssh:data:${sessionId}`, (event) => {
- const chunk = event.payload as string
- terminalRef.value?.write(chunk)
- //收集到 buffer(AI助手用)
- dataBuffer.value.push(chunk)
- //唤醒正在等待的 captureOutput
- maybeResolveCapture()
- })
+  unlisten = await listen(`ssh:data:${sessionId}`, (event) => {
+  const chunk = event.payload as string
+  terminalRef.value?.write(chunk)
+  //收集到 buffer(AI助手用)
+  dataBuffer.value.push(chunk)
+  //检测 pwd 输出,更新当前工作目录
+  const pwdMatch = chunk.match(/(?:\r\n|\n|\r)(\/[\w\-./]{1,200})\s*(?:\r\n|\n|\r|$)/)
+  if (pwdMatch && pwdMatch[1].startsWith('/')) {
+    sshCwd.value = pwdMatch[1]
+  }
+  //唤醒正在等待的 captureOutput
+  maybeResolveCapture()
+  })
 
   unlistenClose = await listen(`ssh:close:${sessionId}`, () => {
   connected.value = false
   stopTimer()
   terminalRef.value?.writeln('\r\n\x1b[33m! Connection closed by remote host\x1b[0m')
+  if (autoReconnect.value) {
+    tryReconnect(sessionId)
+  }
   })
 
   unlistenKb = await listen<KbInteractiveEvent>(
@@ -376,21 +414,40 @@ async function connect() {
       kbDialogRef.value?.open(event.payload)
     }
   )
+
+  unlistenHostkey = await listen<HostKeyInfo>(
+    `ssh:hostkey-confirm:${sessionId}`,
+    (event) => {
+      hostKeyDialogRef.value?.open(event.payload).then((result) => {
+        invoke('ssh_hostkey_response', {
+          id: sessionId,
+          allowed: result !== 'reject',
+          persist: result === 'persist'
+        })
+      })
+    }
+  )
  } catch (error) {
- const msg = error instanceof Error ? error.message : String(error)
- lastError.value = msg
- terminalRef.value?.writeln(`\x1b[31m✗ Connection failed: ${msg}\x1b[0m`)
- //通知后端清掉可能半初始化的 session(防止 Rust端残留)
- try {
- await invoke('ssh_disconnect', { id: sessionId })
- } catch {
- //静默 — 后端可能本来就没 insert
- }
- notify.notify({
- message: `SSH 连接失败: ${msg}`,
- color: 'error',
- timeout:5000
- })
+  const msg = error instanceof Error ? error.message : String(error)
+  lastError.value = msg
+  terminalRef.value?.writeln(`\x1b[31m✗ Connection failed: ${msg}\x1b[0m`)
+  //通知后端清掉可能半初始化的 session(防止 Rust端残留)
+  try {
+  await invoke('ssh_disconnect', { id: sessionId })
+  } catch {
+  //静默 — 后端可能本来就没 insert
+  }
+  // If currently in auto-reconnect flow, schedule next attempt without notification spam
+  if (reconnectAttempt.value > 0 && connectCallId === currentConnectId && autoReconnect.value) {
+    tryReconnect(sessionId)
+    connecting.value = false
+    return
+  }
+  notify.notify({
+  message: `SSH 连接失败: ${msg}`,
+  color: 'error',
+  timeout:5000
+  })
  } finally {
  // 只有"自己这一发"才清状态,避免新连接被旧 finally覆盖
  if (connectCallId === currentConnectId) {
@@ -400,38 +457,69 @@ async function connect() {
 }
 
 async function disconnect() {
-  if (unlisten) {
-    unlisten()
-    unlisten = null
+   if (unlisten) {
+     unlisten()
+     unlisten = null
+   }
+   if (unlistenKb) {
+     unlistenKb()
+     unlistenKb = null
+   }
+   if (unlistenClose) {
+  unlistenClose()
+  unlistenClose = null
   }
-  if (unlistenKb) {
-    unlistenKb()
-    unlistenKb = null
+  if (unlistenHostkey) {
+    unlistenHostkey()
+    unlistenHostkey = null
   }
-  if (unlistenClose) {
- unlistenClose()
- unlistenClose = null
- }
 
- if (connected.value) {
- try {
- await invoke('ssh_disconnect', { id: props.id })
- } catch (error) {
- console.error('Failed to disconnect:', error)
- }
- connected.value = false
- stopTimer()
- }
+  if (connected.value) {
+  try {
+  await invoke('ssh_disconnect', { id: props.id })
+  } catch (error) {
+  console.error('Failed to disconnect:', error)
+  }
+  connected.value = false
+  stopTimer()
+  }
+}
+
+async function tryReconnect(sessionId: string) {
+  reconnectAttempt.value++
+  if (reconnectAttempt.value > 3) {
+    terminalRef.value?.writeln('\x1b[31m✗ Auto-reconnect failed after 3 attempts\x1b[0m')
+    reconnectAttempt.value = 0
+    return
+  }
+  const delay = Math.pow(2, reconnectAttempt.value - 1) * 1000
+  terminalRef.value?.writeln(`\x1b[33m! Reconnecting (attempt ${reconnectAttempt.value}/3) in ${delay / 1000}s...\x1b[0m`)
+
+  reconnectTimer = window.setTimeout(async () => {
+    reconnectTimer = null
+    try {
+      await connect()
+      if (connected.value) {
+        terminalRef.value?.writeln('\x1b[32m✓ Reconnected successfully\x1b[0m')
+      }
+    } catch {
+      // connect() handles its own error display
+    }
+  }, delay)
 }
 
 async function handleData(data: string) {
- if (connected.value) {
- try {
- await invoke('ssh_write', { id: props.id, data })
- } catch (error) {
- console.error('Failed to write data:', error)
- }
- }
+  if (connected.value) {
+  let finalData = data
+  if (data.endsWith('\n') && data.trimStart().startsWith('cd ')) {
+    finalData = data.slice(0, -1) + ' && pwd\n'
+  }
+  try {
+  await invoke('ssh_write', { id: props.id, data: finalData })
+  } catch (error) {
+  console.error('Failed to write data:', error)
+  }
+  }
 }
 
 async function handleResize(cols: number, rows: number) {
@@ -533,8 +621,34 @@ defineExpose({
 
 // ======断线 Enter 重连 ======
 function handleReconnect() {
- if (connecting.value) return
- connect()
+  if (connecting.value) return
+  connect()
+}
+
+// ======广播命令 ======
+async function handleBroadcast() {
+  try {
+    const sessions = await invoke<BroadcastSession[]>('ssh_get_sessions')
+    if (!sessions || sessions.length === 0) {
+      notify.notify({ message: 'No other sessions to broadcast to', color: 'warning', timeout: 3000 })
+      return
+    }
+    const result = await broadcastDialogRef.value?.open(sessions)
+    if (!result || !result.command.trim()) return
+
+    const { command: cmd, sessionIds } = result
+    for (const sid of sessionIds) {
+      try {
+        await invoke('ssh_write', { id: sid, data: cmd + '\n' })
+      } catch (e) {
+        console.error(`Failed to broadcast to session ${sid}:`, e)
+      }
+    }
+    notify.notify({ message: `Broadcast sent to ${sessionIds.length} session(s)`, color: 'success', timeout: 2000 })
+  } catch (e) {
+    console.error('Broadcast failed:', e)
+    notify.notify({ message: 'Broadcast failed', color: 'error', timeout: 3000 })
+  }
 }
 
 // ======复制 /粘贴反馈(子组件 emit) ======
@@ -675,16 +789,24 @@ function handleKbCancelled() {
  <v-icon size="14">mdi-connection</v-icon>
  </button>
 
- <button
- class="action-btn disconnect-btn"
- :class="{ 'pulse-danger': connected }"
- :data-tooltip="t('asset.disconnect')"
- :disabled="!connected"
- @click="disconnect"
- >
- <v-icon size="14">mdi-power-standby</v-icon>
- </button>
- </div>
+  <button
+  class="action-btn disconnect-btn"
+  :class="{ 'pulse-danger': connected }"
+  :data-tooltip="t('asset.disconnect')"
+  :disabled="!connected"
+  @click="disconnect"
+  >
+  <v-icon size="14">mdi-power-standby</v-icon>
+  </button>
+
+  <button
+  class="action-btn"
+  data-tooltip="Broadcast"
+  @click="handleBroadcast"
+  >
+  <v-icon size="14">mdi-broadcast</v-icon>
+  </button>
+  </div>
  </div>
 
  <div class="workspace">
@@ -758,6 +880,10 @@ function handleKbCancelled() {
       @submit="onTotpSubmit"
       @cancelled="onTotpCancelled"
     />
+
+    <HostKeyConfirmDialog ref="hostKeyDialogRef" />
+
+    <BroadcastDialog ref="broadcastDialogRef" />
   </div>
 </template>
 
