@@ -42,6 +42,13 @@ export interface AssetConfig {
   jumpPrivateKey?: string
   jumpPassphrase?: string
 
+  // MFA / 2FA
+  usePasswordAuth?: boolean
+  useKeyAuth?: boolean
+  mfaEnabled?: boolean
+  mfaPassword?: string
+  totpSecret?: string
+
   // 数据库配置
   dbType?: DatabaseType
   database?: string

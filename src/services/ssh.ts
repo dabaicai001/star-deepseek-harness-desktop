@@ -9,9 +9,24 @@ export interface SshSessionInfo {
   connected: boolean
 }
 
-export interface SshAuthConfig {
-  Password?: string
-  PrivateKey?: { key: string; passphrase?: string }
+export interface SshAuthPassword {
+  Password: string
+}
+
+export interface SshAuthPrivateKey {
+  PrivateKey: { key: string; passphrase?: string | null }
+}
+
+export interface SshAuthPasswordAndKey {
+  PasswordAndKey: { password: string; key: string; passphrase?: string | null }
+}
+
+export type SshAuthConfig = SshAuthPassword | SshAuthPrivateKey | SshAuthPasswordAndKey
+
+export interface KeyboardInteractiveConfig {
+  enabled: boolean
+  password?: string | null
+  totp_secret?: string | null
 }
 
 export interface SshConfig {
@@ -19,10 +34,17 @@ export interface SshConfig {
   port: number
   username: string
   auth: SshAuthConfig
+  kb_interactive?: KeyboardInteractiveConfig | null
   jump_host?: string | null
   jump_port?: number | null
   jump_username?: string | null
   jump_auth?: SshAuthConfig | null
+}
+
+export interface KbInteractiveEvent {
+  instructions: string
+  prompts: Array<{ prompt: string; echo: boolean }>
+  autoFill: Array<string | null>
 }
 
 export async function sshConnect(id: string, config: SshConfig): Promise<SshSessionInfo> {
@@ -60,8 +82,14 @@ export async function sshExec(
 }
 
 function buildAuth(config: AssetConfig): SshAuthConfig {
-  if (config.password) return { Password: config.password }
-  if (config.privateKey) return { PrivateKey: { key: config.privateKey, passphrase: config.passphrase } }
+  const usePassword = config.usePasswordAuth !== false
+  const useKey = config.useKeyAuth === true
+
+  if (usePassword && useKey && config.password && config.privateKey) {
+    return { PasswordAndKey: { password: config.password, key: config.privateKey, passphrase: config.passphrase ?? null } }
+  }
+  if (config.password && usePassword) return { Password: config.password }
+  if (config.privateKey && useKey) return { PrivateKey: { key: config.privateKey, passphrase: config.passphrase ?? null } }
   return { Password: '' }
 }
 
@@ -71,6 +99,13 @@ export function assetConfigToSshConfig(config: AssetConfig): SshConfig {
     port: config.port || 22,
     username: config.username || '',
     auth: buildAuth(config),
+    kb_interactive: config.mfaEnabled
+      ? {
+          enabled: true,
+          password: config.mfaPassword ?? null,
+          totp_secret: config.totpSecret ?? null,
+        }
+      : null,
   }
 
   if (config.jumpHost) {
@@ -78,11 +113,18 @@ export function assetConfigToSshConfig(config: AssetConfig): SshConfig {
     sshConfig.jump_port = config.jumpPort || 22
     sshConfig.jump_username = config.jumpUsername || config.username || ''
     sshConfig.jump_auth = config.jumpPrivateKey
-      ? { PrivateKey: { key: config.jumpPrivateKey, passphrase: config.jumpPassphrase } }
+      ? { PrivateKey: { key: config.jumpPrivateKey, passphrase: config.jumpPassphrase ?? null } }
       : config.jumpPassword
         ? { Password: config.jumpPassword }
         : buildAuth(config)
   }
 
   return sshConfig
+}
+
+export async function respondKeyboardInteractive(
+  id: string,
+  responses: string[]
+): Promise<void> {
+  return invoke('ssh_kb_response', { id, responses })
 }
