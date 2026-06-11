@@ -136,26 +136,24 @@ pub async fn ssh_get_sessions(
 pub async fn test_ssh_connection(
     manager: State<'_, SshManager>,
     config: SshConfig,
+    test_session_id: String,
     app_handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
     use std::time::Duration;
     let mut session = SshSession::new(config.clone());
-    let test_id = uuid::Uuid::new_v4().to_string();
     let start = std::time::Instant::now();
 
-    // 走全局 manager.pending_kb,让前端 ssh_kb_response 能找到这次测试的 oneshot
-    // 测试结束(无论成功失败)统一清理,避免 map 膨胀
     let result = session
-        .connect(&test_id, Some(&app_handle), &manager.pending_kb, &manager.pending_hostkey)
+        .connect(&test_session_id, Some(&app_handle), &manager.pending_kb, &manager.pending_hostkey)
         .await;
 
     {
         let mut map = manager.pending_kb.lock().await;
-        map.remove(&test_id);
+        map.remove(&test_session_id);
     }
     {
         let mut map = manager.pending_hostkey.lock().await;
-        map.remove(&test_id);
+        map.remove(&test_session_id);
     }
 
     if let Err(e) = result {

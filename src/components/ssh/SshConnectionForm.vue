@@ -285,7 +285,7 @@ async function onTestConnection() {
 
     const result = await invoke<{ ok: boolean; message?: string; elapsed_ms?: number }>(
       'test_ssh_connection',
-      { config }
+      { config, testSessionId: testSessionId.value }
     )
     testStatus.value = result.ok ? 'success' : 'fail'
     const ms = result.elapsed_ms != null ? ` (${result.elapsed_ms}ms)` : ''
