@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import KbInteractiveDialog from './KbInteractiveDialog.vue'
+import type { KbInteractiveEvent } from '@/services/ssh'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import TerminalPane from './TerminalPane.vue'
@@ -43,6 +45,7 @@ const connecting = ref(false)
 const lastError = ref<string | null>(null)
 const sessionDuration = ref('00:00:00')
 let unlisten: (() => void) | null = null
+let unlistenKb: (() => void) | null = null
 let unlistenClose: (() => void) | null = null
 let connectedAt =0
 let timerId: number | null = null
@@ -55,6 +58,8 @@ const dataBuffer = ref<string[]>([])
 let captureBaseline =0 // captureOutput 调用前的 buffer长度
 let captureResolve: ((s: string) => void) | null = null
 let captureTimer: number | null = null
+
+const kbDialogRef = ref<InstanceType<typeof KbInteractiveDialog>>()
 
 const statusKind = computed<'connecting' | 'online' | 'offline' | 'error'>(() => {
  if (connecting.value) return 'connecting'
@@ -260,16 +265,26 @@ async function connect() {
  const connectCallId = ++currentConnectId
 
  try {
- const config = {
- host: a.config.host,
- port: a.config.port ||22,
- username: a.config.username,
- auth: a.config.password
- ? { Password: a.config.password }
- : a.config.privateKey
- ? { PrivateKey: { key: a.config.privateKey, passphrase: a.config.passphrase } }
- : { Password: '' }
- }
+  const config: Record<string, unknown> = {
+    host: a.config.host,
+    port: a.config.port || 22,
+    username: a.config.username,
+    auth: a.config.useKeyAuth && a.config.usePasswordAuth !== false && a.config.password && a.config.privateKey
+      ? { PasswordAndKey: { password: a.config.password, key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
+      : a.config.password
+        ? { Password: a.config.password }
+        : a.config.privateKey
+          ? { PrivateKey: { key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
+          : { Password: '' }
+  }
+
+  if (a.config.mfaEnabled) {
+    (config as Record<string, unknown>).kb_interactive = {
+      enabled: true,
+      password: a.config.mfaPassword ?? null,
+      totp_secret: a.config.totpSecret ?? null,
+    }
+  }
 
  // Tauri2 的 invoke 没有内置 timeout,如果 Rust端 ssh_connect任何一步 hang
  // (TCP 连不上 /协议握手卡住 / auth死循环),前端就永远 await、connecting一直 true
@@ -313,11 +328,18 @@ async function connect() {
  maybeResolveCapture()
  })
 
- unlistenClose = await listen(`ssh:close:${sessionId}`, () => {
- connected.value = false
- stopTimer()
- terminalRef.value?.writeln('\r\n\x1b[33m! Connection closed by remote host\x1b[0m')
- })
+  unlistenClose = await listen(`ssh:close:${sessionId}`, () => {
+  connected.value = false
+  stopTimer()
+  terminalRef.value?.writeln('\r\n\x1b[33m! Connection closed by remote host\x1b[0m')
+  })
+
+  unlistenKb = await listen<KbInteractiveEvent>(
+    `ssh:kb-interactive:${sessionId}`,
+    (event) => {
+      kbDialogRef.value?.open(event.payload)
+    }
+  )
  } catch (error) {
  const msg = error instanceof Error ? error.message : String(error)
  lastError.value = msg
@@ -342,11 +364,15 @@ async function connect() {
 }
 
 async function disconnect() {
- if (unlisten) {
- unlisten()
- unlisten = null
- }
- if (unlistenClose) {
+  if (unlisten) {
+    unlisten()
+    unlisten = null
+  }
+  if (unlistenKb) {
+    unlistenKb()
+    unlistenKb = null
+  }
+  if (unlistenClose) {
  unlistenClose()
  unlistenClose = null
  }
@@ -515,9 +541,17 @@ function adjustFontSize(delta: number) {
 }
 
 function handleSearch() {
- if (searchQuery.value) {
- terminalRef.value?.search(searchQuery.value)
- }
+  if (searchQuery.value) {
+  terminalRef.value?.search(searchQuery.value)
+  }
+}
+
+function handleKbDone() {
+  // KB response sent, connection flow continues
+}
+
+function handleKbCancelled() {
+  disconnect()
 }
 </script>
 
@@ -670,9 +704,17 @@ function handleSearch() {
   <template #tab-sftp>
     <SftpPanel :asset-id="asset?.id" />
   </template>
- </RightPanel>
- </div>
- </div>
+  </RightPanel>
+  </div>
+
+    <KbInteractiveDialog
+      ref="kbDialogRef"
+      :session-id="id"
+      :host="asset?.config.host ?? ''"
+      @done="handleKbDone"
+      @cancelled="handleKbCancelled"
+    />
+  </div>
 </template>
 
 <style scoped>
