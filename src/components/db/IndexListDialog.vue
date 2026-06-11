@@ -2,7 +2,11 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
+import { generateBatchIndexDDL } from '@/utils/ddlGenerator'
 import type { IndexInfo } from '@/types/db'
+import type { IndexEdit } from '@/utils/ddlGenerator'
+
+const INDEX_TYPES = ['BTREE', 'HASH', 'FULLTEXT', 'SPATIAL']
 
 const { t } = useI18n()
 
@@ -15,54 +19,155 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [v: boolean]
-  'create-index': []
-  'modify-index': [indexName: string]
-  'drop-index': [indexName: string]
+  reload: []
 }>()
 
 const indexes = ref<IndexInfo[]>([])
+const edits = ref<Map<string, IndexEdit>>(new Map())
 const loading = ref(false)
+const executing = ref(false)
 const error = ref<string | null>(null)
-const selectedIndex = ref<string | null>(null)
+const successMsg = ref<string | null>(null)
+const searchText = ref('')
 
-watch(() => props.modelValue, async (v) => {
-  if (!v) return
+const newIdx = ref({ name: '', columns: '', unique: false, indexType: 'BTREE' })
+
+const groupedEdits = computed(() => Array.from(edits.value.values()))
+
+const filteredEdits = computed(() => {
+  if (!searchText.value) return groupedEdits.value
+  const q = searchText.value.toLowerCase()
+  return groupedEdits.value.filter(e => e.name.toLowerCase().includes(q))
+})
+
+async function load() {
   loading.value = true
   error.value = null
   try {
-    console.log('IndexListDialog: loading indexes for', props.connId, props.db, props.table)
     indexes.value = await dbService.mysqlListIndexes(props.connId, props.table, props.db)
-    console.log('IndexListDialog: got', indexes.value.length, 'indexes', indexes.value)
+    resetEdits()
   } catch (err: unknown) {
-    console.error('IndexListDialog: failed to load indexes', err)
     error.value = err instanceof Error ? err.message : String(err)
-    indexes.value = []
   } finally {
     loading.value = false
   }
-})
+}
 
-const groupedIndexes = computed(() => {
-  const map = new Map<string, { nonUnique: number; indexType: string; comment: string; columns: string[] }>()
+function resetEdits() {
+  const map = new Map<string, IndexEdit>()
+  // group by keyName
+  const groups = new Map<string, { nonUnique: number; indexType: string; columns: string[] }>()
   for (const idx of indexes.value) {
-    if (!map.has(idx.keyName)) {
-      map.set(idx.keyName, { nonUnique: idx.nonUnique, indexType: idx.indexType, comment: idx.indexComment, columns: [] })
+    if (!groups.has(idx.keyName)) {
+      groups.set(idx.keyName, { nonUnique: idx.nonUnique, indexType: idx.indexType, columns: [] })
     }
-    map.get(idx.keyName)!.columns.push(idx.columnName)
+    groups.get(idx.keyName)!.columns.push(idx.columnName)
   }
-  return Array.from(map.entries()).map(([name, info]) => ({ name, ...info }))
-})
+  for (const [name, info] of groups) {
+    map.set(name, {
+      name,
+      newName: name,
+      columns: [...info.columns],
+      newColumns: [...info.columns],
+      unique: info.nonUnique === 0,
+      newUnique: info.nonUnique === 0,
+      indexType: info.indexType || 'BTREE',
+      newIndexType: info.indexType || 'BTREE',
+      dirty: false,
+      dropped: false
+    })
+  }
+  edits.value = map
+  error.value = null
+  successMsg.value = null
+}
+
+function markDirty(e: IndexEdit) {
+  e.dirty =
+    e.newName !== e.name ||
+    String(e.newColumns) !== String(e.columns) ||
+    e.newUnique !== e.unique ||
+    e.newIndexType !== e.indexType
+}
+
+function toggleDrop(e: IndexEdit) {
+  e.dropped = !e.dropped
+  e.dirty = true
+}
+
+function resetEdit(e: IndexEdit) {
+  e.newName = e.name
+  e.newColumns = [...e.columns]
+  e.newUnique = e.unique
+  e.newIndexType = e.indexType
+  e.dropped = false
+  e.dirty = false
+}
+
+function addNewIdx() {
+  const name = newIdx.value.name.trim()
+  const cols = newIdx.value.columns
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+  if (!name || cols.length === 0) return
+  const entry: IndexEdit = {
+    name,
+    newName: name,
+    columns: cols,
+    newColumns: cols,
+    unique: newIdx.value.unique,
+    newUnique: newIdx.value.unique,
+    indexType: newIdx.value.indexType,
+    newIndexType: newIdx.value.indexType,
+    dirty: true,
+    dropped: false
+  }
+  edits.value.set(name, entry)
+  edits.value = new Map(edits.value)
+  newIdx.value = { name: '', columns: '', unique: false, indexType: 'BTREE' }
+}
+
+async function applyChanges() {
+  const list = groupedEdits.value
+  const ddls = generateBatchIndexDDL(props.db, props.table, list)
+  if (ddls.length === 0) return
+  executing.value = true
+  error.value = null
+  successMsg.value = null
+  try {
+    for (const ddl of ddls) {
+      const r = await dbService.mysqlExecute(props.connId, ddl)
+      if (r.error) throw new Error(r.error)
+    }
+    successMsg.value = `Applied ${ddls.length} DDL statement(s)`
+    emit('reload')
+    await load()
+  } catch (err: unknown) {
+    error.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    executing.value = false
+  }
+}
+
+watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
 </script>
 
 <template>
-  <v-dialog :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" max-width="640">
-    <div class="cyber-panel" style="padding: 0; max-height: 70vh; display: flex; flex-direction: column;">
+  <v-dialog :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" max-width="720">
+    <div class="cyber-panel" style="padding: 0; max-height: 80vh; display: flex; flex-direction: column;">
       <div class="dialog-header">
         <v-icon size="16" color="var(--yellow)">mdi-key-variant</v-icon>
-        <span class="dialog-title">{{ t('db.indexesTitle') }}</span>
-        <span class="dialog-subtitle">{{ db }}.{{ table }}</span>
+        <span class="dialog-title">{{ db }}.{{ table }}</span>
+        <span class="dialog-subtitle">{{ groupedEdits.length }} indexes</span>
         <v-spacer />
         <v-btn variant="text" size="small" icon="mdi-close" @click="emit('update:modelValue', false)" />
+      </div>
+
+      <div class="search-row" style="padding: 8px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center;">
+        <v-icon size="14" color="var(--muted)">mdi-magnify</v-icon>
+        <input v-model="searchText" class="cyber-input" style="flex: 1; font-size: 11px; border: none; margin-left: 6px;" :placeholder="t('db.searchIndex') || '搜索索引名...'" />
+        <v-icon v-if="searchText" size="12" @click="searchText = ''" style="cursor: pointer; color: var(--muted); margin-left: 4px;">mdi-close</v-icon>
       </div>
 
       <div v-if="loading" class="dialog-loading">
@@ -72,66 +177,74 @@ const groupedIndexes = computed(() => {
 
       <template v-else>
         <div v-if="error" class="dialog-error">{{ error }}</div>
+        <div v-if="successMsg" class="dialog-success">{{ successMsg }}</div>
+
         <div class="dialog-scroll" style="flex: 1; overflow: auto; min-height: 0;">
           <table class="struct-table">
             <thead>
               <tr>
+                <th style="width: 28px;">#</th>
                 <th>{{ t('db.indexName') }}</th>
                 <th>{{ t('db.indexColumns') }}</th>
-                <th style="width: 80px;">{{ t('db.uniqueTitle') }}</th>
-                <th style="width: 80px;">{{ t('db.type') }}</th>
-                <th>{{ t('db.comment') }}</th>
+                <th style="width: 56px;">{{ t('db.uniqueTitle') }}</th>
+                <th style="width: 90px;">{{ t('db.type') }}</th>
+                <th style="width: 64px;">{{ t('db.actions') }}</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="groupedIndexes.length === 0">
-                <td colspan="5" style="text-align: center; color: var(--muted); padding: 24px;">{{ t('db.noIndexes') }}</td>
-              </tr>
-              <tr v-for="idx in groupedIndexes" :key="idx.name"
-                :class="{ 'row-selected': selectedIndex === idx.name }"
-                @click="selectedIndex = idx.name">
+              <tr v-for="(e, idx) in filteredEdits" :key="e.name" :class="{ dirty: e.dirty, dropped: e.dropped }">
+                <td class="td-idx">{{ idx + 1 }}</td>
                 <td>
-                  <span style="font-weight: 600; color: var(--text);">{{ idx.name }}</span>
+                  <input v-model="e.newName" class="cell-input" @input="markDirty(e)" />
                 </td>
-                <td><code style="font-size: 11px;">{{ idx.columns.join(', ') }}</code></td>
+                <td>
+                  <input
+                    v-model="e.newColumns"
+                    class="cell-input"
+                    @input="markDirty(e)"
+                    placeholder="col1, col2"
+                  />
+                </td>
                 <td class="td-center">
-                  <span :style="{ color: idx.nonUnique ? 'var(--muted)' : 'var(--green)' }">
-                    {{ idx.nonUnique ? 'No' : 'Yes' }}
-                  </span>
+                  <input type="checkbox" :checked="e.newUnique" @change="e.newUnique = ($event.target as HTMLInputElement).checked; markDirty(e)" />
+                </td>
+                <td>
+                  <select v-model="e.newIndexType" class="cell-select" @change="markDirty(e)">
+                    <option v-for="t in INDEX_TYPES" :key="t" :value="t">{{ t }}</option>
+                  </select>
                 </td>
                 <td class="td-center">
-                  <span class="key-badge">{{ idx.indexType }}</span>
+                  <button class="action-btn-sm" :class="{ active: e.dropped }" @click="toggleDrop(e)" :title="t('db.dropIndex')">
+                    <v-icon size="12" :color="e.dropped ? 'var(--red)' : undefined">mdi-delete-outline</v-icon>
+                  </button>
+                  <button v-if="e.dirty && !e.dropped" class="action-btn-sm" @click="resetEdit(e)" :title="t('common.reset')">
+                    <v-icon size="12">mdi-undo</v-icon>
+                  </button>
                 </td>
-                <td style="color: var(--muted); font-size: 11px;">{{ idx.comment || '-' }}</td>
               </tr>
             </tbody>
           </table>
+
+          <div class="add-row">
+            <input v-model="newIdx.name" class="cell-input" :placeholder="t('db.newIndex')" style="width: 120px;" @keyup.enter="addNewIdx" />
+            <input v-model="newIdx.columns" class="cell-input" placeholder="col1, col2" style="width: 180px;" @keyup.enter="addNewIdx" />
+            <label style="display: flex; align-items: center; gap: 2px; font-size: 10px;">
+              <input type="checkbox" v-model="newIdx.unique" /> UNIQUE
+            </label>
+            <select v-model="newIdx.indexType" class="cell-select" style="width: 80px;">
+              <option v-for="t in INDEX_TYPES" :key="t" :value="t">{{ t }}</option>
+            </select>
+            <button class="cyber-btn-secondary" @click="addNewIdx" style="padding: 2px 8px; font-size: 11px;">
+              <v-icon size="12">mdi-plus</v-icon> {{ t('db.newIndex') }}
+            </button>
+          </div>
         </div>
 
         <div class="dialog-footer">
-          <button class="cyber-btn" @click="emit('create-index')">
-            <v-icon size="14">mdi-key-plus</v-icon>
-            {{ t('db.createIndex') }}
-          </button>
-          <button
-            class="cyber-btn-secondary"
-            :disabled="!selectedIndex"
-            @click="selectedIndex && emit('modify-index', selectedIndex)"
-          >
-            <v-icon size="14">mdi-key-edit</v-icon>
-            {{ t('db.modifyIndex') }}
-          </button>
-          <div class="footer-spacer"></div>
-          <button
-            class="cyber-btn-danger"
-            :disabled="!selectedIndex"
-            @click="selectedIndex && emit('drop-index', selectedIndex)"
-          >
-            <v-icon size="14">mdi-key-remove</v-icon>
-            {{ t('db.deleteIndex') }}
-          </button>
-          <button class="action-btn" @click="emit('update:modelValue', false)" :title="t('common.cancel')">
-            <v-icon size="14">mdi-close</v-icon>
+          <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">{{ t('common.cancel') }}</button>
+          <button class="cyber-btn" :disabled="executing" @click="applyChanges">
+            <v-icon size="14" :class="{ spin: executing }">{{ executing ? 'mdi-loading' : 'mdi-content-save' }}</v-icon>
+            {{ t('db.applyChanges') }}
           </button>
         </div>
       </template>
@@ -146,48 +259,40 @@ const groupedIndexes = computed(() => {
 }
 .dialog-title { font-weight: 600; font-size: 14px; color: var(--text); }
 .dialog-subtitle { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
-.dialog-loading { padding: 16px; text-align: center; }
+.dialog-loading, .dialog-error, .dialog-success {
+  padding: 16px; text-align: center; font-size: 12px;
+}
+.dialog-error { color: var(--red); }
+.dialog-success { color: var(--green); }
 .dialog-footer {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; justify-content: flex-end; gap: 8px;
   padding: 10px 16px; border-top: 1px solid var(--line); flex-shrink: 0;
-}
-.footer-spacer { flex: 1; }
-.row-selected {
-  background: rgba(0, 240, 255, 0.06);
-}
-.row-selected td:first-child {
-  border-left: 2px solid var(--cyan);
-}
-.struct-table tr {
-  cursor: pointer;
-}
-.struct-table tr:hover {
-  background: rgba(0, 240, 255, 0.03);
-}
-.cyber-btn-danger {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 14px; border-radius: 6px;
-  font-size: 12px; font-weight: 500; font-family: inherit;
-  color: var(--red);
-  background: transparent;
-  border: 1px solid rgba(255, 77, 109, 0.3);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.cyber-btn-danger:hover:not(:disabled) {
-  background: rgba(255, 77, 109, 0.1);
-  border-color: var(--red);
-}
-.cyber-btn-danger:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
 }
 .struct-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
 .struct-table thead { position: sticky; top: 0; z-index: 1; background: var(--panel-solid-2); }
-.struct-table th { text-align: left; padding: 6px 10px; color: var(--muted); font-size: 10px; border-bottom: 1px solid var(--line-2); }
-.struct-table td { padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.struct-table th { text-align: left; padding: 6px 8px; color: var(--muted); font-size: 10px; border-bottom: 1px solid var(--line-2); }
+.struct-table td { padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.td-idx { width: 28px; text-align: right; color: var(--muted); font-size: 10px; }
 .td-center { text-align: center; }
-.key-badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(0,240,255,.12); color: var(--cyan); }
+.cell-input {
+  width: 100%; padding: 3px 6px; background: var(--panel-solid); border: 1px solid var(--line-2);
+  border-radius: 4px; color: var(--text); font-size: 11px; font-family: 'JetBrains Mono', monospace; outline: none;
+}
+.cell-input:focus { border-color: var(--cyan); }
+.cell-select {
+  width: 100%; padding: 3px 4px; background: var(--panel-solid); border: 1px solid var(--line-2);
+  border-radius: 4px; color: var(--text); font-size: 11px; font-family: 'JetBrains Mono', monospace; outline: none; cursor: pointer;
+}
+.cell-select:focus { border-color: var(--cyan); }
+tr.dirty td { background: rgba(255, 193, 7, 0.04); }
+tr.dropped td { opacity: 0.4; text-decoration: line-through; }
+.add-row { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.action-btn-sm {
+  width: 24px; height: 24px; border-radius: 4px; border: 1px solid var(--line-2);
+  background: transparent; color: var(--text-2); cursor: pointer; display: inline-flex;
+  align-items: center; justify-content: center; margin-left: 2px;
+}
+.action-btn-sm:hover, .action-btn-sm.active { border-color: var(--cyan); color: var(--cyan); }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>

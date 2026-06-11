@@ -123,3 +123,35 @@ export function generateCreateIndexDDL(
 export function generateDropIndexDDL(db: string, table: string, indexName: string): string {
   return `DROP INDEX \`${indexName}\` ON \`${db}\`.\`${table}\``
 }
+
+export interface IndexEdit {
+  name: string
+  newName: string
+  columns: string[]
+  newColumns: string[]
+  unique: boolean
+  newUnique: boolean
+  indexType: string
+  newIndexType: string
+  dirty: boolean
+  dropped: boolean
+}
+
+export function generateBatchIndexDDL(db: string, table: string, edits: IndexEdit[]): string[] {
+  const ddls: string[] = []
+  // 先处理删除
+  for (const e of edits) {
+    if (e.dropped) {
+      ddls.push(generateDropIndexDDL(db, table, e.name))
+    } else if (e.dirty) {
+      ddls.push(generateDropIndexDDL(db, table, e.name))
+    }
+  }
+  // 再处理新增/修改
+  for (const e of edits) {
+    if (!e.dropped && e.dirty) {
+      ddls.push(generateCreateIndexDDL(db, table, e.newName, e.newColumns, e.newUnique, e.newIndexType))
+    }
+  }
+  return ddls
+}

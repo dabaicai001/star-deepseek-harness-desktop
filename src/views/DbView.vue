@@ -22,8 +22,6 @@ import ColumnListDialog from '@/components/db/ColumnListDialog.vue'
 import ColumnFormDialog from '@/components/db/ColumnFormDialog.vue'
 import ColumnDropDialog from '@/components/db/ColumnDropDialog.vue'
 import IndexListDialog from '@/components/db/IndexListDialog.vue'
-import IndexFormDialog from '@/components/db/IndexFormDialog.vue'
-import IndexDropDialog from '@/components/db/IndexDropDialog.vue'
 import CreateTableDialog from '@/components/db/CreateTableDialog.vue'
 import { addHistory } from '@/utils/sqlHistory'
 import * as dbService from '@/services/db'
@@ -137,11 +135,6 @@ const showColumnDrop = ref(false)
 
 // Index dialog state
 const showIndexList = ref(false)
-const showIndexForm = ref(false)
-const indexFormMode = ref<'create' | 'modify'>('create')
-const indexFormTarget = ref<{ name: string; columns: string[]; unique: boolean; indexType: string } | undefined>(undefined)
-const showIndexDrop = ref(false)
-const dropTargetIndexName = ref<string | undefined>(undefined)
 const showCreateTableDDL = ref(false)
 
 // Helper: cached columns for column picker
@@ -519,48 +512,6 @@ async function openModifyColumn() {
       showColumnForm.value = true
     }
   } catch { /* ignore */ }
-}
-
-async function openModifyIndex() {
-  try {
-    const indexes = await dbService.mysqlListIndexes(connId.value!, ctxTable.value, ctxDb.value)
-    const uniqueNames = [...new Set(indexes.map(i => i.keyName))]
-    const name = await pickFromList(uniqueNames.map(n => ({ text: n, value: n })))
-    if (name) {
-      const cols = indexes.filter(i => i.keyName === name).map(i => i.columnName)
-      const nonUnique = indexes.find(i => i.keyName === name)?.nonUnique ?? 1
-      const idxType = indexes.find(i => i.keyName === name)?.indexType ?? 'BTREE'
-      indexFormMode.value = 'modify'
-      indexFormTarget.value = { name, columns: cols, unique: nonUnique === 0, indexType: idxType }
-      showIndexForm.value = true
-    }
-  } catch { /* ignore */ }
-}
-
-/** IndexListDialog 事件:新建索引 */
-function onIndexListCreate() {
-  indexFormMode.value = 'create'
-  indexFormTarget.value = undefined
-  showIndexForm.value = true
-}
-
-/** IndexListDialog 事件:修改索引(从对话框内选中) */
-async function onIndexListModify(indexName: string) {
-  try {
-    const indexes = await dbService.mysqlListIndexes(connId.value!, ctxTable.value, ctxDb.value)
-    const cols = indexes.filter(i => i.keyName === indexName).map(i => i.columnName)
-    const nonUnique = indexes.find(i => i.keyName === indexName)?.nonUnique ?? 1
-    const idxType = indexes.find(i => i.keyName === indexName)?.indexType ?? 'BTREE'
-    indexFormMode.value = 'modify'
-    indexFormTarget.value = { name: indexName, columns: cols, unique: nonUnique === 0, indexType: idxType }
-    showIndexForm.value = true
-  } catch { /* ignore */ }
-}
-
-/** IndexListDialog 事件:删除索引(从对话框内选中) */
-function onIndexListDrop(indexName: string) {
-  dropTargetIndexName.value = indexName
-  showIndexDrop.value = true
 }
 
 async function pickFromList<T>(options: { text: string; value: T }[]): Promise<T | null> {
@@ -1409,9 +1360,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         <ColumnDropDialog v-model="showColumnDrop" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" @reload="reloadActiveTable" />
 
         <!-- Index Dialogs -->
-        <IndexListDialog v-model="showIndexList" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" @create-index="onIndexListCreate" @modify-index="onIndexListModify" @drop-index="onIndexListDrop" />
-        <IndexFormDialog v-model="showIndexForm" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" :mode="indexFormMode" :index="indexFormTarget" @reload="reloadActiveTable" />
-        <IndexDropDialog v-model="showIndexDrop" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" :index-name="dropTargetIndexName" @reload="reloadActiveTable" />
+        <IndexListDialog v-model="showIndexList" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" @reload="reloadActiveTable" />
         <CreateTableDialog v-model="showCreateTableDDL" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" />
       </div>
     </div>
