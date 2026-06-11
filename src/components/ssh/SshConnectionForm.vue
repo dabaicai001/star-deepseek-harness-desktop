@@ -19,6 +19,11 @@ export interface SshFormInitialValues {
   jumpPassword?: string
   jumpPrivateKey?: string
   jumpPassphrase?: string
+  usePasswordAuth?: boolean
+  useKeyAuth?: boolean
+  mfaEnabled?: boolean
+  mfaPassword?: string
+  totpSecret?: string
 }
 
 const props = defineProps<{
@@ -34,15 +39,19 @@ const name = ref(props.initialValues?.name ?? '')
 const host = ref(props.initialValues?.host ?? '')
 const port = ref<number>(props.initialValues?.port ?? 22)
 const username = ref(props.initialValues?.username ?? '')
-const authType = ref<'password' | 'key'>(
-  props.initialValues?.privateKey ? 'key' : 'password'
-)
+const showPasswordAuth = ref(props.initialValues?.usePasswordAuth !== undefined ? props.initialValues.usePasswordAuth : !props.initialValues?.privateKey)
+const showKeyAuth = ref(props.initialValues?.useKeyAuth ?? Boolean(props.initialValues?.privateKey))
 const password = ref(props.initialValues?.password ?? '')
 const privateKey = ref(props.initialValues?.privateKey ?? '')
 const privateKeyName = ref('')
 const passphrase = ref(props.initialValues?.passphrase ?? '')
 const showPassword = ref(false)
 const showPassphrase = ref(false)
+const showMfaPanel = ref(false)
+const mfaEnabled = ref(false)
+const mfaPassword = ref('')
+const totpSecret = ref('')
+const showMfaPassword = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
 // 跳板机
@@ -72,16 +81,20 @@ watch(
     username.value = next.username ?? ''
     password.value = next.password ?? ''
     privateKey.value = next.privateKey ?? ''
-    privateKeyName.value = next.privateKey ? t('ssh.keyLoaded') : ''
+    privateKeyName.value = next.privateKey ? 'Loaded' : ''
     passphrase.value = next.passphrase ?? ''
-    authType.value = next.privateKey ? 'key' : 'password'
-    // 跳板机
+    showPasswordAuth.value = next.usePasswordAuth !== undefined ? next.usePasswordAuth : !next.privateKey
+    showKeyAuth.value = next.useKeyAuth ?? Boolean(next.privateKey)
+    mfaEnabled.value = next.mfaEnabled ?? false
+    mfaPassword.value = next.mfaPassword ?? ''
+    totpSecret.value = next.totpSecret ?? ''
+    showMfaPanel.value = next.mfaEnabled ?? false
     jumpHost.value = next.jumpHost ?? ''
     jumpPort.value = next.jumpPort ?? 22
     jumpUsername.value = next.jumpUsername ?? ''
     jumpPassword.value = next.jumpPassword ?? ''
     jumpPrivateKey.value = next.jumpPrivateKey ?? ''
-    jumpPrivateKeyName.value = next.jumpPrivateKey ? t('ssh.keyLoaded') : ''
+    jumpPrivateKeyName.value = next.jumpPrivateKey ? 'Loaded' : ''
     jumpPassphrase.value = next.jumpPassphrase ?? ''
     jumpAuthType.value = next.jumpPrivateKey ? 'key' : 'password'
     showJumpHost.value = Boolean(next.jumpHost)
@@ -90,13 +103,15 @@ watch(
 
 const canSubmit = computed(() =>
   Boolean(name.value && host.value && username.value) &&
-  (authType.value === 'password' ? true : privateKey.value.length > 0) &&
+  (showPasswordAuth.value || showKeyAuth.value) &&
+  (!showKeyAuth.value || privateKey.value.length > 0) &&
   (!showJumpHost.value || !jumpHost.value || (jumpAuthType.value === 'password' ? true : jumpPrivateKey.value.length > 0))
 )
 
 const canTest = computed(() =>
   Boolean(host.value && username.value) &&
-  (authType.value === 'password' ? true : privateKey.value.length > 0) &&
+  (showPasswordAuth.value || showKeyAuth.value) &&
+  (!showKeyAuth.value || privateKey.value.length > 0) &&
   (!showJumpHost.value || !jumpHost.value || (jumpAuthType.value === 'password' ? true : jumpPrivateKey.value.length > 0))
 )
 
@@ -106,9 +121,11 @@ async function onTestConnection() {
   testMessage.value = ''
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    const auth = authType.value === 'password'
-      ? { Password: password.value || '' }
-      : { PrivateKey: { key: privateKey.value, passphrase: passphrase.value || null } }
+    const auth = showKeyAuth.value && showPasswordAuth.value && password.value && privateKey.value
+      ? { PasswordAndKey: { password: password.value || '', key: privateKey.value, passphrase: passphrase.value || null } }
+      : showPasswordAuth.value
+        ? { Password: password.value || '' }
+        : { PrivateKey: { key: privateKey.value, passphrase: passphrase.value || null } }
 
     const config: Record<string, unknown> = {
       host: host.value,
@@ -124,6 +141,14 @@ async function onTestConnection() {
       config.jump_auth = jumpAuthType.value === 'password'
         ? { Password: jumpPassword.value || '' }
         : { PrivateKey: { key: jumpPrivateKey.value, passphrase: jumpPassphrase.value || null } }
+    }
+
+    if (mfaEnabled.value) {
+      (config as Record<string, unknown>).kb_interactive = {
+        enabled: true,
+        password: mfaPassword.value || null,
+        totp_secret: totpSecret.value || null,
+      }
     }
 
     const result = await invoke<{ ok: boolean; message?: string; elapsed_ms?: number }>(
@@ -146,9 +171,17 @@ function onSubmit() {
     host: host.value,
     port: port.value,
     username: username.value,
-    password: authType.value === 'password' ? password.value : undefined,
-    privateKey: authType.value === 'key' ? privateKey.value : undefined,
-    passphrase: authType.value === 'key' ? passphrase.value : undefined
+    password: showPasswordAuth.value ? password.value : undefined,
+    privateKey: showKeyAuth.value ? privateKey.value : undefined,
+    passphrase: showKeyAuth.value ? passphrase.value : undefined,
+    usePasswordAuth: showPasswordAuth.value,
+    useKeyAuth: showKeyAuth.value,
+  }
+
+  if (mfaEnabled.value) {
+    config.mfaEnabled = true
+    config.mfaPassword = mfaPassword.value || null
+    config.totpSecret = totpSecret.value || null
   }
 
   if (showJumpHost.value && jumpHost.value) {
@@ -351,46 +384,25 @@ async function pasteJumpKeyFromClipboard() {
 
       <!-- 右列: 认证 -->
       <div class="form-column">
-        <div class="column-label">{{ t('ssh.authMethod') }}</div>
+        <div class="column-label">Authentication</div>
 
-        <!-- 认证方式切换 -->
+        <!-- 密码 checkbox -->
         <div class="form-field">
-          <div class="switcher" role="tablist">
-            <div
-              class="switcher-item"
-              :class="{ active: authType === 'password' }"
-              @click="authType = 'password'"
-              role="tab"
-            >
-              <v-icon size="14">mdi-key-outline</v-icon>
-              {{ t('asset.password') }}
-            </div>
-            <div
-              class="switcher-item"
-              :class="{ active: authType === 'key' }"
-              @click="authType = 'key'"
-              role="tab"
-            >
-              <v-icon size="14">mdi-key-variant</v-icon>
-              {{ t('asset.privateKey') }}
-            </div>
-          </div>
+          <label class="auth-checkbox">
+            <input type="checkbox" v-model="showPasswordAuth" />
+            <v-icon size="14">mdi-key-outline</v-icon>
+            <span>Password</span>
+          </label>
         </div>
 
-        <!-- 密码模式 -->
-        <div v-if="authType === 'password'" class="form-field">
-          <label class="field-label">
-            <v-icon size="12">mdi-lock-outline</v-icon>
-            {{ t('asset.password') }}
-            <span class="optional">{{ t('ssh.passwordOptional') }}</span>
-          </label>
+        <div v-if="showPasswordAuth" class="form-field auth-detail">
           <div class="input-group">
             <v-icon class="input-prefix" size="13">mdi-lock-outline</v-icon>
             <input
               v-model="password"
               :type="showPassword ? 'text' : 'password'"
               class="cyber-input"
-              :placeholder="'••••••••'"
+              placeholder="••••••••"
               autocomplete="off"
             />
             <button
@@ -401,19 +413,19 @@ async function pasteJumpKeyFromClipboard() {
               <v-icon size="14">{{ showPassword ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
             </button>
           </div>
-          <div class="field-hint">{{ t('ssh.passwordHint') }}</div>
         </div>
 
-        <!-- 私钥模式 -->
-        <template v-else>
-          <div class="form-field">
-            <label class="field-label">
-              <v-icon size="12">mdi-code-tags</v-icon>
-              {{ t('asset.privateKey') }}
-              <span class="required">*</span>
-              <span class="optional">{{ t('ssh.pemFormat') }}</span>
-            </label>
-            <!-- 隐藏 file input,由按钮触发 -->
+        <!-- 密钥 checkbox -->
+        <div class="form-field">
+          <label class="auth-checkbox">
+            <input type="checkbox" v-model="showKeyAuth" />
+            <v-icon size="14">mdi-key-variant</v-icon>
+            <span>Private Key</span>
+          </label>
+        </div>
+
+        <template v-if="showKeyAuth">
+          <div class="form-field auth-detail">
             <input
               ref="fileInputRef"
               type="file"
@@ -422,31 +434,18 @@ async function pasteJumpKeyFromClipboard() {
               @change="onKeyFilePicked"
             />
             <div class="key-file-row">
-              <button
-                type="button"
-                class="cyber-btn-secondary key-file-btn"
-                @click="pickKeyFile"
-              >
+              <button type="button" class="cyber-btn-secondary key-file-btn" @click="pickKeyFile">
                 <v-icon size="13">mdi-file-key-outline</v-icon>
-                {{ t('ssh.selectKey') }}
+                Select Key
               </button>
-              <button
-                type="button"
-                class="cyber-btn-secondary key-file-btn"
-                @click="pasteKeyFromClipboard"
-              >
+              <button type="button" class="cyber-btn-secondary key-file-btn" @click="pasteKeyFromClipboard">
                 <v-icon size="13">mdi-clipboard-text-outline</v-icon>
-                {{ t('ssh.pasteFromClipboard') }}
+                Paste
               </button>
               <span v-if="privateKeyName" class="key-file-chip">
                 <v-icon size="11">mdi-file-document-outline</v-icon>
                 <span class="chip-name">{{ privateKeyName }}</span>
-                <button
-                  type="button"
-                  class="chip-clear"
-                  :title="t('ssh.clearKey')"
-                  @click="clearKey"
-                >
+                <button type="button" class="chip-clear" @click="clearKey">
                   <v-icon size="11">mdi-close</v-icon>
                 </button>
               </span>
@@ -455,32 +454,81 @@ async function pasteJumpKeyFromClipboard() {
               v-model="privateKey"
               class="cyber-input code"
               rows="5"
-              :placeholder="'-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ...\n-----END OPENSSH PRIVATE KEY-----'"
+              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
             />
           </div>
-          <div class="form-field">
-            <label class="field-label">
-              <v-icon size="12">mdi-key-alert</v-icon>
-              {{ t('ssh.passphrase') }}
-              <span class="optional">{{ t('ssh.passphraseOptional') }}</span>
-            </label>
+          <div class="form-field auth-detail">
             <div class="input-group">
               <v-icon class="input-prefix" size="13">mdi-key-alert</v-icon>
               <input
                 v-model="passphrase"
                 :type="showPassphrase ? 'text' : 'password'"
                 class="cyber-input"
-                :placeholder="t('ssh.passphraseEmpty')"
+                placeholder="Leave empty if none"
                 autocomplete="off"
               />
-              <button
-                type="button"
-                class="input-suffix-btn"
-                @click="showPassphrase = !showPassphrase"
-              >
+              <button type="button" class="input-suffix-btn" @click="showPassphrase = !showPassphrase">
                 <v-icon size="14">{{ showPassphrase ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
               </button>
             </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- MFA (Keyboard-Interactive) -->
+    <div class="mfa-section">
+      <button
+        type="button"
+        class="mfa-toggle"
+        :class="{ active: showMfaPanel }"
+        @click="showMfaPanel = !showMfaPanel"
+      >
+        <v-icon size="14">{{ showMfaPanel ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
+        MFA (Keyboard-Interactive)
+      </button>
+
+      <div v-if="showMfaPanel" class="mfa-body">
+        <div class="form-field">
+          <label class="auth-checkbox">
+            <input type="checkbox" v-model="mfaEnabled" />
+            <v-icon size="14">mdi-shield-key-outline</v-icon>
+            <span>Enable Keyboard-Interactive</span>
+          </label>
+        </div>
+
+        <template v-if="mfaEnabled">
+          <div class="form-field auth-detail">
+            <label class="field-label">
+              <v-icon size="12">mdi-lock-outline</v-icon>
+              Pre-filled password
+            </label>
+            <div class="input-group">
+              <v-icon class="input-prefix" size="13">mdi-lock-outline</v-icon>
+              <input
+                v-model="mfaPassword"
+                :type="showMfaPassword ? 'text' : 'password'"
+                class="cyber-input"
+                placeholder="••••••••"
+                autocomplete="off"
+              />
+              <button type="button" class="input-suffix-btn" @click="showMfaPassword = !showMfaPassword">
+                <v-icon size="14">{{ showMfaPassword ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
+              </button>
+            </div>
+          </div>
+          <div class="form-field auth-detail">
+            <label class="field-label">
+              <v-icon size="12">mdi-clock-digital</v-icon>
+              TOTP Secret
+            </label>
+            <input
+              v-model="totpSecret"
+              type="text"
+              class="cyber-input mono"
+              placeholder="base32 format, auto-generates 6-digit code"
+              autocomplete="off"
+            />
           </div>
         </template>
       </div>
@@ -959,5 +1007,73 @@ async function pasteJumpKeyFromClipboard() {
 .jump-host-body {
   margin-top: 12px;
   animation: fadeIn 0.2s ease;
+}
+
+/* MFA section */
+.mfa-section {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.mfa-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.mfa-toggle:hover {
+  color: var(--cyan);
+  border-color: var(--focus-cyan);
+  background: var(--hover-cyan-faint);
+}
+
+.mfa-toggle.active {
+  color: var(--cyan);
+  border-color: var(--focus-cyan);
+  background: var(--hover-cyan);
+}
+
+.mfa-body {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  animation: fadeIn 0.2s ease;
+}
+
+.auth-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.auth-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+
+.auth-detail {
+  margin-left: 24px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line-2);
 }
 </style>
