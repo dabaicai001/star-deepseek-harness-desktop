@@ -12,6 +12,7 @@ const props = defineProps<{
   db: string
   table: string
   modelValue: boolean
+  indexName?: string
 }>()
 
 const emit = defineEmits<{
@@ -35,9 +36,14 @@ const selectedIndexInfo = computed(() => {
 watch(() => props.modelValue, async (v) => {
   if (!v) return
   error.value = null
-  selectedIndex.value = ''
   try {
     indexes.value = await dbService.mysqlListIndexes(props.connId, props.table, props.db)
+    // 预选指定索引名(来自 IndexListDialog 传入)
+    if (props.indexName && indexNames.value.includes(props.indexName)) {
+      selectedIndex.value = props.indexName
+    } else {
+      selectedIndex.value = ''
+    }
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : String(err)
   }

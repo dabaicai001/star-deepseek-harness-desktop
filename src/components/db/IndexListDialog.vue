@@ -15,11 +15,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [v: boolean]
+  'create-index': []
+  'modify-index': [indexName: string]
+  'drop-index': [indexName: string]
 }>()
 
 const indexes = ref<IndexInfo[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const selectedIndex = ref<string | null>(null)
 
 watch(() => props.modelValue, async (v) => {
   if (!v) return
@@ -83,7 +87,9 @@ const groupedIndexes = computed(() => {
               <tr v-if="groupedIndexes.length === 0">
                 <td colspan="5" style="text-align: center; color: var(--muted); padding: 24px;">{{ t('db.noIndexes') }}</td>
               </tr>
-              <tr v-for="idx in groupedIndexes" :key="idx.name">
+              <tr v-for="idx in groupedIndexes" :key="idx.name"
+                :class="{ 'row-selected': selectedIndex === idx.name }"
+                @click="selectedIndex = idx.name">
                 <td>
                   <span style="font-weight: 600; color: var(--text);">{{ idx.name }}</span>
                 </td>
@@ -103,7 +109,30 @@ const groupedIndexes = computed(() => {
         </div>
 
         <div class="dialog-footer">
-          <button class="cyber-btn-secondary" @click="emit('update:modelValue', false)">{{ t('common.cancel') }}</button>
+          <button class="cyber-btn" @click="emit('create-index')">
+            <v-icon size="14">mdi-key-plus</v-icon>
+            {{ t('db.createIndex') }}
+          </button>
+          <button
+            class="cyber-btn-secondary"
+            :disabled="!selectedIndex"
+            @click="selectedIndex && emit('modify-index', selectedIndex)"
+          >
+            <v-icon size="14">mdi-key-edit</v-icon>
+            {{ t('db.modifyIndex') }}
+          </button>
+          <div class="footer-spacer"></div>
+          <button
+            class="cyber-btn-danger"
+            :disabled="!selectedIndex"
+            @click="selectedIndex && emit('drop-index', selectedIndex)"
+          >
+            <v-icon size="14">mdi-key-remove</v-icon>
+            {{ t('db.deleteIndex') }}
+          </button>
+          <button class="action-btn" @click="emit('update:modelValue', false)" :title="t('common.cancel')">
+            <v-icon size="14">mdi-close</v-icon>
+          </button>
         </div>
       </template>
     </div>
@@ -119,8 +148,39 @@ const groupedIndexes = computed(() => {
 .dialog-subtitle { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
 .dialog-loading { padding: 16px; text-align: center; }
 .dialog-footer {
-  display: flex; justify-content: flex-end; gap: 8px;
+  display: flex; align-items: center; gap: 8px;
   padding: 10px 16px; border-top: 1px solid var(--line); flex-shrink: 0;
+}
+.footer-spacer { flex: 1; }
+.row-selected {
+  background: rgba(0, 240, 255, 0.06);
+}
+.row-selected td:first-child {
+  border-left: 2px solid var(--cyan);
+}
+.struct-table tr {
+  cursor: pointer;
+}
+.struct-table tr:hover {
+  background: rgba(0, 240, 255, 0.03);
+}
+.cyber-btn-danger {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 6px;
+  font-size: 12px; font-weight: 500; font-family: inherit;
+  color: var(--red);
+  background: transparent;
+  border: 1px solid rgba(255, 77, 109, 0.3);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.cyber-btn-danger:hover:not(:disabled) {
+  background: rgba(255, 77, 109, 0.1);
+  border-color: var(--red);
+}
+.cyber-btn-danger:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 .struct-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
 .struct-table thead { position: sticky; top: 0; z-index: 1; background: var(--panel-solid-2); }
