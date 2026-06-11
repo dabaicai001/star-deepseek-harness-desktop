@@ -26,7 +26,6 @@ export type SshAuthConfig = SshAuthPassword | SshAuthPrivateKey | SshAuthPasswor
 export interface KeyboardInteractiveConfig {
   enabled: boolean
   password?: string | null
-  totp_secret?: string | null
 }
 
 export interface SshConfig {
@@ -103,7 +102,6 @@ export function assetConfigToSshConfig(config: AssetConfig): SshConfig {
       ? {
           enabled: true,
           password: config.mfaPassword ?? null,
-          totp_secret: config.totpSecret ?? null,
         }
       : null,
   }

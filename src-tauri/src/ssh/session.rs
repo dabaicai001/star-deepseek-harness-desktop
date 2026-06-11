@@ -341,7 +341,6 @@ async fn authenticate_keyboard_interactive(
     let kb = kb_config.as_ref().ok_or("kb_interactive config missing")?;
     if !kb.enabled { return Ok(()); }
 
-    let totp_secret = kb.totp_secret.clone();
     let kb_password = kb.password.clone();
 
     // 启动 keyboard-interactive 认证
@@ -355,14 +354,12 @@ async fn authenticate_keyboard_interactive(
                 return Err("[MFA_FAILED] Keyboard-interactive authentication rejected".to_string());
             }
             russh::client::KeyboardInteractiveAuthResponse::InfoRequest { name: _name, instructions, prompts } => {
-                // 生成 auto-fill
+                // 生成 auto-fill:密码提示用 kb_password 预填,TOTP 提示留空让用户手动输入
                 let auto_fill: Vec<Option<String>> = prompts.iter().map(|p| {
                     if is_totp_prompt(&p.prompt) {
-                        totp_secret.as_ref().and_then(|s| generate_totp(s))
-                    } else if kb_password.is_some() {
-                        kb_password.clone()
+                        None // TOTP 码由用户手动输入
                     } else {
-                        None
+                        kb_password.clone()
                     }
                 }).collect();
 
@@ -370,7 +367,7 @@ async fn authenticate_keyboard_interactive(
                 let (resp_tx, resp_rx) = oneshot::channel();
                 pending_kb.lock().await.insert(session_id.to_string(), resp_tx);
 
-                // 发送 Tauri 事件到前端
+                // 发送 Tauri 事件到前端（始终弹窗,让用户确认/输入 TOTP 码）
                 let payload = serde_json::json!({
                     "instructions": instructions,
                     "prompts": prompts.iter().map(|p| serde_json::json!({"prompt": p.prompt, "echo": p.echo})).collect::<Vec<_>>(),
@@ -398,14 +395,6 @@ async fn authenticate_keyboard_interactive(
     }
 
     Ok(())
-}
-
-/// 生成 6 位 TOTP 验证码
-fn generate_totp(secret: &str) -> Option<String> {
-    use totp_rs::{Algorithm, TOTP, Secret};
-    let secret_bytes = Secret::Encoded(secret.to_string()).to_bytes().ok()?;
-    let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret_bytes, None, String::new()).ok()?;
-    totp.generate_current().ok()
 }
 
 /// 判断 prompt 是否匹配 TOTP 关键词
@@ -441,22 +430,6 @@ mod tests {
         assert!(!is_totp_prompt("Enter your password"));
         assert!(!is_totp_prompt("Username"));
         assert!(!is_totp_prompt(""));
-    }
-
-    #[test]
-    fn test_generate_totp_valid_secret() {
-        // 标准 base32 编码的测试密钥 (RFC 6238 test vectors: "12345678901234567890")
-        let secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
-        let code = generate_totp(secret);
-        assert!(code.is_some());
-        assert_eq!(code.unwrap().len(), 6);
-    }
-
-    #[test]
-    fn test_generate_totp_invalid_secret() {
-        // 无效 base32
-        assert!(generate_totp("!!!invalid!!!").is_none());
-        assert!(generate_totp("").is_none());
     }
 
     #[test]

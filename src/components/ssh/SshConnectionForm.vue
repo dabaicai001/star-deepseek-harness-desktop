@@ -30,7 +30,6 @@ export interface SshFormInitialValues {
   useKeyAuth?: boolean
   mfaEnabled?: boolean
   mfaPassword?: string
-  totpSecret?: string
   appendTotpToPassword?: boolean
   totpAppendFormat?: 'none' | 'space' | 'manual'
 }
@@ -62,7 +61,6 @@ const passphrase = ref(props.initialValues?.passphrase ?? '')
 const showPassword = ref(false)
 const showPassphrase = ref(false)
 const mfaPassword = ref(props.initialValues?.mfaPassword ?? '')
-const totpSecret = ref(props.initialValues?.totpSecret ?? '')
 const showMfaPassword = ref(false)
 const isEditing = computed(() => !!props.initialValues?.name)
 const changedPassword = ref(false)
@@ -137,7 +135,6 @@ watch(
               ? 'key'
               : 'password'))
     mfaPassword.value = next.mfaPassword ?? ''
-    totpSecret.value = next.totpSecret ?? ''
     appendTotpToPassword.value = next.appendTotpToPassword ?? false
     totpAppendFormat.value = next.totpAppendFormat ?? 'none'
     jumpHost.value = next.jumpHost ?? ''
@@ -316,7 +313,6 @@ async function onTestConnection() {
       (config as Record<string, unknown>).kb_interactive = {
         enabled: true,
         password: mfaPassword.value || null,
-        totp_secret: totpSecret.value || null,
       }
     }
 
@@ -375,7 +371,8 @@ function onSubmit() {
   if (authMode.value === 'mfa') {
     config.mfaEnabled = true
     config.mfaPassword = isEditing.value && !changedMfaPassword.value ? undefined : (mfaPassword.value || null)
-    config.totpSecret = totpSecret.value || null
+    config.password = isEditing.value && !changedMfaPassword.value ? undefined : (mfaPassword.value || undefined)
+    config.usePasswordAuth = true
   }
   if (authMode.value === 'password') {
     // 阿里云堡垒机风格:每次连接弹 6 位 TOTP 码拼到密码末尾
@@ -788,19 +785,6 @@ async function pasteJumpKeyFromClipboard() {
                 <v-icon size="14">{{ showMfaPassword ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
               </button>
             </div>
-          </div>
-          <div class="form-field auth-detail">
-            <label class="field-label">
-              <v-icon size="12">mdi-clock-digital</v-icon>
-              TOTP Secret
-            </label>
-            <input
-              v-model="totpSecret"
-              type="text"
-              class="cyber-input mono"
-              placeholder="base32 format, auto-generates 6-digit code"
-              autocomplete="off"
-            />
           </div>
         </template>
       </div>

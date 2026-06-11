@@ -149,8 +149,6 @@ export default {
       title: 'MFA Verification',
       enable: 'Enable Keyboard-Interactive',
       passwordHint: 'Pre-filled password (auto-responds to password prompts)',
-      totpSecret: 'TOTP Secret',
-      totpSecretHint: 'base32 format, auto-generates 6-digit code',
       timeout: 'Verification timed out, connection closed',
     },
   },

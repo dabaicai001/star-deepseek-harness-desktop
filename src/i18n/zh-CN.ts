@@ -149,8 +149,6 @@ export default {
       title: 'MFA 验证',
       enable: '启用 Keyboard-Interactive',
       passwordHint: '预填密码（可选，自动填充密码提示）',
-      totpSecret: 'TOTP 密钥',
-      totpSecretHint: '支持 base32 格式，自动生成6位验证码',
       timeout: '验证超时，连接已断开',
     },
   },

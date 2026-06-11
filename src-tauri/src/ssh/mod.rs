@@ -35,8 +35,6 @@ pub struct KeyboardInteractiveConfig {
     pub enabled: bool,
     #[serde(default)]
     pub password: Option<String>,
-    #[serde(default)]
-    pub totp_secret: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -90,7 +88,6 @@ mod tests {
         let config: KeyboardInteractiveConfig = serde_json::from_str(json).unwrap();
         assert!(config.enabled);
         assert!(config.password.is_none());
-        assert!(config.totp_secret.is_none());
     }
 
     #[test]

@@ -317,39 +317,38 @@ async function connect() {
  //标记当前 connect 调用,避免老 timeout杀掉新连接
  const connectCallId = ++currentConnectId
 
-  try {
-   // 「密码 + TOTP 拼接」分支:每次连接弹 6 位 TOTP 码
-   let effectivePassword = a.config.password
-   if (a.config.appendTotpToPassword && effectivePassword) {
-     const totpResult = await requestTotpAppend(a.config.totpAppendFormat ?? 'none')
-     if (!totpResult) {
-       // 用户取消 → 退出,不算失败
-       connecting.value = false
-       return
-     }
-     effectivePassword = concatPassword(effectivePassword, totpResult.code, totpResult.format)
-   }
-
-   const config: Record<string, unknown> = {
-     host: a.config.host,
-     port: a.config.port || 22,
-     username: a.config.username,
-     auth: a.config.useKeyAuth && a.config.usePasswordAuth !== false && effectivePassword && a.config.privateKey
-       ? { PasswordAndKey: { password: effectivePassword, key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
-       : effectivePassword
-         ? { Password: effectivePassword }
-         : a.config.privateKey
-           ? { PrivateKey: { key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
-           : { Password: '' }
-   }
-
-  if (a.config.mfaEnabled) {
-    (config as Record<string, unknown>).kb_interactive = {
-      enabled: true,
-      password: a.config.mfaPassword ?? null,
-      totp_secret: a.config.totpSecret ?? null,
+   try {
+    // 「密码 + TOTP 拼接」分支:每次连接弹 6 位 TOTP 码
+    let effectivePassword = a.config.mfaEnabled ? a.config.mfaPassword : a.config.password
+    if (a.config.appendTotpToPassword && effectivePassword) {
+      const totpResult = await requestTotpAppend(a.config.totpAppendFormat ?? 'none')
+      if (!totpResult) {
+        // 用户取消 → 退出,不算失败
+        connecting.value = false
+        return
+      }
+      effectivePassword = concatPassword(effectivePassword, totpResult.code, totpResult.format)
     }
-  }
+
+    const config: Record<string, unknown> = {
+      host: a.config.host,
+      port: a.config.port || 22,
+      username: a.config.username,
+      auth: a.config.useKeyAuth && a.config.usePasswordAuth !== false && effectivePassword && a.config.privateKey
+        ? { PasswordAndKey: { password: effectivePassword, key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
+        : effectivePassword
+          ? { Password: effectivePassword }
+          : a.config.privateKey
+            ? { PrivateKey: { key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
+            : { Password: '' }
+    }
+
+   if (a.config.mfaEnabled) {
+     (config as Record<string, unknown>).kb_interactive = {
+       enabled: true,
+       password: a.config.mfaPassword ?? null,
+     }
+   }
 
   // 在 invoke 之前注册 MFA / hostkey 事件监听(否则 Rust 端
   // check_server_key / keyboard-interactive 发出的 event 在前端
