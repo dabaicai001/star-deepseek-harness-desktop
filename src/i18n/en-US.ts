@@ -132,7 +132,15 @@ export default {
     clipboardReadFailed: 'Cannot read clipboard',
     jumpHost: 'Jump Host (ProxyJump)',
     jumpServer: 'Jump Server',
-    jumpAuth: 'Jump Host Auth'
+    jumpAuth: 'Jump Host Auth',
+    mfa: {
+      title: 'MFA Verification',
+      enable: 'Enable Keyboard-Interactive',
+      passwordHint: 'Pre-filled password (auto-responds to password prompts)',
+      totpSecret: 'TOTP Secret',
+      totpSecretHint: 'base32 format, auto-generates 6-digit code',
+      timeout: 'Verification timed out, connection closed',
+    },
   },
   sftp: {
     title: 'File Transfer',
