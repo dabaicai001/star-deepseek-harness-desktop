@@ -452,6 +452,8 @@ func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, o
 	}
 	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
 
+	log.Info().Str("sql", query).Str("filter", filter).Interface("columnFilters", columnFilters).Msg("GetTableData query")
+
 	var result *QueryResult
 	var execErr error
 	if len(args) > 0 {

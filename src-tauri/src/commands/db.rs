@@ -180,8 +180,9 @@ pub async fn db_mysql_get_table_data(
     if let Some(ob) = order_by { params["orderBy"] = serde_json::json!(ob); }
     if let Some(od) = order_dir { params["orderDir"] = serde_json::json!(od); }
     if let Some(db) = database { params["database"] = serde_json::json!(db); }
-    if let Some(f) = filter { params["filter"] = serde_json::json!(f); }
-    if let Some(cf) = column_filters { params["columnFilters"] = serde_json::json!(cf); }
+    if let Some(f) = &filter { params["filter"] = serde_json::json!(f); }
+    if let Some(cf) = &column_filters { params["columnFilters"] = serde_json::json!(cf); }
+    tracing::info!("db_mysql_get_table_data params: {}", params);
     sidecar.call("db.mysql.getTableData", params).await
 }
 

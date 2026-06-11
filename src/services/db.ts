@@ -106,6 +106,7 @@ export async function mysqlGetTableData(
   filter?: string,
   columnFilters?: Record<string, string>
 ): Promise<QueryResult> {
+  console.log('[dbService] mysqlGetTableData filter:', JSON.stringify(filter), 'columnFilters:', JSON.stringify(columnFilters))
   return invoke('db_mysql_get_table_data', { connId, table, limit, offset, orderBy, orderDir, database, filter, columnFilters })
 }
 

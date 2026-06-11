@@ -3,6 +3,7 @@ package adapters
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -374,6 +375,7 @@ func handleMySQLGetTableData(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
+		log.Printf("[handleMySQLGetTableData] filter=%q columnFilters=%v\n", p.Filter, p.ColumnFilters)
 		adapter, err := getMySQLAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err

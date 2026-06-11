@@ -426,6 +426,7 @@ async function loadTableDataFor(tab: TableSubTab, force = false) {
       tab.whereClause || undefined,
       Object.keys(tab.columnFilters).length > 0 ? tab.columnFilters : undefined
     )
+    console.log('[DbView] loadTableDataFor whereClause:', JSON.stringify(tab.whereClause), 'columnFilters:', JSON.stringify(tab.columnFilters))
     if (metaPromise) {
       const [meta, data] = await Promise.all([metaPromise, dataPromise])
       tab.columns = meta.columns
