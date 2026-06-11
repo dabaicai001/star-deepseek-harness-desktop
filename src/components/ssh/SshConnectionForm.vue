@@ -202,10 +202,47 @@ function concatPassword(pwd: string, code: string, format: ConcatFormat): string
   return `${pwd}${code}`
 }
 
+/**
+ * [DEBUG] 调试 helper:把 auth 对象里的密码/key 字段替换成长度,
+ * 打印到 console 时不会泄漏明文。
+ */
+function maskAuth(auth: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(auth)) {
+    if (v && typeof v === 'object') {
+      const inner: Record<string, unknown> = {}
+      for (const [ik, iv] of Object.entries(v as Record<string, unknown>)) {
+        if (typeof iv === 'string') {
+          inner[ik] = `<str len=${(iv as string).length}>`
+        } else {
+          inner[ik] = iv
+        }
+      }
+      out[k] = inner
+    } else {
+      out[k] = v
+    }
+  }
+  return out
+}
+
 async function onTestConnection() {
   if (!canTest.value) return
   testStatus.value = 'testing'
   testMessage.value = ''
+
+  // 编辑态 + 密码认证 + 用户没改过密码框 → password.value 可能是空(密码框默认不回显),
+  // 此时不能直接发空密码,服务端会 reject。提示用户先输密码。
+  if (
+    isEditing.value &&
+    !changedPassword.value &&
+    (authMode.value === 'password' || authMode.value === 'both') &&
+    !password.value
+  ) {
+    testStatus.value = 'fail'
+    testMessage.value = t('ssh.testNeedPassword')
+    return
+  }
 
   // 「密码 + TOTP 拼接」分支:连接瞬间弹码输入框
   let totpResult: { code: string; format: ConcatFormat } | null = null
@@ -287,6 +324,17 @@ async function onTestConnection() {
       'test_ssh_connection',
       { config, testSessionId: testSessionId.value }
     )
+    // [DEBUG] 调试:打印测试连接时实际发出去的 auth 形状(密码长度而非明文),
+    // 便于定位 "密码丢失/被覆盖" 类问题。诊断完可删。
+    // eslint-disable-next-line no-console
+    console.log('[ssh:test] sending config =', {
+      host: config.host,
+      port: config.port,
+      username: config.username,
+      auth: maskAuth(config.auth as Record<string, unknown>),
+      isEditing: isEditing.value,
+      changedPassword: changedPassword.value,
+    })
     testStatus.value = result.ok ? 'success' : 'fail'
     const ms = result.elapsed_ms != null ? ` (${result.elapsed_ms}ms)` : ''
     testMessage.value = (result.message ?? (result.ok ? t('ssh.testSuccess') : t('ssh.testFail'))) + ms
@@ -595,8 +643,8 @@ async function pasteJumpKeyFromClipboard() {
             <div class="input-group">
               <v-icon class="input-prefix" size="13">mdi-lock-outline</v-icon>
               <input
-                :model-value="isEditing && !changedPassword ? '' : password"
-                @update:model-value="(v: string) => { password = v; changedPassword = true }"
+                v-model="password"
+                @input="changedPassword = true"
                 :type="showPassword ? 'text' : 'password'"
                 class="cyber-input"
                 :placeholder="isEditing && !changedPassword ? '*'.repeat(8) : '••••••••'"
@@ -729,8 +777,8 @@ async function pasteJumpKeyFromClipboard() {
             <div class="input-group">
               <v-icon class="input-prefix" size="13">mdi-lock-outline</v-icon>
               <input
-                :model-value="isEditing && !changedMfaPassword ? '' : mfaPassword"
-                @update:model-value="(v: string) => { mfaPassword = v; changedMfaPassword = true }"
+                v-model="mfaPassword"
+                @input="changedMfaPassword = true"
                 :type="showMfaPassword ? 'text' : 'password'"
                 class="cyber-input"
                 :placeholder="isEditing && !changedMfaPassword ? '*'.repeat(8) : '••••••••'"
