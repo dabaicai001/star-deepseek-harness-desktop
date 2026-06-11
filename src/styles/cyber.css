@@ -402,6 +402,49 @@ html.v-theme--lightTheme {
   text-transform: uppercase;
 }
 
+/* Auth chip — 互斥单选组(SSH/DB 认证方式等) */
+.auth-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.auth-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  background: var(--panel-solid-2);
+  border: 1px solid var(--line-2);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+}
+
+.auth-chip:hover:not(.active) {
+  color: var(--text);
+  border-color: var(--line-2);
+  background: var(--hover-cyan-faint);
+}
+
+.auth-chip.active {
+  background: var(--hover-cyan);
+  border-color: var(--cyan);
+  color: var(--cyan);
+  box-shadow: 0 0 0 1px var(--focus-cyan), 0 0 12px var(--focus-cyan);
+  text-shadow: 0 0 8px var(--focus-cyan);
+}
+
+.auth-chip .v-icon {
+  font-size: 13px;
+}
+
 /* Tab styles */
 .cyber-tab {
   padding: 8px 16px;
