@@ -58,6 +58,7 @@ fn main() {
             commands::ssh::ssh_exec,
             commands::ssh::test_ssh_connection,
             commands::ssh::ssh_kb_response,
+            commands::ssh::ssh_hostkey_response,
             commands::sftp::sftp_list,
             commands::sftp::sftp_read,
             commands::sftp::sftp_write,

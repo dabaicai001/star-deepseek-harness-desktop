@@ -9,6 +9,7 @@ pub struct SshManager {
     pub sessions: Arc<Mutex<HashMap<String, Arc<Mutex<SshSession>>>>>,
     channels: Arc<Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
     pub pending_kb: Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>,
+    pub pending_hostkey: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
 }
 
 impl SshManager {
@@ -17,6 +18,7 @@ impl SshManager {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             channels: Arc::new(Mutex::new(HashMap::new())),
             pending_kb: Arc::new(Mutex::new(HashMap::new())),
+            pending_hostkey: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -32,7 +34,7 @@ pub async fn ssh_connect(
     // 所有其他 SSH 操作(resize / disconnect / 新 connect),导致第二个 tab
     // 永远卡在 "Connecting to"。
     let mut session = SshSession::new(config.clone());
-    session.connect(&id, Some(&app_handle), &manager.pending_kb).await?;
+    session.connect(&id, Some(&app_handle), &manager.pending_kb, &manager.pending_hostkey).await?;
     session.open_shell(&id, app_handle.clone(), manager.channels.clone()).await?;
 
     let info = SshSessionInfo {
@@ -144,11 +146,15 @@ pub async fn test_ssh_connection(
     // 走全局 manager.pending_kb,让前端 ssh_kb_response 能找到这次测试的 oneshot
     // 测试结束(无论成功失败)统一清理,避免 map 膨胀
     let result = session
-        .connect(&test_id, Some(&app_handle), &manager.pending_kb)
+        .connect(&test_id, Some(&app_handle), &manager.pending_kb, &manager.pending_hostkey)
         .await;
 
     {
         let mut map = manager.pending_kb.lock().await;
+        map.remove(&test_id);
+    }
+    {
+        let mut map = manager.pending_hostkey.lock().await;
         map.remove(&test_id);
     }
 
@@ -216,4 +222,20 @@ pub async fn ssh_kb_response(
     };
     sender.send(responses)
         .map_err(|_| "Failed to send kb response (handler dropped)".to_string())
+}
+
+#[tauri::command]
+pub async fn ssh_hostkey_response(
+    manager: State<'_, SshManager>,
+    id: String,
+    allowed: bool,
+) -> Result<(), String> {
+    let sender = {
+        let mut map = manager.pending_hostkey.lock().await;
+        map.remove(&id)
+            .ok_or_else(|| format!("No pending hostkey prompt for session {}", id))?
+    };
+    sender
+        .send(allowed)
+        .map_err(|_| "Failed to send hostkey response (handler dropped)".to_string())
 }

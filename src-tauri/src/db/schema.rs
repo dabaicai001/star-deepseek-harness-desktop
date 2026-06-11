@@ -67,6 +67,16 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 
+-- 已知主机密钥 (TOFU)
+CREATE TABLE IF NOT EXISTS known_hosts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  host_key TEXT NOT NULL UNIQUE,
+  key_type TEXT NOT NULL,
+  sha256_fingerprint TEXT NOT NULL,
+  public_key BLOB NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
 -- 索引
 CREATE INDEX IF NOT EXISTS idx_assets_type ON assets(type);
 CREATE INDEX IF NOT EXISTS idx_assets_group_id ON assets(group_id);

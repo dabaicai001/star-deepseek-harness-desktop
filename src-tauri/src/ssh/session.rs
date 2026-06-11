@@ -35,6 +35,7 @@ impl SshSession {
         session_id: &str,
         app_handle: Option<&tauri::AppHandle>,
         pending_kb: &Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>,
+        pending_hostkey: &Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
     ) -> Result<client::Handle<super::auth::SshHandler>, String> {
         let socket_addr = format!("{}:{}", host, port);
 
@@ -43,7 +44,13 @@ impl SshSession {
             ..Default::default()
         };
 
-        let handler = super::auth::SshHandler;
+        let handler = super::auth::SshHandler::new(
+            session_id.to_string(),
+            app_handle.cloned(),
+            Arc::clone(pending_hostkey),
+            host.to_string(),
+            port,
+        );
 
         let connect_timeout = Duration::from_secs(370); // 含 MFA 360s 等待
         let connect_and_auth_fut = async {
@@ -86,6 +93,7 @@ impl SshSession {
         session_id: &str,
         app_handle: Option<&tauri::AppHandle>,
         pending_kb: &Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>,
+        pending_hostkey: &Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
     ) -> Result<(), String> {
         let handle = if let Some(jump_host) = &self.config.jump_host {
             let jump_port = self.config.jump_port.unwrap_or(22);
@@ -96,7 +104,7 @@ impl SshSession {
 
             let jump_handle = Self::connect_and_auth(
                 jump_host, jump_port, jump_username, jump_auth,
-                &self.config.kb_interactive, session_id, app_handle, pending_kb,
+                &self.config.kb_interactive, session_id, app_handle, pending_kb, pending_hostkey,
             ).await?;
 
             let mut direct_tcpip = jump_handle
@@ -114,7 +122,13 @@ impl SshSession {
                 ..Default::default()
             };
 
-            let handler = super::auth::SshHandler;
+            let handler = super::auth::SshHandler::new(
+                session_id.to_string(),
+                app_handle.cloned(),
+                Arc::clone(pending_hostkey),
+                self.config.host.clone(),
+                self.config.port,
+            );
             let channel_stream = direct_tcpip.into_stream();
             let mut handle = client::connect_stream(Arc::new(config), channel_stream, handler)
                 .await
@@ -144,6 +158,7 @@ impl SshSession {
                 session_id,
                 app_handle,
                 pending_kb,
+                pending_hostkey,
             ).await?
         };
 
