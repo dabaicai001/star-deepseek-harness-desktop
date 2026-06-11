@@ -5,6 +5,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { CreateAssetDto } from '@/types/asset'
 import type { KbInteractiveEvent } from '@/services/ssh'
 import KbInteractiveDialog from './KbInteractiveDialog.vue'
+import TotpAppendDialog, { type ConcatFormat } from './TotpAppendDialog.vue'
 
 const { t } = useI18n()
 
@@ -66,6 +67,13 @@ const kbDialogRef = ref<InstanceType<typeof KbInteractiveDialog>>()
 const testSessionId = ref('')
 let unlistenTestKb: UnlistenFn | null = null
 let testSessionIdCounter = 0
+
+// 「密码 + TOTP 拼接」工作流(只存内存,不入库)
+const totpDialogRef = ref<InstanceType<typeof TotpAppendDialog>>()
+const needTotpAppend = ref(false) // 是否需要在连接瞬间弹码输入框
+let pendingTotpCode: string | null = null
+let pendingTotpFormat: ConcatFormat | null = null
+let pendingResolve: ((v: { code: string; format: ConcatFormat } | null) => void) | null = null
 
 // 认证方式:互斥 chip 单选 — 密码 / 私钥 / 密码+私钥 / MFA
 type AuthMode = 'password' | 'key' | 'both' | 'mfa'
@@ -150,10 +158,55 @@ const canTest = computed(() =>
   (!showJumpHost.value || !jumpHost.value || (jumpAuthType.value === 'password' ? true : jumpPrivateKey.value.length > 0))
 )
 
+/**
+ * 弹码输入框等用户敲码 + 选格式
+ * 用户取消 → 返回 null
+ */
+function requestTotpAppend(): Promise<{ code: string; format: ConcatFormat } | null> {
+  return new Promise((resolve) => {
+    pendingResolve = resolve
+    totpDialogRef.value?.open()
+  })
+}
+
+function onTotpSubmit(result: { code: string; format: ConcatFormat }) {
+  pendingResolve?.(result)
+  pendingResolve = null
+}
+
+function onTotpCancelled() {
+  pendingResolve?.(null)
+  pendingResolve = null
+}
+
+/**
+ * 根据 format 拼接最终密码
+ *  - 'manual': 用户已经拼好了,直接用 code
+ *  - 'none': 密码 + 6位码
+ *  - 'space': 密码 + 空格 + 6位码
+ */
+function concatPassword(pwd: string, code: string, format: ConcatFormat): string {
+  if (format === 'manual') return code
+  if (format === 'space') return `${pwd} ${code}`
+  return `${pwd}${code}`
+}
+
 async function onTestConnection() {
   if (!canTest.value) return
   testStatus.value = 'testing'
   testMessage.value = ''
+
+  // 「密码 + TOTP 拼接」分支:连接瞬间弹码输入框
+  let totpResult: { code: string; format: ConcatFormat } | null = null
+  if (needTotpAppend.value && authMode.value === 'password') {
+    totpResult = await requestTotpAppend()
+    if (!totpResult) {
+      // 用户取消 → 退出,不算失败
+      testStatus.value = 'idle'
+      return
+    }
+  }
+
   // 分配临时 sessionId,让测试连接期间触发的 keyboard-interactive 弹窗能正确订阅
   testSessionIdCounter += 1
   testSessionId.value = `test-${Date.now()}-${testSessionIdCounter}`
@@ -169,12 +222,18 @@ async function onTestConnection() {
     )
 
     // 互斥 chip 单选 → 对应后端 SshAuthConfig 三个枚举
+    // 「密码 + TOTP 拼接」分支:把用户填的 6 位码拼到密码末尾
+    const finalPassword =
+      totpResult
+        ? concatPassword(password.value, totpResult.code, totpResult.format)
+        : password.value
+
     const auth: Record<string, unknown> =
-      authMode.value === 'both' && password.value && privateKey.value
-        ? { PasswordAndKey: { password: password.value || '', key: privateKey.value, passphrase: passphrase.value || null } }
-        : authMode.value === 'key' || (authMode.value === 'both' && !password.value)
+      authMode.value === 'both' && finalPassword && privateKey.value
+        ? { PasswordAndKey: { password: finalPassword, key: privateKey.value, passphrase: passphrase.value || null } }
+        : authMode.value === 'key' || (authMode.value === 'both' && !finalPassword)
           ? { PrivateKey: { key: privateKey.value, passphrase: passphrase.value || null } }
-          : { Password: password.value || '' }
+          : { Password: finalPassword }
 
     const config: Record<string, unknown> = {
       host: host.value,
@@ -216,6 +275,7 @@ async function onTestConnection() {
     unlistenTestKb = null
     kbDialogRef.value?.close()
     testSessionId.value = ''
+    pendingResolve = null
   }
 }
 
@@ -516,6 +576,15 @@ async function pasteJumpKeyFromClipboard() {
                 <v-icon size="14">{{ showPassword ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
               </button>
             </div>
+            <!-- 阿里云堡垒机风格:把 6 位 TOTP 一次性拼到密码末尾提交 -->
+            <label v-if="authMode === 'password'" class="totp-append-toggle">
+              <input
+                type="checkbox"
+                v-model="needTotpAppend"
+              />
+              <v-icon size="13">mdi-two-factor-authentication</v-icon>
+              <span>{{ t('ssh.mfaAppendAtConnect') }}</span>
+            </label>
           </div>
         </template>
 
@@ -784,6 +853,15 @@ async function pasteJumpKeyFromClipboard() {
       :host="host"
       @done="() => {}"
       @cancelled="() => {}"
+    />
+
+    <!-- 「密码 + TOTP 拼接」弹窗(只存内存,不入库) -->
+    <TotpAppendDialog
+      ref="totpDialogRef"
+      :host="host"
+      :username="username"
+      @submit="onTotpSubmit"
+      @cancelled="onTotpCancelled"
     />
   </form>
 </template>
@@ -1061,6 +1139,29 @@ async function pasteJumpKeyFromClipboard() {
   margin-left: 4px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+/* 「密码 + TOTP 拼接」开关 */
+.totp-append-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.totp-append-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+
+.totp-append-toggle:hover {
+  color: var(--cyan);
 }
 
 /* Jump host section */
