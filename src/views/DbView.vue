@@ -1696,7 +1696,8 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   align-items: center;
   flex-shrink: 0;
   border-bottom: 1px solid var(--line);
-  background: rgba(5, 8, 16, 0.4);
+  /* 背景用主题色低透明叠加,跟着 useThemeStore.accent 走 */
+  background: color-mix(in srgb, var(--cyan) 6%, transparent);
   min-height: 32px;
   padding: 0 4px;
   position: relative;
