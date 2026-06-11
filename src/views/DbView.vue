@@ -56,8 +56,6 @@ const loadingTables = ref<Set<string>>(new Set())
 const loadingDatabases = ref(false)
 // 每个 db 加载表的失败原因(用于在树上展示"加载失败 · 重试")
 const loadErrors = ref<Map<string, string>>(new Map())
-// 共享 SQL 编辑器文本(整个 DbView 一个)
-const sqlText = ref('')
 const isExecutingAny = ref(false) // 任一 SQL 结果 tab 在加载中
 const sidebarCollapsed = ref(false)
 const selectedDb = ref<string>('')
@@ -74,7 +72,7 @@ const tableDataVersion = ref(0)
 // - table tab: 选中某张表 → 包含 data + structure 两个内部视图
 // - sql tab: 执行 SQL 后的结果;每次执行都开新 tab,SQL 文本进 tab title 预览
 
-type SubTabKind = 'table' | 'sql'
+type SubTabKind = 'table' | 'sql' | 'sql-editor'
 
 interface BaseSubTab {
   id: string
@@ -107,7 +105,14 @@ interface SqlSubTab extends BaseSubTab {
   result: QueryResult | null
 }
 
-type SubTab = TableSubTab | SqlSubTab
+interface SqlEditorSubTab extends BaseSubTab {
+  kind: 'sql-editor'
+  sqlText: string
+  result: QueryResult | null
+  selectedDb: string
+}
+
+type SubTab = TableSubTab | SqlSubTab | SqlEditorSubTab
 
 const subTabs = ref<SubTab[]>([])
 const activeSubTabId = ref<string | null>(null)
@@ -145,6 +150,11 @@ const activeTableTab = computed(() => {
 const activeSqlTab = computed(() => {
   const t = activeSubTab.value
   return t && t.kind === 'sql' ? t : null
+})
+/** 给模板用:当前激活的 SQL 编辑器 tab */
+const activeSqlEditorTab = computed(() => {
+  const t = activeSubTab.value
+  return t && t.kind === 'sql-editor' ? t : null
 })
 
 // 行的主键(从当前激活的表 tab 的 columns 拿)
@@ -603,9 +613,54 @@ function makeSqlTitle(sql: string): string {
   return first.length > 14 ? first.slice(0, 14) + '…' : first || 'SQL'
 }
 
+let queryCounter = 0
+function newSqlQuery() {
+  queryCounter++
+  const tab: SqlEditorSubTab = {
+    id: `sqled-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    kind: 'sql-editor',
+    title: `查询 ${queryCounter}`,
+    subtitle: '新建查询',
+    sqlText: '',
+    result: null,
+    selectedDb: selectedDb.value
+  }
+  subTabs.value.push(tab)
+  activeSubTabId.value = tab.id
+}
+
 async function executeSql(sql: string) {
   if (!connId.value || !sql.trim()) return
-  // 每次执行开一个新 SQL 结果 tab,自动激活
+
+  // 如果有激活的 SQL 编辑器标签页,将结果写入该标签页
+  const editorTab = activeSqlEditorTab.value
+  if (editorTab) {
+    editorTab.loading = true
+    editorTab.title = makeSqlTitle(sql)
+    editorTab.subtitle = sql.length > 60 ? sql.slice(0, 60) + '…' : sql
+    isExecutingAny.value = true
+    try {
+      editorTab.result = await dbService.mysqlExecute(connId.value, sql, editorTab.selectedDb || undefined)
+      addHistory(sql, editorTab.selectedDb || '')
+      if (editorTab.result?.error) editorTab.error = true
+    } catch (err: unknown) {
+      editorTab.result = {
+        columns: [],
+        rows: [],
+        rowsAffected: 0,
+        durationMs: 0,
+        isSelect: false,
+        error: err instanceof Error ? err.message : String(err)
+      }
+      editorTab.error = true
+    } finally {
+      editorTab.loading = false
+      isExecutingAny.value = subTabs.value.some(t => (t.kind === 'sql' || t.kind === 'sql-editor') && t.loading)
+    }
+    return
+  }
+
+  // 无 SQL 编辑器标签页时,创建新的 SQL 结果 tab
   const tab: SqlSubTab = {
     id: `sql-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     kind: 'sql',
@@ -634,12 +689,41 @@ async function executeSql(sql: string) {
     tab.error = true
   } finally {
     tab.loading = false
-    isExecutingAny.value = subTabs.value.some(t => t.kind === 'sql' && t.loading)
+    isExecutingAny.value = subTabs.value.some(t => (t.kind === 'sql' || t.kind === 'sql-editor') && t.loading)
   }
 }
 
 async function explainSql(sql: string) {
   if (!connId.value || !sql.trim()) return
+
+  // 如果有激活的 SQL 编辑器标签页,将 EXPLAIN 结果写入该标签页
+  const editorTab = activeSqlEditorTab.value
+  if (editorTab) {
+    editorTab.loading = true
+    const origTitle = editorTab.title
+    editorTab.title = 'EXPLAIN: ' + origTitle
+    isExecutingAny.value = true
+    try {
+      editorTab.result = await dbService.mysqlExplain(connId.value, sql, editorTab.selectedDb || undefined)
+      if (editorTab.result?.error) editorTab.error = true
+    } catch (err: unknown) {
+      editorTab.result = {
+        columns: [],
+        rows: [],
+        rowsAffected: 0,
+        durationMs: 0,
+        isSelect: false,
+        error: err instanceof Error ? err.message : String(err)
+      }
+      editorTab.error = true
+    } finally {
+      editorTab.loading = false
+      isExecutingAny.value = subTabs.value.some(t => (t.kind === 'sql' || t.kind === 'sql-editor') && t.loading)
+    }
+    return
+  }
+
+  // 无 SQL 编辑器标签页时,创建新的 SQL 结果 tab
   const tab: SqlSubTab = {
     id: `sql-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     kind: 'sql',
@@ -667,7 +751,7 @@ async function explainSql(sql: string) {
     tab.error = true
   } finally {
     tab.loading = false
-    isExecutingAny.value = subTabs.value.some(t => t.kind === 'sql' && t.loading)
+    isExecutingAny.value = subTabs.value.some(t => (t.kind === 'sql' || t.kind === 'sql-editor') && t.loading)
   }
 }
 
@@ -703,7 +787,6 @@ watch(() => assetId.value, () => {
   // 资产/路由切换:重置子标签(因为连接实例变了)
   subTabs.value = []
   activeSubTabId.value = null
-  sqlText.value = ''
 })
 
 /** 单子标签栏横向滚动溢出检测 */
@@ -733,7 +816,17 @@ watch(activeSubTabId, () => {
 })
 
 function insertTableName(name: string) {
-  sqlText.value += (sqlText.value && !sqlText.value.endsWith(' ') ? ' ' : '') + name
+  const tab = activeSqlEditorTab.value
+  if (tab) {
+    tab.sqlText += (tab.sqlText && !tab.sqlText.endsWith(' ') ? ' ' : '') + name
+  } else {
+    // 没有活跃的 SQL 编辑器标签页,自动新建一个
+    newSqlQuery()
+    const newTab = activeSqlEditorTab.value
+    if (newTab) {
+      newTab.sqlText = name
+    }
+  }
 }
 
 onMounted(() => {
@@ -1011,51 +1104,26 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 
     <!-- Main content -->
     <div class="db-main">
-      <!-- SQL Editor area -->
-      <div class="sql-area">
-        <div class="sql-section-label">
-          <span class="sql-section-tag">
-            <v-icon size="12">mdi-code-tags</v-icon>
-            SQL
-          </span>
-          <span class="sql-section-hint">{{ t('db.editorHint', '在此输入 SQL,⌘+Enter 执行') }}</span>
-        </div>
-        <div class="sql-toolbar">
-          <button class="cyber-btn" @click="executeSql(sqlText)" :disabled="isExecutingAny">
-            <v-icon size="14">mdi-play</v-icon>
-            {{ t('db.execute') }}
-          </button>
-          <button class="cyber-btn-secondary" @click="explainSql(sqlText)" :disabled="isExecutingAny">
-            <v-icon size="14">mdi-chart-timeline-variant</v-icon>
-            {{ t('db.explain') }}
-          </button>
-          <button class="action-btn" @click="sqlText = ''" :title="t('ssh.clear')">
-            <v-icon size="14">mdi-delete-outline</v-icon>
-          </button>
-          <select
-            v-if="asset?.config.dbType === 'mysql'"
-            v-model="selectedDb"
-            class="db-selector-inline"
-            :class="{ 'no-db': !selectedDb }"
-            :title="selectedDb ? `当前库: ${selectedDb}` : '⚠ 未选择数据库，执行 SQL 将使用连接默认库或报错'"
-          >
-            <option value="">⚠ 选择数据库</option>
-            <option v-for="db in databases" :key="db" :value="db">{{ db }}</option>
-          </select>
-          <span class="shortcut-hint">
-            <kbd>⌘</kbd>+<kbd>Enter</kbd> {{ t('db.execute') }}
-          </span>
-        </div>
-        <SqlEditor
-          v-model="sqlText"
-          :dialect="asset?.config.dbType === 'redis' ? 'redis' : 'mysql'"
-          :tables="allTableNames"
-          @execute="executeSql"
-          @explain="explainSql"
-        />
+      <!-- 工具栏:新建查询按钮 -->
+      <div class="db-toolbar">
+        <button class="cyber-btn" @click="newSqlQuery" :disabled="!connected">
+          <v-icon size="14">mdi-plus</v-icon>
+          {{ t('db.newQuery', '新建查询') }}
+        </button>
+        <div class="db-toolbar-spacer"></div>
+        <select
+          v-if="asset?.config.dbType === 'mysql'"
+          v-model="selectedDb"
+          class="db-selector-inline"
+          :class="{ 'no-db': !selectedDb }"
+          :title="selectedDb ? `当前库: ${selectedDb}` : '⚠ 未选择数据库'"
+        >
+          <option value="">⚠ 选择数据库</option>
+          <option v-for="db in databases" :key="db" :value="db">{{ db }}</option>
+        </select>
       </div>
 
-      <!-- 子标签栏:打开的表 + SQL 结果(放在 SQL 编辑器和结果区之间) -->
+      <!-- 子标签栏:打开的表 + SQL 编辑器 + SQL 结果 -->
       <div v-if="subTabs.length > 0" class="sub-tab-strip-wrap">
         <button
           v-show="canScrollLeft"
@@ -1106,10 +1174,10 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 
       <!-- Result area:根据当前激活的子标签渲染对应内容 -->
       <div class="result-area">
-        <!-- 空状态:无任何 sub-tab 时,提示用户从左侧选表或上方执行 SQL -->
+        <!-- 空状态:无任何 sub-tab 时,提示用户从左侧选表或新建查询 -->
         <div v-if="!activeSubTab" class="empty-state">
           <v-icon size="40" color="muted">mdi-database-search-outline</v-icon>
-          <div class="empty-state-title">从左侧选一张表,或在上方执行 SQL</div>
+          <div class="empty-state-title">从左侧选一张表,或点击「新建查询」执行 SQL</div>
           <div class="empty-state-hint">
             选表/执行后,这里会变成多标签页,可以并行浏览多张表或对比多次查询结果
           </div>
@@ -1137,7 +1205,65 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           </div>
         </template>
 
-        <!-- 2) SQL 结果 tab -->
+        <!-- 2) SQL 编辑器 tab - 独立 SQL 输入框 + 结果 -->
+        <template v-else-if="activeSqlEditorTab">
+          <div class="sql-editor-tab-body">
+            <!-- SQL 编辑器(每个标签页独立) -->
+            <div class="sql-area sql-area-inline">
+              <div class="sql-toolbar">
+                <button class="cyber-btn" @click="executeSql(activeSqlEditorTab.sqlText)" :disabled="isExecutingAny">
+                  <v-icon size="14">mdi-play</v-icon>
+                  {{ t('db.execute') }}
+                </button>
+                <button class="cyber-btn-secondary" @click="explainSql(activeSqlEditorTab.sqlText)" :disabled="isExecutingAny">
+                  <v-icon size="14">mdi-chart-timeline-variant</v-icon>
+                  {{ t('db.explain') }}
+                </button>
+                <button class="action-btn" @click="activeSqlEditorTab.sqlText = ''" :title="t('ssh.clear')">
+                  <v-icon size="14">mdi-delete-outline</v-icon>
+                </button>
+                <select
+                  v-if="asset?.config.dbType === 'mysql'"
+                  v-model="activeSqlEditorTab.selectedDb"
+                  class="db-selector-inline"
+                  :class="{ 'no-db': !activeSqlEditorTab.selectedDb }"
+                  :title="activeSqlEditorTab.selectedDb ? `当前库: ${activeSqlEditorTab.selectedDb}` : '⚠ 未选择数据库'"
+                >
+                  <option value="">⚠ 选择数据库</option>
+                  <option v-for="db in databases" :key="db" :value="db">{{ db }}</option>
+                </select>
+                <span class="shortcut-hint">
+                  <kbd>⌘</kbd>+<kbd>Enter</kbd> {{ t('db.execute') }}
+                </span>
+              </div>
+              <SqlEditor
+                v-model="activeSqlEditorTab.sqlText"
+                :dialect="asset?.config.dbType === 'redis' ? 'redis' : 'mysql'"
+                :tables="allTableNames"
+                @execute="executeSql"
+                @explain="explainSql"
+              />
+            </div>
+            <!-- 查询结果 -->
+            <div class="sql-result-area">
+              <DataGrid
+                v-if="activeSqlEditorTab.result"
+                :result="activeSqlEditorTab.result"
+                :loading="activeSqlEditorTab.loading"
+                :editable="false"
+              />
+              <div v-else-if="activeSqlEditorTab.loading" class="inner-loading">
+                <v-icon size="18" class="spin">mdi-loading</v-icon>
+                <span>{{ t('common.executing', '执行中…') }}</span>
+              </div>
+              <div v-else class="inner-empty">
+                <span class="muted-text">点击「执行」运行 SQL，或使用 ⌘+Enter 快捷键</span>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 3) SQL 结果 tab -->
         <DataGrid
           v-else-if="activeSqlTab"
           :result="activeSqlTab.result"
@@ -1455,6 +1581,21 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   overflow: hidden;
 }
 
+/* ====== 数据库工具栏(新建查询) ====== */
+.db-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+  min-height: 40px;
+}
+
+.db-toolbar-spacer {
+  flex: 1;
+}
+
 .sql-area {
   flex-shrink: 0;
   padding: 10px 12px 12px;
@@ -1556,7 +1697,8 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   flex-shrink: 0;
   border-bottom: 1px solid var(--line);
   background: rgba(5, 8, 16, 0.4);
-  min-height: 30px;
+  min-height: 32px;
+  padding: 0 4px;
   position: relative;
 }
 
@@ -1605,7 +1747,8 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   border-radius: 4px 4px 0 0;
   border: 1px solid transparent;
   border-bottom: none;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  width: max-content;
   max-width: 200px;
   user-select: none;
   position: relative;
@@ -1714,6 +1857,51 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* ====== SQL 编辑器标签页(独立 SQL 输入框 + 结果) ====== */
+.sql-editor-tab-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sql-area-inline {
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.sql-result-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.inner-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.inner-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.muted-text {
+  color: var(--muted);
 }
 
 /* SQL 结果 DataGrid 作为 .result-area 的直接子元素时,占满剩余空间 */
