@@ -1,16 +1,7 @@
 use russh::client;
 use russh::keys::PublicKey;
-use tokio::sync::{mpsc, oneshot};
 
-pub struct KbPromptRequest {
-    pub prompts: Vec<(String, bool)>,
-    pub instructions: String,
-    pub response_tx: oneshot::Sender<Vec<String>>,
-}
-
-pub struct SshHandler {
-    pub kb_tx: Option<mpsc::Sender<KbPromptRequest>>,
-}
+pub struct SshHandler;
 
 impl client::Handler for SshHandler {
     type Error = anyhow::Error;
