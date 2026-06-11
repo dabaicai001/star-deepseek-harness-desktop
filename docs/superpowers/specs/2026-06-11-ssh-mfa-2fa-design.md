@@ -40,7 +40,7 @@
   │                                       │      prompts: ["OTP Code:"]        
   │                                       │                                   
   │  ◄── event 'ssh:kb-interactive:{id}'│  │                                   
-  │       {prompts: [{prompt, echo}]}     ├─ 等待用户响应 (60s 超时)            │
+   │       {prompts: [{prompt, echo}]}     ├─ 等待用户响应 (360s 超时)            │
   │                                       │                                   
   │  KbInteractiveDialog (弹窗)          │                                   
   │  ├─ "OTP Code:" [123456]             │                                   
@@ -140,8 +140,8 @@ impl client::Handler for SshHandler {
             tx.send(request).await.ok();
         }
         
-        // 等待前端响应（60s 超时兜底）
-        match tokio::time::timeout(Duration::from_secs(60), resp_rx).await {
+        // 等待前端响应（360s 超时兜底）
+        match tokio::time::timeout(Duration::from_secs(360), resp_rx).await {
             Ok(Ok(responses)) => {
                 if responses.len() != prompts.len() {
                     anyhow::bail!("响应数量不匹配: 期望 {} 个, 收到 {} 个", prompts.len(), responses.len());
@@ -308,7 +308,7 @@ async fn ssh_kb_response(
 - 通过 `listen('ssh:kb-interactive:{id}')` 触发打开
 - `echo=false` 的 prompt 使用 `type="password"` 输入框
 - 若配置了 `totp_secret` 且 prompt 匹配关键词，自动填充 TOTP 码
-- 显示 60s 倒计时，超时自动取消
+- 显示 360s 倒计时，超时自动取消
 - 确认后调用 `ssh_kb_response` 回传
 - 取消或超时则断开 SSH 连接
 
@@ -399,7 +399,7 @@ export async function respondKeyboardInteractive(
 
 | 场景 | 处理 |
 |---|---|
-| KB-interactive 响应超时 (60s) | Rust 端返回错误，前端弹窗自动关闭，连接断开 |
+| KB-interactive 响应超时 (360s) | Rust 端返回错误，前端弹窗自动关闭，连接断开 |
 | 用户取消 KB-interactive 弹窗 | 前端发送取消信号 → Rust 断开连接 |
 | TOTP 密钥格式错误 | 连接时不报错，仅在 prompt 匹配时尝试生成；生成失败则弹窗中留空让用户手动输入 |
 | 跳板机也需要 MFA | 跳板机同样支持 `kb_interactive` 配置，独立于目标主机 |
