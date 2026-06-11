@@ -297,7 +297,7 @@ defineExpose({ focus, refreshHistory, historyVersion })
 <style scoped>
 .sql-editor {
   width: 100%;
-  min-height: 140px;
+  min-height: 100px;
   max-height: 400px;
   overflow: auto;
   border: 1px solid var(--line-2);

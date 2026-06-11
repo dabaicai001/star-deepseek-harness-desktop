@@ -260,7 +260,6 @@ function cancelEdit() {
     <!-- Toolbar -->
     <div class="grid-toolbar">
       <div class="toolbar-left">
-        <v-icon size="14" color="purple">mdi-table</v-icon>
         <!-- 总行数(粗体高亮) -->
         <span v-if="result && !result.error" class="row-count">
           <span class="total-num">{{ totalForPaging.toLocaleString() }}</span>
@@ -404,10 +403,11 @@ function cancelEdit() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  padding: 3px 8px;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
-  gap: 12px;
+  gap: 8px;
+  min-height: 24px;
 }
 
 .toolbar-left {

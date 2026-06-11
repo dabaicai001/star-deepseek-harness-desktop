@@ -94,6 +94,26 @@ function isActive(asset: Asset) {
   return activeTab?.assetId === asset.id
 }
 
+/**
+ * 单击 = 仅在侧边栏里"选中"(视觉高亮),不打开标签页。
+ * 双击 / Enter 才会真正进入。避免误触,符合 desktop 文件管理器习惯。
+ */
+const selectedAssetId = ref<string | null>(null)
+function selectAsset(asset: Asset) {
+  // 折叠态:单击图标先展开 sidebar,让用户"看到名字再确认",再二次操作
+  if (isCollapsed.value) {
+    appStore.sidebarOpen = true
+    selectedAssetId.value = asset.id
+    return
+  }
+  selectedAssetId.value = selectedAssetId.value === asset.id ? null : asset.id
+}
+function isSelected(asset: Asset) {
+  return selectedAssetId.value === asset.id
+}
+// 成功开 tab / 删除资产后清掉选中态,免得视觉残留
+watch(() => appStore.activeTab, () => { selectedAssetId.value = null })
+
 function connectToAsset(asset: Asset) {
   // 折叠态:点击图标等同于"展开 sidebar + 连接",让用户立刻看到反馈
   if (isCollapsed.value) appStore.sidebarOpen = true
@@ -413,10 +433,11 @@ function isGroupExpanded(id: string) {
         v-for="asset in assetStore.favoriteAssets"
         :key="asset.id"
         class="tree-item"
-        :class="{ active: isActive(asset) }"
+        :class="{ active: isActive(asset), selected: isSelected(asset) }"
         :data-tooltip="asset.name"
         tabindex="0"
-        @click="connectToAsset(asset)"
+        @click="selectAsset(asset)"
+        @dblclick="connectToAsset(asset)"
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
@@ -459,10 +480,11 @@ function isGroupExpanded(id: string) {
         v-for="asset in sshAssets"
         :key="asset.id"
         class="tree-item"
-        :class="{ active: isActive(asset) }"
+        :class="{ active: isActive(asset), selected: isSelected(asset) }"
         :data-tooltip="asset.name"
         tabindex="0"
-        @click="connectToAsset(asset)"
+        @click="selectAsset(asset)"
+        @dblclick="connectToAsset(asset)"
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
@@ -504,10 +526,11 @@ function isGroupExpanded(id: string) {
         v-for="asset in dbAssets"
         :key="asset.id"
         class="tree-item"
-        :class="{ active: isActive(asset) }"
+        :class="{ active: isActive(asset), selected: isSelected(asset) }"
         :data-tooltip="asset.name"
         tabindex="0"
-        @click="connectToAsset(asset)"
+        @click="selectAsset(asset)"
+        @dblclick="connectToAsset(asset)"
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
@@ -552,10 +575,11 @@ function isGroupExpanded(id: string) {
         v-for="asset in dockerAssets"
         :key="asset.id"
         class="tree-item"
-        :class="{ active: isActive(asset) }"
+        :class="{ active: isActive(asset), selected: isSelected(asset) }"
         :data-tooltip="asset.name"
         tabindex="0"
-        @click="connectToAsset(asset)"
+        @click="selectAsset(asset)"
+        @dblclick="connectToAsset(asset)"
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
@@ -743,6 +767,13 @@ function isGroupExpanded(id: string) {
 
 .tree-item:focus-visible {
   background: rgba(0, 240, 255, 0.05);
+  box-shadow: inset 2px 0 0 var(--cyan);
+}
+
+/* 单击选中的视觉态(active 是"已开 tab",selected 是"鼠标点过",两者可共存) */
+.tree-item.selected {
+  background: rgba(0, 240, 255, 0.06);
+  color: var(--text);
   box-shadow: inset 2px 0 0 var(--cyan);
 }
 

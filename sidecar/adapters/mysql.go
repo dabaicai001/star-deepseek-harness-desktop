@@ -264,12 +264,58 @@ func (a *MySQLAdapter) Execute(sqlStr string) (*QueryResult, error) {
 		strings.HasPrefix(upperCheck, "EXPLAIN")
 
 	if isSelect {
-		if !regexp.MustCompile(`(?i)\bLIMIT\s+\d+`).MatchString(checkStr) {
+		if !regexp.MustCompile(`(?i)\bLIMIT\s+\d+`).MatchString(checkStr) && !isSafeSystemQuery(checkStr) {
 			sqlStr = sqlStr + " LIMIT 100"
 		}
 		return a.executeSelect(sqlStr, start)
 	}
 	return a.executeExec(sqlStr, start)
+}
+
+// isSafeSystemQuery 判断是否是已知有界 / 系统级 SHOW 查询,无需 LIMIT 保护。
+// 这些语句返回行数固定有限(最多几百行),不会被恶意拉爆;同时仪表盘
+// `SHOW GLOBAL STATUS` / `SHOW GLOBAL VARIABLES` 包含 400+ 个 status 变量,
+// 强行 LIMIT 100 会把 `Threads_connected` / `Uptime` / `Queries` 等关键
+// 指标全部截断,导致仪表盘数字全 0。
+func isSafeSystemQuery(sqlStr string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(sqlStr))
+	patterns := []string{
+		"SHOW GLOBAL STATUS",
+		"SHOW GLOBAL VARIABLES",
+		"SHOW SESSION STATUS",
+		"SHOW SESSION VARIABLES",
+		"SHOW STATUS",
+		"SHOW VARIABLES",
+		"SHOW ENGINE INNODB STATUS",
+		"SHOW ENGINE INNODB MUTEX",
+		"SHOW ENGINE INNODB SYS",
+		"SHOW MASTER STATUS",
+		"SHOW SLAVE STATUS",
+		"SHOW REPLICA STATUS",
+		"SHOW BINARY LOGS",
+		"SHOW BINLOG EVENTS",
+		"SHOW PROCESSLIST",
+		"SHOW FULL PROCESSLIST",
+		"SHOW GRANTS",
+		"SHOW PRIVILEGES",
+		"SHOW EVENTS",
+		"SHOW TRIGGERS",
+		"SHOW PROCEDURE STATUS",
+		"SHOW FUNCTION STATUS",
+		"SHOW TABLE STATUS",
+		"SHOW WARNINGS",
+		"SHOW ERRORS",
+		"SHOW PLUGINS",
+		"SHOW ENGINES",
+		"SHOW CHARSET",
+		"SHOW COLLATION",
+	}
+	for _, p := range patterns {
+		if strings.HasPrefix(upper, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *MySQLAdapter) executeSelect(sqlStr string, start time.Time) (*QueryResult, error) {

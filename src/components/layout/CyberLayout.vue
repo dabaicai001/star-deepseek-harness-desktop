@@ -518,7 +518,12 @@ function getTabDisplayTitle(tab: { id: string; assetId?: string; title: string; 
 }
 
 function connectToAsset(asset: Asset) {
-  // 单击 = 总是新开 tab(不复用)
+  // Docker 走单视图,与侧边栏一致:不开 tab,只更新最近使用时间
+  if (asset.type === 'docker') {
+    assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
+    return
+  }
+  // SSH / DB:单击 = 总是新开 tab(不复用)
   const instanceId = generateInstanceId(asset.id)
   appStore.addTab({
     id: instanceId,
@@ -529,6 +534,12 @@ function connectToAsset(asset: Asset) {
   assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
   if (asset.type === 'ssh') {
     router.push({ name: 'ssh-terminal', params: { id: instanceId } })
+  } else if (asset.type === 'db') {
+    const dbType = asset.config.dbType || 'mysql'
+    router.push({
+      name: dbType === 'redis' ? 'db-redis' : dbType === 'elasticsearch' ? 'db-elasticsearch' : 'db-mysql',
+      params: { id: instanceId }
+    })
   }
 }
 
