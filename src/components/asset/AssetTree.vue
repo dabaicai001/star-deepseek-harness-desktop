@@ -189,13 +189,6 @@ const ctxItems = computed<MenuItem[]>(() => {
  onClick: () => openInNewTab(asset)
  },
 
- {
- type: 'item',
- icon: 'mdi-restart',
- label: t('asset.reconnect'),
- disabled: asset.type !== 'ssh',
- onClick: () => reconnectToAsset(asset)
- },
     {
       type: 'item',
       icon: 'mdi-restart',
