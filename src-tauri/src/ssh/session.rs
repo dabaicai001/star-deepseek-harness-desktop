@@ -366,6 +366,10 @@ async fn authenticate_keyboard_interactive(
                     }
                 }).collect();
 
+                // 创建 oneshot 等待前端响应（必须在 emit 之前，防止前端回调到达时 oneshot 还没就位）
+                let (resp_tx, resp_rx) = oneshot::channel();
+                pending_kb.lock().await.insert(session_id.to_string(), resp_tx);
+
                 // 发送 Tauri 事件到前端
                 let payload = serde_json::json!({
                     "instructions": instructions,
@@ -375,10 +379,6 @@ async fn authenticate_keyboard_interactive(
                 if let Some(app) = app_handle {
                     let _ = app.emit(&format!("ssh:kb-interactive:{}", session_id), payload);
                 }
-
-                // 创建 oneshot 等待前端响应
-                let (resp_tx, resp_rx) = oneshot::channel();
-                pending_kb.lock().await.insert(session_id.to_string(), resp_tx);
 
                 // 等待前端 ssh_kb_response（360s 超时）
                 let responses = match tokio::time::timeout(Duration::from_secs(360), resp_rx).await {

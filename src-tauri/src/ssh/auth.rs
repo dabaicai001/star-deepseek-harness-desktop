@@ -62,6 +62,12 @@ impl client::Handler for SshHandler {
             .unwrap_or("unknown")
             .to_string();
 
+        let (tx, rx) = oneshot::channel::<(bool, bool)>();
+        {
+            let mut pending = self.pending_hostkey.lock().await;
+            pending.insert(self.session_id.clone(), tx);
+        }
+
         let payload = serde_json::json!({
             "hostname": self.host,
             "port": self.port,
@@ -72,12 +78,6 @@ impl client::Handler for SshHandler {
             &format!("ssh:hostkey-confirm:{}", self.session_id),
             payload,
         );
-
-        let (tx, rx) = oneshot::channel::<(bool, bool)>();
-        {
-            let mut pending = self.pending_hostkey.lock().await;
-            pending.insert(self.session_id.clone(), tx);
-        }
 
         let (allowed, persist) = match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
             Ok(Ok(v)) => v,
