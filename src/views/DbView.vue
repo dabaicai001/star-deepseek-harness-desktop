@@ -19,8 +19,6 @@ import DataGrid from '@/components/db/DataGrid.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import ColumnListDialog from '@/components/db/ColumnListDialog.vue'
-import ColumnFormDialog from '@/components/db/ColumnFormDialog.vue'
-import ColumnDropDialog from '@/components/db/ColumnDropDialog.vue'
 import IndexListDialog from '@/components/db/IndexListDialog.vue'
 import CreateTableDialog from '@/components/db/CreateTableDialog.vue'
 import { addHistory } from '@/utils/sqlHistory'
@@ -126,19 +124,11 @@ const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 const ctxDb = ref('')
 const ctxTable = ref('')
 
-// Column dialog state
+// Column / Index dialog state
 const showColumnList = ref(false)
-const showColumnForm = ref(false)
-const columnFormMode = ref<'create' | 'modify'>('create')
-const columnFormTarget = ref<import('@/types/db').ColumnMeta | undefined>(undefined)
-const showColumnDrop = ref(false)
-
-// Index dialog state
 const showIndexList = ref(false)
 const showCreateTableDDL = ref(false)
 
-// Helper: cached columns for column picker
-const ctxTableColumns = ref<import('@/types/db').ColumnMeta[]>([])
 /** 内部视图(data / structure)按激活的表 tab 自身持有,模板用 computed 取出 */
 const activeSubTab = computed(() => subTabs.value.find(t => t.id === activeSubTabId.value) || null)
 /** 给模板用:当前激活的表 tab(供内部视图切换按钮判断) */
@@ -490,9 +480,6 @@ async function onTableContextMenu(e: MouseEvent, db: string, table: string) {
     items.push({ type: 'header', label: table })
     items.push({ type: 'divider' })
     items.push({ type: 'item', label: t('db.viewFields'), icon: 'mdi-table-column', onClick: () => { showColumnList.value = true } })
-    items.push({ type: 'item', label: t('db.addField'), icon: 'mdi-plus-circle', onClick: () => { columnFormMode.value = 'create'; columnFormTarget.value = undefined; showColumnForm.value = true } })
-    items.push({ type: 'item', label: t('db.modifyField'), icon: 'mdi-pencil-circle', onClick: openModifyColumn })
-    items.push({ type: 'item', label: t('db.deleteField'), icon: 'mdi-delete-circle', danger: true, onClick: () => { showColumnDrop.value = true } })
     items.push({ type: 'divider' })
     items.push({ type: 'item', label: t('db.viewDDL'), icon: 'mdi-code-tags', onClick: () => { showCreateTableDDL.value = true } })
     items.push({ type: 'divider' })
@@ -500,32 +487,6 @@ async function onTableContextMenu(e: MouseEvent, db: string, table: string) {
   }
 
   ctxMenu.value = { x: e.clientX, y: e.clientY, items }
-}
-
-async function openModifyColumn() {
-  try {
-    ctxTableColumns.value = await dbService.mysqlListColumns(connId.value!, ctxTable.value, ctxDb.value)
-    const col = await pickFromList(ctxTableColumns.value.map(c => ({ text: `${c.name} (${c.type})`, value: c })))
-    if (col) {
-      columnFormMode.value = 'modify'
-      columnFormTarget.value = col
-      showColumnForm.value = true
-    }
-  } catch { /* ignore */ }
-}
-
-async function pickFromList<T>(options: { text: string; value: T }[]): Promise<T | null> {
-  return new Promise((resolve) => {
-    const msg = options.map((o, i) => `${i + 1}. ${o.text}`).join('\n')
-    const choice = prompt(`Select:\n${msg}`)
-    if (choice) {
-      const idx = parseInt(choice) - 1
-      if (idx >= 0 && idx < options.length) resolve(options[idx].value)
-      else resolve(null)
-    } else {
-      resolve(null)
-    }
-  })
 }
 
 function onTableDataPageChange(page: number) {
@@ -1356,8 +1317,6 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 
         <!-- Column Dialogs -->
         <ColumnListDialog v-model="showColumnList" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" @reload="reloadActiveTable" />
-        <ColumnFormDialog v-model="showColumnForm" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" :mode="columnFormMode" :column="columnFormTarget" :existing-columns="ctxTableColumns" @reload="reloadActiveTable" />
-        <ColumnDropDialog v-model="showColumnDrop" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" @reload="reloadActiveTable" />
 
         <!-- Index Dialogs -->
         <IndexListDialog v-model="showIndexList" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" @reload="reloadActiveTable" />
