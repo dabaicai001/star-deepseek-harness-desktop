@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import { generateBatchColumnDDL, type ColumnEdit } from '@/utils/ddlGenerator'
@@ -7,7 +7,6 @@ import type { ColumnMeta } from '@/types/db'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 
-// 字段类型候选兜底(MySQL 常用),列里出现过的类型会前置展示
 const COMMON_TYPES = [
   'TINYINT', 'TINYINT(1)', 'SMALLINT', 'MEDIUMINT', 'INT', 'INT(11)', 'BIGINT',
   'FLOAT', 'DOUBLE', 'DECIMAL(10,2)',
@@ -38,7 +37,6 @@ const loading = ref(false)
 const executing = ref(false)
 const error = ref<string | null>(null)
 const successMsg = ref<string | null>(null)
-const adding = ref(false)
 const newCol = ref({ name: '', type: 'VARCHAR(255)', nullable: true, defaultVal: '', comment: '' })
 
 const editList = computed(() => Array.from(edits.value.values()))
@@ -50,7 +48,6 @@ const filteredList = computed(() => {
   return editList.value.filter(c => (c.type || c.newType).toLowerCase().includes(q))
 })
 
-// 模糊匹配候选:该列已用过的类型(去重) + 通用兜底
 const existingTypes = computed(() => {
   const set = new Set<string>()
   for (const c of editList.value) {
@@ -60,25 +57,37 @@ const existingTypes = computed(() => {
   return Array.from(set)
 })
 
-const typeCandidateFor = ref<string | null>(null)  // 当前打开下拉的列 newName
-const typeQueryFor = ref<string>('')                // 候选下拉的输入
-const typeHighlight = ref<number>(0)                // 键盘上下高亮
-const typeInputEl = ref<HTMLInputElement | null>(null)
+// ── Type picker (fixed-position via Teleport) ──
+const typePickerVisible = ref(false)
+const typePickerTarget = ref<ColumnEdit | '__new__' | null>(null)
+const typePickerHighlight = ref(0)
+const typePickerRect = ref({ top: 0, left: 0, width: 0 })
+const typePickerRef = ref<HTMLElement | null>(null)
 
-function openTypePicker(col: ColumnEdit) {
-  typeCandidateFor.value = col.newName
-  typeQueryFor.value = col.newType ?? ''
-  typeHighlight.value = 0
-  nextTick(() => typeInputEl.value?.focus())
+function onDocMouseDown(e: MouseEvent) {
+  if (!typePickerVisible.value) return
+  const el = typePickerRef.value
+  if (!el) return
+  const t = e.target as HTMLElement
+  if (!el.contains(t)) {
+    const inputs = document.querySelectorAll('.type-picker-input')
+    let onInput = false
+    inputs.forEach(inp => { if (inp.contains(t)) onInput = true })
+    if (!onInput) closeTypePicker()
+  }
 }
 
-function closeTypePicker() {
-  typeCandidateFor.value = null
-  typeQueryFor.value = ''
+onMounted(() => document.addEventListener('mousedown', onDocMouseDown, true))
+onBeforeUnmount(() => document.removeEventListener('mousedown', onDocMouseDown, true))
+
+function getTargetType(): string {
+  if (!typePickerTarget.value) return ''
+  if (typePickerTarget.value === '__new__') return newCol.value.type
+  return typePickerTarget.value.newType
 }
 
 const typeCandidates = computed(() => {
-  const q = typeQueryFor.value.trim().toLowerCase()
+  const q = getTargetType().trim().toLowerCase()
   const merged: string[] = []
   const seen = new Set<string>()
   for (const t of existingTypes.value) {
@@ -91,6 +100,27 @@ const typeCandidates = computed(() => {
   }
   return merged
 })
+
+function openTypePicker(col: ColumnEdit, inputEl: HTMLElement) {
+  typePickerTarget.value = col
+  typePickerHighlight.value = 0
+  const r = inputEl.getBoundingClientRect()
+  typePickerRect.value = { top: r.bottom + 2, left: r.left, width: Math.max(r.width, 240) }
+  typePickerVisible.value = true
+}
+
+function openNewColTypePicker(inputEl: HTMLElement) {
+  typePickerTarget.value = '__new__'
+  typePickerHighlight.value = 0
+  const r = inputEl.getBoundingClientRect()
+  typePickerRect.value = { top: r.bottom + 2, left: r.left, width: Math.max(r.width, 240) }
+  typePickerVisible.value = true
+}
+
+function closeTypePicker() {
+  typePickerVisible.value = false
+  typePickerTarget.value = null
+}
 
 function pickType(col: ColumnEdit, val: string) {
   col.newType = val
@@ -98,20 +128,26 @@ function pickType(col: ColumnEdit, val: string) {
   closeTypePicker()
 }
 
+function pickNewColType(val: string) {
+  newCol.value.type = val
+  closeTypePicker()
+}
+
 function onTypeKeydown(e: KeyboardEvent, col: ColumnEdit) {
   const list = typeCandidates.value
   if (e.key === 'ArrowDown') {
     e.preventDefault()
-    typeHighlight.value = Math.min(typeHighlight.value + 1, Math.max(list.length - 1, 0))
+    typePickerHighlight.value = Math.min(typePickerHighlight.value + 1, Math.max(list.length - 1, 0))
   } else if (e.key === 'ArrowUp') {
     e.preventDefault()
-    typeHighlight.value = Math.max(typeHighlight.value - 1, 0)
+    typePickerHighlight.value = Math.max(typePickerHighlight.value - 1, 0)
   } else if (e.key === 'Enter') {
     e.preventDefault()
-    if (list.length && typeHighlight.value < list.length) {
-      pickType(col, list[typeHighlight.value])
-    } else if (typeQueryFor.value.trim()) {
-      pickType(col, typeQueryFor.value.trim())
+    if (list.length && typePickerHighlight.value < list.length) {
+      pickType(col, list[typePickerHighlight.value])
+    } else if (col.newType.trim()) {
+      markDirty(col)
+      closeTypePicker()
     }
   } else if (e.key === 'Escape') {
     e.preventDefault()
@@ -119,44 +155,17 @@ function onTypeKeydown(e: KeyboardEvent, col: ColumnEdit) {
   }
 }
 
-// 新增字段行的 picker:直接用 newCol.type 作为查询,避免双向同步的坑
-const newColCandidates = computed(() => {
-  const q = (newCol.value.type || '').trim().toLowerCase()
-  const merged: string[] = []
-  const seen = new Set<string>()
-  for (const t of existingTypes.value) {
-    if (!q || t.toLowerCase().includes(q)) { merged.push(t); seen.add(t.toUpperCase()) }
-  }
-  for (const t of COMMON_TYPES) {
-    const up = t.toUpperCase()
-    if (seen.has(up)) continue
-    if (!q || t.toLowerCase().includes(q)) merged.push(t)
-  }
-  return merged
-})
-
-function openNewColTypePicker() {
-  typeCandidateFor.value = '__new__'
-  typeHighlight.value = 0
-}
-
-function pickNewColType(val: string) {
-  newCol.value.type = val
-  closeTypePicker()
-}
-
 function onNewColTypeKeydown(e: KeyboardEvent) {
-  const list = newColCandidates.value
+  const list = typeCandidates.value
   if (e.key === 'ArrowDown') {
     e.preventDefault()
-    typeHighlight.value = Math.min(typeHighlight.value + 1, Math.max(list.length - 1, 0))
+    typePickerHighlight.value = Math.min(typePickerHighlight.value + 1, Math.max(list.length - 1, 0))
   } else if (e.key === 'ArrowUp') {
     e.preventDefault()
-    typeHighlight.value = Math.max(typeHighlight.value - 1, 0)
+    typePickerHighlight.value = Math.max(typePickerHighlight.value - 1, 0)
   } else if (e.key === 'Enter') {
-    // 选中候选(若有),并提交新增
-    if (list.length && typeHighlight.value < list.length) {
-      newCol.value.type = list[typeHighlight.value]
+    if (list.length && typePickerHighlight.value < list.length) {
+      newCol.value.type = list[typePickerHighlight.value]
     }
     closeTypePicker()
     addNewCol()
@@ -335,33 +344,15 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
                 <td>
                   <input v-model="col.newName" class="cell-input" @input="markDirty(col)" />
                 </td>
-                <td style="position: relative;">
+                <td>
                   <input
                     v-model="col.newType"
-                    class="cell-input"
+                    class="cell-input type-picker-input"
                     @input="markDirty(col)"
-                    @focus="openTypePicker(col)"
-                    @keydown="onTypeKeydown($event, col)"
-                    @blur="closeTypePicker"
+                    @focus="openTypePicker(col, $event.target as HTMLElement)"
+                    @keydown="typePickerVisible && typePickerTarget === col ? onTypeKeydown($event, col) : undefined"
                     placeholder="VARCHAR(255)"
                   />
-                  <div v-if="typeCandidateFor === col.newName" class="type-picker">
-                    <div class="type-picker-hint">↑↓ 选择 · Enter 确认 · Esc 取消</div>
-                    <div v-if="typeCandidates.length === 0" class="type-picker-empty">
-                      无匹配 · 直接回车用 "{{ typeQueryFor }}" 即可
-                    </div>
-                    <div
-                      v-for="(t, i) in typeCandidates"
-                      :key="t"
-                      class="type-picker-item"
-                      :class="{ active: i === typeHighlight }"
-                      @mousedown.prevent="pickType(col, t)"
-                      @mouseenter="typeHighlight = i"
-                    >
-                      <span class="type-picker-label">{{ t }}</span>
-                      <v-icon v-if="existingTypes.includes(t)" size="10" color="cyan" class="type-picker-tag">mdi-database</v-icon>
-                    </div>
-                  </div>
                 </td>
                 <td class="td-center">
                   <input type="checkbox" v-model="col.newNullable" @change="markDirty(col)" />
@@ -389,32 +380,15 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
 
           <div class="add-row">
             <input v-model="newCol.name" class="cell-input" :placeholder="t('db.newColumn')" style="width: 120px;" @keyup.enter="addNewCol" />
-            <div style="position: relative; width: 120px;">
+            <div style="width: 120px;">
               <input
                 v-model="newCol.type"
-                class="cell-input"
+                class="cell-input type-picker-input"
                 placeholder="VARCHAR(255)"
-                @focus="openNewColTypePicker"
-                @keydown="onNewColTypeKeydown"
-                @blur="closeTypePicker"
+                @focus="openNewColTypePicker($event.target as HTMLElement)"
+                @keydown="typePickerVisible && typePickerTarget === '__new__' ? onNewColTypeKeydown($event) : undefined"
+                @keyup.enter="typePickerVisible ? undefined : addNewCol()"
               />
-              <div v-if="typeCandidateFor === '__new__'" class="type-picker" style="left: 0; right: auto;">
-                <div class="type-picker-hint">↑↓ 选择 · Enter 新增 · Esc 取消</div>
-                <div v-if="newColCandidates.length === 0" class="type-picker-empty">
-                  无匹配 · 直接回车用 "{{ newCol.type }}" 新增
-                </div>
-                <div
-                  v-for="(t, i) in newColCandidates"
-                  :key="t"
-                  class="type-picker-item"
-                  :class="{ active: i === typeHighlight }"
-                  @mousedown.prevent="pickNewColType(t)"
-                  @mouseenter="typeHighlight = i"
-                >
-                  <span class="type-picker-label">{{ t }}</span>
-                  <v-icon v-if="existingTypes.includes(t)" size="10" color="cyan" class="type-picker-tag">mdi-database</v-icon>
-                </div>
-              </div>
             </div>
             <label><input type="checkbox" v-model="newCol.nullable" /> NULL</label>
             <input v-model="newCol.defaultVal" class="cell-input" placeholder="default" style="width: 80px;" @keyup.enter="addNewCol" />
@@ -434,6 +408,30 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
         </div>
       </template>
     </div>
+
+    <!-- Type picker (fixed-position via Teleport, renders outside dialog) -->
+    <Teleport to="body">
+      <div
+        v-if="typePickerVisible"
+        ref="typePickerRef"
+        class="type-picker-fixed"
+        :style="{ top: typePickerRect.top + 'px', left: typePickerRect.left + 'px', width: typePickerRect.width + 'px' }"
+      >
+        <div class="type-picker-hint">↑↓ 选择 · Enter 确认 · Esc 取消 · 输入过滤</div>
+        <div v-if="typeCandidates.length === 0" class="type-picker-empty">无匹配类型</div>
+        <div
+          v-for="(t, i) in typeCandidates"
+          :key="t"
+          class="type-picker-item"
+          :class="{ active: i === typePickerHighlight }"
+          @mousedown.prevent="typePickerTarget === '__new__' ? pickNewColType(t) : pickType(typePickerTarget as ColumnEdit, t)"
+          @mouseenter="typePickerHighlight = i"
+        >
+          <span class="type-picker-label">{{ t }}</span>
+          <v-icon v-if="existingTypes.includes(t)" size="10" color="cyan" class="type-picker-tag">mdi-database</v-icon>
+        </div>
+      </div>
+    </Teleport>
   </v-dialog>
 
   <ContextMenu
@@ -486,12 +484,19 @@ tr.dropped td { opacity: 0.4; text-decoration: line-through; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .row-selected td { background: rgba(0, 240, 255, 0.06); }
 .td-idx.selected { color: var(--cyan); font-weight: 700; }
+</style>
 
-.type-picker {
-  position: absolute; top: 100%; left: 0; z-index: 10;
-  margin-top: 2px; min-width: 200px; max-width: 320px; max-height: 240px; overflow: auto;
-  background: var(--panel-solid-2); border: 1px solid var(--line-2);
-  border-radius: 6px; box-shadow: var(--shadow), 0 0 0 1px rgba(0, 240, 255, 0.1);
+<style>
+/* global: fixed-position type picker (Teleport to body) */
+.type-picker-fixed {
+  position: fixed;
+  z-index: 9999;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--panel-solid-2);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  box-shadow: 0 16px 48px -12px rgba(0,0,0,.6), 0 0 0 1px rgba(0, 240, 255, 0.15);
   padding: 4px;
 }
 .type-picker-hint {
