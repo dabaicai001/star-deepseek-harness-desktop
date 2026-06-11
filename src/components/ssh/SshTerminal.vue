@@ -351,27 +351,50 @@ async function connect() {
     }
   }
 
- // Tauri2 的 invoke 没有内置 timeout,如果 Rust端 ssh_connect任何一步 hang
- // (TCP 连不上 /协议握手卡住 / auth死循环),前端就永远 await、connecting一直 true
- // →客户端加15s兜底,超时后主动让后端清理 session,避免后端继续耗资源
- const CONNECT_TIMEOUT_MS =15_000
- let timeoutHandle: number | null = null
- const timeoutPromise = new Promise<never>((_, reject) => {
- timeoutHandle = window.setTimeout(() => {
- reject(new Error(`Connection timed out after ${CONNECT_TIMEOUT_MS /1000}s`))
- }, CONNECT_TIMEOUT_MS)
- })
+  // 在 invoke 之前注册 MFA / hostkey 事件监听(否则 Rust 端
+  // check_server_key / keyboard-interactive 发出的 event 在前端
+  // 还没 listen 时就丢掉了,导致 60s 超时连接失败)
+  unlistenHostkey = await listen<HostKeyInfo>(
+    `ssh:hostkey-confirm:${sessionId}`,
+    (event) => {
+      hostKeyDialogRef.value?.open(event.payload).then((result) => {
+        invoke('ssh_hostkey_response', {
+          id: sessionId,
+          allowed: result !== 'reject',
+          persist: result === 'persist'
+        })
+      })
+    }
+  )
 
- try {
- await Promise.race([
- invoke<unknown>('ssh_connect', { id: sessionId, config }),
- timeoutPromise
- ])
- } finally {
- if (timeoutHandle !== null) {
- window.clearTimeout(timeoutHandle)
- }
- }
+  unlistenKb = await listen<KbInteractiveEvent>(
+    `ssh:kb-interactive:${sessionId}`,
+    (event) => {
+      kbDialogRef.value?.open(event.payload)
+    }
+  )
+
+  // Tauri2 的 invoke 没有内置 timeout,如果 Rust端 ssh_connect任何一步 hang
+  // (TCP 连不上 /协议握手卡住 / auth死循环),前端就永远 await、connecting一直 true
+  // →客户端加15s兜底,超时后主动让后端清理 session,避免后端继续耗资源
+  const CONNECT_TIMEOUT_MS =15_000
+  let timeoutHandle: number | null = null
+  const timeoutPromise = new Promise<never>((_, reject) => {
+  timeoutHandle = window.setTimeout(() => {
+  reject(new Error(`Connection timed out after ${CONNECT_TIMEOUT_MS /1000}s`))
+  }, CONNECT_TIMEOUT_MS)
+  })
+
+  try {
+  await Promise.race([
+  invoke<unknown>('ssh_connect', { id: sessionId, config }),
+  timeoutPromise
+  ])
+  } finally {
+  if (timeoutHandle !== null) {
+  window.clearTimeout(timeoutHandle)
+  }
+  }
 
  //上面 race resolve 后,可能是 invoke成功也可能是 timeout兜底失败
  // → 如果 connectCallId已经不是最新的了(用户重连了),本次结果作废
@@ -408,25 +431,8 @@ async function connect() {
   }
   })
 
-  unlistenKb = await listen<KbInteractiveEvent>(
-    `ssh:kb-interactive:${sessionId}`,
-    (event) => {
-      kbDialogRef.value?.open(event.payload)
-    }
-  )
 
-  unlistenHostkey = await listen<HostKeyInfo>(
-    `ssh:hostkey-confirm:${sessionId}`,
-    (event) => {
-      hostKeyDialogRef.value?.open(event.payload).then((result) => {
-        invoke('ssh_hostkey_response', {
-          id: sessionId,
-          allowed: result !== 'reject',
-          persist: result === 'persist'
-        })
-      })
-    }
-  )
+
  } catch (error) {
   const msg = error instanceof Error ? error.message : String(error)
   lastError.value = msg
