@@ -127,14 +127,18 @@ export function generateDropIndexDDL(db: string, table: string, indexName: strin
 export interface IndexEdit {
   name: string
   newName: string
-  columns: string[]
-  newColumns: string[]
+  columns: string       // comma-separated
+  newColumns: string    // comma-separated
   unique: boolean
   newUnique: boolean
   indexType: string
   newIndexType: string
   dirty: boolean
   dropped: boolean
+}
+
+function splitCols(s: string): string[] {
+  return s.split(',').map(c => c.trim()).filter(Boolean)
 }
 
 export function generateBatchIndexDDL(db: string, table: string, edits: IndexEdit[]): string[] {
@@ -150,7 +154,7 @@ export function generateBatchIndexDDL(db: string, table: string, edits: IndexEdi
   // 再处理新增/修改
   for (const e of edits) {
     if (!e.dropped && e.dirty) {
-      ddls.push(generateCreateIndexDDL(db, table, e.newName, e.newColumns, e.newUnique, e.newIndexType))
+      ddls.push(generateCreateIndexDDL(db, table, e.newName, splitCols(e.newColumns), e.newUnique, e.newIndexType))
     }
   }
   return ddls

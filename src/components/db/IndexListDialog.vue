@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import { generateBatchIndexDDL } from '@/utils/ddlGenerator'
-import type { IndexInfo } from '@/types/db'
+import type { IndexInfo, ColumnMeta } from '@/types/db'
 import type { IndexEdit } from '@/utils/ddlGenerator'
 
 const INDEX_TYPES = ['BTREE', 'HASH', 'FULLTEXT', 'SPATIAL']
@@ -23,6 +23,7 @@ const emit = defineEmits<{
 }>()
 
 const indexes = ref<IndexInfo[]>([])
+const tableColumns = ref<string[]>([])
 const edits = ref<Map<string, IndexEdit>>(new Map())
 const loading = ref(false)
 const executing = ref(false)
@@ -32,6 +33,12 @@ const searchText = ref('')
 
 const newIdx = ref({ name: '', columns: '', unique: false, indexType: 'BTREE' })
 
+// ── Column picker state ──
+const colPickerTarget = ref<string | null>(null) // index name, or '__new__' for add-row
+const colPickerQuery = ref('')
+const colPickerHighlight = ref(0)
+const colPickerInputEl = ref<HTMLInputElement | null>(null)
+
 const groupedEdits = computed(() => Array.from(edits.value.values()))
 
 const filteredEdits = computed(() => {
@@ -40,11 +47,78 @@ const filteredEdits = computed(() => {
   return groupedEdits.value.filter(e => e.name.toLowerCase().includes(q))
 })
 
+// 匹配的列名(模糊搜索)
+const matchingColumns = computed(() => {
+  const q = colPickerQuery.value.trim().toLowerCase()
+  if (!q) return tableColumns.value
+  return tableColumns.value.filter(c => c.toLowerCase().includes(q))
+})
+
+// 当前编辑行的 columns 输入值对应的字符串
+function getColStr(e: IndexEdit): string {
+  return e.newColumns
+}
+
+function openColPicker(target: string) {
+  colPickerTarget.value = target
+  colPickerQuery.value = ''
+  colPickerHighlight.value = 0
+  nextTick(() => colPickerInputEl.value?.focus())
+}
+
+function closeColPicker() {
+  colPickerTarget.value = null
+  colPickerQuery.value = ''
+}
+
+function appendColumn(target: string, col: string) {
+  if (target === '__new__') {
+    const current = newIdx.value.columns.trim()
+    newIdx.value.columns = current ? current + ', ' + col : col
+  } else {
+    const e = edits.value.get(target)
+    if (e) {
+      const current = e.newColumns.trim()
+      e.newColumns = current ? current + ', ' + col : col
+      markDirty(e)
+    }
+  }
+  closeColPicker()
+}
+
+function onColPickerKeydown(e: KeyboardEvent) {
+  const list = matchingColumns.value
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    colPickerHighlight.value = Math.min(colPickerHighlight.value + 1, Math.max(list.length - 1, 0))
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    colPickerHighlight.value = Math.max(colPickerHighlight.value - 1, 0)
+  } else if (e.key === 'Enter') {
+    e.preventDefault()
+    if (list.length && colPickerHighlight.value < list.length) {
+      appendColumn(colPickerTarget.value!, list[colPickerHighlight.value])
+    } else if (colPickerQuery.value.trim()) {
+      appendColumn(colPickerTarget.value!, colPickerQuery.value.trim())
+    }
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    closeColPicker()
+  }
+}
+
+// ── Data loading ──
+
 async function load() {
   loading.value = true
   error.value = null
   try {
-    indexes.value = await dbService.mysqlListIndexes(props.connId, props.table, props.db)
+    const [idxList, cols] = await Promise.all([
+      dbService.mysqlListIndexes(props.connId, props.table, props.db),
+      dbService.mysqlListColumns(props.connId, props.table, props.db)
+    ])
+    indexes.value = idxList
+    tableColumns.value = cols.map(c => c.name)
     resetEdits()
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -55,7 +129,6 @@ async function load() {
 
 function resetEdits() {
   const map = new Map<string, IndexEdit>()
-  // group by keyName
   const groups = new Map<string, { nonUnique: number; indexType: string; columns: string[] }>()
   for (const idx of indexes.value) {
     if (!groups.has(idx.keyName)) {
@@ -64,11 +137,12 @@ function resetEdits() {
     groups.get(idx.keyName)!.columns.push(idx.columnName)
   }
   for (const [name, info] of groups) {
+    const colsStr = info.columns.join(', ')
     map.set(name, {
       name,
       newName: name,
-      columns: [...info.columns],
-      newColumns: [...info.columns],
+      columns: colsStr,
+      newColumns: colsStr,
       unique: info.nonUnique === 0,
       newUnique: info.nonUnique === 0,
       indexType: info.indexType || 'BTREE',
@@ -85,7 +159,7 @@ function resetEdits() {
 function markDirty(e: IndexEdit) {
   e.dirty =
     e.newName !== e.name ||
-    String(e.newColumns) !== String(e.columns) ||
+    e.newColumns !== e.columns ||
     e.newUnique !== e.unique ||
     e.newIndexType !== e.indexType
 }
@@ -97,7 +171,7 @@ function toggleDrop(e: IndexEdit) {
 
 function resetEdit(e: IndexEdit) {
   e.newName = e.name
-  e.newColumns = [...e.columns]
+  e.newColumns = e.columns
   e.newUnique = e.unique
   e.newIndexType = e.indexType
   e.dropped = false
@@ -106,11 +180,8 @@ function resetEdit(e: IndexEdit) {
 
 function addNewIdx() {
   const name = newIdx.value.name.trim()
-  const cols = newIdx.value.columns
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean)
-  if (!name || cols.length === 0) return
+  const cols = newIdx.value.columns.trim()
+  if (!name || !cols) return
   const entry: IndexEdit = {
     name,
     newName: name,
@@ -129,8 +200,7 @@ function addNewIdx() {
 }
 
 async function applyChanges() {
-  const list = groupedEdits.value
-  const ddls = generateBatchIndexDDL(props.db, props.table, list)
+  const ddls = generateBatchIndexDDL(props.db, props.table, groupedEdits.value)
   if (ddls.length === 0) return
   executing.value = true
   error.value = null
@@ -154,12 +224,12 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
 </script>
 
 <template>
-  <v-dialog :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" max-width="720">
+  <v-dialog :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" max-width="780">
     <div class="cyber-panel" style="padding: 0; max-height: 80vh; display: flex; flex-direction: column;">
       <div class="dialog-header">
         <v-icon size="16" color="var(--yellow)">mdi-key-variant</v-icon>
         <span class="dialog-title">{{ db }}.{{ table }}</span>
-        <span class="dialog-subtitle">{{ groupedEdits.length }} indexes</span>
+        <span class="dialog-subtitle">{{ groupedEdits.length }} indexes · {{ tableColumns.length }} columns</span>
         <v-spacer />
         <v-btn variant="text" size="small" icon="mdi-close" @click="emit('update:modelValue', false)" />
       </div>
@@ -197,13 +267,41 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
                 <td>
                   <input v-model="e.newName" class="cell-input" @input="markDirty(e)" />
                 </td>
-                <td>
+                <td style="position: relative;">
                   <input
                     v-model="e.newColumns"
                     class="cell-input"
                     @input="markDirty(e)"
+                    @focus="openColPicker(e.name)"
+                    @keydown="onColPickerKeydown"
+                    @blur="closeColPicker"
                     placeholder="col1, col2"
                   />
+                  <div v-if="colPickerTarget === e.name" class="col-picker">
+                    <div class="col-picker-hint">↑↓ 选择 · Enter 追加 · Esc 取消 · 输入过滤</div>
+                    <input
+                      ref="colPickerInputEl"
+                      v-model="colPickerQuery"
+                      class="col-picker-search"
+                      placeholder="搜索列名..."
+                      @keydown.stop="onColPickerKeydown"
+                    />
+                    <div v-if="matchingColumns.length === 0" class="col-picker-empty">
+                      无匹配列名
+                    </div>
+                    <div
+                      v-for="(c, i) in matchingColumns"
+                      :key="c"
+                      class="col-picker-item"
+                      :class="{ active: i === colPickerHighlight }"
+                      @mousedown.prevent="appendColumn(e.name, c)"
+                      @mouseenter="colPickerHighlight = i"
+                    >
+                      <v-icon size="10" color="var(--cyan)">mdi-table-column</v-icon>
+                      <span>{{ c }}</span>
+                      <span v-if="e.newColumns.includes(c)" class="col-picker-selected">已选</span>
+                    </div>
+                  </div>
                 </td>
                 <td class="td-center">
                   <input type="checkbox" :checked="e.newUnique" @change="e.newUnique = ($event.target as HTMLInputElement).checked; markDirty(e)" />
@@ -227,7 +325,39 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
 
           <div class="add-row">
             <input v-model="newIdx.name" class="cell-input" :placeholder="t('db.newIndex')" style="width: 120px;" @keyup.enter="addNewIdx" />
-            <input v-model="newIdx.columns" class="cell-input" placeholder="col1, col2" style="width: 180px;" @keyup.enter="addNewIdx" />
+            <div style="position: relative; width: 180px;">
+              <input
+                v-model="newIdx.columns"
+                class="cell-input"
+                placeholder="col1, col2"
+                @focus="openColPicker('__new__')"
+                @keydown="onColPickerKeydown"
+                @blur="closeColPicker"
+                @keyup.enter="addNewIdx"
+              />
+              <div v-if="colPickerTarget === '__new__'" class="col-picker" style="left: 0; right: auto;">
+                <div class="col-picker-hint">↑↓ 选择 · Enter 追加 · Esc 取消</div>
+                <input
+                  ref="colPickerInputEl"
+                  v-model="colPickerQuery"
+                  class="col-picker-search"
+                  placeholder="搜索列名..."
+                  @keydown.stop="onColPickerKeydown"
+                />
+                <div v-if="matchingColumns.length === 0" class="col-picker-empty">无匹配列名</div>
+                <div
+                  v-for="(c, i) in matchingColumns"
+                  :key="c"
+                  class="col-picker-item"
+                  :class="{ active: i === colPickerHighlight }"
+                  @mousedown.prevent="appendColumn('__new__', c)"
+                  @mouseenter="colPickerHighlight = i"
+                >
+                  <v-icon size="10" color="var(--cyan)">mdi-table-column</v-icon>
+                  <span>{{ c }}</span>
+                </div>
+              </div>
+            </div>
             <label style="display: flex; align-items: center; gap: 2px; font-size: 10px;">
               <input type="checkbox" v-model="newIdx.unique" /> UNIQUE
             </label>
@@ -295,4 +425,38 @@ tr.dropped td { opacity: 0.4; text-decoration: line-through; }
 .action-btn-sm:hover, .action-btn-sm.active { border-color: var(--cyan); color: var(--cyan); }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ── Column picker dropdown ── */
+.col-picker {
+  position: absolute; top: 100%; left: 0; z-index: 20;
+  margin-top: 2px; min-width: 200px; max-width: 300px; max-height: 240px; overflow: auto;
+  background: var(--panel-solid-2); border: 1px solid var(--line-2);
+  border-radius: 6px; box-shadow: var(--shadow), 0 0 0 1px rgba(0, 240, 255, 0.1);
+  padding: 4px;
+}
+.col-picker-hint {
+  padding: 4px 8px; font-size: 9px; color: var(--muted);
+  border-bottom: 1px solid var(--line); margin-bottom: 2px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.col-picker-search {
+  width: 100%; padding: 4px 8px; background: var(--panel-solid); border: 1px solid var(--line-2);
+  border-radius: 4px; color: var(--text); font-size: 11px;
+  font-family: 'JetBrains Mono', monospace; outline: none; margin-bottom: 4px;
+}
+.col-picker-search:focus { border-color: var(--cyan); }
+.col-picker-empty {
+  padding: 6px 8px; font-size: 10px; color: var(--muted); font-style: italic;
+}
+.col-picker-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 4px; cursor: pointer;
+  font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--text-2);
+}
+.col-picker-item.active { background: rgba(0, 240, 255, 0.1); color: var(--cyan); }
+.col-picker-item:hover { background: rgba(0, 240, 255, 0.06); }
+.col-picker-selected {
+  margin-left: auto; font-size: 9px; color: var(--green);
+  padding: 1px 4px; border-radius: 3px; background: rgba(0, 255, 140, 0.08);
+}
 </style>
