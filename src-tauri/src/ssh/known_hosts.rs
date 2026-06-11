@@ -49,3 +49,15 @@ pub async fn add_host(host: &str, port: u16, key: &PublicKey) -> Result<(), Stri
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_host_key_format() {
+        assert_eq!(host_key("example.com", 22), "example.com:22");
+        assert_eq!(host_key("192.168.1.1", 2222), "192.168.1.1:2222");
+        assert_eq!(host_key("test", 0), "test:0");
+    }
+}

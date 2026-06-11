@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{Mutex, oneshot};
 use tauri::State;
@@ -10,6 +10,7 @@ pub struct SshManager {
     channels: Arc<Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
     pub pending_kb: Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>,
     pub pending_hostkey: Arc<Mutex<HashMap<String, oneshot::Sender<(bool, bool)>>>>,
+    abandoned: Arc<Mutex<HashSet<String>>>,
 }
 
 impl SshManager {
@@ -19,6 +20,7 @@ impl SshManager {
             channels: Arc::new(Mutex::new(HashMap::new())),
             pending_kb: Arc::new(Mutex::new(HashMap::new())),
             pending_hostkey: Arc::new(Mutex::new(HashMap::new())),
+            abandoned: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 }
@@ -45,6 +47,16 @@ pub async fn ssh_connect(
         connected: true,
     };
 
+    // 检查前端是否在 connect 期间已 disconnect(标记为 abandoned)
+    {
+        let mut abandoned = manager.abandoned.lock().await;
+        if abandoned.remove(&id) {
+            // 前端已放弃此连接,立即断开并返回错误
+            session.disconnect();
+            return Err("Connection aborted by client".to_string());
+        }
+    }
+
     // 只在插入 map 时短暂持锁
     let mut sessions = manager.sessions.lock().await;
     sessions.insert(id, Arc::new(Mutex::new(session)));
@@ -66,6 +78,11 @@ pub async fn ssh_disconnect(
     if let Some(session) = session_arc {
         let mut session = session.lock().await;
         session.disconnect();
+    } else {
+        // 如果 session 还没注册(还在 connect 阶段),标记为 abandoned,
+        // ssh_connect 完成后会检查此标记并自动清理,防止资源泄漏。
+        let mut abandoned = manager.abandoned.lock().await;
+        abandoned.insert(id.clone());
     }
 
     // Also remove the write channel
@@ -227,7 +244,7 @@ pub async fn ssh_hostkey_response(
     manager: State<'_, SshManager>,
     id: String,
     allowed: bool,
-    #[allow(unused)] persist: bool,
+    persist: bool,
 ) -> Result<(), String> {
     let sender = {
         let mut map = manager.pending_hostkey.lock().await;

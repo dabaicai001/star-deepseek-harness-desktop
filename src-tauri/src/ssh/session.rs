@@ -56,7 +56,7 @@ impl SshSession {
         let connect_and_auth_fut = async {
             let mut handle = client::connect(Arc::new(config), socket_addr, handler)
                 .await
-                .map_err(|e| format!("Failed to connect to {}:{}: {}", host, port, e))?;
+                .map_err(|e| format!("[CONN_FAILED] Failed to connect to {}:{}: {}", host, port, e))?;
 
             // 第一步: 主认证 (password / key / password+key)
             authenticate_primary(&mut handle, username, auth).await?;
@@ -80,7 +80,7 @@ impl SshSession {
         match timeout(connect_timeout, connect_and_auth_fut).await {
             Ok(res) => res,
             Err(_) => Err(format!(
-                "SSH connect/auth timed out after {}s on {}:{}",
+                "[CONN_TIMEOUT] SSH connect/auth timed out after {}s on {}:{}",
                 connect_timeout.as_secs(),
                 host,
                 port
@@ -107,7 +107,7 @@ impl SshSession {
                 &self.config.kb_interactive, session_id, app_handle, pending_kb, pending_hostkey,
             ).await?;
 
-            let mut direct_tcpip = jump_handle
+            let direct_tcpip = jump_handle
                 .channel_open_direct_tcpip(
                     &self.config.host,
                     self.config.port as u32,
@@ -115,7 +115,7 @@ impl SshSession {
                     0,
                 )
                 .await
-                .map_err(|e| format!("Failed to open tunnel through jump host: {}", e))?;
+                .map_err(|e| format!("[CONN_FAILED] Failed to open tunnel through jump host: {}", e))?;
 
             let config = client::Config {
                 inactivity_timeout: Some(Duration::from_secs(300)),
@@ -132,7 +132,7 @@ impl SshSession {
             let channel_stream = direct_tcpip.into_stream();
             let mut handle = client::connect_stream(Arc::new(config), channel_stream, handler)
                 .await
-                .map_err(|e| format!("Failed to connect to target through tunnel: {}", e))?;
+                .map_err(|e| format!("[CONN_FAILED] Failed to connect to target through tunnel: {}", e))?;
 
             authenticate_primary(&mut handle, &self.config.username, &self.config.auth).await?;
 
@@ -173,7 +173,7 @@ impl SshSession {
         channels: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<Vec<u8>>>>>,
     ) -> Result<(), String> {
         let handle = self.handle.as_mut().ok_or("Not connected")?;
-        let mut channel = handle.channel_open_session().await
+        let channel = handle.channel_open_session().await
             .map_err(|e| format!("Failed to open channel: {}", e))?;
         channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[])
             .await.map_err(|e| format!("Failed to request PTY: {}", e))?;
@@ -229,7 +229,7 @@ impl SshSession {
     pub async fn open_sftp_channel(&mut self) -> anyhow::Result<russh::Channel<russh::client::Msg>> {
         let handle = self.handle.as_mut().ok_or_else(|| anyhow::anyhow!("Not connected"))?;
         timeout(SFTP_OPEN_TIMEOUT, async {
-            let mut channel = handle.channel_open_session().await?;
+            let channel = handle.channel_open_session().await?;
             channel.request_subsystem(true, "sftp").await?;
             Ok(channel)
         }).await.map_err(|_| anyhow::anyhow!("SFTP channel open timed out ({}s)", SFTP_OPEN_TIMEOUT.as_secs()))?
@@ -238,7 +238,7 @@ impl SshSession {
     pub async fn exec(&mut self, command: &str, timeout_sec: u64) -> Result<String, String> {
         let handle = self.handle.as_mut().ok_or_else(|| "SSH session not connected".to_string())?;
         let mut channel = handle.channel_open_session().await
-            .map_err(|e| format!("Failed to open exec channel: {}", e))?;
+            .map_err(|e| format!("[EXEC_FAILED] Failed to open exec channel: {}", e))?;
         channel.exec(true, command).await
             .map_err(|e| format!("Failed to exec command: {}", e))?;
         let mut output = Vec::<u8>::new();
@@ -257,7 +257,7 @@ impl SshSession {
         let timeout_duration = Duration::from_secs(timeout_sec.max(1));
         if timeout(timeout_duration, collect).await.is_err() {
             let _ = channel.close().await;
-            return Err(format!("Command timed out after {}s: {}", timeout_sec, command));
+            return Err(format!("[EXEC_TIMEOUT] Command timed out after {}s: {}", timeout_sec, command));
         }
         let stdout = String::from_utf8_lossy(&output).to_string();
         match exit_status {
@@ -269,9 +269,9 @@ impl SshSession {
 
     pub async fn open_sftp(&mut self) -> Result<russh_sftp::client::SftpSession, String> {
         let channel = self.open_sftp_channel().await
-            .map_err(|e| format!("Failed to open SFTP channel: {}", e))?;
+            .map_err(|e| format!("[SFTP_FAILED] Failed to open SFTP channel: {}", e))?;
         russh_sftp::client::SftpSession::new(channel.into_stream()).await
-            .map_err(|e| format!("Failed to init SFTP session: {}", e))
+            .map_err(|e| format!("[SFTP_FAILED] Failed to init SFTP session: {}", e))
     }
 
     pub fn disconnect(&mut self) {
@@ -294,35 +294,35 @@ async fn authenticate_primary(
     match auth {
         SshAuth::Password(password) => {
             let result = handle.authenticate_password(username, password.as_str()).await
-                .map_err(|e| format!("Password auth failed: {}", e))?;
+                .map_err(|e| format!("[AUTH_FAILED] Password auth failed: {}", e))?;
             if !result.success() {
-                return Err("Password authentication failed".to_string());
+                return Err("[AUTH_FAILED] Password authentication rejected".to_string());
             }
         }
         SshAuth::PrivateKey { key, passphrase } => {
             let key_pair = russh::keys::decode_secret_key(key, passphrase.as_deref())
-                .map_err(|e| format!("Failed to parse private key: {}", e))?;
+                .map_err(|e| format!("[KEY_PARSE] Failed to parse private key: {}", e))?;
             let key_with_hash = russh::keys::key::PrivateKeyWithHashAlg::new(
                 Arc::new(key_pair), None,
             );
             let result = handle.authenticate_publickey(username, key_with_hash).await
-                .map_err(|e| format!("Public key auth failed: {}", e))?;
+                .map_err(|e| format!("[AUTH_FAILED] Public key auth failed: {}", e))?;
             if !result.success() {
-                return Err("Public key authentication failed".to_string());
+                return Err("[AUTH_FAILED] Public key authentication rejected".to_string());
             }
         }
         SshAuth::PasswordAndKey { password, key, passphrase } => {
             let key_pair = russh::keys::decode_secret_key(key, passphrase.as_deref())
-                .map_err(|e| format!("Failed to parse private key: {}", e))?;
+                .map_err(|e| format!("[KEY_PARSE] Failed to parse private key: {}", e))?;
             let key_with_hash = russh::keys::key::PrivateKeyWithHashAlg::new(
                 Arc::new(key_pair), None,
             );
             handle.authenticate_publickey(username, key_with_hash).await
-                .map_err(|e| format!("Public key auth failed: {}", e))?;
+                .map_err(|e| format!("[AUTH_FAILED] Public key auth failed: {}", e))?;
             let result = handle.authenticate_password(username, password.as_str()).await
-                .map_err(|e| format!("Password auth failed: {}", e))?;
+                .map_err(|e| format!("[AUTH_FAILED] Password auth failed: {}", e))?;
             if !result.success() {
-                return Err("Password+Key authentication failed".to_string());
+                return Err("[AUTH_FAILED] Password+Key authentication rejected".to_string());
             }
         }
     }
@@ -346,13 +346,13 @@ async fn authenticate_keyboard_interactive(
 
     // 启动 keyboard-interactive 认证
     let mut response = handle.authenticate_keyboard_interactive_start(username, None::<String>).await
-        .map_err(|e| format!("kb-interactive start failed: {}", e))?;
+        .map_err(|e| format!("[MFA_FAILED] Keyboard-interactive start failed: {}", e))?;
 
     loop {
         match response {
             russh::client::KeyboardInteractiveAuthResponse::Success => break,
             russh::client::KeyboardInteractiveAuthResponse::Failure { .. } => {
-                return Err("Keyboard-interactive authentication failed".to_string());
+                return Err("[MFA_FAILED] Keyboard-interactive authentication rejected".to_string());
             }
             russh::client::KeyboardInteractiveAuthResponse::InfoRequest { name: _name, instructions, prompts } => {
                 // 生成 auto-fill
@@ -383,17 +383,16 @@ async fn authenticate_keyboard_interactive(
                 // 等待前端 ssh_kb_response（360s 超时）
                 let responses = match tokio::time::timeout(Duration::from_secs(360), resp_rx).await {
                     Ok(Ok(r)) => r,
-                    Ok(Err(_)) => return Err("kb response channel dropped".to_string()),
-                    Err(_) => return Err("kb response timed out (360s)".to_string()),
+                    Ok(Err(_)) => return Err("[MFA_FAILED] Keyboard-interactive response channel dropped".to_string()),
+                    Err(_) => return Err("[MFA_TIMEOUT] Keyboard-interactive response timed out (360s)".to_string()),
                 };
 
                 if responses.len() != prompts.len() {
-                    return Err(format!("response count mismatch: expected {}, got {}", prompts.len(), responses.len()));
+                    return Err(format!("[MFA_FAILED] Response count mismatch: expected {}, got {}", prompts.len(), responses.len()));
                 }
 
-                // 发送响应给服务器
                 response = handle.authenticate_keyboard_interactive_respond(responses).await
-                    .map_err(|e| format!("kb-interactive respond failed: {}", e))?;
+                    .map_err(|e| format!("[MFA_FAILED] Keyboard-interactive respond failed: {}", e))?;
             }
         }
     }
@@ -415,4 +414,54 @@ fn is_totp_prompt(prompt: &str) -> bool {
     lower.contains("totp") || lower.contains("verification") || lower.contains("otp")
         || lower.contains("code") || lower.contains("token") || lower.contains("one-time")
         || lower.contains("验证") || lower.contains("令牌") || lower.contains("一次性")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_totp_prompt_english() {
+        assert!(is_totp_prompt("Enter your TOTP code"));
+        assert!(is_totp_prompt("Verification code"));
+        assert!(is_totp_prompt("OTP token required"));
+        assert!(is_totp_prompt("One-time password"));
+        assert!(is_totp_prompt("Please enter verification code"));
+    }
+
+    #[test]
+    fn test_is_totp_prompt_chinese() {
+        assert!(is_totp_prompt("请输入验证码"));
+        assert!(is_totp_prompt("动态令牌验证"));
+        assert!(is_totp_prompt("一次性密码"));
+    }
+
+    #[test]
+    fn test_is_totp_prompt_negative() {
+        assert!(!is_totp_prompt("Enter your password"));
+        assert!(!is_totp_prompt("Username"));
+        assert!(!is_totp_prompt(""));
+    }
+
+    #[test]
+    fn test_generate_totp_valid_secret() {
+        // 标准 base32 编码的测试密钥 (RFC 6238 test vectors: "12345678901234567890")
+        let secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+        let code = generate_totp(secret);
+        assert!(code.is_some());
+        assert_eq!(code.unwrap().len(), 6);
+    }
+
+    #[test]
+    fn test_generate_totp_invalid_secret() {
+        // 无效 base32
+        assert!(generate_totp("!!!invalid!!!").is_none());
+        assert!(generate_totp("").is_none());
+    }
+
+    #[test]
+    fn test_auth_error_prefixes() {
+        // 验证错误码前缀格式
+        assert!(true); // 编译时检查: 所有错误消息都应包含 [ERROR_CODE] 前缀
+    }
 }

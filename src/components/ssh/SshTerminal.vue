@@ -377,7 +377,7 @@ async function connect() {
   // Tauri2 的 invoke 没有内置 timeout,如果 Rust端 ssh_connect任何一步 hang
   // (TCP 连不上 /协议握手卡住 / auth死循环),前端就永远 await、connecting一直 true
   // →客户端加15s兜底,超时后主动让后端清理 session,避免后端继续耗资源
-  const CONNECT_TIMEOUT_MS =15_000
+  const CONNECT_TIMEOUT_MS = 60_000
   let timeoutHandle: number | null = null
   const timeoutPromise = new Promise<never>((_, reject) => {
   timeoutHandle = window.setTimeout(() => {

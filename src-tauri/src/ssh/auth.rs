@@ -46,11 +46,11 @@ impl client::Handler for SshHandler {
         let app_handle = match &self.app_handle {
             Some(h) => h,
             None => {
-                return Err(anyhow::anyhow!(
-                    "Host key verification failed: no UI available to confirm {}:{}",
-                    self.host,
-                    self.port
-                ));
+                    return Err(anyhow::anyhow!(
+                        "[HOSTKEY_REJECTED] No UI available to confirm host key for {}:{}",
+                        self.host,
+                        self.port
+                    ));
             }
         };
 
@@ -71,8 +71,9 @@ impl client::Handler for SshHandler {
         let payload = serde_json::json!({
             "hostname": self.host,
             "port": self.port,
+            "remote": format!("{}:{}", self.host, self.port),
             "keyType": key_type,
-            "sha256Fingerprint": sha256,
+            "sha256": sha256,
         });
         let _ = app_handle.emit(
             &format!("ssh:hostkey-confirm:{}", self.session_id),
@@ -82,13 +83,13 @@ impl client::Handler for SshHandler {
         let (allowed, persist) = match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
             Ok(Ok(v)) => v,
             Ok(Err(_)) => {
-                return Err(anyhow::anyhow!("Host key prompt channel dropped"));
+                return Err(anyhow::anyhow!("[HOSTKEY_REJECTED] Host key prompt channel dropped"));
             }
             Err(_) => {
                 let mut pending = self.pending_hostkey.lock().await;
                 pending.remove(&self.session_id);
                 return Err(anyhow::anyhow!(
-                    "Host key verification timed out for {}:{}",
+                    "[HOSTKEY_TIMEOUT] Host key verification timed out for {}:{}",
                     self.host,
                     self.port
                 ));
