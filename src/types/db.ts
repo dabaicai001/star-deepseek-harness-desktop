@@ -45,6 +45,7 @@ export interface QueryResult {
   durationMs: number
   isSelect: boolean
   error?: string
+  totalRows?: number
 }
 
 export interface TableInfo {

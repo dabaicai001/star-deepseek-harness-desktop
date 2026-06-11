@@ -38,6 +38,7 @@ type QueryResult struct {
 	DurationMs   int64              `json:"durationMs"`
 	IsSelect     bool               `json:"isSelect"`
 	Error        string             `json:"error,omitempty"`
+	TotalRows    int64              `json:"totalRows,omitempty"`
 }
 
 // ColumnInfo 列信息
@@ -319,7 +320,11 @@ func isSafeSystemQuery(sqlStr string) bool {
 }
 
 func (a *MySQLAdapter) executeSelect(sqlStr string, start time.Time) (*QueryResult, error) {
-	rows, err := a.db.Queryx(sqlStr)
+	return a.executeSelectArgs(sqlStr, nil, start)
+}
+
+func (a *MySQLAdapter) executeSelectArgs(sqlStr string, args []interface{}, start time.Time) (*QueryResult, error) {
+	rows, err := a.db.Queryx(sqlStr, args...)
 	if err != nil {
 		return &QueryResult{
 			Error:      err.Error(),
@@ -400,7 +405,9 @@ func (a *MySQLAdapter) GetTableDDL(database, table string) (string, error) {
 }
 
 // GetTableData 分页获取表数据
-func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, orderBy, orderDir string) (*QueryResult, error) {
+// filter: 全局文本搜索,对所有文本列做 LIKE 匹配
+// columnFilters: 精确列筛选,对指定列做 = 匹配
+func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, orderBy, orderDir, filter string, columnFilters map[string]string) (*QueryResult, error) {
 	if database == "" {
 		database = a.conn.Database
 	}
@@ -412,6 +419,44 @@ func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, o
 	}
 
 	query := fmt.Sprintf("SELECT * FROM `%s`.`%s`", database, table)
+
+	// Build WHERE clause from filters
+	var conditions []string
+	var args []interface{}
+
+	// 全局文本搜索:对所有文本列做 LIKE
+	if filter != "" {
+		cols, err := a.ListColumns(database, table)
+		if err == nil {
+			var textConds []string
+			for _, c := range cols {
+				typeLower := strings.ToLower(c.Type)
+				if strings.Contains(typeLower, "char") ||
+					strings.Contains(typeLower, "text") ||
+					strings.Contains(typeLower, "enum") ||
+					strings.Contains(typeLower, "set") {
+					textConds = append(textConds, fmt.Sprintf("`%s` LIKE ?", c.Name))
+					args = append(args, "%"+filter+"%")
+				}
+			}
+			if len(textConds) > 0 {
+				conditions = append(conditions, "("+strings.Join(textConds, " OR ")+")")
+			}
+		}
+	}
+
+	// 精确列筛选
+	if len(columnFilters) > 0 {
+		for col, val := range columnFilters {
+			conditions = append(conditions, fmt.Sprintf("`%s` = ?", col))
+			args = append(args, val)
+		}
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
 	if orderBy != "" {
 		dir := "ASC"
 		if strings.ToUpper(orderDir) == "DESC" {
@@ -421,7 +466,27 @@ func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, o
 	}
 	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
 
-	return a.executeSelect(query, time.Now())
+	var result *QueryResult
+	if len(args) > 0 {
+		result, _ = a.executeSelectArgs(query, args, time.Now())
+	} else {
+		result, _ = a.executeSelect(query, time.Now())
+	}
+
+	// When filters are active, also return filtered row count for pagination
+	if len(conditions) > 0 {
+		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`", database, table)
+		countQuery += " WHERE " + strings.Join(conditions, " AND ")
+		var totalRows int64
+		if len(args) > 0 {
+			a.db.Get(&totalRows, countQuery, args...)
+		} else {
+			a.db.Get(&totalRows, countQuery)
+		}
+		result.TotalRows = totalRows
+	}
+
+	return result, nil
 }
 
 // GetRowCount 获取表行数

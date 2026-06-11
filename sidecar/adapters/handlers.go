@@ -361,13 +361,15 @@ func handleMySQLGetTableDDL(mgr *pool.Manager) Handler {
 func handleMySQLGetTableData(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
-			ConnID   string `json:"connId"`
-			Database string `json:"database,omitempty"`
-			Table    string `json:"table"`
-			Limit    int    `json:"limit,omitempty"`
-			Offset   int    `json:"offset,omitempty"`
-			OrderBy  string `json:"orderBy,omitempty"`
-			OrderDir string `json:"orderDir,omitempty"`
+			ConnID        string            `json:"connId"`
+			Database      string            `json:"database,omitempty"`
+			Table         string            `json:"table"`
+			Limit         int               `json:"limit,omitempty"`
+			Offset        int               `json:"offset,omitempty"`
+			OrderBy       string            `json:"orderBy,omitempty"`
+			OrderDir      string            `json:"orderDir,omitempty"`
+			Filter        string            `json:"filter,omitempty"`
+			ColumnFilters map[string]string `json:"columnFilters,omitempty"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
@@ -376,7 +378,7 @@ func handleMySQLGetTableData(mgr *pool.Manager) Handler {
 		if err != nil {
 			return nil, err
 		}
-		return adapter.GetTableData(p.Database, p.Table, p.Limit, p.Offset, p.OrderBy, p.OrderDir)
+		return adapter.GetTableData(p.Database, p.Table, p.Limit, p.Offset, p.OrderBy, p.OrderDir, p.Filter, p.ColumnFilters)
 	}
 }
 

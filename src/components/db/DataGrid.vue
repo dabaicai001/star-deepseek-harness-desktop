@@ -36,6 +36,8 @@ const props = withDefaults(defineProps<{
   editable?: boolean
   /** 主键列(用于构造 WHERE 定位行) */
   pkCols?: string[]
+  /** 当前活跃的列筛选 */
+  columnFilters?: Record<string, string>
 }>(), {
   totalRows: undefined,
   page: 0,
@@ -43,7 +45,8 @@ const props = withDefaults(defineProps<{
   pageSizeOptions: () => [100, 500, 1000, 2000, 5000],
   tableName: '',
   editable: false,
-  pkCols: () => []
+  pkCols: () => [],
+  columnFilters: () => ({})
 })
 
 const emit = defineEmits<{
@@ -53,6 +56,7 @@ const emit = defineEmits<{
   'page-change': [page: number]
   'page-size-change': [size: number]
   'sort-change': [col: string]
+  'column-filter': [col: string, value: string]
 }>()
 
 // Row selection
@@ -106,6 +110,42 @@ function copyInsert(rowIdx: number) {
 
 function deleteRow(rowIdx: number) {
   emit('rowDelete', rowIdx)
+}
+
+// ─── 列筛选 popover ───
+const filterPopoverCol = ref<string | null>(null)
+const filterPopoverInput = ref('')
+const filterPopoverPos = ref({ top: 0, left: 0 })
+
+function openFilterPopover(e: MouseEvent, colName: string) {
+  const rect = (e.target as HTMLElement).getBoundingClientRect()
+  filterPopoverPos.value = { top: rect.bottom + 4, left: rect.left }
+  filterPopoverCol.value = colName
+  filterPopoverInput.value = props.columnFilters?.[colName] || ''
+}
+
+function closeFilterPopover() {
+  filterPopoverCol.value = null
+  filterPopoverInput.value = ''
+}
+
+function applyColumnFilter() {
+  if (filterPopoverCol.value) {
+    emit('column-filter', filterPopoverCol.value, filterPopoverInput.value)
+  }
+  closeFilterPopover()
+}
+
+function clearColumnFilter() {
+  if (filterPopoverCol.value) {
+    emit('column-filter', filterPopoverCol.value, '')
+  }
+  closeFilterPopover()
+}
+
+function onFilterKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') applyColumnFilter()
+  if (e.key === 'Escape') closeFilterPopover()
 }
 
 // 客户端过滤(只对客户端分页模式有效)
@@ -315,14 +355,23 @@ function cancelEdit() {
                 :key="col.name"
                 class="col-header"
                 :class="{ sorted: sortColumn === col.name, desc: sortDir === 'DESC' }"
-                @click="toggleSort(col.name)"
               >
-                <span class="col-name">{{ col.name }}</span>
-                <span class="col-type">{{ col.type }}</span>
-                <v-icon v-if="sortColumn === col.name" size="10" class="sort-icon">
-                  {{ sortDir === 'ASC' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}
-                </v-icon>
-                <span v-if="editable && pkCols.includes(col.name)" class="pk-marker" :title="t('db.primaryKey')">🔑</span>
+                <div class="col-header-inner" @click="toggleSort(col.name)">
+                  <span class="col-name">{{ col.name }}</span>
+                  <span class="col-type">{{ col.type }}</span>
+                  <v-icon v-if="sortColumn === col.name" size="10" class="sort-icon">
+                    {{ sortDir === 'ASC' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}
+                  </v-icon>
+                  <span v-if="editable && pkCols.includes(col.name)" class="pk-marker" :title="t('db.primaryKey')">🔑</span>
+                </div>
+                <button
+                  class="col-filter-btn"
+                  :class="{ active: columnFilters?.[col.name] }"
+                  @click.stop="openFilterPopover($event, col.name)"
+                  :title="t('common.filter', '筛选')"
+                >
+                  <v-icon size="10">{{ columnFilters?.[col.name] ? 'mdi-filter' : 'mdi-filter-outline' }}</v-icon>
+                </button>
               </th>
             </tr>
           </thead>
@@ -365,6 +414,46 @@ function cancelEdit() {
           </tbody>
         </table>
       </div>
+
+      <!-- Column filter popover -->
+      <teleport to="body">
+        <div
+          v-if="filterPopoverCol"
+          class="col-filter-popover"
+          :style="{
+            position: 'fixed',
+            top: filterPopoverPos.top + 'px',
+            left: filterPopoverPos.left + 'px',
+            zIndex: 9999
+          }"
+        >
+          <div class="col-filter-popover-header">{{ filterPopoverCol }}</div>
+          <div class="col-filter-popover-body">
+            <input
+              ref="filterPopoverInputRef"
+              v-model="filterPopoverInput"
+              type="text"
+              class="cyber-input col-filter-popover-input"
+              placeholder="筛选值..."
+              @keydown="onFilterKeydown"
+              autofocus
+            />
+          </div>
+          <div class="col-filter-popover-actions">
+            <button class="cyber-btn-secondary" style="font-size:11px;padding:2px 8px;" @click="clearColumnFilter">
+              清除
+            </button>
+            <button class="cyber-btn" style="font-size:11px;padding:2px 8px;" @click="applyColumnFilter">
+              应用
+            </button>
+          </div>
+        </div>
+      </teleport>
+      <div
+        v-if="filterPopoverCol"
+        class="col-filter-backdrop"
+        @click="closeFilterPopover"
+      />
 
       <!-- Pagination -->
       <div class="grid-pagination" v-if="totalForPaging > 0">
@@ -539,9 +628,8 @@ function cancelEdit() {
 .col-header {
   background: var(--panel-solid-2);
   border-bottom: 1px solid var(--line-2);
-  padding: 6px 10px;
+  padding: 4px 8px;
   text-align: left;
-  cursor: pointer;
   user-select: none;
   white-space: nowrap;
   transition: background 0.15s;
@@ -554,6 +642,13 @@ function cancelEdit() {
 
 .col-header.sorted {
   background: rgba(181, 107, 255, 0.06);
+}
+
+.col-header-inner {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  max-width: calc(100% - 20px);
 }
 
 .col-name {
@@ -577,6 +672,77 @@ function cancelEdit() {
   margin-left: 4px;
   font-size: 10px;
   opacity: 0.6;
+}
+
+.col-filter-btn {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 2px;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+.col-header:hover .col-filter-btn {
+  opacity: 1;
+}
+.col-filter-btn.active {
+  opacity: 1;
+  color: var(--cyan);
+}
+.col-filter-btn:hover {
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.1);
+}
+
+/* ─── 列筛选 popover ─── */
+.col-filter-popover {
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  min-width: 180px;
+  max-width: 260px;
+  overflow: hidden;
+}
+.col-filter-popover-header {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.06);
+  border-bottom: 1px solid var(--line);
+}
+.col-filter-popover-body {
+  padding: 8px;
+}
+.col-filter-popover-input {
+  width: 100%;
+  font-size: 12px;
+  padding: 4px 8px !important;
+  height: 28px;
+}
+.col-filter-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--line);
+}
+.col-filter-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
 }
 
 .col-index {

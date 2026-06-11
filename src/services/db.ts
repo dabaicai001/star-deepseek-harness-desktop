@@ -102,9 +102,11 @@ export async function mysqlGetTableData(
   offset?: number,
   orderBy?: string,
   orderDir?: string,
-  database?: string
+  database?: string,
+  filter?: string,
+  columnFilters?: Record<string, string>
 ): Promise<QueryResult> {
-  return invoke('db_mysql_get_table_data', { connId, table, limit, offset, orderBy, orderDir, database })
+  return invoke('db_mysql_get_table_data', { connId, table, limit, offset, orderBy, orderDir, database, filter, columnFilters })
 }
 
 export async function mysqlDropTable(connId: string, table: string, ifExists?: boolean, database?: string): Promise<void> {

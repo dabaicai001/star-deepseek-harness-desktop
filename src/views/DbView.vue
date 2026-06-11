@@ -93,6 +93,8 @@ interface TableSubTab extends BaseSubTab {
   dataPageSize: number
   dataOrderBy: string | null
   dataOrderDir: 'ASC' | 'DESC'
+  filterText: string
+  columnFilters: Record<string, string>
 }
 
 interface SqlSubTab extends BaseSubTab {
@@ -394,7 +396,9 @@ async function selectTable(db: string, tableName: string) {
     dataPage: 0,
     dataPageSize: 100,
     dataOrderBy: null,
-    dataOrderDir: 'ASC'
+    dataOrderDir: 'ASC',
+    filterText: '',
+    columnFilters: {}
   }
   subTabs.value.push(tab)
   activeSubTabId.value = tab.id
@@ -418,15 +422,21 @@ async function loadTableDataFor(tab: TableSubTab, force = false) {
       : null
     const dataPromise = dbService.mysqlGetTableData(
       connId.value, tab.table, tab.dataPageSize, offset,
-      tab.dataOrderBy || undefined, tab.dataOrderDir, tab.db
+      tab.dataOrderBy || undefined, tab.dataOrderDir, tab.db,
+      tab.filterText || undefined,
+      Object.keys(tab.columnFilters).length > 0 ? tab.columnFilters : undefined
     )
     if (metaPromise) {
       const [meta, data] = await Promise.all([metaPromise, dataPromise])
       tab.columns = meta.columns
-      tab.dataTotal = meta.rowCount
+      tab.dataTotal = data.totalRows != null ? data.totalRows : meta.rowCount
       tab.data = data
     } else {
-      tab.data = await dataPromise
+      const data = await dataPromise
+      tab.data = data
+      if (data.totalRows != null) {
+        tab.dataTotal = data.totalRows
+      }
     }
   } catch (err: unknown) {
     tab.data = {
@@ -512,6 +522,53 @@ function onTableDataSortChange(col: string) {
     tab.dataOrderBy = col
     tab.dataOrderDir = 'ASC'
   }
+  void loadTableDataFor(tab, true)
+}
+
+// ─── 表数据筛选 ───
+let filterDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+const hasActiveFilters = computed(() => {
+  const tab = activeTableTab.value
+  if (!tab) return false
+  return !!tab.filterText || Object.keys(tab.columnFilters).length > 0
+})
+
+function applyTableFilters() {
+  const tab = activeTableTab.value
+  if (!tab) return
+  tab.dataPage = 0
+  void loadTableDataFor(tab, true)
+}
+
+function removeColumnFilter(col: string) {
+  const tab = activeTableTab.value
+  if (!tab) return
+  delete tab.columnFilters[col]
+  tab.columnFilters = { ...tab.columnFilters }
+  tab.dataPage = 0
+  void loadTableDataFor(tab, true)
+}
+
+function clearAllFilters() {
+  const tab = activeTableTab.value
+  if (!tab) return
+  tab.filterText = ''
+  tab.columnFilters = {}
+  tab.dataPage = 0
+  void loadTableDataFor(tab, true)
+}
+
+function setColumnFilter(col: string, value: string) {
+  const tab = activeTableTab.value
+  if (!tab) return
+  if (value) {
+    tab.columnFilters = { ...tab.columnFilters, [col]: value }
+  } else {
+    delete tab.columnFilters[col]
+    tab.columnFilters = { ...tab.columnFilters }
+  }
+  tab.dataPage = 0
   void loadTableDataFor(tab, true)
 }
 
@@ -1213,6 +1270,38 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         <!-- 1) 表 tab - 数据视图 -->
         <template v-else-if="activeTableTab">
           <div class="inner-tab-body">
+            <!-- 筛选栏 -->
+            <div class="table-filter-bar">
+              <div class="filter-search-wrap">
+                <v-icon size="14" class="filter-search-icon">mdi-magnify</v-icon>
+                <input
+                  v-model="activeTableTab.filterText"
+                  type="text"
+                  class="cyber-input filter-search-input"
+                  :placeholder="t('common.search') + '...'"
+                  @keyup.enter="applyTableFilters"
+                  @blur="applyTableFilters"
+                />
+              </div>
+              <span
+                v-for="(val, col) in activeTableTab.columnFilters"
+                :key="col"
+                class="filter-chip"
+              >
+                <span class="filter-chip-col">{{ col }}</span>
+                <span class="filter-chip-op">=</span>
+                <span class="filter-chip-val">{{ val }}</span>
+                <button class="filter-chip-close" @click="removeColumnFilter(col)" :title="t('common.clear', '清除')">&times;</button>
+              </span>
+              <button
+                v-if="hasActiveFilters"
+                class="filter-clear-all"
+                @click="clearAllFilters"
+                :title="t('common.clearAll', '清除全部')"
+              >
+                <v-icon size="14">mdi-filter-remove</v-icon>
+              </button>
+            </div>
             <DataGrid
               :key="`${activeTableTab.db}.${activeTableTab.table}.${activeTableTab.data ? 'loaded' : 'loading'}`"
               :result="activeTableTab.data"
@@ -1224,10 +1313,12 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               :editable="tablePrimaryKeys.length > 0"
               :pk-cols="tablePrimaryKeys"
               :table-name="activeTableTab.table"
+              :column-filters="activeTableTab.columnFilters"
               @page-change="onTableDataPageChange"
               @page-size-change="onTableDataPageSizeChange"
               @sort-change="onTableDataSortChange"
               @cell-edit="onCellEdit"
+              @column-filter="setColumnFilter"
             />
           </div>
         </template>
@@ -1849,12 +1940,100 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   flex: 1;
   min-height: 0;
   display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
-.inner-tab-body > * {
+.inner-tab-body > .table-filter-bar {
+  flex: 0 0 auto;
+}
+.inner-tab-body > :not(.table-filter-bar) {
   flex: 1;
   min-width: 0;
   min-height: 0;
+}
+
+/* ====== 表数据筛选栏 ====== */
+.table-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--panel-solid);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.filter-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.filter-search-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.filter-search-input {
+  width: 200px;
+  padding-left: 28px !important;
+  padding-right: 8px !important;
+  height: 28px;
+  font-size: 12px;
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 8px;
+  background: rgba(0, 240, 255, 0.1);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.filter-chip-col {
+  color: var(--cyan);
+}
+.filter-chip-op {
+  color: var(--muted);
+  margin: 0 1px;
+}
+.filter-chip-val {
+  color: var(--text-2);
+}
+.filter-chip-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 2px;
+  margin-left: 2px;
+}
+.filter-chip-close:hover {
+  color: var(--red);
+  background: rgba(255, 80, 80, 0.15);
+}
+.filter-clear-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.filter-clear-all:hover {
+  color: var(--text);
+  border-color: var(--text-2);
 }
 
 /* ====== 空状态(无任何 sub-tab 时) ====== */

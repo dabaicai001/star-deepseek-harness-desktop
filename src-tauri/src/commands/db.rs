@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde_json::Value;
 use crate::sidecar::SidecarManager;
 use tauri::State;
@@ -169,6 +171,8 @@ pub async fn db_mysql_get_table_data(
     order_by: Option<String>,
     order_dir: Option<String>,
     database: Option<String>,
+    filter: Option<String>,
+    column_filters: Option<HashMap<String, String>>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table });
     if let Some(l) = limit { params["limit"] = serde_json::json!(l); }
@@ -176,6 +180,8 @@ pub async fn db_mysql_get_table_data(
     if let Some(ob) = order_by { params["orderBy"] = serde_json::json!(ob); }
     if let Some(od) = order_dir { params["orderDir"] = serde_json::json!(od); }
     if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(f) = filter { params["filter"] = serde_json::json!(f); }
+    if let Some(cf) = column_filters { params["columnFilters"] = serde_json::json!(cf); }
     sidecar.call("db.mysql.getTableData", params).await
 }
 
