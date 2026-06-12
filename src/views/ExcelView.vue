@@ -36,7 +36,7 @@ async function openExcel() {
       filePath: string
       sheetNames: string[]
       initialData?: { sheetName: string; columns: string[]; rows: string[][]; totalRows: number }
-    }>('sidecar:rpc', {
+    }>('sidecar_rpc', {
       method: 'file.excel.open',
       params: { filePath: asset.value.config.filePath, format: asset.value.config.format || 'xlsx' }
     })
@@ -67,7 +67,7 @@ async function saveFile() {
   store.setLoading(true)
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    await invoke('sidecar:rpc', {
+    await invoke('sidecar_rpc', {
       method: 'file.excel.save',
       params: { connId: store.connId }
     })
@@ -85,7 +85,7 @@ async function switchSheet(sheetName: string) {
   try {
     const { invoke } = await import('@tauri-apps/api/core')
     const result = await invoke<{ sheetName: string; columns: string[]; rows: string[][]; totalRows: number }>(
-      'sidecar:rpc', {
+      'sidecar_rpc', {
         method: 'file.excel.readSheet',
         params: { connId: store.connId, sheetName }
       }
@@ -107,7 +107,7 @@ async function onCellChange(edits: CellEdit[]) {
   if (!store.connId || edits.length === 0 || !store.activeSheet) return
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    await invoke('sidecar:rpc', {
+    await invoke('sidecar_rpc', {
       method: 'file.excel.writeCells',
       params: { connId: store.connId, sheetName: store.activeSheet, cells: edits }
     })
@@ -121,7 +121,7 @@ async function addSheet() {
   const name = `Sheet${store.sheetNames.length + 1}`
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    await invoke('sidecar:rpc', {
+    await invoke('sidecar_rpc', {
       method: 'file.excel.addSheet',
       params: { connId: store.connId, sheetName: name }
     })
@@ -136,7 +136,7 @@ async function removeDuplicates() {
   if (!store.connId || !store.activeSheet) return
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    const result = await invoke<{ removed: number; ok: boolean }>('sidecar:rpc', {
+    const result = await invoke<{ removed: number; ok: boolean }>('sidecar_rpc', {
       method: 'file.excel.removeDuplicates',
       params: { connId: store.connId, sheetName: store.activeSheet, columns: [] }
     })

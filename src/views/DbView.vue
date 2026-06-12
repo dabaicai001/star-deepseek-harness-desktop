@@ -1103,7 +1103,7 @@ async function handleExportExcel(columns: string[], rows: string[][]) {
     if (!filePath) return
 
     const { invoke } = await import('@tauri-apps/api/core')
-    const result = await invoke<{ connId: string; filePath: string }>('sidecar:rpc', {
+    const result = await invoke<{ connId: string; filePath: string }>('sidecar_rpc', {
       method: 'file.excel.createFromData',
       params: { filePath, columns, rows }
     })
