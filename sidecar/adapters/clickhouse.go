@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -122,18 +123,19 @@ func NewClickHouseAdapter(info *ClickHouseConnInfo) (*ClickHouseAdapter, error) 
 			"receive_timeout": 30,
 			"send_timeout":    30,
 		},
-		DialTimeout: 10 * time.Second,
+		DialTimeout:     10 * time.Second,
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: 30 * time.Minute,
 	}
 
 	if info.SSL {
-		opts.TLS = nil // clickhouse-go will use TLS when scheme is "clickhouses"
+		opts.TLS = &tls.Config{
+			InsecureSkipVerify: false,
+		}
 	}
 
 	conn := clickhouse.OpenDB(opts)
-	conn.SetMaxOpenConns(10)
-	conn.SetMaxIdleConns(5)
-	conn.SetConnMaxLifetime(30 * time.Minute)
-
 	db := sqlx.NewDb(conn, "clickhouse")
 
 	if err := db.Ping(); err != nil {
