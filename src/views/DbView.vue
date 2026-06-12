@@ -941,6 +941,15 @@ async function executeSql(sql: string) {
         if (editorTab.result?.error) editorTab.error = true
       }
       addHistory(sql, editorTab.selectedDb || '')
+      if (!editorTab.error && editorTab.result) {
+        const r = editorTab.result
+        const time = r.durationMs >= 1000 ? `${(r.durationMs / 1000).toFixed(2)}s` : `${r.durationMs}ms`
+        if (r.isSelect) {
+          notify.notify({ message: t('db.querySuccess', { rows: r.rows.length, time }), color: 'success', timeout: 5000 })
+        } else {
+          notify.notify({ message: t('db.executeSuccess', { rows: r.rowsAffected, time }), color: 'success', timeout: 5000 })
+        }
+      }
     } catch (err: unknown) {
       editorTab.result = {
         columns: [],
@@ -951,6 +960,7 @@ async function executeSql(sql: string) {
         error: err instanceof Error ? err.message : String(err)
       }
       editorTab.error = true
+      notify.notify({ message: t('db.executeFailed', { msg: err instanceof Error ? err.message : String(err) }), color: 'error', timeout: 5000 })
     } finally {
       editorTab.loading = false
       isExecutingAny.value = subTabs.value.some(t => (t.kind === 'sql' || t.kind === 'sql-editor') && t.loading)
@@ -976,7 +986,18 @@ async function executeSql(sql: string) {
       ? await dbService.clickhouseExecute(connId.value, sql, selectedDb.value || undefined)
       : await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
     addHistory(sql, selectedDb.value || '')
-    if (tab.result?.error) tab.error = true
+    if (tab.result?.error) {
+      tab.error = true
+      notify.notify({ message: t('db.executeFailed', { msg: tab.result.error }), color: 'error', timeout: 5000 })
+    } else if (tab.result) {
+      const r = tab.result
+      const time = r.durationMs >= 1000 ? `${(r.durationMs / 1000).toFixed(2)}s` : `${r.durationMs}ms`
+      if (r.isSelect) {
+        notify.notify({ message: t('db.querySuccess', { rows: r.rows.length, time }), color: 'success', timeout: 5000 })
+      } else {
+        notify.notify({ message: t('db.executeSuccess', { rows: r.rowsAffected, time }), color: 'success', timeout: 5000 })
+      }
+    }
   } catch (err: unknown) {
     tab.result = {
       columns: [],
@@ -987,6 +1008,7 @@ async function executeSql(sql: string) {
       error: err instanceof Error ? err.message : String(err)
     }
     tab.error = true
+    notify.notify({ message: t('db.executeFailed', { msg: err instanceof Error ? err.message : String(err) }), color: 'error', timeout: 5000 })
   } finally {
     tab.loading = false
     isExecutingAny.value = subTabs.value.some(t => (t.kind === 'sql' || t.kind === 'sql-editor') && t.loading)

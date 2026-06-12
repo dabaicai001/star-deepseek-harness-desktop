@@ -360,6 +360,9 @@ export default {
     tableTruncated: '表 {table} 已清空',
     tableRenamed: '表已重命名为 {name}',
     tableCreated: '表 {name} 已创建',
+    querySuccess: '查询成功: {rows} 行, 耗时 {time}',
+    executeSuccess: '执行成功, 影响 {rows} 行, 耗时 {time}',
+    executeFailed: '执行失败: {msg}',
   },
   es: {
     newIndex: '新建索引...',

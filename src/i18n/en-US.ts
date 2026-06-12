@@ -359,6 +359,9 @@ export default {
     tableTruncated: 'Table {table} truncated',
     tableRenamed: 'Table renamed to {name}',
     tableCreated: 'Table {name} created',
+    querySuccess: 'Query OK: {rows} rows, {time}',
+    executeSuccess: 'Executed OK: {rows} rows affected, {time}',
+    executeFailed: 'Execution failed: {msg}',
   },
   es: {
     newIndex: 'New Index...',

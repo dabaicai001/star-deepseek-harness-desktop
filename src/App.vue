@@ -5,6 +5,7 @@ import { useThemeStore } from '@/stores/theme'
 import { useI18n } from 'vue-i18n'
 import ErrorBoundary from '@/components/common/ErrorBoundary.vue'
 import GlobalDialogHost from '@/components/common/GlobalDialogHost.vue'
+import GlobalToast from '@/components/common/GlobalToast.vue'
 
 const themeStore = useThemeStore()
 const { t } = useI18n()
@@ -26,6 +27,7 @@ watch(
       <router-view />
     </ErrorBoundary>
     <GlobalDialogHost />
+    <GlobalToast />
   </v-app>
 </template>
 
