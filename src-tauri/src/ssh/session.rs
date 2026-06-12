@@ -58,10 +58,8 @@ impl SshSession {
                 .await
                 .map_err(|e| format!("[CONN_FAILED] Failed to connect to {}:{}: {}", host, port, e))?;
 
-            // 第一步: 主认证 (password / key / password+key)
-            authenticate_primary(&mut handle, username, auth).await?;
-
-            // 第二步: 如果启用 kb-interactive，执行交互式 MFA
+            // kb-interactive 模式:跳过主认证,直接走 keyboard-interactive
+            // (阿里云堡垒机等只接受 kb-interactive,不接受标准 password 方法)
             let kb_enabled = kb_interactive.as_ref().map(|k| k.enabled).unwrap_or(false);
             if kb_enabled {
                 authenticate_keyboard_interactive(
@@ -72,6 +70,9 @@ impl SshSession {
                     app_handle,
                     pending_kb,
                 ).await?;
+            } else {
+                // 标准模式:主认证 (password / key / password+key)
+                authenticate_primary(&mut handle, username, auth).await?;
             }
 
             Ok(handle)
@@ -104,7 +105,7 @@ impl SshSession {
 
             let jump_handle = Self::connect_and_auth(
                 jump_host, jump_port, jump_username, jump_auth,
-                &self.config.kb_interactive, session_id, app_handle, pending_kb, pending_hostkey,
+                &None, session_id, app_handle, pending_kb, pending_hostkey,
             ).await?;
 
             let direct_tcpip = jump_handle
@@ -134,9 +135,9 @@ impl SshSession {
                 .await
                 .map_err(|e| format!("[CONN_FAILED] Failed to connect to target through tunnel: {}", e))?;
 
-            authenticate_primary(&mut handle, &self.config.username, &self.config.auth).await?;
-
-            if self.config.kb_interactive.as_ref().map(|k| k.enabled).unwrap_or(false) {
+            // kb-interactive 模式:跳过主认证,直接走 keyboard-interactive
+            let kb_enabled = self.config.kb_interactive.as_ref().map(|k| k.enabled).unwrap_or(false);
+            if kb_enabled {
                 authenticate_keyboard_interactive(
                     &mut handle,
                     &self.config.username,
@@ -145,6 +146,8 @@ impl SshSession {
                     app_handle,
                     pending_kb,
                 ).await?;
+            } else {
+                authenticate_primary(&mut handle, &self.config.username, &self.config.auth).await?;
             }
 
             handle
