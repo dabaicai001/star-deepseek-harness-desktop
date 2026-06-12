@@ -1095,27 +1095,31 @@ function handleExport(format: string) {
 async function handleExportExcel(columns: string[], rows: string[][]) {
   if (!connId.value) return
   try {
-    // 使用 Go sidecar 生成 Excel 文件
-    const filePath = `${Date.now()}_export.xlsx`
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const filePath = await save({
+      defaultPath: `导出_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+    })
+    if (!filePath) return
+
     const { invoke } = await import('@tauri-apps/api/core')
     const result = await invoke<{ connId: string; filePath: string }>('sidecar:rpc', {
       method: 'file.excel.createFromData',
       params: { filePath, columns, rows }
     })
 
-    // 创建 Excel 资产
     const asset = await assetStore.createAsset({
       type: 'excel',
-      name: `导出_${new Date().toLocaleDateString()}`,
-      config: { filePath, format: 'xlsx' }
+      name: filePath.split(/[/\\]/).pop() || `导出_${new Date().toLocaleDateString()}`,
+      config: { filePath: result.filePath, format: 'xlsx' }
     })
 
-    // 打开 Excel 视图
     const instanceId = generateInstanceId(asset.id)
     appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: 'excel' })
     router.push({ name: 'excel', params: { id: instanceId } })
+    notify.notify({ message: `Excel 已导出: ${result.filePath}`, color: 'success', timeout: 5000 })
   } catch (e) {
-    notify.notify({ message: `Excel 导出失败: ${e}`, color: 'error' })
+    notify.notify({ message: `Excel 导出失败: ${e}`, color: 'error', timeout: 5000 })
   }
 }
 
