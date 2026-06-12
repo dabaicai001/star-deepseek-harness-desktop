@@ -201,6 +201,31 @@ const PRESET_MODELS = [
           <span>{{ t('settings.generalConfirmClose') }}</span>
         </label>
       </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">04</span>
+          <span class="section-title">{{ t('settings.fontSize') }}</span>
+        </div>
+        <div class="form-grid">
+          <div class="form-field">
+            <label class="field-label">
+              {{ t('settings.fontSize') }}
+              <span class="font-size-value">{{ themeStore.fontSize }}px</span>
+            </label>
+            <input
+              type="range"
+              min="10"
+              max="24"
+              step="1"
+              :value="themeStore.fontSize"
+              class="cyber-range"
+              @input="themeStore.setFontSize(Number(($event.target as HTMLInputElement).value))"
+            />
+            <div class="field-hint">{{ t('settings.fontSizeHint') }}</div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 外观设置 -->
@@ -643,6 +668,13 @@ const PRESET_MODELS = [
 .cyber-range {
   width: 100%;
   accent-color: var(--cyan);
+}
+
+.font-size-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--cyan);
+  margin-left: 8px;
 }
 
 .action-row {
