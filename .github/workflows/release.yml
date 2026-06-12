@@ -36,6 +36,7 @@ jobs:
       - name: Build Go sidecar
         run: |
           cd sidecar
+          go-winres make
           go build -o bin/starhub-sidecar.exe .
         env:
           GOOS: windows
