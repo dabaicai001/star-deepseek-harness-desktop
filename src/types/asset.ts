@@ -47,13 +47,6 @@ export interface AssetConfig {
   useKeyAuth?: boolean
   mfaEnabled?: boolean
   mfaPassword?: string
-  /**
-   * 阿里云堡垒机风格:连接瞬间弹 6 位 TOTP 码输入框,自动拼到 password 末尾再提交。
-   * 与 mfaEnabled 互斥(走 password auth 通道,而非标准 kb-interactive)。
-   */
-  appendTotpToPassword?: boolean
-  /** 拼接格式:'none' 密码+码 / 'space' 密码+空格+码 / 'manual' 用户自己拼好 */
-  totpAppendFormat?: 'none' | 'space' | 'manual'
 
   // 数据库配置
   dbType?: DatabaseType
