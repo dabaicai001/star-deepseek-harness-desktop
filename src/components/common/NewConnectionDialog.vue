@@ -53,6 +53,26 @@ function syncExcelFromAsset() {
   excelFormat.value = props.asset.config.format || 'xlsx'
 }
 
+async function pickExcelFile() {
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const selected = await open({
+    multiple: false,
+    filters: [
+      { name: 'Excel', extensions: ['xlsx', 'xls', 'csv'] }
+    ]
+  })
+  if (!selected) return
+  const path = selected as string
+  excelFilePath.value = path
+  if (!excelName.value) {
+    const fileName = path.split(/[/\\]/).pop() || ''
+    excelName.value = fileName.replace(/\.(xlsx?|csv)$/i, '') || fileName
+  }
+  const ext = path.split('.').pop()?.toLowerCase()
+  if (ext === 'csv') excelFormat.value = 'csv'
+  else excelFormat.value = 'xlsx'
+}
+
 // 编辑模式打开 dialog 时,直接跳到对应 step 并回填 docker 字段
 watch(
   () => [props.modelValue, props.asset] as const,
@@ -357,7 +377,13 @@ function close() {
                 文件路径
                 <span class="required">*</span>
               </label>
-              <input v-model="excelFilePath" type="text" class="cyber-input" placeholder="C:\Users\data\report.xlsx" />
+              <div class="file-pick-row">
+                <input v-model="excelFilePath" type="text" class="cyber-input" placeholder="请选择 Excel 文件..." readonly />
+                <button type="button" class="cyber-btn-secondary file-pick-btn" @click="pickExcelFile">
+                  <v-icon size="14">mdi-folder-open-outline</v-icon>
+                  浏览
+                </button>
+              </div>
               <div class="field-hint">支持 .xlsx 和 .csv 格式</div>
             </div>
             <div class="form-footer">
@@ -531,5 +557,20 @@ function close() {
   opacity: 1;
   transform: translateX(0);
   color: var(--cyan);
+}
+
+.file-pick-row {
+  display: flex;
+  gap: 8px;
+}
+
+.file-pick-row .cyber-input {
+  flex: 1;
+  cursor: pointer;
+}
+
+.file-pick-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 </style>
