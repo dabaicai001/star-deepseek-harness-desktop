@@ -13,11 +13,13 @@
  */
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useThemeStore } from '@/stores/theme'
 import type { QueryResult, ColumnInfo } from '@/types/db'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 
 const { t } = useI18n()
+const themeStore = useThemeStore()
 
 const props = withDefaults(defineProps<{
   result: QueryResult | null
@@ -57,6 +59,8 @@ const emit = defineEmits<{
   'page-size-change': [size: number]
   'sort-change': [col: string]
   'column-filter': [col: string, value: string]
+  saveBatch: [changes: Array<{ rowIndex: number; column: string; originalValue: unknown; newValue: unknown }>]
+  saved: []
 }>()
 
 // Row selection
@@ -89,8 +93,8 @@ function onRowContextMenu(e: MouseEvent, rowIdx: number) {
     toggleRow(e, rowIdx)
   }
   const items: MenuItem[] = [
-    { type: 'item', label: 'Copy INSERT', icon: 'mdi-content-copy', onClick: () => copyInsert(rowIdx) },
-    { type: 'item', label: 'Delete Row', icon: 'mdi-delete', danger: true, onClick: () => deleteRow(rowIdx) },
+    { type: 'item', label: t('db.copyInsert'), icon: 'mdi-content-copy', onClick: () => copyInsert(rowIdx) },
+    { type: 'item', label: t('db.deleteRow'), icon: 'mdi-delete', danger: true, onClick: () => deleteRow(rowIdx) },
   ]
   rowCtxMenu.value = { x: e.clientX, y: e.clientY, rowIdx, items }
 }
@@ -220,6 +224,22 @@ watch(() => props.result, () => {
   }
 })
 
+// ─── Ctrl+S 全局快捷键 ───
+function onKeyDown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault()
+    saveAll()
+  }
+}
+
+watch(() => props.editable, (val) => {
+  if (val) {
+    window.addEventListener('keydown', onKeyDown)
+  } else {
+    window.removeEventListener('keydown', onKeyDown)
+  }
+}, { immediate: true })
+
 function toggleSort(col: string) {
   if (isServerMode.value) {
     // 服务端模式:由父组件发 sort-change
@@ -260,6 +280,19 @@ function onPageSizeChange(e: Event) {
   if (!isNaN(v)) emit('page-size-change', v)
 }
 
+// ─── 批量保存:dirty 状态 ───
+const dirtyCells = ref<Map<string, { col: string; originalValue: unknown; newValue: unknown }>>(new Map())
+
+const hasDirty = computed(() => dirtyCells.value.size > 0)
+
+function dirtyKey(rowIdx: number, col: string) {
+  return `${rowIdx}::${col}`
+}
+
+function isDirty(rowIdx: number, col: string) {
+  return dirtyCells.value.has(dirtyKey(rowIdx, col))
+}
+
 // 内联编辑
 const editing = ref<{ row: number; col: string } | null>(null)
 const editValue = ref<string>('')
@@ -274,7 +307,6 @@ function commitEdit() {
   if (!editing.value) return
   const { row, col } = editing.value
   let newVal: unknown = editValue.value
-  // 尝试按列类型转换(简单的:数字列变 number)
   const colDef = columns.value.find(c => c.name === col)
   if (colDef) {
     const t = (colDef.type || '').toLowerCase()
@@ -286,13 +318,39 @@ function commitEdit() {
       else if (editValue.value === 'false' || editValue.value === '0') newVal = false
     }
   }
-  emit('cellEdit', row, col, newVal)
+  // 获取原始值
+  const currentRow = pagedRows.value[row]
+  const colIdx = columns.value.findIndex(c => c.name === col)
+  const originalValue = currentRow ? currentRow[colIdx] : undefined
+  // 值没变则不标记 dirty
+  if (originalValue === newVal) {
+    editing.value = null
+    return
+  }
+  dirtyCells.value.set(dirtyKey(row, col), { col, originalValue, newValue: newVal })
+  dirtyCells.value = new Map(dirtyCells.value)
   editing.value = null
 }
 
 function cancelEdit() {
   editing.value = null
 }
+
+function saveAll() {
+  if (dirtyCells.value.size === 0) return
+  const changes: Array<{ rowIndex: number; column: string; originalValue: unknown; newValue: unknown }> = []
+  for (const [key, val] of dirtyCells.value) {
+    const rowIdx = parseInt(key.split('::')[0], 10)
+    changes.push({ rowIndex: rowIdx, column: val.col, originalValue: val.originalValue, newValue: val.newValue })
+  }
+  emit('saveBatch', changes)
+}
+
+function clearDirty() {
+  dirtyCells.value = new Map()
+}
+
+defineExpose({ clearDirty, hasDirty })
 </script>
 
 <template>
@@ -346,7 +404,7 @@ function cancelEdit() {
 
     <template v-else>
       <div class="grid-scroll">
-        <table class="grid-table">
+        <table class="grid-table" :style="{ fontSize: themeStore.fontSize + 'px' }">
           <thead>
             <tr>
               <th class="col-index" style="cursor: pointer;">#</th>
@@ -391,7 +449,7 @@ function cancelEdit() {
               <td
                 v-for="(cell, colIdx) in row"
                 :key="colIdx"
-                :class="[getCellClass(cell), { editable: editable }]"
+                :class="[getCellClass(cell), { editable: editable, dirty: isDirty(rowIdx, columns[colIdx].name) }]"
                 class="cell"
                 @dblclick="startEdit(rowIdx, columns[colIdx].name, cell)"
               >
@@ -434,17 +492,17 @@ function cancelEdit() {
               v-model="filterPopoverInput"
               type="text"
               class="cyber-input col-filter-popover-input"
-              placeholder="筛选值..."
+              :placeholder="t('db.filterPlaceholder')"
               @keydown="onFilterKeydown"
               autofocus
             />
           </div>
           <div class="col-filter-popover-actions">
             <button class="cyber-btn-secondary" style="font-size:11px;padding:2px 8px;" @click="clearColumnFilter">
-              清除
+              {{ t('db.clear') }}
             </button>
             <button class="cyber-btn" style="font-size:11px;padding:2px 8px;" @click="applyColumnFilter">
-              应用
+              {{ t('db.apply') }}
             </button>
           </div>
         </div>
@@ -780,6 +838,11 @@ function cancelEdit() {
   background: rgba(0, 240, 255, 0.08);
   outline: 1px dashed var(--cyan);
   outline-offset: -1px;
+}
+
+.cell.dirty {
+  border-left: 2px solid var(--cyan);
+  background: rgba(0, 240, 255, 0.04);
 }
 
 .cell-edit-input {
