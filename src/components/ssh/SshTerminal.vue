@@ -17,6 +17,7 @@ import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
+import { useThemeStore } from '@/stores/theme'
 import { parseInstanceId } from '@/utils/tabId'
 import { SSH_SYSTEM_PROMPT, sshTools, makeSshToolCaller } from '@/utils/aiTools'
 import { extractWhitelistPrefix } from '@/utils/commandGuard'
@@ -27,6 +28,7 @@ const assetStore = useAssetStore()
 const appStore = useAppStore()
 const aiStore = useAiStore()
 const notify = useNotifyStore()
+const themeStore = useThemeStore()
 const router = useRouter()
 
 const props = defineProps<{
@@ -87,7 +89,7 @@ const statusText = computed(() => {
  }
 })
 
-const fontSize = ref(14)
+const fontSize = computed(() => themeStore.fontSize)
 const showSearch = ref(false)
 const searchQuery = ref('')
 
@@ -656,9 +658,7 @@ function handleClear() {
 }
 
 function adjustFontSize(delta: number) {
- const next = Math.min(20, Math.max(10, fontSize.value + delta))
- fontSize.value = next
- terminalRef.value?.setFontSize(next)
+ themeStore.setFontSize(themeStore.fontSize + delta)
 }
 
 function handleSearch() {
