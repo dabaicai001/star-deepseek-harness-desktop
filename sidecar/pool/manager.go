@@ -15,6 +15,7 @@ const (
 	ConnRedis  ConnType = "redis"
 	ConnDocker ConnType = "docker"
 	ConnES     ConnType = "elasticsearch"
+	ConnCH     ConnType = "clickhouse"
 )
 
 // ConnInfo 存储连接元信息
