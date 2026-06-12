@@ -40,6 +40,34 @@ func RegisterDBHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("db.mysql.createIndex", handleMySQLCreateIndex(mgr))
 	server.Register("db.mysql.dropIndex", handleMySQLDropIndex(mgr))
 
+	// ClickHouse
+	server.Register("db.clickhouse.connect", handleClickHouseConnect(mgr))
+	server.Register("db.clickhouse.test", handleClickHouseTest())
+	server.Register("db.clickhouse.disconnect", handleDisconnect(mgr))
+	server.Register("db.clickhouse.listDatabases", handleClickHouseListDatabases(mgr))
+	server.Register("db.clickhouse.listTables", handleClickHouseListTables(mgr))
+	server.Register("db.clickhouse.listColumns", handleClickHouseListColumns(mgr))
+	server.Register("db.clickhouse.listIndexes", handleClickHouseListIndexes(mgr))
+	server.Register("db.clickhouse.execute", handleClickHouseExecute(mgr))
+	server.Register("db.clickhouse.explain", handleClickHouseExplain(mgr))
+	server.Register("db.clickhouse.getTableDDL", handleClickHouseGetTableDDL(mgr))
+	server.Register("db.clickhouse.getTableData", handleClickHouseGetTableData(mgr))
+	server.Register("db.clickhouse.dropTable", handleClickHouseDropTable(mgr))
+	server.Register("db.clickhouse.truncateTable", handleClickHouseTruncateTable(mgr))
+	server.Register("db.clickhouse.renameTable", handleClickHouseRenameTable(mgr))
+	server.Register("db.clickhouse.insertRow", handleClickHouseInsertRow(mgr))
+	server.Register("db.clickhouse.updateRows", handleClickHouseUpdateRows(mgr))
+	server.Register("db.clickhouse.deleteRows", handleClickHouseDeleteRows(mgr))
+	server.Register("db.clickhouse.exportData", handleClickHouseExportData(mgr))
+	server.Register("db.clickhouse.getRowCount", handleClickHouseGetRowCount(mgr))
+	server.Register("db.clickhouse.getTableMeta", handleClickHouseGetTableMeta(mgr))
+	server.Register("db.clickhouse.createIndex", handleClickHouseCreateIndex(mgr))
+	server.Register("db.clickhouse.dropIndex", handleClickHouseDropIndex(mgr))
+	// ClickHouse 特有
+	server.Register("db.clickhouse.getPartitions", handleClickHouseGetPartitions(mgr))
+	server.Register("db.clickhouse.getMergeTreeInfo", handleClickHouseGetMergeTreeInfo(mgr))
+	server.Register("db.clickhouse.getTableStats", handleClickHouseGetTableStats(mgr))
+
 	// Redis
 	server.Register("db.redis.connect", handleRedisConnect(mgr))
 	server.Register("db.redis.test", handleRedisTest())
@@ -173,6 +201,17 @@ func getMySQLAdapter(mgr *pool.Manager, connID string) (*MySQLAdapter, error) {
 		return nil, fmt.Errorf("connection %s is not MySQL (type=%s)", connID, info.Type)
 	}
 	return adapter.(*MySQLAdapter), nil
+}
+
+func getClickHouseAdapter(mgr *pool.Manager, connID string) (*ClickHouseAdapter, error) {
+	adapter, info, err := mgr.Get(connID)
+	if err != nil {
+		return nil, err
+	}
+	if info.Type != pool.ConnCH {
+		return nil, fmt.Errorf("connection %s is not ClickHouse (type=%s)", connID, info.Type)
+	}
+	return adapter.(*ClickHouseAdapter), nil
 }
 
 func handleMySQLListDatabases(mgr *pool.Manager) Handler {
@@ -581,6 +620,517 @@ func handleMySQLGetTableMeta(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		return adapter.GetTableMeta(p.Database, p.Table)
+	}
+}
+
+// ─── ClickHouse Handlers ───
+
+func handleClickHouseConnect(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var info ClickHouseConnInfo
+		if err := json.Unmarshal(params, &info); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+
+		adapter, err := NewClickHouseAdapter(&info)
+		if err != nil {
+			return nil, err
+		}
+
+		connID := fmt.Sprintf("clickhouse_%s_%d_%d", info.Host, info.Port, time.Now().UnixNano())
+		mgr.Register(connID, adapter, pool.ConnInfo{
+			ID:       connID,
+			Type:     pool.ConnCH,
+			Host:     info.Host,
+			Port:     info.Port,
+			Database: info.Database,
+		})
+
+		return map[string]interface{}{
+			"connId":   connID,
+			"host":     info.Host,
+			"port":     info.Port,
+			"database": info.Database,
+		}, nil
+	}
+}
+
+func handleClickHouseTest() Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var info ClickHouseConnInfo
+		if err := json.Unmarshal(params, &info); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+
+		start := time.Now()
+		adapter, err := NewClickHouseAdapter(&info)
+		if err != nil {
+			return map[string]interface{}{
+				"ok":      false,
+				"message": err.Error(),
+			}, nil
+		}
+		defer adapter.Close()
+
+		if err := adapter.Ping(); err != nil {
+			return map[string]interface{}{
+				"ok":      false,
+				"message": err.Error(),
+			}, nil
+		}
+
+		elapsed := time.Since(start).Milliseconds()
+		return map[string]interface{}{
+			"ok":         true,
+			"message":    fmt.Sprintf("OK in %dms (%s@%s:%d)", elapsed, info.Username, info.Host, info.Port),
+			"elapsed_ms": elapsed,
+		}, nil
+	}
+}
+
+func handleClickHouseListDatabases(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.ListDatabases()
+	}
+}
+
+func handleClickHouseListTables(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.ListTables(p.Database)
+	}
+}
+
+func handleClickHouseListColumns(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.ListColumns(p.Database, p.Table)
+	}
+}
+
+func handleClickHouseListIndexes(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.ListIndexes(p.Database, p.Table)
+	}
+}
+
+func handleClickHouseCreateIndex(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string   `json:"connId"`
+			Database  string   `json:"database,omitempty"`
+			Table     string   `json:"table"`
+			IndexName string   `json:"indexName"`
+			Columns   []string `json:"columns"`
+			Unique    bool     `json:"unique"`
+			IndexType string   `json:"indexType"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, adapter.CreateIndex(p.Database, p.Table, p.IndexName, p.Columns, p.Unique, p.IndexType)
+	}
+}
+
+func handleClickHouseDropIndex(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			Database  string `json:"database,omitempty"`
+			Table     string `json:"table"`
+			IndexName string `json:"indexName"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, adapter.DropIndex(p.Database, p.Table, p.IndexName)
+	}
+}
+
+func handleClickHouseExecute(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			SQL      string `json:"sql"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.Execute(p.SQL)
+	}
+}
+
+func handleClickHouseExplain(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			SQL      string `json:"sql"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.Explain(p.SQL)
+	}
+}
+
+func handleClickHouseGetTableDDL(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		ddl, err := adapter.GetTableDDL(p.Database, p.Table)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"ddl": ddl}, nil
+	}
+}
+
+func handleClickHouseGetTableData(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID        string            `json:"connId"`
+			Database      string            `json:"database,omitempty"`
+			Table         string            `json:"table"`
+			Limit         int               `json:"limit,omitempty"`
+			Offset        int               `json:"offset,omitempty"`
+			OrderBy       string            `json:"orderBy,omitempty"`
+			OrderDir      string            `json:"orderDir,omitempty"`
+			Filter        string            `json:"filter,omitempty"`
+			ColumnFilters map[string]string `json:"columnFilters,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.GetTableData(p.Database, p.Table, p.Limit, p.Offset, p.OrderBy, p.OrderDir, p.Filter, p.ColumnFilters)
+	}
+}
+
+func handleClickHouseDropTable(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+			IfExists bool   `json:"ifExists,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, adapter.DropTable(p.Database, p.Table, p.IfExists)
+	}
+}
+
+func handleClickHouseTruncateTable(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, adapter.TruncateTable(p.Database, p.Table)
+	}
+}
+
+func handleClickHouseRenameTable(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			OldName  string `json:"oldName"`
+			NewName  string `json:"newName"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, adapter.RenameTable(p.Database, p.OldName, p.NewName)
+	}
+}
+
+func handleClickHouseInsertRow(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string                 `json:"connId"`
+			Database string                 `json:"database,omitempty"`
+			Table    string                 `json:"table"`
+			Values   map[string]interface{} `json:"values"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		id, err := adapter.InsertRow(p.Database, p.Table, p.Values)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"lastInsertId": id}, nil
+	}
+}
+
+func handleClickHouseUpdateRows(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string                 `json:"connId"`
+			Database string                 `json:"database,omitempty"`
+			Table    string                 `json:"table"`
+			Sets     map[string]interface{} `json:"sets"`
+			Where    string                 `json:"where"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		affected, err := adapter.UpdateRows(p.Database, p.Table, p.Sets, p.Where)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"rowsAffected": affected}, nil
+	}
+}
+
+func handleClickHouseDeleteRows(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+			Where    string `json:"where"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		affected, err := adapter.DeleteRows(p.Database, p.Table, p.Where)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"rowsAffected": affected}, nil
+	}
+}
+
+func handleClickHouseExportData(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+			Format   string `json:"format"`
+			Limit    int    `json:"limit,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+
+		switch p.Format {
+		case "json":
+			data, err := adapter.ExportJSON(p.Database, p.Table, p.Limit)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]interface{}{"data": data, "format": "json"}, nil
+		default:
+			result, err := adapter.ExportCSV(p.Database, p.Table, p.Limit)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]interface{}{"result": result, "format": "csv"}, nil
+		}
+	}
+}
+
+func handleClickHouseGetRowCount(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		count, err := adapter.GetRowCount(p.Database, p.Table)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"count": count}, nil
+	}
+}
+
+func handleClickHouseGetTableMeta(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.GetTableMeta(p.Database, p.Table)
+	}
+}
+
+func handleClickHouseGetPartitions(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.GetPartitions(p.Database, p.Table)
+	}
+}
+
+func handleClickHouseGetMergeTreeInfo(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.GetMergeTreeInfo(p.Database, p.Table)
+	}
+}
+
+func handleClickHouseGetTableStats(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			Database string `json:"database,omitempty"`
+			Table    string `json:"table"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.GetTableStats(p.Database, p.Table)
 	}
 }
 
