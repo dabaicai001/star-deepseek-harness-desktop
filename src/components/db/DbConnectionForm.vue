@@ -1,10 +1,18 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CreateAssetDto, DatabaseType } from '@/types/asset'
 import * as dbService from '@/services/db'
 
 const { t } = useI18n()
+
+// 跨平台快捷键修饰键(Mac ⌘, Win/Linux Ctrl)
+const isMac = ref(false)
+const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
+onMounted(() => {
+  const ua = navigator.userAgent.toLowerCase()
+  isMac.value = /mac|iphone|ipad|ipod/.test(ua)
+})
 
 export interface DbFormInitialValues {
   name?: string
@@ -414,7 +422,7 @@ function onKeydown(e: KeyboardEvent) {
       </div>
       <div class="footer-right">
         <div class="shortcut-hint">
-          <kbd>⌘</kbd>+<kbd>Enter</kbd> {{ t('common.save') }} · <kbd>Esc</kbd> {{ t('common.cancel') }}
+          <kbd>{{ modKey }}</kbd>+<kbd>Enter</kbd> {{ t('common.save') }} · <kbd>Esc</kbd> {{ t('common.cancel') }}
         </div>
         <button type="button" class="cyber-btn-secondary" @click="onCancel">
           <v-icon size="14">mdi-close</v-icon>

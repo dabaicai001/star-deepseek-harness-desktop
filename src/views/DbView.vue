@@ -28,6 +28,10 @@ import type { TableInfo, ColumnMeta, QueryResult } from '@/types/db'
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+
+// 跨平台快捷键修饰键(Mac ⌘, Win/Linux Ctrl)
+const isMac = ref(false)
+const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
 const assetStore = useAssetStore()
 const appStore = useAppStore()
 const dbStore = useDbStore()
@@ -972,6 +976,10 @@ function insertTableName(name: string) {
 }
 
 onMounted(() => {
+  // 检测平台(Mac ⌘, Win/Linux Ctrl)
+  const ua = navigator.userAgent.toLowerCase()
+  isMac.value = /mac|iphone|ipad|ipod/.test(ua)
+
   if (asset.value && asset.value.type === 'db') {
     connect()
   } else if (!asset.value) {
@@ -1151,7 +1159,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               :placeholder="t('db.searchTables')"
               spellcheck="false"
             />
-            <kbd v-if="!tableSearch">⌘K</kbd>
+            <kbd v-if="!tableSearch">{{ modKey }}K</kbd>
             <button
               v-else
               class="action-btn-sm"
@@ -1429,7 +1437,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                   <option v-for="db in databases" :key="db" :value="db">{{ db }}</option>
                 </select>
                 <span class="shortcut-hint">
-                  <kbd>⌘</kbd>+<kbd>Enter</kbd> {{ t('db.execute') }}
+                  <kbd>{{ modKey }}</kbd>+<kbd>Enter</kbd> {{ t('db.execute') }}
                 </span>
               </div>
               <SqlEditor
@@ -1460,7 +1468,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                 <span>{{ t('common.executing', '执行中…') }}</span>
               </div>
               <div v-else class="inner-empty">
-                <span class="muted-text">{{ t('db.runSqlHint') }}</span>
+                <span class="muted-text">{{ t('db.runSqlHint', { modKey }) }}</span>
               </div>
             </div>
           </div>

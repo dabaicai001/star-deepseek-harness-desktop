@@ -20,6 +20,10 @@ const assetStore = useAssetStore()
 const appStore = useAppStore()
 const themeStore = useThemeStore()
 
+// 跨平台快捷键修饰键(Mac ⌘, Win/Linux Ctrl)
+const isMac = ref(false)
+const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
+
 const open = ref(false)
 const query = ref('')
 const selectedIdx = ref(0)
@@ -268,7 +272,11 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  const ua = navigator.userAgent.toLowerCase()
+  isMac.value = /mac|iphone|ipad|ipod/.test(ua)
+})
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 const groupLabel: Record<Command['group'], string> = {
@@ -322,7 +330,7 @@ const groupLabel: Record<Command['group'], string> = {
           <span><kbd>↑</kbd><kbd>↓</kbd> 切换</span>
           <span><kbd>↵</kbd> 执行</span>
           <span><kbd>Esc</kbd> 关闭</span>
-          <span class="cmd-shortcut">⌘P</span>
+          <span class="cmd-shortcut">{{ modKey }}P</span>
         </div>
       </div>
     </div>
