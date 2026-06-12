@@ -17,6 +17,16 @@
 
 ## [未发布]
 
+### 计划中
+- PostgreSQL / SQLite 数据库适配器
+- AI 助手流式输出
+- ZMODEM 文件传输
+- Settings 补「代理」「安全」2 个 tab
+
+---
+
+## [0.5.0] - 2026-06-12
+
 ### 新增
 - ✨ feat(db): 新增 ClickHouse 数据库连接支持 — Go sidecar 28 个 RPC 方法(23 个 MySQL 对齐 + 3 个特有元数据)、Rust 透传、前端复用 DbView.vue
 - ✨ feat(home): Quick Actions 4 张卡片接入点击(SSH/数据库/Docker/AI) — 资产数为 0 时弹新建 dialog,有多条时跳最近一条,单条直接开
@@ -56,12 +66,6 @@
 - 🎨 style(design-system): cyber.css 新增 `.auth-chip` / `.auth-chip-group`(互斥单选胶囊),复用已有的 `--cyan` + `--hover-cyan` + `--focus-cyan` token,可被 DB/Redis 等认证方式复用
 - 🐛 fix(ssh): **MFA 模式下点「测试连接」会卡 6 分钟才报错** —— 后端 `test_ssh_connection` 用局部 `pending_kb` map,前端 `ssh_kb_response` 走全局 `manager.pending_kb`,通道对不上,server 端 oneshot 等满 360s 才超时;改为测试连接也走全局 `pending_kb`(测试结束统一清理防 map 膨胀),前端在表单里挂一个临时 `KbInteractiveDialog` 监听 `ssh:kb-interactive:<testId>` 弹密码
 - 🎨 style(design-system): cyber.css 新增 `.auth-chip` / `.auth-chip-group`(互斥单选胶囊),复用已有的 `--cyan` + `--hover-cyan` + `--focus-cyan` token,可被 DB/Redis 等认证方式复用
-
-### 计划中
-- PostgreSQL / SQLite 数据库适配器
-- AI 助手流式输出
-- ZMODEM 文件传输
-- Settings 补「代理」「安全」2 个 tab(MVP 暂缓)
 
 ---
 

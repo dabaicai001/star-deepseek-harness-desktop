@@ -7,7 +7,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 一站式装进原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.3.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.5.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-MVP%20active-brightgreen)]()
 
 </div>
@@ -18,7 +18,7 @@
 
 **StarHub** 是 Windows / macOS / Linux 跨平台桌面应用,把开发运维日常的多种工具整合到一个窗口:
 
-- 🗄️ **数据库客户端** — MySQL / Redis(聚焦) + 后续支持 PostgreSQL / SQLite / ClickHouse / SQL Server / Oracle / 国产库(达梦 / 金仓 / OceanBase / OpenGauss)
+- 🗄️ **数据库客户端** — MySQL / Redis / Elasticsearch / ClickHouse(已支持) + 后续支持 PostgreSQL / SQLite / SQL Server / Oracle / 国产库(达梦 / 金仓 / OceanBase / OpenGauss)
 - 🖥️ **SSH 终端** — russh 全功能终端、xterm.js 渲染、跳板机(ProxyJump)、UTF-8 / 彩色支持
 - 📁 **SFTP 文件传输** — 三栏浏览、路径面包屑(点击跳转)、隐藏文件切换、新建文件夹、重命名、删除
 - 🐳 **Docker 面板** — 容器 / 镜像列表、日志查看、SSH 通道连远程 Docker(开发中)
@@ -43,7 +43,7 @@
 
 ---
 
-## 🎯 v0.3.0 主要功能(当前)
+## 🎯 v0.5.0 主要功能(当前)
 
 ### 多标签同时会话
 - 同一资产也能**多标签 = 多独立会话**(比如 TEST 标签开 2 个 = 同时 2 个 SSH)
@@ -140,8 +140,8 @@ npx tauri build        # 生成对应平台安装包
 |---|---|---|
 | v0.1 | ✅ | 项目脚手架(Tauri + Vue + Go) |
 | v0.2 | ✅ | 文档定型(AGENTS.md / 技术方案) |
-| **v0.3** | **🚧 当前** | **SSH 终端 + SFTP + MySQL/Redis + AI 助手 + UI 打磨** |
-| v0.4 | 🔜 | PostgreSQL / SQLite / Docker 全功能 |
+| **v0.5** | **🚧 当前** | **ClickHouse + Home Dashboard + Quick Actions + 全局搜索 + ErrorBoundary** |
+| v0.6 | 🔜 | PostgreSQL / SQLite / Docker 全功能 |
 | v0.5 | 🔜 | 10+ 数据库 + 告警 + Compose |
 | v1.0 | 🔮 | GA — 团队/企业功能 |
 | v1.0+ | 🔮 | 插件市场 / 移动端 / 私有部署 |
@@ -150,7 +150,7 @@ npx tauri build        # 生成对应平台安装包
 
 ## 🤝 参与
 
-当前 v0.3 开发中,欢迎 Issue / PR。
+当前 v0.5 开发中,欢迎 Issue / PR。
 
 - **需求 / 反馈**:GitHub Issue
 - **提 PR**:先开 Issue 讨论再动手

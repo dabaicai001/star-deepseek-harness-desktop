@@ -1,6 +1,6 @@
 {
   "productName": "StarHub",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "identifier": "com.starhub.app",
   "build": {
     "frontendDist": "../dist",
@@ -35,7 +35,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -51,6 +51,12 @@
         "installerIcon": "icons/icon.ico",
         "installMode": "currentUser"
       }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "linux": {
+      "targets": ["deb", "rpm", "appimage"]
     }
   }
 }
