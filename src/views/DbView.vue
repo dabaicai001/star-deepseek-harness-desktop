@@ -244,7 +244,7 @@ async function connect() {
       } catch (err) {
         const msg = errMsg(err)
         console.warn('[db] list databases failed:', err)
-        notify.notify({ message: `列出数据库失败: ${msg}`, color: 'warning' })
+        notify.notify({ message: t('db.listDbFailed', { msg }), color: 'warning' })
         // 允许部分无权限场景,databases 留空,用户可重试或自己 SQL 编辑
       }
     } else if (dbType === 'redis') {
@@ -262,7 +262,7 @@ async function connect() {
     const msg = errMsg(err)
     connectError.value = msg
     console.error('Connect failed:', err)
-    notify.notify({ message: `连接失败: ${msg}`, color: 'error', timeout: 6000 })
+    notify.notify({ message: t('db.connectFailed', { msg }), color: 'error', timeout: 6000 })
   } finally {
     connecting.value = false
   }
@@ -306,10 +306,10 @@ async function refreshDatabases() {
         void loadTablesForDb(t.db)
       }
     }
-    notify.notify({ message: `已刷新:共 ${list.length} 个库`, color: 'success', timeout: 1500 })
+    notify.notify({ message: t('db.refreshed', { count: list.length }), color: 'success', timeout: 1500 })
   } catch (err) {
     const msg = errMsg(err)
-    notify.notify({ message: `刷新失败: ${msg}`, color: 'error', timeout: 3000 })
+    notify.notify({ message: t('db.refreshFailed', { msg }), color: 'error', timeout: 3000 })
   } finally {
     loadingDatabases.value = false
   }
@@ -599,7 +599,7 @@ function setColumnFilter(col: string, value: string) {
 async function onCellEdit(rowIdx: number, col: string, value: unknown) {
   const tab = activeTableTab.value
   if (!tab || !connId.value || tablePrimaryKeys.value.length === 0) {
-    void dlg.alert({ message: '需要主键才能编辑行', color: 'warning' })
+    void dlg.alert({ message: t('db.needPrimaryKey'), color: 'warning' })
     return
   }
   const result = tab.data
@@ -619,8 +619,42 @@ async function onCellEdit(rowIdx: number, col: string, value: unknown) {
     await dbService.mysqlUpdateRows(connId.value, tab.table, { [col]: value }, where, tab.db)
     await loadTableDataFor(tab)
   } catch (err: unknown) {
-    void dlg.alert({ message: `更新失败: ${err instanceof Error ? err.message : String(err)}`, color: 'error' })
+    void dlg.alert({ message: t('db.updateFailed', { msg: err instanceof Error ? err.message : String(err) }), color: 'error' })
   }
+}
+
+async function onSaveBatch(changes: Array<{ rowIndex: number; column: string; originalValue: unknown; newValue: unknown }>) {
+  const tab = activeTableTab.value
+  if (!tab || !connId.value || tablePrimaryKeys.value.length === 0) {
+    void dlg.alert({ message: t('db.needPrimaryKey'), color: 'warning' })
+    return
+  }
+  const result = tab.data
+  if (!result) return
+  let failCount = 0
+  for (const change of changes) {
+    const row = result.rows[change.rowIndex]
+    if (!row) { failCount++; continue }
+    const where = tablePrimaryKeys.value
+      .map(pk => {
+        const pkIdx = result.columns.findIndex(c => c.name === pk)
+        if (pkIdx < 0) return null
+        const v = row[pkIdx]
+        return `\`${pk}\` = ${formatSqlValue(v)}`
+      })
+      .filter(Boolean)
+      .join(' AND ')
+    if (!where) { failCount++; continue }
+    try {
+      await dbService.mysqlUpdateRows(connId.value, tab.table, { [change.column]: change.newValue }, where, tab.db)
+    } catch {
+      failCount++
+    }
+  }
+  if (failCount > 0) {
+    void dlg.alert({ message: t('db.saveFailed', { msg: `${failCount} / ${changes.length}` }), color: 'error' })
+  }
+  await loadTableDataFor(tab)
 }
 
 function formatSqlValue(v: unknown): string {
@@ -700,8 +734,8 @@ function newSqlQuery() {
   const tab: SqlEditorSubTab = {
     id: `sqled-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     kind: 'sql-editor',
-    title: `查询 ${queryCounter}`,
-    subtitle: '新建查询',
+    title: t('db.newQuery') + ' ' + queryCounter,
+    subtitle: t('db.newQuery'),
     sqlText: '',
     result: null,
     selectedDb: selectedDb.value,
@@ -959,8 +993,8 @@ watch(() => assetId.value, () => {
 // ====== 右侧 Panel(仪表盘 / AI 切换) ======
 const rightActiveTab = ref('dashboard')
 const rightPanelTabs = computed(() => [
-  { key: 'dashboard', label: '仪表盘', icon: 'mdi-view-dashboard-outline' },
-  { key: 'ai', label: 'AI 助手', icon: 'mdi-robot-outline' }
+  { key: 'dashboard', label: t('db.dashboard'), icon: 'mdi-view-dashboard-outline' },
+  { key: 'ai', label: t('db.aiAssistant'), icon: 'mdi-robot-outline' }
 ])
 
 const aiSession = computed(() => {
@@ -1088,7 +1122,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           <button
             v-if="connected"
             class="action-btn"
-            :title="'刷新数据库列表'"
+            :title="t('db.refreshDbList')"
             :disabled="loadingDatabases"
             @click="refreshDatabases()"
           >
@@ -1145,7 +1179,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               <span class="label">{{ db }}</span>
               <!-- 已加载显示数量;未加载显示个明显的「未加载」标记 -->
               <span v-if="databaseTables.has(db)" class="count">{{ tbls.length }}</span>
-              <span v-else class="count unloaded" :title="'点击展开以加载表'">—</span>
+              <span v-else class="count unloaded" :title="t('db.clickToExpand')">—</span>
             </div>
 
             <!-- Tables list (only when expanded) -->
@@ -1174,9 +1208,9 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               <div v-else-if="loadErrors.has(db)" class="empty-search error">
                 <v-icon size="10" color="red">mdi-alert-circle-outline</v-icon>
                 <span class="error-text" :title="loadErrors.get(db)">
-                  加载失败: {{ loadErrors.get(db) }}
+                  {{ t('db.loadFailed') }}: {{ loadErrors.get(db) }}
                 </span>
-                <button class="retry-btn" :title="'重试'" @click.stop="retryLoadTablesForDb(db)">
+                <button class="retry-btn" :title="t('db.retry')" @click.stop="retryLoadTablesForDb(db)">
                   <v-icon size="11">mdi-refresh</v-icon>
                 </button>
               </div>
@@ -1190,7 +1224,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           <div v-if="connectError" class="empty-search error">
             <v-icon size="10" color="red">mdi-alert-circle-outline</v-icon>
             <span class="error-text" :title="connectError">{{ connectError }}</span>
-            <button class="retry-btn" :title="'重连'" @click="connect()">
+            <button class="retry-btn" :title="t('db.retry')" @click="connect()">
               <v-icon size="11">mdi-refresh</v-icon>
             </button>
           </div>
@@ -1224,9 +1258,9 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           v-model="selectedDb"
           class="db-selector-inline"
           :class="{ 'no-db': !selectedDb }"
-          :title="selectedDb ? `当前库: ${selectedDb}` : '⚠ 未选择数据库'"
+          :title="selectedDb ? t('db.currentDb', { db: selectedDb }) : '⚠ ' + t('db.noDbSelected')"
         >
-          <option value="">⚠ 选择数据库</option>
+          <option value="">⚠ {{ t('db.selectDb') }}</option>
           <option v-for="db in databases" :key="db" :value="db">{{ db }}</option>
         </select>
       </div>
@@ -1264,7 +1298,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
             <span
               v-else
               class="sub-tab-close"
-              :title="'关闭'"
+              :title="t('db.close')"
               @click.stop="closeSubTab(tab.id)"
             >
               <v-icon size="9">mdi-close</v-icon>
@@ -1285,9 +1319,9 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         <!-- 空状态:无任何 sub-tab 时,提示用户从左侧选表或新建查询 -->
         <div v-if="!activeSubTab" class="empty-state">
           <v-icon size="40" color="muted">mdi-database-search-outline</v-icon>
-          <div class="empty-state-title">从左侧选一张表,或点击「新建查询」执行 SQL</div>
+          <div class="empty-state-title">{{ t('db.emptyHint') }}</div>
           <div class="empty-state-hint">
-            选表/执行后,这里会变成多标签页,可以并行浏览多张表或对比多次查询结果
+            {{ t('db.emptyHintDetail') }}
           </div>
         </div>
 
@@ -1311,7 +1345,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                   class="filter-where-apply"
                   :class="{ visible: activeTableTab.whereClause }"
                   @click="applyTableFilters"
-                  title="应用筛选 (Enter)"
+                  :title="t('db.applyFilter')"
                 >
                   <v-icon size="14">mdi-play</v-icon>
                 </button>
@@ -1362,6 +1396,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               @sort-change="onTableDataSortChange"
               @cell-edit="onCellEdit"
               @column-filter="setColumnFilter"
+              @save-batch="onSaveBatch"
             />
           </div>
         </template>
@@ -1390,7 +1425,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                   :class="{ 'no-db': !activeSqlEditorTab.selectedDb }"
                   :title="activeSqlEditorTab.selectedDb ? `当前库: ${activeSqlEditorTab.selectedDb}` : '⚠ 未选择数据库'"
                 >
-                  <option value="">⚠ 选择数据库</option>
+                  <option value="">⚠ {{ t('db.selectDb') }}</option>
                   <option v-for="db in databases" :key="db" :value="db">{{ db }}</option>
                 </select>
                 <span class="shortcut-hint">
@@ -1425,7 +1460,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                 <span>{{ t('common.executing', '执行中…') }}</span>
               </div>
               <div v-else class="inner-empty">
-                <span class="muted-text">点击「执行」运行 SQL，或使用 ⌘+Enter 快捷键</span>
+                <span class="muted-text">{{ t('db.runSqlHint') }}</span>
               </div>
             </div>
           </div>
@@ -1476,7 +1511,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           v-if="aiSession"
           :session="aiSession"
           :sending="aiSession.loading"
-          placeholder="问我关于这个数据库的任何事,例如'查一下 users 表结构'"
+          :placeholder="t('db.askAiPlaceholder')"
           @send="onAiSend"
           @retry="onAiRetry"
           @confirm-tool="onAiConfirmTool"
