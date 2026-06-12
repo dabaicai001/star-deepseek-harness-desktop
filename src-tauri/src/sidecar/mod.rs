@@ -3,6 +3,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
 use std::sync::Mutex;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -70,11 +73,21 @@ impl SidecarManager {
 
         tracing::info!("Sidecar path: {:?}", sidecar_path);
 
-        let mut child = Command::new(sidecar_path)
-            .stdin(Stdio::piped())
+        let mut cmd = Command::new(sidecar_path);
+        cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+            .stderr(Stdio::piped());
+
+        // Windows: suppress console window popup for the sidecar process.
+        // CREATE_NO_WINDOW (0x08000000) prevents Windows from allocating a console,
+        // but piped stdio still works normally.
+        #[cfg(target_os = "windows")]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let mut child = cmd.spawn()
             .map_err(|e| format!("Failed to start sidecar: {}", e))?;
 
         let stdin = child.stdin.take().ok_or("Failed to get stdin")?;
