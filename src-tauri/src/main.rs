@@ -184,6 +184,8 @@ fn main() {
             // AI
             commands::ai::ai_chat,
             commands::ai::ai_list_models,
+            // Sidecar 通用 RPC
+            commands::sidecar::sidecar_rpc,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
