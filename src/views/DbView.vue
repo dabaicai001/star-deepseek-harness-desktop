@@ -964,8 +964,8 @@ function insertTableName(name: string) {
   } else {
     // 没有活跃的 SQL 编辑器标签页,自动新建一个
     newSqlQuery()
-    const newTab = activeSqlEditorTab.value
-    if (newTab) {
+    const newTab = activeSubTab.value as SqlEditorSubTab | null
+    if (newTab && newTab.kind === 'sql-editor') {
       newTab.sqlText = name
     }
   }
