@@ -21,6 +21,7 @@ import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import ColumnListDialog from '@/components/db/ColumnListDialog.vue'
 import IndexListDialog from '@/components/db/IndexListDialog.vue'
 import CreateTableDialog from '@/components/db/CreateTableDialog.vue'
+import NewTableDialog from '@/components/db/NewTableDialog.vue'
 import { addHistory } from '@/utils/sqlHistory'
 import * as dbService from '@/services/db'
 import type { TableInfo, ColumnMeta, QueryResult } from '@/types/db'
@@ -136,6 +137,9 @@ const ctxTable = ref('')
 const showColumnList = ref(false)
 const showIndexList = ref(false)
 const showCreateTableDDL = ref(false)
+const showNewTable = ref(false)
+const showRenameTable = ref(false)
+const renameTableNewName = ref('')
 
 /** 内部视图(data / structure)按激活的表 tab 自身持有,模板用 computed 取出 */
 const activeSubTab = computed(() => subTabs.value.find(t => t.id === activeSubTabId.value) || null)
@@ -527,6 +531,24 @@ function closeCtxMenu() {
   ctxMenu.value = null
 }
 
+function onDatabaseContextMenu(e: MouseEvent, db: string) {
+  ctxDb.value = db
+  const items: MenuItem[] = []
+  items.push({ type: 'header', label: db })
+  items.push({ type: 'divider' })
+  items.push({ type: 'item', label: t('db.copyName', '复制名称'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(db).catch(() => {}) } })
+  items.push({ type: 'divider' })
+  items.push({ type: 'item', label: t('db.newTable', '新建表...'), icon: 'mdi-table-plus', onClick: () => { showNewTable.value = true } })
+  items.push({ type: 'item', label: t('db.refreshTables', '刷新表列表'), icon: 'mdi-refresh', onClick: () => { refreshTablesForDb(db) } })
+  ctxMenu.value = { x: e.clientX, y: e.clientY, items }
+}
+
+async function refreshTablesForDb(db: string) {
+  databaseTables.value.delete(db)
+  expandedDatabases.value.add(db)
+  await loadTablesForDb(db)
+}
+
 async function onTableContextMenu(e: MouseEvent, db: string, table: string) {
   ctxDb.value = db
   ctxTable.value = table
@@ -535,14 +557,85 @@ async function onTableContextMenu(e: MouseEvent, db: string, table: string) {
   if (connId.value) {
     items.push({ type: 'header', label: table })
     items.push({ type: 'divider' })
+    items.push({ type: 'item', label: t('db.copyName', '复制名称'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(table).catch(() => {}) } })
+    items.push({ type: 'divider' })
     items.push({ type: 'item', label: t('db.viewFields'), icon: 'mdi-table-column', onClick: () => { showColumnList.value = true } })
-    items.push({ type: 'divider' })
     items.push({ type: 'item', label: t('db.viewDDL'), icon: 'mdi-code-tags', onClick: () => { showCreateTableDDL.value = true } })
-    items.push({ type: 'divider' })
     items.push({ type: 'item', label: t('db.viewIndexes'), icon: 'mdi-key-variant', onClick: () => { showIndexList.value = true } })
+    items.push({ type: 'divider' })
+    items.push({ type: 'item', label: t('db.renameTable', '重命名...'), icon: 'mdi-rename-outline', onClick: () => { renameTableNewName.value = table; showRenameTable.value = true } })
+    items.push({ type: 'item', label: t('db.truncateTable', '清空表'), icon: 'mdi-eraser', onClick: () => { doTruncateTable(db, table) } })
+    items.push({ type: 'item', label: t('db.dropTable', '删除表'), icon: 'mdi-delete-outline', danger: true, onClick: () => { doDropTable(db, table) } })
   }
 
   ctxMenu.value = { x: e.clientX, y: e.clientY, items }
+}
+
+async function doDropTable(db: string, table: string) {
+  const confirmed = await dlg.confirm({
+    title: t('db.dropTable', '删除表'),
+    message: t('db.dropTableConfirm', `确定要删除表 ${db}.${table} 吗？此操作不可撤销。`),
+    confirmText: t('common.delete'),
+    cancelText: t('common.cancel'),
+    danger: true,
+  })
+  if (!confirmed) return
+  try {
+    const isCh = asset.value?.config.dbType === 'clickhouse'
+    if (isCh) {
+      await dbService.clickhouseDropTable(connId.value!, table, false, db)
+    } else {
+      await dbService.mysqlDropTable(connId.value!, table, false, db)
+    }
+    notify.notify({ message: t('db.tableDropped', `表 ${table} 已删除`), color: 'success' })
+    await refreshTablesForDb(db)
+  } catch (err: unknown) {
+    notify.notify({ message: errMsg(err), color: 'error' })
+  }
+}
+
+async function doTruncateTable(db: string, table: string) {
+  const confirmed = await dlg.confirm({
+    title: t('db.truncateTable', '清空表'),
+    message: t('db.truncateTableConfirm', `确定要清空表 ${db}.${table} 吗？所有数据将被删除。`),
+    confirmText: t('db.truncateTable'),
+    cancelText: t('common.cancel'),
+    danger: true,
+  })
+  if (!confirmed) return
+  try {
+    const isCh = asset.value?.config.dbType === 'clickhouse'
+    if (isCh) {
+      await dbService.clickhouseTruncateTable(connId.value!, table, db)
+    } else {
+      await dbService.mysqlTruncateTable(connId.value!, table, db)
+    }
+    notify.notify({ message: t('db.tableTruncated', `表 ${table} 已清空`), color: 'success' })
+  } catch (err: unknown) {
+    notify.notify({ message: errMsg(err), color: 'error' })
+  }
+}
+
+async function doRenameTable() {
+  if (!renameTableNewName.value.trim() || renameTableNewName.value === ctxTable.value) return
+  try {
+    const isCh = asset.value?.config.dbType === 'clickhouse'
+    if (isCh) {
+      await dbService.clickhouseRenameTable(connId.value!, ctxTable.value, renameTableNewName.value, ctxDb.value)
+    } else {
+      await dbService.mysqlRenameTable(connId.value!, ctxTable.value, renameTableNewName.value, ctxDb.value)
+    }
+    notify.notify({ message: t('db.tableRenamed', `表已重命名为 ${renameTableNewName.value}`), color: 'success' })
+    showRenameTable.value = false
+    await refreshTablesForDb(ctxDb.value)
+  } catch (err: unknown) {
+    notify.notify({ message: errMsg(err), color: 'error' })
+  }
+}
+
+function onNewTableCreated(tableName: string) {
+  notify.notify({ message: t('db.tableCreated', `表 ${tableName} 已创建`), color: 'success' })
+  void refreshTablesForDb(ctxDb.value)
 }
 
 function onTableDataPageChange(page: number) {
@@ -1250,7 +1343,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
             class="tree-group db"
           >
             <!-- DB header (expand/collapse) -->
-            <div class="tree-group-head db-head" @click="toggleDatabase(db)">
+            <div class="tree-group-head db-head" @click="toggleDatabase(db)" @contextmenu.prevent="onDatabaseContextMenu($event, db)">
               <v-icon size="11" class="type-icon">
                 {{ expandedDatabases.has(db) ? 'mdi-chevron-down' : 'mdi-chevron-right' }}
               </v-icon>
@@ -1569,6 +1662,31 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         <!-- Index Dialogs -->
         <IndexListDialog v-model="showIndexList" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" @reload="reloadActiveTable" />
         <CreateTableDialog v-model="showCreateTableDDL" :conn-id="connId || ''" :db="ctxDb" :table="ctxTable" />
+        <NewTableDialog v-model="showNewTable" :conn-id="connId || ''" :db="ctxDb" :db-type="asset?.config.dbType || 'mysql'" @created="onNewTableCreated" />
+
+        <!-- 重命名表对话框 -->
+        <v-dialog v-model="showRenameTable" max-width="420">
+          <div class="cyber-panel" style="padding: 0;">
+            <div class="dialog-header">
+              <v-icon size="16" color="var(--cyan)">mdi-rename-outline</v-icon>
+              <span class="dialog-title">{{ t('db.renameTable', '重命名表') }}</span>
+              <v-spacer />
+              <v-btn variant="text" size="small" icon="mdi-close" @click="showRenameTable = false" />
+            </div>
+            <div style="padding: 16px;">
+              <div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">
+                {{ ctxDb }}.{{ ctxTable }} → {{ ctxDb }}.{{ renameTableNewName || '...' }}
+              </div>
+              <input v-model="renameTableNewName" class="cyber-input" :placeholder="t('db.newTableName', '新表名')" autofocus @keydown.enter="doRenameTable()" />
+            </div>
+            <div class="dialog-footer">
+              <button class="cyber-btn-secondary" @click="showRenameTable = false">{{ t('common.cancel') }}</button>
+              <button class="cyber-btn" :disabled="!renameTableNewName.trim() || renameTableNewName === ctxTable" @click="doRenameTable()">
+                <v-icon size="14">mdi-check</v-icon> {{ t('common.confirm') }}
+              </button>
+            </div>
+          </div>
+        </v-dialog>
       </div>
     </div>
     </div>
@@ -2508,5 +2626,16 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* 重命名表对话框样式 */
+.dialog-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+.dialog-title { font-weight: 600; font-size: 14px; color: var(--text); }
+.dialog-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 10px 16px; border-top: 1px solid var(--line); flex-shrink: 0;
 }
 </style>

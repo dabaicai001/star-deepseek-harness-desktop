@@ -10,6 +10,9 @@ import * as esService from '@/services/db'
 import { ES_SYSTEM_PROMPT, esTools, makeEsToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
 import AiChat from '@/components/ai/AiChat.vue'
+import NewIndexDialog from '@/components/es/NewIndexDialog.vue'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import type { EsIndexInfo, EsSearchResult } from '@/types/db'
 
 const { t } = useI18n()
@@ -51,6 +54,9 @@ const searchIndex = ref('')
 
 const mapping = ref<{ indexName: string; fields: { name: string; type: string; children?: { name: string; type: string }[] }[] } | null>(null)
 const settings = ref<Record<string, unknown> | null>(null)
+
+const showNewIndex = ref(false)
+const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 
 const filteredIndices = computed(() => {
   if (!indexSearch.value) return indices.value
@@ -303,6 +309,46 @@ function showDslTemplate() { dslQuery.value = JSON.stringify({ query: { match_al
 function getHealthColor(status: string): string { if (status === 'green') return 'var(--green)'; if (status === 'yellow') return 'var(--yellow)'; return 'var(--red)' }
 function getFieldTypeColor(type: string): string { if (type === 'text') return 'var(--cyan)'; if (type === 'keyword') return 'var(--green)'; if (type === 'long' || type === 'integer' || type === 'short' || type === 'byte' || type === 'double' || type === 'float') return 'var(--yellow)'; if (type === 'date') return 'var(--purple)'; if (type === 'boolean') return 'var(--muted)'; if (type === 'nested' || type === 'object') return 'var(--pink)'; return 'var(--text-2)' }
 
+// ─── Context Menus ───
+function closeCtxMenu() { ctxMenu.value = null }
+
+function onIndexContextMenu(e: MouseEvent, index: EsIndexInfo) {
+  const items: MenuItem[] = [
+    { type: 'header', label: index.name },
+    { type: 'divider' },
+    { type: 'item', label: '📋 复制名称', icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(index.name).catch(() => {}) } },
+    { type: 'divider' },
+    { type: 'item', label: '📝 查看映射', icon: 'mdi-file-tree', onClick: () => { selectIndex(index.name) } },
+    { type: 'item', label: '⚙️ 查看设置', icon: 'mdi-cog', onClick: () => { selectIndex(index.name) } },
+    { type: 'divider' },
+    { type: 'item', label: '🗑️ 删除索引', icon: 'mdi-delete-outline', danger: true, onClick: () => { doDeleteIndex(index.name) } },
+  ]
+  ctxMenu.value = { x: e.clientX, y: e.clientY, items }
+}
+
+function onSidebarContextMenu(e: MouseEvent) {
+  const items: MenuItem[] = [
+    { type: 'item', label: '➕ 新建索引...', icon: 'mdi-database-plus', onClick: () => { showNewIndex.value = true } },
+    { type: 'item', label: '🔄 刷新索引列表', icon: 'mdi-refresh', onClick: () => { loadIndices() } },
+  ]
+  ctxMenu.value = { x: e.clientX, y: e.clientY, items }
+}
+
+async function doDeleteIndex(name: string) {
+  if (!connId.value) return
+  try {
+    await esService.esDeleteIndex(connId.value, name)
+    if (selectedIndex.value === name) { selectedIndex.value = null; mapping.value = null; settings.value = null }
+    await loadIndices()
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+function onIndexCreated(name: string) {
+  loadIndices()
+}
+
 watch(() => route.params.id, () => { connId.value = null; indices.value = []; selectedIndex.value = null; searchResult.value = null; mapping.value = null; error.value = null; initConnection() })
 onMounted(() => initConnection())
 </script>
@@ -326,10 +372,10 @@ onMounted(() => initConnection())
     </div>
 
     <div class="es-body">
-      <div class="es-sidebar">
+      <div class="es-sidebar" @contextmenu.prevent="onSidebarContextMenu">
         <div class="sidebar-search"><input v-model="indexSearch" type="text" class="cyber-input" :placeholder="t('common.search') + ' ' + t('db.index') + '...'" /></div>
         <div class="index-list">
-          <div v-for="idx in filteredIndices" :key="idx.name" class="tree-item" :class="{ active: selectedIndex === idx.name }" @click="selectIndex(idx.name)">
+          <div v-for="idx in filteredIndices" :key="idx.name" class="tree-item" :class="{ active: selectedIndex === idx.name }" @click="selectIndex(idx.name)" @contextmenu.prevent="onIndexContextMenu($event, idx)">
             <div class="tree-item-icon"><span class="status-dot" :style="{ backgroundColor: getHealthColor(idx.health) }" /></div>
             <div class="tree-item-content"><span class="tree-item-label">{{ idx.name }}</span><span class="tree-item-meta">{{ idx.docsCount?.toLocaleString() }} docs</span></div>
           </div>
@@ -411,6 +457,23 @@ onMounted(() => initConnection())
     </div>
 
     <div class="es-statusbar"><span class="status-dot" :style="{ backgroundColor: getHealthColor(clusterHealth?.status || 'red') }" /><span class="mono">{{ clusterHealth?.status || 'unknown' }}</span><span class="sep">·</span><span class="mono">{{ clusterHealth?.numberOfNodes || 0 }} nodes</span><span class="sep">·</span><span class="mono">{{ indices.length }} indices</span></div>
+
+    <!-- New Index Dialog -->
+    <NewIndexDialog
+      v-if="connId"
+      v-model="showNewIndex"
+      :conn-id="connId"
+      @created="onIndexCreated"
+    />
+
+    <!-- Context Menu -->
+    <ContextMenu
+      v-if="ctxMenu"
+      :x="ctxMenu.x"
+      :y="ctxMenu.y"
+      :items="ctxMenu.items"
+      @close="closeCtxMenu"
+    />
   </div>
 </template>
 

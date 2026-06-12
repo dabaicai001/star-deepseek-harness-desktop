@@ -2,6 +2,8 @@
 import { ref } from 'vue'
 import * as dbService from '@/services/db'
 import type { RedisKeyInfo } from '@/types/db'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import type { MenuItem } from '@/components/common/ContextMenu.vue'
 
 const props = defineProps<{
   connId: string
@@ -15,7 +17,13 @@ const emit = defineEmits<{
   'select-key': [key: string, type: string]
   'delete-key': [key: string]
   'switch-db': [db: number]
+  'new-key': [db: number]
+  'refresh-keys': [db: number]
+  'flush-db': [db: number]
+  'rename-key': [oldKey: string]
 }>()
+
+const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 
 // ─── Per-DB state ───
 interface DbState {
@@ -299,6 +307,37 @@ async function reloadCurrentDb() {
 }
 
 defineExpose({ loadKeys: reloadCurrentDb })
+
+// ─── Context Menus ───
+function closeCtxMenu() {
+  ctxMenu.value = null
+}
+
+function onDbContextMenu(e: MouseEvent, db: number) {
+  const items: MenuItem[] = [
+    { type: 'header', label: `db${db}` },
+    { type: 'divider' },
+    { type: 'item', label: '📋 复制名称', icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(`db${db}`).catch(() => {}) } },
+    { type: 'divider' },
+    { type: 'item', label: '➕ 新建 Key...', icon: 'mdi-key-plus', onClick: () => { emit('new-key', db) } },
+    { type: 'item', label: '🔄 刷新 Keys', icon: 'mdi-refresh', onClick: () => { emit('refresh-keys', db) } },
+    { type: 'divider' },
+    { type: 'item', label: '🧹 清空 DB', icon: 'mdi-delete-sweep', danger: true, onClick: () => { emit('flush-db', db) } },
+  ]
+  ctxMenu.value = { x: e.clientX, y: e.clientY, items }
+}
+
+function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
+  const items: MenuItem[] = [
+    { type: 'header', label: node.fullKey },
+    { type: 'divider' },
+    { type: 'item', label: '📋 复制 Key 名', icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(node.fullKey).catch(() => {}) } },
+    { type: 'divider' },
+    { type: 'item', label: '✏️ 重命名...', icon: 'mdi-rename-outline', onClick: () => { emit('rename-key', node.fullKey) } },
+    { type: 'item', label: '🗑️ 删除 Key', icon: 'mdi-delete-outline', danger: true, onClick: () => { onDeleteKey(e, db, node) } },
+  ]
+  ctxMenu.value = { x: e.clientX, y: e.clientY, items }
+}
 </script>
 
 <template>
@@ -323,6 +362,7 @@ defineExpose({ loadKeys: reloadCurrentDb })
             class="tree-item db-row"
             :class="{ active: db - 1 === currentDb }"
             @click="onDbClick(db - 1)"
+            @contextmenu.prevent="onDbContextMenu($event, db - 1)"
           >
             <v-icon :size="12" class="expand-icon">
               {{ expandedDbs.has(db - 1) ? 'mdi-chevron-down' : 'mdi-chevron-right' }}
@@ -382,6 +422,7 @@ defineExpose({ loadKeys: reloadCurrentDb })
                 :class="{ active: selectedKey === node.fullKey }"
                 :style="{ paddingLeft: (node.depth * 16 + 40) + 'px' }"
                 @click="onKeyClick(node)"
+                @contextmenu.prevent="onKeyContextMenu($event, db - 1, node)"
               >
                 <v-icon :size="12" :style="{ color: typeColor(node.keyType) }">{{ typeIcon(node.keyType) }}</v-icon>
                 <span class="tree-item-label">{{ node.name }}</span>
@@ -408,6 +449,14 @@ defineExpose({ loadKeys: reloadCurrentDb })
         </div>
       </div>
     </div>
+    <!-- Context Menu -->
+    <ContextMenu
+      v-if="ctxMenu"
+      :x="ctxMenu.x"
+      :y="ctxMenu.y"
+      :items="ctxMenu.items"
+      @close="closeCtxMenu"
+    />
   </div>
 </template>
 

@@ -15,6 +15,7 @@ import KeyBrowser from '@/components/redis/KeyBrowser.vue'
 import RedisValueEditor from '@/components/redis/RedisValueEditor.vue'
 import RedisCli from '@/components/redis/RedisCli.vue'
 import RedisTools from '@/components/redis/RedisTools.vue'
+import NewKeyDialog from '@/components/redis/NewKeyDialog.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
 import AiChat from '@/components/ai/AiChat.vue'
@@ -41,6 +42,12 @@ const dbSizes = ref<Record<number, number>>({})
 
 const keyBrowserRef = ref<InstanceType<typeof KeyBrowser> | null>(null)
 const valueEditorRef = ref<InstanceType<typeof RedisValueEditor> | null>(null)
+
+const showNewKey = ref(false)
+const newKeyDb = ref(0)
+const showRenameKey = ref(false)
+const renameKeyOld = ref('')
+const renameKeyNew = ref('')
 
 const rightPanelTabs: RightPanelTab[] = [
   { key: 'dashboard', label: 'Dashboard', icon: 'mdi-view-dashboard' },
@@ -233,6 +240,62 @@ async function onFlushDb() {
   }
 }
 
+function onNewKey(db: number) {
+  newKeyDb.value = db
+  showNewKey.value = true
+}
+
+function onKeyCreated(key: string, type: string) {
+  refreshDBSize()
+  refreshAllDBSizes()
+  keyBrowserRef.value?.loadKeys()
+}
+
+async function onRefreshKeys(db: number) {
+  keyBrowserRef.value?.loadKeys()
+  await refreshDBSize()
+  await refreshAllDBSizes()
+}
+
+async function onFlushDbFromBrowser(db: number) {
+  if (!connId.value) return
+  if (!(await dlg.confirm({
+    message: `FLUSHDB — This will delete ALL keys in db${db}. Continue?`,
+    confirmText: 'FLUSHDB',
+    danger: true,
+    requireTyping: 'FLUSHDB',
+  }))) return
+  try {
+    await dbService.redisSelect(connId.value, db)
+    await dbService.redisFlushDB(connId.value)
+    currentDb.value = db
+    dbsize.value = 0
+    await refreshAllDBSizes()
+    keyBrowserRef.value?.loadKeys()
+  } catch (err) {
+    console.error('Flush DB failed:', err)
+  }
+}
+
+function onRenameKey(oldKey: string) {
+  renameKeyOld.value = oldKey
+  renameKeyNew.value = oldKey
+  showRenameKey.value = true
+}
+
+async function doRenameKey() {
+  if (!connId.value || !renameKeyNew.value.trim() || renameKeyNew.value === renameKeyOld.value) return
+  try {
+    await dbService.redisRename(connId.value, renameKeyOld.value, renameKeyNew.value)
+    showRenameKey.value = false
+    await refreshDBSize()
+    await refreshAllDBSizes()
+    keyBrowserRef.value?.loadKeys()
+  } catch (err) {
+    console.error('Rename key failed:', err)
+  }
+}
+
 onMounted(() => {
   if (asset.value && asset.value.type === 'db' && asset.value.config.dbType === 'redis') {
     connect()
@@ -257,6 +320,10 @@ watch(() => assetId.value, () => {
       @select-key="onSelectKey"
       @delete-key="onDeleteKey"
       @switch-db="onSwitchDb"
+      @new-key="onNewKey"
+      @refresh-keys="onRefreshKeys"
+      @flush-db="onFlushDbFromBrowser"
+      @rename-key="onRenameKey"
     />
 
     <!-- Center -->
@@ -339,6 +406,39 @@ watch(() => assetId.value, () => {
         />
       </template>
     </RightPanel>
+
+    <!-- New Key Dialog -->
+    <NewKeyDialog
+      v-if="connId"
+      v-model="showNewKey"
+      :conn-id="connId"
+      :current-db="newKeyDb"
+      @created="onKeyCreated"
+    />
+
+    <!-- Rename Key Dialog -->
+    <v-dialog v-model="showRenameKey" max-width="420">
+      <div class="cyber-panel" style="padding: 0;">
+        <div class="dialog-header">
+          <v-icon size="16" color="var(--cyan)">mdi-rename-outline</v-icon>
+          <span class="dialog-title">重命名 Key</span>
+          <v-spacer />
+          <v-btn variant="text" size="small" icon="mdi-close" @click="showRenameKey = false" />
+        </div>
+        <div style="padding: 16px;">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">
+            {{ renameKeyOld }} → {{ renameKeyNew || '...' }}
+          </div>
+          <input v-model="renameKeyNew" class="cyber-input" placeholder="新 Key 名" autofocus @keydown.enter="doRenameKey()" />
+        </div>
+        <div class="dialog-footer">
+          <button class="cyber-btn-secondary" @click="showRenameKey = false">取消</button>
+          <button class="cyber-btn" :disabled="!renameKeyNew.trim() || renameKeyNew === renameKeyOld" @click="doRenameKey()">
+            <v-icon size="14">mdi-check</v-icon> 确认
+          </button>
+        </div>
+      </div>
+    </v-dialog>
   </div>
 </template>
 
@@ -387,5 +487,16 @@ watch(() => assetId.value, () => {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* 对话框样式 */
+.dialog-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+.dialog-title { font-weight: 600; font-size: 14px; color: var(--text); }
+.dialog-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 10px 16px; border-top: 1px solid var(--line); flex-shrink: 0;
 }
 </style>
