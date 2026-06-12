@@ -10,7 +10,7 @@ const { t } = useI18n()
 const props = defineProps<{
   modelValue: boolean
   asset?: Asset | null
-  initialType?: 'ssh' | 'db' | 'docker'
+  initialType?: 'ssh' | 'db' | 'docker' | 'excel'
 }>()
 
 const emit = defineEmits<{
@@ -19,9 +19,12 @@ const emit = defineEmits<{
   update: [payload: { id: string; dto: CreateAssetDto }]
 }>()
 
-const step = ref<'type' | 'ssh' | 'db' | 'docker'>('type')
+const step = ref<'type' | 'ssh' | 'db' | 'docker' | 'excel'>('type')
 const dockerName = ref('')
 const dockerSocket = ref('')
+const excelName = ref('')
+const excelFilePath = ref('')
+const excelFormat = ref<'xlsx' | 'csv'>('xlsx')
 
 const mode = computed<'create' | 'edit'>(() => (props.asset ? 'edit' : 'create'))
 
@@ -32,6 +35,8 @@ function selectType(type: string) {
     step.value = 'db'
   } else if (type === 'docker') {
     step.value = 'docker'
+  } else if (type === 'excel') {
+    step.value = 'excel'
   }
 }
 
@@ -39,6 +44,13 @@ function syncDockerFromAsset() {
   if (!props.asset || props.asset.type !== 'docker') return
   dockerName.value = props.asset.name
   dockerSocket.value = props.asset.config.socketPath || ''
+}
+
+function syncExcelFromAsset() {
+  if (!props.asset || props.asset.type !== 'excel') return
+  excelName.value = props.asset.name
+  excelFilePath.value = props.asset.config.filePath || ''
+  excelFormat.value = props.asset.config.format || 'xlsx'
 }
 
 // 编辑模式打开 dialog 时,直接跳到对应 step 并回填 docker 字段
@@ -53,6 +65,9 @@ watch(
     } else if (asset && asset.type === 'docker') {
       step.value = 'docker'
       syncDockerFromAsset()
+    } else if (asset && asset.type === 'excel') {
+      step.value = 'excel'
+      syncExcelFromAsset()
     } else if (props.initialType) {
       // 从顶栏菜单快捷入口进入,跳过 type 选择
       selectType(props.initialType)
@@ -88,10 +103,22 @@ function handleDockerSubmit(dto: CreateAssetDto) {
   close()
 }
 
+function handleExcelSubmit(dto: CreateAssetDto) {
+  if (mode.value === 'edit' && props.asset) {
+    emit('update', { id: props.asset.id, dto })
+  } else {
+    emit('submit', dto)
+  }
+  close()
+}
+
 function close() {
   step.value = 'type'
   dockerName.value = ''
   dockerSocket.value = ''
+  excelName.value = ''
+  excelFilePath.value = ''
+  excelFormat.value = 'xlsx'
   emit('update:modelValue', false)
 }
 </script>
@@ -145,6 +172,16 @@ function close() {
               <div class="type-meta">
                 <span class="type-name">Docker</span>
                 <span class="type-desc">{{ t('docker.containers') }} / {{ t('docker.images') }}</span>
+              </div>
+              <v-icon class="arrow" size="14">mdi-arrow-right</v-icon>
+            </div>
+            <div class="type-card" @click="selectType('excel')">
+              <div class="type-icon excel">
+                <v-icon size="26">mdi-file-excel-outline</v-icon>
+              </div>
+              <div class="type-meta">
+                <span class="type-name">Excel</span>
+                <span class="type-desc">.xlsx · .csv · 编辑 / 导入导出</span>
               </div>
               <v-icon class="arrow" size="14">mdi-arrow-right</v-icon>
             </div>
@@ -282,6 +319,63 @@ function close() {
           </form>
         </div>
       </template>
+
+      <!-- Excel Form -->
+      <template v-else-if="step === 'excel'">
+        <div class="modal-header">
+          <button class="action-btn" @click="step = 'type'" style="margin-right: -4px;">
+            <v-icon size="14">mdi-arrow-left</v-icon>
+          </button>
+          <div class="icon-box" style="background: rgba(74, 222, 128, 0.1); color: var(--green); border-color: rgba(74, 222, 128, 0.2);">
+            <v-icon size="14">mdi-file-excel-outline</v-icon>
+          </div>
+          <h3>
+            {{ mode === 'edit' ? t('asset.edit') : t('asset.create') }} · Excel
+            <span v-if="mode === 'edit' && asset" class="edit-hint">{{ asset.name }}</span>
+          </h3>
+          <button class="action-btn" @click="close">
+            <v-icon size="14">mdi-close</v-icon>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form class="excel-form" @submit.prevent="handleExcelSubmit({
+            type: 'excel',
+            name: excelName,
+            config: { filePath: excelFilePath, format: excelFormat }
+          })">
+            <div class="form-field">
+              <label class="field-label">
+                <v-icon size="12">mdi-tag-outline</v-icon>
+                {{ t('asset.name') }}
+                <span class="required">*</span>
+              </label>
+              <input v-model="excelName" type="text" class="cyber-input" :placeholder="t('asset.placeholderName')" autofocus required />
+            </div>
+            <div class="form-field">
+              <label class="field-label">
+                <v-icon size="12">mdi-file-outline</v-icon>
+                文件路径
+                <span class="required">*</span>
+              </label>
+              <input v-model="excelFilePath" type="text" class="cyber-input" placeholder="C:\Users\data\report.xlsx" />
+              <div class="field-hint">支持 .xlsx 和 .csv 格式</div>
+            </div>
+            <div class="form-footer">
+              <div></div>
+              <div class="footer-right">
+                <button type="button" class="cyber-btn-secondary" @click="close">
+                  <v-icon size="14">mdi-close</v-icon>
+                  {{ t('common.cancel') }}
+                </button>
+                <button type="submit" class="cyber-btn" :disabled="!excelName || !excelFilePath">
+                  <v-icon size="14">mdi-content-save-outline</v-icon>
+                  {{ t('common.save') }}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </template>
     </div>
   </v-dialog>
 </template>
@@ -395,6 +489,12 @@ function close() {
 }
 
 .type-icon.docker {
+  background: rgba(74, 222, 128, 0.1);
+  color: var(--green);
+  border: 1px solid rgba(74, 222, 128, 0.2);
+}
+
+.type-icon.excel {
   background: rgba(74, 222, 128, 0.1);
   color: var(--green);
   border: 1px solid rgba(74, 222, 128, 0.2);

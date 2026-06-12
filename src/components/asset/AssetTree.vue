@@ -30,7 +30,7 @@ function expandIfCollapsed(): boolean {
 
 const emit = defineEmits<{
   'new-connection': []
-  'new-connection-type': [type: 'ssh' | 'db' | 'docker']
+  'new-connection-type': [type: 'ssh' | 'db' | 'docker' | 'excel']
 }>()
 
 const sshAssets = computed(() =>
@@ -42,6 +42,9 @@ const dbAssets = computed(() =>
 const dockerAssets = computed(() =>
   assetStore.filteredAssets.filter(a => a.type === 'docker' && !a.favorite)
 )
+const excelAssets = computed(() =>
+  assetStore.filteredAssets.filter(a => a.type === 'excel' && !a.favorite)
+)
 
 function getIcon(type: string, dbType?: string) {
   // DB 类型下根据 dbType 区分图标;MDI 没有 mdi-redis,用 mdi-key-variant(KV 语义)代替
@@ -52,7 +55,9 @@ function getIcon(type: string, dbType?: string) {
   }
   switch (type) {
     case 'ssh': return 'mdi-console'
-    case 'docker': return 'mdi-docker'
+      case 'docker': return 'mdi-docker'
+      case 'excel': return 'mdi-file-excel-outline'
+    case 'excel': return 'mdi-file-excel-outline'
     default: return 'mdi-file-outline'
   }
 }
@@ -121,7 +126,7 @@ function connectToAsset(asset: Asset) {
     // Docker 当前是单视图,走主页的 quick action / 头像菜单入口;侧边栏点击不响应
     return
   }
-  // SSH / DB:单击 = 总是新开 tab(不复用)
+  // SSH / DB / Excel:单击 = 总是新开 tab(不复用)
   const instanceId = generateInstanceId(asset.id)
   appStore.addTab({
     id: instanceId,
@@ -135,6 +140,8 @@ function connectToAsset(asset: Asset) {
   } else if (asset.type === 'db') {
     const dbType = asset.config.dbType || 'mysql'
     router.push({ name: dbType === 'redis' ? 'db-redis' : dbType === 'elasticsearch' ? 'db-elasticsearch' : 'db-mysql', params: { id: instanceId } })
+  } else if (asset.type === 'excel') {
+    router.push({ name: 'excel', params: { id: instanceId } })
   }
 }
 
@@ -150,6 +157,8 @@ function openInNewTab(asset: Asset) {
   } else if (asset.type === 'db') {
     const dbType = asset.config.dbType || 'mysql'
     router.push({ name: dbType === 'redis' ? 'db-redis' : dbType === 'elasticsearch' ? 'db-elasticsearch' : 'db-mysql', params: { id: instanceId } })
+  } else if (asset.type === 'excel') {
+    router.push({ name: 'excel', params: { id: instanceId } })
   }
 }
 
@@ -239,14 +248,14 @@ function closeContextMenu() {
   ctxMenu.value = null
 }
 
-// ====== 分组标题右键菜单(SSH / DB / Docker) ======
-const groupCtxMenu = ref<{ x: number; y: number; type: 'ssh' | 'db' | 'docker' } | null>(null)
+// ====== 分组标题右键菜单(SSH / DB / Docker / Excel) ======
+const groupCtxMenu = ref<{ x: number; y: number; type: 'ssh' | 'db' | 'docker' | 'excel' } | null>(null)
 
 const groupCtxItems = computed<MenuItem[]>(() => {
   if (!groupCtxMenu.value) return []
   const gt = groupCtxMenu.value.type
-  const label = gt === 'ssh' ? 'SSH' : gt === 'db' ? t('db.title') : 'Docker'
-  const icon = gt === 'ssh' ? 'mdi-console' : gt === 'db' ? 'mdi-database-outline' : 'mdi-docker'
+  const label = gt === 'ssh' ? 'SSH' : gt === 'db' ? t('db.title') : gt === 'docker' ? 'Docker' : 'Excel'
+  const icon = gt === 'ssh' ? 'mdi-console' : gt === 'db' ? 'mdi-database-outline' : gt === 'docker' ? 'mdi-docker' : 'mdi-file-excel-outline'
   return [
     { type: 'header', icon, label },
     {
@@ -258,7 +267,7 @@ const groupCtxItems = computed<MenuItem[]>(() => {
   ]
 })
 
-function openGroupContextMenu(e: MouseEvent, type: 'ssh' | 'db' | 'docker') {
+function openGroupContextMenu(e: MouseEvent, type: 'ssh' | 'db' | 'docker' | 'excel') {
   e.preventDefault()
   e.stopPropagation()
   if (isCollapsed.value) appStore.sidebarOpen = true
@@ -349,6 +358,8 @@ async function duplicateAsset(asset: Asset) {
   } else if (newAsset.type === 'db') {
     const dbType = newAsset.config.dbType || 'mysql'
     router.push({ name: dbType === 'redis' ? 'db-redis' : dbType === 'elasticsearch' ? 'db-elasticsearch' : 'db-mysql', params: { id: instanceId } })
+  } else if (newAsset.type === 'excel') {
+    router.push({ name: 'excel', params: { id: instanceId } })
   }
 }
 
@@ -374,7 +385,8 @@ const GROUP_DEFAULTS: Record<string, boolean> = {
   favorite: true,
   ssh: true,
   db: true,
-  docker: true
+  docker: true,
+  excel: true
 }
 
 function loadExpanded(): Record<string, boolean> {
@@ -594,6 +606,52 @@ function isGroupExpanded(id: string) {
       </div>
     </div>
 
+    <!-- Excel 分组 -->
+    <div class="tree-group excel">
+      <div
+        class="tree-group-head collapsible"
+        :class="{ collapsed: !isGroupExpanded('excel') }"
+        role="button"
+        :aria-expanded="isGroupExpanded('excel')"
+        @click="toggleGroup('excel')"
+        @contextmenu="openGroupContextMenu($event, 'excel')"
+      >
+        <v-icon class="chevron" size="12">mdi-chevron-down</v-icon>
+        <v-icon class="type-icon" size="11">mdi-file-excel-outline</v-icon>
+        <span class="label">Excel</span>
+        <span class="count">{{ excelAssets.length }}</span>
+      </div>
+      <div v-show="isGroupExpanded('excel')" class="tree-group-body">
+      <div
+        v-for="asset in excelAssets"
+        :key="asset.id"
+        class="tree-item"
+        :class="{ active: isActive(asset), selected: isSelected(asset) }"
+        :data-tooltip="asset.name"
+        tabindex="0"
+        @click="selectAsset(asset)"
+        @dblclick="connectToAsset(asset)"
+        @contextmenu="openContextMenu($event, asset)"
+        @keydown="onAssetKeydown($event, asset)"
+      >
+        <v-icon size="13" :class="asset.type">{{ getIcon(asset.type) }}</v-icon>
+        <span class="name">{{ asset.name }}</span>
+        <span class="status-dot" :class="getStatus(asset)" />
+        <button
+          class="action-btn"
+          @click.stop="assetStore.toggleFavorite(asset.id)"
+          :data-tooltip="t('asset.favorite')"
+        >
+          <v-icon size="13">mdi-star-outline</v-icon>
+        </button>
+      </div>
+      <div v-if="excelAssets.length === 0" class="tree-empty">
+        <v-icon size="11">mdi-circle-small</v-icon>
+        <span>暂无 Excel 文件</span>
+      </div>
+      </div>
+    </div>
+
     <!-- 总空状态 -->
     <div
       v-if="assetStore.filteredAssets.length === 0"
@@ -735,6 +793,7 @@ function isGroupExpanded(id: string) {
 .tree-group.ssh .tree-group-head .type-icon { color: var(--cyan); }
 .tree-group.db .tree-group-head .type-icon { color: var(--purple); }
 .tree-group.docker .tree-group-head .type-icon { color: var(--green); }
+.tree-group.excel .tree-group-head .type-icon { color: var(--green); }
 .tree-group.favorite .tree-group-head .type-icon { color: var(--yellow); }
 
 .tree-group-head .count {
@@ -853,6 +912,7 @@ function isGroupExpanded(id: string) {
 .tree-item .v-icon.ssh { color: var(--cyan); }
 .tree-item .v-icon.db { color: var(--purple); }
 .tree-item .v-icon.docker { color: var(--green); }
+.tree-item .v-icon.excel { color: var(--green); }
 /* DB 子类型区分:Redis 走 Redis 官方红,其他 DB 走紫色 */
 .tree-item .v-icon.db-redis { color: #dc382d; }
 .tree-item .v-icon.db-mysql { color: var(--purple); }

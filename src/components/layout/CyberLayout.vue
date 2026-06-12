@@ -47,7 +47,7 @@ function onSearchShortcut(e: KeyboardEvent) {
 const showNewConnection = ref(false)
 const showSettings = ref(false)
 // 从顶栏菜单"快速新建"入口传入,弹 dialog 时直接跳过 type 选择
-const newConnectionInitialType = ref<'ssh' | 'db' | 'docker' | undefined>(undefined)
+const newConnectionInitialType = ref<'ssh' | 'db' | 'docker' | 'excel' | undefined>(undefined)
 
 // dialog 关闭时清掉 initialType,下次开 + 按钮回到正常 type 选择页
 import { watch as vueWatch2 } from 'vue'
@@ -167,6 +167,12 @@ const tabBarCtxItems = computed<MenuItem[]>(() => {
       label: '新建 Docker 主机…',
       onClick: () => openNewConnectionWithType('docker')
     },
+    {
+      type: 'item',
+      icon: 'mdi-file-excel-outline',
+      label: '新建 Excel 文件…',
+      onClick: () => openNewConnectionWithType('excel')
+    },
     { type: 'divider' },
     {
       type: 'item',
@@ -200,7 +206,7 @@ function openTabBarContextMenu(e: MouseEvent) {
 }
 
 /** 预设类型打开新建连接弹窗 */
-function openNewConnectionWithType(type: 'ssh' | 'db' | 'docker') {
+function openNewConnectionWithType(type: 'ssh' | 'db' | 'docker' | 'excel') {
   newConnectionInitialType.value = type
   showNewConnection.value = true
 }
@@ -208,9 +214,10 @@ function openNewConnectionWithType(type: 'ssh' | 'db' | 'docker') {
 function openNewTabFromCurrent(e: MouseEvent) {
   // 推断当前 tab 类型
   const active = appStore.tabs.find(t => t.id === appStore.activeTab)
-  let assetType: 'ssh' | 'db' | 'docker' = 'ssh'
+  let assetType: 'ssh' | 'db' | 'docker' | 'excel' = 'ssh'
   if (active?.type === 'db') assetType = 'db'
   else if (active?.type === 'docker') assetType = 'docker'
+  else if (active?.type === 'excel') assetType = 'excel'
 
   const list = assetStore.assets.filter(a => a.type === assetType)
   if (list.length === 0) {
@@ -221,7 +228,8 @@ function openNewTabFromCurrent(e: MouseEvent) {
   // 弹选择器(贴 + 按钮下方)
   const headerLabel = assetType === 'ssh' ? '打开 SSH 终端'
     : assetType === 'db' ? '打开数据库连接'
-    : '打开 Docker 主机'
+    : assetType === 'docker' ? '打开 Docker 主机'
+    : '打开 Excel 文件'
   const items: MenuItem[] = [
     { type: 'header', icon: getIcon(assetType), label: headerLabel },
     ...list.map(a => ({
@@ -235,6 +243,8 @@ function openNewTabFromCurrent(e: MouseEvent) {
           routeName = dbType === 'redis' ? 'db-redis' : 'db-mysql'
         } else if (assetType === 'ssh') {
           routeName = 'ssh-terminal'
+        } else if (assetType === 'excel') {
+          routeName = 'excel'
         } else {
           routeName = 'docker'
         }
@@ -286,7 +296,7 @@ function onUserMenuAction(action: 'settings' | 'theme' | 'lang' | 'about' | 'qui
 }
 
 /** 欢迎页 CAPABILITIES 卡片点击:有同类资产跳最近一条,没有弹新建 dialog(预设类型) */
-function onWelcomeQuickAction(type: 'ssh' | 'db' | 'docker') {
+function onWelcomeQuickAction(type: 'ssh' | 'db' | 'docker' | 'excel') {
   const sameType = assetStore.assets.filter(a => a.type === type)
   if (sameType.length > 0) {
     // 跳最近用过的一条
@@ -294,6 +304,7 @@ function onWelcomeQuickAction(type: 'ssh' | 'db' | 'docker') {
     let routeName: string
     if (a.type === 'ssh') routeName = 'ssh-terminal'
     else if (a.type === 'docker') routeName = 'docker'
+    else if (a.type === 'excel') routeName = 'excel'
     else routeName = (a.config.dbType || 'mysql') === 'redis' ? 'db-redis' : 'db-mysql'
     const instanceId = generateInstanceId(a.id)
     appStore.addTab({ id: instanceId, assetId: a.id, title: a.name, type: a.type })
@@ -350,11 +361,11 @@ const filteredAssets = computed(() => {
 const assetPicker = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 function closeAssetPicker() { assetPicker.value = null }
 
-function assetTypeIcon(t: 'ssh' | 'db' | 'docker') {
-  return t === 'ssh' ? 'mdi-console' : t === 'db' ? 'mdi-database' : 'mdi-docker'
+function assetTypeIcon(t: 'ssh' | 'db' | 'docker' | 'excel') {
+  return t === 'ssh' ? 'mdi-console' : t === 'db' ? 'mdi-database' : t === 'docker' ? 'mdi-docker' : 'mdi-file-excel-outline'
 }
 
-function openAssetPicker(e: MouseEvent, assetType: 'ssh' | 'db' | 'docker', openRoute: string) {
+function openAssetPicker(e: MouseEvent, assetType: 'ssh' | 'db' | 'docker' | 'excel', openRoute: string) {
   const list = assetStore.assets.filter(a => a.type === assetType)
   if (list.length === 0) {
     // 没有该类型资产,直接走"新建连接"
@@ -364,7 +375,8 @@ function openAssetPicker(e: MouseEvent, assetType: 'ssh' | 'db' | 'docker', open
   // 有就弹选择器;点哪条开哪条
   const headerLabel = assetType === 'ssh' ? '打开 SSH 终端'
     : assetType === 'db' ? '打开数据库连接'
-    : '打开 Docker 主机'
+    : assetType === 'docker' ? '打开 Docker 主机'
+    : '打开 Excel 文件'
   const items: MenuItem[] = [
     { type: 'header', icon: assetTypeIcon(assetType), label: headerLabel },
     ...list.map(a => ({
@@ -404,6 +416,7 @@ function openAssetPicker(e: MouseEvent, assetType: 'ssh' | 'db' | 'docker', open
 const sshAssets = computed(() => filteredAssets.value.filter(a => a.type === 'ssh'))
 const dbAssets = computed(() => filteredAssets.value.filter(a => a.type === 'db'))
 const dockerAssets = computed(() => filteredAssets.value.filter(a => a.type === 'docker'))
+const excelAssets = computed(() => filteredAssets.value.filter(a => a.type === 'excel'))
 
 
 /** 顶栏搜索下拉:实时显示匹配资产(最多 8 个) */
@@ -441,15 +454,16 @@ function onSearchKeydown(e: KeyboardEvent) {
   }
 }
 function assetIcon(type: string) {
-  return type === 'ssh' ? 'mdi-console' : type === 'db' ? 'mdi-database' : 'mdi-docker'
+  return type === 'ssh' ? 'mdi-console' : type === 'db' ? 'mdi-database' : type === 'docker' ? 'mdi-docker' : 'mdi-file-excel-outline'
 }
 function assetIconColor(type: string) {
-  return type === 'ssh' ? 'cyan' : type === 'db' ? 'purple' : 'green'
+  return type === 'ssh' ? 'cyan' : type === 'db' ? 'purple' : type === 'docker' ? 'green' : 'green'
 }
 function openAsset(asset: Asset) {
   let routeName: string
   if (asset.type === 'ssh') routeName = 'ssh-terminal'
   else if (asset.type === 'docker') routeName = 'docker'
+  else if (asset.type === 'excel') routeName = 'excel'
   else routeName = (asset.config.dbType || 'mysql') === 'redis' ? 'db-redis' : 'db-mysql'
   const instanceId = generateInstanceId(asset.id)
   appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: asset.type })
@@ -474,6 +488,7 @@ function getIcon(type: string) {
     case 'ssh': return 'mdi-console'
     case 'db': return 'mdi-database'
     case 'docker': return 'mdi-docker'
+    case 'excel': return 'mdi-file-excel-outline'
     case 'settings': return 'mdi-cog-outline'
     default: return 'mdi-file'
   }
@@ -523,7 +538,7 @@ function connectToAsset(asset: Asset) {
     assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
     return
   }
-  // SSH / DB:单击 = 总是新开 tab(不复用)
+  // SSH / DB / Excel:单击 = 总是新开 tab(不复用)
   const instanceId = generateInstanceId(asset.id)
   appStore.addTab({
     id: instanceId,
@@ -540,6 +555,8 @@ function connectToAsset(asset: Asset) {
       name: dbType === 'redis' ? 'db-redis' : dbType === 'elasticsearch' ? 'db-elasticsearch' : 'db-mysql',
       params: { id: instanceId }
     })
+  } else if (asset.type === 'excel') {
+    router.push({ name: 'excel', params: { id: instanceId } })
   }
 }
 
@@ -580,6 +597,15 @@ async function handleNewConnection(dto: CreateAssetDto) {
       type: asset.type
     })
     router.push({ name: 'docker', params: { id: instanceId } })
+  } else if (dto.type === 'excel') {
+    const instanceId = generateInstanceId(asset.id)
+    appStore.addTab({
+      id: instanceId,
+      assetId: asset.id,
+      title: asset.name,
+      type: asset.type
+    })
+    router.push({ name: 'excel', params: { id: instanceId } })
   }
 }
 
@@ -597,6 +623,8 @@ function selectTab(tab: { id: string; assetId?: string; type: string }) {
     router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: tab.id } })
   } else if (tab.type === 'docker') {
     router.push({ name: 'docker', params: { id: tab.id } })
+  } else if (tab.type === 'excel') {
+    router.push({ name: 'excel', params: { id: tab.id } })
   }
 }
 
@@ -1064,6 +1092,14 @@ vueWatch(() => appStore.tabs.length, () => {
                 <h3>{{ t('docker.title') }}</h3>
                 <p>{{ t('docker.containers') }} / {{ t('docker.images') }}</p>
               </div>
+              <div class="feature-card" @click="onWelcomeQuickAction('excel')">
+                <div class="fc-head">
+                  <v-icon size="22" color="green">mdi-file-excel-outline</v-icon>
+                  <span class="fc-tag">P0</span>
+                </div>
+                <h3>Excel</h3>
+                <p>编辑 · 导入 · 导出</p>
+              </div>
             </div>
           </div>
         </div>
@@ -1096,6 +1132,10 @@ vueWatch(() => appStore.tabs.length, () => {
       <div class="sb-item">
         <v-icon size="10">mdi-docker</v-icon>
         <span>{{ dockerAssets.length }} Docker</span>
+      </div>
+      <div class="sb-item">
+        <v-icon size="10">mdi-file-excel-outline</v-icon>
+        <span>{{ excelAssets.length }} Excel</span>
       </div>
       <div class="sb-right">
       <div class="sb-item">

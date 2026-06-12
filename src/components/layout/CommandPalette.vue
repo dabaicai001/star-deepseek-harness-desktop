@@ -46,18 +46,20 @@ const commands = computed<Command[]>(() => {
   for (const a of assetStore.assets) {
     const typeLabel = a.type === 'ssh' ? 'SSH'
       : a.type === 'db' ? (a.config.dbType || 'DB').toUpperCase()
+      : a.type === 'excel' ? 'Excel'
       : 'Docker'
     cmds.push({
       id: `asset-${a.id}`,
       group: 'asset',
-      icon: a.type === 'ssh' ? 'mdi-console' : a.type === 'db' ? 'mdi-database' : 'mdi-docker',
+      icon: a.type === 'ssh' ? 'mdi-console' : a.type === 'db' ? 'mdi-database' : a.type === 'docker' ? 'mdi-docker' : 'mdi-file-excel-outline',
       label: a.name,
     keywords: [typeLabel, a.config.host || '', a.config.username || '', ...(a.tags || [])],
- run: () => {
- let routeName: string
- if (a.type === 'ssh') routeName = 'ssh-terminal'
- else if (a.type === 'docker') routeName = 'docker'
- else routeName = a.config.dbType === 'redis' ? 'db-redis' : 'db-mysql'
+       run: () => {
+         let routeName: string
+         if (a.type === 'ssh') routeName = 'ssh-terminal'
+         else if (a.type === 'docker') routeName = 'docker'
+         else if (a.type === 'excel') routeName = 'excel'
+         else routeName = a.config.dbType === 'redis' ? 'db-redis' : 'db-mysql'
  const instanceId = generateInstanceId(a.id)
  appStore.addTab({ id: instanceId, assetId: a.id, title: a.name, type: a.type })
  router.push({ name: routeName, params: { id: instanceId } })
@@ -74,7 +76,7 @@ const commands = computed<Command[]>(() => {
     cmds.push({
       id: `tab-${t.id}`,
       group: 'tab',
-      icon: t.type === 'db' ? 'mdi-database' : t.type === 'docker' ? 'mdi-docker' : 'mdi-console',
+      icon: t.type === 'db' ? 'mdi-database' : t.type === 'docker' ? 'mdi-docker' : t.type === 'excel' ? 'mdi-file-excel-outline' : 'mdi-console',
       label: `${t.title} · tab`,
       keywords: ['tab', 'switch', '切换'],
       run: () => {

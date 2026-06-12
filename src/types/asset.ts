@@ -1,4 +1,4 @@
-export type AssetType = 'ssh' | 'db' | 'docker'
+export type AssetType = 'ssh' | 'db' | 'docker' | 'excel'
 
 export type DatabaseType = 'mysql' | 'postgresql' | 'sqlite' | 'redis' | 'elasticsearch' | 'clickhouse'
 
@@ -57,6 +57,14 @@ export interface AssetConfig {
   // Docker 配置
   socketPath?: string
   remoteHost?: string
+
+  // Excel 配置
+  filePath?: string
+  format?: 'xlsx' | 'csv'
+  activeSheet?: string
+  frozenRows?: number
+  frozenCols?: number
+  columnWidths?: Record<number, number>
 }
 
 export interface CreateAssetDto {

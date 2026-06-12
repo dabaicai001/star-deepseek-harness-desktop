@@ -55,6 +55,12 @@ const router = createRouter({
           props: true,
         },
         {
+          path: 'excel/:id',
+          name: 'excel',
+          component: () => import('@/views/ExcelView.vue'),
+          props: true,
+        },
+        {
           path: 'ai',
           name: 'ai',
           component: () => import('@/views/AiView.vue'),
