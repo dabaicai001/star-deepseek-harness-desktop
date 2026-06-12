@@ -16,6 +16,8 @@ const (
 	ConnDocker ConnType = "docker"
 	ConnES     ConnType = "elasticsearch"
 	ConnCH     ConnType = "clickhouse"
+	ConnExcel  ConnType = "excel"
+	ConnCSV    ConnType = "csv"
 )
 
 // ConnInfo 存储连接元信息

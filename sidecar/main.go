@@ -46,6 +46,10 @@ func main() {
 	// 注册 Docker 方法
 	adapters.RegisterDockerHandlers(server, connMgr)
 
+	// 注册 Excel / CSV 文件方法
+	adapters.RegisterExcelHandlers(server, connMgr)
+	adapters.RegisterCSVHandlers(server, connMgr)
+
 	fmt.Fprintf(os.Stderr, "StarHub Sidecar ready\n")
 
 	if err := server.Run(); err != nil {

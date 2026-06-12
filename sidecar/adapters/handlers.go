@@ -2156,3 +2156,358 @@ func handleESScrollSearch(mgr *pool.Manager) Handler {
 		return adapter.ScrollSearch(p.Index, p.Body, p.Size)
 	}
 }
+
+// ====== Excel Handlers ======
+
+// RegisterExcelHandlers 注册 Excel 文件相关 RPC 方法
+func RegisterExcelHandlers(server ServerInterface, mgr *pool.Manager) {
+	server.Register("file.excel.open", handleExcelOpen(mgr))
+	server.Register("file.excel.create", handleExcelCreate(mgr))
+	server.Register("file.excel.close", handleDisconnect(mgr))
+	server.Register("file.excel.getSheetNames", handleExcelGetSheetNames(mgr))
+	server.Register("file.excel.readSheet", handleExcelReadSheet(mgr))
+	server.Register("file.excel.writeCells", handleExcelWriteCells(mgr))
+	server.Register("file.excel.addSheet", handleExcelAddSheet(mgr))
+	server.Register("file.excel.removeSheet", handleExcelRemoveSheet(mgr))
+	server.Register("file.excel.renameSheet", handleExcelRenameSheet(mgr))
+	server.Register("file.excel.save", handleExcelSave(mgr))
+	server.Register("file.excel.saveAs", handleExcelSaveAs(mgr))
+	server.Register("file.excel.removeDuplicates", handleExcelRemoveDuplicates(mgr))
+}
+
+// RegisterCSVHandlers 注册 CSV 文件相关 RPC 方法
+func RegisterCSVHandlers(server ServerInterface, mgr *pool.Manager) {
+	server.Register("file.csv.open", handleCsvOpen(mgr))
+	server.Register("file.csv.close", handleDisconnect(mgr))
+	server.Register("file.csv.save", handleCsvSave(mgr))
+}
+
+func getExcelAdapter(mgr *pool.Manager, connID string) (*ExcelAdapter, error) {
+	adapter, info, err := mgr.Get(connID)
+	if err != nil {
+		return nil, err
+	}
+	if info.Type != pool.ConnExcel {
+		return nil, fmt.Errorf("connection %s is not excel type (got %s)", connID, info.Type)
+	}
+	excelAdapter, ok := adapter.(*ExcelAdapter)
+	if !ok {
+		return nil, fmt.Errorf("adapter type assertion failed for %s", connID)
+	}
+	return excelAdapter, nil
+}
+
+func getCSVAdapter(mgr *pool.Manager, connID string) (*CsvAdapter, error) {
+	adapter, info, err := mgr.Get(connID)
+	if err != nil {
+		return nil, err
+	}
+	if info.Type != pool.ConnCSV {
+		return nil, fmt.Errorf("connection %s is not csv type (got %s)", connID, info.Type)
+	}
+	csvAdapter, ok := adapter.(*CsvAdapter)
+	if !ok {
+		return nil, fmt.Errorf("adapter type assertion failed for %s", connID)
+	}
+	return csvAdapter, nil
+}
+
+func handleExcelOpen(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p ExcelConnInfo
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := NewExcelAdapter(&p)
+		if err != nil {
+			return nil, err
+		}
+		connID := fmt.Sprintf("excel_%d", time.Now().UnixNano())
+		mgr.Register(connID, adapter, pool.ConnInfo{ID: connID, Type: pool.ConnExcel})
+
+		sheets := adapter.GetSheetNames()
+		result := map[string]interface{}{
+			"connId":    connID,
+			"filePath":  adapter.GetFilePath(),
+			"sheetNames": sheets,
+		}
+
+		// 如果有 Sheet,返回第一个 Sheet 的数据
+		if len(sheets) > 0 {
+			data, err := adapter.ReadSheet(sheets[0], 0, 0)
+			if err == nil {
+				result["initialData"] = data
+			}
+		}
+
+		return result, nil
+	}
+}
+
+func handleExcelCreate(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			FilePath  string `json:"filePath"`
+			SheetName string `json:"sheetName,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := NewExcelAdapter(&ExcelConnInfo{FilePath: p.FilePath})
+		if err != nil {
+			return nil, err
+		}
+
+		// 设置默认 Sheet 名称
+		sheetName := p.SheetName
+		if sheetName == "" {
+			sheetName = "Sheet1"
+		}
+		// 重命名默认的 Sheet1
+		if err := adapter.f.SetSheetName("Sheet1", sheetName); err != nil {
+			_ = err
+		}
+
+		connID := fmt.Sprintf("excel_%d", time.Now().UnixNano())
+		mgr.Register(connID, adapter, pool.ConnInfo{ID: connID, Type: pool.ConnExcel})
+
+		return map[string]interface{}{
+			"connId":   connID,
+			"filePath": adapter.GetFilePath(),
+		}, nil
+	}
+}
+
+func handleExcelGetSheetNames(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"sheetNames": adapter.GetSheetNames(),
+		}, nil
+	}
+}
+
+func handleExcelReadSheet(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SheetName string `json:"sheetName"`
+			Offset    int    `json:"offset,omitempty"`
+			Limit     int    `json:"limit,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.ReadSheet(p.SheetName, p.Offset, p.Limit)
+	}
+}
+
+func handleExcelWriteCells(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string       `json:"connId"`
+			SheetName string       `json:"sheetName"`
+			Cells     []CellChange `json:"cells"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.WriteCells(p.SheetName, p.Cells); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleExcelAddSheet(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SheetName string `json:"sheetName"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.AddSheet(p.SheetName); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleExcelRemoveSheet(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SheetName string `json:"sheetName"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.RemoveSheet(p.SheetName); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleExcelRenameSheet(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID  string `json:"connId"`
+			OldName string `json:"oldName"`
+			NewName string `json:"newName"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.RenameSheet(p.OldName, p.NewName); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleExcelSave(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.Save(); err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"ok":       true,
+			"filePath": adapter.GetFilePath(),
+		}, nil
+	}
+}
+
+func handleExcelSaveAs(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID   string `json:"connId"`
+			FilePath string `json:"filePath"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.SaveAs(p.FilePath); err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"ok":       true,
+			"filePath": adapter.GetFilePath(),
+		}, nil
+	}
+}
+
+func handleExcelRemoveDuplicates(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SheetName string `json:"sheetName"`
+			Columns   []int  `json:"columns"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		removed, err := adapter.RemoveDuplicates(p.SheetName, p.Columns)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"removed": removed,
+			"ok":      true,
+		}, nil
+	}
+}
+
+// ====== CSV Handlers ======
+
+func handleCsvOpen(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p CsvConnInfo
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := NewCsvAdapter(&p)
+		if err != nil {
+			return nil, err
+		}
+		connID := fmt.Sprintf("csv_%d", time.Now().UnixNano())
+		mgr.Register(connID, adapter, pool.ConnInfo{ID: connID, Type: pool.ConnCSV})
+
+		rows := adapter.GetRows(0, 0)
+		return map[string]interface{}{
+			"connId":   connID,
+			"filePath": p.FilePath,
+			"columns":  adapter.GetColumns(),
+			"rows":     rows,
+			"totalRows": adapter.TotalRows(),
+		}, nil
+	}
+}
+
+func handleCsvSave(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getCSVAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.Save(); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
