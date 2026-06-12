@@ -7,6 +7,7 @@ import { Compartment, EditorState } from '@codemirror/state'
 import { keymap } from '@codemirror/view'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
 import { loadHistory, clearHistory, type SqlHistoryEntry } from '@/utils/sqlHistory'
+import { useThemeStore } from '@/stores/theme'
 
 const props = defineProps<{
   modelValue?: string
@@ -23,6 +24,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const themeStore = useThemeStore()
 
 const historyOpen = ref(false)
 const history = ref<SqlHistoryEntry[]>([])
@@ -55,7 +57,7 @@ const langCompartment = new Compartment()
 const cyberTheme = EditorView.theme({
   '&': {
     backgroundColor: 'transparent !important',
-    fontSize: '14px',
+    fontSize: 'var(--editor-font-size, 14px)',
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
     height: '100%'
   },
@@ -182,6 +184,8 @@ function buildLangExtension() {
 function createEditor() {
   if (!editorRef.value) return
 
+  editorRef.value.style.setProperty('--editor-font-size', themeStore.fontSize + 'px')
+
   const extensions = [
     basicSetup,
     cyberTheme,
@@ -233,6 +237,12 @@ watch(() => props.tables, () => {
     editorView.dispatch({
       effects: langCompartment.reconfigure(buildLangExtension())
     })
+  }
+})
+
+watch(() => themeStore.fontSize, (newSize) => {
+  if (editorRef.value) {
+    editorRef.value.style.setProperty('--editor-font-size', newSize + 'px')
   }
 })
 
