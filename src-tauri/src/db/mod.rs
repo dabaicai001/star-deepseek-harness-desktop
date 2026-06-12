@@ -37,6 +37,9 @@ pub async fn init_database(app_handle: &AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("Failed to create tables: {}", e))?;
 
+    // 迁移:assets 表 CHECK 约束加入 'excel'
+    migrate_assets_type_check(&pool).await?;
+
     DB_POOL
         .set(pool)
         .map_err(|_| "Database already initialized".to_string())?;
@@ -47,4 +50,58 @@ pub async fn init_database(app_handle: &AppHandle) -> Result<(), String> {
 
 pub fn get_pool() -> Result<&'static SqlitePool, String> {
     DB_POOL.get().ok_or_else(|| "Database not initialized".to_string())
+}
+
+/// 迁移:给 assets 表的 type CHECK 约束加入 'excel'
+/// SQLite 不支持 ALTER CHECK,只能重建表
+async fn migrate_assets_type_check(pool: &SqlitePool) -> Result<(), String> {
+    // 检查是否已经包含 'excel'(用旧表插入一条再删掉来检测)
+    let check = sqlx::query_scalar::<_, String>(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='assets'"
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if let Some(ddl) = check {
+        if ddl.contains("'excel'") {
+            return Ok(()); // 已迁移
+        }
+    } else {
+        return Ok(()); // 表还不存在(全新安装),schema 已包含 excel
+    }
+
+    tracing::info!("Migrating assets table to add 'excel' type...");
+
+    sqlx::raw_sql(
+        "BEGIN;
+         CREATE TABLE assets_new (
+           id TEXT PRIMARY KEY,
+           type TEXT NOT NULL CHECK(type IN ('ssh', 'db', 'docker', 'excel')),
+           name TEXT NOT NULL,
+           group_id INTEGER,
+           config_json TEXT NOT NULL DEFAULT '{}',
+           key_id TEXT,
+           tags TEXT DEFAULT '[]',
+           favorite INTEGER DEFAULT 0,
+           last_used_at INTEGER,
+           created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+           updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+           FOREIGN KEY (group_id) REFERENCES asset_groups(id) ON DELETE SET NULL
+         );
+         INSERT INTO assets_new SELECT * FROM assets;
+         DROP TABLE assets;
+         ALTER TABLE assets_new RENAME TO assets;
+         CREATE INDEX IF NOT EXISTS idx_assets_type ON assets(type);
+         CREATE INDEX IF NOT EXISTS idx_assets_group_id ON assets(group_id);
+         CREATE INDEX IF NOT EXISTS idx_assets_favorite ON assets(favorite);
+         CREATE INDEX IF NOT EXISTS idx_assets_name ON assets(name);
+         COMMIT;"
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Migration failed: {}", e))?;
+
+    tracing::info!("Assets table migration complete.");
+    Ok(())
 }
