@@ -58,6 +58,8 @@ watch(dbType, (type) => {
     port.value = 6379
   } else if (type === 'elasticsearch') {
     port.value = 9200
+  } else if (type === 'clickhouse') {
+    port.value = 9000
   }
 })
 
@@ -68,7 +70,7 @@ watch(
     dbType.value = next.dbType ?? 'mysql'
     name.value = next.name ?? ''
     host.value = next.host ?? ''
-    port.value = next.port ?? (next.dbType === 'redis' ? 6379 : 3306)
+    port.value = next.port ?? (next.dbType === 'redis' ? 6379 : next.dbType === 'elasticsearch' ? 9200 : next.dbType === 'clickhouse' ? 9000 : 3306)
     username.value = next.username ?? ''
     password.value = next.password ?? ''
     database.value = next.database ?? ''
@@ -80,6 +82,7 @@ watch(
 const canSubmit = computed(() => {
   if (!name.value || !host.value) return false
   if (dbType.value === 'mysql') return !!username.value
+  if (dbType.value === 'clickhouse') return !!username.value
   if (dbType.value === 'elasticsearch') return esAuthMode.value === 'apikey' ? !!esApiKey.value : true
   return true
 })
@@ -87,6 +90,7 @@ const canSubmit = computed(() => {
 const canTest = computed(() => {
   if (!host.value) return false
   if (dbType.value === 'mysql') return !!username.value
+  if (dbType.value === 'clickhouse') return !!username.value
   if (dbType.value === 'elasticsearch') return esAuthMode.value === 'apikey' ? !!esApiKey.value : true
   return true
 })
@@ -125,6 +129,17 @@ async function onTestConnection() {
         password: esAuthMode.value === 'password' ? password.value : undefined,
         useSSL: ssl.value,
         apiKey: esAuthMode.value === 'apikey' ? esApiKey.value : undefined
+      })
+      testStatus.value = result.ok ? 'success' : 'fail'
+      testMessage.value = result.message
+    } else if (dbType.value === 'clickhouse') {
+      const result = await dbService.clickhouseTest({
+        host: host.value,
+        port: port.value,
+        username: username.value,
+        password: password.value,
+        database: database.value || undefined,
+        ssl: ssl.value
       })
       testStatus.value = result.ok ? 'success' : 'fail'
       testMessage.value = result.message
@@ -199,6 +214,14 @@ function onKeydown(e: KeyboardEvent) {
         <v-icon size="16">mdi-database-search</v-icon>
         <span>Elasticsearch</span>
       </div>
+      <div
+        class="db-type-btn"
+        :class="{ active: dbType === 'clickhouse' }"
+        @click="dbType = 'clickhouse'"
+      >
+        <v-icon size="16">mdi-database</v-icon>
+        <span>ClickHouse</span>
+      </div>
     </div>
 
     <div class="form-body">
@@ -242,13 +265,13 @@ function onKeydown(e: KeyboardEvent) {
               v-model.number="port"
               type="number"
               class="cyber-input mono"
-              :placeholder="dbType === 'mysql' ? '3306' : '6379'"
+              :placeholder="dbType === 'mysql' ? '3306' : dbType === 'clickhouse' ? '9000' : dbType === 'elasticsearch' ? '9200' : '6379'"
             />
           </div>
         </div>
 
-        <!-- 用户名 (MySQL only) -->
-        <div v-if="dbType === 'mysql'" class="form-field">
+        <!-- 用户名 (MySQL / ClickHouse) -->
+        <div v-if="dbType === 'mysql' || dbType === 'clickhouse'" class="form-field">
           <label class="field-label">
             <v-icon size="12">mdi-account-outline</v-icon>
             {{ t('asset.username') }}
@@ -297,8 +320,8 @@ function onKeydown(e: KeyboardEvent) {
           </div>
         </div>
 
-        <!-- 数据库 (MySQL) -->
-        <div v-if="dbType === 'mysql'" class="form-field">
+        <!-- 数据库 (MySQL / ClickHouse) -->
+        <div v-if="dbType === 'mysql' || dbType === 'clickhouse'" class="form-field">
           <label class="field-label">
             <v-icon size="12">mdi-database-outline</v-icon>
             {{ t('asset.database') }}

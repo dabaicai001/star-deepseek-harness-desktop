@@ -44,6 +44,8 @@ const instanceId = computed(() => route.params.id as string)
 const assetId = computed(() => parseInstanceId(instanceId.value).assetId)
 const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value))
 
+const isClickhouse = computed(() => asset.value?.config.dbType === 'clickhouse')
+
 // State
 const connected = ref(false)
 const connecting = ref(false)
@@ -251,6 +253,28 @@ async function connect() {
         notify.notify({ message: t('db.listDbFailed', { msg }), color: 'warning' })
         // 允许部分无权限场景,databases 留空,用户可重试或自己 SQL 编辑
       }
+    } else if (dbType === 'clickhouse') {
+      const session = await dbStore.connectClickHouse(assetId.value, asset.value.name, {
+        host: config.host || '',
+        port: config.port || 9000,
+        username: config.username || '',
+        password: config.password || '',
+        database: config.database,
+        ssl: config.ssl
+      })
+      connId.value = session.connId
+      connected.value = true
+
+      try {
+        databases.value = await dbService.clickhouseListDatabases(session.connId)
+        if (config.database && databases.value.includes(config.database)) {
+          selectedDb.value = config.database
+        }
+      } catch (err) {
+        const msg = errMsg(err)
+        console.warn('[db] list databases failed:', err)
+        notify.notify({ message: t('db.listDbFailed', { msg }), color: 'warning' })
+      }
     } else if (dbType === 'redis') {
       const session = await dbStore.connectRedis(assetId.value, asset.value.name, {
         host: config.host || '',
@@ -286,7 +310,9 @@ async function refreshDatabases() {
     .map(t => ({ db: t.db, table: t.table, id: t.id }))
   loadingDatabases.value = true
   try {
-    const list = await dbService.mysqlListDatabases(connId.value)
+    const list = isClickhouse.value
+      ? await dbService.clickhouseListDatabases(connId.value)
+      : await dbService.mysqlListDatabases(connId.value)
     databases.value = list
     // 清空已加载的表(库列表可能变了,旧缓存不可信)
     databaseTables.value = new Map()
@@ -332,7 +358,9 @@ async function loadTablesForDb(db: string) {
   loadErrors.value.delete(db)  // 清除旧错误
   loadErrors.value = new Map(loadErrors.value)
   try {
-    const tbls = await dbService.mysqlListTables(connId.value, db)
+    const tbls = isClickhouse.value
+      ? await dbService.clickhouseListTables(connId.value, db)
+      : await dbService.mysqlListTables(connId.value, db)
     databaseTables.value.set(db, tbls)
   } catch (err) {
     const msg = errMsg(err)
@@ -422,14 +450,23 @@ async function loadTableDataFor(tab: TableSubTab, force = false) {
     const offset = tab.dataPage * tab.dataPageSize
     // 并行:元信息(列+行数) + 表数据,减少等待
     const metaPromise = tab.columns.length === 0
-      ? dbService.mysqlGetTableMeta(connId.value, tab.table, tab.db)
+      ? (isClickhouse.value
+          ? dbService.clickhouseGetTableMeta(connId.value, tab.table, tab.db)
+          : dbService.mysqlGetTableMeta(connId.value, tab.table, tab.db))
       : null
-    const dataPromise = dbService.mysqlGetTableData(
-      connId.value, tab.table, tab.dataPageSize, offset,
-      tab.dataOrderBy || undefined, tab.dataOrderDir, tab.db,
-      tab.whereClause || undefined,
-      Object.keys(tab.columnFilters).length > 0 ? tab.columnFilters : undefined
-    )
+    const dataPromise = isClickhouse.value
+      ? dbService.clickhouseGetTableData(
+          connId.value, tab.table, tab.dataPageSize, offset,
+          tab.dataOrderBy || undefined, tab.dataOrderDir, tab.db,
+          tab.whereClause || undefined,
+          Object.keys(tab.columnFilters).length > 0 ? tab.columnFilters : undefined
+        )
+      : dbService.mysqlGetTableData(
+          connId.value, tab.table, tab.dataPageSize, offset,
+          tab.dataOrderBy || undefined, tab.dataOrderDir, tab.db,
+          tab.whereClause || undefined,
+          Object.keys(tab.columnFilters).length > 0 ? tab.columnFilters : undefined
+        )
     console.log('[DbView] loadTableDataFor whereClause:', JSON.stringify(tab.whereClause), 'columnFilters:', JSON.stringify(tab.columnFilters))
     if (metaPromise) {
       const [meta, data] = await Promise.all([metaPromise, dataPromise])
@@ -473,11 +510,15 @@ async function reloadActiveTable() {
   const tab = activeTableTab.value
   if (!tab || !connId.value) return
   // 重新拉表(可能表结构变了)
-  const tbls = await dbService.mysqlListTables(connId.value, tab.db)
-  databaseTables.value.set(tab.db, tbls)
-  databaseTables.value = new Map(databaseTables.value)
-  // 重新拉列
-  tab.columns = await dbService.mysqlListColumns(connId.value, tab.table, tab.db)
+    const tbls = isClickhouse.value
+      ? await dbService.clickhouseListTables(connId.value, tab.db)
+      : await dbService.mysqlListTables(connId.value, tab.db)
+    databaseTables.value.set(tab.db, tbls)
+    databaseTables.value = new Map(databaseTables.value)
+    // 重新拉列
+    tab.columns = isClickhouse.value
+      ? await dbService.clickhouseListColumns(connId.value, tab.table, tab.db)
+      : await dbService.mysqlListColumns(connId.value, tab.table, tab.db)
   // 重新拉数据
   await loadTableDataFor(tab, true)
 }
@@ -618,9 +659,13 @@ async function onCellEdit(rowIdx: number, col: string, value: unknown) {
     })
     .filter(Boolean)
     .join(' AND ')
-  if (!where) return
+    if (!where) return
   try {
-    await dbService.mysqlUpdateRows(connId.value, tab.table, { [col]: value }, where, tab.db)
+    if (isClickhouse.value) {
+      await dbService.clickhouseUpdateRows(connId.value, tab.table, { [col]: value }, where, tab.db)
+    } else {
+      await dbService.mysqlUpdateRows(connId.value, tab.table, { [col]: value }, where, tab.db)
+    }
     await loadTableDataFor(tab)
   } catch (err: unknown) {
     void dlg.alert({ message: t('db.updateFailed', { msg: err instanceof Error ? err.message : String(err) }), color: 'error' })
@@ -650,7 +695,11 @@ async function onSaveBatch(changes: Array<{ rowIndex: number; column: string; or
       .join(' AND ')
     if (!where) { failCount++; continue }
     try {
-      await dbService.mysqlUpdateRows(connId.value, tab.table, { [change.column]: change.newValue }, where, tab.db)
+      if (isClickhouse.value) {
+        await dbService.clickhouseUpdateRows(connId.value, tab.table, { [change.column]: change.newValue }, where, tab.db)
+      } else {
+        await dbService.mysqlUpdateRows(connId.value, tab.table, { [change.column]: change.newValue }, where, tab.db)
+      }
     } catch {
       failCount++
     }
@@ -677,7 +726,9 @@ async function onSqlEditorPageChange(page: number) {
   const offset = page * tab.dataPageSize
   const pagedSql = injectLimit(tab.lastSql, offset, tab.dataPageSize)
   try {
-    tab.result = await dbService.mysqlExecute(connId.value, pagedSql, tab.selectedDb || undefined)
+    tab.result = isClickhouse.value
+      ? await dbService.clickhouseExecute(connId.value, pagedSql, tab.selectedDb || undefined)
+      : await dbService.mysqlExecute(connId.value, pagedSql, tab.selectedDb || undefined)
   } catch (err: unknown) {
     tab.result = {
       columns: [],
@@ -773,8 +824,14 @@ async function executeSql(sql: string) {
         const pagedSql = injectLimit(sql, 0, editorTab.dataPageSize)
         const countSql = buildCountSql(sql) as string
         const [dataResult, countResult] = await Promise.all([
-          dbService.mysqlExecute(connId.value, pagedSql, db),
-          countSql ? dbService.mysqlExecute(connId.value, countSql, db) : Promise.resolve(null)
+          isClickhouse.value
+            ? dbService.clickhouseExecute(connId.value, pagedSql, db)
+            : dbService.mysqlExecute(connId.value, pagedSql, db),
+          countSql
+            ? (isClickhouse.value
+                ? dbService.clickhouseExecute(connId.value, countSql, db)
+                : dbService.mysqlExecute(connId.value, countSql, db))
+            : Promise.resolve(null)
         ])
         editorTab.result = dataResult
         if (dataResult?.error) {
@@ -784,7 +841,9 @@ async function executeSql(sql: string) {
         }
       } else {
         // 非 SELECT:直接执行
-        editorTab.result = await dbService.mysqlExecute(connId.value, sql, db)
+        editorTab.result = isClickhouse.value
+          ? await dbService.clickhouseExecute(connId.value, sql, db)
+          : await dbService.mysqlExecute(connId.value, sql, db)
         editorTab.dataTotal = 0
         if (editorTab.result?.error) editorTab.error = true
       }
@@ -820,7 +879,9 @@ async function executeSql(sql: string) {
   activeSubTabId.value = tab.id
   isExecutingAny.value = true
   try {
-    tab.result = await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
+    tab.result = isClickhouse.value
+      ? await dbService.clickhouseExecute(connId.value, sql, selectedDb.value || undefined)
+      : await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
     addHistory(sql, selectedDb.value || '')
     if (tab.result?.error) tab.error = true
   } catch (err: unknown) {
@@ -850,7 +911,9 @@ async function explainSql(sql: string) {
     editorTab.title = 'EXPLAIN: ' + origTitle
     isExecutingAny.value = true
     try {
-      editorTab.result = await dbService.mysqlExplain(connId.value, sql, editorTab.selectedDb || undefined)
+      editorTab.result = isClickhouse.value
+        ? await dbService.clickhouseExplain(connId.value, sql, editorTab.selectedDb || undefined)
+        : await dbService.mysqlExplain(connId.value, sql, editorTab.selectedDb || undefined)
       if (editorTab.result?.error) editorTab.error = true
     } catch (err: unknown) {
       editorTab.result = {
@@ -883,7 +946,9 @@ async function explainSql(sql: string) {
   activeSubTabId.value = tab.id
   isExecutingAny.value = true
   try {
-    tab.result = await dbService.mysqlExplain(connId.value, sql, selectedDb.value || undefined)
+    tab.result = isClickhouse.value
+      ? await dbService.clickhouseExplain(connId.value, sql, selectedDb.value || undefined)
+      : await dbService.mysqlExplain(connId.value, sql, selectedDb.value || undefined)
     if (tab.result?.error) tab.error = true
   } catch (err: unknown) {
     tab.result = {
@@ -905,7 +970,11 @@ function handleExport(format: string) {
   if (!connId.value) return
   const tab = activeTableTab.value
   if (!tab) return
-  dbService.mysqlExportData(connId.value, tab.table, format, undefined, tab.db)
+  if (isClickhouse.value) {
+    dbService.clickhouseExportData(connId.value, tab.table, format, undefined, tab.db)
+  } else {
+    dbService.mysqlExportData(connId.value, tab.table, format, undefined, tab.db)
+  }
 }
 
 function closeSubTab(id: string) {
@@ -1018,7 +1087,9 @@ async function executeDbSql(sql: string): Promise<string> {
     if (r.error) return `[Error] ${r.error}`
     return r.result == null ? '(无输出)' : (typeof r.result === 'string' ? r.result : JSON.stringify(r.result, null, 2))
   }
-  const r = await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
+  const r = isClickhouse.value
+    ? await dbService.clickhouseExecute(connId.value, sql, selectedDb.value || undefined)
+    : await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
   if (r.error) return `[Error] ${r.error}`
   if (r.rows.length === 0) {
     return `(0 行${r.rowsAffected ? `, ${r.rowsAffected} 行受影响` : ''})`
@@ -1262,7 +1333,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         </button>
         <div class="db-toolbar-spacer"></div>
         <select
-          v-if="asset?.config.dbType === 'mysql'"
+          v-if="asset?.config.dbType === 'mysql' || asset?.config.dbType === 'clickhouse'"
           v-model="selectedDb"
           class="db-selector-inline"
           :class="{ 'no-db': !selectedDb }"
@@ -1427,7 +1498,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                   <v-icon size="14">mdi-delete-outline</v-icon>
                 </button>
                 <select
-                  v-if="asset?.config.dbType === 'mysql'"
+                  v-if="asset?.config.dbType === 'mysql' || asset?.config.dbType === 'clickhouse'"
                   v-model="activeSqlEditorTab.selectedDb"
                   class="db-selector-inline"
                   :class="{ 'no-db': !activeSqlEditorTab.selectedDb }"

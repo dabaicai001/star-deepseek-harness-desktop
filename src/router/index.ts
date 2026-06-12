@@ -43,6 +43,12 @@ const router = createRouter({
           props: true,
         },
         {
+          path: 'db/clickhouse/:id',
+          name: 'db-clickhouse',
+          component: () => import('@/views/DbView.vue'),
+          props: true,
+        },
+        {
           path: 'docker/:id',
           name: 'docker',
           component: () => import('@/views/DockerView.vue'),
