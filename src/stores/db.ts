@@ -101,6 +101,30 @@ export const useDbStore = defineStore('db', () => {
     return session
   }
 
+  async function connectClickHouse(assetId: string, name: string, params: {
+    host: string
+    port: number
+    username: string
+    password: string
+    database?: string
+    ssl?: boolean
+  }): Promise<DbSession> {
+    const info = await dbService.clickhouseConnect(params)
+    const session: DbSession = {
+      connId: info.connId,
+      dbType: 'clickhouse',
+      host: info.host,
+      port: info.port,
+      database: info.database || '',
+      connected: true,
+      name,
+      assetId
+    }
+    sessions.value.set(info.connId, session)
+    currentConnId.value = info.connId
+    return session
+  }
+
   async function disconnect(connId: string) {
     const session = sessions.value.get(connId)
     if (!session) return
@@ -112,6 +136,8 @@ export const useDbStore = defineStore('db', () => {
         await dbService.redisDisconnect(connId)
       } else if (session.dbType === 'elasticsearch') {
         await dbService.esDisconnect(connId)
+      } else if (session.dbType === 'clickhouse') {
+        await dbService.clickhouseDisconnect(connId)
       }
     } catch {
       // ignore disconnect errors
@@ -196,6 +222,7 @@ export const useDbStore = defineStore('db', () => {
     connectMySQL,
     connectRedis,
     connectElasticsearch,
+    connectClickHouse,
     disconnect,
     setCurrentSession,
     executeQuery,

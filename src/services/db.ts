@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type {
   MySQLConnectParams,
   RedisConnectParams,
+  ClickHouseConnectParams,
   DbConnectionInfo,
   TestResult,
   QueryResult,
@@ -228,6 +229,115 @@ export async function redisSubscribe(connId: string, channels: string[], pattern
 
 export async function redisUnsubscribe(connId: string, channels: string[]): Promise<void> {
   return invoke('db_redis_unsubscribe', { connId, channels })
+}
+
+// ─── ClickHouse ───
+
+export async function clickhouseConnect(params: ClickHouseConnectParams): Promise<DbConnectionInfo> {
+  return invoke('db_clickhouse_connect', { params })
+}
+
+export async function clickhouseTest(params: ClickHouseConnectParams): Promise<TestResult> {
+  return invoke('db_clickhouse_test', { params })
+}
+
+export async function clickhouseDisconnect(connId: string): Promise<void> {
+  return invoke('db_clickhouse_disconnect', { connId })
+}
+
+export async function clickhouseListDatabases(connId: string): Promise<string[]> {
+  return invoke('db_clickhouse_list_databases', { connId })
+}
+
+export async function clickhouseListTables(connId: string, database?: string): Promise<TableInfo[]> {
+  return invoke('db_clickhouse_list_tables', { connId, database })
+}
+
+export async function clickhouseListColumns(connId: string, table: string, database?: string): Promise<ColumnMeta[]> {
+  return invoke('db_clickhouse_list_columns', { connId, table, database })
+}
+
+export async function clickhouseListIndexes(connId: string, table: string, database?: string): Promise<IndexInfo[]> {
+  return invoke('db_clickhouse_list_indexes', { connId, table, database })
+}
+
+export async function clickhouseCreateIndex(
+  connId: string, table: string, indexName: string, columns: string[],
+  unique: boolean, indexType: string, database?: string
+): Promise<void> {
+  return invoke('db_clickhouse_create_index', { connId, table, indexName, columns, unique, indexType, database })
+}
+
+export async function clickhouseDropIndex(connId: string, table: string, indexName: string, database?: string): Promise<void> {
+  return invoke('db_clickhouse_drop_index', { connId, table, indexName, database })
+}
+
+export async function clickhouseExecute(connId: string, sql: string, database?: string): Promise<QueryResult> {
+  return invoke('db_clickhouse_execute', { connId, sql, database })
+}
+
+export async function clickhouseExplain(connId: string, sql: string, database?: string): Promise<QueryResult> {
+  return invoke('db_clickhouse_explain', { connId, sql, database })
+}
+
+export async function clickhouseGetTableDDL(connId: string, table: string, database?: string): Promise<DDLResult> {
+  return invoke('db_clickhouse_get_table_ddl', { connId, table, database })
+}
+
+export async function clickhouseGetTableData(
+  connId: string, table: string, limit?: number, offset?: number,
+  orderBy?: string, orderDir?: string, database?: string,
+  filter?: string, columnFilters?: Record<string, string>
+): Promise<QueryResult> {
+  return invoke('db_clickhouse_get_table_data', { connId, table, limit, offset, orderBy, orderDir, database, filter, columnFilters })
+}
+
+export async function clickhouseDropTable(connId: string, table: string, ifExists?: boolean, database?: string): Promise<void> {
+  return invoke('db_clickhouse_drop_table', { connId, table, ifExists, database })
+}
+
+export async function clickhouseTruncateTable(connId: string, table: string, database?: string): Promise<void> {
+  return invoke('db_clickhouse_truncate_table', { connId, table, database })
+}
+
+export async function clickhouseRenameTable(connId: string, oldName: string, newName: string, database?: string): Promise<void> {
+  return invoke('db_clickhouse_rename_table', { connId, oldName, newName, database })
+}
+
+export async function clickhouseInsertRow(connId: string, table: string, values: Record<string, unknown>, database?: string): Promise<InsertResult> {
+  return invoke('db_clickhouse_insert_row', { connId, table, values, database })
+}
+
+export async function clickhouseUpdateRows(connId: string, table: string, sets: Record<string, unknown>, where: string, database?: string): Promise<RowsAffectedResult> {
+  return invoke('db_clickhouse_update_rows', { connId, table, sets, whereClause: where, database })
+}
+
+export async function clickhouseDeleteRows(connId: string, table: string, where: string, database?: string): Promise<RowsAffectedResult> {
+  return invoke('db_clickhouse_delete_rows', { connId, table, whereClause: where, database })
+}
+
+export async function clickhouseExportData(connId: string, table: string, format: string, limit?: number, database?: string): Promise<ExportResult> {
+  return invoke('db_clickhouse_export_data', { connId, table, format, limit, database })
+}
+
+export async function clickhouseGetRowCount(connId: string, table: string, database?: string): Promise<RowCountResult> {
+  return invoke('db_clickhouse_get_row_count', { connId, table, database })
+}
+
+export async function clickhouseGetTableMeta(connId: string, table: string, database?: string): Promise<TableMetaResult> {
+  return invoke('db_clickhouse_get_table_meta', { connId, table, database })
+}
+
+export async function clickhouseGetPartitions(connId: string, table: string, database?: string): Promise<unknown[]> {
+  return invoke('db_clickhouse_get_partitions', { connId, table, database })
+}
+
+export async function clickhouseGetMergeTreeInfo(connId: string, table: string, database?: string): Promise<unknown> {
+  return invoke('db_clickhouse_get_merge_tree_info', { connId, table, database })
+}
+
+export async function clickhouseGetTableStats(connId: string, table: string, database?: string): Promise<unknown> {
+  return invoke('db_clickhouse_get_table_stats', { connId, table, database })
 }
 
 // ─── Elasticsearch ───

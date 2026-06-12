@@ -1,4 +1,4 @@
-export type DatabaseType = 'mysql' | 'redis' | 'elasticsearch'
+export type DatabaseType = 'mysql' | 'redis' | 'elasticsearch' | 'clickhouse'
 
 export interface DbConnectionInfo {
   connId: string
@@ -22,6 +22,15 @@ export interface RedisConnectParams {
   port: number
   password?: string
   db: number
+  ssl?: boolean
+}
+
+export interface ClickHouseConnectParams {
+  host: string
+  port: number
+  username: string
+  password: string
+  database?: string
   ssl?: boolean
 }
 

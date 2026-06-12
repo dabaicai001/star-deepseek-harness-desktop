@@ -1,6 +1,6 @@
 export type AssetType = 'ssh' | 'db' | 'docker'
 
-export type DatabaseType = 'mysql' | 'postgresql' | 'sqlite' | 'redis' | 'elasticsearch'
+export type DatabaseType = 'mysql' | 'postgresql' | 'sqlite' | 'redis' | 'elasticsearch' | 'clickhouse'
 
 export interface AssetGroup {
   id: number
