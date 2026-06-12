@@ -11,7 +11,7 @@ import { useDialogStore } from '@/stores/dialog'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
-import { parseInstanceId } from '@/utils/tabId'
+import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
 import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
 import SqlEditor from '@/components/db/SqlEditor.vue'
@@ -1070,6 +1070,33 @@ function handleExport(format: string) {
   }
 }
 
+async function handleExportExcel(columns: string[], rows: string[][]) {
+  if (!connId.value) return
+  try {
+    // 使用 Go sidecar 生成 Excel 文件
+    const filePath = `${Date.now()}_export.xlsx`
+    const { invoke } = await import('@tauri-apps/api/core')
+    const result = await invoke<{ connId: string; filePath: string }>('sidecar:rpc', {
+      method: 'file.excel.createFromData',
+      params: { filePath, columns, rows }
+    })
+
+    // 创建 Excel 资产
+    const asset = await assetStore.createAsset({
+      type: 'excel',
+      name: `导出_${new Date().toLocaleDateString()}`,
+      config: { filePath, format: 'xlsx' }
+    })
+
+    // 打开 Excel 视图
+    const instanceId = generateInstanceId(asset.id)
+    appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: 'excel' })
+    router.push({ name: 'excel', params: { id: instanceId } })
+  } catch (e) {
+    notify.notify({ message: `Excel 导出失败: ${e}`, color: 'error' })
+  }
+}
+
 function closeSubTab(id: string) {
   const idx = subTabs.value.findIndex(t => t.id === id)
   if (idx < 0) return
@@ -1569,6 +1596,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               @cell-edit="onCellEdit"
               @column-filter="setColumnFilter"
               @save-batch="onSaveBatch"
+              @export-excel="handleExportExcel"
             />
           </div>
         </template>
@@ -1626,6 +1654,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                 :page-size-options="[100, 500, 1000, 2000, 5000]"
                 @page-change="onSqlEditorPageChange"
                 @page-size-change="onSqlEditorPageSizeChange"
+                @export-excel="handleExportExcel"
               />
               <div v-else-if="activeSqlEditorTab.loading" class="inner-loading">
                 <v-icon size="18" class="spin">mdi-loading</v-icon>
@@ -1645,6 +1674,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           :loading="activeSqlTab.loading"
           :editable="false"
           @export="handleExport"
+          @export-excel="handleExportExcel"
         />
 
         <!-- Context Menu -->

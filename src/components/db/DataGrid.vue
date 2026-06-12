@@ -55,6 +55,7 @@ const emit = defineEmits<{
   cellEdit: [row: number, col: string, value: unknown]
   rowDelete: [row: number]
   export: [format: string]
+  'export-excel': [columns: string[], rows: string[][]]
   'page-change': [page: number]
   'page-size-change': [size: number]
   'sort-change': [col: string]
@@ -280,6 +281,19 @@ function onPageSizeChange(e: Event) {
   if (!isNaN(v)) emit('page-size-change', v)
 }
 
+function handleExportExcel() {
+  if (!props.result?.columns || !props.result?.rows) return
+  const cols = props.result.columns.map(c => c.name)
+  const rows = props.result.rows.map((row: any[]) =>
+    cols.map((_, ci) => {
+      const val = row[ci]
+      if (val === null || val === undefined) return ''
+      return String(val)
+    })
+  )
+  emit('export-excel', cols, rows)
+}
+
 // ─── 批量保存:dirty 状态 ───
 const dirtyCells = ref<Map<string, { col: string; originalValue: unknown; newValue: unknown }>>(new Map())
 
@@ -387,6 +401,14 @@ defineExpose({ clearDirty, hasDirty })
         </div>
         <button class="action-btn" @click="emit('export', 'csv')" :title="t('db.export')">
           <v-icon size="14">mdi-download</v-icon>
+        </button>
+        <button
+          class="action-btn"
+          :disabled="!result || !!result.error || !result.columns"
+          @click="handleExportExcel"
+          :title="'导出为 Excel'"
+        >
+          <v-icon size="14">mdi-file-excel-outline</v-icon>
         </button>
       </div>
     </div>

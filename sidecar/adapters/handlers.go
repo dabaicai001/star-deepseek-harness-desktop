@@ -9,6 +9,7 @@ import (
 
 	"github.com/starhub/sidecar/pool"
 	"github.com/starhub/sidecar/rpc"
+	"github.com/xuri/excelize/v2"
 )
 
 // Handler 是 RPC 处理函数（复用 rpc 包的类型）
@@ -2173,6 +2174,7 @@ func RegisterExcelHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("file.excel.save", handleExcelSave(mgr))
 	server.Register("file.excel.saveAs", handleExcelSaveAs(mgr))
 	server.Register("file.excel.removeDuplicates", handleExcelRemoveDuplicates(mgr))
+	server.Register("file.excel.createFromData", handleExcelCreateFromData(mgr))
 }
 
 // RegisterCSVHandlers 注册 CSV 文件相关 RPC 方法
@@ -2463,6 +2465,65 @@ func handleExcelRemoveDuplicates(mgr *pool.Manager) Handler {
 		return map[string]interface{}{
 			"removed": removed,
 			"ok":      true,
+		}, nil
+	}
+}
+
+func handleExcelCreateFromData(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			FilePath  string     `json:"filePath"`
+			SheetName string     `json:"sheetName,omitempty"`
+			Columns   []string   `json:"columns"`
+			Rows      [][]string `json:"rows"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := NewExcelAdapter(&ExcelConnInfo{FilePath: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		sheetName := p.SheetName
+		if sheetName == "" {
+			sheetName = "Sheet1"
+		}
+
+		index, err := adapter.f.GetSheetIndex("Sheet1")
+		if err == nil && index >= 0 {
+			adapter.f.SetSheetName("Sheet1", sheetName)
+		} else {
+			adapter.f.NewSheet(sheetName)
+		}
+
+		// 写入表头
+		for ci, col := range p.Columns {
+			axis, _ := excelize.CoordinatesToCellName(ci+1, 1)
+			adapter.f.SetCellValue(sheetName, axis, col)
+		}
+
+		// 写入数据行
+		for ri, row := range p.Rows {
+			for ci, val := range row {
+				axis, _ := excelize.CoordinatesToCellName(ci+1, ri+2)
+				adapter.f.SetCellValue(sheetName, axis, val)
+			}
+		}
+
+		adapter.filePath = p.FilePath
+		if p.FilePath != "" {
+			if err := adapter.Save(); err != nil {
+				return nil, err
+			}
+		}
+
+		connID := fmt.Sprintf("excel_%d", time.Now().UnixNano())
+		mgr.Register(connID, adapter, pool.ConnInfo{ID: connID, Type: pool.ConnExcel})
+
+		return map[string]interface{}{
+			"connId":   connID,
+			"filePath": adapter.GetFilePath(),
 		}, nil
 	}
 }
