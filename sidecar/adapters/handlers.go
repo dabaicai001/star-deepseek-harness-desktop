@@ -345,7 +345,7 @@ func handleMySQLExecute(mgr *pool.Manager) Handler {
 			dbName = adapter.conn.Database
 		}
 		if dbName != "" && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "USE ") {
-			sql = fmt.Sprintf("USE `%s`; %s", dbName, sql)
+			sql = fmt.Sprintf("USE %s; %s", quoteIdentifier(dbName), sql)
 		}
 		return adapter.Execute(sql)
 	}
@@ -371,7 +371,7 @@ func handleMySQLExplain(mgr *pool.Manager) Handler {
 			dbName = adapter.conn.Database
 		}
 		if dbName != "" && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "USE ") {
-			sql = fmt.Sprintf("USE `%s`; %s", dbName, sql)
+			sql = fmt.Sprintf("USE %s; %s", quoteIdentifier(dbName), sql)
 		}
 		return adapter.Explain(sql)
 	}
@@ -1860,7 +1860,9 @@ func handleESTest() Handler {
 
 func handleESClusterHealth(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
-		var p struct{ ConnID string `json:"connId"` }
+		var p struct {
+			ConnID string `json:"connId"`
+		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
@@ -1874,7 +1876,9 @@ func handleESClusterHealth(mgr *pool.Manager) Handler {
 
 func handleESClusterStats(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
-		var p struct{ ConnID string `json:"connId"` }
+		var p struct {
+			ConnID string `json:"connId"`
+		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
@@ -1888,7 +1892,9 @@ func handleESClusterStats(mgr *pool.Manager) Handler {
 
 func handleESListIndices(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
-		var p struct{ ConnID string `json:"connId"` }
+		var p struct {
+			ConnID string `json:"connId"`
+		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
@@ -2229,8 +2235,8 @@ func handleExcelOpen(mgr *pool.Manager) Handler {
 
 		sheets := adapter.GetSheetNames()
 		result := map[string]interface{}{
-			"connId":    connID,
-			"filePath":  adapter.GetFilePath(),
+			"connId":     connID,
+			"filePath":   adapter.GetFilePath(),
 			"sheetNames": sheets,
 		}
 
@@ -2545,10 +2551,10 @@ func handleCsvOpen(mgr *pool.Manager) Handler {
 
 		rows := adapter.GetRows(0, 0)
 		return map[string]interface{}{
-			"connId":   connID,
-			"filePath": p.FilePath,
-			"columns":  adapter.GetColumns(),
-			"rows":     rows,
+			"connId":    connID,
+			"filePath":  p.FilePath,
+			"columns":   adapter.GetColumns(),
+			"rows":      rows,
 			"totalRows": adapter.TotalRows(),
 		}, nil
 	}

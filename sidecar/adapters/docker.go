@@ -49,11 +49,11 @@ type PortInfo struct {
 
 // ImageInfo 镜像信息
 type ImageInfo struct {
-	ID       string   `json:"id"`
-	Tags     []string `json:"tags"`
-	Size     int64    `json:"size"`
-	Created  int64    `json:"created"`
-	Digest   string   `json:"digest,omitempty"`
+	ID      string   `json:"id"`
+	Tags    []string `json:"tags"`
+	Size    int64    `json:"size"`
+	Created int64    `json:"created"`
+	Digest  string   `json:"digest,omitempty"`
 }
 
 // ContainerStats 容器资源统计

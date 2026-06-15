@@ -1,5 +1,4 @@
 pub mod ops;
-pub mod session;
 pub mod transfer;
 
 use serde::{Deserialize, Serialize};
@@ -14,13 +13,6 @@ pub struct FileEntry {
     pub permissions: u32,
     pub modified: i64,
     pub is_symlink: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SftpSessionInfo {
-    pub session_id: String,
-    pub remote_root: String,
-    pub connected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

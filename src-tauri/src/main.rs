@@ -3,13 +3,14 @@
 mod ai;
 mod commands;
 mod db;
+mod keyring;
+mod sftp;
 mod sidecar;
 mod ssh;
-mod sftp;
 
-use tauri::Manager;
 use commands::ssh::SshManager;
 use sftp::transfer::TransferManager;
+use tauri::Manager;
 
 fn main() {
     tracing_subscriber::fmt::init();
@@ -22,22 +23,13 @@ fn main() {
         .manage(SshManager::new())
         .manage(sidecar_manager)
         .setup(|app| {
-            // 启动 Sidecar
             let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
+            tauri::async_runtime::block_on(async {
+                db::init_database(&app_handle).await?;
                 let manager = app_handle.state::<sidecar::SidecarManager>();
-                if let Err(e) = manager.start(&app_handle).await {
-                    tracing::error!("Failed to start sidecar: {}", e);
-                }
-            });
-
-            // 初始化数据库
-            let app_handle_clone = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = db::init_database(&app_handle_clone).await {
-                    tracing::error!("Failed to init database: {}", e);
-                }
-            });
+                manager.start(&app_handle).await
+            })
+            .map_err(std::io::Error::other)?;
 
             // 初始化 TransferManager(需要 AppHandle 用于 emit 进度/状态事件)
             app.manage(TransferManager::new(app.handle().clone()));
@@ -184,6 +176,9 @@ fn main() {
             // AI
             commands::ai::ai_chat,
             commands::ai::ai_list_models,
+            commands::secret::set_ai_api_key,
+            commands::secret::get_ai_api_key,
+            commands::secret::delete_ai_api_key,
             // Sidecar 通用 RPC
             commands::sidecar::sidecar_rpc,
         ])

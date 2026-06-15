@@ -42,7 +42,10 @@ function saveGeneral() {
     }))
   } catch {}
 }
-onMounted(loadGeneral)
+onMounted(async () => {
+  loadGeneral()
+  aiLocal.value.apiKey = await aiStore.getApiKey()
+})
 
 // AI 配置本地副本(用于表单展示,保存时再写回 store)
 const aiLocal = ref<AiSettings>({ ...aiStore.settings })

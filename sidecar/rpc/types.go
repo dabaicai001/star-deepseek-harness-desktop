@@ -4,16 +4,16 @@ import "encoding/json"
 
 // Request 表示 JSON-RPC 请求
 type Request struct {
-	ID      string          `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params"`
+	ID     string          `json:"id"`
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params"`
 }
 
 // Response 表示 JSON-RPC 响应
 type Response struct {
-	ID      string      `json:"id"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *Error      `json:"error,omitempty"`
+	ID     string      `json:"id"`
+	Result interface{} `json:"result,omitempty"`
+	Error  *Error      `json:"error,omitempty"`
 }
 
 // Error 表示 JSON-RPC 错误

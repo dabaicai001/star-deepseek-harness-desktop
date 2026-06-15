@@ -25,10 +25,17 @@ pub struct TransferStatusEvent {
 
 /// Recursively collect all files under `path`, returning `(local_path, remote_relative_path, size)` tuples.
 /// `relative_prefix` is the base name used to build the remote relative path.
-async fn collect_local_files(path: &str, relative_prefix: &str) -> Result<Vec<(String, String, u64)>> {
+async fn collect_local_files(
+    path: &str,
+    relative_prefix: &str,
+) -> Result<Vec<(String, String, u64)>> {
     let meta = tokio::fs::metadata(path).await?;
     if meta.is_file() {
-        return Ok(vec![(path.to_string(), relative_prefix.to_string(), meta.len())]);
+        return Ok(vec![(
+            path.to_string(),
+            relative_prefix.to_string(),
+            meta.len(),
+        )]);
     }
 
     let mut results = Vec::new();
@@ -92,6 +99,7 @@ impl TransferManager {
         self.sftp_sessions.lock().await.contains_key(session_id)
     }
 
+    #[allow(dead_code)]
     pub async fn unregister_sftp(&self, session_id: &str) {
         let mut sessions = self.sftp_sessions.lock().await;
         sessions.remove(session_id);
@@ -107,27 +115,6 @@ impl TransferManager {
             .collect()
     }
 
-    /// emit 一次 status 变化到前端(状态由 TransferStatus enum 序列化为驼峰字符串)
-    fn emit_status(
-        &self,
-        transfer_id: &str,
-        session_id: &str,
-        direction: TransferDirection,
-        status: TransferStatus,
-        error: Option<String>,
-    ) {
-        let _ = self.app_handle.emit(
-            "sftp://transfer-status",
-            TransferStatusEvent {
-                transfer_id: transfer_id.to_string(),
-                session_id: session_id.to_string(),
-                direction,
-                status,
-                error,
-            },
-        );
-    }
-
     pub async fn upload(
         &self,
         session_id: &str,
@@ -135,7 +122,12 @@ impl TransferManager {
         remote_dir: String,
         speed_limit: u64,
     ) -> Result<String> {
-        tracing::info!("[TransferManager::upload] start: session={}, files={}, remote_dir={}", session_id, local_paths.len(), remote_dir);
+        tracing::info!(
+            "[TransferManager::upload] start: session={}, files={}, remote_dir={}",
+            session_id,
+            local_paths.len(),
+            remote_dir
+        );
 
         // 早转 owned,后面 spawn 闭包要 'static
         let session_id = session_id.to_string();
@@ -146,7 +138,10 @@ impl TransferManager {
                 .get(&session_id)
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("SFTP session not found: {}", session_id))?;
-            tracing::info!("[TransferManager::upload] SFTP session found for {}", session_id);
+            tracing::info!(
+                "[TransferManager::upload] SFTP session found for {}",
+                session_id
+            );
             s
         };
 
@@ -163,7 +158,7 @@ impl TransferManager {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| local_path.clone());
             let collected = collect_local_files(local_path, &base_name).await?;
-            for (lp, rp, size) in &collected {
+            for (_lp, rp, size) in &collected {
                 files.push(TransferFile {
                     name: rp.clone(),
                     size: *size,
@@ -252,7 +247,12 @@ impl TransferManager {
                     }
                 }
 
-                tracing::info!("[TransferManager::upload] uploading file {}: {} -> {}", i, local_path, remote_path);
+                tracing::info!(
+                    "[TransferManager::upload] uploading file {}: {} -> {}",
+                    i,
+                    local_path,
+                    remote_path
+                );
 
                 let offset = cumulative_transferred;
                 let ah = app_handle.clone();
@@ -265,7 +265,8 @@ impl TransferManager {
                 // Read per-file resume offset from task
                 let resume_from = {
                     let tasks_guard = tasks.lock().await;
-                    tasks_guard.get(&tid)
+                    tasks_guard
+                        .get(&tid)
                         .and_then(|t| t.files.get(i))
                         .map(|f| f.transferred)
                         .unwrap_or(0)
@@ -274,7 +275,8 @@ impl TransferManager {
                 // Skip already-completed files (retry scenario)
                 let file_size = {
                     let tasks_guard = tasks.lock().await;
-                    tasks_guard.get(&tid)
+                    tasks_guard
+                        .get(&tid)
                         .and_then(|t| t.files.get(i))
                         .map(|f| f.size)
                         .unwrap_or(0)
@@ -293,32 +295,40 @@ impl TransferManager {
                     continue;
                 }
 
-                let result = upload_file(&sftp, local_path, &remote_path, resume_from, move |trans, total| {
-                    let file_progress = trans;
-                    let _ = ah.emit(
-                        "sftp://transfer-progress",
-                        TransferProgress {
-                            transfer_id: tid_clone.clone(),
-                            file_name: fname.clone(),
-                            transferred: file_progress,
-                            total,
-                            direction: TransferDirection::Upload,
-                        },
-                    );
-                    if let Ok(mut tasks) = tasks_ref.try_lock() {
-                        if let Some(t) = tasks.get_mut(&tid_clone) {
-                            t.transferred_bytes = offset + file_progress;
-                            if let Some(f) = t.files.get_mut(i) {
-                                f.transferred = file_progress;
+                let result = upload_file(
+                    &sftp,
+                    local_path,
+                    &remote_path,
+                    resume_from,
+                    move |trans, total| {
+                        let file_progress = trans;
+                        let _ = ah.emit(
+                            "sftp://transfer-progress",
+                            TransferProgress {
+                                transfer_id: tid_clone.clone(),
+                                file_name: fname.clone(),
+                                transferred: file_progress,
+                                total,
+                                direction: TransferDirection::Upload,
+                            },
+                        );
+                        if let Ok(mut tasks) = tasks_ref.try_lock() {
+                            if let Some(t) = tasks.get_mut(&tid_clone) {
+                                t.transferred_bytes = offset + file_progress;
+                                if let Some(f) = t.files.get_mut(i) {
+                                    f.transferred = file_progress;
+                                }
                             }
                         }
-                    }
-                }, move || {
-                    tasks_for_speed.try_lock()
-                        .ok()
-                        .and_then(|g| g.get(&tid_for_speed).map(|t| t.speed_limit))
-                        .unwrap_or(0)
-                })
+                    },
+                    move || {
+                        tasks_for_speed
+                            .try_lock()
+                            .ok()
+                            .and_then(|g| g.get(&tid_for_speed).map(|t| t.speed_limit))
+                            .unwrap_or(0)
+                    },
+                )
                 .await;
 
                 if result.is_err() && cancel_token.is_cancelled() {
@@ -328,7 +338,7 @@ impl TransferManager {
                         t.status = TransferStatus::Cancelled;
                     }
                     final_status = Some((TransferStatus::Cancelled, None));
-                    return;
+                    break;
                 }
 
                 if let Err(e) = result {
@@ -339,7 +349,7 @@ impl TransferManager {
                         t.error = Some(e.to_string());
                     }
                     final_status = Some((TransferStatus::Failed, Some(e.to_string())));
-                    return;
+                    break;
                 }
 
                 tracing::info!("[TransferManager::upload] file {} uploaded successfully", i);
@@ -360,7 +370,7 @@ impl TransferManager {
                 }
             }
 
-            if !cancel_token.is_cancelled() {
+            if final_status.is_none() && !cancel_token.is_cancelled() {
                 tracing::info!("[TransferManager::upload] task {} completed", tid);
                 let mut tasks = tasks.lock().await;
                 if let Some(t) = tasks.get_mut(&tid) {
@@ -512,7 +522,8 @@ impl TransferManager {
                 // Read per-file resume offset from task
                 let resume_from = {
                     let tasks_guard = tasks.lock().await;
-                    tasks_guard.get(&tid)
+                    tasks_guard
+                        .get(&tid)
                         .and_then(|t| t.files.get(i))
                         .map(|f| f.transferred)
                         .unwrap_or(0)
@@ -521,7 +532,8 @@ impl TransferManager {
                 // Skip already-completed files (retry scenario)
                 let file_size = {
                     let tasks_guard = tasks.lock().await;
-                    tasks_guard.get(&tid)
+                    tasks_guard
+                        .get(&tid)
                         .and_then(|t| t.files.get(i))
                         .map(|f| f.size)
                         .unwrap_or(0)
@@ -540,8 +552,12 @@ impl TransferManager {
                     continue;
                 }
 
-                let result =
-                    download_file(&sftp, remote_path, &local_path, resume_from, move |trans, total| {
+                let result = download_file(
+                    &sftp,
+                    remote_path,
+                    &local_path,
+                    resume_from,
+                    move |trans, total| {
                         let file_progress = trans;
                         let _ = ah.emit(
                             "sftp://transfer-progress",
@@ -561,12 +577,15 @@ impl TransferManager {
                                 }
                             }
                         }
-                }, move || {
-                    tasks_for_speed.try_lock()
-                        .ok()
-                        .and_then(|g| g.get(&tid_for_speed).map(|t| t.speed_limit))
-                        .unwrap_or(0)
-                })
+                    },
+                    move || {
+                        tasks_for_speed
+                            .try_lock()
+                            .ok()
+                            .and_then(|g| g.get(&tid_for_speed).map(|t| t.speed_limit))
+                            .unwrap_or(0)
+                    },
+                )
                 .await;
 
                 if result.is_err() && cancel_token.is_cancelled() {
@@ -575,7 +594,7 @@ impl TransferManager {
                         t.status = TransferStatus::Cancelled;
                     }
                     final_status = Some((TransferStatus::Cancelled, None));
-                    return;
+                    break;
                 }
 
                 if let Err(e) = result {
@@ -585,13 +604,10 @@ impl TransferManager {
                         t.error = Some(e.to_string());
                     }
                     final_status = Some((TransferStatus::Failed, Some(e.to_string())));
-                    return;
+                    break;
                 }
 
-                let entry_size = stat(&sftp, remote_path)
-                    .await
-                    .map(|e| e.size)
-                    .unwrap_or(0);
+                let entry_size = stat(&sftp, remote_path).await.map(|e| e.size).unwrap_or(0);
                 cumulative_transferred += entry_size;
 
                 {
@@ -605,7 +621,7 @@ impl TransferManager {
                 }
             }
 
-            if !cancel_token.is_cancelled() {
+            if final_status.is_none() && !cancel_token.is_cancelled() {
                 let mut tasks = tasks.lock().await;
                 if let Some(t) = tasks.get_mut(&tid) {
                     t.status = TransferStatus::Done;
@@ -643,7 +659,15 @@ impl TransferManager {
 
     /// Retry a failed transfer — creates a new transfer that resumes from per-file offsets
     pub async fn retry(&self, transfer_id: &str) -> Result<String> {
-        let (session_id, direction, speed_limit, upload_local_paths, upload_remote_dir, download_remote_paths, download_local_dir) = {
+        let (
+            session_id,
+            direction,
+            speed_limit,
+            upload_local_paths,
+            upload_remote_dir,
+            download_remote_paths,
+            download_local_dir,
+        ) = {
             let tasks = self.tasks.lock().await;
             let task = tasks
                 .get(transfer_id)
@@ -664,10 +688,22 @@ impl TransferManager {
 
         match direction {
             TransferDirection::Upload => {
-                self.upload(&session_id, upload_local_paths, upload_remote_dir, speed_limit).await
+                self.upload(
+                    &session_id,
+                    upload_local_paths,
+                    upload_remote_dir,
+                    speed_limit,
+                )
+                .await
             }
             TransferDirection::Download => {
-                self.download(&session_id, download_remote_paths, download_local_dir, speed_limit).await
+                self.download(
+                    &session_id,
+                    download_remote_paths,
+                    download_local_dir,
+                    speed_limit,
+                )
+                .await
             }
         }
     }
@@ -677,14 +713,5 @@ impl TransferManager {
         if let Some(t) = tasks.get_mut(transfer_id) {
             t.speed_limit = speed_limit;
         }
-    }
-
-    pub async fn get_tasks(&self, session_id: &str) -> Vec<TransferTask> {
-        let tasks = self.tasks.lock().await;
-        tasks
-            .values()
-            .filter(|t| t.session_id == session_id)
-            .cloned()
-            .collect()
     }
 }

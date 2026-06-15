@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tauri::State;
 use crate::commands::ssh::SshManager;
 use crate::sftp::transfer::TransferManager;
-use crate::sftp::{TransferTask, TransferStatus};
+use crate::sftp::TransferTask;
 use crate::ssh::sftp::SftpEntry;
+use std::sync::Arc;
+use tauri::State;
+use tokio::sync::Mutex;
 
 fn map_err<E: std::fmt::Display>(e: E) -> String {
     format!("{}", e)
@@ -33,7 +33,7 @@ pub async fn sftp_list(
 ) -> Result<Vec<SftpEntry>, String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    let sftp = session.open_sftp().await.map_err(map_err)?;
 
     let read_dir = sftp.read_dir(&path).await.map_err(map_err)?;
 
@@ -43,7 +43,11 @@ pub async fn sftp_list(
         let metadata = dir_entry.metadata();
         let full_path = dir_entry.path();
         let is_dir = metadata.is_dir();
-        let size = if is_dir { 0 } else { metadata.size.unwrap_or(0) };
+        let size = if is_dir {
+            0
+        } else {
+            metadata.size.unwrap_or(0)
+        };
         let modified = metadata.mtime.map(|t| (t as u64) * 1000);
 
         entries.push(SftpEntry {
@@ -59,12 +63,10 @@ pub async fn sftp_list(
     }
 
     // 目录在前,文件在后,字母序
-    entries.sort_by(|a, b| {
-        match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        }
+    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
     });
 
     Ok(entries)
@@ -79,7 +81,7 @@ pub async fn sftp_read(
 ) -> Result<Vec<u8>, String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    let sftp = session.open_sftp().await.map_err(map_err)?;
     sftp.read(&path).await.map_err(map_err)
 }
 
@@ -93,7 +95,7 @@ pub async fn sftp_write(
 ) -> Result<(), String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    let sftp = session.open_sftp().await.map_err(map_err)?;
     sftp.write(&path, &data).await.map_err(map_err)
 }
 
@@ -106,7 +108,7 @@ pub async fn sftp_stat(
 ) -> Result<SftpEntry, String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    let sftp = session.open_sftp().await.map_err(map_err)?;
     let metadata = sftp.metadata(&path).await.map_err(map_err)?;
     let name = std::path::Path::new(&path)
         .file_name()
@@ -134,7 +136,7 @@ pub async fn sftp_remove_file(
 ) -> Result<(), String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    let sftp = session.open_sftp().await.map_err(map_err)?;
     sftp.remove_file(&path).await.map_err(map_err)
 }
 
@@ -147,7 +149,7 @@ pub async fn sftp_remove_dir(
 ) -> Result<(), String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    let sftp = session.open_sftp().await.map_err(map_err)?;
     sftp.remove_dir(&path).await.map_err(map_err)
 }
 
@@ -160,7 +162,7 @@ pub async fn sftp_remove(
 ) -> Result<(), String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    let sftp = session.open_sftp().await.map_err(map_err)?;
     let metadata = sftp.metadata(&path).await.map_err(map_err)?;
     if metadata.is_dir() {
         sftp.remove_dir(&path).await.map_err(map_err)?;
@@ -179,7 +181,7 @@ pub async fn sftp_mkdir(
 ) -> Result<(), String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    let sftp = session.open_sftp().await.map_err(map_err)?;
     sftp.create_dir(&path).await.map_err(map_err)
 }
 
@@ -193,7 +195,7 @@ pub async fn sftp_rename(
 ) -> Result<(), String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let mut sftp = session.open_sftp().await.map_err(map_err)?;
+    let sftp = session.open_sftp().await.map_err(map_err)?;
     sftp.rename(&from, &to).await.map_err(map_err)
 }
 
@@ -212,7 +214,10 @@ pub async fn sftp_ensure_session(
         tracing::info!("[sftp_ensure_session] session {} already registered", id);
         return Ok(());
     }
-    tracing::info!("[sftp_ensure_session] opening SFTP channel for session {}", id);
+    tracing::info!(
+        "[sftp_ensure_session] opening SFTP channel for session {}",
+        id
+    );
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
     let sftp = session.open_sftp().await.map_err(map_err)?;
@@ -220,7 +225,10 @@ pub async fn sftp_ensure_session(
     transfer_manager
         .register_sftp(id.clone(), Arc::new(Mutex::new(sftp)))
         .await;
-    tracing::info!("[sftp_ensure_session] session {} registered successfully", id);
+    tracing::info!(
+        "[sftp_ensure_session] session {} registered successfully",
+        id
+    );
     Ok(())
 }
 
@@ -273,7 +281,9 @@ pub async fn sftp_set_speed_limit(
     transfer_id: String,
     speed_limit: u64,
 ) -> Result<(), String> {
-    transfer_manager.set_speed_limit(&transfer_id, speed_limit).await;
+    transfer_manager
+        .set_speed_limit(&transfer_id, speed_limit)
+        .await;
     Ok(())
 }
 
@@ -284,10 +294,7 @@ pub async fn sftp_retry_transfer(
     _id: String,
     transfer_id: String,
 ) -> Result<String, String> {
-    transfer_manager
-        .retry(&transfer_id)
-        .await
-        .map_err(map_err)
+    transfer_manager.retry(&transfer_id).await.map_err(map_err)
 }
 
 /// 列出某 session 的所有传输任务(给前端刷新/重连用)

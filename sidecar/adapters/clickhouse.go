@@ -64,10 +64,10 @@ func (c CHColumnMeta) ToColumnMeta() ColumnMeta {
 
 // PartitionInfo 分区信息
 type PartitionInfo struct {
-	Partition  string `json:"partition" db:"partition"`
-	Name       string `json:"name" db:"name"`
-	Rows       int64  `json:"rows" db:"rows"`
-	SizeInBytes int64 `json:"sizeInBytes" db:"size_in_bytes"`
+	Partition   string `json:"partition" db:"partition"`
+	Name        string `json:"name" db:"name"`
+	Rows        int64  `json:"rows" db:"rows"`
+	SizeInBytes int64  `json:"sizeInBytes" db:"size_in_bytes"`
 }
 
 // MergeTreeInfo MergeTree 引擎信息
@@ -281,6 +281,9 @@ func (a *ClickHouseAdapter) executeSelectArgs(sqlStr string, args []interface{},
 		}
 		resultRows = append(resultRows, values)
 	}
+	if err := rows.Err(); err != nil {
+		return &QueryResult{Error: err.Error(), DurationMs: time.Since(start).Milliseconds()}, nil
+	}
 
 	return &QueryResult{
 		Columns:    colInfos,
@@ -318,7 +321,7 @@ func (a *ClickHouseAdapter) GetTableDDL(database, table string) (string, error) 
 		database = a.conn.Database
 	}
 	var ddl string
-	err := a.db.QueryRow(fmt.Sprintf("SHOW CREATE TABLE `%s`.`%s`", database, table)).Scan(&ddl)
+	err := a.db.QueryRow("SHOW CREATE TABLE " + qualifiedIdentifier(database, table)).Scan(&ddl)
 	if err != nil {
 		return "", fmt.Errorf("get ddl: %w", err)
 	}
@@ -337,7 +340,7 @@ func (a *ClickHouseAdapter) GetTableData(database, table string, limit, offset i
 		limit = 10000
 	}
 
-	query := fmt.Sprintf("SELECT * FROM `%s`.`%s`", database, table)
+	query := "SELECT * FROM " + qualifiedIdentifier(database, table)
 
 	// Build WHERE clause
 	var conditions []string
@@ -351,7 +354,7 @@ func (a *ClickHouseAdapter) GetTableData(database, table string, limit, offset i
 	// 列头精确筛选
 	if len(columnFilters) > 0 {
 		for col, val := range columnFilters {
-			conditions = append(conditions, fmt.Sprintf("`%s` = ?", col))
+			conditions = append(conditions, fmt.Sprintf("%s = ?", quoteIdentifier(col)))
 			args = append(args, val)
 		}
 	}
@@ -367,7 +370,7 @@ func (a *ClickHouseAdapter) GetTableData(database, table string, limit, offset i
 		if strings.ToUpper(orderDir) == "DESC" {
 			dir = "DESC"
 		}
-		query += fmt.Sprintf(" ORDER BY `%s` %s", orderBy, dir)
+		query += fmt.Sprintf(" ORDER BY %s %s", quoteIdentifier(orderBy), dir)
 	}
 	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
 
@@ -386,7 +389,7 @@ func (a *ClickHouseAdapter) GetTableData(database, table string, limit, offset i
 
 	// When filters are active, also return filtered row count for pagination
 	if whereClause != "" && result.Error == "" {
-		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`%s", database, table, whereClause)
+		countQuery := "SELECT COUNT(*) FROM " + qualifiedIdentifier(database, table) + whereClause
 		var totalRows int64
 		if len(args) > 0 {
 			if err := a.db.Get(&totalRows, countQuery, args...); err == nil {
@@ -408,7 +411,7 @@ func (a *ClickHouseAdapter) GetRowCount(database, table string) (int64, error) {
 		database = a.conn.Database
 	}
 	var count int64
-	err := a.db.Get(&count, fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`", database, table))
+	err := a.db.Get(&count, "SELECT COUNT(*) FROM "+qualifiedIdentifier(database, table))
 	return count, err
 }
 
@@ -453,7 +456,7 @@ func (a *ClickHouseAdapter) DropTable(database, table string, ifExists bool) err
 	if ifExists {
 		stmt += " IF EXISTS"
 	}
-	stmt += fmt.Sprintf(" `%s`.`%s`", database, table)
+	stmt += " " + qualifiedIdentifier(database, table)
 	_, err := a.db.Exec(stmt)
 	return err
 }
@@ -463,7 +466,7 @@ func (a *ClickHouseAdapter) TruncateTable(database, table string) error {
 	if database == "" {
 		database = a.conn.Database
 	}
-	_, err := a.db.Exec(fmt.Sprintf("TRUNCATE TABLE `%s`.`%s`", database, table))
+	_, err := a.db.Exec("TRUNCATE TABLE " + qualifiedIdentifier(database, table))
 	return err
 }
 
@@ -472,7 +475,7 @@ func (a *ClickHouseAdapter) RenameTable(database, oldName, newName string) error
 	if database == "" {
 		database = a.conn.Database
 	}
-	_, err := a.db.Exec(fmt.Sprintf("RENAME TABLE `%s`.`%s` TO `%s`.`%s`", database, oldName, database, newName))
+	_, err := a.db.Exec("RENAME TABLE " + qualifiedIdentifier(database, oldName) + " TO " + qualifiedIdentifier(database, newName))
 	return err
 }
 
@@ -485,12 +488,12 @@ func (a *ClickHouseAdapter) InsertRow(database, table string, values map[string]
 	placeholders := make([]string, 0, len(values))
 	args := make([]interface{}, 0, len(values))
 	for col, val := range values {
-		cols = append(cols, fmt.Sprintf("`%s`", col))
+		cols = append(cols, quoteIdentifier(col))
 		placeholders = append(placeholders, "?")
 		args = append(args, val)
 	}
 
-	query := fmt.Sprintf("INSERT INTO `%s`.`%s` (%s) VALUES (%s)", database, table,
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", qualifiedIdentifier(database, table),
 		strings.Join(cols, ", "), strings.Join(placeholders, ", "))
 	_, err := a.db.Exec(query, args...)
 	if err != nil {
@@ -508,11 +511,11 @@ func (a *ClickHouseAdapter) UpdateRows(database, table string, sets map[string]i
 	setParts := make([]string, 0, len(sets))
 	args := make([]interface{}, 0, len(sets))
 	for col, val := range sets {
-		setParts = append(setParts, fmt.Sprintf("`%s` = ?", col))
+		setParts = append(setParts, fmt.Sprintf("%s = ?", quoteIdentifier(col)))
 		args = append(args, val)
 	}
 
-	query := fmt.Sprintf("ALTER TABLE `%s`.`%s` UPDATE %s", database, table, strings.Join(setParts, ", "))
+	query := fmt.Sprintf("ALTER TABLE %s UPDATE %s", qualifiedIdentifier(database, table), strings.Join(setParts, ", "))
 	if where != "" {
 		query += " WHERE " + where
 	}
@@ -530,7 +533,7 @@ func (a *ClickHouseAdapter) DeleteRows(database, table, where string) (int64, er
 	if database == "" {
 		database = a.conn.Database
 	}
-	query := fmt.Sprintf("ALTER TABLE `%s`.`%s` DELETE", database, table)
+	query := "ALTER TABLE " + qualifiedIdentifier(database, table) + " DELETE"
 	if where != "" {
 		query += " WHERE " + where
 	}
@@ -550,7 +553,7 @@ func (a *ClickHouseAdapter) ExportCSV(database, table string, limit int) (*Query
 	if limit <= 0 {
 		limit = 100000
 	}
-	query := fmt.Sprintf("SELECT * FROM `%s`.`%s` LIMIT %d", database, table, limit)
+	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", qualifiedIdentifier(database, table), limit)
 	return a.executeSelect(query, time.Now())
 }
 

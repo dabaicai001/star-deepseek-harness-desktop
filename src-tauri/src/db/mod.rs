@@ -1,7 +1,7 @@
 pub mod schema;
 
 use sqlx::sqlite::SqlitePoolOptions;
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use tauri::AppHandle;
 use tauri::Manager;
 
@@ -39,6 +39,7 @@ pub async fn init_database(app_handle: &AppHandle) -> Result<(), String> {
 
     // 迁移:assets 表 CHECK 约束加入 'excel'
     migrate_assets_type_check(&pool).await?;
+    migrate_asset_credentials(&pool).await?;
 
     DB_POOL
         .set(pool)
@@ -48,8 +49,41 @@ pub async fn init_database(app_handle: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+async fn migrate_asset_credentials(pool: &SqlitePool) -> Result<(), String> {
+    let rows = sqlx::query("SELECT id, config_json FROM assets WHERE key_id IS NULL")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Failed to inspect asset credentials: {e}"))?;
+
+    for row in rows {
+        let id: String = row.try_get("id").map_err(|e| e.to_string())?;
+        let config_json: String = row.try_get("config_json").map_err(|e| e.to_string())?;
+        let config = serde_json::from_str(&config_json)
+            .map_err(|e| format!("Invalid asset config for {id}: {e}"))?;
+        let (config, secrets) = crate::keyring::split_config(config);
+        if secrets.as_object().is_none_or(|values| values.is_empty()) {
+            continue;
+        }
+
+        let key_id = format!("asset:{id}");
+        crate::keyring::store(key_id.clone(), secrets).await?;
+        let config_json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
+        sqlx::query("UPDATE assets SET config_json = ?, key_id = ? WHERE id = ?")
+            .bind(config_json)
+            .bind(key_id)
+            .bind(id)
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Failed to migrate asset credentials: {e}"))?;
+    }
+
+    Ok(())
+}
+
 pub fn get_pool() -> Result<&'static SqlitePool, String> {
-    DB_POOL.get().ok_or_else(|| "Database not initialized".to_string())
+    DB_POOL
+        .get()
+        .ok_or_else(|| "Database not initialized".to_string())
 }
 
 /// 迁移:给 assets 表的 type CHECK 约束加入 'excel'
@@ -57,7 +91,7 @@ pub fn get_pool() -> Result<&'static SqlitePool, String> {
 async fn migrate_assets_type_check(pool: &SqlitePool) -> Result<(), String> {
     // 检查是否已经包含 'excel'(用旧表插入一条再删掉来检测)
     let check = sqlx::query_scalar::<_, String>(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='assets'"
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='assets'",
     )
     .fetch_optional(pool)
     .await
@@ -96,7 +130,7 @@ async fn migrate_assets_type_check(pool: &SqlitePool) -> Result<(), String> {
          CREATE INDEX IF NOT EXISTS idx_assets_group_id ON assets(group_id);
          CREATE INDEX IF NOT EXISTS idx_assets_favorite ON assets(favorite);
          CREATE INDEX IF NOT EXISTS idx_assets_name ON assets(name);
-         COMMIT;"
+         COMMIT;",
     )
     .execute(pool)
     .await

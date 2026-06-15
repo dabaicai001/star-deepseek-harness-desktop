@@ -51,6 +51,7 @@ async fn get_entry(sftp: &SftpSession, path: &str) -> Result<FileEntry> {
     Ok(metadata_to_entry(&parent, &name, &meta))
 }
 
+#[allow(dead_code)]
 pub async fn list_dir(sftp: &Arc<Mutex<SftpSession>>, path: &str) -> Result<Vec<FileEntry>> {
     let sftp = sftp.lock().await;
     let read_dir = sftp
@@ -84,6 +85,7 @@ pub async fn mkdir(sftp: &Arc<Mutex<SftpSession>>, path: &str) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn rename(sftp: &Arc<Mutex<SftpSession>>, from: &str, to: &str) -> Result<()> {
     let sftp = sftp.lock().await;
     sftp.rename(from, to)
@@ -92,6 +94,7 @@ pub async fn rename(sftp: &Arc<Mutex<SftpSession>>, from: &str, to: &str) -> Res
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn delete_file(sftp: &Arc<Mutex<SftpSession>>, path: &str) -> Result<()> {
     let sftp = sftp.lock().await;
     sftp.remove_file(path)
@@ -100,6 +103,7 @@ pub async fn delete_file(sftp: &Arc<Mutex<SftpSession>>, path: &str) -> Result<(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn delete_dir(sftp: &Arc<Mutex<SftpSession>>, path: &str) -> Result<()> {
     let sftp = sftp.lock().await;
     sftp.remove_dir(path)
@@ -108,6 +112,7 @@ pub async fn delete_dir(sftp: &Arc<Mutex<SftpSession>>, path: &str) -> Result<()
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn set_permissions(
     sftp: &Arc<Mutex<SftpSession>>,
     path: &str,
@@ -144,7 +149,12 @@ where
     F: Fn(u64, u64) + Send + 'static,
     G: Fn() -> u64 + Send + 'static,
 {
-    tracing::info!("[upload_file] start: local={}, remote={}, resume_from={}", local_path, remote_path, resume_from);
+    tracing::info!(
+        "[upload_file] start: local={}, remote={}, resume_from={}",
+        local_path,
+        remote_path,
+        resume_from
+    );
 
     let total_size = tokio::fs::metadata(local_path)
         .await
@@ -158,21 +168,39 @@ where
         .with_context(|| format!("open local file failed: {}", local_path))?;
 
     if resume_from > 0 && resume_from >= total_size {
-        anyhow::bail!("resume_from ({}) >= file size ({})", resume_from, total_size);
+        anyhow::bail!(
+            "resume_from ({}) >= file size ({})",
+            resume_from,
+            total_size
+        );
     }
 
     let remote_file = {
         let sftp = sftp.lock().await;
         if resume_from > 0 {
-            tracing::info!("[upload_file] opening remote file for resume at {}: {}", resume_from, remote_path);
+            tracing::info!(
+                "[upload_file] opening remote file for resume at {}: {}",
+                resume_from,
+                remote_path
+            );
             sftp.open_with_flags(remote_path, OpenFlags::WRITE)
                 .await
-                .map_err(|e| anyhow::anyhow!("open remote file failed: {} (SFTP error: {})", remote_path, e))?
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "open remote file failed: {} (SFTP error: {})",
+                        remote_path,
+                        e
+                    )
+                })?
         } else {
             tracing::info!("[upload_file] creating remote file: {}", remote_path);
-            sftp.create(remote_path)
-                .await
-                .map_err(|e| anyhow::anyhow!("create remote file failed: {} (SFTP error: {})", remote_path, e))?
+            sftp.create(remote_path).await.map_err(|e| {
+                anyhow::anyhow!(
+                    "create remote file failed: {} (SFTP error: {})",
+                    remote_path,
+                    e
+                )
+            })?
         }
     };
 
@@ -202,7 +230,11 @@ where
             .await
             .with_context(|| "read local chunk failed")?;
         if n == 0 {
-            tracing::info!("[upload_file] EOF reached after {} chunks, total {} bytes", chunk_count, transferred);
+            tracing::info!(
+                "[upload_file] EOF reached after {} chunks, total {} bytes",
+                chunk_count,
+                transferred
+            );
             break;
         }
 
@@ -213,18 +245,24 @@ where
 
         transferred += n as u64;
         chunk_count += 1;
-        if chunk_count <= 3 || chunk_count % 100 == 0 {
-            tracing::info!("[upload_file] chunk {}: wrote {} bytes, total {} / {}", chunk_count, n, transferred, total_size);
+        if chunk_count <= 3 || chunk_count.is_multiple_of(100) {
+            tracing::info!(
+                "[upload_file] chunk {}: wrote {} bytes, total {} / {}",
+                chunk_count,
+                n,
+                transferred,
+                total_size
+            );
         }
         on_progress(transferred, total_size);
 
         // Speed limit throttle
         let current_speed_limit = get_speed_limit();
-        if current_speed_limit > 0 {
-            let expected_ms = (transferred * 1000) / current_speed_limit;
+        if let Some(expected_ms) = (transferred * 1000).checked_div(current_speed_limit) {
             let elapsed_ms = start_time.elapsed().as_millis() as u64;
             if expected_ms > elapsed_ms {
-                tokio::time::sleep(tokio::time::Duration::from_millis(expected_ms - elapsed_ms)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(expected_ms - elapsed_ms))
+                    .await;
             }
         }
     }
@@ -253,15 +291,25 @@ where
 {
     let mut remote_file = {
         let sftp = sftp.lock().await;
-        sftp.open(remote_path)
-            .await
-            .map_err(|e| anyhow::anyhow!("open remote file failed: {} (SFTP error: {})", remote_path, e))?
+        sftp.open(remote_path).await.map_err(|e| {
+            anyhow::anyhow!(
+                "open remote file failed: {} (SFTP error: {})",
+                remote_path,
+                e
+            )
+        })?
     };
 
     let total_size = remote_file
         .metadata()
         .await
-        .map_err(|e| anyhow::anyhow!("stat remote file failed: {} (SFTP error: {})", remote_path, e))?
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "stat remote file failed: {} (SFTP error: {})",
+                remote_path,
+                e
+            )
+        })?
         .size
         .unwrap_or(0);
 
@@ -317,11 +365,11 @@ where
 
         // Speed limit throttle
         let current_speed_limit = get_speed_limit();
-        if current_speed_limit > 0 {
-            let expected_ms = (transferred * 1000) / current_speed_limit;
+        if let Some(expected_ms) = (transferred * 1000).checked_div(current_speed_limit) {
             let elapsed_ms = start_time.elapsed().as_millis() as u64;
             if expected_ms > elapsed_ms {
-                tokio::time::sleep(tokio::time::Duration::from_millis(expected_ms - elapsed_ms)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(expected_ms - elapsed_ms))
+                    .await;
             }
         }
     }
@@ -334,6 +382,7 @@ where
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn search_files(
     sftp: &Arc<Mutex<SftpSession>>,
     path: &str,

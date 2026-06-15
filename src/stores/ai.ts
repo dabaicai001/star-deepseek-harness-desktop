@@ -1,8 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import type { ChatMessage, LlmTool, LlmToolCall, NewChatRequest, NewChatResponse } from '@/services/ai'
 import { chatWithTools, chatStream } from '@/services/ai'
-import { encrypt as enc, decrypt as dec } from '@/utils/crypto'
+import { decrypt as decryptLegacyKey } from '@/utils/crypto'
+
+const KEYRING_MARKER = 'keyring:v1'
 
 /**
  * AI 全局配置(持久化到 localStorage)
@@ -58,8 +61,7 @@ const DEFAULT_SYSTEM_PROMPT = '你是一个专业的运维助手,帮助用户通
 export const useAiStore = defineStore('ai', () => {
   // ====== 全局配置 ======
   // ====== 敏感字段加密 ======
-  // settings.apiKey 持久化时存为加密 blob(加密包在 store 状态里);
-  // 内部用 _unlockedApiKey 缓存明文,首次访问时解密;改 apiKey 时重新加密。
+  // settings.apiKey 只保存 Keyring 标记,明文仅在运行时内存中缓存。
   const _unlockedApiKey = ref<string>('')
 
   // ====== Agent 中断控制 ======
@@ -68,16 +70,27 @@ export const useAiStore = defineStore('ai', () => {
 
   async function _ensureUnlocked() {
     if (_unlockedApiKey.value) return
-    if (!settings.value.apiKey) return
-    const plain = await dec(settings.value.apiKey)
-    if (plain) _unlockedApiKey.value = plain
+    if (settings.value.apiKey && settings.value.apiKey !== KEYRING_MARKER) {
+      const legacyKey = await decryptLegacyKey(settings.value.apiKey)
+      if (legacyKey) {
+        await invoke('set_ai_api_key', { value: legacyKey })
+        settings.value.apiKey = KEYRING_MARKER
+        _unlockedApiKey.value = legacyKey
+        return
+      }
+    }
+    const stored = await invoke<string>('get_ai_api_key')
+    _unlockedApiKey.value = stored
+    settings.value.apiKey = stored ? KEYRING_MARKER : ''
   }
 
   async function setApiKey(plain: string) {
     _unlockedApiKey.value = plain
     if (plain) {
-      settings.value.apiKey = await enc(plain)
+      await invoke('set_ai_api_key', { value: plain })
+      settings.value.apiKey = KEYRING_MARKER
     } else {
+      await invoke('delete_ai_api_key')
       settings.value.apiKey = ''
     }
   }

@@ -57,6 +57,7 @@ export const useAssetStore = defineStore('asset', () => {
       assets.value = await assetService.fetchAssets()
     } catch (e) {
       console.error('Failed to fetch assets:', e)
+      throw e
     } finally {
       loading.value = false
     }

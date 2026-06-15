@@ -39,7 +39,7 @@ type DBAdapter interface {
 
 // Manager 管理所有数据库连接
 type Manager struct {
-	mu      sync.RWMutex
+	mu       sync.RWMutex
 	adapters map[string]DBAdapter
 	infos    map[string]ConnInfo
 }

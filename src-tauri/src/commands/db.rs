@@ -1,7 +1,9 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::collections::HashMap;
 
-use serde_json::Value;
 use crate::sidecar::SidecarManager;
+use serde_json::Value;
 use tauri::State;
 
 // ─── MySQL Commands ───
@@ -27,7 +29,12 @@ pub async fn db_mysql_disconnect(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.disconnect", serde_json::json!({ "connId": conn_id })).await
+    sidecar
+        .call(
+            "db.mysql.disconnect",
+            serde_json::json!({ "connId": conn_id }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -35,7 +42,12 @@ pub async fn db_mysql_list_databases(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.mysql.listDatabases", serde_json::json!({ "connId": conn_id })).await
+    sidecar
+        .call(
+            "db.mysql.listDatabases",
+            serde_json::json!({ "connId": conn_id }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -131,7 +143,9 @@ pub async fn db_mysql_execute(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "sql": sql });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.mysql.execute", params).await
 }
 
@@ -143,7 +157,9 @@ pub async fn db_mysql_explain(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "sql": sql });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.mysql.explain", params).await
 }
 
@@ -175,13 +191,27 @@ pub async fn db_mysql_get_table_data(
     column_filters: Option<HashMap<String, String>>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table });
-    if let Some(l) = limit { params["limit"] = serde_json::json!(l); }
-    if let Some(o) = offset { params["offset"] = serde_json::json!(o); }
-    if let Some(ob) = order_by { params["orderBy"] = serde_json::json!(ob); }
-    if let Some(od) = order_dir { params["orderDir"] = serde_json::json!(od); }
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
-    if let Some(f) = &filter { params["filter"] = serde_json::json!(f); }
-    if let Some(cf) = &column_filters { params["columnFilters"] = serde_json::json!(cf); }
+    if let Some(l) = limit {
+        params["limit"] = serde_json::json!(l);
+    }
+    if let Some(o) = offset {
+        params["offset"] = serde_json::json!(o);
+    }
+    if let Some(ob) = order_by {
+        params["orderBy"] = serde_json::json!(ob);
+    }
+    if let Some(od) = order_dir {
+        params["orderDir"] = serde_json::json!(od);
+    }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
+    if let Some(f) = &filter {
+        params["filter"] = serde_json::json!(f);
+    }
+    if let Some(cf) = &column_filters {
+        params["columnFilters"] = serde_json::json!(cf);
+    }
     tracing::info!("db_mysql_get_table_data params: {}", params);
     sidecar.call("db.mysql.getTableData", params).await
 }
@@ -199,7 +229,9 @@ pub async fn db_mysql_drop_table(
         "table": table,
         "ifExists": if_exists.unwrap_or(false)
     });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.mysql.dropTable", params).await
 }
 
@@ -211,7 +243,9 @@ pub async fn db_mysql_truncate_table(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.mysql.truncateTable", params).await
 }
 
@@ -228,7 +262,9 @@ pub async fn db_mysql_rename_table(
         "oldName": old_name,
         "newName": new_name
     });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.mysql.renameTable", params).await
 }
 
@@ -245,7 +281,9 @@ pub async fn db_mysql_insert_row(
         "table": table,
         "values": values
     });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.mysql.insertRow", params).await
 }
 
@@ -264,7 +302,9 @@ pub async fn db_mysql_update_rows(
         "sets": sets,
         "where": where_clause
     });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.mysql.updateRows", params).await
 }
 
@@ -281,7 +321,9 @@ pub async fn db_mysql_delete_rows(
         "table": table,
         "where": where_clause
     });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.mysql.deleteRows", params).await
 }
 
@@ -295,8 +337,12 @@ pub async fn db_mysql_export_data(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table, "format": format });
-    if let Some(l) = limit { params["limit"] = serde_json::json!(l); }
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(l) = limit {
+        params["limit"] = serde_json::json!(l);
+    }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.mysql.exportData", params).await
 }
 
@@ -308,7 +354,9 @@ pub async fn db_mysql_get_row_count(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.mysql.getRowCount", params).await
 }
 
@@ -349,7 +397,12 @@ pub async fn db_redis_disconnect(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.redis.disconnect", serde_json::json!({ "connId": conn_id })).await
+    sidecar
+        .call(
+            "db.redis.disconnect",
+            serde_json::json!({ "connId": conn_id }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -358,7 +411,12 @@ pub async fn db_redis_select(
     conn_id: String,
     db: i64,
 ) -> Result<Value, String> {
-    sidecar.call("db.redis.select", serde_json::json!({ "connId": conn_id, "db": db })).await
+    sidecar
+        .call(
+            "db.redis.select",
+            serde_json::json!({ "connId": conn_id, "db": db }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -370,8 +428,12 @@ pub async fn db_redis_scan(
     count: Option<i64>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "cursor": cursor.unwrap_or(0) });
-    if let Some(m) = match_pattern { params["match"] = serde_json::json!(m); }
-    if let Some(c) = count { params["count"] = serde_json::json!(c); }
+    if let Some(m) = match_pattern {
+        params["match"] = serde_json::json!(m);
+    }
+    if let Some(c) = count {
+        params["count"] = serde_json::json!(c);
+    }
     sidecar.call("db.redis.scan", params).await
 }
 
@@ -381,7 +443,12 @@ pub async fn db_redis_get_value(
     conn_id: String,
     key: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.redis.getValue", serde_json::json!({ "connId": conn_id, "key": key })).await
+    sidecar
+        .call(
+            "db.redis.getValue",
+            serde_json::json!({ "connId": conn_id, "key": key }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -390,7 +457,12 @@ pub async fn db_redis_del(
     conn_id: String,
     keys: Vec<String>,
 ) -> Result<Value, String> {
-    sidecar.call("db.redis.del", serde_json::json!({ "connId": conn_id, "keys": keys })).await
+    sidecar
+        .call(
+            "db.redis.del",
+            serde_json::json!({ "connId": conn_id, "keys": keys }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -400,11 +472,16 @@ pub async fn db_redis_rename(
     old_key: String,
     new_key: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.redis.rename", serde_json::json!({
-        "connId": conn_id,
-        "oldKey": old_key,
-        "newKey": new_key
-    })).await
+    sidecar
+        .call(
+            "db.redis.rename",
+            serde_json::json!({
+                "connId": conn_id,
+                "oldKey": old_key,
+                "newKey": new_key
+            }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -416,7 +493,9 @@ pub async fn db_redis_set(
     expiration: Option<i64>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "key": key, "value": value });
-    if let Some(e) = expiration { params["expiration"] = serde_json::json!(e); }
+    if let Some(e) = expiration {
+        params["expiration"] = serde_json::json!(e);
+    }
     sidecar.call("db.redis.set", params).await
 }
 
@@ -426,7 +505,12 @@ pub async fn db_redis_execute(
     conn_id: String,
     command: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.redis.execute", serde_json::json!({ "connId": conn_id, "command": command })).await
+    sidecar
+        .call(
+            "db.redis.execute",
+            serde_json::json!({ "connId": conn_id, "command": command }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -436,7 +520,9 @@ pub async fn db_redis_info(
     section: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id });
-    if let Some(s) = section { params["section"] = serde_json::json!(s); }
+    if let Some(s) = section {
+        params["section"] = serde_json::json!(s);
+    }
     sidecar.call("db.redis.info", params).await
 }
 
@@ -445,47 +531,101 @@ pub async fn db_redis_db_size(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.redis.dbSize", serde_json::json!({ "connId": conn_id })).await
+    sidecar
+        .call("db.redis.dbSize", serde_json::json!({ "connId": conn_id }))
+        .await
 }
 
 #[tauri::command]
-pub async fn db_redis_slowlog_get(sidecar: State<'_, SidecarManager>, conn_id: String, count: i64) -> Result<Value, String> {
-    sidecar.call("db.redis.slowlogGet", serde_json::json!({ "connId": conn_id, "count": count })).await
+pub async fn db_redis_slowlog_get(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    count: i64,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "db.redis.slowlogGet",
+            serde_json::json!({ "connId": conn_id, "count": count }),
+        )
+        .await
 }
 
 #[tauri::command]
-pub async fn db_redis_slowlog_reset(sidecar: State<'_, SidecarManager>, conn_id: String) -> Result<Value, String> {
-    sidecar.call("db.redis.slowlogReset", serde_json::json!({ "connId": conn_id })).await
+pub async fn db_redis_slowlog_reset(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "db.redis.slowlogReset",
+            serde_json::json!({ "connId": conn_id }),
+        )
+        .await
 }
 
 #[tauri::command]
-pub async fn db_redis_scan_all(sidecar: State<'_, SidecarManager>, conn_id: String, match_pattern: Option<String>, count: Option<i64>) -> Result<Value, String> {
+pub async fn db_redis_scan_all(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    match_pattern: Option<String>,
+    count: Option<i64>,
+) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id });
-    if let Some(m) = match_pattern { params["match"] = serde_json::json!(m); }
-    if let Some(c) = count { params["count"] = serde_json::json!(c); }
+    if let Some(m) = match_pattern {
+        params["match"] = serde_json::json!(m);
+    }
+    if let Some(c) = count {
+        params["count"] = serde_json::json!(c);
+    }
     sidecar.call("db.redis.scanAll", params).await
 }
 
 #[tauri::command]
-pub async fn db_redis_bigkey_scan(sidecar: State<'_, SidecarManager>, conn_id: String, match_pattern: Option<String>, string_threshold: Option<i64>, member_threshold: Option<i64>) -> Result<Value, String> {
+pub async fn db_redis_bigkey_scan(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    match_pattern: Option<String>,
+    string_threshold: Option<i64>,
+    member_threshold: Option<i64>,
+) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id });
-    if let Some(m) = match_pattern { params["match"] = serde_json::json!(m); }
-    if let Some(s) = string_threshold { params["stringThreshold"] = serde_json::json!(s); }
-    if let Some(c) = member_threshold { params["memberThreshold"] = serde_json::json!(c); }
+    if let Some(m) = match_pattern {
+        params["match"] = serde_json::json!(m);
+    }
+    if let Some(s) = string_threshold {
+        params["stringThreshold"] = serde_json::json!(s);
+    }
+    if let Some(c) = member_threshold {
+        params["memberThreshold"] = serde_json::json!(c);
+    }
     sidecar.call("db.redis.bigkeyScan", params).await
 }
 
 #[tauri::command]
-pub async fn db_redis_memory_analysis(sidecar: State<'_, SidecarManager>, conn_id: String, match_pattern: Option<String>, sample_size: Option<i32>) -> Result<Value, String> {
+pub async fn db_redis_memory_analysis(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    match_pattern: Option<String>,
+    sample_size: Option<i32>,
+) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id });
-    if let Some(m) = match_pattern { params["match"] = serde_json::json!(m); }
-    if let Some(s) = sample_size { params["sampleSize"] = serde_json::json!(s); }
+    if let Some(m) = match_pattern {
+        params["match"] = serde_json::json!(m);
+    }
+    if let Some(s) = sample_size {
+        params["sampleSize"] = serde_json::json!(s);
+    }
     sidecar.call("db.redis.memoryAnalysis", params).await
 }
 
 #[tauri::command]
-pub async fn db_redis_flush_db(sidecar: State<'_, SidecarManager>, conn_id: String) -> Result<Value, String> {
-    sidecar.call("db.redis.flushDb", serde_json::json!({ "connId": conn_id })).await
+pub async fn db_redis_flush_db(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+) -> Result<Value, String> {
+    sidecar
+        .call("db.redis.flushDb", serde_json::json!({ "connId": conn_id }))
+        .await
 }
 
 // ─── Elasticsearch Commands ───
@@ -511,7 +651,9 @@ pub async fn db_es_disconnect(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.es.disconnect", serde_json::json!({ "connId": conn_id })).await
+    sidecar
+        .call("db.es.disconnect", serde_json::json!({ "connId": conn_id }))
+        .await
 }
 
 #[tauri::command]
@@ -519,7 +661,12 @@ pub async fn db_es_cluster_health(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.es.clusterHealth", serde_json::json!({ "connId": conn_id })).await
+    sidecar
+        .call(
+            "db.es.clusterHealth",
+            serde_json::json!({ "connId": conn_id }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -527,7 +674,12 @@ pub async fn db_es_cluster_stats(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.es.clusterStats", serde_json::json!({ "connId": conn_id })).await
+    sidecar
+        .call(
+            "db.es.clusterStats",
+            serde_json::json!({ "connId": conn_id }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -535,7 +687,12 @@ pub async fn db_es_list_indices(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.es.listIndices", serde_json::json!({ "connId": conn_id })).await
+    sidecar
+        .call(
+            "db.es.listIndices",
+            serde_json::json!({ "connId": conn_id }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -544,7 +701,12 @@ pub async fn db_es_get_index_mapping(
     conn_id: String,
     index: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.es.getIndexMapping", serde_json::json!({ "connId": conn_id, "index": index })).await
+    sidecar
+        .call(
+            "db.es.getIndexMapping",
+            serde_json::json!({ "connId": conn_id, "index": index }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -553,7 +715,12 @@ pub async fn db_es_get_index_settings(
     conn_id: String,
     index: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.es.getIndexSettings", serde_json::json!({ "connId": conn_id, "index": index })).await
+    sidecar
+        .call(
+            "db.es.getIndexSettings",
+            serde_json::json!({ "connId": conn_id, "index": index }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -565,8 +732,12 @@ pub async fn db_es_create_index(
     settings: Option<Value>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "index": index });
-    if let Some(m) = mappings { params["mappings"] = m; }
-    if let Some(s) = settings { params["settings"] = s; }
+    if let Some(m) = mappings {
+        params["mappings"] = m;
+    }
+    if let Some(s) = settings {
+        params["settings"] = s;
+    }
     sidecar.call("db.es.createIndex", params).await
 }
 
@@ -576,7 +747,12 @@ pub async fn db_es_delete_index(
     conn_id: String,
     index: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.es.deleteIndex", serde_json::json!({ "connId": conn_id, "index": index })).await
+    sidecar
+        .call(
+            "db.es.deleteIndex",
+            serde_json::json!({ "connId": conn_id, "index": index }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -589,8 +765,12 @@ pub async fn db_es_search(
     size: Option<usize>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "index": index, "body": body });
-    if let Some(f) = from { params["from"] = serde_json::json!(f); }
-    if let Some(s) = size { params["size"] = serde_json::json!(s); }
+    if let Some(f) = from {
+        params["from"] = serde_json::json!(f);
+    }
+    if let Some(s) = size {
+        params["size"] = serde_json::json!(s);
+    }
     sidecar.call("db.es.search", params).await
 }
 
@@ -602,7 +782,9 @@ pub async fn db_es_count(
     body: Option<Value>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "index": index });
-    if let Some(b) = body { params["body"] = b; }
+    if let Some(b) = body {
+        params["body"] = b;
+    }
     sidecar.call("db.es.count", params).await
 }
 
@@ -613,7 +795,12 @@ pub async fn db_es_get_document(
     index: String,
     id: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.es.getDocument", serde_json::json!({ "connId": conn_id, "index": index, "id": id })).await
+    sidecar
+        .call(
+            "db.es.getDocument",
+            serde_json::json!({ "connId": conn_id, "index": index, "id": id }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -625,7 +812,9 @@ pub async fn db_es_index_document(
     body: Value,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "index": index, "body": body });
-    if let Some(doc_id) = id { params["id"] = serde_json::json!(doc_id); }
+    if let Some(doc_id) = id {
+        params["id"] = serde_json::json!(doc_id);
+    }
     sidecar.call("db.es.indexDocument", params).await
 }
 
@@ -637,9 +826,14 @@ pub async fn db_es_update_document(
     id: String,
     body: Value,
 ) -> Result<Value, String> {
-    sidecar.call("db.es.updateDocument", serde_json::json!({
-        "connId": conn_id, "index": index, "id": id, "body": body
-    })).await
+    sidecar
+        .call(
+            "db.es.updateDocument",
+            serde_json::json!({
+                "connId": conn_id, "index": index, "id": id, "body": body
+            }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -649,9 +843,14 @@ pub async fn db_es_delete_document(
     index: String,
     id: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.es.deleteDocument", serde_json::json!({
-        "connId": conn_id, "index": index, "id": id
-    })).await
+    sidecar
+        .call(
+            "db.es.deleteDocument",
+            serde_json::json!({
+                "connId": conn_id, "index": index, "id": id
+            }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -661,9 +860,14 @@ pub async fn db_es_bulk_index(
     index: String,
     documents: Value,
 ) -> Result<Value, String> {
-    sidecar.call("db.es.bulkIndex", serde_json::json!({
-        "connId": conn_id, "index": index, "documents": documents
-    })).await
+    sidecar
+        .call(
+            "db.es.bulkIndex",
+            serde_json::json!({
+                "connId": conn_id, "index": index, "documents": documents
+            }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -675,8 +879,12 @@ pub async fn db_es_export_json(
     size: Option<i64>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "index": index });
-    if let Some(b) = body { params["body"] = b; }
-    if let Some(s) = size { params["size"] = serde_json::json!(s); }
+    if let Some(b) = body {
+        params["body"] = b;
+    }
+    if let Some(s) = size {
+        params["size"] = serde_json::json!(s);
+    }
     sidecar.call("db.es.exportJSON", params).await
 }
 
@@ -689,7 +897,9 @@ pub async fn db_es_scroll_search(
     size: Option<i64>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "index": index, "body": body });
-    if let Some(s) = size { params["size"] = serde_json::json!(s); }
+    if let Some(s) = size {
+        params["size"] = serde_json::json!(s);
+    }
     sidecar.call("db.es.scrollSearch", params).await
 }
 
@@ -716,7 +926,12 @@ pub async fn db_clickhouse_disconnect(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.clickhouse.disconnect", serde_json::json!({ "connId": conn_id })).await
+    sidecar
+        .call(
+            "db.clickhouse.disconnect",
+            serde_json::json!({ "connId": conn_id }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -724,7 +939,12 @@ pub async fn db_clickhouse_list_databases(
     sidecar: State<'_, SidecarManager>,
     conn_id: String,
 ) -> Result<Value, String> {
-    sidecar.call("db.clickhouse.listDatabases", serde_json::json!({ "connId": conn_id })).await
+    sidecar
+        .call(
+            "db.clickhouse.listDatabases",
+            serde_json::json!({ "connId": conn_id }),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -820,7 +1040,9 @@ pub async fn db_clickhouse_execute(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "sql": sql });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.execute", params).await
 }
 
@@ -832,7 +1054,9 @@ pub async fn db_clickhouse_explain(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "sql": sql });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.explain", params).await
 }
 
@@ -864,13 +1088,27 @@ pub async fn db_clickhouse_get_table_data(
     column_filters: Option<HashMap<String, String>>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table });
-    if let Some(l) = limit { params["limit"] = serde_json::json!(l); }
-    if let Some(o) = offset { params["offset"] = serde_json::json!(o); }
-    if let Some(ob) = order_by { params["orderBy"] = serde_json::json!(ob); }
-    if let Some(od) = order_dir { params["orderDir"] = serde_json::json!(od); }
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
-    if let Some(f) = &filter { params["filter"] = serde_json::json!(f); }
-    if let Some(cf) = &column_filters { params["columnFilters"] = serde_json::json!(cf); }
+    if let Some(l) = limit {
+        params["limit"] = serde_json::json!(l);
+    }
+    if let Some(o) = offset {
+        params["offset"] = serde_json::json!(o);
+    }
+    if let Some(ob) = order_by {
+        params["orderBy"] = serde_json::json!(ob);
+    }
+    if let Some(od) = order_dir {
+        params["orderDir"] = serde_json::json!(od);
+    }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
+    if let Some(f) = &filter {
+        params["filter"] = serde_json::json!(f);
+    }
+    if let Some(cf) = &column_filters {
+        params["columnFilters"] = serde_json::json!(cf);
+    }
     sidecar.call("db.clickhouse.getTableData", params).await
 }
 
@@ -887,7 +1125,9 @@ pub async fn db_clickhouse_drop_table(
         "table": table,
         "ifExists": if_exists.unwrap_or(false)
     });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.dropTable", params).await
 }
 
@@ -899,7 +1139,9 @@ pub async fn db_clickhouse_truncate_table(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.truncateTable", params).await
 }
 
@@ -916,7 +1158,9 @@ pub async fn db_clickhouse_rename_table(
         "oldName": old_name,
         "newName": new_name
     });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.renameTable", params).await
 }
 
@@ -933,7 +1177,9 @@ pub async fn db_clickhouse_insert_row(
         "table": table,
         "values": values
     });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.insertRow", params).await
 }
 
@@ -952,7 +1198,9 @@ pub async fn db_clickhouse_update_rows(
         "sets": sets,
         "where": where_clause
     });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.updateRows", params).await
 }
 
@@ -969,7 +1217,9 @@ pub async fn db_clickhouse_delete_rows(
         "table": table,
         "where": where_clause
     });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.deleteRows", params).await
 }
 
@@ -983,8 +1233,12 @@ pub async fn db_clickhouse_export_data(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table, "format": format });
-    if let Some(l) = limit { params["limit"] = serde_json::json!(l); }
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(l) = limit {
+        params["limit"] = serde_json::json!(l);
+    }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.exportData", params).await
 }
 
@@ -996,7 +1250,9 @@ pub async fn db_clickhouse_get_row_count(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.getRowCount", params).await
 }
 
@@ -1023,7 +1279,9 @@ pub async fn db_clickhouse_get_partitions(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.getPartitions", params).await
 }
 
@@ -1035,7 +1293,9 @@ pub async fn db_clickhouse_get_merge_tree_info(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.getMergeTreeInfo", params).await
 }
 
@@ -1047,6 +1307,8 @@ pub async fn db_clickhouse_get_table_stats(
     database: Option<String>,
 ) -> Result<Value, String> {
     let mut params = serde_json::json!({ "connId": conn_id, "table": table });
-    if let Some(db) = database { params["database"] = serde_json::json!(db); }
+    if let Some(db) = database {
+        params["database"] = serde_json::json!(db);
+    }
     sidecar.call("db.clickhouse.getTableStats", params).await
 }

@@ -224,9 +224,9 @@ func (a *ElasticsearchAdapter) ListIndices() ([]EsIndexInfo, error) {
 	indices := make([]EsIndexInfo, 0, len(raw))
 	for _, r := range raw {
 		info := EsIndexInfo{
-			Name:    getString(r, "index"),
-			Health:  getString(r, "health"),
-			Status:  getString(r, "status"),
+			Name:   getString(r, "index"),
+			Health: getString(r, "health"),
+			Status: getString(r, "status"),
 		}
 		if v := getInt(r, "docs.count"); v > 0 {
 			info.DocsCount = v

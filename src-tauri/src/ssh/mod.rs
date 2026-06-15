@@ -1,9 +1,15 @@
-pub mod session;
 pub mod auth;
-pub mod sftp;
 pub mod known_hosts;
+pub mod session;
+pub mod sftp;
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{oneshot, Mutex};
+
+pub type PendingKeyboardResponses = Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>;
+pub type PendingHostKeyResponses = Arc<Mutex<HashMap<String, oneshot::Sender<(bool, bool)>>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SshConfig {
@@ -26,8 +32,15 @@ pub struct SshConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SshAuth {
     Password(String),
-    PrivateKey { key: String, passphrase: Option<String> },
-    PasswordAndKey { password: String, key: String, passphrase: Option<String> },
+    PrivateKey {
+        key: String,
+        passphrase: Option<String>,
+    },
+    PasswordAndKey {
+        password: String,
+        key: String,
+        passphrase: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -63,8 +76,10 @@ mod tests {
     fn test_ssh_auth_private_key_serde() {
         let json = r#"{"PrivateKey":{"key":"-----BEGIN RSA PRIVATE KEY-----\n...","passphrase":"mysecret"}}"#;
         let auth: SshAuth = serde_json::from_str(json).unwrap();
-        assert!(matches!(auth, SshAuth::PrivateKey { ref key, ref passphrase }
-            if key == "-----BEGIN RSA PRIVATE KEY-----\n..." && passphrase.as_deref() == Some("mysecret")));
+        assert!(
+            matches!(auth, SshAuth::PrivateKey { ref key, ref passphrase }
+            if key == "-----BEGIN RSA PRIVATE KEY-----\n..." && passphrase.as_deref() == Some("mysecret"))
+        );
     }
 
     #[test]

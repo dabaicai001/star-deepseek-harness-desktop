@@ -31,14 +31,14 @@ type MySQLConnInfo struct {
 
 // QueryResult 查询结果
 type QueryResult struct {
-	Columns      []ColumnInfo       `json:"columns"`
-	Rows         [][]interface{}    `json:"rows"`
-	RowsAffected int64              `json:"rowsAffected"`
-	LastInsertID int64              `json:"lastInsertId,omitempty"`
-	DurationMs   int64              `json:"durationMs"`
-	IsSelect     bool               `json:"isSelect"`
-	Error        string             `json:"error,omitempty"`
-	TotalRows    int64              `json:"totalRows,omitempty"`
+	Columns      []ColumnInfo    `json:"columns"`
+	Rows         [][]interface{} `json:"rows"`
+	RowsAffected int64           `json:"rowsAffected"`
+	LastInsertID int64           `json:"lastInsertId,omitempty"`
+	DurationMs   int64           `json:"durationMs"`
+	IsSelect     bool            `json:"isSelect"`
+	Error        string          `json:"error,omitempty"`
+	TotalRows    int64           `json:"totalRows,omitempty"`
 }
 
 // ColumnInfo 列信息
@@ -59,34 +59,34 @@ type TableInfo struct {
 
 // ColumnMeta 列元数据
 type ColumnMeta struct {
-	Name         string `json:"name" db:"COLUMN_NAME"`
-	Type         string `json:"type" db:"COLUMN_TYPE"`
-	DataType     string `json:"dataType" db:"DATA_TYPE"`
-	Nullable     string `json:"nullable" db:"IS_NULLABLE"`
-	Key          string `json:"key" db:"COLUMN_KEY"`
+	Name         string  `json:"name" db:"COLUMN_NAME"`
+	Type         string  `json:"type" db:"COLUMN_TYPE"`
+	DataType     string  `json:"dataType" db:"DATA_TYPE"`
+	Nullable     string  `json:"nullable" db:"IS_NULLABLE"`
+	Key          string  `json:"key" db:"COLUMN_KEY"`
 	DefaultValue *string `json:"defaultValue" db:"COLUMN_DEFAULT"`
-	Extra        string `json:"extra" db:"EXTRA"`
-	Comment      string `json:"comment" db:"COLUMN_COMMENT"`
-	OrdinalPos   int    `json:"ordinalPosition" db:"ORDINAL_POSITION"`
+	Extra        string  `json:"extra" db:"EXTRA"`
+	Comment      string  `json:"comment" db:"COLUMN_COMMENT"`
+	OrdinalPos   int     `json:"ordinalPosition" db:"ORDINAL_POSITION"`
 }
 
 // IndexInfo 索引信息
 type IndexInfo struct {
-	TableName   string `json:"tableName" db:"Table"`
-	NonUnique   int    `json:"nonUnique" db:"Non_unique"`
-	KeyName     string `json:"keyName" db:"Key_name"`
-	SeqInIndex  int    `json:"seqInIndex" db:"Seq_in_index"`
-	ColumnName  string `json:"columnName" db:"Column_name"`
-	Collation   string `json:"collation" db:"Collation"`
-	Cardinality *int64 `json:"cardinality" db:"Cardinality"`
-	SubPart     *int64 `json:"subPart" db:"Sub_part"`
-	Packed      *string `json:"packed" db:"Packed"`
-	Null        string `json:"null" db:"Null"`
-	IndexType   string `json:"indexType" db:"Index_type"`
-	Comment     string `json:"comment" db:"Comment"`
-	IndexComment string `json:"indexComment" db:"Index_comment"`
-	Visible     string `json:"visible" db:"Visible"`
-	Expression  *string `json:"expression" db:"Expression"`
+	TableName    string  `json:"tableName" db:"Table"`
+	NonUnique    int     `json:"nonUnique" db:"Non_unique"`
+	KeyName      string  `json:"keyName" db:"Key_name"`
+	SeqInIndex   int     `json:"seqInIndex" db:"Seq_in_index"`
+	ColumnName   string  `json:"columnName" db:"Column_name"`
+	Collation    string  `json:"collation" db:"Collation"`
+	Cardinality  *int64  `json:"cardinality" db:"Cardinality"`
+	SubPart      *int64  `json:"subPart" db:"Sub_part"`
+	Packed       *string `json:"packed" db:"Packed"`
+	Null         string  `json:"null" db:"Null"`
+	IndexType    string  `json:"indexType" db:"Index_type"`
+	Comment      string  `json:"comment" db:"Comment"`
+	IndexComment string  `json:"indexComment" db:"Index_comment"`
+	Visible      string  `json:"visible" db:"Visible"`
+	Expression   *string `json:"expression" db:"Expression"`
 }
 
 // TableMeta 表元信息（列 + 行数，一次请求并行获取）
@@ -196,7 +196,7 @@ func (a *MySQLAdapter) ListIndexes(database, table string) ([]IndexInfo, error) 
 		database = a.conn.Database
 	}
 	var indexes []IndexInfo
-	err := a.db.Select(&indexes, fmt.Sprintf("SHOW INDEX FROM `%s`.`%s`", database, table))
+	err := a.db.Select(&indexes, "SHOW INDEX FROM "+qualifiedIdentifier(database, table))
 	if err != nil {
 		return nil, fmt.Errorf("list indexes: %w", err)
 	}
@@ -211,16 +211,20 @@ func (a *MySQLAdapter) CreateIndex(database, table, indexName string, columns []
 	if indexType == "" {
 		indexType = "BTREE"
 	}
+	indexType = strings.ToUpper(indexType)
+	if indexType != "BTREE" && indexType != "HASH" {
+		return fmt.Errorf("unsupported index type: %s", indexType)
+	}
 	cols := make([]string, len(columns))
 	for i, c := range columns {
-		cols[i] = fmt.Sprintf("`%s`", c)
+		cols[i] = quoteIdentifier(c)
 	}
 	uniqueStr := ""
 	if unique {
 		uniqueStr = "UNIQUE "
 	}
-	query := fmt.Sprintf("CREATE %sINDEX `%s` ON `%s`.`%s` (%s) USING %s",
-		uniqueStr, indexName, database, table, strings.Join(cols, ", "), indexType)
+	query := fmt.Sprintf("CREATE %sINDEX %s ON %s (%s) USING %s",
+		uniqueStr, quoteIdentifier(indexName), qualifiedIdentifier(database, table), strings.Join(cols, ", "), indexType)
 	_, err := a.db.Exec(query)
 	if err != nil {
 		return fmt.Errorf("create index: %w", err)
@@ -233,7 +237,7 @@ func (a *MySQLAdapter) DropIndex(database, table, indexName string) error {
 	if database == "" {
 		database = a.conn.Database
 	}
-	query := fmt.Sprintf("DROP INDEX `%s` ON `%s`.`%s`", indexName, database, table)
+	query := fmt.Sprintf("DROP INDEX %s ON %s", quoteIdentifier(indexName), qualifiedIdentifier(database, table))
 	_, err := a.db.Exec(query)
 	if err != nil {
 		return fmt.Errorf("drop index: %w", err)
@@ -358,6 +362,9 @@ func (a *MySQLAdapter) executeSelectArgs(sqlStr string, args []interface{}, star
 		}
 		resultRows = append(resultRows, values)
 	}
+	if err := rows.Err(); err != nil {
+		return &QueryResult{Error: err.Error(), DurationMs: time.Since(start).Milliseconds()}, nil
+	}
 
 	return &QueryResult{
 		Columns:    colInfos,
@@ -397,7 +404,7 @@ func (a *MySQLAdapter) GetTableDDL(database, table string) (string, error) {
 		database = a.conn.Database
 	}
 	var tableName, ddl string
-	err := a.db.QueryRow(fmt.Sprintf("SHOW CREATE TABLE `%s`.`%s`", database, table)).Scan(&tableName, &ddl)
+	err := a.db.QueryRow("SHOW CREATE TABLE "+qualifiedIdentifier(database, table)).Scan(&tableName, &ddl)
 	if err != nil {
 		return "", fmt.Errorf("get ddl: %w", err)
 	}
@@ -418,7 +425,7 @@ func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, o
 		limit = 10000
 	}
 
-	query := fmt.Sprintf("SELECT * FROM `%s`.`%s`", database, table)
+	query := "SELECT * FROM " + qualifiedIdentifier(database, table)
 
 	// Build WHERE clause
 	var conditions []string
@@ -432,7 +439,7 @@ func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, o
 	// 列头精确筛选
 	if len(columnFilters) > 0 {
 		for col, val := range columnFilters {
-			conditions = append(conditions, fmt.Sprintf("`%s` = ?", col))
+			conditions = append(conditions, fmt.Sprintf("%s = ?", quoteIdentifier(col)))
 			args = append(args, val)
 		}
 	}
@@ -448,7 +455,7 @@ func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, o
 		if strings.ToUpper(orderDir) == "DESC" {
 			dir = "DESC"
 		}
-		query += fmt.Sprintf(" ORDER BY `%s` %s", orderBy, dir)
+		query += fmt.Sprintf(" ORDER BY %s %s", quoteIdentifier(orderBy), dir)
 	}
 	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
 
@@ -467,7 +474,7 @@ func (a *MySQLAdapter) GetTableData(database, table string, limit, offset int, o
 
 	// When filters are active, also return filtered row count for pagination
 	if whereClause != "" && result.Error == "" {
-		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`%s", database, table, whereClause)
+		countQuery := "SELECT COUNT(*) FROM " + qualifiedIdentifier(database, table) + whereClause
 		var totalRows int64
 		if len(args) > 0 {
 			if err := a.db.Get(&totalRows, countQuery, args...); err == nil {
@@ -489,7 +496,7 @@ func (a *MySQLAdapter) GetRowCount(database, table string) (int64, error) {
 		database = a.conn.Database
 	}
 	var count int64
-	err := a.db.Get(&count, fmt.Sprintf("SELECT COUNT(*) FROM `%s`.`%s`", database, table))
+	err := a.db.Get(&count, "SELECT COUNT(*) FROM "+qualifiedIdentifier(database, table))
 	return count, err
 }
 
@@ -534,7 +541,7 @@ func (a *MySQLAdapter) DropTable(database, table string, ifExists bool) error {
 	if ifExists {
 		stmt += " IF EXISTS"
 	}
-	stmt += fmt.Sprintf(" `%s`.`%s`", database, table)
+	stmt += " " + qualifiedIdentifier(database, table)
 	_, err := a.db.Exec(stmt)
 	return err
 }
@@ -544,7 +551,7 @@ func (a *MySQLAdapter) TruncateTable(database, table string) error {
 	if database == "" {
 		database = a.conn.Database
 	}
-	_, err := a.db.Exec(fmt.Sprintf("TRUNCATE TABLE `%s`.`%s`", database, table))
+	_, err := a.db.Exec("TRUNCATE TABLE " + qualifiedIdentifier(database, table))
 	return err
 }
 
@@ -553,7 +560,7 @@ func (a *MySQLAdapter) RenameTable(database, oldName, newName string) error {
 	if database == "" {
 		database = a.conn.Database
 	}
-	_, err := a.db.Exec(fmt.Sprintf("RENAME TABLE `%s`.`%s` TO `%s`.`%s`", database, oldName, database, newName))
+	_, err := a.db.Exec("RENAME TABLE " + qualifiedIdentifier(database, oldName) + " TO " + qualifiedIdentifier(database, newName))
 	return err
 }
 
@@ -565,11 +572,11 @@ func (a *MySQLAdapter) UpdateRows(database, table string, sets map[string]interf
 	setParts := make([]string, 0, len(sets))
 	args := make([]interface{}, 0, len(sets))
 	for col, val := range sets {
-		setParts = append(setParts, fmt.Sprintf("`%s` = ?", col))
+		setParts = append(setParts, fmt.Sprintf("%s = ?", quoteIdentifier(col)))
 		args = append(args, val)
 	}
 
-	query := fmt.Sprintf("UPDATE `%s`.`%s` SET %s", database, table, strings.Join(setParts, ", "))
+	query := fmt.Sprintf("UPDATE %s SET %s", qualifiedIdentifier(database, table), strings.Join(setParts, ", "))
 	if where != "" {
 		query += " WHERE " + where
 	}
@@ -586,7 +593,7 @@ func (a *MySQLAdapter) DeleteRows(database, table, where string) (int64, error) 
 	if database == "" {
 		database = a.conn.Database
 	}
-	query := fmt.Sprintf("DELETE FROM `%s`.`%s`", database, table)
+	query := "DELETE FROM " + qualifiedIdentifier(database, table)
 	if where != "" {
 		query += " WHERE " + where
 	}
@@ -606,12 +613,12 @@ func (a *MySQLAdapter) InsertRow(database, table string, values map[string]inter
 	placeholders := make([]string, 0, len(values))
 	args := make([]interface{}, 0, len(values))
 	for col, val := range values {
-		cols = append(cols, fmt.Sprintf("`%s`", col))
+		cols = append(cols, quoteIdentifier(col))
 		placeholders = append(placeholders, "?")
 		args = append(args, val)
 	}
 
-	query := fmt.Sprintf("INSERT INTO `%s`.`%s` (%s) VALUES (%s)", database, table,
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", qualifiedIdentifier(database, table),
 		strings.Join(cols, ", "), strings.Join(placeholders, ", "))
 	result, err := a.db.Exec(query, args...)
 	if err != nil {
@@ -628,7 +635,7 @@ func (a *MySQLAdapter) ExportCSV(database, table string, limit int) (*QueryResul
 	if limit <= 0 {
 		limit = 100000
 	}
-	query := fmt.Sprintf("SELECT * FROM `%s`.`%s` LIMIT %d", database, table, limit)
+	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", qualifiedIdentifier(database, table), limit)
 	return a.executeSelect(query, time.Now())
 }
 

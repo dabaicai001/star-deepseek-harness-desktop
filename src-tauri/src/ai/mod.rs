@@ -43,11 +43,31 @@ pub struct ModelInfo {
 
 pub fn list_models() -> Vec<ModelInfo> {
     vec![
-        ModelInfo { id: "claude-sonnet-4-20250514".into(), name: "Claude Sonnet 4".into(), provider: "claude".into() },
-        ModelInfo { id: "claude-3-5-haiku-20241022".into(), name: "Claude 3.5 Haiku".into(), provider: "claude".into() },
-        ModelInfo { id: "gpt-4o".into(), name: "GPT-4o".into(), provider: "openai".into() },
-        ModelInfo { id: "gpt-4o-mini".into(), name: "GPT-4o Mini".into(), provider: "openai".into() },
-        ModelInfo { id: "gpt-4-turbo".into(), name: "GPT-4 Turbo".into(), provider: "openai".into() },
+        ModelInfo {
+            id: "claude-sonnet-4-20250514".into(),
+            name: "Claude Sonnet 4".into(),
+            provider: "claude".into(),
+        },
+        ModelInfo {
+            id: "claude-3-5-haiku-20241022".into(),
+            name: "Claude 3.5 Haiku".into(),
+            provider: "claude".into(),
+        },
+        ModelInfo {
+            id: "gpt-4o".into(),
+            name: "GPT-4o".into(),
+            provider: "openai".into(),
+        },
+        ModelInfo {
+            id: "gpt-4o-mini".into(),
+            name: "GPT-4o Mini".into(),
+            provider: "openai".into(),
+        },
+        ModelInfo {
+            id: "gpt-4-turbo".into(),
+            name: "GPT-4 Turbo".into(),
+            provider: "openai".into(),
+        },
     ]
 }
 
@@ -64,7 +84,9 @@ pub async fn chat(request: ChatRequest) -> Result<ChatResponse, String> {
 async fn chat_claude(client: &Client, request: &ChatRequest) -> Result<ChatResponse, String> {
     let system = request.system.clone().unwrap_or_default();
 
-    let messages: Vec<serde_json::Value> = request.messages.iter()
+    let messages: Vec<serde_json::Value> = request
+        .messages
+        .iter()
         .filter(|m| m.role != "system")
         .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
         .collect();
@@ -82,7 +104,8 @@ async fn chat_claude(client: &Client, request: &ChatRequest) -> Result<ChatRespo
         body["temperature"] = serde_json::json!(temp);
     }
 
-    let resp = client.post("https://api.anthropic.com/v1/messages")
+    let resp = client
+        .post("https://api.anthropic.com/v1/messages")
         .header("x-api-key", &request.api_key)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
@@ -92,14 +115,17 @@ async fn chat_claude(client: &Client, request: &ChatRequest) -> Result<ChatRespo
         .map_err(|e| format!("Request failed: {}", e))?;
 
     let status = resp.status();
-    let text = resp.text().await.map_err(|e| format!("Read body failed: {}", e))?;
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("Read body failed: {}", e))?;
 
     if !status.is_success() {
         return Err(format!("Claude API error ({}): {}", status, text));
     }
 
-    let json: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| format!("Parse response failed: {}", e))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("Parse response failed: {}", e))?;
 
     let content = json["content"][0]["text"]
         .as_str()
@@ -112,7 +138,10 @@ async fn chat_claude(client: &Client, request: &ChatRequest) -> Result<ChatRespo
     Ok(ChatResponse {
         content,
         model: request.model.clone(),
-        usage: Usage { input_tokens, output_tokens },
+        usage: Usage {
+            input_tokens,
+            output_tokens,
+        },
     })
 }
 
@@ -138,7 +167,8 @@ async fn chat_openai(client: &Client, request: &ChatRequest) -> Result<ChatRespo
         body["max_tokens"] = serde_json::json!(max);
     }
 
-    let resp = client.post("https://api.openai.com/v1/chat/completions")
+    let resp = client
+        .post("https://api.openai.com/v1/chat/completions")
         .header("Authorization", format!("Bearer {}", request.api_key))
         .header("content-type", "application/json")
         .json(&body)
@@ -147,14 +177,17 @@ async fn chat_openai(client: &Client, request: &ChatRequest) -> Result<ChatRespo
         .map_err(|e| format!("Request failed: {}", e))?;
 
     let status = resp.status();
-    let text = resp.text().await.map_err(|e| format!("Read body failed: {}", e))?;
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("Read body failed: {}", e))?;
 
     if !status.is_success() {
         return Err(format!("OpenAI API error ({}): {}", status, text));
     }
 
-    let json: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| format!("Parse response failed: {}", e))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("Parse response failed: {}", e))?;
 
     let content = json["choices"][0]["message"]["content"]
         .as_str()
@@ -167,6 +200,9 @@ async fn chat_openai(client: &Client, request: &ChatRequest) -> Result<ChatRespo
     Ok(ChatResponse {
         content,
         model: request.model.clone(),
-        usage: Usage { input_tokens, output_tokens },
+        usage: Usage {
+            input_tokens,
+            output_tokens,
+        },
     })
 }

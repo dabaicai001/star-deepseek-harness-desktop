@@ -256,8 +256,8 @@ func (a *RedisAdapter) GetValue(key string) (*RedisValueResult, error) {
 			return nil, err
 		}
 		type ZMember struct {
-			Value  string  `json:"value"`
-			Score  float64 `json:"score"`
+			Value string  `json:"value"`
+			Score float64 `json:"score"`
 		}
 		members := make([]ZMember, len(val))
 		for i, z := range val {

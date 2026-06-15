@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 )
@@ -16,12 +17,15 @@ type Server struct {
 	mu       sync.RWMutex
 	handlers map[string]Handler
 	writeMu  sync.Mutex // 保护 stdout 写入
+	writer   io.Writer
+	wg       sync.WaitGroup
 }
 
 // NewServer 创建新的 RPC 服务器
 func NewServer() *Server {
 	return &Server{
 		handlers: make(map[string]Handler),
+		writer:   os.Stdout,
 	}
 }
 
@@ -34,7 +38,13 @@ func (s *Server) Register(method string, handler Handler) {
 
 // Run 运行服务器，从 stdin 读取请求，输出到 stdout
 func (s *Server) Run() error {
-	scanner := bufio.NewScanner(os.Stdin)
+	return s.RunIO(os.Stdin, os.Stdout)
+}
+
+// RunIO runs the server with explicit streams, which keeps transport logic testable.
+func (s *Server) RunIO(reader io.Reader, writer io.Writer) error {
+	s.writer = writer
+	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 1<<20), 10<<20) // 10MB buffer
 
 	for scanner.Scan() {
@@ -49,10 +59,16 @@ func (s *Server) Run() error {
 			continue
 		}
 
-		go s.handleRequest(req)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.handleRequest(req)
+		}()
 	}
 
-	return scanner.Err()
+	err := scanner.Err()
+	s.wg.Wait()
+	return err
 }
 
 func (s *Server) handleRequest(req Request) {
@@ -102,5 +118,7 @@ func (s *Server) writeResponse(resp Response) {
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	fmt.Println(string(data))
+	if _, err := fmt.Fprintln(s.writer, string(data)); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing response: %v\n", err)
+	}
 }

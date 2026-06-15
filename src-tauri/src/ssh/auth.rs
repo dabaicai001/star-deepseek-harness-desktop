@@ -1,15 +1,13 @@
 use russh::client;
-use russh::keys::PublicKey;
 use russh::keys::HashAlg;
-use std::collections::HashMap;
-use std::sync::Arc;
+use russh::keys::PublicKey;
 use tauri::Emitter;
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::oneshot;
 
 pub struct SshHandler {
     pub session_id: String,
     pub app_handle: Option<tauri::AppHandle>,
-    pub pending_hostkey: Arc<Mutex<HashMap<String, oneshot::Sender<(bool, bool)>>>>,
+    pub pending_hostkey: super::PendingHostKeyResponses,
     pub host: String,
     pub port: u16,
 }
@@ -18,7 +16,7 @@ impl SshHandler {
     pub fn new(
         session_id: String,
         app_handle: Option<tauri::AppHandle>,
-        pending_hostkey: Arc<Mutex<HashMap<String, oneshot::Sender<(bool, bool)>>>>,
+        pending_hostkey: super::PendingHostKeyResponses,
         host: String,
         port: u16,
     ) -> Self {
@@ -46,11 +44,11 @@ impl client::Handler for SshHandler {
         let app_handle = match &self.app_handle {
             Some(h) => h,
             None => {
-                    return Err(anyhow::anyhow!(
-                        "[HOSTKEY_REJECTED] No UI available to confirm host key for {}:{}",
-                        self.host,
-                        self.port
-                    ));
+                return Err(anyhow::anyhow!(
+                    "[HOSTKEY_REJECTED] No UI available to confirm host key for {}:{}",
+                    self.host,
+                    self.port
+                ));
             }
         };
 
@@ -75,30 +73,31 @@ impl client::Handler for SshHandler {
             "keyType": key_type,
             "sha256": sha256,
         });
-        let _ = app_handle.emit(
-            &format!("ssh:hostkey-confirm:{}", self.session_id),
-            payload,
-        );
+        let _ = app_handle.emit(&format!("ssh:hostkey-confirm:{}", self.session_id), payload);
 
-        let (allowed, persist) = match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
-            Ok(Ok(v)) => v,
-            Ok(Err(_)) => {
-                return Err(anyhow::anyhow!("[HOSTKEY_REJECTED] Host key prompt channel dropped"));
-            }
-            Err(_) => {
-                let mut pending = self.pending_hostkey.lock().await;
-                pending.remove(&self.session_id);
-                return Err(anyhow::anyhow!(
-                    "[HOSTKEY_TIMEOUT] Host key verification timed out for {}:{}",
-                    self.host,
-                    self.port
-                ));
-            }
-        };
+        let (allowed, persist) =
+            match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
+                Ok(Ok(v)) => v,
+                Ok(Err(_)) => {
+                    return Err(anyhow::anyhow!(
+                        "[HOSTKEY_REJECTED] Host key prompt channel dropped"
+                    ));
+                }
+                Err(_) => {
+                    let mut pending = self.pending_hostkey.lock().await;
+                    pending.remove(&self.session_id);
+                    return Err(anyhow::anyhow!(
+                        "[HOSTKEY_TIMEOUT] Host key verification timed out for {}:{}",
+                        self.host,
+                        self.port
+                    ));
+                }
+            };
 
         if allowed {
             if persist {
-                let _ = super::known_hosts::add_host(&self.host, self.port, server_public_key).await;
+                let _ =
+                    super::known_hosts::add_host(&self.host, self.port, server_public_key).await;
             }
             Ok(true)
         } else {

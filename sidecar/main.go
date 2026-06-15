@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/starhub/sidecar/adapters"
 	"github.com/starhub/sidecar/pool"
 	"github.com/starhub/sidecar/rpc"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 func main() {
@@ -29,9 +29,9 @@ func main() {
 	// 注册版本方法
 	server.Register("version", func(params json.RawMessage) (interface{}, error) {
 		return map[string]string{
-			"version": "0.2.0",
-			"go":      "1.22+",
-			"modules": "mysql,redis,elasticsearch",
+			"version": "0.5.1",
+			"go":      "1.25+",
+			"modules": "mysql,redis,elasticsearch,clickhouse,docker,excel,csv",
 		}, nil
 	})
 

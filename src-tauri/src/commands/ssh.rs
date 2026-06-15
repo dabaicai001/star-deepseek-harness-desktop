@@ -1,15 +1,15 @@
+use crate::ssh::session::SshSession;
+use crate::ssh::{PendingHostKeyResponses, PendingKeyboardResponses, SshConfig, SshSessionInfo};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::{Mutex, oneshot};
 use tauri::State;
-use crate::ssh::{SshConfig, SshSessionInfo};
-use crate::ssh::session::SshSession;
+use tokio::sync::Mutex;
 
 pub struct SshManager {
     pub sessions: Arc<Mutex<HashMap<String, Arc<Mutex<SshSession>>>>>,
     channels: Arc<Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
-    pub pending_kb: Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>,
-    pub pending_hostkey: Arc<Mutex<HashMap<String, oneshot::Sender<(bool, bool)>>>>,
+    pub pending_kb: PendingKeyboardResponses,
+    pub pending_hostkey: PendingHostKeyResponses,
     abandoned: Arc<Mutex<HashSet<String>>>,
 }
 
@@ -36,8 +36,17 @@ pub async fn ssh_connect(
     // 所有其他 SSH 操作(resize / disconnect / 新 connect),导致第二个 tab
     // 永远卡在 "Connecting to"。
     let mut session = SshSession::new(config.clone());
-    session.connect(&id, Some(&app_handle), &manager.pending_kb, &manager.pending_hostkey).await?;
-    session.open_shell(&id, app_handle.clone(), manager.channels.clone()).await?;
+    session
+        .connect(
+            &id,
+            Some(&app_handle),
+            &manager.pending_kb,
+            &manager.pending_hostkey,
+        )
+        .await?;
+    session
+        .open_shell(&id, app_handle.clone(), manager.channels.clone())
+        .await?;
 
     let info = SshSessionInfo {
         id: id.clone(),
@@ -65,10 +74,7 @@ pub async fn ssh_connect(
 }
 
 #[tauri::command]
-pub async fn ssh_disconnect(
-    manager: State<'_, SshManager>,
-    id: String,
-) -> Result<(), String> {
+pub async fn ssh_disconnect(manager: State<'_, SshManager>, id: String) -> Result<(), String> {
     // 先从 map 中移除(短暂持锁),再对单个 session 加锁断开,
     // 避免 disconnect 期间阻塞其他 session 的操作。
     let session_arc = {
@@ -161,7 +167,12 @@ pub async fn test_ssh_connection(
     let start = std::time::Instant::now();
 
     let result = session
-        .connect(&test_session_id, Some(&app_handle), &manager.pending_kb, &manager.pending_hostkey)
+        .connect(
+            &test_session_id,
+            Some(&app_handle),
+            &manager.pending_kb,
+            &manager.pending_hostkey,
+        )
         .await;
 
     {
@@ -218,9 +229,7 @@ pub async fn ssh_exec(
     };
 
     let mut session = session_arc.lock().await;
-    session
-        .exec(&command, timeout_sec.unwrap_or(10))
-        .await
+    session.exec(&command, timeout_sec.unwrap_or(10)).await
 }
 
 /// 前端回复 keyboard-interactive 响应
@@ -235,7 +244,8 @@ pub async fn ssh_kb_response(
         map.remove(&id)
             .ok_or_else(|| format!("No pending kb prompt for session {}", id))?
     };
-    sender.send(responses)
+    sender
+        .send(responses)
         .map_err(|_| "Failed to send kb response (handler dropped)".to_string())
 }
 
