@@ -7,7 +7,6 @@ const store = useExcelStore()
 const containerRef = ref<HTMLElement | null>(null)
 const scrollLeft = ref(0)
 const scrollTop = ref(0)
-const selectedCell = ref<{ row: number; col: number } | null>(null)
 const editingCell = ref<{ row: number; col: number } | null>(null)
 const editValue = ref('')
 const editInputRef = ref<HTMLInputElement | null>(null)
@@ -22,10 +21,13 @@ const containerWidth = computed(() => containerRef.value?.clientWidth ?? 800)
 const HEADER_HEIGHT = 30
 const ROW_HEADER_WIDTH = 52
 
+// 使用筛选后的数据
+const displayData = computed(() => store.filteredRowData)
+
 const visibleStartRow = computed(() => Math.max(0, Math.floor(scrollTop.value / store.ROW_HEIGHT) - 5))
 const visibleEndRow = computed(() => {
   const visible = Math.ceil((containerHeight.value - HEADER_HEIGHT) / store.ROW_HEIGHT) + 5
-  return Math.min(Math.max(store.rowData.length, store.totalRows || 1), visibleStartRow.value + visible + 10)
+  return Math.min(Math.max(displayData.value.length, 1), visibleStartRow.value + visible + 10)
 })
 
 const visibleStartCol = computed(() => {
@@ -57,7 +59,7 @@ const totalWidth = computed(() => {
 })
 
 const totalHeight = computed(() => {
-  const rows = Math.max(store.rowData.length, store.totalRows || 1)
+  const rows = Math.max(displayData.value.length, 1)
   return rows * store.ROW_HEIGHT + HEADER_HEIGHT
 })
 
@@ -84,10 +86,11 @@ const visibleCols = computed(() => {
 
 const visibleRows = computed(() => {
   const rows: { row: number; cells: string[] }[] = []
+  const data = displayData.value
   for (let r = visibleStartRow.value; r < visibleEndRow.value; r++) {
     const cells: string[] = []
     for (let c = visibleStartCol.value; c < visibleEndCol.value; c++) {
-      cells.push(store.getCell(r, c))
+      cells.push(r < data.length ? (data[r][c] ?? '') : '')
     }
     rows.push({ row: r, cells })
   }
@@ -95,7 +98,24 @@ const visibleRows = computed(() => {
 })
 
 function isSelected(row: number, col: number): boolean {
-  return selectedCell.value?.row === row && selectedCell.value?.col === col
+  const sel = store.selectedCell
+  return sel?.row === row && sel?.col === col
+}
+
+function isRowSelected(row: number): boolean {
+  return store.selectionMode === 'row' && store.selectedRange !== null &&
+    row >= store.selectedRange.startRow && row <= store.selectedRange.endRow
+}
+
+function isColSelected(col: number): boolean {
+  return store.selectionMode === 'col' && store.selectedRange !== null &&
+    col >= store.selectedRange.startCol && col <= store.selectedRange.endCol
+}
+
+function isInSelectedRange(row: number, col: number): boolean {
+  const r = store.selectedRange
+  if (!r) return false
+  return row >= r.startRow && row <= r.endRow && col >= r.startCol && col <= r.endCol
 }
 
 function handleContainerScroll() {
@@ -106,7 +126,15 @@ function handleContainerScroll() {
 }
 
 function handleCellClick(row: number, col: number) {
-  selectedCell.value = { row, col }
+  store.selectCell(row, col)
+}
+
+function handleRowHeaderClick(row: number) {
+  store.selectRow(row)
+}
+
+function handleColHeaderClick(col: number) {
+  store.selectCol(col)
 }
 
 function handleCellDblClick(row: number, col: number) {
@@ -141,35 +169,37 @@ function handleEditKeydown(e: KeyboardEvent) {
   } else if (e.key === 'Tab') {
     e.preventDefault()
     closeEditor()
-    if (selectedCell.value) {
-      selectedCell.value = { row: selectedCell.value.row, col: selectedCell.value.col + (e.shiftKey ? -1 : 1) }
+    const sel = store.selectedCell
+    if (sel) {
+      store.selectCell(sel.row, sel.col + (e.shiftKey ? -1 : 1))
     }
   }
 }
 
 function handleKeydown(e: KeyboardEvent) {
   if (editingCell.value) return
-  if (!selectedCell.value) return
+  const sel = store.selectedCell
+  if (!sel) return
 
-  const { row, col } = selectedCell.value
-  const maxRow = Math.max(store.rowData.length - 1, 0)
+  const { row, col } = sel
+  const maxRow = Math.max(displayData.value.length - 1, 0)
 
   switch (e.key) {
     case 'ArrowUp':
       e.preventDefault()
-      selectedCell.value = { row: Math.max(0, row - 1), col }
+      store.selectCell(Math.max(0, row - 1), col)
       break
     case 'ArrowDown':
       e.preventDefault()
-      selectedCell.value = { row: Math.min(maxRow, row + 1), col }
+      store.selectCell(Math.min(maxRow, row + 1), col)
       break
     case 'ArrowLeft':
       e.preventDefault()
-      selectedCell.value = { row, col: Math.max(0, col - 1) }
+      store.selectCell(row, Math.max(0, col - 1))
       break
     case 'ArrowRight':
       e.preventDefault()
-      selectedCell.value = { row, col: Math.min(store.columns.length - 1, col + 1) }
+      store.selectCell(row, Math.min(store.columns.length - 1, col + 1))
       break
     case 'Enter':
       e.preventDefault()
@@ -251,21 +281,24 @@ onBeforeUnmount(() => {
           <div
             class="excel-corner-header"
             :style="{ width: ROW_HEADER_WIDTH + 'px', height: HEADER_HEIGHT + 'px' }"
+            @click="store.clearSelection()"
           />
           <div
             v-for="col in visibleCols"
             :key="'h' + col.index"
             class="excel-col-header"
+            :class="{ selected: isColSelected(col.index) }"
             :style="{
               left: col.left + 'px',
               width: col.width + 'px',
               height: HEADER_HEIGHT + 'px',
             }"
+            @click="handleColHeaderClick(col.index)"
           >
             <span>{{ col.name }}</span>
             <span
               class="col-resize-handle"
-              @mousedown="handleColResizeMousedown(col.index, $event)"
+              @mousedown.stop="handleColResizeMousedown(col.index, $event)"
             />
           </div>
         </div>
@@ -275,6 +308,7 @@ onBeforeUnmount(() => {
           v-for="r in visibleRows"
           :key="r.row"
           class="excel-data-row"
+          :class="{ 'row-selected': isRowSelected(r.row) }"
           :style="{
             top: HEADER_HEIGHT + (r.row * store.ROW_HEIGHT) + 'px',
             height: store.ROW_HEIGHT + 'px',
@@ -282,10 +316,12 @@ onBeforeUnmount(() => {
         >
           <div
             class="excel-row-header"
+            :class="{ selected: isRowSelected(r.row) }"
             :style="{
               width: ROW_HEADER_WIDTH + 'px',
               height: store.ROW_HEIGHT + 'px',
             }"
+            @click="handleRowHeaderClick(r.row)"
           >
             {{ r.row + 1 }}
           </div>
@@ -296,6 +332,8 @@ onBeforeUnmount(() => {
             class="excel-cell"
             :class="{
               selected: isSelected(r.row, visibleStartCol + ci),
+              'in-range': isInSelectedRange(r.row, visibleStartCol + ci),
+              'col-highlight': isColSelected(visibleStartCol + ci),
               editing: editingCell?.row === r.row && editingCell?.col === visibleStartCol + ci,
             }"
             :style="{
@@ -372,6 +410,12 @@ onBeforeUnmount(() => {
   border-right: 1px solid var(--line);
   user-select: none;
   overflow: hidden;
+  cursor: pointer;
+}
+
+.excel-col-header.selected {
+  background: rgba(0, 240, 255, 0.12);
+  color: var(--cyan);
 }
 
 .col-resize-handle {
@@ -394,6 +438,10 @@ onBeforeUnmount(() => {
   right: 0;
 }
 
+.excel-data-row.row-selected .excel-cell {
+  background: rgba(0, 240, 255, 0.04);
+}
+
 .excel-row-header {
   position: sticky;
   left: 0;
@@ -408,6 +456,12 @@ onBeforeUnmount(() => {
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   user-select: none;
+  cursor: pointer;
+}
+
+.excel-row-header.selected {
+  background: rgba(0, 240, 255, 0.12);
+  color: var(--cyan);
 }
 
 .excel-cell {
@@ -430,6 +484,14 @@ onBeforeUnmount(() => {
   outline: 2px solid var(--cyan);
   outline-offset: -2px;
   z-index: 1;
+}
+
+.excel-cell.in-range {
+  background: rgba(0, 240, 255, 0.04);
+}
+
+.excel-cell.col-highlight {
+  background: rgba(0, 240, 255, 0.04);
 }
 
 .excel-cell.editing {

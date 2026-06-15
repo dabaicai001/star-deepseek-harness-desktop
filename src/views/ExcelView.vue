@@ -22,6 +22,8 @@ const asset = computed(() => {
 
 const loading = ref(false)
 const error = ref<string | null>(null)
+const showFilter = ref(false)
+const filterInput = ref('')
 
 async function openExcel() {
   if (!asset.value?.config.filePath) return
@@ -161,6 +163,18 @@ function handleDeleteCol() {
   store.deleteCol(store.columns.length - 1)
 }
 
+function toggleFilter() {
+  showFilter.value = !showFilter.value
+  if (!showFilter.value) {
+    filterInput.value = ''
+    store.clearFilter()
+  }
+}
+
+function applyFilter() {
+  store.setFilter(filterInput.value)
+}
+
 onMounted(() => {
   if (asset.value) {
     openExcel()
@@ -205,8 +219,24 @@ watch(() => asset.value?.config.filePath, () => {
         @delete-row="handleDeleteRow"
         @add-col="handleAddCol"
         @delete-col="handleDeleteCol"
+        @filter="toggleFilter"
         @remove-duplicates="removeDuplicates"
       />
+
+      <div v-if="showFilter" class="filter-bar">
+        <v-icon size="14" color="cyan">mdi-filter-outline</v-icon>
+        <input
+          v-model="filterInput"
+          class="cyber-input filter-input"
+          placeholder="输入关键词筛选..."
+          @input="applyFilter"
+          @keydown.escape="toggleFilter"
+        />
+        <span class="filter-count">{{ store.displayRowCount }} / {{ store.rowData.length }} 行</span>
+        <button class="action-btn" @click="toggleFilter">
+          <v-icon size="12">mdi-close</v-icon>
+        </button>
+      </div>
 
       <ExcelGrid
         @cell-change="onCellChange"
@@ -286,5 +316,45 @@ watch(() => asset.value?.config.filePath, () => {
   font-size: 10px;
   color: var(--yellow);
   font-family: 'JetBrains Mono', monospace;
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: var(--panel-solid);
+  border-bottom: 1px solid var(--line);
+}
+
+.filter-input {
+  flex: 1;
+  max-width: 300px;
+  height: 28px;
+  font-size: 12px;
+}
+
+.filter-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.filter-bar .action-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.filter-bar .action-btn:hover {
+  background: rgba(0, 240, 255, 0.08);
+  color: var(--cyan);
 }
 </style>

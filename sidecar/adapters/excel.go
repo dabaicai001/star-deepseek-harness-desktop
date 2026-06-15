@@ -83,41 +83,51 @@ func (a *ExcelAdapter) GetSheetNames() []string {
 }
 
 // ReadSheet 读取 Sheet 数据（分页）
-// offset/limit 为 0 表示返回全部
+// offset/limit 为 0 表示返回全部（offset 基于数据行，不含标题行）
 func (a *ExcelAdapter) ReadSheet(sheetName string, offset, limit int) (*SheetData, error) {
 	rows, err := a.f.GetRows(sheetName)
 	if err != nil {
 		return nil, fmt.Errorf("read sheet failed: %w", err)
 	}
 
-	totalRows := len(rows)
+	rawTotal := len(rows)
 	columns := []string{}
-	if totalRows > 0 {
+	if rawTotal > 0 {
 		columns = rows[0]
 	}
 
-	start := 1 // 跳过标题行
-	if offset > 0 {
-		start = offset
+	// 数据行 = 去掉标题行
+	dataRowsAll := [][]string{}
+	if rawTotal > 1 {
+		dataRowsAll = rows[1:]
 	}
-	if start >= totalRows {
-		start = totalRows
+	totalDataRows := len(dataRowsAll)
+
+	start := offset
+	if start < 0 {
+		start = 0
 	}
-	end := totalRows
+	if start >= totalDataRows {
+		return &SheetData{
+			SheetName: sheetName,
+			Columns:   columns,
+			Rows:      [][]string{},
+			TotalRows: totalDataRows,
+		}, nil
+	}
+	end := totalDataRows
 	if limit > 0 {
 		end = start + limit
-		if end > totalRows {
-			end = totalRows
+		if end > totalDataRows {
+			end = totalDataRows
 		}
 	}
-
-	dataRows := rows[start:end]
 
 	return &SheetData{
 		SheetName: sheetName,
 		Columns:   columns,
-		Rows:      dataRows,
-		TotalRows: totalRows,
+		Rows:      dataRowsAll[start:end],
+		TotalRows: totalDataRows,
 	}, nil
 }
 

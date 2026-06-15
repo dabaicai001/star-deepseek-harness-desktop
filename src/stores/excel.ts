@@ -17,6 +17,8 @@ export interface ColumnInfo {
   width: number
 }
 
+export type SelectionMode = 'cell' | 'row' | 'col' | null
+
 export const useExcelStore = defineStore('excel', () => {
   const loading = ref(false)
   const connId = ref<string | null>(null)
@@ -31,18 +33,58 @@ export const useExcelStore = defineStore('excel', () => {
   const frozenCols = ref(0)
   const dirty = ref(false)
 
+  // 筛选
+  const filterText = ref('')
+  const filterCol = ref<number | null>(null) // null = 全列
+
+  // 选区
+  const selectedCell = ref<{ row: number; col: number } | null>(null)
+  const selectionMode = ref<SelectionMode>(null)
+  const selectedRange = ref<{ startRow: number; endRow: number; startCol: number; endCol: number } | null>(null)
+
   const DEFAULT_COL_WIDTH = 120
   const ROW_HEIGHT = 28
+
+  // 筛选后的行索引映射
+  const filteredRowIndices = computed<number[]>(() => {
+    const text = filterText.value.toLowerCase().trim()
+    if (!text) return rowData.value.map((_, i) => i)
+    const col = filterCol.value
+    return rowData.value.reduce<number[]>((acc, row, i) => {
+      if (col !== null) {
+        if ((row[col] ?? '').toLowerCase().includes(text)) acc.push(i)
+      } else {
+        if (row.some(cell => (cell ?? '').toLowerCase().includes(text))) acc.push(i)
+      }
+      return acc
+    }, [])
+  })
+
+  const filteredRowData = computed(() => {
+    if (!filterText.value.trim()) return rowData.value
+    return filteredRowIndices.value.map(i => rowData.value[i])
+  })
 
   function setLoading(v: boolean) { loading.value = v }
   function setDirty(v: boolean) { dirty.value = v }
 
   function getCell(row: number, col: number): string {
-    if (row >= 0 && row < rowData.value.length) {
-      return rowData.value[row][col] ?? ''
+    const data = filteredRowData.value
+    if (row >= 0 && row < data.length) {
+      return data[row][col] ?? ''
     }
     return ''
   }
+
+  function getRawCell(rawRow: number, col: number): string {
+    if (rawRow >= 0 && rawRow < rowData.value.length) {
+      return rowData.value[rawRow][col] ?? ''
+    }
+    return ''
+  }
+
+  // 筛选后的行数
+  const displayRowCount = computed(() => filteredRowData.value.length)
 
   function setCell(row: number, col: number, value: string) {
     while (rowData.value.length <= row) {
@@ -56,8 +98,10 @@ export const useExcelStore = defineStore('excel', () => {
   }
 
   function updateCellValue(row: number, col: number, value: string) {
-    if (row < rowData.value.length && col < (rowData.value[row]?.length || 0)) {
-      rowData.value[row][col] = value
+    // row 是筛选后的索引，需要映射回原始索引
+    const rawIdx = filterText.value.trim() ? filteredRowIndices.value[row] : row
+    if (rawIdx !== undefined && rawIdx < rowData.value.length && col < (rowData.value[rawIdx]?.length || 0)) {
+      rowData.value[rawIdx][col] = value
       dirty.value = true
     }
   }
@@ -159,6 +203,45 @@ export const useExcelStore = defineStore('excel', () => {
     frozenCols.value = 0
     dirty.value = false
     loading.value = false
+    filterText.value = ''
+    filterCol.value = null
+    selectedCell.value = null
+    selectionMode.value = null
+    selectedRange.value = null
+  }
+
+  function setFilter(text: string, col: number | null = null) {
+    filterText.value = text
+    filterCol.value = col
+  }
+
+  function clearFilter() {
+    filterText.value = ''
+    filterCol.value = null
+  }
+
+  function selectCell(row: number, col: number) {
+    selectedCell.value = { row, col }
+    selectionMode.value = 'cell'
+    selectedRange.value = { startRow: row, endRow: row, startCol: col, endCol: col }
+  }
+
+  function selectRow(row: number) {
+    selectedCell.value = { row, col: 0 }
+    selectionMode.value = 'row'
+    selectedRange.value = { startRow: row, endRow: row, startCol: 0, endCol: columns.value.length - 1 }
+  }
+
+  function selectCol(col: number) {
+    selectedCell.value = { row: 0, col }
+    selectionMode.value = 'col'
+    selectedRange.value = { startRow: 0, endRow: filteredRowData.value.length - 1, startCol: col, endCol: col }
+  }
+
+  function clearSelection() {
+    selectedCell.value = null
+    selectionMode.value = null
+    selectedRange.value = null
   }
 
   return {
@@ -174,11 +257,20 @@ export const useExcelStore = defineStore('excel', () => {
     frozenRows,
     frozenCols,
     dirty,
+    filterText,
+    filterCol,
+    filteredRowIndices,
+    filteredRowData,
+    displayRowCount,
+    selectedCell,
+    selectionMode,
+    selectedRange,
     DEFAULT_COL_WIDTH,
     ROW_HEIGHT,
     setLoading,
     setDirty,
     getCell,
+    getRawCell,
     setCell,
     updateCellValue,
     addRow,
@@ -190,5 +282,11 @@ export const useExcelStore = defineStore('excel', () => {
     colIndexToLetter,
     loadData,
     clear,
+    setFilter,
+    clearFilter,
+    selectCell,
+    selectRow,
+    selectCol,
+    clearSelection,
   }
 })
