@@ -1,12 +1,12 @@
 use russh::client::{self, Handle, Msg};
-use russh::Channel;
-use russh::ChannelMsg;
+use russh::{Channel, ChannelMsg, MethodKind, MethodSet};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
 use tokio::sync::{mpsc, Mutex, oneshot};
 use tokio::time::timeout;
+use tracing::debug;
 use super::{SshAuth, SshConfig};
 
 const SFTP_OPEN_TIMEOUT: Duration = Duration::from_secs(30);
@@ -58,10 +58,17 @@ impl SshSession {
                 .await
                 .map_err(|e| format!("[CONN_FAILED] Failed to connect to {}:{}: {}", host, port, e))?;
 
-            // kb-interactive 模式:跳过主认证,直接走 keyboard-interactive
-            // (阿里云堡垒机等只接受 kb-interactive,不接受标准 password 方法)
             let kb_enabled = kb_interactive.as_ref().map(|k| k.enabled).unwrap_or(false);
-            if kb_enabled {
+
+            // 始终先尝试主认证(password / key / password+key)
+            let remaining = authenticate_primary(&mut handle, username, auth).await?;
+
+            if remaining.is_empty() {
+                // 主认证成功,无需 MFA
+                debug!("Primary auth succeeded for {}:{}", host, port);
+            } else if kb_enabled && remaining.iter().any(|m| *m == MethodKind::KeyboardInteractive) {
+                // 主认证完成(密码已验证),服务器要求 keyboard-interactive 做第二因素(TOTP/MFA)
+                debug!("Primary auth done, server requires keyboard-interactive MFA for {}:{}", host, port);
                 authenticate_keyboard_interactive(
                     &mut handle,
                     username,
@@ -70,9 +77,12 @@ impl SshSession {
                     app_handle,
                     pending_kb,
                 ).await?;
+            } else if !kb_enabled && remaining.iter().any(|m| *m == MethodKind::KeyboardInteractive) {
+                // 服务器支持 keyboard-interactive 但用户未启用 MFA
+                return Err("[AUTH_FAILED] Server requires keyboard-interactive MFA. Enable MFA in connection settings.".to_string());
             } else {
-                // 标准模式:主认证 (password / key / password+key)
-                authenticate_primary(&mut handle, username, auth).await?;
+                // 主认证失败且没有可用的后续方法
+                return Err("[AUTH_FAILED] Authentication rejected and no further methods available".to_string());
             }
 
             Ok(handle)
@@ -135,9 +145,14 @@ impl SshSession {
                 .await
                 .map_err(|e| format!("[CONN_FAILED] Failed to connect to target through tunnel: {}", e))?;
 
-            // kb-interactive 模式:跳过主认证,直接走 keyboard-interactive
+            // 始终先尝试主认证(password / key / password+key)
             let kb_enabled = self.config.kb_interactive.as_ref().map(|k| k.enabled).unwrap_or(false);
-            if kb_enabled {
+            let remaining = authenticate_primary(&mut handle, &self.config.username, &self.config.auth).await?;
+
+            if remaining.is_empty() {
+                debug!("Primary auth succeeded for target via jump host");
+            } else if kb_enabled && remaining.iter().any(|m| *m == MethodKind::KeyboardInteractive) {
+                debug!("Primary auth done, server requires keyboard-interactive MFA for target via jump host");
                 authenticate_keyboard_interactive(
                     &mut handle,
                     &self.config.username,
@@ -146,8 +161,10 @@ impl SshSession {
                     app_handle,
                     pending_kb,
                 ).await?;
+            } else if !kb_enabled && remaining.iter().any(|m| *m == MethodKind::KeyboardInteractive) {
+                return Err("[AUTH_FAILED] Server requires keyboard-interactive MFA. Enable MFA in connection settings.".to_string());
             } else {
-                authenticate_primary(&mut handle, &self.config.username, &self.config.auth).await?;
+                return Err("[AUTH_FAILED] Authentication rejected and no further methods available".to_string());
             }
 
             handle
@@ -289,17 +306,25 @@ impl SshSession {
 // ====== Free functions ======
 
 /// 执行主认证: password / key / password+key
+/// 返回 Ok(remaining_methods) — 成功时 remaining_methods 为空,失败时包含服务器允许的后续方法
 async fn authenticate_primary(
     handle: &mut Handle<super::auth::SshHandler>,
     username: &str,
     auth: &SshAuth,
-) -> Result<(), String> {
+) -> Result<MethodSet, String> {
     match auth {
         SshAuth::Password(password) => {
             let result = handle.authenticate_password(username, password.as_str()).await
                 .map_err(|e| format!("[AUTH_FAILED] Password auth failed: {}", e))?;
-            if !result.success() {
-                return Err("[AUTH_FAILED] Password authentication rejected".to_string());
+            if result.success() {
+                Ok(MethodSet::empty())
+            } else {
+                let remaining = match &result {
+                    client::AuthResult::Failure { remaining_methods } => remaining_methods.clone(),
+                    _ => MethodSet::empty(),
+                };
+                debug!("Password auth rejected, remaining methods: {:?}", remaining);
+                Ok(remaining)
             }
         }
         SshAuth::PrivateKey { key, passphrase } => {
@@ -310,8 +335,15 @@ async fn authenticate_primary(
             );
             let result = handle.authenticate_publickey(username, key_with_hash).await
                 .map_err(|e| format!("[AUTH_FAILED] Public key auth failed: {}", e))?;
-            if !result.success() {
-                return Err("[AUTH_FAILED] Public key authentication rejected".to_string());
+            if result.success() {
+                Ok(MethodSet::empty())
+            } else {
+                let remaining = match &result {
+                    client::AuthResult::Failure { remaining_methods } => remaining_methods.clone(),
+                    _ => MethodSet::empty(),
+                };
+                debug!("Public key auth rejected, remaining methods: {:?}", remaining);
+                Ok(remaining)
             }
         }
         SshAuth::PasswordAndKey { password, key, passphrase } => {
@@ -320,16 +352,32 @@ async fn authenticate_primary(
             let key_with_hash = russh::keys::key::PrivateKeyWithHashAlg::new(
                 Arc::new(key_pair), None,
             );
-            handle.authenticate_publickey(username, key_with_hash).await
+            let pk_result = handle.authenticate_publickey(username, key_with_hash).await
                 .map_err(|e| format!("[AUTH_FAILED] Public key auth failed: {}", e))?;
-            let result = handle.authenticate_password(username, password.as_str()).await
-                .map_err(|e| format!("[AUTH_FAILED] Password auth failed: {}", e))?;
-            if !result.success() {
-                return Err("[AUTH_FAILED] Password+Key authentication rejected".to_string());
+            if pk_result.success() {
+                // 公钥认证成功,继续密码认证(第二步)
+                let result = handle.authenticate_password(username, password.as_str()).await
+                    .map_err(|e| format!("[AUTH_FAILED] Password auth failed: {}", e))?;
+                if result.success() {
+                    Ok(MethodSet::empty())
+                } else {
+                    let remaining = match &result {
+                        client::AuthResult::Failure { remaining_methods } => remaining_methods.clone(),
+                        _ => MethodSet::empty(),
+                    };
+                    debug!("Password+Key password step rejected, remaining: {:?}", remaining);
+                    Ok(remaining)
+                }
+            } else {
+                let remaining = match &pk_result {
+                    client::AuthResult::Failure { remaining_methods } => remaining_methods.clone(),
+                    _ => MethodSet::empty(),
+                };
+                debug!("Password+Key key step rejected, remaining: {:?}", remaining);
+                Ok(remaining)
             }
         }
     }
-    Ok(())
 }
 
 /// 执行 keyboard-interactive MFA（驱动 russh 的 start/respond API）
