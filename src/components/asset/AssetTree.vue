@@ -55,8 +55,7 @@ function getIcon(type: string, dbType?: string) {
   }
   switch (type) {
     case 'ssh': return 'mdi-console'
-      case 'docker': return 'mdi-docker'
-      case 'excel': return 'mdi-file-excel-outline'
+    case 'docker': return 'mdi-docker'
     case 'excel': return 'mdi-file-excel-outline'
     default: return 'mdi-file-outline'
   }

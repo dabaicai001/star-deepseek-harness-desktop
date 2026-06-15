@@ -1,13 +1,17 @@
 {
   "name": "starhub",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "sidecar:build": "node scripts/build-sidecar.mjs",
+    "sidecar:build:release": "node scripts/build-sidecar.mjs --release",
+    "tauri:dev": "npm run tauri dev",
+    "tauri:build": "npm run tauri build"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",

@@ -11,14 +11,22 @@ BIN_DIR="$SIDECAR_DIR/bin"
 mkdir -p "$BIN_DIR"
 
 OUTPUT_NAME="starhub-sidecar"
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+TARGET_OS="${GOOS:-}"
+if [[ -z "$TARGET_OS" ]]; then
+    case "$OSTYPE" in
+        msys*|cygwin*|win32*) TARGET_OS="windows" ;;
+        darwin*) TARGET_OS="darwin" ;;
+        *) TARGET_OS="linux" ;;
+    esac
+fi
+if [[ "$TARGET_OS" == "windows" ]]; then
     OUTPUT_NAME="${OUTPUT_NAME}.exe"
 fi
 
 OUTPUT_PATH="$BIN_DIR/$OUTPUT_NAME"
 
 LDFLAGS="-s -w"
-if [[ "${1:-}" == "--release" ]]; then
+if [[ "${1:-}" == "--release" && "$TARGET_OS" == "windows" ]]; then
     LDFLAGS="$LDFLAGS -H windowsgui"
 fi
 

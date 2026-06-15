@@ -18,6 +18,28 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     emptyOutDir: true,
-    target: 'esnext'
+    target: 'esnext',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vue-vendor': ['vue', 'pinia', 'vue-router', 'vue-i18n'],
+          vuetify: ['vuetify'],
+          codemirror: [
+            'codemirror',
+            '@codemirror/autocomplete',
+            '@codemirror/commands',
+            '@codemirror/lang-sql',
+            '@codemirror/state',
+            '@codemirror/view'
+          ],
+          xterm: [
+            '@xterm/xterm',
+            '@xterm/addon-fit',
+            '@xterm/addon-search',
+            '@xterm/addon-web-links'
+          ]
+        }
+      }
+    }
   }
 })

@@ -16,9 +16,10 @@ if (-not (Test-Path $binDir)) {
     New-Item -ItemType Directory -Path $binDir | Out-Null
 }
 
-# Determine output name
+# Respect cross-compilation targets when provided.
+$targetOS = if ($env:GOOS) { $env:GOOS } elseif ($IsWindows -or $env:OS -eq "Windows_NT") { "windows" } elseif ($IsMacOS) { "darwin" } else { "linux" }
 $outputName = "starhub-sidecar"
-if ($IsWindows -or $env:OS -eq "Windows_NT") {
+if ($targetOS -eq "windows") {
     $outputName += ".exe"
 }
 
@@ -26,7 +27,7 @@ $outputPath = Join-Path $binDir $outputName
 
 # Build flags
 $ldflags = "-s -w"
-if ($Release) {
+if ($Release -and $targetOS -eq "windows") {
     $ldflags += " -H windowsgui"
 }
 
