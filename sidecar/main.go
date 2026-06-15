@@ -12,6 +12,11 @@ import (
 	"github.com/starhub/sidecar/rpc"
 )
 
+const (
+	sidecarVersion  = "0.5.2"
+	protocolVersion = 2
+)
+
 func main() {
 	// 日志输出到 stderr，不污染 stdout
 	log.Logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
@@ -28,10 +33,12 @@ func main() {
 
 	// 注册版本方法
 	server.Register("version", func(params json.RawMessage) (interface{}, error) {
-		return map[string]string{
-			"version": "0.5.1",
-			"go":      "1.25+",
-			"modules": "mysql,redis,elasticsearch,clickhouse,docker,excel,csv",
+		return map[string]interface{}{
+			"version":         sidecarVersion,
+			"protocolVersion": protocolVersion,
+			"go":              "1.25+",
+			"modules":         "mysql,redis,elasticsearch,clickhouse,docker,excel,csv",
+			"methods":         server.Methods(),
 		}, nil
 	})
 

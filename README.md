@@ -7,7 +7,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 一站式装进原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.5.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.5.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-MVP%20active-brightgreen)]()
 
 </div>
@@ -43,7 +43,7 @@
 
 ---
 
-## 🎯 v0.5.1 主要功能(当前)
+## 🎯 v0.5.2 主要功能(当前)
 
 ### 多标签同时会话
 - 同一资产也能**多标签 = 多独立会话**(比如 TEST 标签开 2 个 = 同时 2 个 SSH)
@@ -140,7 +140,7 @@ npx tauri build        # 生成对应平台安装包
 |---|---|---|
 | v0.1 | ✅ | 项目脚手架(Tauri + Vue + Go) |
 | v0.2 | ✅ | 文档定型(AGENTS.md / 技术方案) |
-| **v0.5.1** | **🚧 当前** | **系统 Keyring + Sidecar 并发 RPC + 跨平台构建与 CI** |
+| **v0.5.2** | **🚧 当前** | **系统 Keyring + Sidecar 并发 RPC、版本握手与构建一致性** |
 | v0.6 | 🔜 | PostgreSQL / SQLite / Docker 全功能 |
 | v0.7 | 🔜 | 10+ 数据库 + 告警 + Compose |
 | v1.0 | 🔮 | GA — 团队/企业功能 |
@@ -150,7 +150,7 @@ npx tauri build        # 生成对应平台安装包
 
 ## 🤝 参与
 
-当前 v0.5.1 开发中,欢迎 Issue / PR。
+当前 v0.5.2 开发中,欢迎 Issue / PR。
 
 - **需求 / 反馈**:GitHub Issue
 - **提 PR**:先开 Issue 讨论再动手

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"sync"
 )
 
@@ -34,6 +35,19 @@ func (s *Server) Register(method string, handler Handler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.handlers[method] = handler
+}
+
+// Methods returns a stable snapshot of all registered RPC method names.
+func (s *Server) Methods() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	methods := make([]string, 0, len(s.handlers))
+	for method := range s.handlers {
+		methods = append(methods, method)
+	}
+	sort.Strings(methods)
+	return methods
 }
 
 // Run 运行服务器，从 stdin 读取请求，输出到 stdout

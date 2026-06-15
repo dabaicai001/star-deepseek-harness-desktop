@@ -591,7 +591,7 @@
   </div>
 
   <div class="note">
-    <strong>关键设计:</strong> Rust 处理系统协议(SSH/SFTP/Docker/网络)与系统集成,Go Sidecar 跑数据库驱动。Sidecar 通过 stdio JSON-RPC 按请求 ID 并发关联响应,默认超时 120 秒;整条后端链路统一为编译型语言。
+    <strong>关键设计:</strong> Rust 处理系统协议(SSH/SFTP/Docker/网络)与系统集成,Go Sidecar 跑数据库驱动。Sidecar 通过 stdio JSON-RPC 按请求 ID 并发关联响应,默认超时 120 秒;启动时校验协议版本与关键 RPC 方法清单,拒绝加载历史或不完整的 Sidecar。
   </div>
 
   <!-- SECTION 2: Process Model -->

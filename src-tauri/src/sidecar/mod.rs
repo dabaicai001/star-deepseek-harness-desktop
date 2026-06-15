@@ -8,6 +8,14 @@ use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(120);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+const SIDECAR_PROTOCOL_VERSION: u32 = 2;
+const REQUIRED_METHODS: &[&str] = &[
+    "db.mysql.getTableMeta",
+    "db.mysql.getTableData",
+    "db.clickhouse.getTableMeta",
+    "db.clickhouse.getTableData",
+];
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcRequest {
@@ -27,6 +35,14 @@ pub struct RpcResponse {
 pub struct RpcError {
     pub code: i32,
     pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SidecarInfo {
+    version: String,
+    protocol_version: u32,
+    methods: Vec<String>,
 }
 
 type ResponseSender = oneshot::Sender<Result<RpcResponse, String>>;
@@ -64,9 +80,11 @@ impl SidecarManager {
             .ok_or("Failed to get exe directory")?
             .to_path_buf();
 
-        let candidates = [
+        let packaged = [
             exe_dir.join(sidecar_name),
             exe_dir.join("sidecar").join(sidecar_name),
+        ];
+        let development = [
             exe_dir
                 .join("..")
                 .join("sidecar")
@@ -86,6 +104,11 @@ impl SidecarManager {
                 .join("bin")
                 .join(sidecar_name),
         ];
+        let candidates = if cfg!(debug_assertions) {
+            development.into_iter().chain(packaged).collect::<Vec<_>>()
+        } else {
+            packaged.into_iter().chain(development).collect::<Vec<_>>()
+        };
 
         let sidecar_path = candidates
             .into_iter()
@@ -94,7 +117,7 @@ impl SidecarManager {
 
         tracing::info!("Sidecar path: {:?}", sidecar_path);
 
-        let mut cmd = Command::new(sidecar_path);
+        let mut cmd = Command::new(&sidecar_path);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -121,7 +144,46 @@ impl SidecarManager {
         tokio::spawn(Self::read_loop(stdout, self.pending.clone()));
         tokio::spawn(Self::stderr_drain(stderr));
 
-        tracing::info!("Sidecar started successfully");
+        if let Err(error) = self.validate_sidecar().await {
+            *self.tx.lock().map_err(|e| e.to_string())? = None;
+            if let Some(child) = self.child.lock().map_err(|e| e.to_string())?.as_mut() {
+                let _ = child.start_kill();
+            }
+            return Err(format!(
+                "Incompatible Sidecar at {}: {error}. Rebuild or reinstall StarHub.",
+                sidecar_path.display()
+            ));
+        }
+
+        tracing::info!("Sidecar started and validated successfully");
+        Ok(())
+    }
+
+    async fn validate_sidecar(&self) -> Result<(), String> {
+        let value = self
+            .call_with_timeout("version", serde_json::json!({}), HANDSHAKE_TIMEOUT)
+            .await?;
+        let info: SidecarInfo =
+            serde_json::from_value(value).map_err(|e| format!("invalid version response: {e}"))?;
+        if info.protocol_version != SIDECAR_PROTOCOL_VERSION {
+            return Err(format!(
+                "protocol version {} is unsupported (expected {})",
+                info.protocol_version, SIDECAR_PROTOCOL_VERSION
+            ));
+        }
+
+        let missing = REQUIRED_METHODS
+            .iter()
+            .filter(|method| !info.methods.iter().any(|registered| registered == **method))
+            .copied()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(format!(
+                "Sidecar {} is missing required RPC methods: {}",
+                info.version,
+                missing.join(", ")
+            ));
+        }
         Ok(())
     }
 

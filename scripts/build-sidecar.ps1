@@ -25,6 +25,25 @@ if ($targetOS -eq "windows") {
 
 $outputPath = Join-Path $binDir $outputName
 
+$targetArch = if ($env:GOARCH) { $env:GOARCH } elseif ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq "Arm64") { "arm64" } else { "amd64" }
+$targetTriple = if ($env:TAURI_ENV_TARGET_TRIPLE) {
+    $env:TAURI_ENV_TARGET_TRIPLE
+} elseif ($targetOS -eq "windows" -and $targetArch -eq "amd64") {
+    "x86_64-pc-windows-msvc"
+} elseif ($targetOS -eq "windows" -and $targetArch -eq "arm64") {
+    "aarch64-pc-windows-msvc"
+} elseif ($targetOS -eq "darwin" -and $targetArch -eq "amd64") {
+    "x86_64-apple-darwin"
+} elseif ($targetOS -eq "darwin" -and $targetArch -eq "arm64") {
+    "aarch64-apple-darwin"
+} elseif ($targetOS -eq "linux" -and $targetArch -eq "amd64") {
+    "x86_64-unknown-linux-gnu"
+} elseif ($targetOS -eq "linux" -and $targetArch -eq "arm64") {
+    "aarch64-unknown-linux-gnu"
+} else {
+    throw "Unsupported Sidecar target: $targetOS/$targetArch"
+}
+
 # Build flags
 $ldflags = "-s -w"
 if ($Release -and $targetOS -eq "windows") {
@@ -44,13 +63,20 @@ try {
         exit 1
     }
     Write-Host "Sidecar built successfully: $outputPath" -ForegroundColor Green
+    $extension = if ($targetOS -eq "windows") { ".exe" } else { "" }
+    $bundledPath = Join-Path $binDir "starhub-sidecar-$targetTriple$extension"
+    Copy-Item $outputPath $bundledPath -Force
+    Write-Host "  Tauri external binary: $bundledPath" -ForegroundColor DarkGray
 
-    # 同步到 Tauri target 目录(dev 模式用)
+    # 同步到 Tauri target 目录,防止运行时优先命中历史二进制
     $projectRoot = Join-Path $PSScriptRoot ".."
-    $targetDebug = Join-Path $projectRoot "src-tauri" "target" "debug"
-    if (Test-Path $targetDebug) {
-        Copy-Item $outputPath (Join-Path $targetDebug $outputName) -Force
-        Write-Host "  Synced to $targetDebug" -ForegroundColor DarkGray
+    $profiles = if ($Release) { @("release", "debug") } else { @("debug") }
+    foreach ($profile in $profiles) {
+        $targetDir = Join-Path $projectRoot "src-tauri" "target" $profile
+        if (Test-Path $targetDir) {
+            Copy-Item $outputPath (Join-Path $targetDir $outputName) -Force
+            Write-Host "  Synced to $targetDir" -ForegroundColor DarkGray
+        }
     }
 } finally {
     Pop-Location

@@ -15,6 +15,15 @@
 
 ---
 
+## [0.5.2] - 2026-06-15
+
+### 修复
+- 🐛 fix(sidecar): release 构建强制同步最新 Sidecar 到 Tauri target 目录,避免运行时优先加载历史二进制
+- 🐛 fix(db): Sidecar 启动时校验协议版本和关键 RPC 方法,彻底避免点击表后才出现 `Method not found`
+- ✅ test(sidecar): 增加数据库关键方法注册回归测试
+
+---
+
 ## [0.5.1] - 2026-06-15
 
 ### 安全
