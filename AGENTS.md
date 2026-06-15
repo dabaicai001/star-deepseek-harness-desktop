@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.5.0(ClickHouse 支持) |
+| 当前版本 | v0.5.1(安全与稳定性优化) |
 
 ---
 
@@ -130,7 +130,7 @@ starhub/
 | 日志 | `tracing` | |
 | 错误 | `thiserror` + `anyhow` | |
 
-### 4.3 Sidecar(Go 1.22+)
+### 4.3 Sidecar(Go 1.25+)
 
 | 类别 | 包 | 用途 |
 |---|---|---|
@@ -515,6 +515,7 @@ cargo tauri build
 ### 10.4 Sidecar 通信
 
 - MVP 用 `stdio JSON-RPC`(Go `bufio.Scanner` 读 stdin)
+- Rust 侧读写循环分离,按请求 ID 关联并发响应,单次 RPC 默认超时 120 秒
 - 性能敏感场景升级到 `gRPC over Unix Socket`
 - 协议版本号:Sidecar 启动时打印,便于排查
 
@@ -593,4 +594,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-06-10 (v0.4.0)*
+*最后更新: 2026-06-15 (v0.5.1)*

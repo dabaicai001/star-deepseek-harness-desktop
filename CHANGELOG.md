@@ -5,16 +5,6 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
 
----
-
-## [0.4.0] - 2026-06-10
-
-### 新增
-- ✨ feat(elasticsearch): 新增 Elasticsearch 完整支持 — Go sidecar 19 个 RPC 方法、Rust 透传、前端 ElasticsearchView.vue 四 Tab 视图(概览/搜索/索引/导入导出)
-- ✨ feat(elasticsearch): DSL 查询编辑器 + 表格/JSON 双视图搜索结果 + 索引字段映射树形展示 + 集群健康仪表板
-
----
-
 ## [未发布]
 
 ### 计划中
@@ -22,6 +12,25 @@
 - AI 助手流式输出
 - ZMODEM 文件传输
 - Settings 补「代理」「安全」2 个 tab
+
+---
+
+## [0.5.1] - 2026-06-15
+
+### 安全
+- 🔧 refactor(security): 资产密码、私钥、跳板机凭据与 AI API Key 迁移到系统 Keyring,SQLite/localStorage 只保留引用
+- 🐛 fix(db): MySQL/ClickHouse 动态标识符统一转义,补齐查询迭代错误检查
+
+### 修复
+- 🐛 fix(sidecar): stdin/stdout 读写拆分,支持按请求 ID 并发关联响应并增加 120 秒超时
+- 🐛 fix(sftp): 取消或失败传输仍会发送终态事件并清理取消令牌
+- 🐛 fix(startup): 数据库与 Sidecar 在窗口可用前完成初始化,消除首次加载竞态
+- 🐛 fix(build): Sidecar 构建脚本跨平台化,仅 Windows release 使用 `windowsgui`
+
+### 改进
+- ⚡ perf(frontend): Vue/Vuetify、CodeMirror、xterm 拆分为独立缓存 chunk
+- ✅ test(ci): 增加 RPC 并发/大消息、SQL 标识符测试及前端/Rust/Go 质量工作流
+- 🔧 chore(rust): 全量 `cargo fmt`,清除 `clippy -D warnings` 问题
 
 ---
 
@@ -66,6 +75,14 @@
 - 🎨 style(design-system): cyber.css 新增 `.auth-chip` / `.auth-chip-group`(互斥单选胶囊),复用已有的 `--cyan` + `--hover-cyan` + `--focus-cyan` token,可被 DB/Redis 等认证方式复用
 - 🐛 fix(ssh): **MFA 模式下点「测试连接」会卡 6 分钟才报错** —— 后端 `test_ssh_connection` 用局部 `pending_kb` map,前端 `ssh_kb_response` 走全局 `manager.pending_kb`,通道对不上,server 端 oneshot 等满 360s 才超时;改为测试连接也走全局 `pending_kb`(测试结束统一清理防 map 膨胀),前端在表单里挂一个临时 `KbInteractiveDialog` 监听 `ssh:kb-interactive:<testId>` 弹密码
 - 🎨 style(design-system): cyber.css 新增 `.auth-chip` / `.auth-chip-group`(互斥单选胶囊),复用已有的 `--cyan` + `--hover-cyan` + `--focus-cyan` token,可被 DB/Redis 等认证方式复用
+
+---
+
+## [0.4.0] - 2026-06-10
+
+### 新增
+- ✨ feat(elasticsearch): 新增 Elasticsearch 完整支持 — Go sidecar 19 个 RPC 方法、Rust 透传、前端 ElasticsearchView.vue 四 Tab 视图(概览/搜索/索引/导入导出)
+- ✨ feat(elasticsearch): DSL 查询编辑器 + 表格/JSON 双视图搜索结果 + 索引字段映射树形展示 + 集群健康仪表板
 
 ---
 

@@ -591,7 +591,7 @@
   </div>
 
   <div class="note">
-    <strong>关键设计:</strong> Rust 处理系统协议(SSH/SFTP/Docker/网络)与系统集成,Go Sidecar 跑数据库驱动(静态二进制、PG/Redis 生态更强)。两者通过 Tauri Command 通信,职责分离、整条后端链路统一为编译型语言。
+    <strong>关键设计:</strong> Rust 处理系统协议(SSH/SFTP/Docker/网络)与系统集成,Go Sidecar 跑数据库驱动。Sidecar 通过 stdio JSON-RPC 按请求 ID 并发关联响应,默认超时 120 秒;整条后端链路统一为编译型语言。
   </div>
 
   <!-- SECTION 2: Process Model -->
@@ -1113,7 +1113,7 @@ graph TB
     <li><strong>Tauri 权限最小化</strong>:只 expose 必要 command</li>
     <li><strong>CSP</strong>:<code>default-src 'self'</code> 禁止 inline script</li>
     <li><strong>输入校验</strong>:所有 IPC 参数 zod schema 校验</li>
-    <li><strong>密钥保护</strong>:私钥不落盘明文,只存 Keyring 引用</li>
+    <li><strong>密钥保护</strong>:密码、私钥和 AI API Key 不落盘明文,只存系统 Keyring 引用</li>
     <li><strong>危险拦截</strong>:检测 <code>rm -rf /</code>、<code>dd if=</code>、<code>mkfs</code> 等</li>
     <li><strong>审计日志</strong>:所有"写"操作带时间戳/用户/目标,可追溯</li>
     <li><strong>更新安全</strong>:Tauri Updater 验证签名</li>

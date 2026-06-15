@@ -7,7 +7,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 一站式装进原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.5.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.5.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-MVP%20active-brightgreen)]()
 
 </div>
@@ -37,13 +37,13 @@
 | UI 风格 | **Cyber Command Center** 自研设计系统 | cyber.css 设计 token(青色高亮 + 暗色主题) |
 | 状态管理 | **Pinia** | `pinia-plugin-persistedstate` 持久化到 localStorage |
 | 主进程 | **Rust**(tokio + russh + bollard) | SSH / SFTP / Docker / 系统集成 |
-| 侧车 | **Go 1.22+**(pgx / go-redis) | 数据库驱动、流式查询、导入/导出(规划) |
+| 侧车 | **Go 1.25+**(MySQL / Redis / Elasticsearch / ClickHouse) | 数据库驱动、流式查询、导入/导出 |
 | 持久化 | **SQLite**(sqlx)+ 系统 Keyring | 本地资产、加密密钥 |
 | LLM | **OpenAI 兼容协议**(自定义 URL + 模型) | GPT / Claude / DeepSeek / 通义千问 / Ollama 全部兼容 |
 
 ---
 
-## 🎯 v0.5.0 主要功能(当前)
+## 🎯 v0.5.1 主要功能(当前)
 
 ### 多标签同时会话
 - 同一资产也能**多标签 = 多独立会话**(比如 TEST 标签开 2 个 = 同时 2 个 SSH)
@@ -140,9 +140,9 @@ npx tauri build        # 生成对应平台安装包
 |---|---|---|
 | v0.1 | ✅ | 项目脚手架(Tauri + Vue + Go) |
 | v0.2 | ✅ | 文档定型(AGENTS.md / 技术方案) |
-| **v0.5** | **🚧 当前** | **ClickHouse + Home Dashboard + Quick Actions + 全局搜索 + ErrorBoundary** |
+| **v0.5.1** | **🚧 当前** | **系统 Keyring + Sidecar 并发 RPC + 跨平台构建与 CI** |
 | v0.6 | 🔜 | PostgreSQL / SQLite / Docker 全功能 |
-| v0.5 | 🔜 | 10+ 数据库 + 告警 + Compose |
+| v0.7 | 🔜 | 10+ 数据库 + 告警 + Compose |
 | v1.0 | 🔮 | GA — 团队/企业功能 |
 | v1.0+ | 🔮 | 插件市场 / 移动端 / 私有部署 |
 
@@ -150,7 +150,7 @@ npx tauri build        # 生成对应平台安装包
 
 ## 🤝 参与
 
-当前 v0.5 开发中,欢迎 Issue / PR。
+当前 v0.5.1 开发中,欢迎 Issue / PR。
 
 - **需求 / 反馈**:GitHub Issue
 - **提 PR**:先开 Issue 讨论再动手
@@ -161,8 +161,8 @@ npx tauri build        # 生成对应平台安装包
 
 ## ⚠️ 安全提示
 
-- DB / SSH 密码**明文存本地**(v0.5 计划上系统 Keyring + AES-GCM 加密)
-- AI API Key 也明文存 localStorage → **别和别人共享电脑**
+- DB / SSH 密码、私钥和 AI API Key 存入系统 Keyring,SQLite/localStorage 只保留引用
+- 从旧版本升级时会在启动后自动迁移历史凭据并清除本地明文字段
 - AI 执行的所有命令**直接显示在终端**(透明)
 - 危险命令(删除 / 格式化 / 防火墙等)系统规则**强制确认**
 
