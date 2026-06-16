@@ -21,6 +21,15 @@ const asset = computed(() => {
   if (!tab?.assetId) return null
   return assetStore.assets.find(a => a.id === tab.assetId)
 })
+const fileFormat = computed<'xlsx' | 'csv'>(() => {
+  const configured = asset.value?.config.format
+  if (configured === 'csv') return 'csv'
+  const filePath = asset.value?.config.filePath || ''
+  return filePath.toLowerCase().endsWith('.csv') ? 'csv' : 'xlsx'
+})
+const isCsvFile = computed(() => fileFormat.value === 'csv')
+const rpcPrefix = computed(() => isCsvFile.value ? 'file.csv' : 'file.excel')
+const fileKindLabel = computed(() => isCsvFile.value ? 'CSV' : 'Excel')
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -51,7 +60,7 @@ async function openExcel() {
       filePath: string
       sheetNames: string[]
       initialData?: { sheetName: string; columns: string[]; rows: string[][]; totalRows: number }
-    }>('file.excel.open', { filePath: asset.value.config.filePath, format: asset.value.config.format || 'xlsx' })
+    }>(`${rpcPrefix.value}.open`, { filePath: asset.value.config.filePath, format: fileFormat.value })
 
     store.loadData({
       connId: result.connId,
@@ -68,7 +77,7 @@ async function openExcel() {
     }
   } catch (e) {
     error.value = errMsg(e)
-    console.error('Excel open failed:', e)
+    console.error(`${fileKindLabel.value} open failed:`, e)
   } finally {
     loading.value = false
   }
@@ -78,9 +87,9 @@ async function saveFile() {
   if (!store.connId) return
   store.setLoading(true)
   try {
-    await sidecarRpc('file.excel.save', { connId: store.connId })
+    await sidecarRpc(`${rpcPrefix.value}.save`, { connId: store.connId })
     store.setDirty(false)
-    notify.notify({ message: 'Excel 文件已保存', color: 'success', timeout: 1800 })
+    notify.notify({ message: `${fileKindLabel.value} 文件已保存`, color: 'success', timeout: 1800 })
   } catch (e) {
     notify.notify({ message: `保存失败: ${errMsg(e)}`, color: 'error', timeout: 5000 })
   } finally {
@@ -92,7 +101,7 @@ async function switchSheet(sheetName: string) {
   if (!store.connId) return
   store.setLoading(true)
   try {
-    const result = await sidecarRpc<SheetPayload>('file.excel.readSheet', { connId: store.connId, sheetName })
+    const result = await sidecarRpc<SheetPayload>(`${rpcPrefix.value}.readSheet`, { connId: store.connId, sheetName })
     store.loadData({
       ...result,
       sheetNames: store.sheetNames,
@@ -115,7 +124,7 @@ async function reloadActiveSheet() {
 async function onCellChange(edits: CellEdit[]) {
   if (!store.connId || edits.length === 0 || !store.activeSheet) return
   try {
-    await sidecarRpc('file.excel.writeCells', { connId: store.connId, sheetName: store.activeSheet, cells: edits })
+    await sidecarRpc(`${rpcPrefix.value}.writeCells`, { connId: store.connId, sheetName: store.activeSheet, cells: edits })
   } catch (e) {
     notify.notify({ message: `写入失败: ${errMsg(e)}`, color: 'error', timeout: 5000 })
   }
@@ -123,9 +132,13 @@ async function onCellChange(edits: CellEdit[]) {
 
 async function addSheet(sheetName?: string) {
   if (!store.connId) return
+  if (isCsvFile.value) {
+    notify.notify({ message: 'CSV 是单表文件,不能新增 Sheet', color: 'warning', timeout: 2500 })
+    return
+  }
   const name = makeUniqueSheetName(sheetName || `Sheet${store.sheetNames.length + 1}`)
   try {
-    await sidecarRpc('file.excel.addSheet', { connId: store.connId, sheetName: name })
+    await sidecarRpc(`${rpcPrefix.value}.addSheet`, { connId: store.connId, sheetName: name })
     store.sheetNames.push(name)
     await switchSheet(name)
     store.setDirty(true)
@@ -136,12 +149,16 @@ async function addSheet(sheetName?: string) {
 }
 
 async function removeSheet(sheetName: string) {
+  if (isCsvFile.value) {
+    notify.notify({ message: 'CSV 是单表文件,不能删除 Sheet', color: 'warning', timeout: 2500 })
+    return
+  }
   if (!store.connId || store.sheetNames.length <= 1) {
     notify.notify({ message: '至少保留一个 Sheet', color: 'warning', timeout: 2500 })
     return
   }
   try {
-    await sidecarRpc('file.excel.removeSheet', { connId: store.connId, sheetName })
+    await sidecarRpc(`${rpcPrefix.value}.removeSheet`, { connId: store.connId, sheetName })
     store.sheetNames = store.sheetNames.filter(name => name !== sheetName)
     await switchSheet(store.sheetNames[0])
     store.setDirty(true)
@@ -152,10 +169,14 @@ async function removeSheet(sheetName: string) {
 }
 
 async function renameSheet(oldName: string, newName: string) {
+  if (isCsvFile.value) {
+    notify.notify({ message: 'CSV 的 Sheet 名称固定为 CSV', color: 'warning', timeout: 2500 })
+    return
+  }
   if (!store.connId || !newName || oldName === newName) return
   const safeName = makeUniqueSheetName(newName, oldName)
   try {
-    await sidecarRpc('file.excel.renameSheet', { connId: store.connId, oldName, newName: safeName })
+    await sidecarRpc(`${rpcPrefix.value}.renameSheet`, { connId: store.connId, oldName, newName: safeName })
     store.sheetNames = store.sheetNames.map(name => name === oldName ? safeName : name)
     store.activeSheet = safeName
     store.setDirty(true)
@@ -177,7 +198,7 @@ function makeUniqueSheetName(input: string, currentName = ''): string {
 async function removeDuplicates() {
   if (!store.connId || !store.activeSheet) return
   try {
-    const result = await sidecarRpc<{ removed: number; ok: boolean }>('file.excel.removeDuplicates', {
+    const result = await sidecarRpc<{ removed: number; ok: boolean }>(`${rpcPrefix.value}.removeDuplicates`, {
       connId: store.connId,
       sheetName: store.activeSheet,
       columns: [],
@@ -193,7 +214,7 @@ async function removeDuplicates() {
 async function handleAddRow(row = store.selectedCell?.row ?? 0) {
   if (!store.connId || !store.activeSheet) return
   try {
-    await sidecarRpc('file.excel.insertRows', {
+    await sidecarRpc(`${rpcPrefix.value}.insertRows`, {
       connId: store.connId,
       sheetName: store.activeSheet,
       row: store.displayRowToRawRow(row),
@@ -209,7 +230,7 @@ async function handleAddRow(row = store.selectedCell?.row ?? 0) {
 async function handleDeleteRow(row = store.selectedCell?.row ?? 0) {
   if (!store.connId || !store.activeSheet) return
   try {
-    await sidecarRpc('file.excel.deleteRows', {
+    await sidecarRpc(`${rpcPrefix.value}.deleteRows`, {
       connId: store.connId,
       sheetName: store.activeSheet,
       row: store.displayRowToRawRow(row),
@@ -225,7 +246,7 @@ async function handleDeleteRow(row = store.selectedCell?.row ?? 0) {
 async function handleAddCol(col = store.selectedCell?.col ?? 0) {
   if (!store.connId || !store.activeSheet) return
   try {
-    await sidecarRpc('file.excel.insertCols', { connId: store.connId, sheetName: store.activeSheet, col, count: 1 })
+    await sidecarRpc(`${rpcPrefix.value}.insertCols`, { connId: store.connId, sheetName: store.activeSheet, col, count: 1 })
     await reloadActiveSheet()
     store.setDirty(true)
   } catch (e) {
@@ -236,7 +257,7 @@ async function handleAddCol(col = store.selectedCell?.col ?? 0) {
 async function handleDeleteCol(col = store.selectedCell?.col ?? 0) {
   if (!store.connId || !store.activeSheet) return
   try {
-    await sidecarRpc('file.excel.deleteCols', { connId: store.connId, sheetName: store.activeSheet, col, count: 1 })
+    await sidecarRpc(`${rpcPrefix.value}.deleteCols`, { connId: store.connId, sheetName: store.activeSheet, col, count: 1 })
     await reloadActiveSheet()
     store.setDirty(true)
   } catch (e) {
@@ -247,7 +268,7 @@ async function handleDeleteCol(col = store.selectedCell?.col ?? 0) {
 async function sortRows(descending: boolean, col = store.selectedCell?.col ?? 0) {
   if (!store.connId || !store.activeSheet) return
   try {
-    await sidecarRpc('file.excel.sortRows', { connId: store.connId, sheetName: store.activeSheet, col, descending })
+    await sidecarRpc(`${rpcPrefix.value}.sortRows`, { connId: store.connId, sheetName: store.activeSheet, col, descending })
     await reloadActiveSheet()
     store.setDirty(true)
   } catch (e) {
@@ -257,8 +278,13 @@ async function sortRows(descending: boolean, col = store.selectedCell?.col ?? 0)
 
 async function autoFilter() {
   if (!store.connId || !store.activeSheet) return
+  if (isCsvFile.value) {
+    showFilter.value = true
+    notify.notify({ message: 'CSV 不保存自动筛选,已打开本地筛选栏', color: 'info', timeout: 2600 })
+    return
+  }
   try {
-    await sidecarRpc('file.excel.autoFilter', { connId: store.connId, sheetName: store.activeSheet })
+    await sidecarRpc(`${rpcPrefix.value}.autoFilter`, { connId: store.connId, sheetName: store.activeSheet })
     store.setDirty(true)
     notify.notify({ message: '已为当前区域写入自动筛选', color: 'success', timeout: 2200 })
   } catch (e) {
@@ -268,8 +294,14 @@ async function autoFilter() {
 
 async function setFreeze(rows: number, cols: number) {
   if (!store.connId || !store.activeSheet) return
+  if (isCsvFile.value) {
+    store.frozenRows = rows
+    store.frozenCols = cols
+    notify.notify({ message: rows || cols ? 'CSV 冻结仅在当前视图生效' : '已取消当前视图冻结', color: 'info', timeout: 2200 })
+    return
+  }
   try {
-    await sidecarRpc('file.excel.freezePanes', { connId: store.connId, sheetName: store.activeSheet, rows, cols })
+    await sidecarRpc(`${rpcPrefix.value}.freezePanes`, { connId: store.connId, sheetName: store.activeSheet, rows, cols })
     store.frozenRows = rows
     store.frozenCols = cols
     store.setDirty(true)
@@ -282,7 +314,7 @@ async function setFreeze(rows: number, cols: number) {
 async function replaceAll(payload: { find: string; replace: string; matchCase: boolean; entireCell: boolean; useRegex: boolean }) {
   if (!store.connId || !store.activeSheet) return
   try {
-    const result = await sidecarRpc<{ replaced: number; ok: boolean }>('file.excel.findReplace', {
+    const result = await sidecarRpc<{ replaced: number; ok: boolean }>(`${rpcPrefix.value}.findReplace`, {
       connId: store.connId,
       sheetName: store.activeSheet,
       options: payload,
@@ -348,7 +380,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
 })
 
-watch(() => asset.value?.config.filePath, () => {
+watch(() => [asset.value?.config.filePath, fileFormat.value] as const, () => {
   if (asset.value) openExcel()
 })
 
@@ -361,7 +393,7 @@ watch(() => store.selectedCellValue, (value) => {
   <div class="excel-view">
     <div v-if="!asset" class="excel-empty">
       <v-icon size="48" color="muted">mdi-file-alert-outline</v-icon>
-      <p>Excel 文件未找到</p>
+      <p>文件未找到</p>
     </div>
 
     <div v-else-if="loading" class="excel-loading">
@@ -378,7 +410,7 @@ watch(() => store.selectedCellValue, (value) => {
     <template v-else>
       <div class="excel-topbar">
         <div class="tb-left">
-          <v-icon size="15" color="green">mdi-file-excel-outline</v-icon>
+          <v-icon size="15" color="green">{{ isCsvFile ? 'mdi-file-delimited-outline' : 'mdi-file-excel-outline' }}</v-icon>
           <span class="tb-title">{{ asset.name }}</span>
           <span class="tb-path">{{ store.filePath || asset.config.filePath }}</span>
           <span v-if="store.dirty" class="tb-dirty">● 未保存</span>
@@ -396,7 +428,7 @@ watch(() => store.selectedCellValue, (value) => {
         <input
           v-model="formulaInput"
           class="formula-input"
-          placeholder="输入值或公式,例如 =SUM(B2:C2)"
+          :placeholder="isCsvFile ? '输入 CSV 单元格文本' : '输入值或公式,例如 =SUM(B2:C2)'"
           @keydown.enter.prevent="applyFormulaInput"
           @blur="applyFormulaInput"
         />
@@ -449,6 +481,7 @@ watch(() => store.selectedCellValue, (value) => {
       />
 
       <ExcelSheetBar
+        :single-sheet="isCsvFile"
         @switch-sheet="switchSheet"
         @add-sheet="addSheet"
         @remove-sheet="removeSheet"

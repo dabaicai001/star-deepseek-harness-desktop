@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	sidecarVersion  = "0.5.2"
+	sidecarVersion  = "0.7.0"
 	protocolVersion = 2
 )
 

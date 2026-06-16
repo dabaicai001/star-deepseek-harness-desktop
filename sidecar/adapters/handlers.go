@@ -2195,7 +2195,19 @@ func RegisterExcelHandlers(server ServerInterface, mgr *pool.Manager) {
 func RegisterCSVHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("file.csv.open", handleCsvOpen(mgr))
 	server.Register("file.csv.close", handleDisconnect(mgr))
+	server.Register("file.csv.getSheetNames", handleCsvGetSheetNames(mgr))
+	server.Register("file.csv.readSheet", handleCsvReadSheet(mgr))
+	server.Register("file.csv.writeCells", handleCsvWriteCells(mgr))
 	server.Register("file.csv.save", handleCsvSave(mgr))
+	server.Register("file.csv.insertRows", handleCsvInsertRows(mgr))
+	server.Register("file.csv.deleteRows", handleCsvDeleteRows(mgr))
+	server.Register("file.csv.insertCols", handleCsvInsertCols(mgr))
+	server.Register("file.csv.deleteCols", handleCsvDeleteCols(mgr))
+	server.Register("file.csv.sortRows", handleCsvSortRows(mgr))
+	server.Register("file.csv.findReplace", handleCsvFindReplace(mgr))
+	server.Register("file.csv.removeDuplicates", handleCsvRemoveDuplicates(mgr))
+	server.Register("file.csv.freezePanes", handleCsvNoop(mgr))
+	server.Register("file.csv.autoFilter", handleCsvNoop(mgr))
 }
 
 func getExcelAdapter(mgr *pool.Manager, connID string) (*ExcelAdapter, error) {
@@ -2734,14 +2746,71 @@ func handleCsvOpen(mgr *pool.Manager) Handler {
 		connID := fmt.Sprintf("csv_%d", time.Now().UnixNano())
 		mgr.Register(connID, adapter, pool.ConnInfo{ID: connID, Type: pool.ConnCSV})
 
-		rows := adapter.GetRows(0, 0)
+		data, err := adapter.ReadSheet(csvSheetName, 0, 0)
+		if err != nil {
+			return nil, err
+		}
 		return map[string]interface{}{
-			"connId":    connID,
-			"filePath":  p.FilePath,
-			"columns":   adapter.GetColumns(),
-			"rows":      rows,
-			"totalRows": adapter.TotalRows(),
+			"connId":      connID,
+			"filePath":    adapter.GetFilePath(),
+			"sheetNames":  adapter.GetSheetNames(),
+			"initialData": data,
 		}, nil
+	}
+}
+
+func handleCsvGetSheetNames(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getCSVAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"sheetNames": adapter.GetSheetNames()}, nil
+	}
+}
+
+func handleCsvReadSheet(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SheetName string `json:"sheetName"`
+			Offset    int    `json:"offset,omitempty"`
+			Limit     int    `json:"limit,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getCSVAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.ReadSheet(p.SheetName, p.Offset, p.Limit)
+	}
+}
+
+func handleCsvWriteCells(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string       `json:"connId"`
+			Cells  []CellChange `json:"cells"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getCSVAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.WriteCells(p.Cells); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
 	}
 }
 
@@ -2758,6 +2827,177 @@ func handleCsvSave(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		if err := adapter.Save(); err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"ok":       true,
+			"filePath": adapter.GetFilePath(),
+		}, nil
+	}
+}
+
+func handleCsvInsertRows(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+			Row    int    `json:"row"`
+			Count  int    `json:"count,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getCSVAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.InsertRows(p.Row, p.Count); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleCsvDeleteRows(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+			Row    int    `json:"row"`
+			Count  int    `json:"count,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getCSVAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.DeleteRows(p.Row, p.Count); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleCsvInsertCols(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+			Col    int    `json:"col"`
+			Count  int    `json:"count,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getCSVAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.InsertCols(p.Col, p.Count); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleCsvDeleteCols(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+			Col    int    `json:"col"`
+			Count  int    `json:"count,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getCSVAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.DeleteCols(p.Col, p.Count); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleCsvSortRows(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID     string `json:"connId"`
+			Col        int    `json:"col"`
+			Descending bool   `json:"descending,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getCSVAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.SortRows(p.Col, p.Descending); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleCsvFindReplace(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID  string             `json:"connId"`
+			Options FindReplaceOptions `json:"options"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getCSVAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		replaced, err := adapter.FindReplace(p.Options)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"ok":       true,
+			"replaced": replaced,
+		}, nil
+	}
+}
+
+func handleCsvRemoveDuplicates(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID  string `json:"connId"`
+			Columns []int  `json:"columns"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getCSVAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		removed, err := adapter.RemoveDuplicates(p.Columns)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"removed": removed,
+			"ok":      true,
+		}, nil
+	}
+}
+
+func handleCsvNoop(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID string `json:"connId"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if _, err := getCSVAdapter(mgr, p.ConnID); err != nil {
 			return nil, err
 		}
 		return map[string]bool{"ok": true}, nil

@@ -4,7 +4,7 @@
       "0409": {
         "identity": {
           "name": "starhub-sidecar",
-          "version": "0.5.0"
+          "version": "0.7.0"
         },
         "description": "StarHub Sidecar - Database Proxy",
         "minimum-os": "win10",
@@ -28,22 +28,22 @@
     "#1": {
       "0000": {
         "fixed": {
-          "file_version": "0.5.0.0",
-          "product_version": "0.5.0.0"
+          "file_version": "0.7.0.0",
+          "product_version": "0.7.0.0"
         },
         "info": {
           "0409": {
             "Comments": "",
             "CompanyName": "StarHub",
             "FileDescription": "StarHub Sidecar - Database Proxy",
-            "FileVersion": "0.5.0.0",
+            "FileVersion": "0.7.0.0",
             "InternalName": "starhub-sidecar",
             "LegalCopyright": "Copyright © 2026 StarHub Authors",
             "LegalTrademarks": "",
             "OriginalFilename": "starhub-sidecar.exe",
             "PrivateBuild": "",
             "ProductName": "StarHub",
-            "ProductVersion": "0.5.0.0",
+            "ProductVersion": "0.7.0.0",
             "SpecialBuild": ""
           }
         }

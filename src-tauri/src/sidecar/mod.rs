@@ -15,6 +15,11 @@ const REQUIRED_METHODS: &[&str] = &[
     "db.mysql.getTableData",
     "db.clickhouse.getTableMeta",
     "db.clickhouse.getTableData",
+    "file.csv.open",
+    "file.csv.readSheet",
+    "file.csv.writeCells",
+    "file.csv.save",
+    "file.csv.removeDuplicates",
 ];
 
 #[derive(Debug, Serialize, Deserialize)]

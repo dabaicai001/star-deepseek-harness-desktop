@@ -424,12 +424,12 @@ func (a *ExcelAdapter) RemoveDuplicates(sheetName string, columns []int) (int, e
 	}
 
 	header := rows[0]
+	keyWidth := maxColumnCount(rows)
 	seen := make(map[string]int)
 
-	// 反向遍历,标记重复
 	removeRows := make([]bool, len(rows))
 	for i := 1; i < len(rows); i++ {
-		key := buildDedupKey(rows[i], columns)
+		key := buildDedupKey(rows[i], columns, keyWidth)
 		if firstIdx, exists := seen[key]; exists {
 			removeRows[i] = true
 			_ = firstIdx
@@ -453,22 +453,20 @@ func (a *ExcelAdapter) RemoveDuplicates(sheetName string, columns []int) (int, e
 	return removed, nil
 }
 
-func buildDedupKey(row []string, columns []int) string {
+func buildDedupKey(row []string, columns []int, width int) string {
+	var b strings.Builder
 	if len(columns) == 0 {
-		// 默认所有列
-		key := ""
-		for _, v := range row {
-			key += v + "\x00"
+		for col := 0; col < width; col++ {
+			b.WriteString(cellValueAt(row, col))
+			b.WriteByte(0)
 		}
-		return key
+		return b.String()
 	}
-	key := ""
 	for _, col := range columns {
-		if col < len(row) {
-			key += row[col] + "\x00"
-		}
+		b.WriteString(cellValueAt(row, col))
+		b.WriteByte(0)
 	}
-	return key
+	return b.String()
 }
 
 func maxColumnCount(rows [][]string) int {

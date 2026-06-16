@@ -15,6 +15,21 @@
 
 ---
 
+## [0.7.0] - 2026-06-16
+
+### 新增
+- ✨ feat(csv): CSV 文件作为 ExcelView 一等编辑体验接入 — 打开后按单 Sheet 工作簿展示,支持单元格编辑、保存、插入/删除行列、排序、查找替换、删除重复项、复制粘贴、撤销/重做和本地冻结视图
+- ✨ feat(sidecar): CSV sidecar 补齐 `readSheet/writeCells/insertRows/deleteRows/insertCols/deleteCols/sortRows/findReplace/removeDuplicates` 等 sheet-like RPC,并在启动握手中校验关键 CSV 方法
+
+### 修复
+- 🐛 fix(excel): 删除重复行按最大列宽补齐尾部空单元格后再生成去重 key,避免 `a` 和 `a,` 被误判为不同记录
+- 🐛 fix(csv): CSV 读取允许可变列数(`FieldsPerRecord = -1`)并在前端展示时按最大列宽补齐,避免短行/长行文件打开失败或列错位
+
+### 测试
+- ✅ test(sidecar): 增加 CSV 可变列读取、写入保存、插删行列、排序、查找替换和删除重复项测试
+
+---
+
 ## [0.6.0] - 2026-06-16
 
 ### 新增

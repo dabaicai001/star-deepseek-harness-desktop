@@ -4,6 +4,10 @@ import { useExcelStore } from '@/stores/excel'
 
 const store = useExcelStore()
 
+const props = defineProps<{
+  singleSheet?: boolean
+}>()
+
 const emit = defineEmits<{
   'switch-sheet': [name: string]
   'add-sheet': [name?: string]
@@ -23,6 +27,7 @@ function switchTo(name: string) {
 }
 
 function startRename(name: string) {
+  if (props.singleSheet) return
   editingSheet.value = name
   editSheetName.value = name
 }
@@ -65,7 +70,7 @@ function confirmAddSheet() {
         <template v-else>
           <span>{{ name }}</span>
           <button
-            v-if="store.sheetNames.length > 1"
+            v-if="!props.singleSheet && store.sheetNames.length > 1"
             class="sheet-close-btn"
             :data-tooltip="'删除 Sheet'"
             @click.stop="emit('remove-sheet', name)"
@@ -74,11 +79,16 @@ function confirmAddSheet() {
           </button>
         </template>
       </button>
-      <button class="sheet-add-btn" @click="showAddSheet = !showAddSheet" :data-tooltip="'添加 Sheet'">
+      <button
+        v-if="!props.singleSheet"
+        class="sheet-add-btn"
+        @click="showAddSheet = !showAddSheet"
+        :data-tooltip="'添加 Sheet'"
+      >
         <v-icon size="14">mdi-plus</v-icon>
       </button>
     </div>
-    <div v-if="showAddSheet" class="sheet-add-popup">
+    <div v-if="showAddSheet && !props.singleSheet" class="sheet-add-popup">
       <input
         v-model="addSheetName"
         class="cyber-input"

@@ -120,3 +120,17 @@ func TestExcelFindReplaceAndSortRows(t *testing.T) {
 		t.Fatalf("numeric descending sort mismatch: got %q", value)
 	}
 }
+
+func TestDedupKeyTreatsMissingTrailingCellsAsBlank(t *testing.T) {
+	left := buildDedupKey([]string{"alice"}, nil, 2)
+	right := buildDedupKey([]string{"alice", ""}, nil, 2)
+	if left != right {
+		t.Fatalf("missing trailing blank should match explicit blank")
+	}
+
+	left = buildDedupKey([]string{"alice"}, []int{0, 1}, 2)
+	right = buildDedupKey([]string{"alice", ""}, []int{0, 1}, 2)
+	if left != right {
+		t.Fatalf("selected missing trailing blank should match explicit blank")
+	}
+}

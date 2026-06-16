@@ -13,7 +13,15 @@ const targetArch = process.env.GOARCH || ({ x64: 'amd64', arm64: 'arm64' }[proce
 const outputName = `starhub-sidecar${targetOS === 'windows' ? '.exe' : ''}`
 const outputPath = join(binDir, outputName)
 const ldflags = ['-s', '-w']
-const requiredMethods = ['db.mysql.getTableMeta', 'db.mysql.getTableData']
+const requiredMethods = [
+  'db.mysql.getTableMeta',
+  'db.mysql.getTableData',
+  'file.csv.open',
+  'file.csv.readSheet',
+  'file.csv.writeCells',
+  'file.csv.save',
+  'file.csv.removeDuplicates'
+]
 
 function verifySidecar(binaryPath) {
   const verification = spawnSync(binaryPath, [], {
