@@ -2180,6 +2180,14 @@ func RegisterExcelHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("file.excel.save", handleExcelSave(mgr))
 	server.Register("file.excel.saveAs", handleExcelSaveAs(mgr))
 	server.Register("file.excel.removeDuplicates", handleExcelRemoveDuplicates(mgr))
+	server.Register("file.excel.insertRows", handleExcelInsertRows(mgr))
+	server.Register("file.excel.deleteRows", handleExcelDeleteRows(mgr))
+	server.Register("file.excel.insertCols", handleExcelInsertCols(mgr))
+	server.Register("file.excel.deleteCols", handleExcelDeleteCols(mgr))
+	server.Register("file.excel.sortRows", handleExcelSortRows(mgr))
+	server.Register("file.excel.findReplace", handleExcelFindReplace(mgr))
+	server.Register("file.excel.freezePanes", handleExcelFreezePanes(mgr))
+	server.Register("file.excel.autoFilter", handleExcelAutoFilter(mgr))
 	server.Register("file.excel.createFromData", handleExcelCreateFromData(mgr))
 }
 
@@ -2472,6 +2480,183 @@ func handleExcelRemoveDuplicates(mgr *pool.Manager) Handler {
 			"removed": removed,
 			"ok":      true,
 		}, nil
+	}
+}
+
+func handleExcelInsertRows(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SheetName string `json:"sheetName"`
+			Row       int    `json:"row"`
+			Count     int    `json:"count,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.InsertRows(p.SheetName, p.Row, p.Count); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleExcelDeleteRows(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SheetName string `json:"sheetName"`
+			Row       int    `json:"row"`
+			Count     int    `json:"count,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.DeleteRows(p.SheetName, p.Row, p.Count); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleExcelInsertCols(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SheetName string `json:"sheetName"`
+			Col       int    `json:"col"`
+			Count     int    `json:"count,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.InsertCols(p.SheetName, p.Col, p.Count); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleExcelDeleteCols(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SheetName string `json:"sheetName"`
+			Col       int    `json:"col"`
+			Count     int    `json:"count,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.DeleteCols(p.SheetName, p.Col, p.Count); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleExcelSortRows(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID     string `json:"connId"`
+			SheetName  string `json:"sheetName"`
+			Col        int    `json:"col"`
+			Descending bool   `json:"descending,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.SortRows(p.SheetName, p.Col, p.Descending); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleExcelFindReplace(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string             `json:"connId"`
+			SheetName string             `json:"sheetName"`
+			Options   FindReplaceOptions `json:"options"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		replaced, err := adapter.FindReplace(p.SheetName, p.Options)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"ok":       true,
+			"replaced": replaced,
+		}, nil
+	}
+}
+
+func handleExcelFreezePanes(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SheetName string `json:"sheetName"`
+			Rows      int    `json:"rows"`
+			Cols      int    `json:"cols"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.SetFreezePanes(p.SheetName, p.Rows, p.Cols); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleExcelAutoFilter(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SheetName string `json:"sheetName"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.SetAutoFilter(p.SheetName); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
 	}
 }
 

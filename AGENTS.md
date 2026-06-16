@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.5.2(Sidecar 一致性修复) |
+| 当前版本 | v0.6.0(Excel 工作簿体验增强) |
 
 ---
 
@@ -145,7 +145,7 @@ starhub/
 | MongoDB | `go.mongodb.org/mongo-driver` | |
 | 国产库兜底 | `github.com/alexbrainman/odbc` | 达梦/金仓 ODBC 桥 |
 | SQL 工具 | `github.com/jmoiron/sqlx` | Struct 映射 + 命名参数 |
-| Excel | `github.com/xuri/excelize/v2` | 导入导出 |
+| Excel | `github.com/xuri/excelize/v2` | 导入导出、工作簿编辑 |
 | 验证 | `github.com/go-playground/validator/v10` | |
 | 日志 | `github.com/rs/zerolog` 或标准库 `log/slog` | |
 | 配置 | `github.com/spf13/viper` | |
@@ -595,4 +595,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-06-15 (v0.5.2)*
+*最后更新: 2026-06-16 (v0.6.0)*

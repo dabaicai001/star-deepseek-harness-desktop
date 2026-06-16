@@ -15,6 +15,22 @@
 
 ---
 
+## [0.6.0] - 2026-06-16
+
+### 新增
+- ✨ feat(excel): Excel 模块升级为工作簿编辑体验 — 新增 Ribbon 工具区、名称框、公式栏、底部选区统计、Sheet 新建/删除/重命名、右键菜单、Ctrl+C/V/X、Shift 扩展选区、撤销/重做、冻结表头/首列/窗格、自动筛选、排序与查找替换
+- ✨ feat(sidecar): Excel sidecar 新增 `insertRows/deleteRows/insertCols/deleteCols/sortRows/findReplace/freezePanes/autoFilter` RPC,结构性编辑可真实写入内存工作簿并等待保存
+
+### 修复
+- 🐛 fix(excel): 修复单元格编辑写回行号偏移错误,避免编辑第一条数据时覆盖第 1 行表头
+- 🐛 fix(excel): 筛选视图下编辑单元格会映射回原始行号,避免写错文件行
+- 🐛 fix(excel): 公式单元格读取时保留 `=FORMULA` 文本,写入 `=` 开头内容时使用 Excel 公式而不是普通字符串
+
+### 测试
+- ✅ test(sidecar): 增加 Excel 写入偏移、公式读取、插删行列、查找替换与排序回归测试
+
+---
+
 ## [0.5.2] - 2026-06-15
 
 ### 修复

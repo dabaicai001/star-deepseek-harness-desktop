@@ -6,7 +6,7 @@ const store = useExcelStore()
 
 const emit = defineEmits<{
   'switch-sheet': [name: string]
-  'add-sheet': []
+  'add-sheet': [name?: string]
   'remove-sheet': [name: string]
   'rename-sheet': [oldName: string, newName: string]
 }>()
@@ -35,11 +35,9 @@ function confirmRename(oldName: string) {
 }
 
 function confirmAddSheet() {
-  if (addSheetName.value) {
-    emit('add-sheet')
-    addSheetName.value = ''
-    showAddSheet.value = false
-  }
+  emit('add-sheet', addSheetName.value || undefined)
+  addSheetName.value = ''
+  showAddSheet.value = false
 }
 </script>
 
@@ -66,6 +64,14 @@ function confirmAddSheet() {
         </template>
         <template v-else>
           <span>{{ name }}</span>
+          <button
+            v-if="store.sheetNames.length > 1"
+            class="sheet-close-btn"
+            :data-tooltip="'删除 Sheet'"
+            @click.stop="emit('remove-sheet', name)"
+          >
+            <v-icon size="10">mdi-close</v-icon>
+          </button>
         </template>
       </button>
       <button class="sheet-add-btn" @click="showAddSheet = !showAddSheet" :data-tooltip="'添加 Sheet'">
@@ -115,6 +121,9 @@ function confirmAddSheet() {
   white-space: nowrap;
   font-family: 'JetBrains Mono', monospace;
   transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .sheet-tab:hover {
@@ -147,6 +156,24 @@ function confirmAddSheet() {
   background: rgba(0, 240, 255, 0.08);
   color: var(--cyan);
   border-color: var(--line-2);
+}
+
+.sheet-close-btn {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.sheet-close-btn:hover {
+  color: var(--red);
+  background: var(--danger-hover-bg);
 }
 
 .sheet-rename-input {

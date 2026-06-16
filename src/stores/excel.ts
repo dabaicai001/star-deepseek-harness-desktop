@@ -12,12 +12,23 @@ export interface CellEdit {
   value: string
 }
 
+export interface DisplayCellEdit {
+  row: number
+  col: number
+  value: string
+}
+
 export interface ColumnInfo {
   name: string
   width: number
 }
 
 export type SelectionMode = 'cell' | 'row' | 'col' | null
+
+interface CellHistoryEntry {
+  before: CellEdit[]
+  after: CellEdit[]
+}
 
 export const useExcelStore = defineStore('excel', () => {
   const loading = ref(false)
@@ -41,6 +52,8 @@ export const useExcelStore = defineStore('excel', () => {
   const selectedCell = ref<{ row: number; col: number } | null>(null)
   const selectionMode = ref<SelectionMode>(null)
   const selectedRange = ref<{ startRow: number; endRow: number; startCol: number; endCol: number } | null>(null)
+  const undoStack = ref<CellHistoryEntry[]>([])
+  const redoStack = ref<CellHistoryEntry[]>([])
 
   const DEFAULT_COL_WIDTH = 120
   const ROW_HEIGHT = 28
@@ -85,6 +98,52 @@ export const useExcelStore = defineStore('excel', () => {
 
   // 筛选后的行数
   const displayRowCount = computed(() => filteredRowData.value.length)
+  const canUndo = computed(() => undoStack.value.length > 0)
+  const canRedo = computed(() => redoStack.value.length > 0)
+  const selectedCellValue = computed(() => {
+    const sel = selectedCell.value
+    return sel ? getCell(sel.row, sel.col) : ''
+  })
+  const activeCellLabel = computed(() => {
+    const sel = selectedCell.value
+    if (!sel) return ''
+    return `${colIndexToLetter(sel.col)}${displayRowToExcelRow(sel.row)}`
+  })
+  const selectedStats = computed(() => {
+    const range = normalizedSelectionRange()
+    if (!range) {
+      return { count: 0, numericCount: 0, sum: 0, average: 0, min: 0, max: 0 }
+    }
+
+    let count = 0
+    let numericCount = 0
+    let sum = 0
+    let min = Number.POSITIVE_INFINITY
+    let max = Number.NEGATIVE_INFINITY
+    for (let r = range.startRow; r <= range.endRow; r++) {
+      for (let c = range.startCol; c <= range.endCol; c++) {
+        count++
+        const value = getCell(r, c).trim()
+        if (!value) continue
+        const num = Number(value)
+        if (Number.isFinite(num)) {
+          numericCount++
+          sum += num
+          min = Math.min(min, num)
+          max = Math.max(max, num)
+        }
+      }
+    }
+
+    return {
+      count,
+      numericCount,
+      sum,
+      average: numericCount ? sum / numericCount : 0,
+      min: numericCount ? min : 0,
+      max: numericCount ? max : 0,
+    }
+  })
 
   function setCell(row: number, col: number, value: string) {
     while (rowData.value.length <= row) {
@@ -98,12 +157,79 @@ export const useExcelStore = defineStore('excel', () => {
   }
 
   function updateCellValue(row: number, col: number, value: string) {
-    // row 是筛选后的索引，需要映射回原始索引
-    const rawIdx = filterText.value.trim() ? filteredRowIndices.value[row] : row
-    if (rawIdx !== undefined && rawIdx < rowData.value.length && col < (rowData.value[rawIdx]?.length || 0)) {
-      rowData.value[rawIdx][col] = value
+    commitDisplayCellEdits([{ row, col, value }])
+  }
+
+  function commitDisplayCellEdits(changes: DisplayCellEdit[]): CellEdit[] {
+    const before: CellEdit[] = []
+    const after: CellEdit[] = []
+
+    for (const change of changes) {
+      const rawRow = displayRowToRawRow(change.row)
+      if (rawRow < 0 || change.col < 0) continue
+      ensureCell(rawRow, change.col)
+      const oldValue = rowData.value[rawRow][change.col] ?? ''
+      if (oldValue === change.value) continue
+      before.push({ row: rawRow, col: change.col, value: oldValue })
+      after.push({ row: rawRow, col: change.col, value: change.value })
+      rowData.value[rawRow][change.col] = change.value
+    }
+
+    if (after.length > 0) {
+      pushHistory({ before, after })
       dirty.value = true
     }
+    return after
+  }
+
+  function applyRawCellEdits(edits: CellEdit[]) {
+    for (const edit of edits) {
+      ensureCell(edit.row, edit.col)
+      rowData.value[edit.row][edit.col] = edit.value
+    }
+    if (edits.length > 0) dirty.value = true
+  }
+
+  function undo(): CellEdit[] {
+    const entry = undoStack.value.pop()
+    if (!entry) return []
+    applyRawCellEdits(entry.before)
+    redoStack.value.push(entry)
+    return entry.before
+  }
+
+  function redo(): CellEdit[] {
+    const entry = redoStack.value.pop()
+    if (!entry) return []
+    applyRawCellEdits(entry.after)
+    undoStack.value.push(entry)
+    return entry.after
+  }
+
+  function pushHistory(entry: CellHistoryEntry) {
+    undoStack.value.push(entry)
+    if (undoStack.value.length > 100) undoStack.value.shift()
+    redoStack.value = []
+  }
+
+  function ensureCell(row: number, col: number) {
+    while (rowData.value.length <= row) {
+      rowData.value.push(new Array(Math.max(columns.value.length, col + 1, 10)).fill(''))
+    }
+    while (columns.value.length <= col) {
+      columns.value.push('')
+    }
+    while (rowData.value[row].length <= col) {
+      rowData.value[row].push('')
+    }
+  }
+
+  function displayRowToRawRow(row: number): number {
+    return filterText.value.trim() ? (filteredRowIndices.value[row] ?? row) : row
+  }
+
+  function displayRowToExcelRow(row: number): number {
+    return displayRowToRawRow(row) + 2
   }
 
   function addRow(afterRow: number) {
@@ -188,6 +314,8 @@ export const useExcelStore = defineStore('excel', () => {
     rowData.value = data.rows
     totalRows.value = data.totalRows
     dirty.value = false
+    undoStack.value = []
+    redoStack.value = []
   }
 
   function clear() {
@@ -208,6 +336,8 @@ export const useExcelStore = defineStore('excel', () => {
     selectedCell.value = null
     selectionMode.value = null
     selectedRange.value = null
+    undoStack.value = []
+    redoStack.value = []
   }
 
   function setFilter(text: string, col: number | null = null) {
@@ -244,6 +374,57 @@ export const useExcelStore = defineStore('excel', () => {
     selectedRange.value = null
   }
 
+  function extendSelection(row: number, col: number) {
+    const anchor = selectedCell.value ?? { row, col }
+    selectedCell.value = anchor
+    selectionMode.value = 'cell'
+    selectedRange.value = {
+      startRow: Math.min(anchor.row, row),
+      endRow: Math.max(anchor.row, row),
+      startCol: Math.min(anchor.col, col),
+      endCol: Math.max(anchor.col, col),
+    }
+  }
+
+  function normalizedSelectionRange() {
+    const range = selectedRange.value
+    if (!range) return null
+    return {
+      startRow: Math.min(range.startRow, range.endRow),
+      endRow: Math.max(range.startRow, range.endRow),
+      startCol: Math.min(range.startCol, range.endCol),
+      endCol: Math.max(range.startCol, range.endCol),
+    }
+  }
+
+  function selectionToTsv(): string {
+    const range = normalizedSelectionRange()
+    if (!range) return ''
+    const rows: string[] = []
+    for (let r = range.startRow; r <= range.endRow; r++) {
+      const cells: string[] = []
+      for (let c = range.startCol; c <= range.endCol; c++) {
+        cells.push(getCell(r, c))
+      }
+      rows.push(cells.join('\t'))
+    }
+    return rows.join('\n')
+  }
+
+  function pasteTsv(text: string): CellEdit[] {
+    const sel = selectedCell.value
+    if (!sel || !text) return []
+    const rows = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+    if (rows[rows.length - 1] === '') rows.pop()
+    const changes: DisplayCellEdit[] = []
+    rows.forEach((line, rowOffset) => {
+      line.split('\t').forEach((value, colOffset) => {
+        changes.push({ row: sel.row + rowOffset, col: sel.col + colOffset, value })
+      })
+    })
+    return commitDisplayCellEdits(changes)
+  }
+
   return {
     loading,
     connId,
@@ -265,6 +446,13 @@ export const useExcelStore = defineStore('excel', () => {
     selectedCell,
     selectionMode,
     selectedRange,
+    undoStack,
+    redoStack,
+    canUndo,
+    canRedo,
+    selectedCellValue,
+    activeCellLabel,
+    selectedStats,
     DEFAULT_COL_WIDTH,
     ROW_HEIGHT,
     setLoading,
@@ -273,6 +461,12 @@ export const useExcelStore = defineStore('excel', () => {
     getRawCell,
     setCell,
     updateCellValue,
+    commitDisplayCellEdits,
+    applyRawCellEdits,
+    undo,
+    redo,
+    displayRowToRawRow,
+    displayRowToExcelRow,
     addRow,
     deleteRow,
     addCol,
@@ -288,5 +482,9 @@ export const useExcelStore = defineStore('excel', () => {
     selectRow,
     selectCol,
     clearSelection,
+    extendSelection,
+    normalizedSelectionRange,
+    selectionToTsv,
+    pasteTsv,
   }
 })

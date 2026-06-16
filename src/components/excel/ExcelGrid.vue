@@ -10,9 +10,17 @@ const scrollTop = ref(0)
 const editingCell = ref<{ row: number; col: number } | null>(null)
 const editValue = ref('')
 const editInputRef = ref<HTMLInputElement | null>(null)
+const contextMenu = ref<{ x: number; y: number; row: number; col: number } | null>(null)
 
 const emit = defineEmits<{
   'cell-change': [edits: CellEdit[]]
+  'insert-row': [row: number]
+  'delete-row': [row: number]
+  'insert-col': [col: number]
+  'delete-col': [col: number]
+  sort: [col: number, descending: boolean]
+  undo: []
+  redo: []
 }>()
 
 const containerHeight = computed(() => containerRef.value?.clientHeight ?? 600)
@@ -24,6 +32,7 @@ const ROW_HEADER_WIDTH = 52
 // 使用筛选后的数据
 const displayData = computed(() => store.filteredRowData)
 
+const dataFrozenRows = computed(() => Math.max(0, store.frozenRows - 1))
 const visibleStartRow = computed(() => Math.max(0, Math.floor(scrollTop.value / store.ROW_HEIGHT) - 5))
 const visibleEndRow = computed(() => {
   const visible = Math.ceil((containerHeight.value - HEADER_HEIGHT) / store.ROW_HEIGHT) + 5
@@ -71,31 +80,110 @@ function colLeftOffset(col: number): number {
   return x
 }
 
+function frozenColLeftOffset(col: number): number {
+  let x = ROW_HEADER_WIDTH
+  for (let c = 0; c < col; c++) {
+    x += store.getColWidth(c)
+  }
+  return x
+}
+
+function cellLeftOffset(col: number): number {
+  if (col < store.frozenCols) {
+    return scrollLeft.value + frozenColLeftOffset(col)
+  }
+  return colLeftOffset(col)
+}
+
 const visibleCols = computed(() => {
-  const cols: { index: number; name: string; width: number; left: number }[] = []
-  for (let c = visibleStartCol.value; c < visibleEndCol.value; c++) {
-    cols.push({
+  const colMap = new Map<number, { index: number; name: string; width: number; left: number; frozen: boolean }>()
+  for (let c = 0; c < Math.min(store.frozenCols, store.columns.length); c++) {
+    colMap.set(c, {
       index: c,
       name: store.colIndexToLetter(c),
       width: store.getColWidth(c),
-      left: colLeftOffset(c),
+      left: cellLeftOffset(c),
+      frozen: true,
     })
   }
-  return cols
+  for (let c = visibleStartCol.value; c < visibleEndCol.value; c++) {
+    colMap.set(c, {
+      index: c,
+      name: store.colIndexToLetter(c),
+      width: store.getColWidth(c),
+      left: cellLeftOffset(c),
+      frozen: c < store.frozenCols,
+    })
+  }
+  return Array.from(colMap.values()).sort((a, b) => a.index - b.index)
 })
 
 const visibleRows = computed(() => {
-  const rows: { row: number; cells: string[] }[] = []
+  const rows: { row: number; cells: { col: number; value: string }[]; top: number; frozen: boolean }[] = []
   const data = displayData.value
-  for (let r = visibleStartRow.value; r < visibleEndRow.value; r++) {
-    const cells: string[] = []
-    for (let c = visibleStartCol.value; c < visibleEndCol.value; c++) {
-      cells.push(r < data.length ? (data[r][c] ?? '') : '')
-    }
-    rows.push({ row: r, cells })
+  const rowSet = new Set<number>()
+  for (let r = 0; r < Math.min(dataFrozenRows.value, data.length); r++) {
+    rowSet.add(r)
   }
+  for (let r = visibleStartRow.value; r < visibleEndRow.value; r++) {
+    rowSet.add(r)
+  }
+  Array.from(rowSet).sort((a, b) => a - b).forEach((r) => {
+    const frozen = r < dataFrozenRows.value
+    const cells = visibleCols.value.map(col => ({
+      col: col.index,
+      value: r < data.length ? (data[r][col.index] ?? '') : '',
+    }))
+    rows.push({
+      row: r,
+      cells,
+      top: frozen ? HEADER_HEIGHT + scrollTop.value + (r * store.ROW_HEIGHT) : HEADER_HEIGHT + (r * store.ROW_HEIGHT),
+      frozen,
+    })
+  })
   return rows
 })
+
+function visibleColByIndex(col: number) {
+  return visibleCols.value.find(c => c.index === col)
+}
+
+function closeContextMenu() {
+  contextMenu.value = null
+}
+
+function openContextMenu(e: MouseEvent, row: number, col: number) {
+  e.preventDefault()
+  store.selectCell(row, col)
+  contextMenu.value = { x: e.clientX, y: e.clientY, row, col }
+}
+
+async function copySelection() {
+  closeContextMenu()
+  const text = store.selectionToTsv()
+  if (!text) return
+  await navigator.clipboard?.writeText(text)
+}
+
+async function pasteFromClipboard() {
+  closeContextMenu()
+  const text = await navigator.clipboard?.readText()
+  const edits = store.pasteTsv(text || '')
+  if (edits.length > 0) emit('cell-change', edits)
+}
+
+function deleteSelection() {
+  const range = store.normalizedSelectionRange()
+  if (!range) return
+  const changes: { row: number; col: number; value: string }[] = []
+  for (let r = range.startRow; r <= range.endRow; r++) {
+    for (let c = range.startCol; c <= range.endCol; c++) {
+      changes.push({ row: r, col: c, value: '' })
+    }
+  }
+  const edits = store.commitDisplayCellEdits(changes)
+  if (edits.length > 0) emit('cell-change', edits)
+}
 
 function isSelected(row: number, col: number): boolean {
   const sel = store.selectedCell
@@ -151,8 +239,8 @@ function closeEditor() {
     const { row, col } = editingCell.value
     const oldValue = store.getCell(row, col)
     if (editValue.value !== oldValue) {
-      store.updateCellValue(row, col, editValue.value)
-      emit('cell-change', [{ row, col, value: editValue.value }])
+      const edits = store.commitDisplayCellEdits([{ row, col, value: editValue.value }])
+      if (edits.length > 0) emit('cell-change', edits)
     }
   }
   editingCell.value = null
@@ -176,30 +264,64 @@ function handleEditKeydown(e: KeyboardEvent) {
   }
 }
 
-function handleKeydown(e: KeyboardEvent) {
+async function handleKeydown(e: KeyboardEvent) {
   if (editingCell.value) return
   const sel = store.selectedCell
   if (!sel) return
 
   const { row, col } = sel
   const maxRow = Math.max(displayData.value.length - 1, 0)
+  const maxCol = Math.max(store.columns.length - 1, 0)
+  const meta = e.ctrlKey || e.metaKey
+
+  if (meta && e.key.toLowerCase() === 'c') {
+    e.preventDefault()
+    await copySelection()
+    return
+  }
+  if (meta && e.key.toLowerCase() === 'v') {
+    e.preventDefault()
+    await pasteFromClipboard()
+    return
+  }
+  if (meta && e.key.toLowerCase() === 'x') {
+    e.preventDefault()
+    await copySelection()
+    deleteSelection()
+    return
+  }
+  if (meta && e.key.toLowerCase() === 'z') {
+    e.preventDefault()
+    emit('undo')
+    return
+  }
+  if (meta && e.key.toLowerCase() === 'y') {
+    e.preventDefault()
+    emit('redo')
+    return
+  }
+
+  const moveTo = (nextRow: number, nextCol: number) => {
+    if (e.shiftKey) store.extendSelection(nextRow, nextCol)
+    else store.selectCell(nextRow, nextCol)
+  }
 
   switch (e.key) {
     case 'ArrowUp':
       e.preventDefault()
-      store.selectCell(Math.max(0, row - 1), col)
+      moveTo(Math.max(0, row - 1), col)
       break
     case 'ArrowDown':
       e.preventDefault()
-      store.selectCell(Math.min(maxRow, row + 1), col)
+      moveTo(Math.min(maxRow, row + 1), col)
       break
     case 'ArrowLeft':
       e.preventDefault()
-      store.selectCell(row, Math.max(0, col - 1))
+      moveTo(row, Math.max(0, col - 1))
       break
     case 'ArrowRight':
       e.preventDefault()
-      store.selectCell(row, Math.min(store.columns.length - 1, col + 1))
+      moveTo(row, Math.min(maxCol, col + 1))
       break
     case 'Enter':
       e.preventDefault()
@@ -212,8 +334,7 @@ function handleKeydown(e: KeyboardEvent) {
     case 'Delete':
     case 'Backspace':
       e.preventDefault()
-      store.updateCellValue(row, col, '')
-      emit('cell-change', [{ row, col, value: '' }])
+      deleteSelection()
       break
     default:
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
@@ -259,10 +380,12 @@ function handleColResizeMouseup() {
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('click', closeContextMenu)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('click', closeContextMenu)
   document.removeEventListener('mousemove', handleColResizeMousemove)
   document.removeEventListener('mouseup', handleColResizeMouseup)
 })
@@ -287,13 +410,14 @@ onBeforeUnmount(() => {
             v-for="col in visibleCols"
             :key="'h' + col.index"
             class="excel-col-header"
-            :class="{ selected: isColSelected(col.index) }"
+            :class="{ selected: isColSelected(col.index), frozen: col.frozen }"
             :style="{
               left: col.left + 'px',
               width: col.width + 'px',
               height: HEADER_HEIGHT + 'px',
             }"
             @click="handleColHeaderClick(col.index)"
+            @contextmenu.prevent="openContextMenu($event, 0, col.index)"
           >
             <span>{{ col.name }}</span>
             <span
@@ -308,9 +432,9 @@ onBeforeUnmount(() => {
           v-for="r in visibleRows"
           :key="r.row"
           class="excel-data-row"
-          :class="{ 'row-selected': isRowSelected(r.row) }"
+          :class="{ 'row-selected': isRowSelected(r.row), frozen: r.frozen }"
           :style="{
-            top: HEADER_HEIGHT + (r.row * store.ROW_HEIGHT) + 'px',
+            top: r.top + 'px',
             height: store.ROW_HEIGHT + 'px',
           }"
         >
@@ -322,29 +446,33 @@ onBeforeUnmount(() => {
               height: store.ROW_HEIGHT + 'px',
             }"
             @click="handleRowHeaderClick(r.row)"
+            @contextmenu.prevent="openContextMenu($event, r.row, 0)"
           >
             {{ r.row + 1 }}
           </div>
 
           <div
-            v-for="(cell, ci) in r.cells"
-            :key="visibleStartCol + ci"
+            v-for="cell in r.cells"
+            :key="cell.col"
             class="excel-cell"
             :class="{
-              selected: isSelected(r.row, visibleStartCol + ci),
-              'in-range': isInSelectedRange(r.row, visibleStartCol + ci),
-              'col-highlight': isColSelected(visibleStartCol + ci),
-              editing: editingCell?.row === r.row && editingCell?.col === visibleStartCol + ci,
+              selected: isSelected(r.row, cell.col),
+              'in-range': isInSelectedRange(r.row, cell.col),
+              'col-highlight': isColSelected(cell.col),
+              'frozen-col': cell.col < store.frozenCols,
+              'frozen-row': r.frozen,
+              editing: editingCell?.row === r.row && editingCell?.col === cell.col,
             }"
             :style="{
-              left: (visibleCols[ci]?.left || 0) + 'px',
-              width: (visibleCols[ci]?.width || 120) + 'px',
+              left: (visibleColByIndex(cell.col)?.left || 0) + 'px',
+              width: (visibleColByIndex(cell.col)?.width || 120) + 'px',
               height: store.ROW_HEIGHT + 'px',
             }"
-            @click.stop="handleCellClick(r.row, visibleStartCol + ci)"
-            @dblclick.stop="handleCellDblClick(r.row, visibleStartCol + ci)"
+            @click.stop="handleCellClick(r.row, cell.col)"
+            @dblclick.stop="handleCellDblClick(r.row, cell.col)"
+            @contextmenu.stop="openContextMenu($event, r.row, cell.col)"
           >
-            <template v-if="editingCell?.row === r.row && editingCell?.col === visibleStartCol + ci">
+            <template v-if="editingCell?.row === r.row && editingCell?.col === cell.col">
               <input
                 ref="editInputRef"
                 v-model="editValue"
@@ -354,12 +482,62 @@ onBeforeUnmount(() => {
               />
             </template>
             <template v-else>
-              <span class="cell-content">{{ cell }}</span>
+              <span class="cell-content">{{ cell.value }}</span>
             </template>
           </div>
         </div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="contextMenu"
+        class="context-menu excel-context-menu"
+        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+        @click.stop
+      >
+        <div class="cm-header">
+          <v-icon class="type-icon" size="12">mdi-table-large</v-icon>
+          <span>{{ store.activeCellLabel || 'Cell' }}</span>
+        </div>
+        <div class="cm-item" @click="copySelection">
+          <v-icon>mdi-content-copy</v-icon>
+          <span class="label">复制</span>
+          <span class="shortcut">Ctrl+C</span>
+        </div>
+        <div class="cm-item" @click="pasteFromClipboard">
+          <v-icon>mdi-content-paste</v-icon>
+          <span class="label">粘贴</span>
+          <span class="shortcut">Ctrl+V</span>
+        </div>
+        <div class="cm-divider" />
+        <div class="cm-item" @click="emit('insert-row', contextMenu.row); closeContextMenu()">
+          <v-icon>mdi-table-row-plus-before</v-icon>
+          <span class="label">在上方插入行</span>
+        </div>
+        <div class="cm-item danger" @click="emit('delete-row', contextMenu.row); closeContextMenu()">
+          <v-icon>mdi-table-row-remove</v-icon>
+          <span class="label">删除当前行</span>
+        </div>
+        <div class="cm-item" @click="emit('insert-col', contextMenu.col); closeContextMenu()">
+          <v-icon>mdi-table-column-plus-before</v-icon>
+          <span class="label">在左侧插入列</span>
+        </div>
+        <div class="cm-item danger" @click="emit('delete-col', contextMenu.col); closeContextMenu()">
+          <v-icon>mdi-table-column-remove</v-icon>
+          <span class="label">删除当前列</span>
+        </div>
+        <div class="cm-divider" />
+        <div class="cm-item" @click="emit('sort', contextMenu.col, false); closeContextMenu()">
+          <v-icon>mdi-sort-ascending</v-icon>
+          <span class="label">按此列升序</span>
+        </div>
+        <div class="cm-item" @click="emit('sort', contextMenu.col, true); closeContextMenu()">
+          <v-icon>mdi-sort-descending</v-icon>
+          <span class="label">按此列降序</span>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -418,6 +596,12 @@ onBeforeUnmount(() => {
   color: var(--cyan);
 }
 
+.excel-col-header.frozen {
+  z-index: 5;
+  background: var(--panel-solid-2);
+  box-shadow: 1px 0 0 var(--line-2);
+}
+
 .col-resize-handle {
   position: absolute;
   right: 0;
@@ -440,6 +624,10 @@ onBeforeUnmount(() => {
 
 .excel-data-row.row-selected .excel-cell {
   background: rgba(0, 240, 255, 0.04);
+}
+
+.excel-data-row.frozen {
+  z-index: 4;
 }
 
 .excel-row-header {
@@ -499,6 +687,16 @@ onBeforeUnmount(() => {
   outline-offset: -2px;
   z-index: 2;
   padding: 0;
+}
+
+.excel-cell.frozen-col,
+.excel-cell.frozen-row {
+  background: var(--panel-solid);
+  z-index: 3;
+}
+
+.excel-cell.frozen-col.frozen-row {
+  z-index: 4;
 }
 
 .cell-content {
