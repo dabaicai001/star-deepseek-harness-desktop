@@ -152,7 +152,8 @@ export const EXCEL_SYSTEM_PROMPT = `你是一个 Excel 工作簿助手。当前�
 - 需要了解当前文件时先调用 excel_get_context
 - 读取数据用 excel_read_range,写入单元格用 excel_write_cell
 - 批量区域写入用 excel_write_range,公式批量填充用 excel_fill_formula
-- 插入/删除行列、排序、筛选、冻结、去重、Sheet 管理、表头重命名、保存都通过工具执行
+- 插入/删除行列、排序、筛选、冻结、去重、按列去重输出到新 Sheet、Sheet 管理、表头重命名、保存都通过工具执行
+- 按列去重输出到新 Sheet 时,如果指定列相同但其他列不同,只保留第一次出现的整行数据
 - 修改文件前先说明将要影响的单元格/行列;危险的大范围删除要谨慎
 - 用户说"表头"时,指当前工作表第一行字段名`
 
@@ -451,6 +452,22 @@ export const excelTools: LlmTool[] = [
       name: 'excel_remove_duplicates',
       description: '删除重复数据行。',
       parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_dedup_to_sheet',
+      description: '按指定列或当前选中列删除重复项,保留第一次出现的整行数据,并把结果写入新的 Sheet。',
+      parameters: {
+        type: 'object',
+        properties: {
+          columns: {
+            type: 'array',
+            description: '可选,0-based 列索引数组。不传则使用当前选中列/选区/单元格所在列。'
+          }
+        }
+      }
     }
   },
   {

@@ -252,6 +252,95 @@ async function removeDuplicates() {
   }
 }
 
+function selectedDedupColumns(override?: number[]): number[] {
+  const cols = new Set<number>()
+  const addCol = (col: number) => {
+    if (Number.isInteger(col) && col >= 0 && col < store.columns.length) cols.add(col)
+  }
+
+  if (override?.length) {
+    override.forEach(addCol)
+  } else if (store.selectionMode === 'col' && store.selectedRange) {
+    for (let col = store.selectedRange.startCol; col <= store.selectedRange.endCol; col++) addCol(col)
+  } else if (store.selectedCells.length > 0) {
+    for (const key of store.selectedCells) {
+      const [, colText] = key.split(':')
+      addCol(Number(colText))
+    }
+  } else if (store.selectedRange) {
+    for (let col = store.selectedRange.startCol; col <= store.selectedRange.endCol; col++) addCol(col)
+  } else if (store.selectedCell) {
+    addCol(store.selectedCell.col)
+  }
+
+  return Array.from(cols).sort((a, b) => a - b)
+}
+
+function normalizeRow(row: string[], width = store.columns.length): string[] {
+  return Array.from({ length: width }, (_, col) => String(row[col] ?? ''))
+}
+
+function dedupRowsByColumns(rows: string[][], columns: number[]) {
+  const seen = new Set<string>()
+  const result: string[][] = []
+  let removed = 0
+
+  for (const row of rows) {
+    const normalized = normalizeRow(row)
+    const key = columns.map(col => normalized[col] ?? '').join('\u001f')
+    if (seen.has(key)) {
+      removed++
+      continue
+    }
+    seen.add(key)
+    result.push(normalized)
+  }
+
+  return { rows: result, removed }
+}
+
+async function removeDuplicatesToSheet(columnsOverride?: number[]) {
+  if (isCsvFile.value) {
+    notify.notify({ message: 'CSV 是单表文件,无法输出到新 Sheet', color: 'warning', timeout: 2500 })
+    return
+  }
+  if (!store.connId || !store.activeSheet) return
+
+  const columns = selectedDedupColumns(columnsOverride)
+  if (columns.length === 0) {
+    notify.notify({ message: '请先选择要用于去重的列', color: 'warning', timeout: 2500 })
+    return
+  }
+
+  const sourceSheet = store.activeSheet
+  const headers = [...store.columns]
+  const sourceRows = store.rowData.map(row => normalizeRow(row, headers.length))
+  const { rows, removed } = dedupRowsByColumns(sourceRows, columns)
+  const sheetName = makeUniqueSheetName(`${sourceSheet}_去重`)
+  const columnLabels = columns.map(col => headers[col]?.trim() || store.colIndexToLetter(col)).join(', ')
+
+  try {
+    await sidecarRpc(`${rpcPrefix.value}.addSheet`, { connId: store.connId, sheetName })
+    store.sheetNames.push(sheetName)
+    await sidecarRpc(`${rpcPrefix.value}.writeHeaders`, { connId: store.connId, sheetName, headers })
+    const cells = rows.flatMap((row, rowIndex) =>
+      row.map((value, col) => ({ row: rowIndex, col, value }))
+    )
+    if (cells.length > 0) {
+      await sidecarRpc(`${rpcPrefix.value}.writeCells`, { connId: store.connId, sheetName, cells })
+    }
+    await switchSheet(sheetName)
+    store.setDirty(true)
+    notify.notify({
+      message: `已按 ${columnLabels} 去重,移除 ${removed} 行,结果写入 ${sheetName}`,
+      color: 'success',
+      timeout: 3200,
+    })
+  } catch (e) {
+    notify.notify({ message: `去重到新 Sheet 失败: ${errMsg(e)}`, color: 'error', timeout: 5000 })
+  }
+}
+
 async function handleAddRow(row = store.selectedCell?.row ?? 0) {
   if (!store.connId || !store.activeSheet) return
   try {
@@ -550,6 +639,13 @@ async function executeExcelTool(call: LlmToolCall): Promise<string> {
     case 'excel_remove_duplicates':
       await removeDuplicates()
       return '已执行删除重复项'
+    case 'excel_dedup_to_sheet': {
+      const columns = Array.isArray(args.columns)
+        ? args.columns.map(item => asNumber(item, -1)).filter(item => item >= 0)
+        : undefined
+      await removeDuplicatesToSheet(columns)
+      return '已按指定列去重并输出到新 Sheet'
+    }
     case 'excel_save':
       await saveFile()
       return '已保存文件'
@@ -703,6 +799,7 @@ watch(() => store.selectedCellValue, (value) => {
         @filter="toggleFilter"
         @auto-filter="autoFilter"
         @remove-duplicates="removeDuplicates"
+        @remove-duplicates-to-sheet="removeDuplicatesToSheet"
         @freeze-header="setFreeze(1, 0)"
         @freeze-first-col="setFreeze(0, 1)"
         @freeze-both="setFreeze(1, 1)"

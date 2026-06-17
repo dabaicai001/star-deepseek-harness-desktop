@@ -124,6 +124,7 @@ function toolCallSummary(rec: AiToolCallRecord): string {
     if (rec.name === 'excel_write_range') return `range from ${rec.args.row},${rec.args.col}`
     if (rec.name === 'excel_fill_formula') return `fill ${rec.args.rowCount} rows in col ${rec.args.col}`
     if (rec.name === 'excel_set_headers') return 'set headers'
+    if (rec.name === 'excel_dedup_to_sheet') return `dedup to sheet: ${JSON.stringify(rec.args.columns ?? 'selected')}`
     if (rec.name.includes('sheet')) return String(rec.args.sheetName ?? rec.args.newName ?? rec.args.oldName ?? '')
     if (rec.name === 'excel_find_replace') return `${rec.args.find} -> ${rec.args.replace}`
     return rec.name.replace('excel_', '')

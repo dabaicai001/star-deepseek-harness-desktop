@@ -335,6 +335,19 @@ function openHeaderFilter(e: MouseEvent, col: number) {
   }
 }
 
+function headerFilterStats(col: number) {
+  const values = store.rowData.map(row => String(row[col] ?? '').trim())
+  const nonEmpty = values.filter(Boolean).length
+  const blank = values.length - nonEmpty
+  const distinct = new Set(values.filter(Boolean)).size
+  return {
+    total: values.length,
+    nonEmpty,
+    blank,
+    distinct,
+  }
+}
+
 function applyHeaderFilter() {
   if (!headerFilter.value) return
   store.setFilter(headerFilter.value.text, headerFilter.value.col)
@@ -620,6 +633,7 @@ onBeforeUnmount(() => {
                 v-model="editValue"
                 class="excel-cell-input"
                 @keydown.stop="handleEditKeydown"
+                @blur="closeEditor"
                 @click.stop
               />
             </template>
@@ -697,6 +711,24 @@ onBeforeUnmount(() => {
         <div class="filter-title">
           <v-icon size="12">mdi-filter-outline</v-icon>
           <span>{{ store.columns[headerFilter.col] || store.colIndexToLetter(headerFilter.col) }}</span>
+        </div>
+        <div class="filter-stats">
+          <div class="filter-stat">
+            <span>总行</span>
+            <strong>{{ headerFilterStats(headerFilter.col).total }}</strong>
+          </div>
+          <div class="filter-stat">
+            <span>非空</span>
+            <strong>{{ headerFilterStats(headerFilter.col).nonEmpty }}</strong>
+          </div>
+          <div class="filter-stat">
+            <span>空白</span>
+            <strong>{{ headerFilterStats(headerFilter.col).blank }}</strong>
+          </div>
+          <div class="filter-stat">
+            <span>Distinct Count</span>
+            <strong>{{ headerFilterStats(headerFilter.col).distinct }}</strong>
+          </div>
         </div>
         <input
           v-model="headerFilter.text"
@@ -968,6 +1000,39 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
+}
+
+.filter-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.filter-stat {
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-solid);
+}
+
+.filter-stat span {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.filter-stat strong {
+  display: block;
+  overflow: hidden;
+  color: var(--cyan);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .filter-input {

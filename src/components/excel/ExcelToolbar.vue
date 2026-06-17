@@ -19,6 +19,7 @@ const emit = defineEmits<{
   filter: []
   'auto-filter': []
   'remove-duplicates': []
+  'remove-duplicates-to-sheet': []
   'freeze-header': []
   'freeze-first-col': []
   'freeze-both': []
@@ -125,6 +126,9 @@ function emitReplaceAll() {
           </button>
           <button class="action-btn" :data-tooltip="'删除重复项'" @click="emit('remove-duplicates')">
             <v-icon size="14">mdi-playlist-remove</v-icon>
+          </button>
+          <button class="action-btn" :data-tooltip="'按选中列去重到新 Sheet'" @click="emit('remove-duplicates-to-sheet')">
+            <v-icon size="14">mdi-table-multiple</v-icon>
           </button>
         </div>
         <span class="ribbon-label">数据</span>
