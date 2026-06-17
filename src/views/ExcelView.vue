@@ -380,9 +380,12 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
 })
 
-watch(() => [asset.value?.config.filePath, fileFormat.value] as const, () => {
-  if (asset.value) openExcel()
-})
+watch(
+  [() => asset.value?.id, () => asset.value?.config.filePath, () => fileFormat.value],
+  ([assetId, filePath]) => {
+    if (assetId && filePath) openExcel()
+  }
+)
 
 watch(() => store.selectedCellValue, (value) => {
   formulaInput.value = value
