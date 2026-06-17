@@ -46,6 +46,7 @@ const asset = computed(() => assetStore.assets.find((a) => a.id === instanceInfo
 const terminalRef = ref<InstanceType<typeof TerminalPane>>()
 const connected = ref(false)
 const connecting = ref(false)
+const sftpReady = ref(false)
 const lastError = ref<string | null>(null)
 const sessionDuration = ref('00:00:00')
 let unlisten: (() => void) | null = null
@@ -58,6 +59,7 @@ let timerId: number | null = null
 let currentConnectId =0
 let reconnectTimer: number | null = null
 let beforeUnloadHandler: ((e: BeforeUnloadEvent) => void) | null = null
+let sftpReadyTimer: number | null = null
 
 const autoReconnect = ref(true)
 const reconnectAttempt = ref(0)
@@ -246,6 +248,10 @@ onBeforeUnmount(async () => {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
   }
+  if (sftpReadyTimer) {
+    clearTimeout(sftpReadyTimer)
+    sftpReadyTimer = null
+  }
   stopTimer()
   await disconnect()
 })
@@ -269,6 +275,30 @@ function stopTimer() {
  }
 }
 
+function resetSftpReady() {
+  sftpReady.value = false
+  if (sftpReadyTimer) {
+    clearTimeout(sftpReadyTimer)
+    sftpReadyTimer = null
+  }
+}
+
+function markSftpReady() {
+  if (!connected.value || sftpReady.value) return
+  sftpReady.value = true
+  if (sftpReadyTimer) {
+    clearTimeout(sftpReadyTimer)
+    sftpReadyTimer = null
+  }
+}
+
+function scheduleSftpReadyFallback() {
+  if (sftpReadyTimer) clearTimeout(sftpReadyTimer)
+  sftpReadyTimer = window.setTimeout(() => {
+    markSftpReady()
+  }, 800)
+}
+
 async function connect() {
  const a = asset.value
  if (!a || !a.config.host || !a.config.username) {
@@ -286,6 +316,7 @@ async function connect() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
   stopTimer()
  connected.value = false
+ resetSftpReady()
  connecting.value = true
 
  lastError.value = null
@@ -378,6 +409,7 @@ async function connect() {
   unlisten = await listen(`ssh:data:${sessionId}`, (event) => {
   const chunk = event.payload as string
   terminalRef.value?.write(chunk)
+  markSftpReady()
   //收集到 buffer(AI助手用)
   dataBuffer.value.push(chunk)
   //检测 pwd 输出,更新当前工作目录
@@ -388,9 +420,11 @@ async function connect() {
   //唤醒正在等待的 captureOutput
   maybeResolveCapture()
   })
+  scheduleSftpReadyFallback()
 
   unlistenClose = await listen(`ssh:close:${sessionId}`, () => {
   connected.value = false
+  resetSftpReady()
   stopTimer()
   terminalRef.value?.writeln('\r\n\x1b[33m! Connection closed by remote host\x1b[0m')
   if (autoReconnect.value && !asset.value?.config.mfaEnabled) {
@@ -432,6 +466,7 @@ async function connect() {
 }
 
 async function disconnect() {
+   resetSftpReady()
    if (unlisten) {
      unlisten()
      unlisten = null
@@ -833,7 +868,7 @@ function handleKbCancelled() {
     />
   </template>
   <template #tab-sftp>
-    <SftpPanel :asset-id="asset?.id" :session-id="id" :ssh-connected="connected" />
+    <SftpPanel :asset-id="asset?.id" :session-id="id" :ssh-connected="connected && sftpReady" />
   </template>
   </RightPanel>
   </div>
