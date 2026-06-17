@@ -15,6 +15,16 @@
 
 ---
 
+## [0.10.1] - 2026-06-17
+
+### 修复
+- 🐛 fix(redis): 修复切换 DB 后 KeyBrowser 可能抢在 `SELECT` 完成前扫描,导致 key 偶发不显示的问题
+- 🐛 fix(redis): 修复 Redis `SCAN` 空页但 cursor 未结束时误显示空列表的问题,并对增量加载结果去重
+- 🐛 fix(redis): 修复跨 DB 同名 key 复用旧编辑 tab、重复点击 key 不刷新内容导致数据不显示的问题
+- 🐛 fix(redis): Redis Stream key 支持读取并以 JSON 文本展示
+
+---
+
 ## [0.10.0] - 2026-06-17
 
 ### 新增

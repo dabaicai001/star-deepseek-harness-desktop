@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import * as dbService from '@/services/db'
 import type { RedisKeyInfo } from '@/types/db'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -30,7 +30,7 @@ interface DbState {
   keys: RedisKeyInfo[]
   cursor: number
   scanMatch: string
-  typeFilter: 'all' | 'string' | 'hash' | 'list' | 'set' | 'zset'
+  typeFilter: 'all' | 'string' | 'hash' | 'list' | 'set' | 'zset' | 'stream'
   loading: boolean
 }
 
@@ -38,6 +38,7 @@ const dbStates = ref<Record<number, DbState>>({})
 const expandedDbs = ref<Set<number>>(new Set())
 const expandedFolders = ref<Record<number, Set<string>>>({})
 const collapsed = ref(false)
+const loadTokens = ref<Record<number, number>>({})
 
 // ─── Namespace tree ───
 interface FlatNode {
@@ -200,16 +201,12 @@ function getDbState(db: number): DbState {
   return dbStates.value[db]
 }
 
-function typeLabel(t: string): string {
-  return { string: 'String', hash: 'Hash', list: 'List', set: 'Set', zset: 'ZSet' }[t] || t
-}
-
 function typeIcon(t: string): string {
-  return { string: 'mdi-format-text', hash: 'mdi-pound', list: 'mdi-format-list-bulleted', set: 'mdi-set-center', zset: 'mdi-sort-numeric-ascending' }[t] || 'mdi-key'
+  return { string: 'mdi-format-text', hash: 'mdi-pound', list: 'mdi-format-list-bulleted', set: 'mdi-set-center', zset: 'mdi-sort-numeric-ascending', stream: 'mdi-chart-timeline-variant' }[t] || 'mdi-key'
 }
 
 function typeColor(t: string): string {
-  return { string: 'var(--green)', hash: 'var(--purple)', list: 'var(--cyan)', set: 'var(--yellow)', zset: 'var(--pink)' }[t] || 'var(--muted)'
+  return { string: 'var(--green)', hash: 'var(--purple)', list: 'var(--cyan)', set: 'var(--yellow)', zset: 'var(--pink)', stream: 'var(--cyan)' }[t] || 'var(--muted)'
 }
 
 function formatTTL(ttl: number): string {
@@ -231,19 +228,39 @@ function formatDbSize(db: number): string {
 async function loadDbKeys(db: number, append = false) {
   const state = getDbState(db)
   if (state.loading) return
+  const token = (loadTokens.value[db] ?? 0) + 1
+  loadTokens.value = { ...loadTokens.value, [db]: token }
   state.loading = true
   try {
-    const cursorParam = append ? state.cursor : 0
+    let cursorParam = append ? state.cursor : 0
     const matchParam = state.scanMatch || '*'
-    const result = await dbService.redisScan(props.connId, cursorParam, matchParam, 500)
-    if (append) {
-      state.keys.push(...result.keys)
-    } else {
-      state.keys = result.keys
+    const collected: RedisKeyInfo[] = []
+    let nextCursor = cursorParam
+    let rounds = 0
+
+    // Redis SCAN can legally return an empty page with a non-zero cursor.
+    // Keep scanning briefly so the browser does not show a false empty state.
+    do {
+      const result = await dbService.redisScan(props.connId, cursorParam, matchParam, 500)
+      if (loadTokens.value[db] !== token) return
+      collected.push(...result.keys)
+      nextCursor = result.cursor
+      cursorParam = nextCursor
+      rounds++
+    } while (collected.length === 0 && nextCursor !== 0 && rounds < 8)
+
+    const existing = append ? state.keys : []
+    const seen = new Set(existing.map(item => item.key))
+    const merged = [...existing]
+    for (const keyInfo of collected) {
+      if (seen.has(keyInfo.key)) continue
+      seen.add(keyInfo.key)
+      merged.push(keyInfo)
     }
-    state.cursor = result.cursor
+    state.keys = merged
+    state.cursor = nextCursor
   } finally {
-    state.loading = false
+    if (loadTokens.value[db] === token) state.loading = false
   }
 }
 
@@ -268,12 +285,6 @@ async function onDbClick(db: number) {
   emit('switch-db', db)
   expandedDbs.value.add(db)
   expandedDbs.value = new Set(expandedDbs.value)
-
-  // Load keys for the new DB
-  const state = getDbState(db)
-  if (state.keys.length === 0) {
-    await loadDbKeys(db)
-  }
 }
 
 async function onDbSearch(db: number) {
@@ -307,6 +318,15 @@ async function reloadCurrentDb() {
 }
 
 defineExpose({ loadKeys: reloadCurrentDb })
+
+watch(() => props.currentDb, async (db) => {
+  expandedDbs.value.add(db)
+  expandedDbs.value = new Set(expandedDbs.value)
+  const state = getDbState(db)
+  if (state.keys.length === 0) {
+    await loadDbKeys(db)
+  }
+})
 
 // ─── Context Menus ───
 function closeCtxMenu() {
@@ -389,6 +409,7 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
                 <option value="list">Lst</option>
                 <option value="set">Set</option>
                 <option value="zset">ZSet</option>
+                <option value="stream">Strm</option>
               </select>
             </div>
 

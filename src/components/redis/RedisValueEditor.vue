@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, markRaw, type Component } from 'vue'
+import { ref, computed, markRaw, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDialogStore } from '@/stores/dialog'
 import StringEditor from './editors/StringEditor.vue'
@@ -14,7 +14,7 @@ const dlg = useDialogStore()
 const { t } = useI18n()
 
 interface EditorTab {
-  id: string; key: string; type: string; title: string
+  id: string; key: string; type: string; title: string; db: number; revision: number
   isDirty: boolean; isNew: boolean; component: Component
 }
 
@@ -24,17 +24,22 @@ const activeTabId = ref<string | null>(null)
 const editorMap: Record<string, Component> = {
   string: markRaw(StringEditor), hash: markRaw(HashEditor),
   list: markRaw(ListEditor), set: markRaw(SetEditor), zset: markRaw(ZSetEditor),
+  stream: markRaw(StringEditor),
 }
 
-function typeColor(t: string) { const m: Record<string, string> = { string: 'var(--green)', hash: 'var(--purple)', list: 'var(--cyan)', set: 'var(--yellow)', zset: 'var(--pink)' }; return m[t] || 'var(--muted)' }
-function typeIcon(t: string) { const m: Record<string, string> = { string: 'mdi-format-text', hash: 'mdi-pound', list: 'mdi-format-list-bulleted', set: 'mdi-set-center', zset: 'mdi-sort-numeric-ascending' }; return m[t] || 'mdi-key' }
+function typeColor(t: string) { const m: Record<string, string> = { string: 'var(--green)', hash: 'var(--purple)', list: 'var(--cyan)', set: 'var(--yellow)', zset: 'var(--pink)', stream: 'var(--cyan)' }; return m[t] || 'var(--muted)' }
+function typeIcon(t: string) { const m: Record<string, string> = { string: 'mdi-format-text', hash: 'mdi-pound', list: 'mdi-format-list-bulleted', set: 'mdi-set-center', zset: 'mdi-sort-numeric-ascending', stream: 'mdi-chart-timeline-variant' }; return m[t] || 'mdi-key' }
 
 function openKey(key: string, type: string) {
-  const existing = tabs.value.find(t => t.key === key)
-  if (existing) { activeTabId.value = existing.id; return }
-  const id = `key-${key}-${Date.now()}`
+  const existing = tabs.value.find(t => t.key === key && t.db === props.currentDb)
+  if (existing) {
+    if (!existing.isDirty) existing.revision++
+    activeTabId.value = existing.id
+    return
+  }
+  const id = `key-db${props.currentDb}-${key}-${Date.now()}`
   const editor = editorMap[type] || editorMap.string
-  tabs.value.push({ id, key, type, title: key, isDirty: false, isNew: false, component: editor })
+  tabs.value.push({ id, key, type, title: key, db: props.currentDb, revision: 0, isDirty: false, isNew: false, component: editor })
   activeTabId.value = id
 }
 
@@ -66,13 +71,18 @@ async function openNewKey() {
   }) || 'string'
   if (!editorMap[type]) return
   const id = `new-${key}-${Date.now()}`
-  tabs.value.push({ id, key, type, title: key, isDirty: true, isNew: true, component: editorMap[type] })
+  tabs.value.push({ id, key, type, title: key, db: props.currentDb, revision: 0, isDirty: true, isNew: true, component: editorMap[type] })
   activeTabId.value = id
 }
 
 const activeTab = computed(() => tabs.value.find(t => t.id === activeTabId.value) || null)
 function updateDirty(v: boolean) { if (activeTab.value) activeTab.value.isDirty = v }
 function markSaved() { if (activeTab.value) { activeTab.value.isDirty = false; activeTab.value.isNew = false } }
+
+watch(() => props.currentDb, () => {
+  tabs.value = []
+  activeTabId.value = null
+})
 
 defineExpose({ openKey })
 </script>
@@ -97,7 +107,7 @@ defineExpose({ openKey })
     <div class="editor-body" v-if="activeTab">
       <component
         :is="activeTab.component"
-        :key="activeTab.id"
+        :key="`${activeTab.id}:${activeTab.revision}`"
         :conn-id="connId"
         :key-name="activeTab.key"
         :key-type="activeTab.type"

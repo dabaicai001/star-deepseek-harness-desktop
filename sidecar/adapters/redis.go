@@ -46,6 +46,12 @@ type RedisValueResult struct {
 	Size  int64       `json:"size,omitempty"`
 }
 
+// RedisStreamEntry Stream 消息展示结构
+type RedisStreamEntry struct {
+	ID     string            `json:"id"`
+	Values map[string]string `json:"values"`
+}
+
 // RedisScanResult SCAN 结果
 type RedisScanResult struct {
 	Keys   []RedisKeyInfo `json:"keys"`
@@ -269,6 +275,29 @@ func (a *RedisAdapter) GetValue(key string) (*RedisValueResult, error) {
 		result.Value = members
 		card, _ := a.client.ZCard(a.ctx, key).Result()
 		result.Size = card
+
+	case "stream":
+		val, err := a.client.XRangeN(a.ctx, key, "-", "+", 1000).Result()
+		if err != nil {
+			return nil, err
+		}
+		entries := make([]RedisStreamEntry, len(val))
+		for i, msg := range val {
+			values := make(map[string]string, len(msg.Values))
+			for field, value := range msg.Values {
+				values[field] = fmt.Sprintf("%v", value)
+			}
+			entries[i] = RedisStreamEntry{
+				ID:     msg.ID,
+				Values: values,
+			}
+		}
+		result.Value = entries
+		length, _ := a.client.XLen(a.ctx, key).Result()
+		result.Size = length
+
+	case "none":
+		return nil, fmt.Errorf("key not found: %s", key)
 
 	default:
 		result.Value = fmt.Sprintf("unsupported type: %s", keyType)
