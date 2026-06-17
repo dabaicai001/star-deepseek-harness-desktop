@@ -1250,6 +1250,7 @@ vueWatch(() => appStore.tabs.length, () => {
   align-items: center;
   padding: 0 16px;
   gap: 14px;
+  min-width: 0;
   backdrop-filter: blur(20px);
   position: relative;
   /* 保持高栈,搜索下拉 (z:99) 和用户菜单 (z:100) 才能盖在 menubar (z:0) 上面 */
@@ -1272,6 +1273,7 @@ vueWatch(() => appStore.tabs.length, () => {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
   font-weight: 700;
   color: var(--text);
   font-size: 14px;
@@ -1305,6 +1307,7 @@ vueWatch(() => appStore.tabs.length, () => {
 
 .top-search {
   flex: 1;
+  min-width: 0;
   max-width: 720px;
   background: var(--bg-input);
   border: 1px solid var(--line-2);
@@ -1329,6 +1332,7 @@ vueWatch(() => appStore.tabs.length, () => {
 }
 
 .search-input {
+  min-width: 0;
   background: transparent;
   border: none;
   outline: none;
@@ -1421,6 +1425,7 @@ kbd {
   gap: 6px;
   margin-left: auto;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .top-action-group {
@@ -1434,9 +1439,35 @@ kbd {
 
 .top-action-divider {
   width: 1px;
+  flex-shrink: 0;
   height: 20px;
   background: var(--line-2);
   margin: 0 6px;
+}
+
+@media (max-width: 760px) {
+  .titlebar {
+    gap: 8px;
+    padding: 0 8px;
+  }
+
+  .logo span,
+  .top-search kbd,
+  .top-action-group,
+  .user-menu,
+  .top-action-divider {
+    display: none;
+  }
+
+  .top-search {
+    padding: 5px 8px;
+  }
+}
+
+@media (max-width: 420px) {
+  .top-search {
+    display: none;
+  }
 }
 
 .action-btn {

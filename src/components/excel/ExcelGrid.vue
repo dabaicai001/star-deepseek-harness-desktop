@@ -263,6 +263,12 @@ function handleCellMouseDown(e: MouseEvent, row: number, col: number) {
   e.preventDefault()
   closeContextMenu()
   closeHeaderFilter()
+  if (e.detail >= 2 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+    draggingSelection.value = false
+    store.selectCell(row, col)
+    handleCellDblClick(row, col)
+    return
+  }
   if (e.ctrlKey || e.metaKey) {
     store.toggleCell(row, col)
     draggingSelection.value = false
@@ -346,6 +352,19 @@ function headerFilterStats(col: number) {
     blank,
     distinct,
   }
+}
+
+function headerFilterValueCounts(col: number) {
+  const counts = new Map<string, number>()
+  for (const row of store.rowData) {
+    const value = String(row[col] ?? '').trim()
+    const key = value || '(空白)'
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return Array.from(counts.entries())
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+    .slice(0, 100)
 }
 
 function applyHeaderFilter() {
@@ -634,6 +653,7 @@ onBeforeUnmount(() => {
                 class="excel-cell-input"
                 @keydown.stop="handleEditKeydown"
                 @blur="closeEditor"
+                @mousedown.stop
                 @click.stop
               />
             </template>
@@ -728,6 +748,17 @@ onBeforeUnmount(() => {
           <div class="filter-stat">
             <span>Distinct Count</span>
             <strong>{{ headerFilterStats(headerFilter.col).distinct }}</strong>
+          </div>
+        </div>
+        <div class="filter-value-counts">
+          <div
+            v-for="item in headerFilterValueCounts(headerFilter.col)"
+            :key="item.value"
+            class="filter-value-count"
+            :title="`${item.value}: ${item.count}`"
+          >
+            <span>{{ item.value }}</span>
+            <strong>{{ item.count }}</strong>
           </div>
         </div>
         <input
@@ -1033,6 +1064,47 @@ onBeforeUnmount(() => {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.filter-value-counts {
+  max-height: 148px;
+  margin-bottom: 8px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-solid);
+}
+
+.filter-value-count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.filter-value-count:last-child {
+  border-bottom: 0;
+}
+
+.filter-value-count span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-value-count strong {
+  min-width: 24px;
+  color: var(--cyan);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
 }
 
 .filter-input {

@@ -334,7 +334,9 @@ export const useExcelStore = defineStore('excel', () => {
     sheetNames?: string[]
     connId?: string
     filePath?: string
+    preserveDirty?: boolean
   }) {
+    const wasDirty = dirty.value
     if (data.connId !== undefined) connId.value = data.connId
     if (data.filePath !== undefined) filePath.value = data.filePath
     if (data.sheetNames) sheetNames.value = data.sheetNames
@@ -342,7 +344,7 @@ export const useExcelStore = defineStore('excel', () => {
     columns.value = data.columns
     rowData.value = data.rows
     totalRows.value = data.totalRows
-    dirty.value = false
+    dirty.value = data.preserveDirty ? wasDirty : false
     undoStack.value = []
     redoStack.value = []
   }

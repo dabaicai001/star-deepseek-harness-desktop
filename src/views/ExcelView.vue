@@ -138,7 +138,7 @@ async function saveFile() {
   }
 }
 
-async function switchSheet(sheetName: string) {
+async function switchSheet(sheetName: string, options: { preserveDirty?: boolean } = {}) {
   if (!store.connId) return
   store.setLoading(true)
   try {
@@ -148,6 +148,7 @@ async function switchSheet(sheetName: string) {
       sheetNames: store.sheetNames,
       connId: store.connId,
       filePath: store.filePath,
+      preserveDirty: options.preserveDirty,
     })
   } catch (e) {
     notify.notify({ message: `读取 Sheet 失败: ${errMsg(e)}`, color: 'error', timeout: 5000 })
@@ -329,7 +330,8 @@ async function removeDuplicatesToSheet(columnsOverride?: number[]) {
     if (cells.length > 0) {
       await sidecarRpc(`${rpcPrefix.value}.writeCells`, { connId: store.connId, sheetName, cells })
     }
-    await switchSheet(sheetName)
+    store.setDirty(true)
+    await switchSheet(sheetName, { preserveDirty: true })
     store.setDirty(true)
     notify.notify({
       message: `已按 ${columnLabels} 去重,移除 ${removed} 行,结果写入 ${sheetName}`,
