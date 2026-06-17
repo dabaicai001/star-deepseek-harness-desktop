@@ -12,6 +12,7 @@ const editValue = ref('')
 const editInputRef = ref<HTMLInputElement | null>(null)
 const contextMenu = ref<{ x: number; y: number; row: number; col: number } | null>(null)
 const headerFilter = ref<{ x: number; y: number; col: number; text: string } | null>(null)
+const draggingSelection = ref(false)
 
 const emit = defineEmits<{
   'cell-change': [edits: CellEdit[]]
@@ -164,7 +165,11 @@ function closeHeaderFilter() {
 function openContextMenu(e: MouseEvent, row: number, col: number) {
   e.preventDefault()
   closeHeaderFilter()
-  store.selectCell(row, col)
+  if (e.ctrlKey || e.metaKey) {
+    store.toggleCell(row, col)
+  } else if (!store.isCellSelected(row, col)) {
+    store.selectCell(row, col)
+  }
   contextMenu.value = { x: e.clientX, y: e.clientY, row, col }
 }
 
@@ -183,6 +188,18 @@ async function pasteFromClipboard() {
 }
 
 function deleteSelection() {
+  if (store.selectedCells.length > 0) {
+    const changes = store.selectedCells
+      .map((key) => {
+        const [rowText, colText] = key.split(':')
+        return { row: Number(rowText), col: Number(colText), value: '' }
+      })
+      .filter(change => Number.isInteger(change.row) && Number.isInteger(change.col))
+    const edits = store.commitDisplayCellEdits(changes)
+    if (edits.length > 0) emit('cell-change', edits)
+    return
+  }
+
   const range = store.normalizedSelectionRange()
   if (!range) return
   const changes: { row: number; col: number; value: string }[] = []
@@ -196,6 +213,7 @@ function deleteSelection() {
 }
 
 function isSelected(row: number, col: number): boolean {
+  if (store.selectedCells.length > 0) return store.selectedCells.includes(`${row}:${col}`)
   const sel = store.selectedCell
   return sel?.row === row && sel?.col === col
 }
@@ -211,9 +229,7 @@ function isColSelected(col: number): boolean {
 }
 
 function isInSelectedRange(row: number, col: number): boolean {
-  const r = store.selectedRange
-  if (!r) return false
-  return row >= r.startRow && row <= r.endRow && col >= r.startCol && col <= r.endCol
+  return store.isCellSelected(row, col)
 }
 
 function handleContainerScroll() {
@@ -224,8 +240,26 @@ function handleContainerScroll() {
   closeHeaderFilter()
 }
 
-function handleCellClick(row: number, col: number) {
-  store.selectCell(row, col)
+function handleCellMouseDown(e: MouseEvent, row: number, col: number) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  closeContextMenu()
+  closeHeaderFilter()
+  if (e.ctrlKey || e.metaKey) {
+    store.toggleCell(row, col)
+    draggingSelection.value = false
+  } else if (e.shiftKey && store.selectedCell) {
+    store.extendSelection(row, col)
+    draggingSelection.value = false
+  } else {
+    store.selectCell(row, col)
+    draggingSelection.value = true
+  }
+}
+
+function handleCellMouseEnter(row: number, col: number) {
+  if (!draggingSelection.value) return
+  store.extendSelection(row, col)
 }
 
 function handleRowHeaderClick(row: number) {
@@ -408,20 +442,27 @@ function handleColResizeMousemove(e: MouseEvent) {
 
 function handleColResizeMouseup() {
   colResizeStartCol.value = null
+  draggingSelection.value = false
   document.removeEventListener('mousemove', handleColResizeMousemove)
   document.removeEventListener('mouseup', handleColResizeMouseup)
+}
+
+function handleSelectionMouseup() {
+  draggingSelection.value = false
 }
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('click', closeContextMenu)
   window.addEventListener('click', closeHeaderFilter)
+  document.addEventListener('mouseup', handleSelectionMouseup)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('click', closeContextMenu)
   window.removeEventListener('click', closeHeaderFilter)
+  document.removeEventListener('mouseup', handleSelectionMouseup)
   document.removeEventListener('mousemove', handleColResizeMousemove)
   document.removeEventListener('mouseup', handleColResizeMouseup)
 })
@@ -513,7 +554,8 @@ onBeforeUnmount(() => {
               width: (visibleColByIndex(cell.col)?.width || 120) + 'px',
               height: store.ROW_HEIGHT + 'px',
             }"
-            @click.stop="handleCellClick(r.row, cell.col)"
+            @mousedown.stop="handleCellMouseDown($event, r.row, cell.col)"
+            @mouseenter="handleCellMouseEnter(r.row, cell.col)"
             @dblclick.stop="handleCellDblClick(r.row, cell.col)"
             @contextmenu.stop="openContextMenu($event, r.row, cell.col)"
           >

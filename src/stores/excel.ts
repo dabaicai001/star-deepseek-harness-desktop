@@ -52,6 +52,7 @@ export const useExcelStore = defineStore('excel', () => {
   const selectedCell = ref<{ row: number; col: number } | null>(null)
   const selectionMode = ref<SelectionMode>(null)
   const selectedRange = ref<{ startRow: number; endRow: number; startCol: number; endCol: number } | null>(null)
+  const selectedCells = ref<string[]>([])
   const undoStack = ref<CellHistoryEntry[]>([])
   const redoStack = ref<CellHistoryEntry[]>([])
 
@@ -110,6 +111,34 @@ export const useExcelStore = defineStore('excel', () => {
     return `${colIndexToLetter(sel.col)}${displayRowToExcelRow(sel.row)}`
   })
   const selectedStats = computed(() => {
+    if (selectedCells.value.length > 0) {
+      let numericCount = 0
+      let sum = 0
+      let min = Number.POSITIVE_INFINITY
+      let max = Number.NEGATIVE_INFINITY
+      for (const key of selectedCells.value) {
+        const pos = parseCellKey(key)
+        if (!pos) continue
+        const value = getCell(pos.row, pos.col).trim()
+        if (!value) continue
+        const num = Number(value)
+        if (Number.isFinite(num)) {
+          numericCount++
+          sum += num
+          min = Math.min(min, num)
+          max = Math.max(max, num)
+        }
+      }
+      return {
+        count: selectedCells.value.length,
+        numericCount,
+        sum,
+        average: numericCount ? sum / numericCount : 0,
+        min: numericCount ? min : 0,
+        max: numericCount ? max : 0,
+      }
+    }
+
     const range = normalizedSelectionRange()
     if (!range) {
       return { count: 0, numericCount: 0, sum: 0, average: 0, min: 0, max: 0 }
@@ -336,6 +365,7 @@ export const useExcelStore = defineStore('excel', () => {
     selectedCell.value = null
     selectionMode.value = null
     selectedRange.value = null
+    selectedCells.value = []
     undoStack.value = []
     redoStack.value = []
   }
@@ -354,30 +384,35 @@ export const useExcelStore = defineStore('excel', () => {
     selectedCell.value = { row, col }
     selectionMode.value = 'cell'
     selectedRange.value = { startRow: row, endRow: row, startCol: col, endCol: col }
+    selectedCells.value = []
   }
 
   function selectRow(row: number) {
     selectedCell.value = { row, col: 0 }
     selectionMode.value = 'row'
     selectedRange.value = { startRow: row, endRow: row, startCol: 0, endCol: columns.value.length - 1 }
+    selectedCells.value = []
   }
 
   function selectCol(col: number) {
     selectedCell.value = { row: 0, col }
     selectionMode.value = 'col'
     selectedRange.value = { startRow: 0, endRow: filteredRowData.value.length - 1, startCol: col, endCol: col }
+    selectedCells.value = []
   }
 
   function clearSelection() {
     selectedCell.value = null
     selectionMode.value = null
     selectedRange.value = null
+    selectedCells.value = []
   }
 
   function extendSelection(row: number, col: number) {
     const anchor = selectedCell.value ?? { row, col }
     selectedCell.value = anchor
     selectionMode.value = 'cell'
+    selectedCells.value = []
     selectedRange.value = {
       startRow: Math.min(anchor.row, row),
       endRow: Math.max(anchor.row, row),
@@ -397,7 +432,58 @@ export const useExcelStore = defineStore('excel', () => {
     }
   }
 
+  function cellKey(row: number, col: number): string {
+    return `${row}:${col}`
+  }
+
+  function parseCellKey(key: string): CellPosition | null {
+    const [rowText, colText] = key.split(':')
+    const row = Number(rowText)
+    const col = Number(colText)
+    if (!Number.isInteger(row) || !Number.isInteger(col)) return null
+    return { row, col }
+  }
+
+  function toggleCell(row: number, col: number) {
+    const next = new Set(selectedCells.value)
+    if (next.size === 0 && selectedCell.value) {
+      next.add(cellKey(selectedCell.value.row, selectedCell.value.col))
+    }
+    const key = cellKey(row, col)
+    if (next.has(key)) {
+      next.delete(key)
+    } else {
+      next.add(key)
+    }
+    selectedCell.value = { row, col }
+    selectionMode.value = 'cell'
+    selectedRange.value = null
+    selectedCells.value = Array.from(next)
+  }
+
+  function isCellSelected(row: number, col: number): boolean {
+    if (selectedCells.value.includes(cellKey(row, col))) return true
+    const range = normalizedSelectionRange()
+    return !!range && row >= range.startRow && row <= range.endRow && col >= range.startCol && col <= range.endCol
+  }
+
   function selectionToTsv(): string {
+    if (selectedCells.value.length > 0) {
+      const cells = selectedCells.value
+        .map(parseCellKey)
+        .filter((pos): pos is CellPosition => pos !== null)
+        .sort((a, b) => a.row - b.row || a.col - b.col)
+      const byRow = new Map<number, CellPosition[]>()
+      for (const cell of cells) {
+        const rowCells = byRow.get(cell.row) || []
+        rowCells.push(cell)
+        byRow.set(cell.row, rowCells)
+      }
+      return Array.from(byRow.values())
+        .map(rowCells => rowCells.map(cell => getCell(cell.row, cell.col)).join('\t'))
+        .join('\n')
+    }
+
     const range = normalizedSelectionRange()
     if (!range) return ''
     const rows: string[] = []
@@ -446,6 +532,7 @@ export const useExcelStore = defineStore('excel', () => {
     selectedCell,
     selectionMode,
     selectedRange,
+    selectedCells,
     undoStack,
     redoStack,
     canUndo,
@@ -483,6 +570,8 @@ export const useExcelStore = defineStore('excel', () => {
     selectCol,
     clearSelection,
     extendSelection,
+    toggleCell,
+    isCellSelected,
     normalizedSelectionRange,
     selectionToTsv,
     pasteTsv,

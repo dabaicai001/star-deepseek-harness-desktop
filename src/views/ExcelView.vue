@@ -13,6 +13,7 @@ import AiChat from '@/components/ai/AiChat.vue'
 import { useAiStore } from '@/stores/ai'
 import { EXCEL_SYSTEM_PROMPT, excelTools } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 
 const route = useRoute()
 const assetStore = useAssetStore()
@@ -48,11 +49,39 @@ const filterInput = ref('')
 const formulaInput = ref('')
 const rightActiveTab = ref('ai')
 const rightPanelTabs = [{ key: 'ai', label: 'AI助手', icon: 'mdi-robot-outline' }]
+const showDropOverlay = ref(false)
+let unlistenDragDrop: (() => void) | null = null
 
 type SheetPayload = { sheetName: string; columns: string[]; rows: string[][]; totalRows: number }
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+function droppedFileFormat(path: string): 'xlsx' | 'csv' | null {
+  const lower = path.toLowerCase()
+  if (lower.endsWith('.csv')) return 'csv'
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) return 'xlsx'
+  return null
+}
+
+function fileBaseName(path: string): string {
+  const name = path.split(/[\\/]/).pop() || path
+  return name.replace(/\.(xlsx?|csv)$/i, '') || name
+}
+
+async function openDroppedFile(path: string) {
+  const format = droppedFileFormat(path)
+  if (!format || !asset.value) {
+    notify.notify({ message: '仅支持拖入 .xlsx / .xls / .csv 文件', color: 'warning', timeout: 2500 })
+    return
+  }
+  await assetStore.updateAsset(asset.value.id, {
+    name: fileBaseName(path),
+    config: { ...asset.value.config, filePath: path, format },
+    lastUsedAt: Date.now(),
+  })
+  notify.notify({ message: `已导入 ${format.toUpperCase()} 文件`, color: 'success', timeout: 1800 })
 }
 
 async function sidecarRpc<T>(method: string, params: Record<string, unknown>): Promise<T> {
@@ -496,10 +525,31 @@ onMounted(() => {
     openExcel()
   }
   window.addEventListener('keydown', handleGlobalKeydown)
+  getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === 'over') {
+      showDropOverlay.value = true
+    } else if (event.payload.type === 'leave') {
+      showDropOverlay.value = false
+    } else if (event.payload.type === 'drop') {
+      showDropOverlay.value = false
+      const path = event.payload.paths.find(p => droppedFileFormat(p))
+      if (path) {
+        openDroppedFile(path).catch((e) => {
+          notify.notify({ message: `导入失败: ${errMsg(e)}`, color: 'error', timeout: 5000 })
+        })
+      } else {
+        notify.notify({ message: '仅支持拖入 .xlsx / .xls / .csv 文件', color: 'warning', timeout: 2500 })
+      }
+    }
+  }).then((unlisten) => {
+    unlistenDragDrop = unlisten
+  })
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
+  unlistenDragDrop?.()
+  unlistenDragDrop = null
 })
 
 watch(
@@ -516,6 +566,11 @@ watch(() => store.selectedCellValue, (value) => {
 
 <template>
   <div class="excel-view">
+    <div v-if="showDropOverlay" class="excel-drop-overlay">
+      <v-icon size="42" color="cyan">mdi-file-import-outline</v-icon>
+      <span>释放以导入 Excel / CSV 文件</span>
+    </div>
+
     <div v-if="!asset" class="excel-empty">
       <v-icon size="48" color="muted">mdi-file-alert-outline</v-icon>
       <p>文件未找到</p>
@@ -656,6 +711,26 @@ watch(() => store.selectedCellValue, (value) => {
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  position: relative;
+}
+
+.excel-drop-overlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 1px dashed var(--cyan);
+  border-radius: 12px;
+  background: rgba(5, 8, 16, 0.84);
+  color: var(--cyan);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--glow-cyan);
+  pointer-events: none;
 }
 
 .excel-empty,
