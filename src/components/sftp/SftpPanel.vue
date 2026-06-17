@@ -20,6 +20,9 @@ const dlg = useDialogStore()
 const props = defineProps<{
   /** SSH 资产 ID */
   assetId?: string
+  /** 已登录的 SSH session ID。传入时复用该 session,不再单独认证。 */
+  sessionId?: string
+  sshConnected?: boolean
 }>()
 
 const asset = computed(() =>
@@ -32,6 +35,7 @@ const connecting = ref(false)
 const lastError = ref<string | null>(null)
 let unlistenClose: UnlistenFn | null = null
 let currentConnectId = 0
+let ownsSession = true
 
 // SFTP 专用 session ID（与 SSH terminal 的 session 完全独立）
 // onMounted 时生成一次，生命周期内不变
@@ -52,7 +56,7 @@ async function connect() {
     return
   }
 
-  const sessionId = sftpSessionId
+  const sessionId = props.sessionId || sftpSessionId
   if (!sessionId) return
 
   if (unlistenClose) { unlistenClose(); unlistenClose = null }
@@ -63,32 +67,37 @@ async function connect() {
   const connectCallId = ++currentConnectId
 
   try {
-    const config = {
-      host: a.config.host,
-      port: a.config.port || 22,
-      username: a.config.username,
-      auth: a.config.password
-        ? { Password: a.config.password }
-        : a.config.privateKey
-        ? { PrivateKey: { key: a.config.privateKey, passphrase: a.config.passphrase } }
-        : { Password: '' },
-    }
+    ownsSession = !props.sessionId
+    if (ownsSession) {
+      const config = {
+        host: a.config.host,
+        port: a.config.port || 22,
+        username: a.config.username,
+        auth: a.config.password
+          ? { Password: a.config.password }
+          : a.config.privateKey
+          ? { PrivateKey: { key: a.config.privateKey, passphrase: a.config.passphrase } }
+          : { Password: '' },
+      }
 
-    const CONNECT_TIMEOUT_MS = 15_000
-    let timeoutHandle: number | null = null
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutHandle = window.setTimeout(() => {
-        reject(new Error(`Connection timed out after ${CONNECT_TIMEOUT_MS / 1000}s`))
-      }, CONNECT_TIMEOUT_MS)
-    })
+      const CONNECT_TIMEOUT_MS = 15_000
+      let timeoutHandle: number | null = null
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutHandle = window.setTimeout(() => {
+          reject(new Error(`Connection timed out after ${CONNECT_TIMEOUT_MS / 1000}s`))
+        }, CONNECT_TIMEOUT_MS)
+      })
 
-    try {
-      await Promise.race([
-        invoke('ssh_connect', { id: sessionId, config }),
-        timeoutPromise,
-      ])
-    } finally {
-      if (timeoutHandle !== null) window.clearTimeout(timeoutHandle)
+      try {
+        await Promise.race([
+          invoke('ssh_connect', { id: sessionId, config }),
+          timeoutPromise,
+        ])
+      } finally {
+        if (timeoutHandle !== null) window.clearTimeout(timeoutHandle)
+      }
+    } else if (!props.sshConnected) {
+      throw new Error('SSH session is not connected')
     }
 
     if (connectCallId !== currentConnectId) return
@@ -119,9 +128,9 @@ async function connect() {
 }
 
 async function disconnect() {
-  const sessionId = sftpSessionId
+  const sessionId = props.sessionId || sftpSessionId
   if (unlistenClose) { unlistenClose(); unlistenClose = null }
-  if (connected.value && sessionId) {
+  if (connected.value && sessionId && ownsSession) {
     try {
       await invoke('ssh_disconnect', { id: sessionId })
     } catch (error) {
@@ -379,8 +388,8 @@ async function ctxCopyPath() {
 
 // ====== 生命周期 ======
 onMounted(async () => {
-  if (asset.value) {
-    sftpSessionId = `sftp-panel-${props.assetId}__${Date.now()}`
+  if (asset.value && (!props.sessionId || props.sshConnected)) {
+    sftpSessionId = props.sessionId || `sftp-panel-${props.assetId}__${Date.now()}`
     await connect()
   }
 
@@ -416,11 +425,11 @@ onBeforeUnmount(async () => {
 })
 
 // assetId 变化时重连（重新生成 session ID）
-watch(() => props.assetId, async (newId, oldId) => {
-  if (newId !== oldId) {
+watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId, sessionId, sshConnected], [oldId, oldSessionId, oldSshConnected]) => {
+  if (newId !== oldId || sessionId !== oldSessionId || sshConnected !== oldSshConnected) {
     await disconnect()
-    if (asset.value) {
-      sftpSessionId = `sftp-panel-${newId}__${Date.now()}`
+    if (asset.value && (!props.sessionId || props.sshConnected)) {
+      sftpSessionId = props.sessionId || `sftp-panel-${newId}__${Date.now()}`
       await connect()
     }
   }

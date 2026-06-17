@@ -11,6 +11,7 @@ const editingCell = ref<{ row: number; col: number } | null>(null)
 const editValue = ref('')
 const editInputRef = ref<HTMLInputElement | null>(null)
 const contextMenu = ref<{ x: number; y: number; row: number; col: number } | null>(null)
+const headerFilter = ref<{ x: number; y: number; col: number; text: string } | null>(null)
 
 const emit = defineEmits<{
   'cell-change': [edits: CellEdit[]]
@@ -96,20 +97,24 @@ function cellLeftOffset(col: number): number {
 }
 
 const visibleCols = computed(() => {
-  const colMap = new Map<number, { index: number; name: string; width: number; left: number; frozen: boolean }>()
+  const colMap = new Map<number, { index: number; letter: string; label: string; width: number; left: number; frozen: boolean }>()
   for (let c = 0; c < Math.min(store.frozenCols, store.columns.length); c++) {
+    const letter = store.colIndexToLetter(c)
     colMap.set(c, {
       index: c,
-      name: store.colIndexToLetter(c),
+      letter,
+      label: store.columns[c]?.trim() || letter,
       width: store.getColWidth(c),
       left: cellLeftOffset(c),
       frozen: true,
     })
   }
   for (let c = visibleStartCol.value; c < visibleEndCol.value; c++) {
+    const letter = store.colIndexToLetter(c)
     colMap.set(c, {
       index: c,
-      name: store.colIndexToLetter(c),
+      letter,
+      label: store.columns[c]?.trim() || letter,
       width: store.getColWidth(c),
       left: cellLeftOffset(c),
       frozen: c < store.frozenCols,
@@ -152,8 +157,13 @@ function closeContextMenu() {
   contextMenu.value = null
 }
 
+function closeHeaderFilter() {
+  headerFilter.value = null
+}
+
 function openContextMenu(e: MouseEvent, row: number, col: number) {
   e.preventDefault()
+  closeHeaderFilter()
   store.selectCell(row, col)
   contextMenu.value = { x: e.clientX, y: e.clientY, row, col }
 }
@@ -211,6 +221,7 @@ function handleContainerScroll() {
   scrollLeft.value = containerRef.value.scrollLeft
   scrollTop.value = containerRef.value.scrollTop
   closeEditor()
+  closeHeaderFilter()
 }
 
 function handleCellClick(row: number, col: number) {
@@ -223,6 +234,29 @@ function handleRowHeaderClick(row: number) {
 
 function handleColHeaderClick(col: number) {
   store.selectCol(col)
+}
+
+function openHeaderFilter(e: MouseEvent, col: number) {
+  e.preventDefault()
+  e.stopPropagation()
+  closeContextMenu()
+  headerFilter.value = {
+    x: e.clientX,
+    y: e.clientY,
+    col,
+    text: store.filterCol === col ? store.filterText : '',
+  }
+}
+
+function applyHeaderFilter() {
+  if (!headerFilter.value) return
+  store.setFilter(headerFilter.value.text, headerFilter.value.col)
+  closeHeaderFilter()
+}
+
+function clearHeaderFilter() {
+  store.clearFilter()
+  closeHeaderFilter()
 }
 
 function handleCellDblClick(row: number, col: number) {
@@ -381,11 +415,13 @@ function handleColResizeMouseup() {
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('click', closeContextMenu)
+  window.addEventListener('click', closeHeaderFilter)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('click', closeContextMenu)
+  window.removeEventListener('click', closeHeaderFilter)
   document.removeEventListener('mousemove', handleColResizeMousemove)
   document.removeEventListener('mouseup', handleColResizeMouseup)
 })
@@ -419,7 +455,16 @@ onBeforeUnmount(() => {
             @click="handleColHeaderClick(col.index)"
             @contextmenu.prevent="openContextMenu($event, 0, col.index)"
           >
-            <span>{{ col.name }}</span>
+            <span class="col-letter">{{ col.letter }}</span>
+            <span class="col-title" :title="col.label">{{ col.label }}</span>
+            <button
+              class="col-filter-btn"
+              :class="{ active: store.filterCol === col.index && !!store.filterText }"
+              :title="`筛选 ${col.label}`"
+              @click="openHeaderFilter($event, col.index)"
+            >
+              <v-icon size="10">mdi-filter-outline</v-icon>
+            </button>
             <span
               class="col-resize-handle"
               @mousedown.stop="handleColResizeMousedown(col.index, $event)"
@@ -538,6 +583,32 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="headerFilter"
+        class="header-filter-menu"
+        :style="{ left: headerFilter.x + 'px', top: headerFilter.y + 'px' }"
+        @click.stop
+      >
+        <div class="filter-title">
+          <v-icon size="12">mdi-filter-outline</v-icon>
+          <span>{{ store.columns[headerFilter.col] || store.colIndexToLetter(headerFilter.col) }}</span>
+        </div>
+        <input
+          v-model="headerFilter.text"
+          class="cyber-input filter-input"
+          placeholder="按此列筛选..."
+          autofocus
+          @keydown.enter.prevent="applyHeaderFilter"
+          @keydown.esc.prevent="closeHeaderFilter"
+        />
+        <div class="filter-actions">
+          <button class="cyber-btn-secondary" @click="clearHeaderFilter">清除</button>
+          <button class="cyber-btn" :disabled="!headerFilter.text.trim()" @click="applyHeaderFilter">筛选</button>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -580,7 +651,9 @@ onBeforeUnmount(() => {
   top: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 0 24px 0 6px;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-2);
@@ -589,6 +662,43 @@ onBeforeUnmount(() => {
   user-select: none;
   overflow: hidden;
   cursor: pointer;
+}
+
+.col-letter {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.col-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.col-filter-btn {
+  position: absolute;
+  right: 4px;
+  top: 5px;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.col-filter-btn:hover,
+.col-filter-btn.active {
+  color: var(--cyan);
+  background: var(--hover-cyan);
+  border-color: var(--line-2);
 }
 
 .excel-col-header.selected {
@@ -716,5 +826,39 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-family: 'JetBrains Mono', monospace;
   padding: 2px 6px;
+}
+
+.header-filter-menu {
+  position: fixed;
+  z-index: 1000;
+  width: 220px;
+  padding: 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--panel-solid-2);
+  box-shadow: var(--shadow), var(--glow-soft);
+}
+
+.filter-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.filter-input {
+  width: 100%;
+  height: 30px;
+  font-size: 12px;
+}
+
+.filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
 }
 </style>

@@ -117,6 +117,12 @@ function toolCallSummary(rec: AiToolCallRecord): string {
   if (rec.name === 'docker_inspect') {
     return `inspect: ${rec.args.target}`
   }
+  if (rec.name.startsWith('excel_')) {
+    if (rec.name === 'excel_write_cell') return `${rec.args.row},${rec.args.col} = ${rec.args.value}`
+    if (rec.name === 'excel_filter') return `filter: ${rec.args.text}`
+    if (rec.name === 'excel_sort') return `sort col ${rec.args.col}`
+    return rec.name.replace('excel_', '')
+  }
   return JSON.stringify(rec.args)
 }
 

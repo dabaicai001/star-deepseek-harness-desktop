@@ -393,8 +393,10 @@ async function connect() {
   connected.value = false
   stopTimer()
   terminalRef.value?.writeln('\r\n\x1b[33m! Connection closed by remote host\x1b[0m')
-  if (autoReconnect.value) {
+  if (autoReconnect.value && !asset.value?.config.mfaEnabled) {
     tryReconnect(sessionId)
+  } else if (asset.value?.config.mfaEnabled) {
+    terminalRef.value?.writeln('\x1b[36m MFA/2FA session closed. Click reconnect when you are ready to verify again.\x1b[0m')
   }
   })
 
@@ -831,7 +833,7 @@ function handleKbCancelled() {
     />
   </template>
   <template #tab-sftp>
-    <SftpPanel :asset-id="asset?.id" />
+    <SftpPanel :asset-id="asset?.id" :session-id="id" :ssh-connected="connected" />
   </template>
   </RightPanel>
   </div>

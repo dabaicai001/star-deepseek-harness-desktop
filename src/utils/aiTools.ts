@@ -143,6 +143,188 @@ function safeParse(s: string): Record<string, unknown> {
 }
 
 // ============================================================
+// Excel 工具
+// ============================================================
+
+export const EXCEL_SYSTEM_PROMPT = `你是一个 Excel 工作簿助手。当前已打开一个 Excel/CSV 文件。
+
+工具使用规则:
+- 需要了解当前文件时先调用 excel_get_context
+- 读取数据用 excel_read_range,写入单元格用 excel_write_cell
+- 插入/删除行列、排序、筛选、冻结、去重、保存都通过工具执行
+- 修改文件前先说明将要影响的单元格/行列;危险的大范围删除要谨慎
+- 用户说"表头"时,指当前工作表第一行字段名`
+
+export const excelTools: LlmTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'excel_get_context',
+      description: '获取当前工作簿、活动 Sheet、列名、行数、选中单元格和筛选状态。',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_read_range',
+      description: '读取当前筛选视图中的一段数据。',
+      parameters: {
+        type: 'object',
+        properties: {
+          startRow: { type: 'number', description: '0-based 数据行索引,不含表头' },
+          rowCount: { type: 'number', description: '读取多少行,默认 20' }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_write_cell',
+      description: '写入一个单元格。row 为 0-based 数据行索引,不含表头; col 为 0-based 列索引。',
+      parameters: {
+        type: 'object',
+        properties: {
+          row: { type: 'number', description: '0-based 数据行索引,不含表头' },
+          col: { type: 'number', description: '0-based 列索引' },
+          value: { type: 'string', description: '要写入的文本、数字或公式字符串' }
+        },
+        required: ['row', 'col', 'value']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_insert_rows',
+      description: '在指定数据行前插入行。',
+      parameters: {
+        type: 'object',
+        properties: {
+          row: { type: 'number', description: '0-based 数据行索引,在此行前插入' },
+          count: { type: 'number', description: '插入行数,默认 1' }
+        },
+        required: ['row']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_delete_rows',
+      description: '删除指定数据行。',
+      parameters: {
+        type: 'object',
+        properties: {
+          row: { type: 'number', description: '0-based 数据行索引' },
+          count: { type: 'number', description: '删除行数,默认 1' }
+        },
+        required: ['row']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_insert_cols',
+      description: '在指定列前插入列。',
+      parameters: {
+        type: 'object',
+        properties: {
+          col: { type: 'number', description: '0-based 列索引,在此列前插入' },
+          count: { type: 'number', description: '插入列数,默认 1' }
+        },
+        required: ['col']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_delete_cols',
+      description: '删除指定列。',
+      parameters: {
+        type: 'object',
+        properties: {
+          col: { type: 'number', description: '0-based 列索引' },
+          count: { type: 'number', description: '删除列数,默认 1' }
+        },
+        required: ['col']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_sort',
+      description: '按列排序当前工作表数据,表头保持不动。',
+      parameters: {
+        type: 'object',
+        properties: {
+          col: { type: 'number', description: '0-based 排序列索引' },
+          descending: { type: 'boolean', description: 'true 为降序,false 为升序' }
+        },
+        required: ['col']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_filter',
+      description: '按指定列关键词筛选当前视图。col 为空表示全列搜索。',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: '筛选关键词' },
+          col: { type: 'number', description: '0-based 列索引;不传则全列搜索' }
+        },
+        required: ['text']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_clear_filter',
+      description: '清除当前筛选。',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_freeze',
+      description: '设置冻结窗格。冻结表头 rows=1,冻结首列 cols=1,取消冻结 rows=0 cols=0。',
+      parameters: {
+        type: 'object',
+        properties: {
+          rows: { type: 'number', description: '要冻结的顶部行数' },
+          cols: { type: 'number', description: '要冻结的左侧列数' }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_remove_duplicates',
+      description: '删除重复数据行。',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_save',
+      description: '保存当前文件。',
+      parameters: { type: 'object', properties: {} }
+    }
+  }
+]
+
+// ============================================================
 // DB 工具
 // ============================================================
 

@@ -41,7 +41,7 @@ impl SshSession {
         let socket_addr = format!("{}:{}", host, port);
 
         let config = client::Config {
-            inactivity_timeout: Some(Duration::from_secs(300)),
+            inactivity_timeout: None,
             ..Default::default()
         };
 
@@ -157,7 +157,7 @@ impl SshSession {
                 })?;
 
             let config = client::Config {
-                inactivity_timeout: Some(Duration::from_secs(300)),
+                inactivity_timeout: None,
                 ..Default::default()
             };
 

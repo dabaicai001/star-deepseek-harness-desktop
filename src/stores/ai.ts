@@ -36,7 +36,7 @@ export interface AiSettings {
 export interface AiSession {
   instanceId: string
   assetId: string
-  assetType: 'ssh' | 'db' | 'docker'
+  assetType: 'ssh' | 'db' | 'docker' | 'excel'
   messages: ChatMessage[]
   loading: boolean
   error: string | null
@@ -133,7 +133,7 @@ export const useAiStore = defineStore('ai', () => {
   /**
    * 获取或创建某个 tab 的 AI 会话
    */
-  function getOrCreateSession(instanceId: string, assetId: string, assetType: 'ssh' | 'db' | 'docker'): AiSession {
+  function getOrCreateSession(instanceId: string, assetId: string, assetType: 'ssh' | 'db' | 'docker' | 'excel'): AiSession {
     let s = sessions.value.get(instanceId)
     if (!s) {
       s = {

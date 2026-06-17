@@ -8,12 +8,18 @@ import { useNotifyStore } from '@/stores/notify'
 import ExcelGrid from '@/components/excel/ExcelGrid.vue'
 import ExcelToolbar from '@/components/excel/ExcelToolbar.vue'
 import ExcelSheetBar from '@/components/excel/ExcelSheetBar.vue'
+import RightPanel from '@/components/layout/RightPanel.vue'
+import AiChat from '@/components/ai/AiChat.vue'
+import { useAiStore } from '@/stores/ai'
+import { EXCEL_SYSTEM_PROMPT, excelTools } from '@/utils/aiTools'
+import type { LlmToolCall } from '@/services/ai'
 
 const route = useRoute()
 const assetStore = useAssetStore()
 const appStore = useAppStore()
 const store = useExcelStore()
 const notify = useNotifyStore()
+const aiStore = useAiStore()
 
 const instanceId = computed(() => route.params.id as string)
 const asset = computed(() => {
@@ -30,12 +36,18 @@ const fileFormat = computed<'xlsx' | 'csv'>(() => {
 const isCsvFile = computed(() => fileFormat.value === 'csv')
 const rpcPrefix = computed(() => isCsvFile.value ? 'file.csv' : 'file.excel')
 const fileKindLabel = computed(() => isCsvFile.value ? 'CSV' : 'Excel')
+const aiSession = computed(() => {
+  if (!asset.value) return null
+  return aiStore.getOrCreateSession(instanceId.value, asset.value.id, 'excel')
+})
 
 const loading = ref(false)
 const error = ref<string | null>(null)
 const showFilter = ref(false)
 const filterInput = ref('')
 const formulaInput = ref('')
+const rightActiveTab = ref('ai')
+const rightPanelTabs = [{ key: 'ai', label: 'AI助手', icon: 'mdi-robot-outline' }]
 
 type SheetPayload = { sheetName: string; columns: string[]; rows: string[][]; totalRows: number }
 
@@ -356,6 +368,116 @@ function applyFilter() {
   store.setFilter(filterInput.value)
 }
 
+function asNumber(value: unknown, fallback = 0): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function excelContextJson(): string {
+  return JSON.stringify({
+    file: store.filePath,
+    kind: fileKindLabel.value,
+    activeSheet: store.activeSheet,
+    sheets: store.sheetNames,
+    columns: store.columns.map((name, index) => ({ index, letter: store.colIndexToLetter(index), name })),
+    totalRows: store.totalRows,
+    displayRows: store.displayRowCount,
+    selectedCell: store.selectedCell
+      ? { ...store.selectedCell, label: store.activeCellLabel, value: store.selectedCellValue }
+      : null,
+    filter: store.filterText ? { text: store.filterText, col: store.filterCol } : null,
+    dirty: store.dirty,
+  }, null, 2)
+}
+
+async function executeExcelTool(call: LlmToolCall): Promise<string> {
+  const args = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>
+  switch (call.function.name) {
+    case 'excel_get_context':
+      return excelContextJson()
+    case 'excel_read_range': {
+      const startRow = Math.max(0, asNumber(args.startRow, 0))
+      const rowCount = Math.min(Math.max(1, asNumber(args.rowCount, 20)), 100)
+      const rows = store.filteredRowData.slice(startRow, startRow + rowCount)
+      return JSON.stringify({ columns: store.columns, startRow, rows }, null, 2)
+    }
+    case 'excel_write_cell': {
+      const row = asNumber(args.row)
+      const col = asNumber(args.col)
+      const value = String(args.value ?? '')
+      const edits = store.commitDisplayCellEdits([{ row, col, value }])
+      if (edits.length > 0) await onCellChange(edits)
+      return `已写入 ${store.colIndexToLetter(col)}${store.displayRowToExcelRow(row)}`
+    }
+    case 'excel_insert_rows':
+      await handleAddRow(asNumber(args.row))
+      return '已插入行'
+    case 'excel_delete_rows':
+      for (let i = 0; i < Math.max(1, asNumber(args.count, 1)); i++) {
+        await handleDeleteRow(asNumber(args.row))
+      }
+      return '已删除行'
+    case 'excel_insert_cols':
+      await handleAddCol(asNumber(args.col))
+      return '已插入列'
+    case 'excel_delete_cols':
+      for (let i = 0; i < Math.max(1, asNumber(args.count, 1)); i++) {
+        await handleDeleteCol(asNumber(args.col))
+      }
+      return '已删除列'
+    case 'excel_sort':
+      await sortRows(Boolean(args.descending), asNumber(args.col))
+      return '已排序'
+    case 'excel_filter':
+      showFilter.value = true
+      filterInput.value = String(args.text ?? '')
+      store.setFilter(filterInput.value, args.col === undefined ? null : asNumber(args.col))
+      return `已筛选,当前显示 ${store.displayRowCount} / ${store.rowData.length} 行`
+    case 'excel_clear_filter':
+      filterInput.value = ''
+      store.clearFilter()
+      return '已清除筛选'
+    case 'excel_freeze':
+      await setFreeze(asNumber(args.rows, 0), asNumber(args.cols, 0))
+      return '冻结窗格已更新'
+    case 'excel_remove_duplicates':
+      await removeDuplicates()
+      return '已执行删除重复项'
+    case 'excel_save':
+      await saveFile()
+      return '已保存文件'
+    default:
+      return `[Error] Unknown Excel tool: ${call.function.name}`
+  }
+}
+
+async function onAiSend(text: string) {
+  if (!aiSession.value) return
+  aiSession.value.messages.push({ role: 'user', content: text })
+  await aiStore.runAgent(instanceId.value, excelTools, executeExcelTool, EXCEL_SYSTEM_PROMPT)
+}
+
+async function onAiRetry() {
+  if (!aiSession.value) return
+  const msgs = aiSession.value.messages
+  while (msgs.length && msgs[msgs.length - 1].role !== 'user') {
+    msgs.pop()
+  }
+  if (msgs.length) await aiStore.runAgent(instanceId.value, excelTools, executeExcelTool, EXCEL_SYSTEM_PROMPT)
+}
+
+function onAiNewChat() {
+  aiStore.resetSession(instanceId.value)
+}
+
+function onAiStop() {
+  aiStore.stopAgent(instanceId.value)
+}
+
+function onAiConfirmTool() {
+  // Excel 工具直接作用于当前工作簿,暂不需要命令白名单确认。
+}
+
 function formatNumber(n: number) {
   if (!Number.isFinite(n)) return '0'
   return Math.abs(n) >= 1000 ? n.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : n.toFixed(2).replace(/\.00$/, '')
@@ -457,47 +579,72 @@ watch(() => store.selectedCellValue, (value) => {
         @redo="redo"
       />
 
-      <div v-if="showFilter" class="filter-bar">
-        <v-icon size="14" color="cyan">mdi-filter-outline</v-icon>
-        <input
-          v-model="filterInput"
-          class="cyber-input filter-input"
-          placeholder="输入关键词筛选..."
-          @input="applyFilter"
-          @keydown.escape="toggleFilter"
-        />
-        <span class="filter-count">{{ store.displayRowCount }} / {{ store.rowData.length }} 行</span>
-        <button class="action-btn" @click="toggleFilter">
-          <v-icon size="12">mdi-close</v-icon>
-        </button>
-      </div>
+      <div class="excel-workspace">
+        <div class="excel-main">
+          <div v-if="showFilter" class="filter-bar">
+            <v-icon size="14" color="cyan">mdi-filter-outline</v-icon>
+            <input
+              v-model="filterInput"
+              class="cyber-input filter-input"
+              placeholder="输入关键词筛选..."
+              @input="applyFilter"
+              @keydown.escape="toggleFilter"
+            />
+            <span class="filter-count">{{ store.displayRowCount }} / {{ store.rowData.length }} 行</span>
+            <button class="action-btn" @click="toggleFilter">
+              <v-icon size="12">mdi-close</v-icon>
+            </button>
+          </div>
 
-      <ExcelGrid
-        @cell-change="onCellChange"
-        @insert-row="handleAddRow"
-        @delete-row="handleDeleteRow"
-        @insert-col="handleAddCol"
-        @delete-col="handleDeleteCol"
-        @sort="(col, descending) => sortRows(descending, col)"
-        @undo="undo"
-        @redo="redo"
-      />
+          <ExcelGrid
+            @cell-change="onCellChange"
+            @insert-row="handleAddRow"
+            @delete-row="handleDeleteRow"
+            @insert-col="handleAddCol"
+            @delete-col="handleDeleteCol"
+            @sort="(col, descending) => sortRows(descending, col)"
+            @undo="undo"
+            @redo="redo"
+          />
 
-      <ExcelSheetBar
-        :single-sheet="isCsvFile"
-        @switch-sheet="switchSheet"
-        @add-sheet="addSheet"
-        @remove-sheet="removeSheet"
-        @rename-sheet="renameSheet"
-      />
+          <ExcelSheetBar
+            :single-sheet="isCsvFile"
+            @switch-sheet="switchSheet"
+            @add-sheet="addSheet"
+            @remove-sheet="removeSheet"
+            @rename-sheet="renameSheet"
+          />
 
-      <div class="excel-statusbar">
-        <span>{{ store.displayRowCount }} / {{ store.totalRows }} 行</span>
-        <span>{{ store.columns.length }} 列</span>
-        <span v-if="store.selectedStats.count">选区 {{ store.selectedStats.count }} 格</span>
-        <span v-if="store.selectedStats.numericCount">求和 {{ formatNumber(store.selectedStats.sum) }}</span>
-        <span v-if="store.selectedStats.numericCount">平均 {{ formatNumber(store.selectedStats.average) }}</span>
-        <span v-if="store.frozenRows || store.frozenCols">冻结 {{ store.frozenRows }}R {{ store.frozenCols }}C</span>
+          <div class="excel-statusbar">
+            <span>{{ store.displayRowCount }} / {{ store.totalRows }} 行</span>
+            <span>{{ store.columns.length }} 列</span>
+            <span v-if="store.filterText">筛选: {{ store.filterText }}</span>
+            <span v-if="store.selectedStats.count">选区 {{ store.selectedStats.count }} 格</span>
+            <span v-if="store.selectedStats.numericCount">求和 {{ formatNumber(store.selectedStats.sum) }}</span>
+            <span v-if="store.selectedStats.numericCount">平均 {{ formatNumber(store.selectedStats.average) }}</span>
+            <span v-if="store.frozenRows || store.frozenCols">冻结 {{ store.frozenRows }}R {{ store.frozenCols }}C</span>
+          </div>
+        </div>
+
+        <RightPanel
+          v-model="appStore.rightPanelOpen"
+          v-model:active-tab="rightActiveTab"
+          :tabs="rightPanelTabs"
+        >
+          <template #tab-ai>
+            <AiChat
+              v-if="aiSession"
+              :session="aiSession"
+              :sending="aiSession.loading"
+              placeholder="让 AI 操作当前表格,例如: 按金额降序、筛选状态为成功、把 B2 改成 100"
+              @send="onAiSend"
+              @retry="onAiRetry"
+              @confirm-tool="onAiConfirmTool"
+              @new-chat="onAiNewChat"
+              @stop="onAiStop"
+            />
+          </template>
+        </RightPanel>
       </div>
     </template>
   </div>
@@ -671,6 +818,21 @@ watch(() => store.selectedCellValue, (value) => {
 .filter-bar .action-btn:hover {
   background: rgba(0, 240, 255, 0.08);
   color: var(--cyan);
+}
+
+.excel-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.excel-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .excel-statusbar {

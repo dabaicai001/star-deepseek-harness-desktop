@@ -3,6 +3,8 @@ import { ref } from 'vue'
 import { useExcelStore } from '@/stores/excel'
 
 const store = useExcelStore()
+type RibbonTab = 'home' | 'data' | 'view'
+const activeTab = ref<RibbonTab>('home')
 
 const emit = defineEmits<{
   save: []
@@ -49,13 +51,13 @@ function emitReplaceAll() {
 <template>
   <div class="excel-ribbon">
     <div class="ribbon-tabs">
-      <button class="ribbon-tab active">开始</button>
-      <button class="ribbon-tab">数据</button>
-      <button class="ribbon-tab">视图</button>
+      <button class="ribbon-tab" :class="{ active: activeTab === 'home' }" @click="activeTab = 'home'">开始</button>
+      <button class="ribbon-tab" :class="{ active: activeTab === 'data' }" @click="activeTab = 'data'">数据</button>
+      <button class="ribbon-tab" :class="{ active: activeTab === 'view' }" @click="activeTab = 'view'">视图</button>
     </div>
 
     <div class="ribbon-body">
-      <div class="ribbon-group">
+      <div v-if="activeTab === 'home'" class="ribbon-group">
         <div class="ribbon-actions">
           <button
             class="action-btn primary"
@@ -85,9 +87,9 @@ function emitReplaceAll() {
         <span class="ribbon-label">文件</span>
       </div>
 
-      <div class="ribbon-divider" />
+      <div v-if="activeTab === 'home'" class="ribbon-divider" />
 
-      <div class="ribbon-group">
+      <div v-if="activeTab === 'home'" class="ribbon-group">
         <div class="ribbon-actions">
           <button class="action-btn" :data-tooltip="'插入行'" @click="emit('add-row')">
             <v-icon size="14">mdi-table-row-plus-before</v-icon>
@@ -105,9 +107,9 @@ function emitReplaceAll() {
         <span class="ribbon-label">单元格</span>
       </div>
 
-      <div class="ribbon-divider" />
+      <div v-if="activeTab === 'home'" class="ribbon-divider" />
 
-      <div class="ribbon-group">
+      <div v-if="activeTab === 'data'" class="ribbon-group">
         <div class="ribbon-actions">
           <button class="action-btn" :data-tooltip="'升序排序'" @click="emit('sort-asc')">
             <v-icon size="14">mdi-sort-ascending</v-icon>
@@ -128,9 +130,9 @@ function emitReplaceAll() {
         <span class="ribbon-label">数据</span>
       </div>
 
-      <div class="ribbon-divider" />
+      <div v-if="activeTab === 'data'" class="ribbon-divider" />
 
-      <div class="ribbon-group">
+      <div v-if="activeTab === 'view'" class="ribbon-group">
         <div class="ribbon-actions">
           <button class="action-btn" :data-tooltip="'冻结表头'" @click="emit('freeze-header')">
             <v-icon size="14">mdi-table-row</v-icon>
@@ -150,7 +152,7 @@ function emitReplaceAll() {
 
       <div class="ribbon-spacer" />
 
-      <div class="ribbon-group compact">
+      <div v-if="activeTab !== 'view'" class="ribbon-group compact">
         <div class="ribbon-actions">
           <button class="action-btn" :data-tooltip="'查找替换'" @click="showFind = !showFind">
             <v-icon size="14">mdi-magnify</v-icon>
