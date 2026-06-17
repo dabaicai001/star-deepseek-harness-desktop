@@ -151,7 +151,8 @@ export const EXCEL_SYSTEM_PROMPT = `你是一个 Excel 工作簿助手。当前�
 工具使用规则:
 - 需要了解当前文件时先调用 excel_get_context
 - 读取数据用 excel_read_range,写入单元格用 excel_write_cell
-- 插入/删除行列、排序、筛选、冻结、去重、保存都通过工具执行
+- 批量区域写入用 excel_write_range,公式批量填充用 excel_fill_formula
+- 插入/删除行列、排序、筛选、冻结、去重、Sheet 管理、表头重命名、保存都通过工具执行
 - 修改文件前先说明将要影响的单元格/行列;危险的大范围删除要谨慎
 - 用户说"表头"时,指当前工作表第一行字段名`
 
@@ -167,6 +168,39 @@ export const excelTools: LlmTool[] = [
   {
     type: 'function',
     function: {
+      name: 'excel_write_range',
+      description: '从指定数据行列开始批量写入二维区域。row 为 0-based 数据行索引,不含表头。',
+      parameters: {
+        type: 'object',
+        properties: {
+          row: { type: 'number', description: '起始 0-based 数据行索引,不含表头' },
+          col: { type: 'number', description: '起始 0-based 列索引' },
+          values: { type: 'array', description: '二维数组,每个内部数组代表一行' }
+        },
+        required: ['row', 'col', 'values']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_fill_formula',
+      description: '批量填充公式。formula 支持 {excelRow}、{row}、{colLetter} 占位符。',
+      parameters: {
+        type: 'object',
+        properties: {
+          startRow: { type: 'number', description: '起始 0-based 数据行索引,不含表头' },
+          col: { type: 'number', description: '0-based 目标列索引' },
+          rowCount: { type: 'number', description: '填充行数' },
+          formula: { type: 'string', description: '公式模板,例如 =B{excelRow}*C{excelRow}' }
+        },
+        required: ['startRow', 'col', 'rowCount', 'formula']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'excel_read_range',
       description: '读取当前筛选视图中的一段数据。',
       parameters: {
@@ -176,6 +210,111 @@ export const excelTools: LlmTool[] = [
           rowCount: { type: 'number', description: '读取多少行,默认 20' }
         }
       }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_set_headers',
+      description: '重写当前工作表表头。headers 数组会写入第 1 行。',
+      parameters: {
+        type: 'object',
+        properties: {
+          headers: { type: 'array', description: '新的表头数组' }
+        },
+        required: ['headers']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_find_replace',
+      description: '在当前工作表查找并替换文本。',
+      parameters: {
+        type: 'object',
+        properties: {
+          find: { type: 'string', description: '要查找的文本或正则' },
+          replace: { type: 'string', description: '替换为' },
+          matchCase: { type: 'boolean', description: '是否区分大小写' },
+          entireCell: { type: 'boolean', description: '是否整格匹配' },
+          useRegex: { type: 'boolean', description: '是否按正则表达式处理' }
+        },
+        required: ['find', 'replace']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_add_sheet',
+      description: '新增一个 Sheet 并切换过去。',
+      parameters: {
+        type: 'object',
+        properties: {
+          sheetName: { type: 'string', description: 'Sheet 名称' }
+        },
+        required: ['sheetName']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_remove_sheet',
+      description: '删除指定 Sheet。',
+      parameters: {
+        type: 'object',
+        properties: {
+          sheetName: { type: 'string', description: 'Sheet 名称' }
+        },
+        required: ['sheetName']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_rename_sheet',
+      description: '重命名 Sheet。',
+      parameters: {
+        type: 'object',
+        properties: {
+          oldName: { type: 'string', description: '旧 Sheet 名称' },
+          newName: { type: 'string', description: '新 Sheet 名称' }
+        },
+        required: ['oldName', 'newName']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_switch_sheet',
+      description: '切换到指定 Sheet。',
+      parameters: {
+        type: 'object',
+        properties: {
+          sheetName: { type: 'string', description: 'Sheet 名称' }
+        },
+        required: ['sheetName']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_style_header',
+      description: '为当前工作表第 1 行应用醒目的表头样式。CSV 中为 no-op。',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'excel_auto_filter',
+      description: '为当前工作表已用区域写入 Excel 自动筛选。',
+      parameters: { type: 'object', properties: {} }
     }
   },
   {

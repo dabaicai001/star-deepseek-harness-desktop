@@ -15,6 +15,15 @@
 
 ---
 
+## [0.9.0] - 2026-06-17
+
+### 新增
+- ✨ feat(excel-ai): AI 助手接入高级 Excel 工具,支持批量区域写入、公式填充、表头重命名、查找替换、Sheet 新增/删除/重命名/切换、表头样式和写入自动筛选
+- ✨ feat(excel): 支持 Ctrl/Cmd + 单元格右下角填充柄拖拽,把源单元格批量赋值到目标区域
+- ✨ feat(sidecar): Excel/CSV sidecar 新增 `writeHeaders`;Excel 新增 `styleHeader`,用于 AI 修改表头和保存表头样式
+
+---
+
 ## [0.8.0] - 2026-06-17
 
 ### 新增

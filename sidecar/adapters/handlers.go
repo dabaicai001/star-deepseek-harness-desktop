@@ -2174,6 +2174,8 @@ func RegisterExcelHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("file.excel.getSheetNames", handleExcelGetSheetNames(mgr))
 	server.Register("file.excel.readSheet", handleExcelReadSheet(mgr))
 	server.Register("file.excel.writeCells", handleExcelWriteCells(mgr))
+	server.Register("file.excel.writeHeaders", handleExcelWriteHeaders(mgr))
+	server.Register("file.excel.styleHeader", handleExcelStyleHeader(mgr))
 	server.Register("file.excel.addSheet", handleExcelAddSheet(mgr))
 	server.Register("file.excel.removeSheet", handleExcelRemoveSheet(mgr))
 	server.Register("file.excel.renameSheet", handleExcelRenameSheet(mgr))
@@ -2198,6 +2200,8 @@ func RegisterCSVHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("file.csv.getSheetNames", handleCsvGetSheetNames(mgr))
 	server.Register("file.csv.readSheet", handleCsvReadSheet(mgr))
 	server.Register("file.csv.writeCells", handleCsvWriteCells(mgr))
+	server.Register("file.csv.writeHeaders", handleCsvWriteHeaders(mgr))
+	server.Register("file.csv.styleHeader", handleCsvNoop(mgr))
 	server.Register("file.csv.save", handleCsvSave(mgr))
 	server.Register("file.csv.insertRows", handleCsvInsertRows(mgr))
 	server.Register("file.csv.deleteRows", handleCsvDeleteRows(mgr))
@@ -2358,6 +2362,47 @@ func handleExcelWriteCells(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		if err := adapter.WriteCells(p.SheetName, p.Cells); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleExcelWriteHeaders(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string   `json:"connId"`
+			SheetName string   `json:"sheetName"`
+			Headers   []string `json:"headers"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.WriteHeaders(p.SheetName, p.Headers); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleExcelStyleHeader(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SheetName string `json:"sheetName"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getExcelAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.StyleHeader(p.SheetName); err != nil {
 			return nil, err
 		}
 		return map[string]bool{"ok": true}, nil
@@ -2808,6 +2853,26 @@ func handleCsvWriteCells(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		if err := adapter.WriteCells(p.Cells); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+func handleCsvWriteHeaders(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID  string   `json:"connId"`
+			Headers []string `json:"headers"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		adapter, err := getCSVAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if err := adapter.WriteHeaders(p.Headers); err != nil {
 			return nil, err
 		}
 		return map[string]bool{"ok": true}, nil

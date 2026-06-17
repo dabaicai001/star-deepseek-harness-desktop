@@ -13,6 +13,7 @@ const editInputRef = ref<HTMLInputElement | null>(null)
 const contextMenu = ref<{ x: number; y: number; row: number; col: number } | null>(null)
 const headerFilter = ref<{ x: number; y: number; col: number; text: string } | null>(null)
 const draggingSelection = ref(false)
+const fillDrag = ref<{ sourceRow: number; sourceCol: number; targetRow: number; targetCol: number } | null>(null)
 
 const emit = defineEmits<{
   'cell-change': [edits: CellEdit[]]
@@ -212,6 +213,17 @@ function deleteSelection() {
   if (edits.length > 0) emit('cell-change', edits)
 }
 
+function fillPreviewRange() {
+  const drag = fillDrag.value
+  if (!drag) return null
+  return {
+    startRow: Math.min(drag.sourceRow, drag.targetRow),
+    endRow: Math.max(drag.sourceRow, drag.targetRow),
+    startCol: Math.min(drag.sourceCol, drag.targetCol),
+    endCol: Math.max(drag.sourceCol, drag.targetCol),
+  }
+}
+
 function isSelected(row: number, col: number): boolean {
   if (store.selectedCells.length > 0) return store.selectedCells.includes(`${row}:${col}`)
   const sel = store.selectedCell
@@ -230,6 +242,12 @@ function isColSelected(col: number): boolean {
 
 function isInSelectedRange(row: number, col: number): boolean {
   return store.isCellSelected(row, col)
+}
+
+function isInFillPreview(row: number, col: number): boolean {
+  const range = fillPreviewRange()
+  if (!range) return false
+  return row >= range.startRow && row <= range.endRow && col >= range.startCol && col <= range.endCol
 }
 
 function handleContainerScroll() {
@@ -258,8 +276,43 @@ function handleCellMouseDown(e: MouseEvent, row: number, col: number) {
 }
 
 function handleCellMouseEnter(row: number, col: number) {
+  if (fillDrag.value) {
+    fillDrag.value.targetRow = row
+    fillDrag.value.targetCol = col
+    return
+  }
   if (!draggingSelection.value) return
   store.extendSelection(row, col)
+}
+
+function startFillDrag(e: MouseEvent, row: number, col: number) {
+  if (!(e.ctrlKey || e.metaKey) || e.button !== 0) return
+  e.preventDefault()
+  e.stopPropagation()
+  draggingSelection.value = false
+  fillDrag.value = { sourceRow: row, sourceCol: col, targetRow: row, targetCol: col }
+}
+
+function commitFillDrag() {
+  const drag = fillDrag.value
+  if (!drag) return
+  fillDrag.value = null
+  if (drag.sourceRow === drag.targetRow && drag.sourceCol === drag.targetCol) return
+
+  const value = store.getCell(drag.sourceRow, drag.sourceCol)
+  const startRow = Math.min(drag.sourceRow, drag.targetRow)
+  const endRow = Math.max(drag.sourceRow, drag.targetRow)
+  const startCol = Math.min(drag.sourceCol, drag.targetCol)
+  const endCol = Math.max(drag.sourceCol, drag.targetCol)
+  const changes: { row: number; col: number; value: string }[] = []
+  for (let row = startRow; row <= endRow; row++) {
+    for (let col = startCol; col <= endCol; col++) {
+      if (row === drag.sourceRow && col === drag.sourceCol) continue
+      changes.push({ row, col, value })
+    }
+  }
+  const edits = store.commitDisplayCellEdits(changes)
+  if (edits.length > 0) emit('cell-change', edits)
 }
 
 function handleRowHeaderClick(row: number) {
@@ -448,6 +501,7 @@ function handleColResizeMouseup() {
 }
 
 function handleSelectionMouseup() {
+  commitFillDrag()
   draggingSelection.value = false
 }
 
@@ -544,6 +598,7 @@ onBeforeUnmount(() => {
             :class="{
               selected: isSelected(r.row, cell.col),
               'in-range': isInSelectedRange(r.row, cell.col),
+              'fill-preview': isInFillPreview(r.row, cell.col),
               'col-highlight': isColSelected(cell.col),
               'frozen-col': cell.col < store.frozenCols,
               'frozen-row': r.frozen,
@@ -570,6 +625,12 @@ onBeforeUnmount(() => {
             </template>
             <template v-else>
               <span class="cell-content">{{ cell.value }}</span>
+              <span
+                v-if="isSelected(r.row, cell.col) && store.selectedCells.length === 0"
+                class="fill-handle"
+                title="Ctrl + 拖拽批量填充"
+                @mousedown.stop="startFillDrag($event, r.row, cell.col)"
+              />
             </template>
           </div>
         </div>
@@ -830,6 +891,12 @@ onBeforeUnmount(() => {
   background: rgba(0, 240, 255, 0.04);
 }
 
+.excel-cell.fill-preview {
+  background: rgba(0, 240, 255, 0.1);
+  outline: 1px dashed var(--cyan);
+  outline-offset: -2px;
+}
+
 .excel-cell.col-highlight {
   background: rgba(0, 240, 255, 0.04);
 }
@@ -856,6 +923,18 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   width: 100%;
+}
+
+.fill-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--bg);
+  background: var(--cyan);
+  cursor: crosshair;
+  box-shadow: 0 0 8px var(--glow-soft);
 }
 
 .excel-cell-input {

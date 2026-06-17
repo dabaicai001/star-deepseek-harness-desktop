@@ -184,6 +184,66 @@ func (a *ExcelAdapter) WriteCells(sheetName string, cells []CellChange) error {
 	return nil
 }
 
+// WriteHeaders 重写第 1 行表头。
+func (a *ExcelAdapter) WriteHeaders(sheetName string, headers []string) error {
+	if len(headers) == 0 {
+		return fmt.Errorf("headers cannot be empty")
+	}
+	rows, err := a.f.GetRows(sheetName)
+	if err != nil {
+		return fmt.Errorf("read sheet failed: %w", err)
+	}
+	maxCols := maxColumnCount(rows)
+	if maxCols < len(headers) {
+		maxCols = len(headers)
+	}
+	for ci := 1; ci <= maxCols; ci++ {
+		axis, _ := excelize.CoordinatesToCellName(ci, 1)
+		value := ""
+		if ci <= len(headers) {
+			value = headers[ci-1]
+		}
+		if err := a.f.SetCellValue(sheetName, axis, value); err != nil {
+			return fmt.Errorf("write header %s failed: %w", axis, err)
+		}
+	}
+	return nil
+}
+
+// StyleHeader 应用基础表头样式。
+func (a *ExcelAdapter) StyleHeader(sheetName string) error {
+	rows, err := a.f.GetRows(sheetName)
+	if err != nil {
+		return fmt.Errorf("read sheet failed: %w", err)
+	}
+	maxCols := maxColumnCount(rows)
+	if maxCols == 0 {
+		return nil
+	}
+	endCol, err := excelize.ColumnNumberToName(maxCols)
+	if err != nil {
+		return fmt.Errorf("invalid header width: %w", err)
+	}
+	styleID, err := a.f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{Bold: true, Color: "FFFFFF"},
+		Fill: excelize.Fill{Type: "pattern", Color: []string{"1F6FEB"}, Pattern: 1},
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+		},
+		Border: []excelize.Border{
+			{Type: "bottom", Color: "7DD3FC", Style: 1},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("create header style failed: %w", err)
+	}
+	if err := a.f.SetCellStyle(sheetName, "A1", endCol+"1", styleID); err != nil {
+		return fmt.Errorf("apply header style failed: %w", err)
+	}
+	return nil
+}
+
 // InsertRows 在数据区插入行,dataRow 为 0-based 数据行索引(表头下面第一行为 0)。
 func (a *ExcelAdapter) InsertRows(sheetName string, dataRow, count int) error {
 	if count < 1 {

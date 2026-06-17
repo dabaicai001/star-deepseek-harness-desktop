@@ -192,6 +192,17 @@ func (a *CsvAdapter) WriteCells(cells []CellChange) error {
 	return nil
 }
 
+// WriteHeaders 重写 CSV 第 1 行表头。
+func (a *CsvAdapter) WriteHeaders(headers []string) error {
+	if len(headers) == 0 {
+		return fmt.Errorf("headers cannot be empty")
+	}
+	a.ensureHeader()
+	a.rows[0] = append([]string(nil), headers...)
+	a.syncColumns()
+	return nil
+}
+
 // InsertRows 在数据区插入行
 func (a *CsvAdapter) InsertRows(dataRow, count int) error {
 	if count < 1 {

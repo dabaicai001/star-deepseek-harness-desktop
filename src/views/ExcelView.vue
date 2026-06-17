@@ -402,6 +402,23 @@ function asNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback
 }
 
+function asStringMatrix(value: unknown): string[][] {
+  if (!Array.isArray(value)) return []
+  return value.map(row => {
+    if (!Array.isArray(row)) return [String(row ?? '')]
+    return row.map(cell => String(cell ?? ''))
+  })
+}
+
+function renderFormulaTemplate(template: string, row: number, col: number): string {
+  const excelRow = store.displayRowToExcelRow(row)
+  return template
+    .replaceAll('{excelRow}', String(excelRow))
+    .replaceAll('{row}', String(row))
+    .replaceAll('{col}', String(col))
+    .replaceAll('{colLetter}', store.colIndexToLetter(col))
+}
+
 function excelContextJson(): string {
   return JSON.stringify({
     file: store.filePath,
@@ -438,6 +455,30 @@ async function executeExcelTool(call: LlmToolCall): Promise<string> {
       if (edits.length > 0) await onCellChange(edits)
       return `已写入 ${store.colIndexToLetter(col)}${store.displayRowToExcelRow(row)}`
     }
+    case 'excel_write_range': {
+      const startRow = asNumber(args.row)
+      const startCol = asNumber(args.col)
+      const values = asStringMatrix(args.values)
+      const changes = values.flatMap((row, rowOffset) =>
+        row.map((value, colOffset) => ({ row: startRow + rowOffset, col: startCol + colOffset, value }))
+      )
+      const edits = store.commitDisplayCellEdits(changes)
+      if (edits.length > 0) await onCellChange(edits)
+      return `已写入区域 ${store.colIndexToLetter(startCol)}${store.displayRowToExcelRow(startRow)} 起 ${values.length} 行`
+    }
+    case 'excel_fill_formula': {
+      const startRow = asNumber(args.startRow)
+      const col = asNumber(args.col)
+      const rowCount = Math.max(1, Math.min(asNumber(args.rowCount, 1), 1000))
+      const formula = String(args.formula ?? '')
+      const changes = Array.from({ length: rowCount }, (_, i) => {
+        const row = startRow + i
+        return { row, col, value: renderFormulaTemplate(formula, row, col) }
+      })
+      const edits = store.commitDisplayCellEdits(changes)
+      if (edits.length > 0) await onCellChange(edits)
+      return `已填充 ${rowCount} 行公式到 ${store.colIndexToLetter(col)} 列`
+    }
     case 'excel_insert_rows':
       await handleAddRow(asNumber(args.row))
       return '已插入行'
@@ -466,6 +507,43 @@ async function executeExcelTool(call: LlmToolCall): Promise<string> {
       filterInput.value = ''
       store.clearFilter()
       return '已清除筛选'
+    case 'excel_set_headers': {
+      const headers = Array.isArray(args.headers) ? args.headers.map(item => String(item ?? '')) : []
+      if (!store.connId || !store.activeSheet || headers.length === 0) return '[Error] headers cannot be empty'
+      await sidecarRpc(`${rpcPrefix.value}.writeHeaders`, { connId: store.connId, sheetName: store.activeSheet, headers })
+      await reloadActiveSheet()
+      store.setDirty(true)
+      return `已更新 ${headers.length} 个表头`
+    }
+    case 'excel_find_replace':
+      await replaceAll({
+        find: String(args.find ?? ''),
+        replace: String(args.replace ?? ''),
+        matchCase: Boolean(args.matchCase),
+        entireCell: Boolean(args.entireCell),
+        useRegex: Boolean(args.useRegex),
+      })
+      return '已完成查找替换'
+    case 'excel_add_sheet':
+      await addSheet(String(args.sheetName ?? 'Sheet'))
+      return '已新增 Sheet'
+    case 'excel_remove_sheet':
+      await removeSheet(String(args.sheetName ?? store.activeSheet))
+      return '已删除 Sheet'
+    case 'excel_rename_sheet':
+      await renameSheet(String(args.oldName ?? store.activeSheet), String(args.newName ?? 'Sheet'))
+      return '已重命名 Sheet'
+    case 'excel_switch_sheet':
+      await switchSheet(String(args.sheetName ?? store.activeSheet))
+      return `已切换到 ${store.activeSheet}`
+    case 'excel_style_header':
+      if (!store.connId || !store.activeSheet) return '[Error] Excel not open'
+      await sidecarRpc(`${rpcPrefix.value}.styleHeader`, { connId: store.connId, sheetName: store.activeSheet })
+      store.setDirty(true)
+      return isCsvFile.value ? 'CSV 不保存样式,已跳过' : '已应用表头样式'
+    case 'excel_auto_filter':
+      await autoFilter()
+      return '已写入自动筛选'
     case 'excel_freeze':
       await setFreeze(asNumber(args.rows, 0), asNumber(args.cols, 0))
       return '冻结窗格已更新'
