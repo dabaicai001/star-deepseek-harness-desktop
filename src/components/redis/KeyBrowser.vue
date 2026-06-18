@@ -363,10 +363,15 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
 <template>
   <div class="key-browser" :class="{ collapsed }">
     <div class="section-header">
-      <span class="section-number">01</span>
-      <span class="section-title">Databases</span>
-      <button class="collapse-btn" @click="toggleCollapse" :title="collapsed ? 'Expand' : 'Collapse'">
-        <v-icon :size="14">{{ collapsed ? 'mdi-chevron-right' : 'mdi-chevron-left' }}</v-icon>
+      <template v-if="!collapsed">
+        <span class="section-number">01</span>
+        <span class="section-title">Databases</span>
+        <button class="collapse-btn" @click="toggleCollapse" title="Collapse">
+          <v-icon :size="14">mdi-chevron-left</v-icon>
+        </button>
+      </template>
+      <button v-else class="collapse-btn expand-btn" @click="toggleCollapse" title="Expand">
+        <v-icon :size="14">mdi-chevron-right</v-icon>
       </button>
     </div>
 
@@ -495,6 +500,15 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
 
 .key-browser.collapsed {
   width: 40px;
+}
+
+.key-browser.collapsed .section-header {
+  justify-content: center;
+  padding: 12px 0 8px;
+}
+
+.expand-btn {
+  margin: 0 auto;
 }
 
 .section-header {

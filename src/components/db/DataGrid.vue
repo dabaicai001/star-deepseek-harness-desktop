@@ -311,14 +311,117 @@ function isDirty(rowIdx: number, col: string) {
   return dirtyCells.value.has(dirtyKey(rowIdx, col))
 }
 
-// 内联编辑
+// 内联编辑(保留给短文本直接双击编辑)
 const editing = ref<{ row: number; col: string } | null>(null)
 const editValue = ref<string>('')
 
+// ─── 单元格编辑器弹窗 ───
+const cellPopover = ref<{
+  row: number
+  col: string
+  colIdx: number
+  value: string
+  originalValue: unknown
+  top: number
+  left: number
+  colType: string
+  readOnly: boolean
+} | null>(null)
+const cellPopoverTextarea = ref<HTMLTextAreaElement | null>(null)
+
+function openCellPopover(e: MouseEvent, rowIdx: number, colIdx: number, currentValue: unknown) {
+  const col = columns.value[colIdx]
+  if (!col) return
+  const rect = (e.target as HTMLElement).getBoundingClientRect()
+  const rawValue = currentValue == null ? '' : String(currentValue)
+  cellPopover.value = {
+    row: rowIdx,
+    col: col.name,
+    colIdx,
+    value: rawValue,
+    originalValue: currentValue,
+    top: rect.bottom + 4,
+    left: rect.left,
+    colType: col.type || '',
+    readOnly: !props.editable,
+  }
+  // 聚焦 textarea
+  requestAnimationFrame(() => {
+    cellPopoverTextarea.value?.focus()
+  })
+}
+
+function commitCellPopover() {
+  if (!cellPopover.value) return
+  const { row, col, colIdx, value, originalValue } = cellPopover.value
+  let newVal: unknown = value
+  const colDef = columns.value[colIdx]
+  if (colDef) {
+    const t = (colDef.type || '').toLowerCase()
+    if (/int|decimal|numeric|float|double|real/.test(t)) {
+      const n = Number(value)
+      if (!isNaN(n)) newVal = n
+    } else if (/bool/.test(t)) {
+      if (value === 'true' || value === '1') newVal = true
+      else if (value === 'false' || value === '0') newVal = false
+    }
+  }
+  if (originalValue === newVal) {
+    cellPopover.value = null
+    return
+  }
+  dirtyCells.value.set(dirtyKey(row, col), { col, originalValue, newValue: newVal })
+  dirtyCells.value = new Map(dirtyCells.value)
+  cellPopover.value = null
+}
+
+function cancelCellPopover() {
+  cellPopover.value = null
+}
+
+function copyCellContent() {
+  if (!cellPopover.value) return
+  navigator.clipboard.writeText(cellPopover.value.value).catch(() => {})
+}
+
+function onCellPopoverKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    cancelCellPopover()
+  } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault()
+    commitCellPopover()
+  }
+}
+
 function startEdit(rowIdx: number, col: string, currentValue: unknown) {
-  if (!props.editable) return
-  editing.value = { row: rowIdx, col }
-  editValue.value = currentValue == null ? '' : String(currentValue)
+  if (!props.editable) {
+    // 只读模式:打开弹窗查看完整内容
+    const colIdx = columns.value.findIndex(c => c.name === col)
+    if (colIdx >= 0) {
+      const td = (event?.target as HTMLElement)?.closest('td')
+      if (td) {
+        const rect = td.getBoundingClientRect()
+        cellPopover.value = {
+          row: rowIdx, col, colIdx,
+          value: currentValue == null ? '' : String(currentValue),
+          originalValue: currentValue,
+          top: rect.bottom + 4, left: rect.left,
+          colType: columns.value[colIdx].type || '',
+          readOnly: true,
+        }
+      }
+    }
+    return
+  }
+  // 可编辑模式:打开弹窗编辑
+  const colIdx = columns.value.findIndex(c => c.name === col)
+  if (colIdx >= 0) {
+    const td = (event?.target as HTMLElement)?.closest('td')
+    if (td) {
+      const rect = td.getBoundingClientRect()
+      openCellPopover({ clientX: rect.left, clientY: rect.bottom } as MouseEvent, rowIdx, colIdx, currentValue)
+    }
+  }
 }
 
 function commitEdit() {
@@ -499,17 +602,7 @@ defineExpose({ clearDirty, hasDirty })
                 class="cell"
                 @dblclick="startEdit(rowIdx, columns[colIdx].name, cell)"
               >
-                <input
-                  v-if="editing?.row === rowIdx && editing?.col === columns[colIdx].name"
-                  v-model="editValue"
-                  class="cell-edit-input"
-                  @keyup.enter="commitEdit"
-                  @keyup.esc="cancelEdit"
-                  @blur="commitEdit"
-                  autofocus
-                />
                 <span
-                  v-else
                   class="cell-value"
                   :title="formatCell(cell)"
                 >{{ formatCell(cell) }}</span>
@@ -558,6 +651,60 @@ defineExpose({ clearDirty, hasDirty })
         class="col-filter-backdrop"
         @click="closeFilterPopover"
       />
+
+      <!-- Cell editor popover -->
+      <teleport to="body">
+        <div
+          v-if="cellPopover"
+          class="cell-popover-backdrop"
+          @click.self="cancelCellPopover"
+        >
+          <div
+            class="cell-popover"
+            :style="{
+              position: 'fixed',
+              top: cellPopover.top + 'px',
+              left: cellPopover.left + 'px',
+              zIndex: 10000,
+            }"
+            @keydown="onCellPopoverKeydown"
+          >
+            <div class="cell-popover-header">
+              <span class="cell-popover-col">{{ cellPopover.col }}</span>
+              <span class="cell-popover-type">{{ cellPopover.colType }}</span>
+              <span v-if="cellPopover.readOnly" class="cell-popover-readonly">只读</span>
+              <div class="cell-popover-header-actions">
+                <button class="cell-popover-copy" @click="copyCellContent" title="复制">
+                  <v-icon size="14">mdi-content-copy</v-icon>
+                </button>
+              </div>
+            </div>
+            <div class="cell-popover-body">
+              <textarea
+                ref="cellPopoverTextarea"
+                v-model="cellPopover.value"
+                class="cell-popover-textarea"
+                :readonly="cellPopover.readOnly"
+                :placeholder="cellPopover.readOnly ? '' : '输入值... (NULL 表示空值)'"
+                spellcheck="false"
+              />
+            </div>
+            <div class="cell-popover-footer">
+              <span class="cell-popover-hint">
+                <kbd>Ctrl</kbd>+<kbd>Enter</kbd> 保存 · <kbd>Esc</kbd> 取消
+              </span>
+              <div class="cell-popover-actions">
+                <button class="cyber-btn-secondary cell-popover-btn" @click="cancelCellPopover">取消</button>
+                <button
+                  v-if="!cellPopover.readOnly"
+                  class="cyber-btn cell-popover-btn"
+                  @click="commitCellPopover"
+                >保存</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </teleport>
 
       <!-- Pagination -->
       <div class="grid-pagination" v-if="totalForPaging > 0">
@@ -1038,4 +1185,142 @@ defineExpose({ clearDirty, hasDirty })
 .row-selected td { background: rgba(0, 240, 255, 0.06); }
 .row-selected:hover td { background: rgba(0, 240, 255, 0.1); }
 .col-index.selected { color: var(--cyan); font-weight: 700; }
+
+/* ─── 单元格编辑器弹窗 ─── */
+.cell-popover-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.25);
+}
+.cell-popover {
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  box-shadow: var(--shadow), 0 0 24px rgba(0, 240, 255, 0.08);
+  width: 440px;
+  max-width: calc(100vw - 32px);
+  max-height: 420px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: cell-popover-in 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes cell-popover-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.cell-popover-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 240, 255, 0.04);
+  border-bottom: 1px solid var(--line);
+}
+.cell-popover-col {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cyan);
+  font-family: 'JetBrains Mono', monospace;
+}
+.cell-popover-type {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 1px 6px;
+  background: rgba(120, 160, 255, 0.08);
+  border-radius: 4px;
+}
+.cell-popover-readonly {
+  font-size: 10px;
+  color: var(--yellow);
+  padding: 1px 6px;
+  background: rgba(255, 200, 0, 0.1);
+  border-radius: 4px;
+}
+.cell-popover-header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.cell-popover-copy {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.cell-popover-copy:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.08);
+}
+.cell-popover-body {
+  flex: 1;
+  padding: 8px 12px;
+  overflow: hidden;
+  display: flex;
+}
+.cell-popover-textarea {
+  width: 100%;
+  min-height: 120px;
+  max-height: 280px;
+  resize: vertical;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.cell-popover-textarea:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.12);
+}
+.cell-popover-textarea[readonly] {
+  color: var(--text-2);
+  cursor: default;
+}
+.cell-popover-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
+.cell-popover-hint {
+  font-size: 10px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cell-popover-hint kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background: var(--panel-solid-2);
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-2);
+}
+.cell-popover-actions {
+  display: flex;
+  gap: 6px;
+}
+.cell-popover-btn {
+  font-size: 11px !important;
+  padding: 4px 14px !important;
+}
 </style>
