@@ -1613,6 +1613,14 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           <option value="">⚠ {{ t('db.selectDb') }}</option>
           <option v-for="db in databases" :key="db" :value="db">{{ db }}</option>
         </select>
+        <button
+          class="action-btn"
+          :class="{ active: rightPanelOpen }"
+          title="Toggle Panel"
+          @click="rightPanelOpen = !rightPanelOpen"
+        >
+          <v-icon size="16">mdi-panel-right</v-icon>
+        </button>
       </div>
 
       <!-- 子标签栏:打开的表 + SQL 编辑器 + SQL 结果 -->

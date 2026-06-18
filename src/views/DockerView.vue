@@ -392,6 +392,14 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           <button class="action-btn" @click="dockerStore.loadContainers(); dockerStore.loadImages()" :title="t('sftp.refresh')">
             <v-icon size="14">mdi-refresh</v-icon>
           </button>
+          <button
+            class="action-btn"
+            :class="{ active: rightPanelOpen }"
+            title="Toggle Panel"
+            @click="rightPanelOpen = !rightPanelOpen"
+          >
+            <v-icon size="16">mdi-panel-right</v-icon>
+          </button>
         </div>
       </div>
 

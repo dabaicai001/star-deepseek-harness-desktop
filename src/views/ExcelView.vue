@@ -775,6 +775,14 @@ watch(() => store.selectedCellValue, (value) => {
         </div>
         <div class="tb-right">
           <span class="cyber-badge">{{ store.activeSheet || 'Sheet' }}</span>
+          <button
+            class="action-btn"
+            :class="{ active: rightPanelOpen }"
+            title="Toggle Panel"
+            @click="rightPanelOpen = !rightPanelOpen"
+          >
+            <v-icon size="16">mdi-panel-right</v-icon>
+          </button>
         </div>
       </div>
 
