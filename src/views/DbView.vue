@@ -191,6 +191,31 @@ const allTableNames = computed(() => {
 const tableSearch = ref('')
 const expandedDatabases = ref<Set<string>>(new Set())
 
+// ─── 数据库选择记忆 ───
+const dbStateStorageKey = computed(() => assetId.value ? `starhub.db.${assetId.value}` : '')
+
+function saveDbState() {
+  if (!dbStateStorageKey.value) return
+  try {
+    localStorage.setItem(dbStateStorageKey.value, JSON.stringify({
+      selectedDb: selectedDb.value,
+      expanded: [...expandedDatabases.value],
+    }))
+  } catch {}
+}
+
+function restoreDbState(): { selectedDb: string; expanded: string[] } | null {
+  if (!dbStateStorageKey.value) return null
+  try {
+    const raw = localStorage.getItem(dbStateStorageKey.value)
+    if (raw) return JSON.parse(raw)
+  } catch {}
+  return null
+}
+
+watch(selectedDb, saveDbState)
+watch(expandedDatabases, saveDbState, { deep: true })
+
 // 搜索时如果 db 没展开，自动展开匹配项所在的 db
 //
 // 关键:库节点列表的来源是 `databases`(connect/refresh 时拿到的库名数组),
@@ -343,6 +368,20 @@ async function refreshDatabases() {
         void loadTablesForDb(t.db)
       }
     }
+    // 恢复上次记忆的展开/选中状态
+    const saved = restoreDbState()
+    if (saved) {
+      for (const db of saved.expanded) {
+        if (stillExists.has(db) && !expandedDatabases.value.has(db)) {
+          expandedDatabases.value.add(db)
+          void loadTablesForDb(db)
+        }
+      }
+      if (saved.selectedDb && stillExists.has(saved.selectedDb)) {
+        selectedDb.value = saved.selectedDb
+      }
+    }
+    expandedDatabases.value = new Set(expandedDatabases.value)
     notify.notify({ message: t('db.refreshed', { count: list.length }), color: 'success', timeout: 1500 })
   } catch (err) {
     const msg = errMsg(err)

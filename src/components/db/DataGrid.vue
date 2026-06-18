@@ -329,28 +329,6 @@ const cellPopover = ref<{
 } | null>(null)
 const cellPopoverTextarea = ref<HTMLTextAreaElement | null>(null)
 
-function openCellPopover(e: MouseEvent, rowIdx: number, colIdx: number, currentValue: unknown) {
-  const col = columns.value[colIdx]
-  if (!col) return
-  const rect = (e.target as HTMLElement).getBoundingClientRect()
-  const rawValue = currentValue == null ? '' : String(currentValue)
-  cellPopover.value = {
-    row: rowIdx,
-    col: col.name,
-    colIdx,
-    value: rawValue,
-    originalValue: currentValue,
-    top: rect.bottom + 4,
-    left: rect.left,
-    colType: col.type || '',
-    readOnly: !props.editable,
-  }
-  // 聚焦 textarea
-  requestAnimationFrame(() => {
-    cellPopoverTextarea.value?.focus()
-  })
-}
-
 function commitCellPopover() {
   if (!cellPopover.value) return
   const { row, col, colIdx, value, originalValue } = cellPopover.value
@@ -393,35 +371,23 @@ function onCellPopoverKeydown(e: KeyboardEvent) {
   }
 }
 
-function startEdit(rowIdx: number, col: string, currentValue: unknown) {
-  if (!props.editable) {
-    // 只读模式:打开弹窗查看完整内容
-    const colIdx = columns.value.findIndex(c => c.name === col)
-    if (colIdx >= 0) {
-      const td = (event?.target as HTMLElement)?.closest('td')
-      if (td) {
-        const rect = td.getBoundingClientRect()
-        cellPopover.value = {
-          row: rowIdx, col, colIdx,
-          value: currentValue == null ? '' : String(currentValue),
-          originalValue: currentValue,
-          top: rect.bottom + 4, left: rect.left,
-          colType: columns.value[colIdx].type || '',
-          readOnly: true,
-        }
-      }
-    }
-    return
-  }
-  // 可编辑模式:打开弹窗编辑
+function startEdit(e: MouseEvent, rowIdx: number, col: string, currentValue: unknown) {
   const colIdx = columns.value.findIndex(c => c.name === col)
-  if (colIdx >= 0) {
-    const td = (event?.target as HTMLElement)?.closest('td')
-    if (td) {
-      const rect = td.getBoundingClientRect()
-      openCellPopover({ clientX: rect.left, clientY: rect.bottom } as MouseEvent, rowIdx, colIdx, currentValue)
-    }
+  if (colIdx < 0) return
+  const td = (e.target as HTMLElement)?.closest('td')
+  if (!td) return
+  const rect = td.getBoundingClientRect()
+  cellPopover.value = {
+    row: rowIdx, col, colIdx,
+    value: currentValue == null ? '' : String(currentValue),
+    originalValue: currentValue,
+    top: rect.bottom + 4, left: rect.left,
+    colType: columns.value[colIdx].type || '',
+    readOnly: !props.editable,
   }
+  requestAnimationFrame(() => {
+    cellPopoverTextarea.value?.focus()
+  })
 }
 
 function commitEdit() {
@@ -600,7 +566,7 @@ defineExpose({ clearDirty, hasDirty })
                 :key="colIdx"
                 :class="[getCellClass(cell), { editable: editable, dirty: isDirty(rowIdx, columns[colIdx].name) }]"
                 class="cell"
-                @dblclick="startEdit(rowIdx, columns[colIdx].name, cell)"
+                @dblclick="startEdit($event, rowIdx, columns[colIdx].name, cell)"
               >
                 <span
                   class="cell-value"
