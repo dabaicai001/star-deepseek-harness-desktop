@@ -47,10 +47,10 @@ const currentTab = computed(() => props.tabs.find(t => t.key === activeTab.value
     :style="{ width: modelValue ? appStore.rightPanelWidth + 'px' : '6px' }"
   >
     <!-- 折叠态:只保留一个 thin handle 作为"开门把手" -->
-    <RightPanelHandle v-if="!modelValue" :collapsed-only="true" />
+    <RightPanelHandle v-if="!modelValue" :collapsed-only="true" @expand="emit('update:modelValue', true)" />
     <template v-else>
       <!-- 左侧拖拽手柄 -->
-      <RightPanelHandle />
+      <RightPanelHandle @collapse="emit('update:modelValue', false)" />
 
       <!-- 左侧 tab 切换条 -->
       <div class="right-panel-rail">

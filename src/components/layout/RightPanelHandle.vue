@@ -14,6 +14,11 @@ const props = withDefaults(defineProps<{
 
 const appStore = useAppStore()
 
+const emit = defineEmits<{
+  expand: []
+  collapse: []
+}>()
+
 // ====== 拖拽调整宽度(使用 requestAnimationFrame 节流) ======
 const isDragging = ref(false)
 let startX = 0
@@ -72,12 +77,12 @@ function onClick(e: MouseEvent) {
     e.preventDefault()
     return
   }
-  appStore.toggleRightPanel()
+  emit('collapse')
 }
 
 /** collapsed-only 模式:点击直接展开,顺带给点视觉反馈 */
 function onCollapsedClick() {
-  appStore.rightPanelOpen = true
+  emit('expand')
 }
 
 // 双击 handle = 重置宽度到默认
