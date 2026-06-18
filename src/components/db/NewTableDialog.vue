@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useNotifyStore } from '@/stores/notify'
 import * as dbService from '@/services/db'
 
 const { t } = useI18n()
+const notify = useNotifyStore()
 
 interface ColumnDef {
   name: string
@@ -72,6 +74,10 @@ async function onCreate() {
   error.value = null
 
   try {
+    if (!props.db) {
+      throw new Error(t('db.noDbSelected'))
+    }
+
     const cols = columns.value.map(c => {
       let col = `\`${c.name}\` ${c.type}`
       if (!c.nullable) col += ' NOT NULL'
@@ -95,12 +101,20 @@ async function onCreate() {
       ddl += ` COMMENT='${tableComment.value.replace(/'/g, "\\'")}'`
     }
 
-    await dbService.mysqlExecute(props.connId, ddl, props.db)
+    const result = props.dbType === 'clickhouse'
+      ? await dbService.clickhouseExecute(props.connId, ddl, props.db)
+      : await dbService.mysqlExecute(props.connId, ddl, props.db)
+
+    if (result.error) {
+      throw new Error(result.error)
+    }
+
     emit('created', tableName.value)
     emit('update:modelValue', false)
     resetForm()
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : String(err)
+    notify.notify({ message: t('db.createTableFailed', { msg: error.value }), color: 'error', timeout: 5000 })
   } finally {
     creating.value = false
   }

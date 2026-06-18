@@ -40,6 +40,8 @@ const props = withDefaults(defineProps<{
   pkCols?: string[]
   /** 当前活跃的列筛选 */
   columnFilters?: Record<string, string>
+  /** 是否显示刷新按钮 */
+  refreshable?: boolean
 }>(), {
   totalRows: undefined,
   page: 0,
@@ -48,7 +50,8 @@ const props = withDefaults(defineProps<{
   tableName: '',
   editable: false,
   pkCols: () => [],
-  columnFilters: () => ({})
+  columnFilters: () => ({}),
+  refreshable: false
 })
 
 const emit = defineEmits<{
@@ -60,6 +63,7 @@ const emit = defineEmits<{
   'page-size-change': [size: number]
   'sort-change': [col: string]
   'column-filter': [col: string, value: string]
+  refresh: []
   saveBatch: [changes: Array<{ rowIndex: number; column: string; originalValue: unknown; newValue: unknown }>]
   saved: []
 }>()
@@ -399,6 +403,26 @@ defineExpose({ clearDirty, hasDirty })
             <option v-for="opt in pageSizeOptions" :key="opt" :value="opt">{{ opt.toLocaleString() }}</option>
           </select>
         </div>
+        <button
+          v-if="refreshable"
+          class="action-btn"
+          :disabled="loading"
+          @click="emit('refresh')"
+          :title="t('common.refresh')"
+        >
+          <v-icon size="14" :class="{ spin: loading }">mdi-refresh</v-icon>
+        </button>
+        <button
+          v-if="editable"
+          class="save-btn"
+          :class="{ active: hasDirty }"
+          :disabled="!hasDirty || loading"
+          @click="saveAll"
+          :title="t('db.saveBatch') + ' (Ctrl/Cmd+S)'"
+        >
+          <v-icon size="13">mdi-content-save-outline</v-icon>
+          <span>{{ hasDirty ? dirtyCells.size : 0 }}</span>
+        </button>
         <button class="action-btn" @click="emit('export', 'csv')" :title="t('db.export')">
           <v-icon size="14">mdi-download</v-icon>
         </button>
@@ -969,6 +993,46 @@ defineExpose({ clearDirty, hasDirty })
 .action-btn:hover {
   border-color: var(--cyan);
   color: var(--cyan);
+}
+
+.action-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.save-btn {
+  min-width: 42px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  transition: all 0.2s;
+}
+
+.save-btn.active {
+  border-color: rgba(0, 240, 255, 0.45);
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.08);
+  box-shadow: 0 0 10px -6px var(--cyan);
+}
+
+.save-btn:hover:not(:disabled) {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.save-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .row-selected td { background: rgba(0, 240, 255, 0.06); }

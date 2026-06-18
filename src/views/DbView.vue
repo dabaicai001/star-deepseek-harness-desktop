@@ -140,6 +140,7 @@ const showCreateTableDDL = ref(false)
 const showNewTable = ref(false)
 const showRenameTable = ref(false)
 const renameTableNewName = ref('')
+const activeDataGridRef = ref<{ clearDirty: () => void } | null>(null)
 
 /** 内部视图(data / structure)按激活的表 tab 自身持有,模板用 computed 取出 */
 const activeSubTab = computed(() => subTabs.value.find(t => t.id === activeSubTabId.value) || null)
@@ -500,14 +501,20 @@ async function loadTableDataFor(tab: TableSubTab, force = false) {
 }
 
 /** 强制刷新当前激活的表(清缓存后重新拉) */
-function refreshCurrentTable() {
+async function refreshCurrentTable() {
   const tab = activeTableTab.value
   if (!tab || !connId.value) return
   tab.columns = []
   tab.data = null
   tab.dataTotal = 0
   tableDataVersion.value++
-  void loadTableDataFor(tab, true)
+  await loadTableDataFor(tab, true)
+  const refreshedData = activeTableTab.value?.data as QueryResult | null
+  if (tab.error || refreshedData?.error) {
+    notify.notify({ message: t('db.refreshFailed', { msg: refreshedData?.error || tab.subtitle }), color: 'error', timeout: 4000 })
+  } else {
+    notify.notify({ message: t('db.tableDataRefreshed', { table: tab.table }), color: 'success', timeout: 1500 })
+  }
 }
 
 async function reloadActiveTable() {
@@ -538,15 +545,59 @@ function onDatabaseContextMenu(e: MouseEvent, db: string) {
   items.push({ type: 'divider' })
   items.push({ type: 'item', label: t('db.copyName', '复制名称'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(db).catch(() => {}) } })
   items.push({ type: 'divider' })
-  items.push({ type: 'item', label: t('db.newTable', '新建表...'), icon: 'mdi-table-plus', onClick: () => { showNewTable.value = true } })
+  items.push({ type: 'item', label: t('db.newTable', '新建表...'), icon: 'mdi-table-plus', onClick: () => { openNewTableDialog(db) } })
   items.push({ type: 'item', label: t('db.refreshTables', '刷新表列表'), icon: 'mdi-refresh', onClick: () => { refreshTablesForDb(db) } })
   ctxMenu.value = { x: e.clientX, y: e.clientY, items }
 }
 
 async function refreshTablesForDb(db: string) {
+  if (!connId.value || !db) return
   databaseTables.value.delete(db)
+  databaseTables.value = new Map(databaseTables.value)
   expandedDatabases.value.add(db)
   await loadTablesForDb(db)
+  notify.notify({ message: t('db.tablesRefreshed', { db }), color: 'success', timeout: 1500 })
+}
+
+function openNewTableDialog(db?: string) {
+  const targetDb = db || selectedDb.value
+  if (!targetDb) {
+    notify.notify({ message: t('db.selectDbBeforeCreateTable'), color: 'warning', timeout: 3000 })
+    return
+  }
+  ctxDb.value = targetDb
+  showNewTable.value = true
+}
+
+async function refreshOpenTableTabs(db?: string, table?: string) {
+  const tabs = subTabs.value.filter((t): t is TableSubTab =>
+    t.kind === 'table' &&
+    (!db || t.db === db) &&
+    (!table || t.table === table)
+  )
+  for (const tab of tabs) {
+    await loadTableDataFor(tab, true)
+  }
+}
+
+function closeTableTabs(db: string, table: string) {
+  const ids = subTabs.value
+    .filter(t => t.kind === 'table' && t.db === db && t.table === table)
+    .map(t => t.id)
+  for (const id of ids) closeSubTab(id)
+}
+
+function renameOpenTableTab(db: string, oldName: string, newName: string) {
+  for (const tab of subTabs.value) {
+    if (tab.kind !== 'table' || tab.db !== db || tab.table !== oldName) continue
+    tab.table = newName
+    tab.title = newName
+    tab.subtitle = `${db}.${newName}`
+    tab.columns = []
+    tab.data = null
+    tab.dataTotal = 0
+    void loadTableDataFor(tab, true)
+  }
 }
 
 async function onTableContextMenu(e: MouseEvent, db: string, table: string) {
@@ -588,6 +639,7 @@ async function doDropTable(db: string, table: string) {
       await dbService.mysqlDropTable(connId.value!, table, false, db)
     }
     notify.notify({ message: t('db.tableDropped', `表 ${table} 已删除`), color: 'success' })
+    closeTableTabs(db, table)
     await refreshTablesForDb(db)
   } catch (err: unknown) {
     notify.notify({ message: errMsg(err), color: 'error' })
@@ -611,6 +663,7 @@ async function doTruncateTable(db: string, table: string) {
       await dbService.mysqlTruncateTable(connId.value!, table, db)
     }
     notify.notify({ message: t('db.tableTruncated', `表 ${table} 已清空`), color: 'success' })
+    await refreshOpenTableTabs(db, table)
   } catch (err: unknown) {
     notify.notify({ message: errMsg(err), color: 'error' })
   }
@@ -627,6 +680,7 @@ async function doRenameTable() {
     }
     notify.notify({ message: t('db.tableRenamed', `表已重命名为 ${renameTableNewName.value}`), color: 'success' })
     showRenameTable.value = false
+    renameOpenTableTab(ctxDb.value, ctxTable.value, renameTableNewName.value)
     await refreshTablesForDb(ctxDb.value)
   } catch (err: unknown) {
     notify.notify({ message: errMsg(err), color: 'error' })
@@ -635,7 +689,7 @@ async function doRenameTable() {
 
 function onNewTableCreated(tableName: string) {
   notify.notify({ message: t('db.tableCreated', `表 ${tableName} 已创建`), color: 'success' })
-  void refreshTablesForDb(ctxDb.value)
+  void refreshTablesForDb(ctxDb.value).then(() => selectTable(ctxDb.value, tableName))
 }
 
 function onTableDataPageChange(page: number) {
@@ -759,9 +813,12 @@ async function onCellEdit(rowIdx: number, col: string, value: unknown) {
     } else {
       await dbService.mysqlUpdateRows(connId.value, tab.table, { [col]: value }, where, tab.db)
     }
-    await loadTableDataFor(tab)
+    notify.notify({ message: t('db.saved'), color: 'success', timeout: 1500 })
+    await loadTableDataFor(tab, true)
   } catch (err: unknown) {
-    void dlg.alert({ message: t('db.updateFailed', { msg: err instanceof Error ? err.message : String(err) }), color: 'error' })
+    const msg = errMsg(err)
+    notify.notify({ message: t('db.updateFailed', { msg }), color: 'error', timeout: 5000 })
+    void dlg.alert({ message: t('db.updateFailed', { msg }), color: 'error' })
   }
 }
 
@@ -793,14 +850,20 @@ async function onSaveBatch(changes: Array<{ rowIndex: number; column: string; or
       } else {
         await dbService.mysqlUpdateRows(connId.value, tab.table, { [change.column]: change.newValue }, where, tab.db)
       }
-    } catch {
+    } catch (err: unknown) {
+      console.warn('[db] save cell failed:', err)
       failCount++
     }
   }
   if (failCount > 0) {
-    void dlg.alert({ message: t('db.saveFailed', { msg: `${failCount} / ${changes.length}` }), color: 'error' })
+    const msg = `${failCount} / ${changes.length}`
+    notify.notify({ message: t('db.saveFailed', { msg }), color: 'error', timeout: 5000 })
+    void dlg.alert({ message: t('db.saveFailed', { msg }), color: 'error' })
+  } else {
+    activeDataGridRef.value?.clearDirty()
+    notify.notify({ message: t('db.saveSuccess', { count: changes.length }), color: 'success', timeout: 2500 })
   }
-  await loadTableDataFor(tab)
+  await loadTableDataFor(tab, true)
 }
 
 function formatSqlValue(v: unknown): string {
@@ -876,6 +939,23 @@ function buildCountSql(sql: string): string | null {
   return `SELECT COUNT(*) AS _total FROM (${s}) AS _count_sub`
 }
 
+function shouldRefreshTablesAfterSql(sql: string): boolean {
+  return /^\s*(CREATE|DROP|ALTER|RENAME|TRUNCATE)\s+TABLE\b/i.test(sql)
+}
+
+function shouldRefreshDataAfterSql(sql: string): boolean {
+  return /^\s*(INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql)
+}
+
+async function refreshAfterSql(sql: string, db?: string) {
+  if (shouldRefreshTablesAfterSql(sql) && db) {
+    await refreshTablesForDb(db)
+  }
+  if (shouldRefreshDataAfterSql(sql)) {
+    await refreshOpenTableTabs(db)
+  }
+}
+
 let queryCounter = 0
 function newSqlQuery() {
   queryCounter++
@@ -929,8 +1009,11 @@ async function executeSql(sql: string) {
         editorTab.result = dataResult
         if (dataResult?.error) {
           editorTab.error = true
+          editorTab.dataTotal = 0
         } else if (countResult && !countResult.error && countResult.rows.length > 0) {
           editorTab.dataTotal = Number((countResult.rows[0] as unknown[])[0]) || dataResult.rows.length
+        } else {
+          editorTab.dataTotal = dataResult.rows.length
         }
       } else {
         // 非 SELECT:直接执行
@@ -941,13 +1024,16 @@ async function executeSql(sql: string) {
         if (editorTab.result?.error) editorTab.error = true
       }
       addHistory(sql, editorTab.selectedDb || '')
-      if (!editorTab.error && editorTab.result) {
+      if (editorTab.error && editorTab.result?.error) {
+        notify.notify({ message: t('db.executeFailed', { msg: editorTab.result.error }), color: 'error', timeout: 5000 })
+      } else if (editorTab.result) {
         const r = editorTab.result
         const time = r.durationMs >= 1000 ? `${(r.durationMs / 1000).toFixed(2)}s` : `${r.durationMs}ms`
         if (r.isSelect) {
           notify.notify({ message: t('db.querySuccess', { rows: r.rows.length, time }), color: 'success', timeout: 5000 })
         } else {
           notify.notify({ message: t('db.executeSuccess', { rows: r.rowsAffected, time }), color: 'success', timeout: 5000 })
+          await refreshAfterSql(sql, db)
         }
       }
     } catch (err: unknown) {
@@ -996,6 +1082,7 @@ async function executeSql(sql: string) {
         notify.notify({ message: t('db.querySuccess', { rows: r.rows.length, time }), color: 'success', timeout: 5000 })
       } else {
         notify.notify({ message: t('db.executeSuccess', { rows: r.rowsAffected, time }), color: 'success', timeout: 5000 })
+        await refreshAfterSql(sql, selectedDb.value || undefined)
       }
     }
   } catch (err: unknown) {
@@ -1081,15 +1168,37 @@ async function explainSql(sql: string) {
   }
 }
 
-function handleExport(format: string) {
+async function handleExport(format: string) {
   if (!connId.value) return
   const tab = activeTableTab.value
   if (!tab) return
-  if (isClickhouse.value) {
-    dbService.clickhouseExportData(connId.value, tab.table, format, undefined, tab.db)
-  } else {
-    dbService.mysqlExportData(connId.value, tab.table, format, undefined, tab.db)
+  try {
+    const exported = isClickhouse.value
+      ? await dbService.clickhouseExportData(connId.value, tab.table, format, undefined, tab.db)
+      : await dbService.mysqlExportData(connId.value, tab.table, format, undefined, tab.db)
+
+    const text = exported.data || queryResultToCsv(exported.result)
+    if (!text) {
+      notify.notify({ message: t('db.exportFailed', { msg: t('common.noData') }), color: 'warning' })
+      return
+    }
+    await navigator.clipboard.writeText(text)
+    notify.notify({ message: t('db.exportCopied', { format: exported.format.toUpperCase() }), color: 'success', timeout: 2500 })
+  } catch (err: unknown) {
+    notify.notify({ message: t('db.exportFailed', { msg: errMsg(err) }), color: 'error', timeout: 5000 })
   }
+}
+
+function queryResultToCsv(result: QueryResult | undefined): string {
+  if (!result || result.error) return ''
+  const escapeCell = (value: unknown) => {
+    if (value === null || value === undefined) return ''
+    const text = String(value)
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+  }
+  const header = result.columns.map(c => escapeCell(c.name)).join(',')
+  const rows = result.rows.map(row => row.map(escapeCell).join(','))
+  return [header, ...rows].join('\n')
 }
 
 async function handleExportExcel(columns: string[], rows: string[][]) {
@@ -1477,6 +1586,15 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           <v-icon size="14">mdi-plus</v-icon>
           {{ t('db.newQuery', '新建查询') }}
         </button>
+        <button
+          v-if="asset?.config.dbType === 'mysql' || asset?.config.dbType === 'clickhouse'"
+          class="cyber-btn-secondary"
+          @click="openNewTableDialog()"
+          :disabled="!connected"
+        >
+          <v-icon size="14">mdi-table-plus</v-icon>
+          {{ t('db.newTable', '新建表...') }}
+        </button>
         <div class="db-toolbar-spacer"></div>
         <select
           v-if="asset?.config.dbType === 'mysql' || asset?.config.dbType === 'clickhouse'"
@@ -1605,6 +1723,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               </button>
             </div>
             <DataGrid
+              ref="activeDataGridRef"
               :key="`${activeTableTab.db}.${activeTableTab.table}.v${tableDataVersion}`"
               :result="activeTableTab.data"
               :loading="activeTableTab.dataLoading"
@@ -1613,6 +1732,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               :page-size="activeTableTab.dataPageSize"
               :page-size-options="[100, 500, 1000, 2000, 5000]"
               :editable="tablePrimaryKeys.length > 0"
+              refreshable
               :pk-cols="tablePrimaryKeys"
               :table-name="activeTableTab.table"
               :column-filters="activeTableTab.columnFilters"
@@ -1621,7 +1741,9 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               @sort-change="onTableDataSortChange"
               @cell-edit="onCellEdit"
               @column-filter="setColumnFilter"
+              @refresh="refreshCurrentTable"
               @save-batch="onSaveBatch"
+              @export="handleExport"
               @export-excel="handleExportExcel"
             />
           </div>
