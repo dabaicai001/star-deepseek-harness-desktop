@@ -788,6 +788,37 @@ html.v-theme--lightTheme {
   max-width: 300px;
 }
 
+.connection-error-card {
+  margin: 12px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--status-error-border);
+  background: var(--status-error-bg);
+  color: var(--red);
+}
+
+.connection-error-card .error-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.connection-error-card strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.connection-error-card span {
+  color: var(--text-2);
+  font-size: 12px;
+  word-break: break-word;
+}
+
 /* ============================================
  * Form System (4.4.5 必备组件补充)
  * ============================================ */

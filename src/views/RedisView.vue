@@ -6,7 +6,9 @@ import { useAssetStore } from '@/stores/asset'
 import { useDbStore } from '@/stores/db'
 import { useAiStore } from '@/stores/ai'
 import { useAppStore } from '@/stores/app'
+import { useNotifyStore } from '@/stores/notify'
 import { parseInstanceId } from '@/utils/tabId'
+import { usePersistentPanelState } from '@/utils/panelState'
 import * as dbService from '@/services/db'
 import { useDialogStore } from '@/stores/dialog'
 import { REDIS_SYSTEM_PROMPT, redisTools, makeRedisToolCaller } from '@/utils/aiTools'
@@ -28,6 +30,8 @@ const dbStore = useDbStore()
 const aiStore = useAiStore()
 const appStore = useAppStore()
 const dlg = useDialogStore()
+const rightPanelOpen = usePersistentPanelState('redis', true)
+const notify = useNotifyStore()
 
 const instanceId = computed(() => route.params.id as string)
 const assetId = computed(() => parseInstanceId(instanceId.value).assetId)
@@ -35,6 +39,7 @@ const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value)
 
 const connected = ref(false)
 const connecting = ref(false)
+const connectError = ref<string | null>(null)
 const connId = ref<string | null>(null)
 const currentDb = ref(0)
 const dbsize = ref(0)
@@ -149,6 +154,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 async function connect() {
   if (!asset.value || connected.value) return
   connecting.value = true
+  connectError.value = null
   try {
     const config = asset.value.config
     const session = await dbStore.connectRedis(assetId.value, asset.value.name, {
@@ -163,7 +169,9 @@ async function connect() {
     await refreshDBSize()
     await refreshAllDBSizes()
   } catch (err) {
-    console.error('Redis connect failed:', err)
+    const msg = err instanceof Error ? err.message : String(err)
+    connectError.value = msg
+    notify.notify({ title: 'Redis 连接失败', message: msg, color: 'error', timeout: 5000 })
   } finally {
     connecting.value = false
   }
@@ -203,7 +211,7 @@ async function onSwitchDb(db: number) {
     await refreshDBSize()
     await refreshAllDBSizes()
   } catch (err) {
-    console.error('Switch DB failed:', err)
+    notify.notify({ title: 'Redis 切换 DB 失败', message: err instanceof Error ? err.message : String(err), color: 'error' })
   }
 }
 
@@ -215,7 +223,7 @@ async function onDeleteKey(key: string) {
     await refreshAllDBSizes()
     keyBrowserRef.value?.loadKeys()
   } catch (err) {
-    console.error('Delete key failed:', err)
+    notify.notify({ title: '删除 Key 失败', message: err instanceof Error ? err.message : String(err), color: 'error' })
   }
 }
 
@@ -235,8 +243,9 @@ async function onFlushDb() {
     await dbService.redisFlushDB(connId.value)
     dbsize.value = 0
     keyBrowserRef.value?.loadKeys()
+    notify.notify({ title: 'Redis', message: `db${currentDb.value} 已清空`, color: 'success' })
   } catch (err) {
-    console.error('Flush DB failed:', err)
+    notify.notify({ title: '清空 DB 失败', message: err instanceof Error ? err.message : String(err), color: 'error' })
   }
 }
 
@@ -272,8 +281,9 @@ async function onFlushDbFromBrowser(db: number) {
     dbsize.value = 0
     await refreshAllDBSizes()
     keyBrowserRef.value?.loadKeys()
+    notify.notify({ title: 'Redis', message: `db${db} 已清空`, color: 'success' })
   } catch (err) {
-    console.error('Flush DB failed:', err)
+    notify.notify({ title: '清空 DB 失败', message: err instanceof Error ? err.message : String(err), color: 'error' })
   }
 }
 
@@ -291,8 +301,9 @@ async function doRenameKey() {
     await refreshDBSize()
     await refreshAllDBSizes()
     keyBrowserRef.value?.loadKeys()
+    notify.notify({ title: 'Redis', message: 'Key 已重命名', color: 'success' })
   } catch (err) {
-    console.error('Rename key failed:', err)
+    notify.notify({ title: '重命名 Key 失败', message: err instanceof Error ? err.message : String(err), color: 'error' })
   }
 }
 
@@ -346,18 +357,30 @@ watch(() => assetId.value, () => {
           </button>
           <button
             class="action-btn"
-            :class="{ active: appStore.rightPanelOpen }"
+            :class="{ active: rightPanelOpen }"
             title="Toggle Panel"
-            @click="appStore.toggleRightPanel()"
+            @click="rightPanelOpen = !rightPanelOpen"
           >
             <v-icon size="16">mdi-panel-right</v-icon>
           </button>
         </div>
       </div>
 
+      <div v-if="connectError" class="connection-error-card">
+        <v-icon size="18">mdi-alert-circle-outline</v-icon>
+        <div class="error-copy">
+          <strong>Redis 连接失败</strong>
+          <span>{{ connectError }}</span>
+        </div>
+        <button class="cyber-btn-secondary" :disabled="connecting" @click="connect">
+          <v-icon size="14">mdi-refresh</v-icon>
+          重试
+        </button>
+      </div>
+
       <!-- Editor area -->
       <RedisValueEditor
-        v-if="connId"
+        v-if="connId && !connectError"
         ref="valueEditorRef"
         :conn-id="connId"
         :current-db="currentDb"
@@ -365,7 +388,7 @@ watch(() => assetId.value, () => {
 
       <!-- CLI panel -->
       <RedisCli
-        v-if="connId"
+        v-if="connId && !connectError"
         :conn-id="connId"
         :current-db="currentDb"
       />
@@ -373,7 +396,7 @@ watch(() => assetId.value, () => {
 
     <!-- Right Panel -->
     <RightPanel
-      v-model="appStore.rightPanelOpen"
+      v-model="rightPanelOpen"
       v-model:active-tab="activeRightTab"
       :tabs="rightPanelTabs"
     >

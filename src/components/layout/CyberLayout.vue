@@ -10,6 +10,7 @@ import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import AssetTree from '@/components/asset/AssetTree.vue'
 import SidebarHandle from '@/components/layout/SidebarHandle.vue'
 import CommandPalette from '@/components/layout/CommandPalette.vue'
+import NotificationCenter from '@/components/layout/NotificationCenter.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import * as tauriWindowApi from '@tauri-apps/api/window'
@@ -907,6 +908,36 @@ const recentAssets = computed(() => {
     .slice(0, 6)
 })
 
+const onboardingSteps = computed(() => [
+  {
+    icon: 'mdi-plus-circle-outline',
+    title: '创建第一个连接',
+    desc: 'SSH、数据库、Docker 或 Excel 文件都可以作为起点',
+    done: assetStore.assets.length > 0,
+    action: () => openNewConnection()
+  },
+  {
+    icon: 'mdi-lan-connect',
+    title: '打开一个工作区',
+    desc: '双击侧边栏资产,或用 Ctrl+K 搜索打开',
+    done: appStore.tabs.length > 0,
+    action: () => openCommandPalette()
+  },
+  {
+    icon: 'mdi-robot-outline',
+    title: '让 AI 接管上下文',
+    desc: '进入 DB / Docker / Excel 后,右侧 AI 会带上当前上下文',
+    done: false,
+    action: () => { appStore.rightPanelOpen = true }
+  }
+])
+
+function maturityLabel(type: 'ssh' | 'db' | 'docker' | 'excel') {
+  if (type === 'excel') return 'Stable'
+  if (type === 'db') return 'P0 Core'
+  return 'Beta'
+}
+
 /** 紧凑时间标签(用于 quick-start-bar) */
 function shortTimeAgo(ts: number | null | undefined): string {
   if (!ts) return ''
@@ -992,6 +1023,7 @@ vueWatch(() => appStore.tabs.length, () => {
           <button class="action-btn" @click="showSettings = true" :data-tooltip="t('settings.title')">
             <v-icon size="16">mdi-cog</v-icon>
           </button>
+          <NotificationCenter />
           <button class="action-btn primary" @click="openNewConnection" :data-tooltip="t('asset.create')">
             <v-icon size="16">mdi-plus</v-icon>
           </button>
@@ -1208,6 +1240,24 @@ vueWatch(() => appStore.tabs.length, () => {
               <span class="section-hint">选择一个模块开始</span>
             </div>
 
+            <div class="onboarding-panel">
+              <button
+                v-for="step in onboardingSteps"
+                :key="step.title"
+                class="onboarding-step"
+                :class="{ done: step.done }"
+                @click="step.action"
+              >
+                <span class="step-icon">
+                  <v-icon size="15">{{ step.done ? 'mdi-check' : step.icon }}</v-icon>
+                </span>
+                <span class="step-copy">
+                  <span class="step-title">{{ step.title }}</span>
+                  <span class="step-desc">{{ step.desc }}</span>
+                </span>
+              </button>
+            </div>
+
             <div class="feature-grid">
               <div
                 class="feature-card"
@@ -1216,7 +1266,7 @@ vueWatch(() => appStore.tabs.length, () => {
               >
                 <div class="fc-head">
                   <v-icon size="22" color="cyan">mdi-console</v-icon>
-                  <span class="fc-tag">P0</span>
+                  <span class="fc-tag">{{ maturityLabel('ssh') }}</span>
                 </div>
                 <h3>{{ t('ssh.title') }}</h3>
                 <p>{{ t('ssh.terminal') }} · SFTP</p>
@@ -1228,7 +1278,7 @@ vueWatch(() => appStore.tabs.length, () => {
               >
                 <div class="fc-head">
                   <v-icon size="22" color="purple">mdi-database</v-icon>
-                  <span class="fc-tag">P0</span>
+                  <span class="fc-tag">{{ maturityLabel('db') }}</span>
                 </div>
                 <h3>{{ t('db.title') }}</h3>
                 <p>MySQL · PG · Redis · ...</p>
@@ -1240,7 +1290,7 @@ vueWatch(() => appStore.tabs.length, () => {
               >
                 <div class="fc-head">
                   <v-icon size="22" color="green">mdi-docker</v-icon>
-                  <span class="fc-tag">P0</span>
+                  <span class="fc-tag">{{ maturityLabel('docker') }}</span>
                 </div>
                 <h3>{{ t('docker.title') }}</h3>
                 <p>{{ t('docker.containers') }} / {{ t('docker.images') }}</p>
@@ -1252,10 +1302,30 @@ vueWatch(() => appStore.tabs.length, () => {
               >
                 <div class="fc-head">
                   <v-icon size="22" color="green">mdi-file-excel-outline</v-icon>
-                  <span class="fc-tag">P0</span>
+                  <span class="fc-tag">{{ maturityLabel('excel') }}</span>
                 </div>
                 <h3>Excel</h3>
                 <p>编辑 · 导入 · 导出</p>
+              </div>
+            </div>
+
+            <div v-if="recentAssets.length > 0" class="recent-work-panel">
+              <div class="recent-head">
+                <span>最近工作</span>
+                <small>继续上次的连接或文件</small>
+              </div>
+              <div class="recent-grid">
+                <button
+                  v-for="a in recentAssets"
+                  :key="a.id"
+                  class="recent-card"
+                  @click="connectToAsset(a)"
+                >
+                  <v-icon size="15">{{ getIcon(a.type) }}</v-icon>
+                  <span class="recent-name">{{ a.name }}</span>
+                  <span class="recent-meta">{{ a.config.host || a.config.dbType || a.type.toUpperCase() }}</span>
+                  <span class="recent-time">{{ shortTimeAgo(a.lastUsedAt) }}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -2213,9 +2283,84 @@ kbd {
   margin: 0 auto;
 }
 
+.onboarding-panel {
+  max-width: 760px;
+  margin: 0 auto 16px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.onboarding-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-input);
+  color: var(--text-2);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.onboarding-step:hover {
+  color: var(--cyan);
+  border-color: var(--focus-cyan);
+  background: var(--hover-cyan-faint);
+}
+
+.onboarding-step.done {
+  border-color: var(--status-online-border);
+  color: var(--green);
+}
+
+.step-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--icon-bg-cyan);
+  flex-shrink: 0;
+}
+
+.onboarding-step.done .step-icon {
+  background: var(--status-online-bg);
+}
+
+.step-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.step-desc {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 720px) {
   .feature-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .onboarding-panel {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -2283,6 +2428,90 @@ kbd {
   color: var(--muted);
   margin: 0;
   font-family: 'JetBrains Mono', monospace;
+}
+
+.recent-work-panel {
+  max-width: 760px;
+  margin: 18px auto 0;
+  text-align: left;
+}
+
+.recent-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.recent-head small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.recent-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.recent-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "icon name time"
+    "icon meta time";
+  align-items: center;
+  gap: 2px 8px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-input);
+  color: var(--text-2);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.recent-card:hover {
+  color: var(--cyan);
+  border-color: var(--focus-cyan);
+  background: var(--hover-cyan-faint);
+}
+
+.recent-card .v-icon { grid-area: icon; color: var(--cyan); }
+.recent-name {
+  grid-area: name;
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-meta {
+  grid-area: meta;
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-time {
+  grid-area: time;
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@media (max-width: 720px) {
+  .recent-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .section-divider {

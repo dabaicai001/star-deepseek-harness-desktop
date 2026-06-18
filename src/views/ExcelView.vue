@@ -12,6 +12,7 @@ import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import { useAiStore } from '@/stores/ai'
 import { EXCEL_SYSTEM_PROMPT, excelTools } from '@/utils/aiTools'
+import { usePersistentPanelState } from '@/utils/panelState'
 import type { LlmToolCall } from '@/services/ai'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 
@@ -21,6 +22,7 @@ const appStore = useAppStore()
 const store = useExcelStore()
 const notify = useNotifyStore()
 const aiStore = useAiStore()
+const rightPanelOpen = usePersistentPanelState('excel', true)
 
 const instanceId = computed(() => route.params.id as string)
 const asset = computed(() => {
@@ -859,7 +861,7 @@ watch(() => store.selectedCellValue, (value) => {
         </div>
 
         <RightPanel
-          v-model="appStore.rightPanelOpen"
+          v-model="rightPanelOpen"
           v-model:active-tab="rightActiveTab"
           :tabs="rightPanelTabs"
         >

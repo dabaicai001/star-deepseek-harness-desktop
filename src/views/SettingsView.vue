@@ -19,6 +19,7 @@ const startPage = ref<'welcome' | 'restore'>('welcome')
 const confirmClose = ref(true)
 const maxTabs = ref(20)
 const STORAGE_KEY = 'starhub.settings.general'
+const generalSaved = ref(false)
 
 function loadGeneral() {
   try {
@@ -40,6 +41,8 @@ function saveGeneral() {
       confirmClose: confirmClose.value,
       maxTabs: maxTabs.value
     }))
+    generalSaved.value = true
+    setTimeout(() => { generalSaved.value = false }, 1600)
   } catch {}
 }
 onMounted(async () => {
@@ -157,6 +160,11 @@ const PRESET_MODELS = [
 
     <!-- 通用设置 -->
     <div v-if="activeTab === 'general'" class="settings-panel">
+      <div v-if="generalSaved" class="settings-save-banner">
+        <v-icon size="14">mdi-check-circle-outline</v-icon>
+        通用设置已自动保存
+      </div>
+
       <div class="section">
         <div class="section-header">
           <span class="section-number">01</span>
@@ -482,6 +490,20 @@ const PRESET_MODELS = [
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+.settings-save-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--status-online-border);
+  background: var(--status-online-bg);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .section {

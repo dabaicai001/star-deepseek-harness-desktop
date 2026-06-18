@@ -96,7 +96,7 @@ function clearMessages() {
       <div v-if="globalSession.messages.length === 0" class="empty-state">
         <v-icon size="48" color="muted">mdi-robot-happy-outline</v-icon>
         <p>{{ t('ai.title') }}</p>
-        <p class="empty-hint">通用 AI 助手 — 详细配置去 Settings → AI</p>
+        <p class="empty-hint">全局 AI 适合问答和排障思路;需要操作 DB / Docker / Excel 时,请进入对应工作区使用右侧上下文 AI。</p>
       </div>
 
       <div v-for="(msg, i) in globalSession.messages" :key="i" class="message" :class="msg.role">
@@ -132,7 +132,7 @@ function clearMessages() {
       <textarea
         v-model="inputText"
         class="cyber-input ai-textarea"
-        :placeholder="'输入消息... (Shift+Enter 换行)'"
+        :placeholder="'输入运维问题或排障思路... (Shift+Enter 换行)'"
         rows="2"
         @keydown="onKeydown"
       />
