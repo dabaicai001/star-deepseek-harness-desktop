@@ -322,8 +322,6 @@ const cellPopover = ref<{
   colIdx: number
   value: string
   originalValue: unknown
-  top: number
-  left: number
   colType: string
   readOnly: boolean
 } | null>(null)
@@ -374,14 +372,10 @@ function onCellPopoverKeydown(e: KeyboardEvent) {
 function startEdit(e: MouseEvent, rowIdx: number, col: string, currentValue: unknown) {
   const colIdx = columns.value.findIndex(c => c.name === col)
   if (colIdx < 0) return
-  const td = (e.target as HTMLElement)?.closest('td')
-  if (!td) return
-  const rect = td.getBoundingClientRect()
   cellPopover.value = {
     row: rowIdx, col, colIdx,
     value: currentValue == null ? '' : String(currentValue),
     originalValue: currentValue,
-    top: rect.bottom + 4, left: rect.left,
     colType: columns.value[colIdx].type || '',
     readOnly: !props.editable,
   }
@@ -627,12 +621,6 @@ defineExpose({ clearDirty, hasDirty })
         >
           <div
             class="cell-popover"
-            :style="{
-              position: 'fixed',
-              top: cellPopover.top + 'px',
-              left: cellPopover.left + 'px',
-              zIndex: 10000,
-            }"
             @keydown="onCellPopoverKeydown"
           >
             <div class="cell-popover-header">
@@ -1158,6 +1146,9 @@ defineExpose({ clearDirty, hasDirty })
   inset: 0;
   z-index: 9999;
   background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .cell-popover {
   background: var(--panel-solid);
