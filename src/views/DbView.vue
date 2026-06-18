@@ -12,6 +12,7 @@ import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
 import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
+import { usePersistentPanelState } from '@/utils/panelState'
 import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
 import SqlEditor from '@/components/db/SqlEditor.vue'
@@ -39,6 +40,7 @@ const dbStore = useDbStore()
 const aiStore = useAiStore()
 const notify = useNotifyStore()
 const dlg = useDialogStore()
+const rightPanelOpen = usePersistentPanelState('db', true)
 
 // 路由 :id 是 tab instanceId,需要解析出 assetId 找资产配置
 const instanceId = computed(() => route.params.id as string)
@@ -1451,21 +1453,26 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
     <!-- Sidebar -->
     <div class="db-sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="sidebar-header">
-        <span class="sidebar-title">{{ t('db.title') }}</span>
-        <div class="sidebar-header-actions">
-          <button
-            v-if="connected"
-            class="action-btn"
-            :title="t('db.refreshDbList')"
-            :disabled="loadingDatabases"
-            @click="refreshDatabases()"
-          >
-            <v-icon size="14" :class="{ spin: loadingDatabases }">mdi-refresh</v-icon>
-          </button>
-          <button class="action-btn" @click="sidebarCollapsed = !sidebarCollapsed">
-            <v-icon size="14">{{ sidebarCollapsed ? 'mdi-chevron-right' : 'mdi-chevron-left' }}</v-icon>
-          </button>
-        </div>
+        <template v-if="!sidebarCollapsed">
+          <span class="sidebar-title">{{ t('db.title') }}</span>
+          <div class="sidebar-header-actions">
+            <button
+              v-if="connected"
+              class="action-btn"
+              :title="t('db.refreshDbList')"
+              :disabled="loadingDatabases"
+              @click="refreshDatabases()"
+            >
+              <v-icon size="14" :class="{ spin: loadingDatabases }">mdi-refresh</v-icon>
+            </button>
+            <button class="action-btn" @click="sidebarCollapsed = true">
+              <v-icon size="14">mdi-chevron-left</v-icon>
+            </button>
+          </div>
+        </template>
+        <button v-else class="action-btn expand-btn" @click="sidebarCollapsed = false">
+          <v-icon size="14">mdi-chevron-right</v-icon>
+        </button>
       </div>
 
       <template v-if="!sidebarCollapsed">
@@ -1870,7 +1877,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
     </div>
 
     <RightPanel
-      v-model="appStore.rightPanelOpen"
+      v-model="rightPanelOpen"
       v-model:active-tab="rightActiveTab"
       :tabs="rightPanelTabs"
     >
@@ -1940,6 +1947,15 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
+}
+
+.db-sidebar.collapsed .sidebar-header {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.expand-btn {
+  margin: 0 auto;
 }
 
 .sidebar-title {

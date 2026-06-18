@@ -6,10 +6,13 @@ import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useDockerStore } from '@/stores/docker'
 import { useAiStore } from '@/stores/ai'
+import { useNotifyStore } from '@/stores/notify'
+import { useDialogStore } from '@/stores/dialog'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import DockerDashboard from '@/components/dashboard/DockerDashboard.vue'
 import { parseInstanceId } from '@/utils/tabId'
+import { usePersistentPanelState } from '@/utils/panelState'
 import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller } from '@/utils/aiTools'
 import * as dockerService from '@/services/docker'
 import type { LlmToolCall } from '@/services/ai'
@@ -22,6 +25,9 @@ const assetStore = useAssetStore()
 const appStore = useAppStore()
 const dockerStore = useDockerStore()
 const aiStore = useAiStore()
+const rightPanelOpen = usePersistentPanelState('docker', true)
+const notify = useNotifyStore()
+const dlg = useDialogStore()
 
 // 路由 :id 是 tab instanceId,需要解析出 assetId 找资产配置
 const instanceId = computed(() => route.params.id as string)
@@ -30,6 +36,7 @@ const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value)
 
 const connected = ref(false)
 const connecting = ref(false)
+const connectError = ref<string | null>(null)
 const activeTab = ref<'containers' | 'images'>('containers')
 const selectedTab = ref<'logs' | 'stats'>('logs')
 const sidebarCollapsed = ref(false)
@@ -38,6 +45,7 @@ let statsInterval: ReturnType<typeof setInterval> | null = null
 async function connect() {
   if (!asset.value || connected.value) return
   connecting.value = true
+  connectError.value = null
   try {
     const config = asset.value.config
     const session = await dockerStore.connect(assetId.value, asset.value.name, {
@@ -47,7 +55,9 @@ async function connect() {
     await dockerStore.loadContainers()
     await dockerStore.loadImages()
   } catch (err) {
-    console.error('Docker connect failed:', err)
+    const msg = err instanceof Error ? err.message : String(err)
+    connectError.value = msg
+    notify.notify({ title: 'Docker 连接失败', message: msg, color: 'error', timeout: 5000 })
   } finally {
     connecting.value = false
   }
@@ -104,15 +114,37 @@ async function doStart(id: string) {
 }
 
 async function doStop(id: string) {
+  if (!(await dlg.confirm({
+    title: '停止容器',
+    message: '停止容器会中断其中运行的服务,确认继续?',
+    confirmText: t('docker.stop'),
+    danger: true
+  }))) return
   await dockerStore.stopContainer(id)
+  notify.notify({ title: 'Docker', message: '容器已停止', color: 'success' })
 }
 
 async function doRestart(id: string) {
+  if (!(await dlg.confirm({
+    title: '重启容器',
+    message: '重启容器会造成短暂服务中断,确认继续?',
+    confirmText: t('docker.restart'),
+    danger: true
+  }))) return
   await dockerStore.restartContainer(id)
+  notify.notify({ title: 'Docker', message: '容器已重启', color: 'success' })
 }
 
 async function doRemove(id: string) {
+  if (!(await dlg.confirm({
+    title: '删除容器',
+    message: '删除容器不可撤销。请输入 REMOVE 确认。',
+    confirmText: t('docker.remove'),
+    danger: true,
+    requireTyping: 'REMOVE'
+  }))) return
   await dockerStore.removeContainer(id, true)
+  notify.notify({ title: 'Docker', message: '容器已删除', color: 'success' })
 }
 
 onMounted(() => {
@@ -277,9 +309,14 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
     <!-- Sidebar -->
     <div class="docker-sidebar" :class="{ collapsed: sidebarCollapsed }">
       <div class="sidebar-header">
-        <span class="sidebar-title">Docker</span>
-        <button class="action-btn" @click="sidebarCollapsed = !sidebarCollapsed">
-          <v-icon size="14">{{ sidebarCollapsed ? 'mdi-chevron-right' : 'mdi-chevron-left' }}</v-icon>
+        <template v-if="!sidebarCollapsed">
+          <span class="sidebar-title">Docker</span>
+          <button class="action-btn" @click="sidebarCollapsed = true">
+            <v-icon size="14">mdi-chevron-left</v-icon>
+          </button>
+        </template>
+        <button v-else class="action-btn expand-btn" @click="sidebarCollapsed = false">
+          <v-icon size="14">mdi-chevron-right</v-icon>
         </button>
       </div>
 
@@ -358,8 +395,20 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         </div>
       </div>
 
+      <div v-if="connectError" class="connection-error-card">
+        <v-icon size="18">mdi-alert-circle-outline</v-icon>
+        <div class="error-copy">
+          <strong>Docker 连接失败</strong>
+          <span>{{ connectError }}</span>
+        </div>
+        <button class="cyber-btn-secondary" :disabled="connecting" @click="connect">
+          <v-icon size="14">mdi-refresh</v-icon>
+          重试
+        </button>
+      </div>
+
       <!-- Containers tab -->
-      <div v-if="activeTab === 'containers'" class="content-area">
+      <div v-if="activeTab === 'containers' && !connectError" class="content-area">
         <!-- Container detail panel -->
         <div v-if="dockerStore.selectedContainer" class="detail-panel">
           <div class="detail-header">
@@ -518,7 +567,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
       </div>
 
       <!-- Images tab -->
-      <div v-if="activeTab === 'images'" class="content-area">
+      <div v-if="activeTab === 'images' && !connectError" class="content-area">
         <div class="container-table-wrap">
           <table class="container-table">
             <thead>
@@ -554,7 +603,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
     </div>
 
     <RightPanel
-      v-model="appStore.rightPanelOpen"
+      v-model="rightPanelOpen"
       v-model:active-tab="rightActiveTab"
       :tabs="rightPanelTabs"
     >
@@ -611,6 +660,15 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
+}
+
+.docker-sidebar.collapsed .sidebar-header {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.expand-btn {
+  margin: 0 auto;
 }
 
 .sidebar-title {
