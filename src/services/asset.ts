@@ -31,7 +31,12 @@ function fromRustAsset(raw: RustAsset): Asset {
   }
 }
 
+function isTauriRuntime(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
 export async function fetchAssets(): Promise<Asset[]> {
+  if (!isTauriRuntime()) return []
   const raw = await invoke<RustAsset[]>('get_assets')
   return raw.map(fromRustAsset)
 }

@@ -20,7 +20,9 @@ export default {
     info: '信息',
     home: '首页',
     notice: '提示',
-    input: '输入'
+    input: '输入',
+    close: '关闭',
+    back: '返回'
   },
   home: {
     welcome: '欢迎使用 StarHub',

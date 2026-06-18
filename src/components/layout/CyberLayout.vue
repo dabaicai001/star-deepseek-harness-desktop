@@ -40,6 +40,7 @@ const searchInputRef = ref<HTMLInputElement | null>(null)
 function onSearchShortcut(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
+    closeFloatingSurfaces()
     searchInputRef.value?.focus()
     searchInputRef.value?.select()
   }
@@ -63,6 +64,7 @@ const searchShortcut = computed(() => `${modKey.value}K`)
 // 快捷键:⌘+B / Ctrl+B 折叠/展开 sidebar
 // 快捷键:⌘+Shift+B / Ctrl+Shift+B 折叠/展开右侧面板
 function onKeydown(e: KeyboardEvent) {
+  if (isEditableEventTarget(e.target)) return
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
     e.preventDefault()
     if (e.shiftKey) {
@@ -70,14 +72,42 @@ function onKeydown(e: KeyboardEvent) {
     } else {
       appStore.toggleSidebar()
     }
+  } else if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+    e.preventDefault()
+    closeFloatingSurfaces()
+    showSettings.value = true
+  } else if (e.key === 'Escape') {
+    closeFloatingSurfaces()
   }
 }
 
+function isEditableEventTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName.toLowerCase()
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable
+}
+
+function closeFloatingSurfaces() {
+  userMenuOpen.value = false
+  searchOpen.value = false
+  closeNewTabPicker()
+  closeTabBarContextMenu()
+  closeTabContextMenu()
+  closeAssetPicker()
+  closeWorkspaceContextMenu()
+}
+
 // ====== 窗口控件(Tauri window API) ======
-const appWindow = tauriWindowApi.getCurrentWindow()
+let appWindow: ReturnType<typeof tauriWindowApi.getCurrentWindow> | null = null
+try {
+  appWindow = tauriWindowApi.getCurrentWindow()
+} catch {
+  // 纯浏览器 dev / 预览环境没有 Tauri window 元数据,窗口按钮静默降级。
+}
 const isMaximized = ref(false)
 
 async function refreshMaximized() {
+  if (!appWindow) return
   try {
     isMaximized.value = await appWindow.isMaximized()
   } catch {
@@ -86,10 +116,12 @@ async function refreshMaximized() {
 }
 
 async function winMinimize() {
+  if (!appWindow) return
   try { await appWindow.minimize() } catch {}
 }
 
 async function winToggleMaximize() {
+  if (!appWindow) return
   try {
     if (await appWindow.isMaximized()) {
       await appWindow.unmaximize()
@@ -101,6 +133,7 @@ async function winToggleMaximize() {
 }
 
 async function winClose() {
+  if (!appWindow) return
   try { await appWindow.close() } catch {}
 }
 
@@ -110,13 +143,14 @@ function onTitlebarDblclick() {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('keydown', onSearchShortcut)
   window.addEventListener('keydown', onGlobalKeydown)
   updateClock()
   clockTimer = window.setInterval(updateClock, 1000)
   await refreshMaximized()
   // 监听 Tauri 窗口状态变化,同步 isMaximized
   try {
-    await appWindow.onResized(async () => { await refreshMaximized() })
+    await appWindow?.onResized(async () => { await refreshMaximized() })
   } catch {}
   // 初始化标签页滚动状态
   setTimeout(updateTabScrollState, 100)
@@ -129,6 +163,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('keydown', onSearchShortcut)
   window.removeEventListener('keydown', onGlobalKeydown)
   if (clockTimer !== null) {
     window.clearInterval(clockTimer)
@@ -143,6 +178,111 @@ function closeNewTabPicker() { newTabPicker.value = null }
 // ====== 标签栏空隙右键菜单(空 tab 区 / menubar 区域) ======
 const tabBarCtxMenu = ref<{ x: number; y: number } | null>(null)
 function closeTabBarContextMenu() { tabBarCtxMenu.value = null }
+
+// ====== 工作区右键菜单(空白区 / 欢迎页 / 模块卡片) ======
+const workspaceCtxMenu = ref<{ x: number; y: number; preferredType?: 'ssh' | 'db' | 'docker' | 'excel' } | null>(null)
+function closeWorkspaceContextMenu() { workspaceCtxMenu.value = null }
+
+function openWorkspaceContextMenu(e: MouseEvent, preferredType?: 'ssh' | 'db' | 'docker' | 'excel') {
+  e.preventDefault()
+  e.stopPropagation()
+  closeFloatingSurfaces()
+  workspaceCtxMenu.value = { x: e.clientX, y: e.clientY, preferredType }
+}
+
+function openCommandPalette() {
+  closeFloatingSurfaces()
+  window.dispatchEvent(new CustomEvent('starhub:open-command-palette'))
+}
+
+function preferredTypeLabel(type: 'ssh' | 'db' | 'docker' | 'excel') {
+  if (type === 'ssh') return 'SSH 连接'
+  if (type === 'db') return '数据库连接'
+  if (type === 'docker') return 'Docker 主机'
+  return 'Excel 文件'
+}
+
+const workspaceCtxItems = computed<MenuItem[]>(() => {
+  const preferredType = workspaceCtxMenu.value?.preferredType
+  const items: MenuItem[] = [
+    { type: 'header', icon: preferredType ? getIcon(preferredType) : 'mdi-view-dashboard-outline', label: preferredType ? preferredTypeLabel(preferredType) : '工作区' },
+  ]
+
+  if (preferredType) {
+    items.push(
+      {
+        type: 'item',
+        icon: getIcon(preferredType),
+        label: `打开最近的 ${preferredTypeLabel(preferredType)}…`,
+        onClick: () => onWelcomeQuickAction(preferredType)
+      },
+      {
+        type: 'item',
+        icon: 'mdi-plus',
+        label: `新建${preferredTypeLabel(preferredType)}…`,
+        onClick: () => openNewConnectionWithType(preferredType)
+      },
+      { type: 'divider' }
+    )
+  }
+
+  items.push(
+    {
+      type: 'item',
+      icon: 'mdi-console',
+      label: '新建 SSH 连接…',
+      onClick: () => openNewConnectionWithType('ssh')
+    },
+    {
+      type: 'item',
+      icon: 'mdi-database',
+      label: '新建数据库连接…',
+      onClick: () => openNewConnectionWithType('db')
+    },
+    {
+      type: 'item',
+      icon: 'mdi-docker',
+      label: '新建 Docker 主机…',
+      onClick: () => openNewConnectionWithType('docker')
+    },
+    {
+      type: 'item',
+      icon: 'mdi-file-excel-outline',
+      label: '新建 Excel 文件…',
+      onClick: () => openNewConnectionWithType('excel')
+    },
+    { type: 'divider' },
+    {
+      type: 'item',
+      icon: 'mdi-magnify-expand',
+      label: '打开命令面板',
+      shortcut: `${modKey.value}P`,
+      onClick: openCommandPalette
+    },
+    {
+      type: 'item',
+      icon: appStore.sidebarOpen ? 'mdi-page-layout-sidebar-left-collapse' : 'mdi-page-layout-sidebar-left-expand',
+      label: appStore.sidebarOpen ? '收起侧边栏' : '展开侧边栏',
+      shortcut: `${modKey.value}B`,
+      onClick: () => appStore.toggleSidebar()
+    },
+    {
+      type: 'item',
+      icon: appStore.rightPanelOpen ? 'mdi-page-layout-sidebar-right-collapse' : 'mdi-page-layout-sidebar-right-expand',
+      label: appStore.rightPanelOpen ? '收起右侧面板' : '展开右侧面板',
+      shortcut: `${modKey.value}+Shift+B`,
+      onClick: () => appStore.toggleRightPanel()
+    },
+    {
+      type: 'item',
+      icon: 'mdi-cog-outline',
+      label: t('settings.title'),
+      shortcut: `${modKey.value},`,
+      onClick: () => { showSettings.value = true }
+    }
+  )
+  return items
+})
 
 const tabBarCtxItems = computed<MenuItem[]>(() => {
   const hasTabs = appStore.tabs.length > 0
@@ -747,6 +887,7 @@ const tabCtxItems = computed<MenuItem[]>(() => {
 
 // Ctrl+W 关闭当前
 function onGlobalKeydown(e: KeyboardEvent) {
+  if (showNewConnection.value || showSettings.value || dlg.visible || isEditableEventTarget(e.target)) return
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w' && appStore.activeTab) {
     e.preventDefault()
     closeTab(appStore.activeTab)
@@ -1046,7 +1187,7 @@ vueWatch(() => appStore.tabs.length, () => {
 
       <!-- Workspace -->
       <div class="workspace">
-        <div v-if="appStore.tabs.length === 0" class="workspace-welcome">
+        <div v-if="appStore.tabs.length === 0" class="workspace-welcome" @contextmenu="openWorkspaceContextMenu">
           <div class="welcome-content">
             <div class="welcome-icon">
               <v-icon size="64" color="cyan">mdi-console</v-icon>
@@ -1068,7 +1209,11 @@ vueWatch(() => appStore.tabs.length, () => {
             </div>
 
             <div class="feature-grid">
-              <div class="feature-card" @click="onWelcomeQuickAction('ssh')">
+              <div
+                class="feature-card"
+                @click="onWelcomeQuickAction('ssh')"
+                @contextmenu="openWorkspaceContextMenu($event, 'ssh')"
+              >
                 <div class="fc-head">
                   <v-icon size="22" color="cyan">mdi-console</v-icon>
                   <span class="fc-tag">P0</span>
@@ -1076,7 +1221,11 @@ vueWatch(() => appStore.tabs.length, () => {
                 <h3>{{ t('ssh.title') }}</h3>
                 <p>{{ t('ssh.terminal') }} · SFTP</p>
               </div>
-              <div class="feature-card" @click="onWelcomeQuickAction('db')">
+              <div
+                class="feature-card"
+                @click="onWelcomeQuickAction('db')"
+                @contextmenu="openWorkspaceContextMenu($event, 'db')"
+              >
                 <div class="fc-head">
                   <v-icon size="22" color="purple">mdi-database</v-icon>
                   <span class="fc-tag">P0</span>
@@ -1084,7 +1233,11 @@ vueWatch(() => appStore.tabs.length, () => {
                 <h3>{{ t('db.title') }}</h3>
                 <p>MySQL · PG · Redis · ...</p>
               </div>
-              <div class="feature-card" @click="onWelcomeQuickAction('docker')">
+              <div
+                class="feature-card"
+                @click="onWelcomeQuickAction('docker')"
+                @contextmenu="openWorkspaceContextMenu($event, 'docker')"
+              >
                 <div class="fc-head">
                   <v-icon size="22" color="green">mdi-docker</v-icon>
                   <span class="fc-tag">P0</span>
@@ -1092,7 +1245,11 @@ vueWatch(() => appStore.tabs.length, () => {
                 <h3>{{ t('docker.title') }}</h3>
                 <p>{{ t('docker.containers') }} / {{ t('docker.images') }}</p>
               </div>
-              <div class="feature-card" @click="onWelcomeQuickAction('excel')">
+              <div
+                class="feature-card"
+                @click="onWelcomeQuickAction('excel')"
+                @contextmenu="openWorkspaceContextMenu($event, 'excel')"
+              >
                 <div class="fc-head">
                   <v-icon size="22" color="green">mdi-file-excel-outline</v-icon>
                   <span class="fc-tag">P0</span>
@@ -1208,6 +1365,15 @@ vueWatch(() => appStore.tabs.length, () => {
       :y="assetPicker.y"
       :items="assetPicker.items"
       @close="closeAssetPicker"
+    />
+
+    <!-- 工作区右键菜单 -->
+    <ContextMenu
+      v-if="workspaceCtxMenu"
+      :x="workspaceCtxMenu.x"
+      :y="workspaceCtxMenu.y"
+      :items="workspaceCtxItems"
+      @close="closeWorkspaceContextMenu"
     />
 
     <!-- 全局命令面板 (⌘P) -->

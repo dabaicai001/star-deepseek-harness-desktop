@@ -27,6 +27,7 @@ const excelFilePath = ref('')
 const excelFormat = ref<'xlsx' | 'csv'>('xlsx')
 
 const mode = computed<'create' | 'edit'>(() => (props.asset ? 'edit' : 'create'))
+const canGoBackToType = computed(() => mode.value === 'create' && !props.initialType)
 
 function selectType(type: string) {
   if (type === 'ssh') {
@@ -141,12 +142,28 @@ function close() {
   excelFormat.value = 'xlsx'
   emit('update:modelValue', false)
 }
+
+function onDialogModelUpdate(open: boolean) {
+  if (open) {
+    emit('update:modelValue', true)
+    return
+  }
+  close()
+}
+
+function goBackOrClose() {
+  if (canGoBackToType.value) {
+    step.value = 'type'
+  } else {
+    close()
+  }
+}
 </script>
 
 <template>
   <v-dialog
     :model-value="modelValue"
-    @update:model-value="emit('update:modelValue', $event)"
+    @update:model-value="onDialogModelUpdate"
     max-width="640"
     transition="dialog-bottom-transition"
     scrollable
@@ -165,7 +182,14 @@ function close() {
         </div>
         <div class="modal-body">
           <div class="type-grid">
-            <div class="type-card" @click="selectType('ssh')">
+            <div
+              class="type-card"
+              role="button"
+              tabindex="0"
+              @click="selectType('ssh')"
+              @keydown.enter.prevent="selectType('ssh')"
+              @keydown.space.prevent="selectType('ssh')"
+            >
               <div class="type-icon ssh">
                 <v-icon size="26">mdi-console</v-icon>
               </div>
@@ -175,7 +199,14 @@ function close() {
               </div>
               <v-icon class="arrow" size="14">mdi-arrow-right</v-icon>
             </div>
-            <div class="type-card" @click="selectType('db')">
+            <div
+              class="type-card"
+              role="button"
+              tabindex="0"
+              @click="selectType('db')"
+              @keydown.enter.prevent="selectType('db')"
+              @keydown.space.prevent="selectType('db')"
+            >
               <div class="type-icon db">
                 <v-icon size="26">mdi-database-outline</v-icon>
               </div>
@@ -185,7 +216,14 @@ function close() {
               </div>
               <v-icon class="arrow" size="14">mdi-arrow-right</v-icon>
             </div>
-            <div class="type-card" @click="selectType('docker')">
+            <div
+              class="type-card"
+              role="button"
+              tabindex="0"
+              @click="selectType('docker')"
+              @keydown.enter.prevent="selectType('docker')"
+              @keydown.space.prevent="selectType('docker')"
+            >
               <div class="type-icon docker">
                 <v-icon size="26">mdi-docker</v-icon>
               </div>
@@ -195,7 +233,14 @@ function close() {
               </div>
               <v-icon class="arrow" size="14">mdi-arrow-right</v-icon>
             </div>
-            <div class="type-card" @click="selectType('excel')">
+            <div
+              class="type-card"
+              role="button"
+              tabindex="0"
+              @click="selectType('excel')"
+              @keydown.enter.prevent="selectType('excel')"
+              @keydown.space.prevent="selectType('excel')"
+            >
               <div class="type-icon excel">
                 <v-icon size="26">mdi-file-excel-outline</v-icon>
               </div>
@@ -212,8 +257,8 @@ function close() {
       <!-- SSH Form -->
       <template v-else-if="step === 'ssh'">
         <div class="modal-header">
-          <button class="action-btn" @click="step = 'type'" style="margin-right: -4px;">
-            <v-icon size="14">mdi-arrow-left</v-icon>
+          <button class="action-btn" @click="goBackOrClose" style="margin-right: -4px;" :data-tooltip="canGoBackToType ? t('common.back') : t('common.close')">
+            <v-icon size="14">{{ canGoBackToType ? 'mdi-arrow-left' : 'mdi-close' }}</v-icon>
           </button>
           <div class="icon-box">
             <v-icon size="14">mdi-console</v-icon>
@@ -252,8 +297,8 @@ function close() {
       <!-- DB Form -->
       <template v-else-if="step === 'db'">
         <div class="modal-header">
-          <button class="action-btn" @click="step = 'type'" style="margin-right: -4px;">
-            <v-icon size="14">mdi-arrow-left</v-icon>
+          <button class="action-btn" @click="goBackOrClose" style="margin-right: -4px;" :data-tooltip="canGoBackToType ? t('common.back') : t('common.close')">
+            <v-icon size="14">{{ canGoBackToType ? 'mdi-arrow-left' : 'mdi-close' }}</v-icon>
           </button>
           <div class="icon-box" style="background: rgba(181, 107, 255, 0.1); color: var(--purple); border-color: rgba(181, 107, 255, 0.2);">
             <v-icon size="14">mdi-database</v-icon>
@@ -287,8 +332,8 @@ function close() {
       <!-- Docker Form -->
       <template v-else-if="step === 'docker'">
         <div class="modal-header">
-          <button class="action-btn" @click="step = 'type'" style="margin-right: -4px;">
-            <v-icon size="14">mdi-arrow-left</v-icon>
+          <button class="action-btn" @click="goBackOrClose" style="margin-right: -4px;" :data-tooltip="canGoBackToType ? t('common.back') : t('common.close')">
+            <v-icon size="14">{{ canGoBackToType ? 'mdi-arrow-left' : 'mdi-close' }}</v-icon>
           </button>
           <div class="icon-box" style="background: rgba(74, 222, 128, 0.1); color: var(--green); border-color: rgba(74, 222, 128, 0.2);">
             <v-icon size="14">mdi-docker</v-icon>
@@ -343,8 +388,8 @@ function close() {
       <!-- Excel Form -->
       <template v-else-if="step === 'excel'">
         <div class="modal-header">
-          <button class="action-btn" @click="step = 'type'" style="margin-right: -4px;">
-            <v-icon size="14">mdi-arrow-left</v-icon>
+          <button class="action-btn" @click="goBackOrClose" style="margin-right: -4px;" :data-tooltip="canGoBackToType ? t('common.back') : t('common.close')">
+            <v-icon size="14">{{ canGoBackToType ? 'mdi-arrow-left' : 'mdi-close' }}</v-icon>
           </button>
           <div class="icon-box" style="background: rgba(74, 222, 128, 0.1); color: var(--green); border-color: rgba(74, 222, 128, 0.2);">
             <v-icon size="14">mdi-file-excel-outline</v-icon>

@@ -274,12 +274,20 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+function onOpenCommandPaletteEvent() {
+  show()
+}
+
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('starhub:open-command-palette', onOpenCommandPaletteEvent)
   const ua = navigator.userAgent.toLowerCase()
   isMac.value = /mac|iphone|ipad|ipod/.test(ua)
 })
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('starhub:open-command-palette', onOpenCommandPaletteEvent)
+})
 
 const groupLabel: Record<Command['group'], string> = {
   asset: '资产',

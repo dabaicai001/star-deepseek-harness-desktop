@@ -227,6 +227,29 @@ html.v-theme--lightTheme {
   box-shadow: var(--glow-cyan);
 }
 
+.cyber-btn:disabled,
+.cyber-btn[disabled],
+.cyber-btn-secondary:disabled,
+.cyber-btn-secondary[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.cyber-btn:disabled::after,
+.cyber-btn[disabled]::after {
+  display: none;
+}
+
+.cyber-btn:disabled:hover,
+.cyber-btn[disabled]:hover,
+.cyber-btn-secondary:disabled:hover,
+.cyber-btn-secondary[disabled]:hover {
+  transform: none;
+  box-shadow: none;
+}
+
 .cyber-btn::after {
   content: "";
   position: absolute;
@@ -859,6 +882,35 @@ html.v-theme--lightTheme {
   flex: 1;
 }
 
+.footer-right,
+.footer-left {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .form-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .form-footer .footer-left,
+  .form-footer .footer-right {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .form-footer .footer-left {
+    justify-content: flex-start;
+  }
+
+  .shortcut-hint {
+    width: 100%;
+    margin: 0 0 4px 0;
+    white-space: normal;
+  }
+}
+
 /* Switcher: 二选一切换(密码 / 私钥),替代 v-btn-toggle */
 .switcher {
   display: inline-flex;
@@ -1178,7 +1230,16 @@ html.v-theme--lightTheme {
   color: var(--text);
 }
 
+.context-menu .cm-item.selected:not(.disabled) {
+  background: var(--hover-cyan);
+  color: var(--text);
+}
+
 .context-menu .cm-item:hover:not(.disabled) .mdi {
+  color: var(--cyan);
+}
+
+.context-menu .cm-item.selected:not(.disabled) .mdi {
   color: var(--cyan);
 }
 

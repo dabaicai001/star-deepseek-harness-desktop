@@ -20,7 +20,9 @@ export default {
     info: 'Info',
     home: 'Home',
     notice: 'Notice',
-    input: 'Input'
+    input: 'Input',
+    close: 'Close',
+    back: 'Back'
   },
   home: {
     welcome: 'Welcome to StarHub',

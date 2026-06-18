@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 
 export interface MenuItem {
   type?: 'item' | 'divider' | 'header'
@@ -24,15 +24,33 @@ const emit = defineEmits<{
 
 const menuRef = ref<HTMLDivElement>()
 const adjusted = ref({ x: props.x, y: props.y })
+const selectedIdx = ref(-1)
+
+const enabledItemIndexes = computed(() =>
+  props.items
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item }) => item.type !== 'divider' && item.type !== 'header' && !item.disabled)
+    .map(({ idx }) => idx)
+)
 
 function close() {
   emit('close')
 }
 
 function handleItemClick(item: MenuItem) {
-  if (item.disabled || item.type !== 'item') return
+  if (item.disabled || item.type === 'divider' || item.type === 'header') return
   if (item.onClick) item.onClick()
   close()
+}
+
+function moveSelection(delta: number) {
+  const indexes = enabledItemIndexes.value
+  if (indexes.length === 0) return
+  const currentPos = indexes.indexOf(selectedIdx.value)
+  const nextPos = currentPos === -1
+    ? (delta > 0 ? 0 : indexes.length - 1)
+    : (currentPos + delta + indexes.length) % indexes.length
+  selectedIdx.value = indexes[nextPos]
 }
 
 function onDocPointer(e: PointerEvent) {
@@ -46,6 +64,23 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     e.preventDefault()
     close()
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    moveSelection(1)
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    moveSelection(-1)
+  } else if (e.key === 'Home') {
+    e.preventDefault()
+    selectedIdx.value = enabledItemIndexes.value[0] ?? -1
+  } else if (e.key === 'End') {
+    e.preventDefault()
+    const indexes = enabledItemIndexes.value
+    selectedIdx.value = indexes[indexes.length - 1] ?? -1
+  } else if (e.key === 'Enter' || e.key === ' ') {
+    if (selectedIdx.value < 0) return
+    e.preventDefault()
+    handleItemClick(props.items[selectedIdx.value])
   }
 }
 
@@ -62,6 +97,8 @@ onMounted(() => {
   // 防止默认右键菜单
   void nextTick().then(() => {
     if (!menuRef.value) return
+    menuRef.value.focus()
+    selectedIdx.value = enabledItemIndexes.value[0] ?? -1
     const rect = menuRef.value.getBoundingClientRect()
     const vw = window.innerWidth
     const vh = window.innerHeight
@@ -89,6 +126,8 @@ onBeforeUnmount(() => {
       ref="menuRef"
       class="context-menu"
       :style="{ left: adjusted.x + 'px', top: adjusted.y + 'px' }"
+      tabindex="-1"
+      role="menu"
       @contextmenu.prevent
     >
       <template v-for="(item, idx) in items" :key="idx">
@@ -106,8 +145,11 @@ onBeforeUnmount(() => {
         <div
           v-else
           class="cm-item"
-          :class="{ disabled: item.disabled, danger: item.danger }"
+          :class="{ disabled: item.disabled, danger: item.danger, selected: idx === selectedIdx }"
+          role="menuitem"
+          :aria-disabled="item.disabled ? 'true' : 'false'"
           @click="handleItemClick(item)"
+          @mouseenter="selectedIdx = item.disabled ? selectedIdx : idx"
         >
           <v-icon v-if="item.checked" class="check">mdi-check</v-icon>
           <v-icon v-else-if="item.icon" class="mdi">{{ item.icon }}</v-icon>
