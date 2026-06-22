@@ -108,7 +108,8 @@ function copyInsert(rowIdx: number) {
   const row = pagedRows.value[rowIdx]
   if (!row) return
   const cols = columns.value.map(c => `\`${c.name}\``).join(', ')
-  const vals = row.map(cell => {
+  const vals = columns.value.map((col, colIdx) => {
+    const cell = getDisplayedCellValue(rowIdx, col.name, row[colIdx])
     if (cell === null || cell === undefined) return 'NULL'
     if (typeof cell === 'number') return String(cell)
     return `'${String(cell).replace(/'/g, "''")}'`
@@ -288,9 +289,9 @@ function onPageSizeChange(e: Event) {
 function handleExportExcel() {
   if (!props.result?.columns || !props.result?.rows) return
   const cols = props.result.columns.map(c => c.name)
-  const rows = props.result.rows.map((row: any[]) =>
+  const rows = props.result.rows.map((row: any[], rowIdx) =>
     cols.map((_, ci) => {
-      const val = row[ci]
+      const val = getDisplayedCellValue(rowIdx, cols[ci], row[ci])
       if (val === null || val === undefined) return ''
       return String(val)
     })
@@ -307,8 +308,31 @@ function dirtyKey(rowIdx: number, col: string) {
   return `${rowIdx}::${col}`
 }
 
+function getDirtyCell(rowIdx: number, col: string) {
+  return dirtyCells.value.get(dirtyKey(rowIdx, col))
+}
+
 function isDirty(rowIdx: number, col: string) {
-  return dirtyCells.value.has(dirtyKey(rowIdx, col))
+  return !!getDirtyCell(rowIdx, col)
+}
+
+function valuesEqual(a: unknown, b: unknown) {
+  return Object.is(a, b)
+}
+
+function getDisplayedCellValue(rowIdx: number, col: string, fallback: unknown) {
+  const dirty = getDirtyCell(rowIdx, col)
+  return dirty ? dirty.newValue : fallback
+}
+
+function stageCellChange(rowIdx: number, col: string, originalValue: unknown, newValue: unknown) {
+  const key = dirtyKey(rowIdx, col)
+  if (valuesEqual(originalValue, newValue)) {
+    dirtyCells.value.delete(key)
+  } else {
+    dirtyCells.value.set(key, { col, originalValue, newValue })
+  }
+  dirtyCells.value = new Map(dirtyCells.value)
 }
 
 // 内联编辑(保留给短文本直接双击编辑)
@@ -342,12 +366,7 @@ function commitCellPopover() {
       else if (value === 'false' || value === '0') newVal = false
     }
   }
-  if (originalValue === newVal) {
-    cellPopover.value = null
-    return
-  }
-  dirtyCells.value.set(dirtyKey(row, col), { col, originalValue, newValue: newVal })
-  dirtyCells.value = new Map(dirtyCells.value)
+  stageCellChange(row, col, originalValue, newVal)
   cellPopover.value = null
 }
 
@@ -372,10 +391,12 @@ function onCellPopoverKeydown(e: KeyboardEvent) {
 function startEdit(e: MouseEvent, rowIdx: number, col: string, currentValue: unknown) {
   const colIdx = columns.value.findIndex(c => c.name === col)
   if (colIdx < 0) return
+  const staged = getDirtyCell(rowIdx, col)
+  const displayedValue = staged ? staged.newValue : currentValue
   cellPopover.value = {
     row: rowIdx, col, colIdx,
-    value: currentValue == null ? '' : String(currentValue),
-    originalValue: currentValue,
+    value: displayedValue == null ? '' : String(displayedValue),
+    originalValue: staged ? staged.originalValue : currentValue,
     colType: columns.value[colIdx].type || '',
     readOnly: !props.editable,
   }
@@ -404,12 +425,7 @@ function commitEdit() {
   const colIdx = columns.value.findIndex(c => c.name === col)
   const originalValue = currentRow ? currentRow[colIdx] : undefined
   // 值没变则不标记 dirty
-  if (originalValue === newVal) {
-    editing.value = null
-    return
-  }
-  dirtyCells.value.set(dirtyKey(row, col), { col, originalValue, newValue: newVal })
-  dirtyCells.value = new Map(dirtyCells.value)
+  stageCellChange(row, col, originalValue, newVal)
   editing.value = null
 }
 
@@ -558,14 +574,17 @@ defineExpose({ clearDirty, hasDirty })
               <td
                 v-for="(cell, colIdx) in row"
                 :key="colIdx"
-                :class="[getCellClass(cell), { editable: editable, dirty: isDirty(rowIdx, columns[colIdx].name) }]"
+                :class="[
+                  getCellClass(getDisplayedCellValue(rowIdx, columns[colIdx].name, cell)),
+                  { editable: editable, dirty: isDirty(rowIdx, columns[colIdx].name) }
+                ]"
                 class="cell"
                 @dblclick="startEdit($event, rowIdx, columns[colIdx].name, cell)"
               >
                 <span
                   class="cell-value"
-                  :title="formatCell(cell)"
-                >{{ formatCell(cell) }}</span>
+                  :title="formatCell(getDisplayedCellValue(rowIdx, columns[colIdx].name, cell))"
+                >{{ formatCell(getDisplayedCellValue(rowIdx, columns[colIdx].name, cell)) }}</span>
               </td>
             </tr>
           </tbody>

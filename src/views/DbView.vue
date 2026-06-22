@@ -829,6 +829,22 @@ function setColumnFilter(col: string, value: string) {
   void loadTableDataFor(tab, true)
 }
 
+function patchTableDataRows(tab: TableSubTab, changes: Array<{ rowIndex: number; column: string; newValue: unknown }>) {
+  if (!tab.data || changes.length === 0) return
+  const columnIndex = new Map(tab.data.columns.map((col, idx) => [col.name, idx]))
+  const rows = tab.data.rows.map((row, rowIndex) => {
+    const rowChanges = changes.filter(change => change.rowIndex === rowIndex)
+    if (rowChanges.length === 0) return row
+    const next = [...row]
+    for (const change of rowChanges) {
+      const idx = columnIndex.get(change.column)
+      if (idx != null) next[idx] = change.newValue
+    }
+    return next
+  })
+  tab.data = { ...tab.data, rows }
+}
+
 async function onCellEdit(rowIdx: number, col: string, value: unknown) {
   const tab = activeTableTab.value
   if (!tab || !connId.value || tablePrimaryKeys.value.length === 0) {
@@ -854,6 +870,7 @@ async function onCellEdit(rowIdx: number, col: string, value: unknown) {
     } else {
       await dbService.mysqlUpdateRows(connId.value, tab.table, { [col]: value }, where, tab.db)
     }
+    patchTableDataRows(tab, [{ rowIndex: rowIdx, column: col, newValue: value }])
     notify.notify({ message: t('db.saved'), color: 'success', timeout: 1500 })
     await loadTableDataFor(tab, true)
   } catch (err: unknown) {
@@ -901,6 +918,7 @@ async function onSaveBatch(changes: Array<{ rowIndex: number; column: string; or
     notify.notify({ message: t('db.saveFailed', { msg }), color: 'error', timeout: 5000 })
     void dlg.alert({ message: t('db.saveFailed', { msg }), color: 'error' })
   } else {
+    patchTableDataRows(tab, changes)
     activeDataGridRef.value?.clearDirty()
     notify.notify({ message: t('db.saveSuccess', { count: changes.length }), color: 'success', timeout: 2500 })
   }
