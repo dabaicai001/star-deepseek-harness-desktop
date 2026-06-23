@@ -11,7 +11,7 @@ const editingCell = ref<{ row: number; col: number } | null>(null)
 const editValue = ref('')
 const editInputRef = ref<HTMLInputElement | null>(null)
 const contextMenu = ref<{ x: number; y: number; row: number; col: number } | null>(null)
-const headerFilter = ref<{ x: number; y: number; col: number; text: string } | null>(null)
+const headerFilter = ref<{ x: number; y: number; col: number; text: string; selectedValues: Set<string> } | null>(null)
 const draggingSelection = ref(false)
 const fillDrag = ref<{ sourceRow: number; sourceCol: number; targetRow: number; targetCol: number } | null>(null)
 
@@ -338,6 +338,7 @@ function openHeaderFilter(e: MouseEvent, col: number) {
     y: e.clientY,
     col,
     text: store.filterCol === col ? store.filterText : '',
+    selectedValues: store.filterCol === col ? new Set(store.filterValues) : new Set(),
   }
 }
 
@@ -369,13 +370,37 @@ function headerFilterValueCounts(col: number) {
 
 function applyHeaderFilter() {
   if (!headerFilter.value) return
-  store.setFilter(headerFilter.value.text, headerFilter.value.col)
+  store.setFilter(headerFilter.value.text, headerFilter.value.col, [...headerFilter.value.selectedValues])
   closeHeaderFilter()
 }
 
 function clearHeaderFilter() {
   store.clearFilter()
   closeHeaderFilter()
+}
+
+function toggleHeaderFilterValue(value: string) {
+  if (!headerFilter.value) return
+  const selectedValues = new Set(headerFilter.value.selectedValues)
+  if (selectedValues.has(value)) {
+    selectedValues.delete(value)
+  } else {
+    selectedValues.add(value)
+  }
+  headerFilter.value = { ...headerFilter.value, selectedValues }
+}
+
+function selectAllHeaderFilterValues() {
+  if (!headerFilter.value) return
+  headerFilter.value = {
+    ...headerFilter.value,
+    selectedValues: new Set(headerFilterValueCounts(headerFilter.value.col).map(item => item.value)),
+  }
+}
+
+function clearHeaderFilterValues() {
+  if (!headerFilter.value) return
+  headerFilter.value = { ...headerFilter.value, selectedValues: new Set() }
 }
 
 function handleCellDblClick(row: number, col: number) {
@@ -586,7 +611,7 @@ onBeforeUnmount(() => {
             <span class="col-title" :title="col.label">{{ col.label }}</span>
             <button
               class="col-filter-btn"
-              :class="{ active: store.filterCol === col.index && !!store.filterText }"
+              :class="{ active: store.filterCol === col.index && (!!store.filterText || store.filterValues.length > 0) }"
               :title="`筛选 ${col.label}`"
               @click="openHeaderFilter($event, col.index)"
             >
@@ -751,27 +776,35 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="filter-value-counts">
-          <div
+          <button
             v-for="item in headerFilterValueCounts(headerFilter.col)"
             :key="item.value"
             class="filter-value-count"
+            :class="{ selected: headerFilter.selectedValues.has(item.value) }"
             :title="`${item.value}: ${item.count}`"
+            @click="toggleHeaderFilterValue(item.value)"
           >
+            <v-icon size="11">{{ headerFilter.selectedValues.has(item.value) ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank-outline' }}</v-icon>
             <span>{{ item.value }}</span>
             <strong>{{ item.count }}</strong>
-          </div>
+          </button>
+        </div>
+        <div class="filter-pick-actions">
+          <button class="action-btn-sm" @click="selectAllHeaderFilterValues">全选</button>
+          <button class="action-btn-sm" @click="clearHeaderFilterValues">清空选择</button>
+          <span>{{ headerFilter.selectedValues.size }} 项</span>
         </div>
         <input
           v-model="headerFilter.text"
           class="cyber-input filter-input"
-          placeholder="按此列筛选..."
+          placeholder="关键词包含..."
           autofocus
           @keydown.enter.prevent="applyHeaderFilter"
           @keydown.esc.prevent="closeHeaderFilter"
         />
         <div class="filter-actions">
           <button class="cyber-btn-secondary" @click="clearHeaderFilter">清除</button>
-          <button class="cyber-btn" :disabled="!headerFilter.text.trim()" @click="applyHeaderFilter">筛选</button>
+          <button class="cyber-btn" :disabled="!headerFilter.text.trim() && headerFilter.selectedValues.size === 0" @click="applyHeaderFilter">筛选</button>
         </div>
       </div>
     </Teleport>
@@ -1076,14 +1109,25 @@ onBeforeUnmount(() => {
 }
 
 .filter-value-count {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
   min-height: 26px;
   padding: 4px 6px;
+  border: 0;
   border-bottom: 1px solid var(--line);
+  background: transparent;
   color: var(--text-2);
   font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.filter-value-count:hover,
+.filter-value-count.selected {
+  color: var(--cyan);
+  background: var(--hover-cyan-faint);
 }
 
 .filter-value-count:last-child {
@@ -1098,6 +1142,10 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.filter-value-count.selected span {
+  color: var(--cyan);
+}
+
 .filter-value-count strong {
   min-width: 24px;
   color: var(--cyan);
@@ -1105,6 +1153,32 @@ onBeforeUnmount(() => {
   font-size: 11px;
   font-weight: 600;
   text-align: right;
+}
+
+.filter-pick-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.filter-pick-actions .action-btn-sm {
+  min-width: 42px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.filter-pick-actions .action-btn-sm:hover {
+  color: var(--cyan);
+  border-color: var(--cyan);
+  background: var(--hover-cyan-faint);
 }
 
 .filter-input {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SshConnectionForm from '@/components/ssh/SshConnectionForm.vue'
 import DbConnectionForm from '@/components/db/DbConnectionForm.vue'
@@ -25,6 +25,8 @@ const dockerSocket = ref('')
 const excelName = ref('')
 const excelFilePath = ref('')
 const excelFormat = ref<'xlsx' | 'csv'>('xlsx')
+const excelDropActive = ref(false)
+let unlistenExcelDrop: (() => void) | null = null
 
 const mode = computed<'create' | 'edit'>(() => (props.asset ? 'edit' : 'create'))
 const canGoBackToType = computed(() => mode.value === 'create' && !props.initialType)
@@ -54,6 +56,25 @@ function syncExcelFromAsset() {
   excelFormat.value = props.asset.config.format || 'xlsx'
 }
 
+function excelFileFormat(path: string): 'xlsx' | 'csv' | null {
+  const lower = path.toLowerCase()
+  if (lower.endsWith('.csv')) return 'csv'
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) return 'xlsx'
+  return null
+}
+
+function setExcelFilePath(path: string) {
+  const format = excelFileFormat(path)
+  if (!format) return false
+  excelFilePath.value = path
+  if (!excelName.value) {
+    const fileName = path.split(/[/\\]/).pop() || ''
+    excelName.value = fileName.replace(/\.(xlsx?|csv)$/i, '') || fileName
+  }
+  excelFormat.value = format
+  return true
+}
+
 async function pickExcelFile() {
   const { open } = await import('@tauri-apps/plugin-dialog')
   const selected = await open({
@@ -63,15 +84,34 @@ async function pickExcelFile() {
     ]
   })
   if (!selected) return
-  const path = selected as string
-  excelFilePath.value = path
-  if (!excelName.value) {
-    const fileName = path.split(/[/\\]/).pop() || ''
-    excelName.value = fileName.replace(/\.(xlsx?|csv)$/i, '') || fileName
+  setExcelFilePath(selected as string)
+}
+
+function cleanupExcelDropListener() {
+  unlistenExcelDrop?.()
+  unlistenExcelDrop = null
+  excelDropActive.value = false
+}
+
+async function ensureExcelDropListener() {
+  if (unlistenExcelDrop || !props.modelValue || step.value !== 'excel') return
+  try {
+    const { getCurrentWebview } = await import('@tauri-apps/api/webview')
+    unlistenExcelDrop = await getCurrentWebview().onDragDropEvent((event) => {
+      if (!props.modelValue || step.value !== 'excel') return
+      if (event.payload.type === 'over') {
+        excelDropActive.value = true
+      } else if (event.payload.type === 'leave') {
+        excelDropActive.value = false
+      } else if (event.payload.type === 'drop') {
+        excelDropActive.value = false
+        const path = event.payload.paths.find(p => excelFileFormat(p))
+        if (path) setExcelFilePath(path)
+      }
+    })
+  } catch {
+    cleanupExcelDropListener()
   }
-  const ext = path.split('.').pop()?.toLowerCase()
-  if (ext === 'csv') excelFormat.value = 'csv'
-  else excelFormat.value = 'xlsx'
 }
 
 // 编辑模式打开 dialog 时,直接跳到对应 step 并回填 docker 字段
@@ -92,6 +132,18 @@ watch(
     } else if (props.initialType) {
       // 从顶栏菜单快捷入口进入,跳过 type 选择
       selectType(props.initialType)
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => [props.modelValue, step.value] as const,
+  ([open, currentStep]) => {
+    if (open && currentStep === 'excel') {
+      void ensureExcelDropListener()
+    } else {
+      cleanupExcelDropListener()
     }
   },
   { immediate: true }
@@ -134,6 +186,7 @@ function handleExcelSubmit(dto: CreateAssetDto) {
 }
 
 function close() {
+  cleanupExcelDropListener()
   step.value = 'type'
   dockerName.value = ''
   dockerSocket.value = ''
@@ -158,6 +211,8 @@ function goBackOrClose() {
     close()
   }
 }
+
+onBeforeUnmount(cleanupExcelDropListener)
 </script>
 
 <template>
@@ -403,11 +458,15 @@ function goBackOrClose() {
           </button>
         </div>
         <div class="modal-body">
-          <form class="excel-form" @submit.prevent="handleExcelSubmit({
+          <form
+            class="excel-form"
+            :class="{ dragging: excelDropActive }"
+            @submit.prevent="handleExcelSubmit({
             type: 'excel',
             name: excelName,
             config: { filePath: excelFilePath, format: excelFormat }
-          })">
+          })"
+          >
             <div class="form-field">
               <label class="field-label">
                 <v-icon size="12">mdi-tag-outline</v-icon>
@@ -429,7 +488,11 @@ function goBackOrClose() {
                   浏览
                 </button>
               </div>
-              <div class="field-hint">支持 .xlsx 和 .csv 格式</div>
+              <div class="excel-drop-zone" :class="{ active: excelDropActive }" @click="pickExcelFile">
+                <v-icon size="18">mdi-tray-arrow-down</v-icon>
+                <span>{{ excelDropActive ? '松手导入文件' : '拖入 .xlsx / .xls / .csv 文件,或点击选择' }}</span>
+              </div>
+              <div class="field-hint">支持 .xlsx、.xls 和 .csv 格式</div>
             </div>
             <div class="form-footer">
               <div></div>
@@ -617,5 +680,34 @@ function goBackOrClose() {
 .file-pick-btn {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.excel-form {
+  position: relative;
+}
+
+.excel-drop-zone {
+  margin-top: 8px;
+  min-height: 58px;
+  border: 1px dashed var(--line-2);
+  border-radius: 8px;
+  background: var(--panel-solid-2);
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.excel-drop-zone:hover,
+.excel-drop-zone.active,
+.excel-form.dragging .excel-drop-zone {
+  color: var(--cyan);
+  border-color: var(--cyan);
+  background: var(--hover-cyan-faint);
+  box-shadow: var(--glow-cyan);
 }
 </style>

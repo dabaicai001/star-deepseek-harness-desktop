@@ -213,6 +213,30 @@ function restoreDbState(): { selectedDb: string; expanded: string[] } | null {
   return null
 }
 
+function restoreDatabaseSelection(databaseList: string[], fallbackDb?: string) {
+  const existing = new Set(databaseList)
+  const saved = restoreDbState()
+
+  if (saved) {
+    for (const db of saved.expanded) {
+      if (existing.has(db)) {
+        expandedDatabases.value.add(db)
+        void loadTablesForDb(db)
+      }
+    }
+    expandedDatabases.value = new Set(expandedDatabases.value)
+
+    if (saved.selectedDb && existing.has(saved.selectedDb)) {
+      selectedDb.value = saved.selectedDb
+      return
+    }
+  }
+
+  if (fallbackDb && existing.has(fallbackDb)) {
+    selectedDb.value = fallbackDb
+  }
+}
+
 watch(selectedDb, saveDbState)
 watch(expandedDatabases, saveDbState, { deep: true })
 
@@ -275,10 +299,7 @@ async function connect() {
       // Load databases list (不预加载表 — 用户点哪个库再拉哪个库的表)
       try {
         databases.value = await dbService.mysqlListDatabases(session.connId)
-        // 自动选择连接时指定的默认库
-        if (config.database && databases.value.includes(config.database)) {
-          selectedDb.value = config.database
-        }
+        restoreDatabaseSelection(databases.value, config.database)
       } catch (err) {
         const msg = errMsg(err)
         console.warn('[db] list databases failed:', err)
@@ -299,9 +320,7 @@ async function connect() {
 
       try {
         databases.value = await dbService.clickhouseListDatabases(session.connId)
-        if (config.database && databases.value.includes(config.database)) {
-          selectedDb.value = config.database
-        }
+        restoreDatabaseSelection(databases.value, config.database)
       } catch (err) {
         const msg = errMsg(err)
         console.warn('[db] list databases failed:', err)
@@ -369,19 +388,7 @@ async function refreshDatabases() {
       }
     }
     // 恢复上次记忆的展开/选中状态
-    const saved = restoreDbState()
-    if (saved) {
-      for (const db of saved.expanded) {
-        if (stillExists.has(db) && !expandedDatabases.value.has(db)) {
-          expandedDatabases.value.add(db)
-          void loadTablesForDb(db)
-        }
-      }
-      if (saved.selectedDb && stillExists.has(saved.selectedDb)) {
-        selectedDb.value = saved.selectedDb
-      }
-    }
-    expandedDatabases.value = new Set(expandedDatabases.value)
+    restoreDatabaseSelection(list, asset.value?.config.database)
     notify.notify({ message: t('db.refreshed', { count: list.length }), color: 'success', timeout: 1500 })
   } catch (err) {
     const msg = errMsg(err)

@@ -7,14 +7,23 @@
 
 ## [未发布]
 
-### 修复
-- 🐛 fix(db): 表格单元格编辑确认后立即回显待保存值,保存成功后同步刷新当前页数据
-
 ### 计划中
 - PostgreSQL / SQLite 数据库适配器
 - AI 助手流式输出
 - ZMODEM 文件传输
 - Settings 补「代理」「安全」2 个 tab
+
+---
+
+## [0.11.2] - 2026-06-23
+
+### 修复
+- 🐛 fix(excel): 本地列头筛选支持勾选多个值组合过滤
+- 🐛 fix(excel): 新建 Excel 连接时支持直接拖入 .xlsx/.xls/.csv 文件填充路径
+- ⚡ perf(redis): Redis Key 列表扫描批量获取 TYPE/TTL,减少远程连接下的串行往返
+- 🐛 fix(redis): 修复 Key Browser Pattern 筛选参数未传入后端的问题,输入后自动刷新筛选结果
+- 🐛 fix(db): 修复首次进入 MySQL/ClickHouse 标签页未恢复上次选中数据库的问题
+- 🐛 fix(db): 表格单元格编辑确认后立即回显待保存值,保存成功后同步刷新当前页数据
 
 ---
 

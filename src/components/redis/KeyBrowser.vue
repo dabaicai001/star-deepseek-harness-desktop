@@ -39,6 +39,7 @@ const expandedDbs = ref<Set<number>>(new Set())
 const expandedFolders = ref<Record<number, Set<string>>>({})
 const collapsed = ref(false)
 const loadTokens = ref<Record<number, number>>({})
+const searchTimers = new Map<number, ReturnType<typeof setTimeout>>()
 
 // ─── Namespace tree ───
 interface FlatNode {
@@ -288,10 +289,24 @@ async function onDbClick(db: number) {
 }
 
 async function onDbSearch(db: number) {
+  const timer = searchTimers.get(db)
+  if (timer) {
+    clearTimeout(timer)
+    searchTimers.delete(db)
+  }
   const state = getDbState(db)
   state.cursor = 0
   state.keys = []
   await loadDbKeys(db)
+}
+
+function scheduleDbSearch(db: number) {
+  const timer = searchTimers.get(db)
+  if (timer) clearTimeout(timer)
+  searchTimers.set(db, setTimeout(() => {
+    searchTimers.delete(db)
+    void onDbSearch(db)
+  }, 300))
 }
 
 function onKeyClick(node: FlatNode) {
@@ -405,7 +420,8 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
                 class="cyber-input search-input"
                 v-model="getDbState(db - 1).scanMatch"
                 placeholder="Pattern..."
-                @keyup.enter="onDbSearch(db - 1)"
+                @input="scheduleDbSearch(db - 1)"
+                @keydown.enter.prevent="onDbSearch(db - 1)"
               />
               <select class="cyber-input type-select" v-model="getDbState(db - 1).typeFilter">
                 <option value="all">All</option>

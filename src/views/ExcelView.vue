@@ -524,7 +524,9 @@ function excelContextJson(): string {
     selectedCell: store.selectedCell
       ? { ...store.selectedCell, label: store.activeCellLabel, value: store.selectedCellValue }
       : null,
-    filter: store.filterText ? { text: store.filterText, col: store.filterCol } : null,
+    filter: store.filterText || store.filterValues.length
+      ? { text: store.filterText, col: store.filterCol, values: store.filterValues }
+      : null,
     dirty: store.dirty,
   }, null, 2)
 }
@@ -860,7 +862,9 @@ watch(() => store.selectedCellValue, (value) => {
           <div class="excel-statusbar">
             <span>{{ store.displayRowCount }} / {{ store.totalRows }} 行</span>
             <span>{{ store.columns.length }} 列</span>
-            <span v-if="store.filterText">筛选: {{ store.filterText }}</span>
+            <span v-if="store.filterText || store.filterValues.length">
+              筛选: {{ store.filterText || `${store.filterValues.length} 个值` }}
+            </span>
             <span v-if="store.selectedStats.count">选区 {{ store.selectedStats.count }} 格</span>
             <span v-if="store.selectedStats.numericCount">求和 {{ formatNumber(store.selectedStats.sum) }}</span>
             <span v-if="store.selectedStats.numericCount">平均 {{ formatNumber(store.selectedStats.average) }}</span>

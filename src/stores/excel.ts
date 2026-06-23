@@ -47,6 +47,7 @@ export const useExcelStore = defineStore('excel', () => {
   // 筛选
   const filterText = ref('')
   const filterCol = ref<number | null>(null) // null = 全列
+  const filterValues = ref<string[]>([])
 
   // 选区
   const selectedCell = ref<{ row: number; col: number } | null>(null)
@@ -62,20 +63,24 @@ export const useExcelStore = defineStore('excel', () => {
   // 筛选后的行索引映射
   const filteredRowIndices = computed<number[]>(() => {
     const text = filterText.value.toLowerCase().trim()
-    if (!text) return rowData.value.map((_, i) => i)
     const col = filterCol.value
+    const selectedValues = new Set(filterValues.value)
+    if (!text && (col === null || selectedValues.size === 0)) return rowData.value.map((_, i) => i)
     return rowData.value.reduce<number[]>((acc, row, i) => {
       if (col !== null) {
-        if ((row[col] ?? '').toLowerCase().includes(text)) acc.push(i)
+        const rawValue = String(row[col] ?? '').trim()
+        const valueMatches = selectedValues.size === 0 || selectedValues.has(rawValue || '(空白)')
+        const textMatches = !text || rawValue.toLowerCase().includes(text)
+        if (valueMatches && textMatches) acc.push(i)
       } else {
-        if (row.some(cell => (cell ?? '').toLowerCase().includes(text))) acc.push(i)
+        if (!text || row.some(cell => (cell ?? '').toLowerCase().includes(text))) acc.push(i)
       }
       return acc
     }, [])
   })
 
   const filteredRowData = computed(() => {
-    if (!filterText.value.trim()) return rowData.value
+    if (!filterText.value.trim() && filterValues.value.length === 0) return rowData.value
     return filteredRowIndices.value.map(i => rowData.value[i])
   })
 
@@ -254,7 +259,7 @@ export const useExcelStore = defineStore('excel', () => {
   }
 
   function displayRowToRawRow(row: number): number {
-    return filterText.value.trim() ? (filteredRowIndices.value[row] ?? row) : row
+    return filterText.value.trim() || filterValues.value.length > 0 ? (filteredRowIndices.value[row] ?? row) : row
   }
 
   function displayRowToExcelRow(row: number): number {
@@ -364,6 +369,7 @@ export const useExcelStore = defineStore('excel', () => {
     loading.value = false
     filterText.value = ''
     filterCol.value = null
+    filterValues.value = []
     selectedCell.value = null
     selectionMode.value = null
     selectedRange.value = null
@@ -372,14 +378,16 @@ export const useExcelStore = defineStore('excel', () => {
     redoStack.value = []
   }
 
-  function setFilter(text: string, col: number | null = null) {
+  function setFilter(text: string, col: number | null = null, values: string[] = []) {
     filterText.value = text
     filterCol.value = col
+    filterValues.value = values
   }
 
   function clearFilter() {
     filterText.value = ''
     filterCol.value = null
+    filterValues.value = []
   }
 
   function selectCell(row: number, col: number) {
@@ -528,6 +536,7 @@ export const useExcelStore = defineStore('excel', () => {
     dirty,
     filterText,
     filterCol,
+    filterValues,
     filteredRowIndices,
     filteredRowData,
     displayRowCount,

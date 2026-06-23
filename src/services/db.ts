@@ -166,7 +166,7 @@ export async function redisSelect(connId: string, db: number): Promise<void> {
 }
 
 export async function redisScan(connId: string, cursor?: number, match?: string, count?: number): Promise<RedisScanResult> {
-  return invoke('db_redis_scan', { connId, cursor: cursor || 0, match, count })
+  return invoke('db_redis_scan', { connId, cursor: cursor || 0, matchPattern: match, count })
 }
 
 export async function redisGetValue(connId: string, key: string): Promise<RedisValueResult> {
@@ -208,15 +208,15 @@ export async function redisSlowlogReset(connId: string): Promise<void> {
 }
 
 export async function redisScanAll(connId: string, match?: string, count?: number): Promise<RedisScanResult> {
-  return invoke('db_redis_scan_all', { connId, match, count })
+  return invoke('db_redis_scan_all', { connId, matchPattern: match, count })
 }
 
 export async function redisBigKeyScan(connId: string, match?: string, stringThreshold?: number, memberThreshold?: number): Promise<BigKeyEntry[]> {
-  return invoke('db_redis_bigkey_scan', { connId, match, stringThreshold, memberThreshold })
+  return invoke('db_redis_bigkey_scan', { connId, matchPattern: match, stringThreshold, memberThreshold })
 }
 
 export async function redisMemoryAnalysis(connId: string, match?: string, sampleSize?: number): Promise<MemoryAnalysisEntry[]> {
-  return invoke('db_redis_memory_analysis', { connId, match, sampleSize })
+  return invoke('db_redis_memory_analysis', { connId, matchPattern: match, sampleSize })
 }
 
 export async function redisFlushDB(connId: string): Promise<void> {

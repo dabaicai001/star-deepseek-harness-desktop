@@ -156,21 +156,55 @@ func (a *RedisAdapter) Scan(cursor uint64, match string, count int64) (*RedisSca
 		return nil, fmt.Errorf("scan: %w", err)
 	}
 
-	keyInfos := make([]RedisKeyInfo, 0, len(keys))
-	for _, key := range keys {
-		keyType, _ := a.client.Type(a.ctx, key).Result()
-		ttl, _ := a.client.TTL(a.ctx, key).Result()
-		keyInfos = append(keyInfos, RedisKeyInfo{
-			Key:  key,
-			Type: keyType,
-			TTL:  int64(ttl / time.Second),
-		})
+	keyInfos, err := a.keyInfos(keys, "")
+	if err != nil {
+		return nil, fmt.Errorf("scan key info: %w", err)
 	}
 
 	return &RedisScanResult{
 		Keys:   keyInfos,
 		Cursor: newCursor,
 	}, nil
+}
+
+func (a *RedisAdapter) keyInfos(keys []string, typeFilter string) ([]RedisKeyInfo, error) {
+	if len(keys) == 0 {
+		return []RedisKeyInfo{}, nil
+	}
+
+	typeCmds := make([]*redis.StatusCmd, len(keys))
+	ttlCmds := make([]*redis.DurationCmd, len(keys))
+	_, err := a.client.Pipelined(a.ctx, func(pipe redis.Pipeliner) error {
+		for i, key := range keys {
+			typeCmds[i] = pipe.Type(a.ctx, key)
+			ttlCmds[i] = pipe.TTL(a.ctx, key)
+		}
+		return nil
+	})
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+
+	keyInfos := make([]RedisKeyInfo, 0, len(keys))
+	for i, key := range keys {
+		keyType, err := typeCmds[i].Result()
+		if err != nil || keyType == "none" {
+			continue
+		}
+		if typeFilter != "" && typeFilter != "all" && keyType != typeFilter {
+			continue
+		}
+		ttl, err := ttlCmds[i].Result()
+		if err != nil {
+			ttl = 0
+		}
+		keyInfos = append(keyInfos, RedisKeyInfo{
+			Key:  key,
+			Type: keyType,
+			TTL:  int64(ttl / time.Second),
+		})
+	}
+	return keyInfos, nil
 }
 
 // Type 获取 key 类型
@@ -689,21 +723,11 @@ func (a *RedisAdapter) ScanAll(match string, count int64, typeFilter string) ([]
 		if err != nil {
 			return nil, fmt.Errorf("scan all: %w", err)
 		}
-		for _, key := range keys {
-			keyType, err := a.client.Type(a.ctx, key).Result()
-			if err != nil {
-				continue
-			}
-			if typeFilter != "" && typeFilter != "all" && keyType != typeFilter {
-				continue
-			}
-			ttl, _ := a.client.TTL(a.ctx, key).Result()
-			allKeys = append(allKeys, RedisKeyInfo{
-				Key:  key,
-				Type: keyType,
-				TTL:  int64(ttl.Seconds()),
-			})
+		keyInfos, err := a.keyInfos(keys, typeFilter)
+		if err != nil {
+			return nil, fmt.Errorf("scan all key info: %w", err)
 		}
+		allKeys = append(allKeys, keyInfos...)
 		cursor = nextCursor
 		if cursor == 0 {
 			break
