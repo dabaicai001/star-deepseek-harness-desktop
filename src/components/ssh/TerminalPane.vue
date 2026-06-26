@@ -28,6 +28,7 @@ let terminal: Terminal
 let fitAddon: FitAddon
 let searchAddon: SearchAddon
 let resizeObserver: ResizeObserver | null = null
+let pasteInFlight = false
 
 function getCssVar(name: string): string {
   if (typeof document === 'undefined') return ''
@@ -134,21 +135,29 @@ onMounted(() => {
 
     // 复制(Ctrl+Shift+C / Cmd+Shift+C)
     if (isMod && isShift && key === 'c') {
+      event.preventDefault()
+      event.stopPropagation()
       if (selection) doCopy(selection)
       return false
     }
     // 复制(Ctrl+C / Cmd+C,有选区)
     if (isMod && !isShift && key === 'c' && selection) {
+      event.preventDefault()
+      event.stopPropagation()
       doCopy(selection)
       return false
     }
     // 粘贴(Ctrl+Shift+V / Ctrl+V / Cmd+V)
     if (isMod && key === 'v') {
+      event.preventDefault()
+      event.stopPropagation()
       doPaste()
       return false
     }
     // 粘贴(Shift+Insert,Windows 老式约定)
     if (isShift && event.key === 'Insert') {
+      event.preventDefault()
+      event.stopPropagation()
       doPaste()
       return false
     }
@@ -190,7 +199,8 @@ function doCopy(text: string) {
 }
 
 function doPaste() {
-  if (props.reconnectMode) return
+  if (props.reconnectMode || pasteInFlight) return
+  pasteInFlight = true
   navigator.clipboard.readText().then((text) => {
     if (!text) return
     // terminal.paste() 内部会触发 onData 事件,自动通过 SSH 通道发出去
@@ -198,6 +208,8 @@ function doPaste() {
     emit('paste', text)
   }).catch(() => {
     // 不弹错误(权限拒绝/无文本),静默失败
+  }).finally(() => {
+    pasteInFlight = false
   })
 }
 
