@@ -378,21 +378,7 @@ function openNewTabFromCurrent(e: MouseEvent) {
       icon: getIcon(assetType),
       label: a.name,
       onClick: () => {
-        let routeName: string
-        if (assetType === 'db') {
-          const dbType = a.config.dbType || 'mysql'
-          routeName = dbType === 'redis' ? 'db-redis' : 'db-mysql'
-        } else if (assetType === 'ssh') {
-          routeName = 'ssh-terminal'
-        } else if (assetType === 'excel') {
-          routeName = 'excel'
-        } else {
-          routeName = 'docker'
-        }
-        const instanceId = generateInstanceId(a.id)
-        appStore.addTab({ id: instanceId, assetId: a.id, title: a.name, type: a.type })
-        router.push({ name: routeName, params: { id: instanceId } })
-        assetStore.updateAsset(a.id, { lastUsedAt: Date.now() })
+        openAssetTab(a, false)
       }
     })),
     { type: 'divider' },
@@ -440,17 +426,9 @@ function onUserMenuAction(action: 'settings' | 'theme' | 'lang' | 'about' | 'qui
 function onWelcomeQuickAction(type: 'ssh' | 'db' | 'docker' | 'excel') {
   const sameType = assetStore.assets.filter(a => a.type === type)
   if (sameType.length > 0) {
-    // 跳最近用过的一条
+    // 跳最近用过的一条,优先激活已有标签
     const a = sameType.sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))[0]
-    let routeName: string
-    if (a.type === 'ssh') routeName = 'ssh-terminal'
-    else if (a.type === 'docker') routeName = 'docker'
-    else if (a.type === 'excel') routeName = 'excel'
-    else routeName = (a.config.dbType || 'mysql') === 'redis' ? 'db-redis' : 'db-mysql'
-    const instanceId = generateInstanceId(a.id)
-    appStore.addTab({ id: instanceId, assetId: a.id, title: a.name, type: a.type })
-    router.push({ name: routeName, params: { id: instanceId } })
-    assetStore.updateAsset(a.id, { lastUsedAt: Date.now() })
+    openAssetTab(a, true)
   } else {
     // 0 同类资产 → 弹新建 dialog 并预设类型
     newConnectionInitialType.value = type
@@ -506,7 +484,7 @@ function assetTypeIcon(t: 'ssh' | 'db' | 'docker' | 'excel') {
   return t === 'ssh' ? 'mdi-console' : t === 'db' ? 'mdi-database' : t === 'docker' ? 'mdi-docker' : 'mdi-file-excel-outline'
 }
 
-function openAssetPicker(e: MouseEvent, assetType: 'ssh' | 'db' | 'docker' | 'excel', openRoute: string) {
+function openAssetPicker(e: MouseEvent, assetType: 'ssh' | 'db' | 'docker' | 'excel', _openRoute: string) {
   const list = assetStore.assets.filter(a => a.type === assetType)
   if (list.length === 0) {
     // 没有该类型资产,直接走"新建连接"
@@ -525,18 +503,7 @@ function openAssetPicker(e: MouseEvent, assetType: 'ssh' | 'db' | 'docker' | 'ex
       icon: assetTypeIcon(assetType),
       label: a.name,
       onClick: () => {
-        // 总是新开 tab(不复用)
-        let routeName: string
-        if (assetType === 'db') {
-          const dbType = a.config.dbType || 'mysql'
-          routeName = dbType === 'redis' ? 'db-redis' : 'db-mysql'
-        } else {
-          routeName = openRoute
-        }
-        const instanceId = generateInstanceId(a.id)
-        appStore.addTab({ id: instanceId, assetId: a.id, title: a.name, type: a.type })
-        router.push({ name: routeName, params: { id: instanceId } })
-        assetStore.updateAsset(a.id, { lastUsedAt: Date.now() })
+        openAssetTab(a, true)
       }
     })),
     { type: 'divider' },
@@ -601,15 +568,7 @@ function assetIconColor(type: string) {
   return type === 'ssh' ? 'cyan' : type === 'db' ? 'purple' : type === 'docker' ? 'green' : 'green'
 }
 function openAsset(asset: Asset) {
-  let routeName: string
-  if (asset.type === 'ssh') routeName = 'ssh-terminal'
-  else if (asset.type === 'docker') routeName = 'docker'
-  else if (asset.type === 'excel') routeName = 'excel'
-  else routeName = (asset.config.dbType || 'mysql') === 'redis' ? 'db-redis' : 'db-mysql'
-  const instanceId = generateInstanceId(asset.id)
-  appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: asset.type })
-  router.push({ name: routeName, params: { id: instanceId } })
-  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
+  openAssetTab(asset, true)
   searchOpen.value = false
   searchQuery.value = ''
   ;(searchInputRef.value as HTMLInputElement | null)?.blur()
@@ -656,6 +615,44 @@ function getStatusColor(asset: Asset) {
   return asset.lastUsedAt ? 'online' : 'offline'
 }
 
+function routeNameForAsset(asset: Asset): string {
+  if (asset.type === 'ssh') return 'ssh-terminal'
+  if (asset.type === 'docker') return 'docker'
+  if (asset.type === 'excel') return 'excel'
+
+  const dbType = asset.config.dbType || 'mysql'
+  if (dbType === 'redis') return 'db-redis'
+  if (dbType === 'elasticsearch') return 'db-elasticsearch'
+  if (dbType === 'clickhouse') return 'db-clickhouse'
+  return 'db-mysql'
+}
+
+function routeNameForTab(tab: { assetId?: string; type: string }): string {
+  const asset = tab.assetId ? assetStore.assets.find(a => a.id === tab.assetId) : null
+  if (asset) return routeNameForAsset(asset)
+  if (tab.type === 'ssh') return 'ssh-terminal'
+  if (tab.type === 'docker') return 'docker'
+  if (tab.type === 'excel') return 'excel'
+  return 'db-mysql'
+}
+
+function openAssetTab(asset: Asset, reuseExisting = true) {
+  if (reuseExisting) {
+    const existing = appStore.tabs.find(t => t.assetId === asset.id)
+    if (existing) {
+      appStore.setActiveTab(existing.id)
+      router.push({ name: routeNameForAsset(asset), params: { id: existing.id } })
+      assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
+      return
+    }
+  }
+
+  const instanceId = generateInstanceId(asset.id)
+  appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: asset.type })
+  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
+  router.push({ name: routeNameForAsset(asset), params: { id: instanceId } })
+}
+
 function _placeholder() {}
 
 function getTabDisplayTitle(tab: { id: string; assetId?: string; title: string; type?: string }): string {
@@ -674,31 +671,7 @@ function getTabDisplayTitle(tab: { id: string; assetId?: string; title: string; 
 }
 
 function connectToAsset(asset: Asset) {
-  // Docker 走单视图,与侧边栏一致:不开 tab,只更新最近使用时间
-  if (asset.type === 'docker') {
-    assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-    return
-  }
-  // SSH / DB / Excel:单击 = 总是新开 tab(不复用)
-  const instanceId = generateInstanceId(asset.id)
-  appStore.addTab({
-    id: instanceId,
-    assetId: asset.id,
-    title: asset.name,
-    type: asset.type
-  })
-  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-  if (asset.type === 'ssh') {
-    router.push({ name: 'ssh-terminal', params: { id: instanceId } })
-  } else if (asset.type === 'db') {
-    const dbType = asset.config.dbType || 'mysql'
-    router.push({
-      name: dbType === 'redis' ? 'db-redis' : dbType === 'elasticsearch' ? 'db-elasticsearch' : 'db-mysql',
-      params: { id: instanceId }
-    })
-  } else if (asset.type === 'excel') {
-    router.push({ name: 'excel', params: { id: instanceId } })
-  }
+  openAssetTab(asset, true)
 }
 
 // `openSftpForAsset` 已迁移到 AssetTree.vue 的右键菜单
@@ -710,44 +683,7 @@ function openNewConnection() {
 
 async function handleNewConnection(dto: CreateAssetDto) {
   const asset = await assetStore.createAsset(dto)
-  if (dto.type === 'ssh') {
-    const instanceId = generateInstanceId(asset.id)
-    appStore.addTab({
-      id: instanceId,
-      assetId: asset.id,
-      title: asset.name,
-      type: asset.type
-    })
-    router.push({ name: 'ssh-terminal', params: { id: instanceId } })
-  } else if (dto.type === 'db') {
-    const dbType = asset.config.dbType || 'mysql'
-    const instanceId = generateInstanceId(asset.id)
-    appStore.addTab({
-      id: instanceId,
-      assetId: asset.id,
-      title: asset.name,
-      type: asset.type
-    })
-    router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: instanceId } })
-  } else if (dto.type === 'docker') {
-    const instanceId = generateInstanceId(asset.id)
-    appStore.addTab({
-      id: instanceId,
-      assetId: asset.id,
-      title: asset.name,
-      type: asset.type
-    })
-    router.push({ name: 'docker', params: { id: instanceId } })
-  } else if (dto.type === 'excel') {
-    const instanceId = generateInstanceId(asset.id)
-    appStore.addTab({
-      id: instanceId,
-      assetId: asset.id,
-      title: asset.name,
-      type: asset.type
-    })
-    router.push({ name: 'excel', params: { id: instanceId } })
-  }
+  openAssetTab(asset, false)
 }
 
 function navigateTo(path: string) {
@@ -756,17 +692,7 @@ function navigateTo(path: string) {
 
 function selectTab(tab: { id: string; assetId?: string; type: string }) {
   appStore.setActiveTab(tab.id)
-  if (tab.type === 'ssh') {
-    router.push({ name: 'ssh-terminal', params: { id: tab.id } })
-  } else if (tab.type === 'db') {
-    const a = tab.assetId ? assetStore.assets.find(x => x.id === tab.assetId) : null
-    const dbType = a?.config.dbType || 'mysql'
-    router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: tab.id } })
-  } else if (tab.type === 'docker') {
-    router.push({ name: 'docker', params: { id: tab.id } })
-  } else if (tab.type === 'excel') {
-    router.push({ name: 'excel', params: { id: tab.id } })
-  }
+  router.push({ name: routeNameForTab(tab), params: { id: tab.id } })
 }
 
 function closeTab(tabId: string) {
@@ -782,7 +708,7 @@ function closeTab(tabId: string) {
   if (appStore.activeTab) {
     const activeTab = appStore.tabs.find(t => t.id === appStore.activeTab)
     if (activeTab) {
-      selectTab(activeTab as any)
+      selectTab(activeTab)
     }
   }
 }
@@ -978,9 +904,14 @@ vueWatch(() => appStore.tabs.length, () => {
   <div class="app-layout">
     <!-- Title Bar (自画 chrome · 替代系统标题栏) -->
     <div class="titlebar" @dblclick="onTitlebarDblclick">
-      <div class="logo">
-        <div class="logo-icon">S</div>
-        <span>StarHub</span>
+      <div class="logo" aria-label="StarHub">
+        <div class="logo-mark" aria-hidden="true">
+          <span class="logo-orbit"></span>
+          <span class="logo-core">S</span>
+        </div>
+        <div class="logo-wordmark">
+          <span class="logo-word-main">Star</span><span class="logo-word-accent">Hub</span>
+        </div>
       </div>
 
       <div class="top-search">
@@ -1508,37 +1439,77 @@ vueWatch(() => appStore.tabs.length, () => {
 .logo {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-shrink: 0;
-  font-weight: 700;
-  color: var(--text);
-  font-size: 14px;
+  min-width: 0;
 }
 
-.logo-icon {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: var(--grad-primary);
+.logo-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.1), transparent 40%),
+    var(--grad-primary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--bg);
-  font-size: 14px;
-  font-weight: 900;
-  box-shadow: var(--glow-cyan);
   position: relative;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 8px 22px -12px var(--cyan);
+  overflow: hidden;
 }
 
-.logo-icon::after {
+.logo-mark::before {
   content: "";
   position: absolute;
-  inset: -2px;
-  border-radius: 9px;
-  background: var(--grad-primary);
-  opacity: 0.3;
-  filter: blur(6px);
-  z-index: -1;
+  inset: 6px;
+  border: 1px solid rgba(8, 13, 20, 0.42);
+  border-radius: 50%;
+}
+
+.logo-orbit {
+  position: absolute;
+  width: 24px;
+  height: 9px;
+  border: 1px solid rgba(8, 13, 20, 0.54);
+  border-left-color: rgba(255, 255, 255, 0.55);
+  border-radius: 50%;
+  transform: rotate(-32deg);
+}
+
+.logo-core {
+  position: relative;
+  z-index: 1;
+  color: var(--bg);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.logo-wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  font-family: 'Orbitron', 'Outfit', sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.045em;
+  white-space: nowrap;
+}
+
+.logo-word-main {
+  color: var(--text);
+}
+
+.logo-word-accent {
+  color: var(--cyan);
+  margin-left: 1px;
+  text-shadow: 0 0 14px var(--focus-cyan);
 }
 
 .top-search {
@@ -1669,7 +1640,7 @@ kbd {
   align-items: center;
   gap: 4px;
   padding: 2px 4px;
-  background: rgba(0, 240, 255, 0.03);
+  background: var(--hover-cyan-faint);
   border-radius: 6px;
 }
 
@@ -1687,7 +1658,7 @@ kbd {
     padding: 0 8px;
   }
 
-  .logo span,
+  .logo-wordmark,
   .top-search kbd,
   .top-action-group,
   .user-menu,
@@ -1721,23 +1692,23 @@ kbd {
 }
 
 .action-btn:hover {
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   color: var(--cyan);
   border-color: var(--line-2);
 }
 
 .action-btn.primary {
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--active-cyan);
   color: var(--cyan);
-  border: 1px solid rgba(0, 240, 255, 0.35);
+  border: 1px solid var(--status-connecting-border);
   box-shadow: none;
 }
 
 .action-btn.primary:hover {
-  background: rgba(0, 240, 255, 0.18);
+  background: var(--hover-cyan);
   color: var(--cyan);
   border-color: var(--cyan);
-  box-shadow: 0 0 12px rgba(0, 240, 255, 0.25);
+  box-shadow: var(--glow-soft);
 }
 
 .avatar {
@@ -1751,7 +1722,7 @@ kbd {
   color: white;
   font-size: 11px;
   font-weight: 700;
-  box-shadow: 0 0 12px rgba(255, 61, 154, 0.4);
+  box-shadow: var(--glow-pink);
   border: 0;
   padding: 0;
   font-family: inherit;
@@ -1760,7 +1731,7 @@ kbd {
 }
 .avatar:hover {
   transform: scale(1.05);
-  box-shadow: 0 0 16px rgba(255, 61, 154, 0.6);
+  box-shadow: var(--glow-pink);
 }
 
 .user-menu {
@@ -1774,7 +1745,7 @@ kbd {
   background: var(--panel-solid);
   border: 1px solid var(--line-2);
   border-radius: 10px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow);
   padding: 6px;
   z-index: 100;
   animation: userMenuIn 0.15s ease;
@@ -1800,7 +1771,7 @@ kbd {
   color: white;
   font-size: 14px;
   font-weight: 700;
-  box-shadow: 0 0 12px rgba(255, 61, 154, 0.4);
+  box-shadow: var(--glow-pink);
 }
 .user-menu-header .info { display: flex; flex-direction: column; gap: 2px; }
 .user-menu-header .name { font-size: 13px; font-weight: 600; color: var(--text); }
@@ -1831,7 +1802,7 @@ kbd {
   transition: all 0.15s;
 }
 .user-menu-item:hover {
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--hover-cyan-soft);
   color: var(--cyan);
 }
 .user-menu-item span { flex: 1; }
@@ -1839,7 +1810,7 @@ kbd {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   padding: 1px 5px;
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--kbd-bg);
   border: 1px solid var(--line-2);
   border-radius: 3px;
   color: var(--muted);
@@ -1878,19 +1849,19 @@ kbd {
 }
 
 .menu-item:hover:not(:disabled):not(.disabled) {
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--hover-cyan-soft);
   color: var(--text);
 }
 
 .menu-item:focus-visible {
   outline: none;
-  border-color: rgba(0, 240, 255, 0.4);
-  background: rgba(0, 240, 255, 0.06);
+  border-color: var(--status-connecting-border);
+  background: var(--hover-cyan-soft);
 }
 
 .menu-item.active {
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--active-cyan);
 }
 
 .menu-item.active::after {
@@ -1948,7 +1919,7 @@ kbd {
   align-items: center;
   justify-content: center;
   color: var(--muted);
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--hover-cyan-soft);
   border: 1px solid var(--line-2);
   cursor: pointer;
   transition: all 0.15s;
@@ -1957,8 +1928,8 @@ kbd {
 
 .tab-scroll-btn:hover {
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.12);
-  border-color: rgba(0, 240, 255, 0.3);
+  background: var(--active-cyan);
+  border-color: var(--status-connecting-border);
 }
 
 .tab-new-btn {
@@ -1979,9 +1950,9 @@ kbd {
 }
 .tab-new-btn:hover {
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.1);
-  border-color: rgba(0, 240, 255, 0.4);
-  box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
+  background: var(--active-cyan);
+  border-color: var(--status-connecting-border);
+  box-shadow: var(--glow-soft);
 }
 
 /* 无 tab 时,tab 栏居中显示"最近用过"快速启动条 */
@@ -2011,7 +1982,7 @@ kbd {
   align-items: center;
   gap: 6px;
   padding: 3px 8px 3px 6px;
-  background: rgba(0, 240, 255, 0.05);
+  background: var(--hover-cyan-faint);
   border: 1px solid var(--line-2);
   border-radius: 14px;
   color: var(--text-2);
@@ -2023,8 +1994,8 @@ kbd {
   transition: all 0.15s;
 }
 .quick-start-bar .qs-chip:hover {
-  background: rgba(0, 240, 255, 0.12);
-  border-color: rgba(0, 240, 255, 0.4);
+  background: var(--active-cyan);
+  border-color: var(--status-connecting-border);
   color: var(--cyan);
   transform: translateY(-1px);
 }
@@ -2085,12 +2056,12 @@ kbd {
 
 .tab:hover {
   color: var(--text-2);
-  background: rgba(0, 240, 255, 0.04);
+  background: var(--hover-cyan-faint);
 }
 
 .tab.active {
   color: var(--cyan);
-  background: linear-gradient(180deg, rgba(0, 240, 255, 0.1) 0%, transparent 100%);
+  background: linear-gradient(180deg, var(--active-cyan) 0%, transparent 100%);
   border-bottom-color: var(--cyan);
 }
 
@@ -2120,7 +2091,7 @@ kbd {
 }
 
 .tab-close:hover {
-  background: rgba(255, 77, 109, 0.15);
+  background: var(--close-hover-bg);
   color: var(--red);
 }
 
@@ -2188,15 +2159,15 @@ kbd {
 }
 
 .tree-item:hover {
-  background: rgba(0, 240, 255, 0.05);
+  background: var(--hover-cyan-faint);
   color: var(--text);
 }
 
 .tree-item.active {
-  background: linear-gradient(90deg, rgba(0, 240, 255, 0.15) 0%, transparent 100%);
+  background: linear-gradient(90deg, var(--active-cyan) 0%, transparent 100%);
   color: var(--cyan);
   border-left-color: var(--cyan);
-  text-shadow: 0 0 12px rgba(0, 240, 255, 0.5);
+  text-shadow: 0 0 10px var(--focus-cyan);
 }
 
 .tree-item .status {
@@ -2265,7 +2236,7 @@ kbd {
   letter-spacing: 0.15em;
   color: var(--cyan);
   opacity: 0.75;
-  text-shadow: 0 0 12px rgba(0, 240, 255, 0.35);
+  text-shadow: 0 0 12px var(--focus-cyan);
 }
 
 .quick-actions {
@@ -2389,8 +2360,8 @@ kbd {
 
 .feature-card:hover:not(.disabled-card) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 240, 255, 0.15);
-  border-color: rgba(0, 240, 255, 0.3);
+  box-shadow: var(--glow-soft);
+  border-color: var(--status-connecting-border);
 }
 
 .feature-card.disabled-card {
@@ -2410,7 +2381,7 @@ kbd {
   font-size: 9px;
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(120, 160, 255, 0.08);
+  background: var(--hover-cyan-faint);
   color: var(--muted);
   border: 1px solid var(--line);
   letter-spacing: 0.05em;

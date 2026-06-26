@@ -98,82 +98,66 @@ function isActive(asset: Asset) {
   return activeTab?.assetId === asset.id
 }
 
-/**
- * 单击 = 仅在侧边栏里"选中"(视觉高亮),不打开标签页。
- * 双击 / Enter 才会真正进入。避免误触,符合 desktop 文件管理器习惯。
- */
 const selectedAssetId = ref<string | null>(null)
-function selectAsset(asset: Asset) {
-  // 折叠态:单击图标先展开 sidebar,让用户"看到名字再确认",再二次操作
-  if (isCollapsed.value) {
-    appStore.sidebarOpen = true
-    selectedAssetId.value = asset.id
-    return
-  }
-  selectedAssetId.value = selectedAssetId.value === asset.id ? null : asset.id
-}
 function isSelected(asset: Asset) {
   return selectedAssetId.value === asset.id
 }
 // 成功开 tab / 删除资产后清掉选中态,免得视觉残留
 watch(() => appStore.activeTab, () => { selectedAssetId.value = null })
 
-function connectToAsset(asset: Asset) {
-  // 折叠态:点击图标等同于"展开 sidebar + 连接",让用户立刻看到反馈
-  if (isCollapsed.value) appStore.sidebarOpen = true
-  if (asset.type === 'docker') {
-    // Docker 当前是单视图,走主页的 quick action / 头像菜单入口;侧边栏点击不响应
-    return
-  }
-  // SSH / DB / Excel:单击 = 总是新开 tab(不复用)
-  const instanceId = generateInstanceId(asset.id)
-  appStore.addTab({
-    id: instanceId,
-    assetId: asset.id,
-    title: asset.name,
-    type: asset.type
-  })
-  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-  if (asset.type === 'ssh') {
-    router.push({ name: 'ssh-terminal', params: { id: instanceId } })
-  } else if (asset.type === 'db') {
-    const dbType = asset.config.dbType || 'mysql'
-    router.push({ name: dbType === 'redis' ? 'db-redis' : dbType === 'elasticsearch' ? 'db-elasticsearch' : 'db-mysql', params: { id: instanceId } })
-  } else if (asset.type === 'excel') {
-    router.push({ name: 'excel', params: { id: instanceId } })
-  }
+function routeNameForAsset(asset: Asset): string {
+  if (asset.type === 'ssh') return 'ssh-terminal'
+  if (asset.type === 'docker') return 'docker'
+  if (asset.type === 'excel') return 'excel'
+  const dbType = asset.config.dbType || 'mysql'
+  if (dbType === 'redis') return 'db-redis'
+  if (dbType === 'elasticsearch') return 'db-elasticsearch'
+  if (dbType === 'clickhouse') return 'db-clickhouse'
+  return 'db-mysql'
 }
 
-// "在新标签页中打开"——每次创建新 tab，支持同一资产多实例
-// 支持 SSH / DB;Docker 当前是单视图(后端按 host 串流复用同一 session),先 disabled。
-function openInNewTab(asset: Asset) {
-  if (asset.type === 'docker') return
+function openAssetTab(asset: Asset, reuseExisting: boolean) {
+  if (isCollapsed.value) appStore.sidebarOpen = true
+
+  if (reuseExisting) {
+    const existing = appStore.tabs.find(t => t.assetId === asset.id)
+    if (existing) {
+      appStore.setActiveTab(existing.id)
+      router.push({ name: routeNameForAsset(asset), params: { id: existing.id } })
+      assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
+      return
+    }
+  }
+
   const instanceId = generateInstanceId(asset.id)
   appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: asset.type })
   assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-  if (asset.type === 'ssh') {
-    router.push({ name: 'ssh-terminal', params: { id: instanceId } })
-  } else if (asset.type === 'db') {
-    const dbType = asset.config.dbType || 'mysql'
-    router.push({ name: dbType === 'redis' ? 'db-redis' : dbType === 'elasticsearch' ? 'db-elasticsearch' : 'db-mysql', params: { id: instanceId } })
-  } else if (asset.type === 'excel') {
-    router.push({ name: 'excel', params: { id: instanceId } })
-  }
+  router.push({ name: routeNameForAsset(asset), params: { id: instanceId } })
+}
+
+function connectToAsset(asset: Asset) {
+  openAssetTab(asset, true)
+}
+
+function handleAssetClick(asset: Asset) {
+  selectedAssetId.value = asset.id
+  connectToAsset(asset)
+}
+
+// "在新标签页中打开"——每次创建新 tab，支持同一资产多实例
+function openInNewTab(asset: Asset) {
+  openAssetTab(asset, false)
 }
 
 function reconnectToAsset(asset: Asset) {
- if (asset.type !== 'ssh') return
- //关闭该资产的所有 tab,重新发起
- const tabsToRemove = appStore.tabs.filter(t => t.assetId === asset.id)
- for (const tab of tabsToRemove) {
- appStore.removeTab(tab.id)
- }
- connectToAsset(asset)
+  if (asset.type !== 'ssh') return
+  // 关闭该资产的所有 tab,重新发起
+  const tabsToRemove = appStore.tabs.filter(t => t.assetId === asset.id)
+  for (const tab of tabsToRemove) {
+    appStore.removeTab(tab.id)
+  }
+  openInNewTab(asset)
 }
-
-
-
-
 // ====== 右键菜单 ======
 const ctxMenu = ref<{ x: number; y: number; asset: Asset } | null>(null)
 const ctxItems = computed<MenuItem[]>(() => {
@@ -192,8 +176,6 @@ const ctxItems = computed<MenuItem[]>(() => {
  type: 'item',
  icon: 'mdi-tab-plus',
  label: t('asset.openInNewTab') || '在新标签页中打开',
- //仅 SSH / DB 支持开新标签页(Docker 当前只有一个视图)
- disabled: asset.type === 'docker',
  onClick: () => openInNewTab(asset)
  },
 
@@ -440,8 +422,7 @@ function isGroupExpanded(id: string) {
         :class="{ active: isActive(asset), selected: isSelected(asset) }"
         :data-tooltip="asset.name"
         tabindex="0"
-        @click="selectAsset(asset)"
-        @dblclick="connectToAsset(asset)"
+        @click="handleAssetClick(asset)"
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
@@ -487,8 +468,7 @@ function isGroupExpanded(id: string) {
         :class="{ active: isActive(asset), selected: isSelected(asset) }"
         :data-tooltip="asset.name"
         tabindex="0"
-        @click="selectAsset(asset)"
-        @dblclick="connectToAsset(asset)"
+        @click="handleAssetClick(asset)"
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
@@ -533,8 +513,7 @@ function isGroupExpanded(id: string) {
         :class="{ active: isActive(asset), selected: isSelected(asset) }"
         :data-tooltip="asset.name"
         tabindex="0"
-        @click="selectAsset(asset)"
-        @dblclick="connectToAsset(asset)"
+        @click="handleAssetClick(asset)"
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
@@ -582,8 +561,7 @@ function isGroupExpanded(id: string) {
         :class="{ active: isActive(asset), selected: isSelected(asset) }"
         :data-tooltip="asset.name"
         tabindex="0"
-        @click="selectAsset(asset)"
-        @dblclick="connectToAsset(asset)"
+        @click="handleAssetClick(asset)"
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
@@ -628,8 +606,7 @@ function isGroupExpanded(id: string) {
         :class="{ active: isActive(asset), selected: isSelected(asset) }"
         :data-tooltip="asset.name"
         tabindex="0"
-        @click="selectAsset(asset)"
-        @dblclick="connectToAsset(asset)"
+        @click="handleAssetClick(asset)"
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
@@ -768,7 +745,7 @@ function isGroupExpanded(id: string) {
 }
 
 .tree-group-head.collapsible:hover {
-  background: rgba(0, 240, 255, 0.05);
+  background: var(--hover-cyan-faint);
   color: var(--text-2);
 }
 
@@ -817,19 +794,19 @@ function isGroupExpanded(id: string) {
 }
 
 .tree-item:focus-visible {
-  background: rgba(0, 240, 255, 0.05);
+  background: var(--hover-cyan-faint);
   box-shadow: inset 2px 0 0 var(--cyan);
 }
 
 /* 单击选中的视觉态(active 是"已开 tab",selected 是"鼠标点过",两者可共存) */
 .tree-item.selected {
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--hover-cyan-soft);
   color: var(--text);
   box-shadow: inset 2px 0 0 var(--cyan);
 }
 
 .tree-item:hover {
-  background: rgba(0, 240, 255, 0.05);
+  background: var(--hover-cyan-faint);
   color: var(--text);
 }
 
@@ -903,7 +880,7 @@ function isGroupExpanded(id: string) {
 }
 
 .tree-item .action-btn:hover {
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   color: var(--cyan);
   border-color: var(--line-2);
 }
@@ -936,7 +913,7 @@ function isGroupExpanded(id: string) {
   letter-spacing: 0.3px;
   padding: 1px 3px;
   border-radius: 3px;
-  background: rgba(120, 160, 255, 0.08);
+  background: var(--hover-cyan-faint);
   color: var(--text-2);
   line-height: 1.2;
   white-space: nowrap;

@@ -39,6 +39,42 @@ interface Command {
   run: () => void
 }
 
+function routeNameForAsset(asset: Asset): string {
+  if (asset.type === 'ssh') return 'ssh-terminal'
+  if (asset.type === 'docker') return 'docker'
+  if (asset.type === 'excel') return 'excel'
+
+  const dbType = asset.config.dbType || 'mysql'
+  if (dbType === 'redis') return 'db-redis'
+  if (dbType === 'elasticsearch') return 'db-elasticsearch'
+  if (dbType === 'clickhouse') return 'db-clickhouse'
+  return 'db-mysql'
+}
+
+function routeNameForTab(tab: { assetId?: string; type: string }): string {
+  const asset = tab.assetId ? assetStore.assets.find(a => a.id === tab.assetId) : null
+  if (asset) return routeNameForAsset(asset)
+  if (tab.type === 'ssh') return 'ssh-terminal'
+  if (tab.type === 'docker') return 'docker'
+  if (tab.type === 'excel') return 'excel'
+  return 'db-mysql'
+}
+
+function openAssetTab(asset: Asset) {
+  const existing = appStore.tabs.find(t => t.assetId === asset.id)
+  if (existing) {
+    appStore.setActiveTab(existing.id)
+    router.push({ name: routeNameForAsset(asset), params: { id: existing.id } })
+    assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
+    return
+  }
+
+  const instanceId = generateInstanceId(asset.id)
+  appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: asset.type })
+  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
+  router.push({ name: routeNameForAsset(asset), params: { id: instanceId } })
+}
+
 const commands = computed<Command[]>(() => {
   const cmds: Command[] = []
 
@@ -53,25 +89,12 @@ const commands = computed<Command[]>(() => {
       group: 'asset',
       icon: a.type === 'ssh' ? 'mdi-console' : a.type === 'db' ? 'mdi-database' : a.type === 'docker' ? 'mdi-docker' : 'mdi-file-excel-outline',
       label: a.name,
-    keywords: [typeLabel, a.config.host || '', a.config.username || '', ...(a.tags || [])],
-       run: () => {
-         let routeName: string
-         if (a.type === 'ssh') routeName = 'ssh-terminal'
-         else if (a.type === 'docker') routeName = 'docker'
-         else if (a.type === 'excel') routeName = 'excel'
-         else routeName = a.config.dbType === 'redis' ? 'db-redis' : 'db-mysql'
- const instanceId = generateInstanceId(a.id)
- appStore.addTab({ id: instanceId, assetId: a.id, title: a.name, type: a.type })
- router.push({ name: routeName, params: { id: instanceId } })
- assetStore.updateAsset(a.id, { lastUsedAt: Date.now() })
- }
- })
+      keywords: [typeLabel, a.config.host || '', a.config.username || '', ...(a.tags || [])],
+      run: () => openAssetTab(a)
+    })
+  }
 
-
- }
-
-
- // 当前 tabs(切换)
+  // 当前 tabs(切换)
   for (const t of appStore.tabs) {
     cmds.push({
       id: `tab-${t.id}`,
@@ -81,15 +104,7 @@ const commands = computed<Command[]>(() => {
       keywords: ['tab', 'switch', '切换'],
       run: () => {
         appStore.setActiveTab(t.id)
-        if (t.type === 'ssh') {
-          router.push({ name: 'ssh-terminal', params: { id: t.id } })
-        } else if (t.type === 'db') {
-          const a = assetStore.assets.find(x => x.id === t.assetId)
-          const dbType = a?.config.dbType || 'mysql'
-          router.push({ name: dbType === 'redis' ? 'db-redis' : 'db-mysql', params: { id: t.id } })
-        } else if (t.type === 'docker') {
-          router.push({ name: 'docker', params: { id: t.id } })
-        }
+        router.push({ name: routeNameForTab(t), params: { id: t.id } })
       }
     })
   }
@@ -351,7 +366,7 @@ const groupLabel: Record<Command['group'], string> = {
 .cmd-palette-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(5, 8, 16, 0.6);
+  background: rgba(8, 13, 20, 0.68);
   backdrop-filter: blur(4px);
   z-index: 9999;
   display: flex;
@@ -370,11 +385,9 @@ const groupLabel: Record<Command['group'], string> = {
   max-width: 90vw;
   max-height: 70vh;
   background: var(--panel-solid);
-  border: 1px solid rgba(0, 240, 255, 0.3);
+  border: 1px solid var(--status-connecting-border);
   border-radius: 12px;
-  box-shadow:
-    0 24px 80px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(0, 240, 255, 0.1);
+  box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -406,7 +419,7 @@ const groupLabel: Record<Command['group'], string> = {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   padding: 2px 6px;
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--kbd-bg);
   border: 1px solid var(--line-2);
   border-radius: 4px;
   color: var(--muted);
@@ -440,7 +453,7 @@ const groupLabel: Record<Command['group'], string> = {
   transition: all 0.1s;
 }
 .cmd-item.selected {
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--active-cyan);
   color: var(--cyan);
 }
 .cmd-item .v-icon.asset { color: var(--cyan); }
@@ -481,7 +494,7 @@ const groupLabel: Record<Command['group'], string> = {
 .cmd-footer kbd {
   font-size: 10px;
   padding: 1px 4px;
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--kbd-bg);
   border: 1px solid var(--line-2);
   border-radius: 3px;
   color: var(--text-2);
