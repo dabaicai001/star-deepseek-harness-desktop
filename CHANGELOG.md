@@ -21,6 +21,8 @@
 - 🎨 style(ui): 调整全局暗色主题为低饱和控制台色调,降低青色/紫色光晕强度并统一主框架、资产树与命令面板视觉层次
 - 🎨 style(brand): 优化应用 Logo 与 StarHub 字标,使用几何标识和 Orbitron 字体增强品牌质感
 - 🎨 style(ux): 统一资产打开交互,单击优先激活已有标签,右键/标签栏加号保留新标签多开能力并恢复 Docker 资产入口
+- 📝 docs(readme): 刷新 README 到 v0.11.6 功能、快捷键与打包说明
+- 🔧 chore(release): 同步 Tauri 与 Rust 包版本到 0.11.6
 
 ---
 
