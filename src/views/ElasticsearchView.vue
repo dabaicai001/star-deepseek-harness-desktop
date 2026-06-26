@@ -12,6 +12,7 @@ import type { LlmToolCall } from '@/services/ai'
 import AiChat from '@/components/ai/AiChat.vue'
 import NewIndexDialog from '@/components/es/NewIndexDialog.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
+import ResizableSidebarHandle from '@/components/layout/ResizableSidebarHandle.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import type { EsIndexInfo, EsSearchResult } from '@/types/db'
 
@@ -41,6 +42,9 @@ const activeTab = ref<'overview' | 'search' | 'index' | 'importexport' | 'ai'>('
 const indices = ref<EsIndexInfo[]>([])
 const selectedIndex = ref<string | null>(null)
 const indexSearch = ref('')
+const sidebarOpen = ref(true)
+const sidebarWidth = ref(240)
+const sidebarDragging = ref(false)
 
 const clusterHealth = ref<{ status: string; numberOfNodes: number; activeShardsPercent: number } | null>(null)
 
@@ -372,15 +376,41 @@ onMounted(() => initConnection())
     </div>
 
     <div class="es-body">
-      <div class="es-sidebar" @contextmenu.prevent="onSidebarContextMenu">
-        <div class="sidebar-search"><input v-model="indexSearch" type="text" class="cyber-input" :placeholder="t('common.search') + ' ' + t('db.index') + '...'" /></div>
-        <div class="index-list">
-          <div v-for="idx in filteredIndices" :key="idx.name" class="tree-item" :class="{ active: selectedIndex === idx.name }" @click="selectIndex(idx.name)" @contextmenu.prevent="onIndexContextMenu($event, idx)">
-            <div class="tree-item-icon"><span class="status-dot" :style="{ backgroundColor: getHealthColor(idx.health) }" /></div>
-            <div class="tree-item-content"><span class="tree-item-label">{{ idx.name }}</span><span class="tree-item-meta">{{ idx.docsCount?.toLocaleString() }} docs</span></div>
+      <div
+        class="es-sidebar"
+        :class="{ collapsed: !sidebarOpen, dragging: sidebarDragging }"
+        :style="{
+          width: sidebarOpen ? `${sidebarWidth}px` : '40px',
+          minWidth: sidebarOpen ? `${sidebarWidth}px` : '40px'
+        }"
+        @contextmenu.prevent="onSidebarContextMenu"
+      >
+        <template v-if="sidebarOpen">
+          <div class="sidebar-search">
+            <input v-model="indexSearch" type="text" class="cyber-input" :placeholder="t('common.search') + ' ' + t('db.index') + '...'" />
+            <button class="action-btn" title="Collapse" @click="sidebarOpen = false"><v-icon size="14">mdi-chevron-left</v-icon></button>
           </div>
-          <div v-if="filteredIndices.length === 0 && !isLoading" class="empty-state"><v-icon size="32">mdi-database-off</v-icon><span>{{ t('common.noData') }}</span></div>
-        </div>
+          <div class="index-list">
+            <div v-for="idx in filteredIndices" :key="idx.name" class="tree-item" :class="{ active: selectedIndex === idx.name }" @click="selectIndex(idx.name)" @contextmenu.prevent="onIndexContextMenu($event, idx)">
+              <div class="tree-item-icon"><span class="status-dot" :style="{ backgroundColor: getHealthColor(idx.health) }" /></div>
+              <div class="tree-item-content"><span class="tree-item-label">{{ idx.name }}</span><span class="tree-item-meta">{{ idx.docsCount?.toLocaleString() }} docs</span></div>
+            </div>
+            <div v-if="filteredIndices.length === 0 && !isLoading" class="empty-state"><v-icon size="32">mdi-database-off</v-icon><span>{{ t('common.noData') }}</span></div>
+          </div>
+        </template>
+        <button v-else class="action-btn es-expand-btn" title="Expand" @click="sidebarOpen = true"><v-icon size="14">mdi-chevron-right</v-icon></button>
+        <ResizableSidebarHandle
+          :open="sidebarOpen"
+          :width="sidebarWidth"
+          :min="190"
+          :max="380"
+          :default-width="240"
+          :collapse-threshold="150"
+          aria-label="Resize Elasticsearch sidebar"
+          @update:open="sidebarOpen = $event"
+          @update:width="sidebarWidth = $event"
+          @dragging="sidebarDragging = $event"
+        />
       </div>
 
       <div class="es-main">
@@ -486,9 +516,12 @@ onMounted(() => initConnection())
 .header-host { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2); }
 .header-right { display: flex; gap: 8px; }
 .es-body { display: flex; flex: 1; overflow: hidden; }
-.es-sidebar { width: 240px; border-right: 1px solid var(--line); background: var(--panel-solid); display: flex; flex-direction: column; }
-.sidebar-search { padding: 10px; border-bottom: 1px solid var(--line); }
+.es-sidebar { position: relative; border-right: 1px solid var(--line); background: var(--panel-solid); display: flex; flex-direction: column; overflow: hidden; transition: width 0.25s, min-width 0.25s; }
+.es-sidebar.dragging { transition: none; }
+.es-sidebar.collapsed { align-items: center; }
+.sidebar-search { display: flex; align-items: center; gap: 8px; padding: 10px; border-bottom: 1px solid var(--line); }
 .sidebar-search .cyber-input { height: 28px; font-size: 12px; }
+.es-expand-btn { margin-top: 10px; }
 .index-list { flex: 1; overflow-y: auto; padding: 6px 0; }
 .es-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .es-tabs { display: flex; gap: 0; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel-solid); }

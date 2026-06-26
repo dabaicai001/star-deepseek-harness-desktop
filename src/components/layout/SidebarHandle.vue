@@ -15,6 +15,7 @@ const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
 
 // ====== 拖拽调整宽度(使用 requestAnimationFrame 节流) ======
 const isDragging = ref(false)
+const COLLAPSE_THRESHOLD = 150
 let startX = 0
 let startWidth = 0
 let moved = 0
@@ -42,7 +43,13 @@ function onPointerMove(e: PointerEvent) {
   if (isDragging.value) {
     if (rafId) cancelAnimationFrame(rafId)
     rafId = requestAnimationFrame(() => {
-      appStore.setSidebarWidth(startWidth + delta)
+      const nextWidth = startWidth + delta
+      if (nextWidth < COLLAPSE_THRESHOLD) {
+        appStore.sidebarOpen = false
+      } else {
+        appStore.sidebarOpen = true
+        appStore.setSidebarWidth(nextWidth)
+      }
       rafId = 0
     })
   }

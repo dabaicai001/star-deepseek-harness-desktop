@@ -9,6 +9,7 @@ import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
 import { useDialogStore } from '@/stores/dialog'
 import RightPanel from '@/components/layout/RightPanel.vue'
+import ResizableSidebarHandle from '@/components/layout/ResizableSidebarHandle.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import DockerDashboard from '@/components/dashboard/DockerDashboard.vue'
 import { parseInstanceId } from '@/utils/tabId'
@@ -40,6 +41,8 @@ const connectError = ref<string | null>(null)
 const activeTab = ref<'containers' | 'images'>('containers')
 const selectedTab = ref<'logs' | 'stats'>('logs')
 const sidebarCollapsed = ref(false)
+const sidebarWidth = ref(260)
+const sidebarDragging = ref(false)
 let statsInterval: ReturnType<typeof setInterval> | null = null
 
 async function connect() {
@@ -307,7 +310,14 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   <div class="docker-view-with-panel">
     <div class="docker-view">
     <!-- Sidebar -->
-    <div class="docker-sidebar" :class="{ collapsed: sidebarCollapsed }">
+    <div
+      class="docker-sidebar"
+      :class="{ collapsed: sidebarCollapsed, dragging: sidebarDragging }"
+      :style="{
+        width: sidebarCollapsed ? '40px' : `${sidebarWidth}px`,
+        minWidth: sidebarCollapsed ? '40px' : `${sidebarWidth}px`
+      }"
+    >
       <div class="sidebar-header">
         <template v-if="!sidebarCollapsed">
           <span class="sidebar-title">Docker</span>
@@ -372,6 +382,18 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           </div>
         </div>
       </template>
+      <ResizableSidebarHandle
+        :open="!sidebarCollapsed"
+        :width="sidebarWidth"
+        :min="200"
+        :max="420"
+        :default-width="260"
+        :collapse-threshold="160"
+        aria-label="Resize Docker sidebar"
+        @update:open="sidebarCollapsed = !$event"
+        @update:width="sidebarWidth = $event"
+        @dragging="sidebarDragging = $event"
+      />
     </div>
 
     <!-- Main content -->
@@ -646,14 +668,17 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 }
 
 .docker-sidebar {
-  width: 260px;
-  min-width: 260px;
+  position: relative;
   background: var(--panel);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   transition: width 0.25s, min-width 0.25s;
+}
+
+.docker-sidebar.dragging {
+  transition: none;
 }
 
 .docker-sidebar.collapsed {

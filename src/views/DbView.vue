@@ -9,6 +9,7 @@ import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
 import { useDialogStore } from '@/stores/dialog'
 import RightPanel from '@/components/layout/RightPanel.vue'
+import ResizableSidebarHandle from '@/components/layout/ResizableSidebarHandle.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
 import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
@@ -63,6 +64,8 @@ const loadingDatabases = ref(false)
 const loadErrors = ref<Map<string, string>>(new Map())
 const isExecutingAny = ref(false) // 任一 SQL 结果 tab 在加载中
 const sidebarCollapsed = ref(false)
+const sidebarWidth = ref(260)
+const sidebarDragging = ref(false)
 const selectedDb = ref<string>('')
 
 // tableDataCache: key = "db.table", caches columns + rowCount + data to avoid refetch on tab switch
@@ -1515,7 +1518,14 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   <div class="db-view-with-panel">
     <div class="db-view">
     <!-- Sidebar -->
-    <div class="db-sidebar" :class="{ collapsed: sidebarCollapsed }">
+    <div
+      class="db-sidebar"
+      :class="{ collapsed: sidebarCollapsed, dragging: sidebarDragging }"
+      :style="{
+        width: sidebarCollapsed ? '40px' : `${sidebarWidth}px`,
+        minWidth: sidebarCollapsed ? '40px' : `${sidebarWidth}px`
+      }"
+    >
       <div class="sidebar-header">
         <template v-if="!sidebarCollapsed">
           <span class="sidebar-title">{{ t('db.title') }}</span>
@@ -1647,6 +1657,18 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           </div>
         </div>
       </template>
+      <ResizableSidebarHandle
+        :open="!sidebarCollapsed"
+        :width="sidebarWidth"
+        :min="200"
+        :max="420"
+        :default-width="260"
+        :collapse-threshold="160"
+        aria-label="Resize database sidebar"
+        @update:open="sidebarCollapsed = !$event"
+        @update:width="sidebarWidth = $event"
+        @dragging="sidebarDragging = $event"
+      />
     </div>
 
     <!-- Main content -->
@@ -1997,14 +2019,17 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 }
 
 .db-sidebar {
-  width: 260px;
-  min-width: 260px;
+  position: relative;
   background: var(--panel);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   transition: width 0.25s, min-width 0.25s;
+}
+
+.db-sidebar.dragging {
+  transition: none;
 }
 
 .db-sidebar.collapsed {

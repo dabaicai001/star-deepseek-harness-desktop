@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import * as dbService from '@/services/db'
 import type { RedisKeyInfo } from '@/types/db'
 import ContextMenu from '@/components/common/ContextMenu.vue'
+import ResizableSidebarHandle from '@/components/layout/ResizableSidebarHandle.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 
 const props = defineProps<{
@@ -38,6 +39,8 @@ const dbStates = ref<Record<number, DbState>>({})
 const expandedDbs = ref<Set<number>>(new Set())
 const expandedFolders = ref<Record<number, Set<string>>>({})
 const collapsed = ref(false)
+const sidebarWidth = ref(260)
+const sidebarDragging = ref(false)
 const loadTokens = ref<Record<number, number>>({})
 const searchTimers = new Map<number, ReturnType<typeof setTimeout>>()
 
@@ -376,7 +379,14 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
 </script>
 
 <template>
-  <div class="key-browser" :class="{ collapsed }">
+  <div
+    class="key-browser"
+    :class="{ collapsed, dragging: sidebarDragging }"
+    :style="{
+      width: collapsed ? '40px' : `${sidebarWidth}px`,
+      minWidth: collapsed ? '40px' : `${sidebarWidth}px`
+    }"
+  >
     <div class="section-header">
       <template v-if="!collapsed">
         <span class="section-number">01</span>
@@ -499,23 +509,40 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
       :items="ctxMenu.items"
       @close="closeCtxMenu"
     />
+    <ResizableSidebarHandle
+      :open="!collapsed"
+      :width="sidebarWidth"
+      :min="200"
+      :max="420"
+      :default-width="260"
+      :collapse-threshold="160"
+      aria-label="Resize Redis key browser"
+      @update:open="collapsed = !$event"
+      @update:width="sidebarWidth = $event"
+      @dragging="sidebarDragging = $event"
+    />
   </div>
 </template>
 
 <style scoped>
 .key-browser {
-  width: 260px;
+  position: relative;
   min-height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--panel);
   border-right: 1px solid var(--line);
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
+}
+
+.key-browser.dragging {
+  transition: none;
 }
 
 .key-browser.collapsed {
   width: 40px;
+  min-width: 40px;
 }
 
 .key-browser.collapsed .section-header {
