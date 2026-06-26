@@ -202,43 +202,46 @@ function emitReplaceAll() {
 
 <style scoped>
 .excel-ribbon {
-  background: var(--panel-solid);
-  border-bottom: 1px solid var(--line);
+  background: var(--excel-ribbon-bg);
+  border-bottom: 1px solid var(--excel-ribbon-line);
+  color: var(--excel-text);
 }
 
 .ribbon-tabs {
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 28px;
+  height: 30px;
   padding: 0 8px;
-  border-bottom: 1px solid var(--line);
+  background: var(--excel-green);
+  border-bottom: 0;
 }
 
 .ribbon-tab {
-  height: 24px;
-  padding: 0 12px;
+  height: 30px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 6px 6px 0 0;
-  color: var(--text-2);
+  border-radius: 0;
+  color: var(--excel-title-tab-fg);
   background: transparent;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .ribbon-tab.active {
-  color: var(--cyan);
-  background: var(--hover-cyan);
-  box-shadow: inset 0 -1px 0 var(--cyan);
+  color: var(--excel-text);
+  background: var(--excel-ribbon-tab-bg);
+  box-shadow: none;
 }
 
 .ribbon-body {
-  min-height: 54px;
+  min-height: 72px;
   display: flex;
   align-items: stretch;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: 10px;
+  padding: 7px 10px 5px;
+  background: var(--excel-ribbon-tab-bg);
 }
 
 .ribbon-group {
@@ -256,18 +259,39 @@ function emitReplaceAll() {
 .ribbon-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
+}
+
+.ribbon-actions .action-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--excel-text);
+  background: transparent;
+}
+
+.ribbon-actions .action-btn:hover {
+  background: var(--excel-green-soft);
+  border-color: var(--excel-green-border);
+  color: var(--excel-green);
+}
+
+.ribbon-actions .action-btn.primary {
+  color: var(--excel-green);
+  background: transparent;
+  box-shadow: none;
 }
 
 .ribbon-label {
   font-size: 10px;
-  color: var(--muted);
+  color: var(--excel-muted);
   line-height: 1;
 }
 
 .ribbon-divider {
   width: 1px;
-  background: var(--line);
+  background: var(--excel-ribbon-line);
   margin: 4px 0;
 }
 
@@ -280,8 +304,8 @@ function emitReplaceAll() {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  background: var(--panel-solid-2);
-  border-bottom: 1px solid var(--line);
+  background: var(--excel-ribbon-tab-bg);
+  border-bottom: 1px solid var(--excel-ribbon-line);
 }
 
 .find-field {
@@ -291,10 +315,10 @@ function emitReplaceAll() {
   width: 180px;
   height: 30px;
   padding: 0 8px;
-  border-radius: 8px;
-  border: 1px solid var(--line-2);
-  background: var(--bg-input);
-  color: var(--muted);
+  border-radius: 0;
+  border: 1px solid var(--excel-ribbon-line);
+  background: var(--excel-ribbon-tab-bg);
+  color: var(--excel-muted);
 }
 
 .find-input {
@@ -303,7 +327,7 @@ function emitReplaceAll() {
   border: 0;
   outline: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--excel-text);
   font-size: 12px;
 }
 
@@ -311,13 +335,13 @@ function emitReplaceAll() {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--text-2);
+  color: var(--excel-text);
   font-size: 11px;
   white-space: nowrap;
 }
 
 .find-toggle input {
-  accent-color: var(--cyan);
+  accent-color: var(--excel-green);
 }
 
 .find-action {

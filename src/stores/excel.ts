@@ -57,8 +57,8 @@ export const useExcelStore = defineStore('excel', () => {
   const undoStack = ref<CellHistoryEntry[]>([])
   const redoStack = ref<CellHistoryEntry[]>([])
 
-  const DEFAULT_COL_WIDTH = 120
-  const ROW_HEIGHT = 28
+  const DEFAULT_COL_WIDTH = 96
+  const ROW_HEIGHT = 22
 
   // 筛选后的行索引映射
   const filteredRowIndices = computed<number[]>(() => {

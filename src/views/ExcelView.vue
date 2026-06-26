@@ -140,6 +140,21 @@ async function saveFile() {
   }
 }
 
+async function openInNativeExcel() {
+  const filePath = store.filePath || asset.value?.config.filePath
+  if (!filePath) {
+    notify.notify({ message: '当前没有可打开的文件路径', color: 'warning', timeout: 2500 })
+    return
+  }
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('open_file_external', { path: filePath })
+    notify.notify({ message: '已交给系统表格程序打开。外部保存后可回到 StarHub 重新加载。', color: 'info', timeout: 3600 })
+  } catch (e) {
+    notify.notify({ message: `打开失败: ${errMsg(e)}`, color: 'error', timeout: 5000 })
+  }
+}
+
 async function switchSheet(sheetName: string, options: { preserveDirty?: boolean } = {}) {
   if (!store.connId) return
   store.setLoading(true)
@@ -778,6 +793,21 @@ watch(() => store.selectedCellValue, (value) => {
         <div class="tb-right">
           <span class="cyber-badge">{{ store.activeSheet || 'Sheet' }}</span>
           <button
+            class="excel-native-btn"
+            :title="`用系统 ${isCsvFile ? '表格程序' : 'Office Excel'} 打开`"
+            @click="openInNativeExcel"
+          >
+            <v-icon size="15">mdi-microsoft-excel</v-icon>
+            <span>原生打开</span>
+          </button>
+          <button
+            class="action-btn"
+            title="重新加载文件"
+            @click="openExcel"
+          >
+            <v-icon size="16">mdi-reload</v-icon>
+          </button>
+          <button
             class="action-btn"
             :class="{ active: rightPanelOpen }"
             title="Toggle Panel"
@@ -901,7 +931,8 @@ watch(() => store.selectedCellValue, (value) => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: var(--excel-grid-bg);
+  color: var(--excel-text);
   position: relative;
 }
 
@@ -954,10 +985,10 @@ watch(() => store.selectedCellValue, (value) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 12px;
-  background: var(--bg-2);
-  border-bottom: 1px solid var(--line);
-  min-height: 32px;
+  min-height: 36px;
+  padding: 0 10px;
+  background: var(--excel-green);
+  color: var(--excel-title-fg);
 }
 
 .tb-left {
@@ -968,14 +999,14 @@ watch(() => store.selectedCellValue, (value) => {
 }
 
 .tb-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--excel-title-fg);
 }
 
 .tb-path {
   font-size: 10px;
-  color: var(--muted);
+  color: var(--excel-title-muted);
   font-family: 'JetBrains Mono', monospace;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -984,7 +1015,7 @@ watch(() => store.selectedCellValue, (value) => {
 
 .tb-dirty {
   font-size: 10px;
-  color: var(--yellow);
+  color: var(--excel-title-warning);
   font-family: 'JetBrains Mono', monospace;
 }
 
@@ -995,55 +1026,93 @@ watch(() => store.selectedCellValue, (value) => {
   flex-shrink: 0;
 }
 
-.formula-bar {
-  display: grid;
-  grid-template-columns: 92px 32px minmax(0, 1fr);
+.tb-right .cyber-badge {
+  background: var(--excel-title-chip);
+  color: var(--excel-title-fg);
+  border-color: var(--excel-title-chip-border);
+}
+
+.tb-right .action-btn {
+  color: var(--excel-title-fg);
+  background: transparent;
+  border-color: transparent;
+}
+
+.tb-right .action-btn:hover,
+.tb-right .action-btn.active {
+  background: var(--excel-title-hover);
+  color: var(--excel-title-fg);
+}
+
+.excel-native-btn {
+  height: 26px;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
-  background: var(--panel-solid);
-  border-bottom: 1px solid var(--line);
+  padding: 0 10px;
+  border: 1px solid var(--excel-title-border);
+  border-radius: 4px;
+  background: var(--excel-green-dark);
+  color: var(--excel-title-fg);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.excel-native-btn:hover {
+  background: var(--excel-title-hover);
+}
+
+.formula-bar {
+  display: grid;
+  grid-template-columns: 84px 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--excel-ribbon-bg);
+  border-bottom: 1px solid var(--excel-ribbon-line);
 }
 
 .name-box {
-  height: 30px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--line-2);
-  border-radius: 6px;
-  background: var(--bg-input);
-  color: var(--cyan);
+  border: 1px solid var(--excel-ribbon-line);
+  border-radius: 0;
+  background: var(--excel-ribbon-tab-bg);
+  color: var(--excel-text);
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   font-weight: 600;
 }
 
 .formula-icon {
-  height: 30px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  height: 24px;
+  border: 1px solid var(--excel-ribbon-line);
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--muted);
+  color: var(--excel-green);
 }
 
 .formula-input {
-  height: 30px;
-  border: 1px solid var(--line-2);
-  border-radius: 6px;
+  height: 24px;
+  border: 1px solid var(--excel-ribbon-line);
+  border-radius: 0;
   outline: none;
-  background: var(--bg-input);
-  color: var(--text);
-  padding: 0 10px;
+  background: var(--excel-ribbon-tab-bg);
+  color: var(--excel-text);
+  padding: 0 8px;
   font-size: 12px;
   font-family: 'JetBrains Mono', monospace;
 }
 
 .formula-input:focus {
-  border-color: var(--cyan);
-  box-shadow: 0 0 0 3px var(--focus-cyan);
+  border-color: var(--excel-selection);
+  box-shadow: inset 0 0 0 1px var(--excel-selection);
 }
 
 .filter-bar {
@@ -1051,8 +1120,8 @@ watch(() => store.selectedCellValue, (value) => {
   align-items: center;
   gap: 8px;
   padding: 4px 12px;
-  background: var(--panel-solid);
-  border-bottom: 1px solid var(--line);
+  background: var(--excel-ribbon-tab-bg);
+  border-bottom: 1px solid var(--excel-ribbon-line);
 }
 
 .filter-input {
@@ -1064,7 +1133,7 @@ watch(() => store.selectedCellValue, (value) => {
 
 .filter-count {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--excel-muted);
   font-family: 'JetBrains Mono', monospace;
 }
 
@@ -1082,8 +1151,8 @@ watch(() => store.selectedCellValue, (value) => {
 }
 
 .filter-bar .action-btn:hover {
-  background: rgba(0, 240, 255, 0.08);
-  color: var(--cyan);
+  background: var(--excel-green-soft);
+  color: var(--excel-green);
 }
 
 .excel-workspace {
@@ -1102,14 +1171,14 @@ watch(() => store.selectedCellValue, (value) => {
 }
 
 .excel-statusbar {
-  min-height: 26px;
+  min-height: 24px;
   display: flex;
   align-items: center;
   gap: 14px;
   padding: 0 10px;
-  background: var(--bg-2);
-  border-top: 1px solid var(--line);
-  color: var(--muted);
+  background: var(--excel-green);
+  border-top: 1px solid var(--excel-green-dark);
+  color: var(--excel-title-fg);
   font-size: 10px;
   font-family: 'JetBrains Mono', monospace;
   white-space: nowrap;

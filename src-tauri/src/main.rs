@@ -173,6 +173,8 @@ fn main() {
             commands::docker::docker_remove_image,
             commands::docker::docker_prune_images,
             commands::docker::docker_exec,
+            // File
+            commands::file::open_file_external,
             // AI
             commands::ai::ai_chat,
             commands::ai::ai_list_models,

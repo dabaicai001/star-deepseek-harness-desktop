@@ -29,8 +29,8 @@ const emit = defineEmits<{
 const containerHeight = computed(() => containerRef.value?.clientHeight ?? 600)
 const containerWidth = computed(() => containerRef.value?.clientWidth ?? 800)
 
-const HEADER_HEIGHT = 30
-const ROW_HEADER_WIDTH = 52
+const HEADER_HEIGHT = 24
+const ROW_HEADER_WIDTH = 46
 
 // 使用筛选后的数据
 const displayData = computed(() => store.filteredRowData)
@@ -815,7 +815,7 @@ onBeforeUnmount(() => {
 .excel-grid-container {
   flex: 1;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--excel-grid-bg);
 }
 
 .excel-grid-scroll {
@@ -833,16 +833,16 @@ onBeforeUnmount(() => {
   position: sticky;
   top: 0;
   z-index: 3;
-  background: var(--panel-solid-2);
-  border-bottom: 1px solid var(--line);
+  background: var(--excel-header-bg);
+  border-bottom: 1px solid var(--excel-grid-line);
 }
 
 .excel-corner-header {
   position: sticky;
   left: 0;
   z-index: 4;
-  background: var(--panel-solid-2);
-  border-right: 1px solid var(--line);
+  background: var(--excel-header-bg);
+  border-right: 1px solid var(--excel-grid-line);
 }
 
 .excel-col-header {
@@ -850,14 +850,15 @@ onBeforeUnmount(() => {
   top: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 4px;
-  padding: 0 24px 0 6px;
+  padding: 0 20px 0 6px;
   font-size: 11px;
-  font-weight: 600;
-  color: var(--text-2);
-  font-family: 'JetBrains Mono', monospace;
-  border-right: 1px solid var(--line);
+  font-weight: 400;
+  color: var(--excel-text);
+  font-family: Arial, 'Microsoft YaHei', sans-serif;
+  background: var(--excel-header-bg);
+  border-right: 1px solid var(--excel-grid-line);
   user-select: none;
   overflow: hidden;
   cursor: pointer;
@@ -865,11 +866,12 @@ onBeforeUnmount(() => {
 
 .col-letter {
   flex: 0 0 auto;
-  color: var(--muted);
-  font-size: 10px;
+  color: var(--excel-text);
+  font-size: 11px;
 }
 
 .col-title {
+  display: none;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -880,35 +882,36 @@ onBeforeUnmount(() => {
 .col-filter-btn {
   position: absolute;
   right: 4px;
-  top: 5px;
-  width: 18px;
-  height: 18px;
+  top: 3px;
+  width: 17px;
+  height: 17px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
-  color: var(--muted);
+  color: var(--excel-muted);
   cursor: pointer;
 }
 
 .col-filter-btn:hover,
 .col-filter-btn.active {
-  color: var(--cyan);
-  background: var(--hover-cyan);
-  border-color: var(--line-2);
+  color: var(--excel-green);
+  background: var(--excel-green-soft);
+  border-color: var(--excel-green-border);
 }
 
 .excel-col-header.selected {
-  background: rgba(0, 240, 255, 0.12);
-  color: var(--cyan);
+  background: var(--excel-header-selected);
+  color: var(--excel-green);
+  box-shadow: inset 0 -2px 0 var(--excel-selection);
 }
 
 .excel-col-header.frozen {
   z-index: 5;
-  background: var(--panel-solid-2);
-  box-shadow: 1px 0 0 var(--line-2);
+  background: var(--excel-header-bg);
+  box-shadow: 1px 0 0 var(--excel-grid-line);
 }
 
 .col-resize-handle {
@@ -921,7 +924,7 @@ onBeforeUnmount(() => {
 }
 
 .col-resize-handle:hover {
-  background: var(--cyan);
+  background: var(--excel-selection);
   opacity: 0.5;
 }
 
@@ -932,7 +935,7 @@ onBeforeUnmount(() => {
 }
 
 .excel-data-row.row-selected .excel-cell {
-  background: rgba(0, 240, 255, 0.04);
+  background: var(--excel-selection-fill);
 }
 
 .excel-data-row.frozen {
@@ -947,18 +950,19 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: var(--muted);
-  font-family: 'JetBrains Mono', monospace;
-  background: var(--panel-solid-2);
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  color: var(--excel-muted);
+  font-family: Arial, 'Microsoft YaHei', sans-serif;
+  background: var(--excel-header-bg);
+  border-right: 1px solid var(--excel-grid-line);
+  border-bottom: 1px solid var(--excel-grid-line);
   user-select: none;
   cursor: pointer;
 }
 
 .excel-row-header.selected {
-  background: rgba(0, 240, 255, 0.12);
-  color: var(--cyan);
+  background: var(--excel-header-selected);
+  color: var(--excel-green);
+  box-shadow: inset -2px 0 0 var(--excel-selection);
 }
 
 .excel-cell {
@@ -966,39 +970,40 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   top: 0;
-  padding: 2px 6px;
+  padding: 0 5px;
   font-size: 12px;
-  color: var(--text);
-  font-family: 'JetBrains Mono', monospace;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  color: var(--excel-text);
+  font-family: Calibri, Arial, 'Microsoft YaHei', sans-serif;
+  background: var(--excel-grid-bg);
+  border-right: 1px solid var(--excel-grid-line);
+  border-bottom: 1px solid var(--excel-grid-line);
   cursor: cell;
   overflow: hidden;
 }
 
 .excel-cell.selected {
-  background: rgba(0, 240, 255, 0.08);
-  outline: 2px solid var(--cyan);
+  background: var(--excel-grid-bg);
+  outline: 2px solid var(--excel-selection);
   outline-offset: -2px;
   z-index: 1;
 }
 
 .excel-cell.in-range {
-  background: rgba(0, 240, 255, 0.04);
+  background: var(--excel-selection-fill);
 }
 
 .excel-cell.fill-preview {
-  background: rgba(0, 240, 255, 0.1);
-  outline: 1px dashed var(--cyan);
+  background: var(--excel-selection-fill);
+  outline: 1px dashed var(--excel-selection);
   outline-offset: -2px;
 }
 
 .excel-cell.col-highlight {
-  background: rgba(0, 240, 255, 0.04);
+  background: var(--excel-selection-fill);
 }
 
 .excel-cell.editing {
-  outline: 2px solid var(--cyan);
+  outline: 2px solid var(--excel-selection);
   outline-offset: -2px;
   z-index: 2;
   padding: 0;
@@ -1006,7 +1011,7 @@ onBeforeUnmount(() => {
 
 .excel-cell.frozen-col,
 .excel-cell.frozen-row {
-  background: var(--panel-solid);
+  background: var(--excel-frozen-bg);
   z-index: 3;
 }
 
@@ -1027,8 +1032,8 @@ onBeforeUnmount(() => {
   bottom: 0;
   width: 8px;
   height: 8px;
-  border: 1px solid var(--bg);
-  background: var(--cyan);
+  border: 1px solid var(--excel-ribbon-tab-bg);
+  background: var(--excel-selection);
   cursor: crosshair;
   box-shadow: 0 0 8px var(--glow-soft);
 }
@@ -1038,11 +1043,11 @@ onBeforeUnmount(() => {
   height: 100%;
   border: none;
   outline: none;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--excel-ribbon-tab-bg);
+  color: var(--excel-text);
   font-size: 12px;
-  font-family: 'JetBrains Mono', monospace;
-  padding: 2px 6px;
+  font-family: Calibri, Arial, 'Microsoft YaHei', sans-serif;
+  padding: 0 5px;
 }
 
 .header-filter-menu {
@@ -1050,10 +1055,10 @@ onBeforeUnmount(() => {
   z-index: 1000;
   width: 220px;
   padding: 10px;
-  border: 1px solid var(--line-2);
-  border-radius: 8px;
-  background: var(--panel-solid-2);
-  box-shadow: var(--shadow), var(--glow-soft);
+  border: 1px solid var(--excel-ribbon-line);
+  border-radius: 2px;
+  background: var(--excel-ribbon-tab-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
 }
 
 .filter-title {
@@ -1063,7 +1068,7 @@ onBeforeUnmount(() => {
   margin-bottom: 8px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--excel-text);
 }
 
 .filter-stats {
@@ -1076,22 +1081,22 @@ onBeforeUnmount(() => {
 .filter-stat {
   min-width: 0;
   padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel-solid);
+  border: 1px solid var(--excel-ribbon-line);
+  border-radius: 2px;
+  background: var(--excel-ribbon-tab-bg);
 }
 
 .filter-stat span {
   display: block;
   margin-bottom: 2px;
-  color: var(--muted);
+  color: var(--excel-muted);
   font-size: 10px;
 }
 
 .filter-stat strong {
   display: block;
   overflow: hidden;
-  color: var(--cyan);
+  color: var(--excel-green);
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   font-weight: 600;
@@ -1103,9 +1108,9 @@ onBeforeUnmount(() => {
   max-height: 148px;
   margin-bottom: 8px;
   overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel-solid);
+  border: 1px solid var(--excel-ribbon-line);
+  border-radius: 2px;
+  background: var(--excel-ribbon-tab-bg);
 }
 
 .filter-value-count {
@@ -1116,9 +1121,9 @@ onBeforeUnmount(() => {
   min-height: 26px;
   padding: 4px 6px;
   border: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--excel-ribbon-line);
   background: transparent;
-  color: var(--text-2);
+  color: var(--excel-text);
   font-size: 11px;
   text-align: left;
   cursor: pointer;
@@ -1126,8 +1131,8 @@ onBeforeUnmount(() => {
 
 .filter-value-count:hover,
 .filter-value-count.selected {
-  color: var(--cyan);
-  background: var(--hover-cyan-faint);
+  color: var(--excel-green);
+  background: var(--excel-green-soft);
 }
 
 .filter-value-count:last-child {
@@ -1143,12 +1148,12 @@ onBeforeUnmount(() => {
 }
 
 .filter-value-count.selected span {
-  color: var(--cyan);
+  color: var(--excel-green);
 }
 
 .filter-value-count strong {
   min-width: 24px;
-  color: var(--cyan);
+  color: var(--excel-green);
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   font-weight: 600;
@@ -1160,25 +1165,25 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   margin-bottom: 8px;
-  color: var(--muted);
+  color: var(--excel-muted);
   font-size: 10px;
 }
 
 .filter-pick-actions .action-btn-sm {
   min-width: 42px;
   height: 22px;
-  border-radius: 4px;
-  border: 1px solid var(--line-2);
+  border-radius: 2px;
+  border: 1px solid var(--excel-ribbon-line);
   background: transparent;
-  color: var(--text-2);
+  color: var(--excel-text);
   font-size: 10px;
   cursor: pointer;
 }
 
 .filter-pick-actions .action-btn-sm:hover {
-  color: var(--cyan);
-  border-color: var(--cyan);
-  background: var(--hover-cyan-faint);
+  color: var(--excel-green);
+  border-color: var(--excel-green);
+  background: var(--excel-green-soft);
 }
 
 .filter-input {

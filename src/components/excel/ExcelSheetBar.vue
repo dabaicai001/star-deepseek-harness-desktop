@@ -102,12 +102,12 @@ function confirmAddSheet() {
 
 <style scoped>
 .sheet-bar {
-  height: 32px;
-  background: var(--panel-solid);
-  border-top: 1px solid var(--line);
+  height: 34px;
+  background: var(--excel-ribbon-bg);
+  border-top: 1px solid var(--excel-ribbon-line);
   display: flex;
   align-items: center;
-  padding: 0 8px;
+  padding: 0 8px 0 34px;
   position: relative;
 }
 
@@ -120,16 +120,16 @@ function confirmAddSheet() {
 }
 
 .sheet-tab {
-  padding: 2px 14px;
-  font-size: 11px;
-  color: var(--text-2);
+  min-height: 28px;
+  padding: 3px 18px;
+  font-size: 12px;
+  color: var(--excel-text);
   background: transparent;
-  border: 1px solid var(--line);
-  border-bottom: none;
-  border-radius: 4px 4px 0 0;
+  border: 0;
+  border-radius: 0;
   cursor: pointer;
   white-space: nowrap;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: Calibri, Arial, 'Microsoft YaHei', sans-serif;
   transition: all 0.15s;
   display: inline-flex;
   align-items: center;
@@ -137,15 +137,14 @@ function confirmAddSheet() {
 }
 
 .sheet-tab:hover {
-  background: rgba(0, 240, 255, 0.05);
-  color: var(--text);
+  background: var(--excel-sheet-hover);
+  color: var(--excel-text);
 }
 
 .sheet-tab.active {
-  background: var(--bg);
-  color: var(--cyan);
-  border-color: var(--cyan);
-  border-bottom: 2px solid var(--cyan);
+  background: var(--excel-ribbon-tab-bg);
+  color: var(--excel-green);
+  box-shadow: inset 0 -3px 0 var(--excel-green);
 }
 
 .sheet-add-btn {
@@ -155,7 +154,7 @@ function confirmAddSheet() {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--muted);
+  color: var(--excel-muted);
   background: transparent;
   border: 1px solid transparent;
   cursor: pointer;
@@ -163,9 +162,9 @@ function confirmAddSheet() {
 }
 
 .sheet-add-btn:hover {
-  background: rgba(0, 240, 255, 0.08);
-  color: var(--cyan);
-  border-color: var(--line-2);
+  background: var(--excel-green-soft);
+  color: var(--excel-green);
+  border-color: var(--excel-green-border);
 }
 
 .sheet-close-btn {
@@ -176,7 +175,7 @@ function confirmAddSheet() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--muted);
+  color: var(--excel-muted);
   background: transparent;
   cursor: pointer;
 }
@@ -188,10 +187,10 @@ function confirmAddSheet() {
 
 .sheet-rename-input {
   width: 80px;
-  background: var(--bg-input);
-  border: 1px solid var(--cyan);
-  border-radius: 3px;
-  color: var(--text);
+  background: var(--excel-ribbon-tab-bg);
+  border: 1px solid var(--excel-green);
+  border-radius: 0;
+  color: var(--excel-text);
   font-size: 11px;
   font-family: 'JetBrains Mono', monospace;
   padding: 1px 4px;
@@ -202,9 +201,9 @@ function confirmAddSheet() {
   position: absolute;
   bottom: 34px;
   left: 8px;
-  background: var(--panel-solid);
-  border: 1px solid var(--line-2);
-  border-radius: 6px;
+  background: var(--excel-ribbon-tab-bg);
+  border: 1px solid var(--excel-ribbon-line);
+  border-radius: 2px;
   padding: 8px;
   z-index: 10;
 }
