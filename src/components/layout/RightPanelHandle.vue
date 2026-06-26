@@ -155,25 +155,25 @@ onBeforeUnmount(() => {
 /* 悬停态 */
 .right-panel-handle:hover {
   width: 6px;
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--hover-cyan-soft);
 }
 
 .right-panel-handle:hover .handle-indicator {
   height: 32px;
   background: var(--cyan);
-  box-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+  box-shadow: var(--glow-cyan);
 }
 
 /* 拖拽态 */
 .right-panel-handle.dragging {
   width: 6px;
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--hover-cyan);
 }
 
 .right-panel-handle.dragging .handle-indicator {
   height: 40px;
   background: var(--cyan);
-  box-shadow: 0 0 12px rgba(0, 240, 255, 0.6);
+  box-shadow: var(--glow-cyan);
 }
 
 /* 聚焦态(无障碍) */
@@ -215,13 +215,13 @@ onBeforeUnmount(() => {
 }
 
 .right-panel-handle.collapsed-only:hover {
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
 }
 
 .right-panel-handle.collapsed-only:hover .handle-indicator {
   opacity: 1;
   background: var(--cyan);
-  box-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+  box-shadow: var(--glow-cyan);
 }
 
 .right-panel-handle.collapsed-only:hover .collapsed-arrow {

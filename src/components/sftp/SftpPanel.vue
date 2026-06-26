@@ -516,7 +516,7 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
       <!-- 文件列表 -->
       <div class="sftp-file-list" @click="uploadMenuOpen = false" @contextmenu.prevent="onContextMenu($event, null)">
         <div v-if="showDropOverlay" class="drop-overlay">
-          <v-icon size="32" color="cyan">mdi-cloud-upload-outline</v-icon>
+          <v-icon size="32" color="var(--cyan)">mdi-cloud-upload-outline</v-icon>
           <span class="drop-text">{{ t('sftp.dropToUpload') }}</span>
         </div>
         <div v-if="loading" class="list-loading">
@@ -800,7 +800,7 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   border: 2px dashed var(--cyan);
   border-radius: 8px;
   z-index: 5;
@@ -847,7 +847,7 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
   color: var(--text-2);
 }
 .file-icon.is-dir {
-  color: var(--cyan);
+  color: var(--cyan-2);
 }
 
 .file-name {

@@ -127,15 +127,14 @@ const currentTab = computed(() => props.tabs.find(t => t.key === activeTab.value
 }
 
 .rail-tab:hover {
-  background: rgba(0, 240, 255, 0.04);
+  background: var(--hover-cyan-faint);
   color: var(--text-2);
 }
 
 .rail-tab.active {
   color: var(--cyan);
   border-left-color: var(--cyan);
-  background: rgba(0, 240, 255, 0.08);
-  text-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+  background: var(--active-cyan);
 }
 
 .rail-label {

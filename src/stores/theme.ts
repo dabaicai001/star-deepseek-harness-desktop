@@ -6,11 +6,19 @@ export type ThemeMode = 'lightTheme' | 'darkTheme'
 export type AccentColor = 'cyan' | 'purple' | 'green' | 'orange'
 
 /** 主色 → [cyanHex, purpleHex] 映射(用于 CSS 变量 --cyan / --purple) */
-const ACCENT_MAP: Record<AccentColor, { primary: string; secondary: string }> = {
-  cyan:   { primary: '#00f0ff', secondary: '#b56bff' },
-  purple: { primary: '#b56bff', secondary: '#00f0ff' },
-  green:  { primary: '#4ade80', secondary: '#00f0ff' },
-  orange: { primary: '#ff7a3a', secondary: '#ffd84d' }
+const ACCENT_MAP: Record<ThemeMode, Record<AccentColor, { primary: string; secondary: string }>> = {
+  darkTheme: {
+    cyan:   { primary: '#5dd6d6', secondary: '#8f7bd8' },
+    purple: { primary: '#8f7bd8', secondary: '#5dd6d6' },
+    green:  { primary: '#6fd28a', secondary: '#5dd6d6' },
+    orange: { primary: '#d89b65', secondary: '#e2bf5a' }
+  },
+  lightTheme: {
+    cyan:   { primary: '#536a78', secondary: '#6d6598' },
+    purple: { primary: '#6d6598', secondary: '#536a78' },
+    green:  { primary: '#4f785a', secondary: '#536a78' },
+    orange: { primary: '#8d7440', secondary: '#9b7a28' }
+  }
 }
 
 export const useThemeStore = defineStore('theme', () => {
@@ -47,6 +55,14 @@ export const useThemeStore = defineStore('theme', () => {
     fontSize.value = Math.min(24, Math.max(10, size))
   }
 
+  function syncAccent(currentTheme: ThemeMode, currentAccent: AccentColor) {
+    if (typeof document === 'undefined') return
+    const root = document.documentElement
+    const { primary, secondary } = ACCENT_MAP[currentTheme][currentAccent]
+    root.style.setProperty('--cyan', primary)
+    root.style.setProperty('--purple', secondary)
+  }
+
   function followSystem() {
     cleanupSystemListener?.()
 
@@ -68,17 +84,16 @@ export const useThemeStore = defineStore('theme', () => {
     cleanupSystemListener = null
   }
 
-  // 把 accent 写入 :root CSS 变量,让所有使用 var(--cyan) 的地方跟着切
+  // 把 accent 写入 :root CSS 变量,让所有使用 var(--cyan) 的地方跟着切。
+  // 浅色主题单独用低饱和钢蓝灰,避免白底下被旧的电青色覆盖。
   watch(accent, (next) => {
-    const root = document.documentElement
-    const { primary, secondary } = ACCENT_MAP[next]
-    root.style.setProperty('--cyan', primary)
-    root.style.setProperty('--purple', secondary)
+    syncAccent(theme.value, next)
   }, { immediate: true })
 
   // 主题切换时同步 class 到 <html>,让 teleport 出来的元素也能拿到 token
   watch(theme, (next) => {
     syncHtmlClass(next)
+    syncAccent(next, accent.value)
   }, { immediate: true })
 
   return {

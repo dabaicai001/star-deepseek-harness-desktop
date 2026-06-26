@@ -176,7 +176,7 @@ onBeforeUnmount(() => {
         }"
       >
         <div class="tt-header">
-          <v-icon size="11" color="cyan">
+          <v-icon size="11" color="var(--cyan)">
             {{ appStore.sidebarOpen ? 'mdi-arrow-collapse-left' : 'mdi-arrow-expand-right' }}
           </v-icon>
           <span class="tt-title">{{ tooltipTitle }}</span>
@@ -237,25 +237,25 @@ onBeforeUnmount(() => {
 /* 悬停态 */
 .sidebar-handle:hover {
   width: 6px;
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--hover-cyan-soft);
 }
 
 .sidebar-handle:hover .handle-indicator {
   height: 32px;
   background: var(--cyan);
-  box-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+  box-shadow: var(--glow-cyan);
 }
 
 /* 拖拽态 */
 .sidebar-handle.dragging {
   width: 6px;
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--hover-cyan);
 }
 
 .sidebar-handle.dragging .handle-indicator {
   height: 40px;
   background: var(--cyan);
-  box-shadow: 0 0 12px rgba(0, 240, 255, 0.6);
+  box-shadow: var(--glow-cyan);
 }
 
 /* 聚焦态(无障碍) */
@@ -296,8 +296,8 @@ onBeforeUnmount(() => {
   min-width: 180px;
   box-shadow:
     0 12px 32px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(0, 240, 255, 0.06),
-    0 0 24px rgba(0, 240, 255, 0.1);
+    0 0 0 1px var(--hover-cyan-soft),
+    var(--glow-soft);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   user-select: none;
@@ -329,7 +329,7 @@ onBeforeUnmount(() => {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   padding: 1px 5px;
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--kbd-bg);
   border: 1px solid var(--line-2);
   border-radius: 3px;
   color: var(--cyan);
