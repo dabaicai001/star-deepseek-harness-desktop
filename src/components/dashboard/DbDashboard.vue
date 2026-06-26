@@ -398,7 +398,7 @@ watch(() => [props.connId, props.dbType, props.connected], () => {
   font-size: 11px;
   color: var(--muted);
   font-family: 'JetBrains Mono', monospace;
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   padding: 1px 6px;
   border-radius: 3px;
 }
@@ -419,9 +419,9 @@ watch(() => [props.connId, props.dbType, props.connected], () => {
 }
 
 .refresh-btn:hover {
-  background: rgba(181, 107, 255, 0.08);
-  border-color: var(--purple);
-  color: var(--purple);
+  background: var(--hover-cyan);
+  border-color: var(--cyan);
+  color: var(--cyan);
 }
 
 .refresh-btn:disabled {
@@ -448,13 +448,13 @@ watch(() => [props.connId, props.dbType, props.connected], () => {
 
 .error-banner {
   color: var(--red);
-  background: rgba(255, 77, 109, 0.05);
-  border-color: rgba(255, 77, 109, 0.2);
+  background: var(--status-error-bg);
+  border-color: var(--status-error-border);
 }
 
 .hint-banner {
   color: var(--muted);
-  background: rgba(120, 160, 255, 0.04);
+  background: var(--hover-cyan-faint);
   border-color: var(--line-2);
 }
 

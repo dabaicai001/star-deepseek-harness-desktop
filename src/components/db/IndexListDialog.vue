@@ -439,7 +439,7 @@ tr.dropped td { opacity: 0.4; text-decoration: line-through; }
   background: var(--panel-solid-2);
   border: 1px solid var(--line-2);
   border-radius: 6px;
-  box-shadow: 0 16px 48px -12px rgba(0,0,0,.6), 0 0 0 1px rgba(0, 240, 255, 0.15);
+  box-shadow: var(--shadow), 0 0 0 1px var(--focus-cyan);
   padding: 4px;
 }
 .col-picker-hint {
@@ -461,6 +461,6 @@ tr.dropped td { opacity: 0.4; text-decoration: line-through; }
   padding: 4px 8px; border-radius: 4px; cursor: pointer;
   font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--text-2);
 }
-.col-picker-item.active { background: rgba(0, 240, 255, 0.1); color: var(--cyan); }
-.col-picker-item:hover { background: rgba(0, 240, 255, 0.06); }
+.col-picker-item.active { background: var(--active-cyan); color: var(--cyan); }
+.col-picker-item:hover { background: var(--hover-cyan-soft); }
 </style>

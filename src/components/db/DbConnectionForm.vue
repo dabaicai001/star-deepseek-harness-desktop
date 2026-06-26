@@ -503,15 +503,15 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 .db-type-btn:hover:not(.active) {
-  border-color: rgba(181, 107, 255, 0.3);
-  background: rgba(181, 107, 255, 0.06);
+  border-color: var(--focus-cyan);
+  background: var(--hover-cyan-soft);
 }
 
 .db-type-btn.active {
-  border-color: var(--purple);
-  background: rgba(181, 107, 255, 0.1);
-  color: var(--purple);
-  box-shadow: 0 0 12px rgba(181, 107, 255, 0.15);
+  border-color: var(--cyan);
+  background: var(--active-cyan);
+  color: var(--cyan);
+  box-shadow: var(--glow-soft);
 }
 
 .form-body {
@@ -575,7 +575,7 @@ function onKeydown(e: KeyboardEvent) {
 
 .input-suffix-btn:hover {
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
 }
 
 .checkbox-label {
@@ -604,20 +604,20 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 .test-status.testing {
-  background: rgba(0, 240, 255, 0.06);
-  border: 1px solid rgba(0, 240, 255, 0.15);
+  background: var(--hover-cyan-soft);
+  border: 1px solid var(--status-connecting-border);
   color: var(--cyan);
 }
 
 .test-status.success {
-  background: rgba(74, 222, 128, 0.08);
-  border: 1px solid rgba(74, 222, 128, 0.2);
+  background: var(--status-online-bg);
+  border: 1px solid var(--status-online-border);
   color: var(--green);
 }
 
 .test-status.fail {
-  background: rgba(255, 77, 109, 0.08);
-  border: 1px solid rgba(255, 77, 109, 0.2);
+  background: var(--status-error-bg);
+  border: 1px solid var(--status-error-border);
   color: var(--red);
 }
 
@@ -658,7 +658,7 @@ function onKeydown(e: KeyboardEvent) {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   padding: 2px 5px;
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--kbd-bg);
   border: 1px solid var(--line-2);
   border-radius: 3px;
   color: var(--cyan);
@@ -674,16 +674,16 @@ function onKeydown(e: KeyboardEvent) {
   font-weight: 500;
   font-family: inherit;
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.06);
-  border: 1px solid rgba(0, 240, 255, 0.2);
+  background: var(--hover-cyan-soft);
+  border: 1px solid var(--status-connecting-border);
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .cyber-btn-test:hover:not(:disabled) {
-  background: rgba(0, 240, 255, 0.12);
-  border-color: rgba(0, 240, 255, 0.35);
-  box-shadow: 0 0 12px rgba(0, 240, 255, 0.15);
+  background: var(--active-cyan);
+  border-color: var(--cyan);
+  box-shadow: var(--glow-soft);
 }
 
 .cyber-btn-test:disabled {
@@ -693,13 +693,13 @@ function onKeydown(e: KeyboardEvent) {
 
 .cyber-btn-test.testing {
   color: var(--cyan);
-  border-color: rgba(0, 240, 255, 0.3);
+  border-color: var(--status-connecting-border);
   animation: testPulse 1.5s infinite;
 }
 
 @keyframes testPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 240, 255, 0.2); }
-  50% { box-shadow: 0 0 0 6px rgba(0, 240, 255, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 var(--focus-cyan); }
+  50% { box-shadow: 0 0 0 6px transparent; }
 }
 
 :deep(.mdi-spin) {
@@ -734,12 +734,12 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 .auth-mode-btn.active {
-  border-color: var(--purple);
-  background: rgba(181, 107, 255, 0.1);
-  color: var(--purple);
+  border-color: var(--cyan);
+  background: var(--active-cyan);
+  color: var(--cyan);
 }
 
 .auth-mode-btn:hover:not(.active) {
-  border-color: rgba(181, 107, 255, 0.3);
+  border-color: var(--focus-cyan);
 }
 </style>

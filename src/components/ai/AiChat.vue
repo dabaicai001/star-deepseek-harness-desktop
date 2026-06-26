@@ -333,20 +333,20 @@ function shortResult(s: string, max = 240): string {
 }
 
 .msg.user .msg-avatar {
-  background: rgba(0, 240, 255, 0.1);
-  border-color: rgba(0, 240, 255, 0.3);
+  background: var(--icon-bg-cyan);
+  border-color: var(--status-connecting-border);
   color: var(--cyan);
 }
 
 .msg.assistant .msg-avatar {
-  background: rgba(181, 107, 255, 0.1);
-  border-color: rgba(181, 107, 255, 0.3);
+  background: var(--icon-bg-purple);
+  border-color: var(--line-2);
   color: var(--purple);
 }
 
 .msg.tool .msg-avatar {
-  background: rgba(120, 160, 255, 0.08);
-  border-color: rgba(120, 160, 255, 0.2);
+  background: var(--hover-cyan-faint);
+  border-color: var(--line-2);
   color: var(--muted);
 }
 
@@ -383,8 +383,8 @@ function shortResult(s: string, max = 240): string {
 }
 
 .msg.user .msg-content {
-  background: rgba(0, 240, 255, 0.06);
-  border-color: rgba(0, 240, 255, 0.2);
+  background: var(--hover-cyan-soft);
+  border-color: var(--line-2);
 }
 
 .msg-content.thinking {
@@ -416,12 +416,12 @@ function shortResult(s: string, max = 240): string {
 
 .tool-call.status-awaiting-confirm {
   border-left-color: var(--yellow);
-  background: rgba(255, 215, 64, 0.04);
+  background: var(--hover-cyan-faint);
 }
 
 .tool-call.status-error {
   border-left-color: var(--red);
-  background: rgba(255, 77, 109, 0.04);
+  background: var(--status-error-bg);
 }
 
 .tool-call.status-success {
@@ -469,7 +469,7 @@ function shortResult(s: string, max = 240): string {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   color: var(--red);
-  background: rgba(255, 77, 109, 0.06);
+  background: var(--status-error-bg);
   padding: 6px 8px;
   border-radius: 4px;
   white-space: pre-wrap;
@@ -498,20 +498,20 @@ function shortResult(s: string, max = 240): string {
 
 .confirm-btn.reject {
   color: var(--red) !important;
-  border-color: rgba(255, 77, 109, 0.3) !important;
+  border-color: var(--status-error-border) !important;
 }
 
 .confirm-btn.reject:hover {
-  background: rgba(255, 77, 109, 0.1) !important;
+  background: var(--danger-hover-bg) !important;
 }
 
 .confirm-btn.whitelist {
   color: var(--green) !important;
-  border-color: rgba(74, 222, 128, 0.3) !important;
+  border-color: var(--status-online-border) !important;
 }
 
 .confirm-btn.whitelist:hover {
-  background: rgba(74, 222, 128, 0.1) !important;
+  background: var(--status-online-bg) !important;
 }
 
 .whitelist-hint {
@@ -526,8 +526,8 @@ function shortResult(s: string, max = 240): string {
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  background: rgba(255, 77, 109, 0.08);
-  border: 1px solid rgba(255, 77, 109, 0.2);
+  background: var(--status-error-bg);
+  border: 1px solid var(--status-error-border);
   border-radius: 6px;
   font-size: 11px;
   color: var(--red);
@@ -540,7 +540,7 @@ function shortResult(s: string, max = 240): string {
   gap: 4px;
   padding: 3px 8px;
   background: transparent;
-  border: 1px solid rgba(255, 77, 109, 0.3);
+  border: 1px solid var(--status-error-border);
   border-radius: 4px;
   color: var(--red);
   font-size: 10px;
@@ -549,7 +549,7 @@ function shortResult(s: string, max = 240): string {
 }
 
 .retry-btn:hover {
-  background: rgba(255, 77, 109, 0.1);
+  background: var(--danger-hover-bg);
 }
 
 .chat-input {
@@ -579,7 +579,7 @@ function shortResult(s: string, max = 240): string {
 
 .chat-input textarea:focus {
   border-color: var(--cyan);
-  box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.1);
+  box-shadow: 0 0 0 2px var(--focus-cyan);
 }
 
 .send-btn {
@@ -593,11 +593,11 @@ function shortResult(s: string, max = 240): string {
   font-size: 12px !important;
   white-space: nowrap;
   color: var(--red) !important;
-  border-color: rgba(255, 77, 109, 0.3) !important;
+  border-color: var(--status-error-border) !important;
 }
 
 .stop-btn:hover {
-  background: rgba(255, 77, 109, 0.1) !important;
+  background: var(--danger-hover-bg) !important;
 }
 
 .chat-toolbar {
@@ -626,6 +626,6 @@ function shortResult(s: string, max = 240): string {
 .toolbar-btn:hover {
   border-color: var(--cyan);
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--hover-cyan-soft);
 }
 </style>

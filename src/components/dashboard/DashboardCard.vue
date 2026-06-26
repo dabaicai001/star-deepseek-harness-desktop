@@ -131,15 +131,15 @@ const trendColor = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--icon-bg-cyan);
   border-radius: 4px;
   color: var(--cyan);
 }
 
-.color-green .card-icon { background: rgba(0, 255, 136, 0.08); color: var(--green); }
-.color-yellow .card-icon { background: rgba(255, 215, 0, 0.08); color: var(--yellow); }
-.color-red .card-icon { background: rgba(255, 77, 109, 0.08); color: var(--red); }
-.color-purple .card-icon { background: rgba(181, 107, 255, 0.08); color: var(--purple); }
+.color-green .card-icon { background: var(--icon-bg-green); color: var(--green); }
+.color-yellow .card-icon { background: var(--db-clickhouse-bg); color: var(--yellow); }
+.color-red .card-icon { background: var(--status-error-bg); color: var(--red); }
+.color-purple .card-icon { background: var(--icon-bg-purple); color: var(--purple); }
 
 .card-title {
   flex: 1;

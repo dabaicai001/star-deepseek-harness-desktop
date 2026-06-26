@@ -482,7 +482,7 @@ tr.dropped td { opacity: 0.4; text-decoration: line-through; }
 .action-btn-sm:hover, .action-btn-sm.active { border-color: var(--cyan); color: var(--cyan); }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.row-selected td { background: rgba(0, 240, 255, 0.06); }
+.row-selected td { background: var(--hover-cyan-soft); }
 .td-idx.selected { color: var(--cyan); font-weight: 700; }
 </style>
 
@@ -496,7 +496,7 @@ tr.dropped td { opacity: 0.4; text-decoration: line-through; }
   background: var(--panel-solid-2);
   border: 1px solid var(--line-2);
   border-radius: 6px;
-  box-shadow: 0 16px 48px -12px rgba(0,0,0,.6), 0 0 0 1px rgba(0, 240, 255, 0.15);
+  box-shadow: var(--shadow), 0 0 0 1px var(--focus-cyan);
   padding: 4px;
 }
 .type-picker-hint {
@@ -512,7 +512,7 @@ tr.dropped td { opacity: 0.4; text-decoration: line-through; }
   padding: 4px 8px; border-radius: 4px; cursor: pointer;
   font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--text-2);
 }
-.type-picker-item.active { background: rgba(0, 240, 255, 0.1); color: var(--cyan); }
-.type-picker-item:hover { background: rgba(0, 240, 255, 0.06); }
+.type-picker-item.active { background: var(--active-cyan); color: var(--cyan); }
+.type-picker-item:hover { background: var(--hover-cyan-soft); }
 .type-picker-tag { margin-left: auto; opacity: 0.7; }
 </style>

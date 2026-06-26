@@ -754,7 +754,7 @@ defineExpose({ clearDirty, hasDirty })
   font-size: 14px;
   font-weight: 700;
   color: var(--cyan);
-  text-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+  text-shadow: 0 0 8px var(--focus-cyan);
 }
 
 .total-label {
@@ -805,7 +805,7 @@ defineExpose({ clearDirty, hasDirty })
   gap: 4px;
   color: var(--red);
   font-size: 11px;
-  background: rgba(255, 77, 109, 0.08);
+  background: var(--status-error-bg);
   padding: 2px 8px;
   border-radius: 4px;
 }
@@ -861,11 +861,11 @@ defineExpose({ clearDirty, hasDirty })
 }
 
 .col-header:hover {
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--hover-cyan-soft);
 }
 
 .col-header.sorted {
-  background: rgba(181, 107, 255, 0.06);
+  background: var(--hover-cyan-faint);
 }
 
 .col-header-inner {
@@ -926,7 +926,7 @@ defineExpose({ clearDirty, hasDirty })
 }
 .col-filter-btn:hover {
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--active-cyan);
 }
 
 /* ─── 列筛选 popover ─── */
@@ -944,7 +944,7 @@ defineExpose({ clearDirty, hasDirty })
   font-size: 11px;
   font-weight: 600;
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.06);
+  background: var(--hover-cyan-soft);
   border-bottom: 1px solid var(--line);
 }
 .col-filter-popover-body {
@@ -993,7 +993,7 @@ defineExpose({ clearDirty, hasDirty })
 }
 
 .cell:hover {
-  background: rgba(0, 240, 255, 0.04);
+  background: var(--hover-cyan-faint);
 }
 
 .cell.editable {
@@ -1001,20 +1001,20 @@ defineExpose({ clearDirty, hasDirty })
 }
 
 .cell.editable:hover {
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   outline: 1px dashed var(--cyan);
   outline-offset: -1px;
 }
 
 .cell.dirty {
   border-left: 2px solid var(--cyan);
-  background: rgba(0, 240, 255, 0.04);
+  background: var(--hover-cyan-faint);
 }
 
 .cell-edit-input {
   width: 100%;
   padding: 2px 4px;
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   border: 1px solid var(--cyan);
   border-radius: 2px;
   color: var(--text);
@@ -1139,9 +1139,9 @@ defineExpose({ clearDirty, hasDirty })
 }
 
 .save-btn.active {
-  border-color: rgba(0, 240, 255, 0.45);
+  border-color: var(--status-connecting-border);
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--active-cyan);
   box-shadow: 0 0 10px -6px var(--cyan);
 }
 
@@ -1155,8 +1155,8 @@ defineExpose({ clearDirty, hasDirty })
   cursor: not-allowed;
 }
 
-.row-selected td { background: rgba(0, 240, 255, 0.06); }
-.row-selected:hover td { background: rgba(0, 240, 255, 0.1); }
+.row-selected td { background: var(--hover-cyan-soft); }
+.row-selected:hover td { background: var(--active-cyan); }
 .col-index.selected { color: var(--cyan); font-weight: 700; }
 
 /* ─── 单元格编辑器弹窗 ─── */
@@ -1173,7 +1173,7 @@ defineExpose({ clearDirty, hasDirty })
   background: var(--panel-solid);
   border: 1px solid var(--line-2);
   border-radius: 12px;
-  box-shadow: var(--shadow), 0 0 24px rgba(0, 240, 255, 0.08);
+  box-shadow: var(--shadow), var(--glow-soft);
   width: 440px;
   max-width: calc(100vw - 32px);
   max-height: 420px;
@@ -1191,7 +1191,7 @@ defineExpose({ clearDirty, hasDirty })
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: rgba(0, 240, 255, 0.04);
+  background: var(--hover-cyan-faint);
   border-bottom: 1px solid var(--line);
 }
 .cell-popover-col {
@@ -1204,7 +1204,7 @@ defineExpose({ clearDirty, hasDirty })
   font-size: 10px;
   color: var(--muted);
   padding: 1px 6px;
-  background: rgba(120, 160, 255, 0.08);
+  background: var(--hover-cyan);
   border-radius: 4px;
 }
 .cell-popover-readonly {
@@ -1235,7 +1235,7 @@ defineExpose({ clearDirty, hasDirty })
 .cell-popover-copy:hover {
   border-color: var(--cyan);
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
 }
 .cell-popover-body {
   flex: 1;
@@ -1261,7 +1261,7 @@ defineExpose({ clearDirty, hasDirty })
 }
 .cell-popover-textarea:focus {
   border-color: var(--cyan);
-  box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.12);
+  box-shadow: 0 0 0 2px var(--focus-cyan);
 }
 .cell-popover-textarea[readonly] {
   color: var(--text-2);

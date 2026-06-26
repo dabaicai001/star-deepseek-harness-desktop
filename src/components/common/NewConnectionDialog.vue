@@ -355,7 +355,7 @@ onBeforeUnmount(cleanupExcelDropListener)
           <button class="action-btn" @click="goBackOrClose" style="margin-right: -4px;" :data-tooltip="canGoBackToType ? t('common.back') : t('common.close')">
             <v-icon size="14">{{ canGoBackToType ? 'mdi-arrow-left' : 'mdi-close' }}</v-icon>
           </button>
-          <div class="icon-box" style="background: rgba(181, 107, 255, 0.1); color: var(--purple); border-color: rgba(181, 107, 255, 0.2);">
+          <div class="icon-box db">
             <v-icon size="14">mdi-database</v-icon>
           </div>
           <h3>
@@ -390,7 +390,7 @@ onBeforeUnmount(cleanupExcelDropListener)
           <button class="action-btn" @click="goBackOrClose" style="margin-right: -4px;" :data-tooltip="canGoBackToType ? t('common.back') : t('common.close')">
             <v-icon size="14">{{ canGoBackToType ? 'mdi-arrow-left' : 'mdi-close' }}</v-icon>
           </button>
-          <div class="icon-box" style="background: rgba(74, 222, 128, 0.1); color: var(--green); border-color: rgba(74, 222, 128, 0.2);">
+          <div class="icon-box docker">
             <v-icon size="14">mdi-docker</v-icon>
           </div>
           <h3>
@@ -446,7 +446,7 @@ onBeforeUnmount(cleanupExcelDropListener)
           <button class="action-btn" @click="goBackOrClose" style="margin-right: -4px;" :data-tooltip="canGoBackToType ? t('common.back') : t('common.close')">
             <v-icon size="14">{{ canGoBackToType ? 'mdi-arrow-left' : 'mdi-close' }}</v-icon>
           </button>
-          <div class="icon-box" style="background: rgba(74, 222, 128, 0.1); color: var(--green); border-color: rgba(74, 222, 128, 0.2);">
+          <div class="icon-box excel">
             <v-icon size="14">mdi-file-excel-outline</v-icon>
           </div>
           <h3>
@@ -545,7 +545,7 @@ onBeforeUnmount(cleanupExcelDropListener)
   font-weight: 500;
   color: var(--muted);
   font-family: 'JetBrains Mono', monospace;
-  background: rgba(0, 240, 255, 0.08);
+  background: var(--hover-cyan);
   border: 1px solid var(--line-2);
   padding: 2px 8px;
   border-radius: 4px;
@@ -585,10 +585,10 @@ onBeforeUnmount(cleanupExcelDropListener)
 }
 
 .type-card:hover:not(.disabled) {
-  background: rgba(0, 240, 255, 0.04);
-  border-color: rgba(0, 240, 255, 0.3);
+  background: var(--hover-cyan-soft);
+  border-color: var(--status-connecting-border);
   transform: translateX(2px);
-  box-shadow: 0 4px 16px rgba(0, 240, 255, 0.12);
+  box-shadow: var(--glow-soft);
 }
 
 .type-card:hover:not(.disabled)::before {
@@ -611,27 +611,27 @@ onBeforeUnmount(cleanupExcelDropListener)
 }
 
 .type-icon.ssh {
-  background: rgba(0, 240, 255, 0.1);
+  background: var(--icon-bg-cyan);
   color: var(--cyan);
-  border: 1px solid rgba(0, 240, 255, 0.2);
+  border: 1px solid var(--status-connecting-border);
 }
 
 .type-icon.db {
-  background: rgba(181, 107, 255, 0.1);
-  color: var(--purple);
-  border: 1px solid rgba(181, 107, 255, 0.2);
+  background: var(--db-mysql-bg);
+  color: var(--db-mysql);
+  border: 1px solid var(--line-2);
 }
 
 .type-icon.docker {
-  background: rgba(74, 222, 128, 0.1);
+  background: var(--icon-bg-green);
   color: var(--green);
-  border: 1px solid rgba(74, 222, 128, 0.2);
+  border: 1px solid var(--status-online-border);
 }
 
 .type-icon.excel {
-  background: rgba(74, 222, 128, 0.1);
+  background: var(--icon-bg-green);
   color: var(--green);
-  border: 1px solid rgba(74, 222, 128, 0.2);
+  border: 1px solid var(--status-online-border);
 }
 
 .type-meta {

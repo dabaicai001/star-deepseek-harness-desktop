@@ -7,7 +7,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.11.6-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.11.7-cyan)]()
 [![Status](https://img.shields.io/badge/status-MVP%20active-brightgreen)]()
 
 </div>
@@ -31,13 +31,17 @@
 
 ## 当前版本
 
+### v0.11.7
+
+- 浅色主题主色改为低饱和钢蓝/灰绿,降低白底下青色高亮的刺激感
+- 数据库图标、类型徽章、DB 表单和数据表格选中态统一改为低饱和 token
+- 打包图标资源更新为新版 StarHub 几何轨道 Logo,用于 exe / 安装包 / 系统图标
+
 ### v0.11.6
 
 - 全局 UI 调整为低饱和 Cyber Command Center 风格,降低高亮和光晕的压迫感
 - 重新设计应用 Logo 与 `StarHub` 字标,增强顶部品牌识别
 - 统一资产打开交互:单击优先激活已有标签,右键和标签栏 `+` 保留多开能力
-- 恢复 Docker 资产在侧栏、搜索和命令面板中的直接打开入口
-- 修复 SSH 终端粘贴快捷键相关体验,延续 v0.11.5 的终端稳定性优化
 
 ---
 

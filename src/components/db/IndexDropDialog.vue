@@ -132,7 +132,7 @@ async function drop() {
 }
 .warning-box {
   display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px;
-  background: rgba(255, 77, 109, 0.08); border-radius: 6px; font-size: 11px; color: var(--red);
+  background: var(--status-error-bg); border-radius: 6px; font-size: 11px; color: var(--red);
 }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

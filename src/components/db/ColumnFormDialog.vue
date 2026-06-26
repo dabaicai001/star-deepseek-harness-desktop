@@ -211,5 +211,5 @@ async function submit() {
   padding: 4px 8px; font-size: 11px; font-family: 'JetBrains Mono', monospace;
   color: var(--text); cursor: pointer; border-radius: 2px;
 }
-.type-option:hover { background: rgba(0, 240, 255, 0.08); color: var(--cyan); }
+.type-option:hover { background: var(--hover-cyan); color: var(--cyan); }
 </style>

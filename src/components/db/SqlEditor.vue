@@ -316,16 +316,16 @@ defineExpose({ focus, refreshHistory, historyVersion })
   /* 左侧 2px accent 条 + 顶部 1px 高光,跟下面的"数据结果"区分开 */
   box-shadow:
     inset 2px 0 0 var(--cyan),
-    0 1px 0 rgba(0, 240, 255, 0.08);
+    0 1px 0 var(--hover-cyan);
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .sql-editor:focus-within {
-  border-color: rgba(0, 240, 255, 0.35);
+  border-color: var(--status-connecting-border);
   box-shadow:
     inset 2px 0 0 var(--cyan),
-    0 0 0 1px rgba(0, 240, 255, 0.18),
-    0 0 16px -4px rgba(0, 240, 255, 0.25);
+    0 0 0 1px var(--focus-cyan),
+    var(--glow-soft);
 }
 
 .sql-editor :deep(.cm-editor) {

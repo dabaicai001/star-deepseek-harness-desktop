@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bg" x1="8%" y1="6%" x2="92%" y2="96%">
+      <stop offset="0%" stop-color="#233f50"/>
+      <stop offset="52%" stop-color="#314a72"/>
+      <stop offset="100%" stop-color="#5a557e"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="84" height="84" rx="20" fill="url(#bg)"/>
+  <circle cx="50" cy="50" r="24" fill="none" stroke="#b7ccd8" stroke-opacity=".28" stroke-width="2.4"/>
+  <ellipse cx="50" cy="50" rx="32" ry="11" transform="rotate(-31 50 50)" fill="none" stroke="#c3d5e1" stroke-opacity=".38" stroke-width="2.5"/>
+  <ellipse cx="50" cy="50" rx="32" ry="11" transform="rotate(-31 50 50)" fill="none" stroke="#f3f8fc" stroke-opacity=".62" stroke-width="1" stroke-dasharray="20 96" stroke-linecap="round"/>
+  <text x="50" y="55" font-family="'Segoe UI Black', 'Arial Black', sans-serif" font-size="54" font-weight="900" text-anchor="middle" dominant-baseline="middle" fill="#edf5fb">S</text>
+</svg>

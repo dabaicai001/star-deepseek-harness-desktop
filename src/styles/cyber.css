@@ -50,6 +50,18 @@ html.v-theme--darkTheme {
   --green: #6fd28a;
   --yellow: #e2bf5a;
   --red: #ee6b7a;
+  --db-redis: #d86b62;
+  --db-redis-bg: rgba(216, 107, 98, 0.12);
+  --db-mysql: #9a87d5;
+  --db-mysql-bg: rgba(154, 135, 213, 0.12);
+  --db-postgresql: #6f94bd;
+  --db-postgresql-bg: rgba(111, 148, 189, 0.14);
+  --db-sqlite: #7faa68;
+  --db-sqlite-bg: rgba(127, 170, 104, 0.12);
+  --db-clickhouse: #c5aa62;
+  --db-clickhouse-bg: rgba(197, 170, 98, 0.13);
+  --db-elasticsearch: #8f7bd8;
+  --db-elasticsearch-bg: rgba(143, 123, 216, 0.12);
   --grad-primary: linear-gradient(135deg, #5dd6d6 0%, #8f7bd8 100%);
   --grad-accent: linear-gradient(135deg, #d46aa3 0%, #d89b65 100%);
   --grad-cool: linear-gradient(135deg, #5dd6d6 0%, #7297e8 100%);
@@ -133,17 +145,17 @@ html.v-theme--lightTheme {
   --term-red: #dc2626;
   --term-green: #16a34a;
   --term-yellow: #ca8a04;
-  --term-blue: #4f72c7;
-  --term-magenta: #7666c9;
-  --term-cyan: #0f8f99;
+  --term-blue: #55729f;
+  --term-magenta: #6d6598;
+  --term-cyan: #3f6f7a;
   --term-white: #f8fafc;
   --term-bright-black: #94a3b8;
   --term-bright-red: #ef4444;
   --term-bright-green: #22c55e;
   --term-bright-yellow: #eab308;
-  --term-bright-blue: #6366f1;
-  --term-bright-magenta: #8b5cf6;
-  --term-bright-cyan: #06b6d4;
+  --term-bright-blue: #667faf;
+  --term-bright-magenta: #7b70aa;
+  --term-bright-cyan: #527f8d;
   --term-bright-white: #ffffff;
   --panel: rgba(255, 255, 255, 0.86);
   --panel-2: rgba(255, 255, 255, 0.95);
@@ -154,46 +166,58 @@ html.v-theme--lightTheme {
   --text: #0f172a;
   --text-2: #475569;
   --muted: #94a3b8;
-  /* 主题色保持青色家族,但用更深的 hue,白底上对比度够 */
-  --cyan: #0f8f99;
-  --cyan-2: #12aab5;
-  --purple: #7666c9;
-  --pink: #c45b92;
-  --green: #16a34a;
-  --yellow: #ca8a04;
-  --red: #e11d48;
-  --grad-primary: linear-gradient(135deg, #0f8f99 0%, #7666c9 100%);
-  --grad-accent: linear-gradient(135deg, #c45b92 0%, #d27b45 100%);
-  --grad-cool: linear-gradient(135deg, #0f8f99 0%, #4f72c7 100%);
-  --grad-success: linear-gradient(135deg, #16a34a 0%, #0f8f99 100%);
-  --glow-cyan: 0 0 16px rgba(15, 143, 153, 0.22), 0 0 32px rgba(15, 143, 153, 0.08);
-  --glow-purple: 0 0 16px rgba(118, 102, 201, 0.22), 0 0 32px rgba(118, 102, 201, 0.08);
-  --glow-pink: 0 0 16px rgba(196, 91, 146, 0.22), 0 0 32px rgba(196, 91, 146, 0.08);
-  --glow-soft: 0 0 24px rgba(15, 143, 153, 0.07);
+  /* 浅色主题用钢蓝/灰绿做主色,避免白底下青色过亮 */
+  --cyan: #3f6f7a;
+  --cyan-2: #527f8d;
+  --purple: #6d6598;
+  --pink: #aa617f;
+  --green: #3f7f54;
+  --yellow: #9b7a28;
+  --red: #be4d5f;
+  --db-redis: #b45c55;
+  --db-redis-bg: rgba(180, 92, 85, 0.09);
+  --db-mysql: #6d6598;
+  --db-mysql-bg: rgba(109, 101, 152, 0.09);
+  --db-postgresql: #4d6f92;
+  --db-postgresql-bg: rgba(77, 111, 146, 0.1);
+  --db-sqlite: #5f7f55;
+  --db-sqlite-bg: rgba(95, 127, 85, 0.09);
+  --db-clickhouse: #8d7440;
+  --db-clickhouse-bg: rgba(141, 116, 64, 0.1);
+  --db-elasticsearch: #74678e;
+  --db-elasticsearch-bg: rgba(116, 103, 142, 0.09);
+  --grad-primary: linear-gradient(135deg, #3f6f7a 0%, #6d6598 100%);
+  --grad-accent: linear-gradient(135deg, #aa617f 0%, #b0744d 100%);
+  --grad-cool: linear-gradient(135deg, #3f6f7a 0%, #55729f 100%);
+  --grad-success: linear-gradient(135deg, #3f7f54 0%, #3f6f7a 100%);
+  --glow-cyan: 0 0 14px rgba(63, 111, 122, 0.16), 0 0 28px rgba(63, 111, 122, 0.055);
+  --glow-purple: 0 0 14px rgba(109, 101, 152, 0.16), 0 0 28px rgba(109, 101, 152, 0.055);
+  --glow-pink: 0 0 14px rgba(170, 97, 127, 0.16), 0 0 28px rgba(170, 97, 127, 0.055);
+  --glow-soft: 0 0 18px rgba(63, 111, 122, 0.045);
   --shadow: 0 4px 24px -8px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.05);
   --shadow-soft: 0 2px 8px rgba(15, 23, 42, 0.08);
 
   /* 白底叠色需要更淡、更"低饱" */
-  --hover-cyan: rgba(15, 143, 153, 0.08);
-  --hover-cyan-soft: rgba(15, 143, 153, 0.05);
-  --hover-cyan-faint: rgba(15, 143, 153, 0.035);
-  --active-cyan: rgba(15, 143, 153, 0.1);
-  --focus-cyan: rgba(15, 143, 153, 0.12);
-  --grid-line: rgba(15, 143, 153, 0.035);
-  --icon-bg-cyan: rgba(15, 143, 153, 0.1);
-  --icon-bg-purple: rgba(118, 102, 201, 0.1);
-  --icon-bg-green: rgba(22, 163, 74, 0.1);
-  --status-online-bg: rgba(22, 163, 74, 0.1);
-  --status-online-border: rgba(22, 163, 74, 0.3);
-  --status-connecting-bg: rgba(15, 143, 153, 0.1);
-  --status-connecting-border: rgba(15, 143, 153, 0.28);
+  --hover-cyan: rgba(63, 111, 122, 0.06);
+  --hover-cyan-soft: rgba(63, 111, 122, 0.04);
+  --hover-cyan-faint: rgba(63, 111, 122, 0.028);
+  --active-cyan: rgba(63, 111, 122, 0.08);
+  --focus-cyan: rgba(63, 111, 122, 0.1);
+  --grid-line: rgba(63, 111, 122, 0.026);
+  --icon-bg-cyan: rgba(63, 111, 122, 0.075);
+  --icon-bg-purple: rgba(109, 101, 152, 0.075);
+  --icon-bg-green: rgba(63, 127, 84, 0.075);
+  --status-online-bg: rgba(63, 127, 84, 0.085);
+  --status-online-border: rgba(63, 127, 84, 0.24);
+  --status-connecting-bg: rgba(63, 111, 122, 0.085);
+  --status-connecting-border: rgba(63, 111, 122, 0.22);
   --status-offline-bg: rgba(148, 163, 184, 0.15);
   --status-offline-border: rgba(148, 163, 184, 0.3);
-  --status-error-bg: rgba(225, 29, 72, 0.1);
-  --status-error-border: rgba(225, 29, 72, 0.3);
-  --close-hover-bg: rgba(225, 29, 72, 0.12);
-  --danger-hover-bg: rgba(225, 29, 72, 0.08);
-  --kbd-bg: rgba(15, 143, 153, 0.08);
+  --status-error-bg: rgba(190, 77, 95, 0.085);
+  --status-error-border: rgba(190, 77, 95, 0.24);
+  --close-hover-bg: rgba(190, 77, 95, 0.1);
+  --danger-hover-bg: rgba(190, 77, 95, 0.065);
+  --kbd-bg: rgba(63, 111, 122, 0.065);
 
   /* 顶栏/菜单栏/状态栏玻璃背景(白底用近白半透明) */
   --chrome-glass-strong: rgba(255, 255, 255, 0.85);
@@ -1221,6 +1245,19 @@ html.v-theme--lightTheme {
   align-items: center;
   justify-content: center;
   color: var(--cyan);
+}
+
+.modal-header .icon-box.db {
+  background: var(--db-mysql-bg);
+  border-color: var(--line-2);
+  color: var(--db-mysql);
+}
+
+.modal-header .icon-box.docker,
+.modal-header .icon-box.excel {
+  background: var(--icon-bg-green);
+  border-color: var(--status-online-border);
+  color: var(--green);
 }
 
 /* ============================================

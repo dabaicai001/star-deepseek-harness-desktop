@@ -889,12 +889,13 @@ function isGroupExpanded(id: string) {
 .tree-item .v-icon.db { color: var(--purple); }
 .tree-item .v-icon.docker { color: var(--green); }
 .tree-item .v-icon.excel { color: var(--green); }
-/* DB 子类型区分:Redis 走 Redis 官方红,其他 DB 走紫色 */
-.tree-item .v-icon.db-redis { color: #dc382d; }
-.tree-item .v-icon.db-mysql { color: var(--purple); }
-.tree-item .v-icon.db-postgresql { color: #336791; }
-.tree-item .v-icon.db-sqlite { color: #6cae50; }
-.tree-item .v-icon.db-elasticsearch { color: var(--purple); }
+/* DB 子类型用低饱和识别色,白底下避免过亮 */
+.tree-item .v-icon.db-redis { color: var(--db-redis); }
+.tree-item .v-icon.db-mysql { color: var(--db-mysql); }
+.tree-item .v-icon.db-postgresql { color: var(--db-postgresql); }
+.tree-item .v-icon.db-sqlite { color: var(--db-sqlite); }
+.tree-item .v-icon.db-clickhouse { color: var(--db-clickhouse); }
+.tree-item .v-icon.db-elasticsearch { color: var(--db-elasticsearch); }
 
 /* DB 图标下方挂一个等宽小徽章,扫一眼就知道是 MYSQL / REDIS / PG / SQLITE */
 .db-badge-wrap {
@@ -918,11 +919,12 @@ function isGroupExpanded(id: string) {
   line-height: 1.2;
   white-space: nowrap;
 }
-.db-type-label.db-redis    { color: #ff6b6b; background: rgba(220, 56, 45, 0.12); }
-.db-type-label.db-mysql    { color: var(--purple); background: rgba(181, 107, 255, 0.12); }
-.db-type-label.db-postgresql { color: #6ba3d6; background: rgba(51, 103, 145, 0.18); }
-.db-type-label.db-sqlite   { color: #8fc870; background: rgba(108, 174, 80, 0.12); }
-.db-type-label.db-elasticsearch { color: var(--purple); background: rgba(181, 107, 255, 0.12); }
+.db-type-label.db-redis { color: var(--db-redis); background: var(--db-redis-bg); }
+.db-type-label.db-mysql { color: var(--db-mysql); background: var(--db-mysql-bg); }
+.db-type-label.db-postgresql { color: var(--db-postgresql); background: var(--db-postgresql-bg); }
+.db-type-label.db-sqlite { color: var(--db-sqlite); background: var(--db-sqlite-bg); }
+.db-type-label.db-clickhouse { color: var(--db-clickhouse); background: var(--db-clickhouse-bg); }
+.db-type-label.db-elasticsearch { color: var(--db-elasticsearch); background: var(--db-elasticsearch-bg); }
 
 .tree-empty {
   padding: 4px 28px;
