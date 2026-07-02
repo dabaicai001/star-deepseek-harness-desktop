@@ -347,6 +347,7 @@ func (a *MySQLAdapter) executeSelectArgs(sqlStr string, args []interface{}, star
 	for i, name := range columns {
 		colInfos[i] = ColumnInfo{Name: name}
 	}
+	colTypes, _ := rows.ColumnTypes()
 
 	var resultRows [][]interface{}
 	for rows.Next() {
@@ -354,10 +355,17 @@ func (a *MySQLAdapter) executeSelectArgs(sqlStr string, args []interface{}, star
 		if err != nil {
 			return &QueryResult{Error: err.Error(), DurationMs: time.Since(start).Milliseconds()}, nil
 		}
-		// 转换 []byte 为 string
+		// 转换驱动原生值为前端可编辑、MySQL 可写回的展示值。
 		for i, v := range values {
+			dbType := ""
+			if i < len(colTypes) && colTypes[i] != nil {
+				dbType = colTypes[i].DatabaseTypeName()
+				colInfos[i].Type = dbType
+			}
 			if b, ok := v.([]byte); ok {
 				values[i] = string(b)
+			} else if t, ok := v.(time.Time); ok {
+				values[i] = formatMySQLTimeValue(t, dbType)
 			}
 		}
 		resultRows = append(resultRows, values)
@@ -564,16 +572,110 @@ func (a *MySQLAdapter) RenameTable(database, oldName, newName string) error {
 	return err
 }
 
+func (a *MySQLAdapter) columnDataTypeMap(database, table string) (map[string]string, error) {
+	cols, err := a.ListColumns(database, table)
+	if err != nil {
+		return nil, fmt.Errorf("list columns: %w", err)
+	}
+	types := make(map[string]string, len(cols))
+	for _, col := range cols {
+		types[strings.ToLower(col.Name)] = strings.ToLower(col.DataType)
+	}
+	return types, nil
+}
+
+func formatMySQLTimeValue(value time.Time, dbType string) string {
+	switch strings.ToLower(dbType) {
+	case "date":
+		return value.Format("2006-01-02")
+	case "time":
+		return formatMySQLFraction(value, "15:04:05")
+	default:
+		return formatMySQLFraction(value, "2006-01-02 15:04:05")
+	}
+}
+
+func formatMySQLFraction(value time.Time, layout string) string {
+	formatted := value.Format(layout)
+	microsecond := value.Nanosecond() / 1000
+	if microsecond == 0 {
+		return formatted
+	}
+	fraction := strings.TrimRight(fmt.Sprintf("%06d", microsecond), "0")
+	return formatted + "." + fraction
+}
+
+func normalizeMySQLInputValue(value interface{}, dataType string) interface{} {
+	if value == nil {
+		return nil
+	}
+	if t, ok := value.(time.Time); ok {
+		return formatMySQLTimeValue(t, dataType)
+	}
+	s, ok := value.(string)
+	if !ok {
+		return value
+	}
+	if strings.EqualFold(s, "NULL") {
+		return nil
+	}
+	if !isMySQLTemporalType(dataType) {
+		return value
+	}
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return value
+	}
+	if parsed, ok := parseMySQLTemporalString(trimmed); ok {
+		return formatMySQLTimeValue(parsed, dataType)
+	}
+	if dataType == "datetime" || dataType == "timestamp" {
+		return strings.Replace(trimmed, "T", " ", 1)
+	}
+	return value
+}
+
+func isMySQLTemporalType(dataType string) bool {
+	switch strings.ToLower(dataType) {
+	case "date", "datetime", "timestamp", "time":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseMySQLTemporalString(value string) (time.Time, bool) {
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+		"15:04:05.999999999",
+		"15:04:05",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.ParseInLocation(layout, value, time.UTC); err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // UpdateRows 批量更新行
 func (a *MySQLAdapter) UpdateRows(database, table string, sets map[string]interface{}, where string) (int64, error) {
 	if database == "" {
 		database = a.conn.Database
 	}
+	columnTypes, err := a.columnDataTypeMap(database, table)
+	if err != nil {
+		return 0, err
+	}
 	setParts := make([]string, 0, len(sets))
 	args := make([]interface{}, 0, len(sets))
 	for col, val := range sets {
 		setParts = append(setParts, fmt.Sprintf("%s = ?", quoteIdentifier(col)))
-		args = append(args, val)
+		args = append(args, normalizeMySQLInputValue(val, columnTypes[strings.ToLower(col)]))
 	}
 
 	query := fmt.Sprintf("UPDATE %s SET %s", qualifiedIdentifier(database, table), strings.Join(setParts, ", "))
@@ -609,13 +711,17 @@ func (a *MySQLAdapter) InsertRow(database, table string, values map[string]inter
 	if database == "" {
 		database = a.conn.Database
 	}
+	columnTypes, err := a.columnDataTypeMap(database, table)
+	if err != nil {
+		return 0, err
+	}
 	cols := make([]string, 0, len(values))
 	placeholders := make([]string, 0, len(values))
 	args := make([]interface{}, 0, len(values))
 	for col, val := range values {
 		cols = append(cols, quoteIdentifier(col))
 		placeholders = append(placeholders, "?")
-		args = append(args, val)
+		args = append(args, normalizeMySQLInputValue(val, columnTypes[strings.ToLower(col)]))
 	}
 
 	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", qualifiedIdentifier(database, table),
