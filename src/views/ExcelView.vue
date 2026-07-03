@@ -5,7 +5,7 @@ import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useExcelStore, type CellEdit } from '@/stores/excel'
 import { useNotifyStore } from '@/stores/notify'
-import ExcelGrid from '@/components/excel/ExcelGrid.vue'
+import UniverGrid from '@/components/excel/UniverGrid.vue'
 import ExcelToolbar from '@/components/excel/ExcelToolbar.vue'
 import ExcelSheetBar from '@/components/excel/ExcelSheetBar.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
@@ -870,15 +870,8 @@ watch(() => store.selectedCellValue, (value) => {
             </button>
           </div>
 
-          <ExcelGrid
+          <UniverGrid
             @cell-change="onCellChange"
-            @insert-row="handleAddRow"
-            @delete-row="handleDeleteRow"
-            @insert-col="handleAddCol"
-            @delete-col="handleDeleteCol"
-            @sort="(col, descending) => sortRows(descending, col)"
-            @undo="undo"
-            @redo="redo"
           />
 
           <ExcelSheetBar

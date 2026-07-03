@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.11.7(浅色主题与打包图标优化) |
+| 当前版本 | v0.12.0(Excel 封装 Univer Sheets) |
 
 ---
 
@@ -85,7 +85,10 @@ starhub/
 │   ├── go.mod
 │   └── go.sum
 │
-└── scripts/                  # 构建脚本(CI / 发布)
+├── scripts/                  # 构建脚本(CI / 发布)
+└── vendor/                   # 上游源码引用(git submodule)
+    ├── univer/               # DreamNum Univer v0.25.1
+    └── univer-presets/       # DreamNum Univer Presets v0.25.1
 ```
 
 ---
@@ -108,6 +111,7 @@ starhub/
 | 差异比对 | monaco-diff / diff-match-patch | |
 | 虚拟列表 | vue-virtual-scroller | 百万行表格 |
 | 图表 | ECharts 5+ | 监控趋势图 |
+| Excel | Univer Sheets 0.25.1 | `src/lib/univer.ts` 本地封装入口,上游源码固定在 `vendor/` |
 | 国际化 | vue-i18n | 中/英 |
 | 验证 | VeeValidate + Zod | 表单 + IPC |
 | Markdown | marked + DOMPurify | AI 回复渲染 |
@@ -597,4 +601,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-06-26 (v0.11.7)*
+*最后更新: 2026-07-03 (v0.12.0)*

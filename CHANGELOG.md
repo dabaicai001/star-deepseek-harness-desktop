@@ -15,6 +15,17 @@
 
 ---
 
+## [0.12.0] - 2026-07-03
+
+### 新增
+- ✨ feat(excel): Excel 工作区封装 Univer Sheets,接入开源 preset 能力集(公式、格式、筛选、排序、查找替换、数据验证、条件格式、超链接、批注、表格、绘图/附件等),保留 StarHub 自有删除重复项与按选中列去重到新 Sheet 功能
+- ✨ feat(excel): 固定 Univer 与 Univer Presets 上游源码到 `vendor/`,并新增 `src/lib/univer.ts` 作为 StarHub 本地封装入口,便于后续按上游源码调整适配逻辑
+
+### 改进
+- 🎨 style(excel): 用 Univer 原生表格画布替换自研网格渲染层,保留 StarHub 工具栏、SheetBar、AI 助手与状态栏作为外层工作台
+
+---
+
 ## [0.11.7] - 2026-06-26
 
 ### 改进

@@ -7,7 +7,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.11.7-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.12.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-MVP%20active-brightgreen)]()
 
 </div>
@@ -24,12 +24,19 @@
 - **SSH 终端**:xterm.js 渲染,支持跳板机、快捷命令、重连、多标签独立会话
 - **SFTP 文件传输**:三栏浏览、路径面包屑、隐藏文件、新建文件夹、重命名、删除
 - **Docker 面板**:容器 / 镜像列表、日志查看,为远程 Docker 管理做准备
-- **Excel / CSV 工具**:本地文件打开、表格读取、编辑与保存能力
+- **Excel / CSV 工具**:封装 Univer Sheets,支持工作簿编辑、公式/格式/筛选/排序/查找替换等表格能力,并保留 StarHub 去重工具
 - **AI 助手**:OpenAI 兼容协议,支持 Function Calling、安全确认和每标签独立聊天历史
 
 ---
 
 ## 当前版本
+
+### v0.12.0
+
+- Excel 工作区封装 Univer Sheets,接入公式、格式、筛选、排序、查找替换、数据验证、条件格式、超链接、批注、表格等开源 preset 能力
+- 保留 StarHub 自有删除重复项与按选中列去重到新 Sheet 功能
+- 继续保留外层工具栏、SheetBar、AI 助手与状态栏作为 StarHub 工作台体验
+- 将 Univer 与 Univer Presets 上游源码固定到 `vendor/` 作为本地参考,StarHub 通过 `src/lib/univer.ts` 统一封装适配入口
 
 ### v0.11.7
 
