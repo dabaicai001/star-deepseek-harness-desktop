@@ -280,11 +280,9 @@ function handleEdit({ id, dto }: { id: string; dto: CreateAssetDto }) {
 // ====== 删除 confirm ======
 const showDeleteConfirm = ref(false)
 const deleteTarget = ref<Asset | null>(null)
-const deleteTyped = ref('')
 
 function openDeleteConfirm(asset: Asset) {
   deleteTarget.value = asset
-  deleteTyped.value = ''
   showDeleteConfirm.value = true
 }
 
@@ -676,8 +674,6 @@ function isGroupExpanded(id: string) {
     :message="t('asset.confirmDelete', { name: deleteTarget?.name })"
     :confirm-text="t('asset.delete')"
     :cancel-text="t('common.cancel')"
-    :require-typing="deleteTarget?.name || ''"
-    v-model:typed="deleteTyped"
     danger
     @confirm="handleDelete"
   />
