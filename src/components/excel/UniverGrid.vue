@@ -96,10 +96,27 @@ function buildCellData(): NonNullable<IWorksheetData['cellData']> {
   return cellData
 }
 
+// 渲染时给数据下方预留 20 行 buffer(用于直接键入新数据);小于 30 时保底 30 行。
+// store.rowData 仍保留文件原始的全部行,save 时回写文件不会丢数据。
+const VISIBLE_BUFFER_ROWS = 20
+const VISIBLE_MIN_ROWS = 30
+
+function lastNonEmptyDataIndex(): number {
+  const data = store.rowData
+  for (let i = data.length - 1; i >= 0; i--) {
+    const row = data[i]
+    if (row && row.some(cell => String(cell ?? '').trim() !== '')) return i
+  }
+  return -1
+}
+
 function buildWorkbookData(): IWorkbookData {
   const sheetId = 'starhub-active-sheet'
   const columnCount = Math.max(store.columns.length, 10)
-  const rowCount = Math.max(store.rowData.length + 1, 40)
+  const lastDataIndex = lastNonEmptyDataIndex()
+  // cellData 还要写 1 行表头,所以可见高度 = (lastDataIndex + 1) + 1 + buffer
+  const lastDataRowNumber = lastDataIndex + 2 // 1-indexed,且包含表头行
+  const rowCount = Math.max(lastDataRowNumber + VISIBLE_BUFFER_ROWS, VISIBLE_MIN_ROWS)
   return {
     id: `starhub-${store.connId || 'workbook'}`,
     name: store.filePath || store.activeSheet || 'StarHub Workbook',

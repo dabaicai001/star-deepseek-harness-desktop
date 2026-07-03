@@ -23,6 +23,7 @@
 
 ### 改进
 - 🎨 style(excel): 用 Univer 原生表格画布替换自研网格渲染层,保留 StarHub 工具栏、SheetBar、AI 助手与状态栏作为外层工作台
+- 🐛 fix(excel): Univer 网格按「数据最后一行 + 20 行 buffer」渲染 sheet,数据下方不再留出与文件总行数等高的全空白画布,大表格下视觉留白显著减少;store 仍保留文件全部原始行,保存时不会丢数据
 
 ---
 
