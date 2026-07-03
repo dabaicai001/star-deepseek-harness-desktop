@@ -236,6 +236,10 @@ onBeforeUnmount(cleanupExcelDropListener)
           </button>
         </div>
         <div class="modal-body">
+          <div class="type-intro">
+            <span>选择要接入的工作负载</span>
+            <small>创建后会出现在左侧资产树,可双击打开为标签页。</small>
+          </div>
           <div class="type-grid">
             <div
               class="type-card"
@@ -552,20 +556,46 @@ onBeforeUnmount(cleanupExcelDropListener)
   margin-left: 4px;
 }
 
-.type-grid {
+.type-intro {
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-input);
   display: flex;
   flex-direction: column;
+  gap: 4px;
+}
+
+.type-intro span {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.type-intro small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
 .type-card {
+  min-width: 0;
+  min-height: 116px;
   background: var(--bg-input);
   border: 1px solid var(--line-2);
-  border-radius: 10px;
-  padding: 14px 16px;
-  display: flex;
+  border-radius: 12px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
@@ -584,10 +614,12 @@ onBeforeUnmount(cleanupExcelDropListener)
   transition: opacity 0.25s;
 }
 
-.type-card:hover:not(.disabled) {
+.type-card:hover:not(.disabled),
+.type-card:focus-visible {
+  outline: none;
   background: var(--hover-cyan-soft);
   border-color: var(--status-connecting-border);
-  transform: translateX(2px);
+  transform: translateY(-2px);
   box-shadow: var(--glow-soft);
 }
 
@@ -709,5 +741,15 @@ onBeforeUnmount(cleanupExcelDropListener)
   border-color: var(--cyan);
   background: var(--hover-cyan-faint);
   box-shadow: var(--glow-cyan);
+}
+
+@media (max-width: 640px) {
+  .type-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .file-pick-row {
+    flex-direction: column;
+  }
 }
 </style>

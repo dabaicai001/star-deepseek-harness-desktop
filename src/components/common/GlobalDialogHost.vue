@@ -198,10 +198,10 @@ function onKeyEnter() {
 .global-dialog {
   background: var(--panel-solid);
   border: 1px solid var(--line-2);
-  border-radius: 14px;
+  border-radius: 16px;
   overflow: hidden;
   position: relative;
-  box-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.7);
+  box-shadow: var(--shadow);
 }
 
 .global-dialog::before {
@@ -213,24 +213,20 @@ function onKeyEnter() {
   opacity: 0.6;
 }
 
-.icon-box.danger {
-  background: rgba(255, 77, 109, 0.1);
-  border-color: rgba(255, 77, 109, 0.3);
-  color: var(--red);
-}
+.icon-box.danger,
 .icon-box.alert-error {
-  background: rgba(255, 77, 109, 0.1);
-  border-color: rgba(255, 77, 109, 0.3);
+  background: var(--status-error-bg);
+  border-color: var(--status-error-border);
   color: var(--red);
 }
 .icon-box.alert-warning {
-  background: rgba(255, 209, 102, 0.1);
-  border-color: rgba(255, 209, 102, 0.3);
+  background: rgba(226, 191, 90, 0.12);
+  border-color: rgba(226, 191, 90, 0.28);
   color: var(--yellow);
 }
 .icon-box.alert-success {
-  background: rgba(0, 230, 118, 0.1);
-  border-color: rgba(0, 230, 118, 0.3);
+  background: var(--status-online-bg);
+  border-color: var(--status-online-border);
   color: var(--green);
 }
 
@@ -266,12 +262,12 @@ function onKeyEnter() {
 }
 
 .cyber-btn.danger {
-  background: linear-gradient(135deg, #ff4d6d 0%, #ff3d9a 100%);
+  background: linear-gradient(135deg, var(--red) 0%, var(--pink) 100%);
   color: white;
-  box-shadow: 0 4px 16px rgba(255, 77, 109, 0.3);
+  box-shadow: var(--glow-pink);
 }
 .cyber-btn.danger:hover:not([disabled]) {
-  box-shadow: 0 6px 24px rgba(255, 77, 109, 0.5);
+  box-shadow: var(--glow-pink);
 }
 .cyber-btn[disabled] {
   opacity: 0.4;

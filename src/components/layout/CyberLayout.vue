@@ -858,10 +858,61 @@ const onboardingSteps = computed(() => [
   }
 ])
 
-function maturityLabel(type: 'ssh' | 'db' | 'docker' | 'excel') {
+type WelcomeModuleType = 'ssh' | 'db' | 'docker' | 'excel'
+
+const welcomeModules: Array<{
+  type: WelcomeModuleType
+  icon: string
+  iconClass: string
+  title: string
+  desc: string
+  detail: string
+}> = [
+  {
+    type: 'ssh',
+    icon: 'mdi-console',
+    iconClass: 'ssh',
+    title: 'SSH 终端',
+    desc: '连接服务器、执行命令、配合 SFTP 管理文件',
+    detail: '终端 / SFTP / 批量操作'
+  },
+  {
+    type: 'db',
+    icon: 'mdi-database',
+    iconClass: 'db',
+    title: '数据库工作台',
+    desc: '统一管理 MySQL、PostgreSQL、SQLite、Redis 等连接',
+    detail: 'SQL 编辑 / 数据浏览 / Redis 工具'
+  },
+  {
+    type: 'docker',
+    icon: 'mdi-docker',
+    iconClass: 'docker',
+    title: 'Docker 面板',
+    desc: '查看容器、镜像和运行状态,后续支持远程 Docker',
+    detail: '容器 / 镜像 / 资源概览'
+  },
+  {
+    type: 'excel',
+    icon: 'mdi-file-excel-outline',
+    iconClass: 'excel',
+    title: 'Excel 工具',
+    desc: '处理表格、导入导出数据库结果和运维清单',
+    detail: '编辑 / 导入 / 导出'
+  }
+]
+
+function maturityLabel(type: WelcomeModuleType) {
   if (type === 'excel') return 'Stable'
   if (type === 'db') return 'P0 Core'
   return 'Beta'
+}
+
+function moduleAssetCount(type: WelcomeModuleType) {
+  if (type === 'ssh') return sshAssets.value.length
+  if (type === 'db') return dbAssets.value.length
+  if (type === 'docker') return dockerAssets.value.length
+  return excelAssets.value.length
 }
 
 /** 紧凑时间标签(用于 quick-start-bar) */
@@ -1151,24 +1202,45 @@ vueWatch(() => appStore.tabs.length, () => {
       <!-- Workspace -->
       <div class="workspace">
         <div v-if="appStore.tabs.length === 0" class="workspace-welcome" @contextmenu="openWorkspaceContextMenu">
-          <div class="welcome-content">
-            <div class="welcome-icon">
-              <v-icon size="64" color="cyan">mdi-console</v-icon>
-            </div>
-            <h2 class="text-gradient">{{ t('home.welcome') }}</h2>
-            <p>{{ t('home.subtitle') }}</p>
-            <p class="welcome-slogan">{{ t('home.slogan') }}</p>
-
-            <div class="quick-actions">
-              <button class="cyber-btn" @click="openNewConnection">
-                <v-icon size="16">mdi-plus</v-icon>
-                {{ t('asset.create') }}
-              </button>
-            </div>
-
-            <div class="section-divider">
-              <span class="section-label">CAPABILITIES</span>
-              <span class="section-hint">选择一个模块开始</span>
+          <div class="welcome-content cyber-panel">
+            <div class="welcome-hero">
+              <div class="welcome-copy">
+                <div class="welcome-kicker">
+                  <span class="status-dot online"></span>
+                  Local Command Center
+                </div>
+                <h2 class="text-gradient">{{ t('home.welcome') }}</h2>
+                <p class="welcome-subtitle">把 SSH、数据库、Docker、Excel 和 AI 助手收进同一个工作台。</p>
+                <p class="welcome-slogan">{{ t('home.slogan') }}</p>
+                <div class="quick-actions">
+                  <button class="cyber-btn" @click="openNewConnection">
+                    <v-icon size="16">mdi-plus</v-icon>
+                    {{ t('asset.create') }}
+                  </button>
+                  <button class="cyber-btn-secondary" @click="openCommandPalette">
+                    <v-icon size="16">mdi-magnify-expand</v-icon>
+                    命令面板 {{ modKey }}P
+                  </button>
+                </div>
+              </div>
+              <div class="welcome-metrics" aria-label="Workspace assets summary">
+                <div class="metric-card">
+                  <strong>{{ sshAssets.length }}</strong>
+                  <span>SSH</span>
+                </div>
+                <div class="metric-card">
+                  <strong>{{ dbAssets.length }}</strong>
+                  <span>DB</span>
+                </div>
+                <div class="metric-card">
+                  <strong>{{ dockerAssets.length }}</strong>
+                  <span>Docker</span>
+                </div>
+                <div class="metric-card">
+                  <strong>{{ excelAssets.length }}</strong>
+                  <span>Excel</span>
+                </div>
+              </div>
             </div>
 
             <div class="onboarding-panel">
@@ -1189,55 +1261,32 @@ vueWatch(() => appStore.tabs.length, () => {
               </button>
             </div>
 
+            <div class="section-divider">
+              <span class="section-label">CAPABILITIES</span>
+              <span class="section-hint">选择一个模块开始</span>
+            </div>
+
             <div class="feature-grid">
-              <div
+              <button
+                v-for="module in welcomeModules"
+                :key="module.type"
                 class="feature-card"
-                @click="onWelcomeQuickAction('ssh')"
-                @contextmenu="openWorkspaceContextMenu($event, 'ssh')"
+                @click="onWelcomeQuickAction(module.type)"
+                @contextmenu="openWorkspaceContextMenu($event, module.type)"
               >
                 <div class="fc-head">
-                  <v-icon size="22" color="cyan">mdi-console</v-icon>
-                  <span class="fc-tag">{{ maturityLabel('ssh') }}</span>
+                  <span class="fc-icon" :class="module.iconClass">
+                    <v-icon size="22">{{ module.icon }}</v-icon>
+                  </span>
+                  <span class="fc-tag">{{ maturityLabel(module.type) }}</span>
                 </div>
-                <h3>{{ t('ssh.title') }}</h3>
-                <p>{{ t('ssh.terminal') }} · SFTP</p>
-              </div>
-              <div
-                class="feature-card"
-                @click="onWelcomeQuickAction('db')"
-                @contextmenu="openWorkspaceContextMenu($event, 'db')"
-              >
-                <div class="fc-head">
-                  <v-icon size="22" color="purple">mdi-database</v-icon>
-                  <span class="fc-tag">{{ maturityLabel('db') }}</span>
+                <h3>{{ module.title }}</h3>
+                <p>{{ module.desc }}</p>
+                <div class="fc-foot">
+                  <span>{{ module.detail }}</span>
+                  <span>{{ moduleAssetCount(module.type) }} 个资产</span>
                 </div>
-                <h3>{{ t('db.title') }}</h3>
-                <p>MySQL · PG · Redis · ...</p>
-              </div>
-              <div
-                class="feature-card"
-                @click="onWelcomeQuickAction('docker')"
-                @contextmenu="openWorkspaceContextMenu($event, 'docker')"
-              >
-                <div class="fc-head">
-                  <v-icon size="22" color="green">mdi-docker</v-icon>
-                  <span class="fc-tag">{{ maturityLabel('docker') }}</span>
-                </div>
-                <h3>{{ t('docker.title') }}</h3>
-                <p>{{ t('docker.containers') }} / {{ t('docker.images') }}</p>
-              </div>
-              <div
-                class="feature-card"
-                @click="onWelcomeQuickAction('excel')"
-                @contextmenu="openWorkspaceContextMenu($event, 'excel')"
-              >
-                <div class="fc-head">
-                  <v-icon size="22" color="green">mdi-file-excel-outline</v-icon>
-                  <span class="fc-tag">{{ maturityLabel('excel') }}</span>
-                </div>
-                <h3>Excel</h3>
-                <p>编辑 · 导入 · 导出</p>
-              </div>
+              </button>
             </div>
 
             <div v-if="recentAssets.length > 0" class="recent-work-panel">
@@ -2098,6 +2147,8 @@ kbd {
 .main-content {
   grid-area: content;
   display: flex;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   z-index: 1;
 }
@@ -2198,41 +2249,65 @@ kbd {
 
 .workspace-welcome {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 48px;
+  overflow: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(12px, 2vw, 32px);
 }
 
 .welcome-content {
-  text-align: center;
-  max-width: 600px;
+  width: 100%;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: clamp(16px, 2vw, 32px);
+  display: flex;
+  flex-direction: column;
 }
 
-.welcome-icon {
-  margin-bottom: 24px;
-  animation: float 3s ease-in-out infinite;
+.welcome-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(240px, 0.7fr);
+  gap: clamp(16px, 2vw, 32px);
+  align-items: stretch;
+}
+
+.welcome-copy {
+  min-width: 0;
+}
+
+.welcome-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--text-2);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .welcome-content h2 {
-  font-size: 32px;
-  font-weight: 700;
-  margin-bottom: 12px;
+  font-size: clamp(26px, 3.4vw, 52px);
+  line-height: 1.08;
+  font-weight: 800;
+  margin: 0 0 12px;
 }
 
-.welcome-content p {
+.welcome-subtitle {
+  max-width: 72ch;
   color: var(--text-2);
-  font-size: 16px;
-  margin-bottom: 32px;
+  font-size: clamp(13px, 1.1vw, 17px);
+  line-height: 1.7;
+  margin: 0 0 10px;
 }
 
 .welcome-slogan {
-  margin-top: -16px;
-  margin-bottom: 32px;
+  margin: 0 0 24px;
   font-family: 'Orbitron', 'JetBrains Mono', monospace;
   font-style: italic;
   font-weight: 500;
-  font-size: 13px;
+  font-size: 12px;
   letter-spacing: 0.15em;
   color: var(--cyan);
   opacity: 0.75;
@@ -2241,24 +2316,52 @@ kbd {
 
 .quick-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
-  justify-content: center;
-  margin-bottom: 48px;
+  margin-bottom: 0;
+}
+
+.welcome-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.metric-card {
+  min-width: 0;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-input);
+}
+
+.metric-card strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--cyan);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.metric-card span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .feature-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
-  max-width: 760px;
-  margin: 0 auto;
+  margin: 0;
 }
 
 .onboarding-panel {
-  max-width: 760px;
-  margin: 0 auto 16px;
+  margin: 24px 0 16px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 8px;
 }
 
@@ -2325,23 +2428,41 @@ kbd {
   text-overflow: ellipsis;
 }
 
+@media (max-width: 1080px) {
+  .welcome-hero {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
-  .feature-grid {
-    grid-template-columns: repeat(2, 1fr);
+  .workspace-welcome {
+    padding: 16px;
   }
 
+  .welcome-content {
+    padding: 16px;
+  }
+
+  .welcome-metrics,
+  .feature-grid,
   .onboarding-panel {
     grid-template-columns: 1fr;
   }
 }
 
 .feature-card {
+  min-width: 0;
+  min-height: 154px;
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--line-2);
-  border-radius: 10px;
-  padding: 14px 16px;
+  border-radius: 12px;
+  padding: 16px;
   text-align: left;
+  color: inherit;
   cursor: pointer;
+  font-family: inherit;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
@@ -2373,7 +2494,29 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+}
+
+.fc-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--icon-bg-cyan);
+  color: var(--cyan);
+}
+
+.fc-icon.db {
+  background: var(--icon-bg-purple);
+  color: var(--purple);
+}
+
+.fc-icon.docker,
+.fc-icon.excel {
+  background: var(--icon-bg-green);
+  color: var(--green);
 }
 
 .feature-card .fc-tag {
@@ -2388,22 +2531,41 @@ kbd {
 }
 
 .feature-card h3 {
-  font-size: 13px;
-  font-weight: 600;
-  margin: 0 0 2px 0;
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 8px;
   color: var(--text);
 }
 
 .feature-card p {
-  font-size: 11px;
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+  margin: 0 0 14px;
+}
+
+.fc-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   color: var(--muted);
-  margin: 0;
   font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.fc-foot span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recent-work-panel {
-  max-width: 760px;
-  margin: 18px auto 0;
+  margin: 18px 0 0;
   text-align: left;
 }
 
@@ -2425,7 +2587,7 @@ kbd {
 
 .recent-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 8px;
 }
 
@@ -2489,8 +2651,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 32px auto 16px;
-  max-width: 760px;
+  margin: 24px 0 16px;
   font-size: 10px;
   color: var(--muted);
   text-transform: uppercase;
@@ -2561,6 +2722,44 @@ kbd {
   margin-left: auto;
   display: flex;
   gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .logo-wordmark,
+  .quick-start-bar .qs-hint,
+  .statusbar .sb-item:nth-child(n + 4) {
+    display: none;
+  }
+
+  .top-search {
+    max-width: none;
+  }
+
+  .top-action-group {
+    gap: 4px;
+  }
+}
+
+@media (max-width: 640px) {
+  .titlebar {
+    padding: 0 8px;
+    gap: 8px;
+  }
+
+  .top-search kbd,
+  .user-menu,
+  .statusbar .sb-item:nth-child(n + 3) {
+    display: none;
+  }
+
+  .sidebar:not(.collapsed) {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    box-shadow: var(--shadow);
+  }
 }
 
 @keyframes pulse {
