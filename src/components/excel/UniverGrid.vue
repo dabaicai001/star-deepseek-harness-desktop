@@ -48,7 +48,9 @@ const emit = defineEmits<{
 let univerInstance: Univer | null = null
 let univerAPIInstance: FUniver | null = null
 let commandDisposable: { dispose: () => void } | null = null
+let resizeObserver: ResizeObserver | null = null
 let syncingFromStore = false
+let updatingStoreFromUniver = false
 let syncTimer: number | null = null
 
 const sheetVersion = computed(() => [
@@ -128,6 +130,8 @@ function buildWorkbookData(): IWorkbookData {
 function disposeWorkbook() {
   commandDisposable?.dispose()
   commandDisposable = null
+  resizeObserver?.disconnect()
+  resizeObserver = null
   univerAPIInstance?.dispose()
   univerInstance?.dispose()
   univerAPIInstance = null
@@ -160,6 +164,11 @@ async function renderWorkbook() {
     presets: [
       UniverSheetsCorePreset({
         container: containerRef.value,
+        toolbar: true,
+        header: true,
+        contextMenu: true,
+        footer: false,
+        statusBarStatistic: false,
       }),
       UniverSheetsDrawingPreset(),
       UniverSheetsFilterPreset(),
@@ -176,8 +185,13 @@ async function renderWorkbook() {
   univerInstance = univer
   univerAPIInstance = univerAPI
   univerAPI.createWorkbook(buildWorkbookData())
+  resizeObserver = new ResizeObserver(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+  resizeObserver.observe(containerRef.value)
   commandDisposable = univerAPI.onCommandExecuted((command) => {
     if (syncingFromStore) return
+    window.setTimeout(syncSelectionFromUniver, 0)
     if (command.id.includes('selection')) {
       syncSelectionFromUniver()
       return
@@ -238,6 +252,7 @@ function syncDataFromUniver() {
   if (!sheet) return
   const { columns, rows } = extractGridFromSnapshot(sheet)
   const edits: CellEdit[] = []
+  updatingStoreFromUniver = true
 
   rows.forEach((row, rowIndex) => {
     row.forEach((value, col) => {
@@ -255,6 +270,9 @@ function syncDataFromUniver() {
     store.columns = columns
     store.setDirty(true)
   }
+  window.setTimeout(() => {
+    updatingStoreFromUniver = false
+  }, 0)
 }
 
 function syncSelectionFromUniver() {
@@ -294,6 +312,7 @@ onBeforeUnmount(() => {
 })
 
 watch(sheetVersion, () => {
+  if (updatingStoreFromUniver) return
   void renderWorkbook()
 })
 </script>

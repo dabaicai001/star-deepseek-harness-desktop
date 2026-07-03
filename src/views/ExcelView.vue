@@ -6,7 +6,6 @@ import { useAppStore } from '@/stores/app'
 import { useExcelStore, type CellEdit } from '@/stores/excel'
 import { useNotifyStore } from '@/stores/notify'
 import UniverGrid from '@/components/excel/UniverGrid.vue'
-import ExcelToolbar from '@/components/excel/ExcelToolbar.vue'
 import ExcelSheetBar from '@/components/excel/ExcelSheetBar.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
@@ -48,7 +47,6 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const showFilter = ref(false)
 const filterInput = ref('')
-const formulaInput = ref('')
 const rightActiveTab = ref('ai')
 const rightPanelTabs = [{ key: 'ai', label: 'AI助手', icon: 'mdi-robot-outline' }]
 const showDropOverlay = ref(false)
@@ -486,13 +484,6 @@ async function redo() {
   if (edits.length > 0) await onCellChange(edits)
 }
 
-async function applyFormulaInput() {
-  const sel = store.selectedCell
-  if (!sel) return
-  const edits = store.commitDisplayCellEdits([{ row: sel.row, col: sel.col, value: formulaInput.value }])
-  if (edits.length > 0) await onCellChange(edits)
-}
-
 function toggleFilter() {
   showFilter.value = !showFilter.value
   if (!showFilter.value) {
@@ -754,9 +745,6 @@ watch(
   }
 )
 
-watch(() => store.selectedCellValue, (value) => {
-  formulaInput.value = value
-}, { immediate: true })
 </script>
 
 <template>
@@ -793,6 +781,31 @@ watch(() => store.selectedCellValue, (value) => {
         <div class="tb-right">
           <span class="cyber-badge">{{ store.activeSheet || 'Sheet' }}</span>
           <button
+            class="excel-quick-btn primary"
+            title="按选中列去重到新 Sheet"
+            @click="removeDuplicatesToSheet()"
+          >
+            <v-icon size="15">mdi-table-multiple</v-icon>
+            <span>选中列去重到新 Sheet</span>
+          </button>
+          <button
+            class="excel-quick-btn"
+            title="为当前表写入筛选"
+            @click="autoFilter"
+          >
+            <v-icon size="15">mdi-filter-check-outline</v-icon>
+            <span>筛选</span>
+          </button>
+          <button
+            class="excel-quick-btn"
+            :disabled="!store.dirty"
+            title="保存 (Ctrl+S)"
+            @click="saveFile"
+          >
+            <v-icon size="15">mdi-content-save</v-icon>
+            <span>保存</span>
+          </button>
+          <button
             class="excel-native-btn"
             :title="`用系统 ${isCsvFile ? '表格程序' : 'Office Excel'} 打开`"
             @click="openInNativeExcel"
@@ -817,41 +830,6 @@ watch(() => store.selectedCellValue, (value) => {
           </button>
         </div>
       </div>
-
-      <div class="formula-bar">
-        <div class="name-box">{{ store.activeCellLabel || 'A2' }}</div>
-        <div class="formula-icon">
-          <v-icon size="13">mdi-function-variant</v-icon>
-        </div>
-        <input
-          v-model="formulaInput"
-          class="formula-input"
-          :placeholder="isCsvFile ? '输入 CSV 单元格文本' : '输入值或公式,例如 =SUM(B2:C2)'"
-          @keydown.enter.prevent="applyFormulaInput"
-          @blur="applyFormulaInput"
-        />
-      </div>
-
-      <ExcelToolbar
-        @save="saveFile"
-        @add-row="handleAddRow"
-        @delete-row="handleDeleteRow"
-        @add-col="handleAddCol"
-        @delete-col="handleDeleteCol"
-        @sort-asc="sortRows(false)"
-        @sort-desc="sortRows(true)"
-        @filter="toggleFilter"
-        @auto-filter="autoFilter"
-        @remove-duplicates="removeDuplicates"
-        @remove-duplicates-to-sheet="removeDuplicatesToSheet"
-        @freeze-header="setFreeze(1, 0)"
-        @freeze-first-col="setFreeze(0, 1)"
-        @freeze-both="setFreeze(1, 1)"
-        @unfreeze="setFreeze(0, 0)"
-        @replace-all="replaceAll"
-        @undo="undo"
-        @redo="redo"
-      />
 
       <div class="excel-workspace">
         <div class="excel-main">
@@ -1057,55 +1035,34 @@ watch(() => store.selectedCellValue, (value) => {
   background: var(--excel-title-hover);
 }
 
-.formula-bar {
-  display: grid;
-  grid-template-columns: 84px 28px minmax(0, 1fr);
+.excel-quick-btn {
+  height: 26px;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  background: var(--excel-ribbon-bg);
-  border-bottom: 1px solid var(--excel-ribbon-line);
-}
-
-.name-box {
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--excel-ribbon-line);
-  border-radius: 0;
-  background: var(--excel-ribbon-tab-bg);
-  color: var(--excel-text);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--excel-title-border);
+  border-radius: 4px;
+  background: var(--excel-green-dark);
+  color: var(--excel-title-fg);
+  font-size: 11px;
   font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
-.formula-icon {
-  height: 24px;
-  border: 1px solid var(--excel-ribbon-line);
-  border-radius: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--excel-green);
+.excel-quick-btn.primary {
+  background: var(--excel-title-hover);
 }
 
-.formula-input {
-  height: 24px;
-  border: 1px solid var(--excel-ribbon-line);
-  border-radius: 0;
-  outline: none;
-  background: var(--excel-ribbon-tab-bg);
-  color: var(--excel-text);
-  padding: 0 8px;
-  font-size: 12px;
-  font-family: 'JetBrains Mono', monospace;
+.excel-quick-btn:hover:not(:disabled) {
+  background: var(--excel-green-soft);
 }
 
-.formula-input:focus {
-  border-color: var(--excel-selection);
-  box-shadow: inset 0 0 0 1px var(--excel-selection);
+.excel-quick-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .filter-bar {
