@@ -35,6 +35,41 @@ function timeAgo(ts: number) {
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`
   return `${Math.floor(diff / 86_400_000)}d`
 }
+
+function formatFullTime(ts: number) {
+  return new Date(ts).toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  })
+}
+
+function statusText(color: string) {
+  if (color === 'success') return '成功'
+  if (color === 'error') return '失败'
+  if (color === 'warning') return '警告'
+  return '信息'
+}
+
+function detailsFor(item: {
+  title: string
+  message: string
+  color: string
+  createdAt: number
+  details?: string[]
+}) {
+  if (item.details?.length) return item.details
+  return [
+    `操作: ${item.title}`,
+    `状态: ${statusText(item.color)}`,
+    `时间: ${formatFullTime(item.createdAt)}`,
+    `内容: ${item.message}`
+  ]
+}
 </script>
 
 <template>
@@ -69,6 +104,11 @@ function timeAgo(ts: number) {
               <span class="notify-time">{{ timeAgo(item.createdAt) }}</span>
             </div>
             <div class="notify-message">{{ item.message }}</div>
+            <div class="notify-details" aria-label="操作详情">
+              <div v-for="detail in detailsFor(item)" :key="detail" class="notify-detail-row">
+                {{ detail }}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -187,6 +227,27 @@ function timeAgo(ts: number) {
   color: var(--text-2);
   line-height: 1.45;
   word-break: break-word;
+}
+
+.notify-details {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-input);
+}
+
+.notify-detail-row {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.notify-detail-row + .notify-detail-row {
+  margin-top: 2px;
 }
 
 .notify-empty {
