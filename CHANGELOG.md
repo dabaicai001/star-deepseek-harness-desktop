@@ -17,6 +17,11 @@
 
 ## [0.12.2] - 2026-07-07
 
+### 修复
+- 🐛 fix(db): 修复 `src-tauri/src/db/mod.rs` 中 `key_id` 被 `sqlx::query().bind(key_id)` move 后又在 `keyring::store(key_id, ...)` 复用导致的 `E0382 use of moved value` 编译错误,改为 `&key_id` 借用
+- 🐛 fix(ssh): 去掉 `src-tauri/src/ssh/session.rs` resize 函数中多余的 `let mut ch`,消除 `unused_mut` 警告
+- 🐛 fix(build): 修复 `vue-tsc --noEmit` 类型检查阻断打包的两处错误 —— `KeyBrowser.vue` 补 `onBeforeUnmount` import;`AiChat.vue` 用 `idx` 替换未定义的 `msgKey` 作为 v-for key
+
 ### 改进
 - 🔧 chore(release): 同步 Tauri / Rust / package.json 三处版本号到 0.12.2,修复此前 `Cargo.toml` 与 `tauri.conf.json` 仍停留在 0.12.0、与 `package.json`(0.12.1)不一致的问题
 - 📝 docs(agents): 在 AGENTS.md 第 6.5 节明确「每次更新代码必须同步更新版本号」的硬约束,并将发布检查清单扩展为覆盖 `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` / `CHANGELOG.md` / `AGENTS.md` 五处

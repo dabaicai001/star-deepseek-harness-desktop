@@ -320,7 +320,7 @@ impl SshSession {
     pub async fn resize(&self, cols: u32, rows: u32) -> Result<(), String> {
         // Use take/put-back so we don't hold the lock during window_change await.
         // If the reader has temporarily taken the channel out, just skip this resize.
-        let mut ch = {
+        let ch = {
             let mut guard = self.shell_channel.lock().await;
             match guard.take() {
                 Some(ch) => ch,

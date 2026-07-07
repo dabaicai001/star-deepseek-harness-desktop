@@ -69,7 +69,7 @@ async fn migrate_asset_credentials(pool: &SqlitePool) -> Result<(), String> {
         let config_json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
         sqlx::query("UPDATE assets SET config_json = ?, key_id = ? WHERE id = ?")
             .bind(config_json)
-            .bind(key_id)
+            .bind(&key_id)
             .bind(id)
             .execute(pool)
             .await
