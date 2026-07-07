@@ -116,7 +116,10 @@ function buildWorkbookData(): IWorkbookData {
   const lastDataIndex = lastNonEmptyDataIndex()
   // cellData 还要写 1 行表头,所以可见高度 = (lastDataIndex + 1) + 1 + buffer
   const lastDataRowNumber = lastDataIndex + 2 // 1-indexed,且包含表头行
-  const rowCount = Math.max(lastDataRowNumber + VISIBLE_BUFFER_ROWS, VISIBLE_MIN_ROWS)
+  // 容器实际高度可容纳的行数(每行 22px),加 5 行 buffer 让底部不出现纯空白
+  const containerHeight = containerRef.value?.clientHeight ?? 0
+  const containerRows = containerHeight > 0 ? Math.ceil(containerHeight / 22) + 5 : 0
+  const rowCount = Math.max(lastDataRowNumber + VISIBLE_BUFFER_ROWS, VISIBLE_MIN_ROWS, containerRows)
   return {
     id: `starhub-${store.connId || 'workbook'}`,
     name: store.filePath || store.activeSheet || 'StarHub Workbook',
