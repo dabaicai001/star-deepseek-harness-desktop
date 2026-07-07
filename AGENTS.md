@@ -248,6 +248,13 @@ starhub/
 | `.glow-cyan` / `.glow-purple` / `.glow-pink` | 静态光晕 |
 | `.text-gradient` | 文字主渐变 |
 | `.grid-bg::before` | 栅格背景(cyan 1px,40px 间距,径向遮罩) |
+| `.cyber-route-*` | 路由切换过渡(fade + slide + scale + blur,弹性入场,配合 `<Transition mode="out-in">`) |
+| `.cyber-tab-*` | Tab 增删过渡(slide-fade + scale,配合 `<TransitionGroup>`,leave 时 absolute + FLIP move) |
+| `.cyber-list-*` | 通用列表过渡(资产树 / 搜索结果,slide-fade + scale,配合 `<TransitionGroup>`) |
+| `.cyber-dialog-*` | 弹窗弹性入场(scale 0.9→1 + fade + 上浮,配合 `v-dialog transition="cyber-dialog"`) |
+| `.cyber-stagger` / `.cyber-stagger.run` | 子元素交错入场(配合子元素 `--i` CSS 变量,`run` 触发) |
+| `.cyber-count-pop` | 数字 pop 动画(计数变化时弹跳放大 + 青色高亮) |
+| `.cyber-skeleton` | 骨架屏 shimmer(loading 占位,`::after` 光带扫过) |
 
 #### 4.4.6 状态色语义
 
@@ -630,4 +637,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-07 (v0.12.3)*
+*最后更新: 2026-07-07 (v0.13.0)*

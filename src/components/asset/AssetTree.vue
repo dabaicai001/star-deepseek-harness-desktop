@@ -480,7 +480,7 @@ function isGroupExpanded(id: string) {
         >
           <v-icon size="13">mdi-star-outline</v-icon>
         </button>
-      </div>
+      </TransitionGroup>
       <div v-if="sshAssets.length === 0" class="tree-empty">
         <v-icon size="11">mdi-circle-small</v-icon>
         <span>暂无 SSH 主机</span>
@@ -552,6 +552,7 @@ function isGroupExpanded(id: string) {
         <span class="count">{{ dockerAssets.length }}</span>
       </div>
       <div v-show="isGroupExpanded('docker')" class="tree-group-body">
+      <TransitionGroup name="cyber-list">
       <div
         v-for="asset in dockerAssets"
         :key="asset.id"
@@ -597,6 +598,7 @@ function isGroupExpanded(id: string) {
         <span class="count">{{ excelAssets.length }}</span>
       </div>
       <div v-show="isGroupExpanded('excel')" class="tree-group-body">
+      <TransitionGroup name="cyber-list">
       <div
         v-for="asset in excelAssets"
         :key="asset.id"
@@ -618,7 +620,7 @@ function isGroupExpanded(id: string) {
         >
           <v-icon size="13">mdi-star-outline</v-icon>
         </button>
-      </div>
+      </TransitionGroup>
       <div v-if="excelAssets.length === 0" class="tree-empty">
         <v-icon size="11">mdi-circle-small</v-icon>
         <span>暂无 Excel 文件</span>

@@ -1202,7 +1202,7 @@ vueWatch(() => appStore.tabs.length, () => {
       <!-- Workspace -->
       <div class="workspace">
         <div v-if="appStore.tabs.length === 0" class="workspace-welcome" @contextmenu="openWorkspaceContextMenu">
-          <div class="welcome-content cyber-panel">
+          <div ref="welcomeRef" class="welcome-content cyber-panel cyber-stagger" :class="{ run: welcomeStaggerRun }">
             <div class="welcome-hero">
               <div class="welcome-copy">
                 <div class="welcome-kicker">
@@ -1313,9 +1313,11 @@ vueWatch(() => appStore.tabs.length, () => {
         
         <div v-else class="workspace-content">
           <router-view v-slot="{ Component }">
-            <keep-alive>
-              <component :is="Component" :key="route.fullPath" />
-            </keep-alive>
+            <transition name="cyber-route" mode="out-in">
+              <keep-alive>
+                <component :is="Component" :key="route.fullPath" />
+              </keep-alive>
+            </transition>
           </router-view>
         </div>
       </div>
@@ -1364,7 +1366,7 @@ vueWatch(() => appStore.tabs.length, () => {
       v-model="showSettings"
       max-width="960"
       scrollable
-      transition="dialog-bottom-transition"
+      transition="cyber-dialog"
     >
       <div class="settings-dialog cyber-panel">
         <div class="settings-dialog-header">
@@ -2608,12 +2610,15 @@ kbd {
   cursor: pointer;
   text-align: left;
   font-family: inherit;
+  transition: all 0.25s var(--ease-back);
 }
 
 .recent-card:hover {
   color: var(--cyan);
   border-color: var(--focus-cyan);
   background: var(--hover-cyan-faint);
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: 0 12px 32px var(--glow-soft);
 }
 
 .recent-card .v-icon { grid-area: icon; color: var(--cyan); }

@@ -15,6 +15,19 @@
 
 ---
 
+## [0.13.0] - 2026-07-07
+
+### 新增
+- ✨ feat(motion): 新增 Motion System 交互动画基础设施,在 `cyber.css` 追加弹性曲线 token(`--ease-back` / `--ease-spring` / `--ease-back-strong`)与时长 token(`--dur-fast` / `--dur-mid` / `--dur-slow`);提供路由切换(`.cyber-route-*`)、Tab 增删(`.cyber-tab-*`)、列表过渡(`.cyber-list-*`)、弹窗入场(`.cyber-dialog-*`)、欢迎页 stagger(`.cyber-stagger`)、数字 pop(`.cyber-count-pop`)、骨架屏(`.cyber-skeleton`)、按钮 press 微缩等组件类;尊重 `prefers-reduced-motion` 无障碍降级
+
+### 改进
+- 🎨 style(layout): `CyberLayout` 路由切换包 `<Transition name="cyber-route" mode="out-in">`(fade + slide + scale + blur 弹性入场),Tab 栏包 `<TransitionGroup name="cyber-tab">`(滑入滑出 + FLIP 移动),欢迎页元素按 `--i` 交错入场,状态栏资产计数变化时 `.cyber-count-pop` 弹跳反馈
+- 🎨 style(asset): `AssetTree` 收藏 / SSH / DB / Docker / Excel 五个分组的 v-for 包 `<TransitionGroup name="cyber-list">`,资产增删有滑入滑出过渡
+- 🎨 style(dialog): `GlobalDialogHost` 与设置弹窗的 `v-dialog` transition 从 `dialog-bottom-transition` 换成 `cyber-dialog`(弹性 scale + fade + 上浮)
+- 🎨 style(hover): `.cyber-card` / `.connection-card` / `.feature-card` / `.recent-card` hover 上抬加深(translateY -4px) + 轻微放大(scale 1.008) + 光晕增强
+
+---
+
 ## [0.12.3] - 2026-07-07
 
 ### 改进

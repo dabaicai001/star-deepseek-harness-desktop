@@ -1659,3 +1659,224 @@ html.v-theme--lightTheme {
   border-radius: 3px;
   color: var(--cyan);
 }
+
+/* ============================================
+ * Motion System — 交互动画基础设施
+ * 风格:科技感弹性(spring overshoot),300-450ms
+ * 用法:Vue <Transition name="cyber-xxx"> / <TransitionGroup name="cyber-xxx">
+ * 全部走 token,不硬编码;尊重 prefers-reduced-motion
+ * ============================================ */
+
+/* 动效曲线 token(在 :root 双主题块里都生效,这里单独声明不覆盖颜色) */
+:root {
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);              /* 柔和减速,无 overshoot */
+  --ease-back: cubic-bezier(0.34, 1.56, 0.64, 1);            /* 轻微 overshoot,入场首选 */
+  --ease-back-strong: cubic-bezier(0.68, -0.55, 0.27, 1.55); /* 明显 overshoot,强调 */
+  --dur-fast: 0.2s;
+  --dur-mid: 0.3s;
+  --dur-slow: 0.45s;
+}
+
+/* ===== 路由切换:fade + slide + scale + blur(弹性入场) ===== */
+.cyber-route-enter-active {
+  transition:
+    opacity var(--dur-mid) var(--ease-spring),
+    transform var(--dur-slow) var(--ease-back),
+    filter var(--dur-mid) var(--ease-spring);
+}
+.cyber-route-leave-active {
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard),
+    filter var(--dur-fast) var(--ease-standard);
+}
+.cyber-route-enter-from {
+  opacity: 0;
+  transform: translateY(14px) scale(0.985);
+  filter: blur(3px);
+}
+.cyber-route-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.99);
+  filter: blur(2px);
+}
+
+/* ===== Tab 增删:slide-fade + scale ===== */
+.cyber-tab-enter-active {
+  transition:
+    opacity var(--dur-mid) var(--ease-back),
+    transform var(--dur-mid) var(--ease-back);
+}
+.cyber-tab-leave-active {
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard);
+  position: absolute;
+  z-index: 0;
+}
+.cyber-tab-move {
+  transition: transform var(--dur-mid) var(--ease-spring);
+}
+.cyber-tab-enter-from {
+  opacity: 0;
+  transform: translateX(-20px) scale(0.8);
+}
+.cyber-tab-leave-to {
+  opacity: 0;
+  transform: scale(0.8) translateY(-4px);
+}
+
+/* ===== 通用列表过渡(资产树 / 搜索结果 / 卡片网格) ===== */
+.cyber-list-enter-active {
+  transition:
+    opacity var(--dur-mid) var(--ease-back),
+    transform var(--dur-mid) var(--ease-back);
+}
+.cyber-list-leave-active {
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard);
+  position: absolute;
+}
+.cyber-list-move {
+  transition: transform var(--dur-mid) var(--ease-spring);
+}
+.cyber-list-enter-from {
+  opacity: 0;
+  transform: translateX(-14px) scale(0.92);
+}
+.cyber-list-leave-to {
+  opacity: 0;
+  transform: translateX(10px) scale(0.92);
+}
+
+/* ===== Dialog 弹窗:弹性 scale + fade + 轻微上浮 ===== */
+.cyber-dialog-enter-active {
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    transform var(--dur-slow) var(--ease-back);
+}
+.cyber-dialog-leave-active {
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard);
+}
+.cyber-dialog-enter-from,
+.cyber-dialog-leave-to {
+  opacity: 0;
+  transform: scale(0.9) translateY(10px);
+}
+
+/* ===== 欢迎页 / 卡片网格 stagger 交错入场 ===== */
+@keyframes cyber-stagger-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+/* 父级加 .cyber-stagger,子项默认隐藏;父级加 .cyber-stagger.run 后按 --i 顺序入场 */
+.cyber-stagger > * {
+  opacity: 0;
+}
+.cyber-stagger.run > * {
+  animation: cyber-stagger-in var(--dur-slow) var(--ease-back) forwards;
+  animation-delay: calc(var(--i, 0) * 65ms);
+}
+
+/* ===== 数字 pop:状态栏 / 计数变化时弹一下 ===== */
+@keyframes cyber-count-pop {
+  0% {
+    transform: scale(1);
+    color: var(--muted);
+    text-shadow: none;
+  }
+  40% {
+    transform: scale(1.3);
+    color: var(--cyan);
+    text-shadow: 0 0 14px var(--cyan);
+  }
+  100% {
+    transform: scale(1);
+    color: var(--muted);
+    text-shadow: none;
+  }
+}
+.cyber-count-pop {
+  animation: cyber-count-pop 0.5s var(--ease-back);
+  display: inline-block;
+}
+
+/* ===== 按钮 / 可点击元素 press 反馈(微缩) ===== */
+.cyber-btn:active:not([disabled]),
+.cyber-btn-secondary:active:not([disabled]),
+.action-btn:active:not([disabled]),
+.tab:active,
+.new-conn-btn:active,
+.menu-item:active,
+.auth-chip:active,
+.switcher-item:active,
+.tab-new-btn:active,
+.tab-scroll-btn:active {
+  transform: scale(0.95);
+}
+.cyber-btn:active:not([disabled]) {
+  transform: scale(0.97) translateY(0);
+  box-shadow: 0 2px 8px var(--glow-soft);
+}
+
+/* ===== 卡片 hover 加深(更明显的上抬 + 轻微放大 + 光晕) =====
+ * 仅覆盖全局通用组件类;页面私有卡片(.feature-card / .metric-card 等)
+ * 在各自 scoped style 里同步加深,避免被 scoped 覆盖失效 */
+.cyber-card:hover,
+.connection-card:hover {
+  transform: translateY(-4px) scale(1.008);
+  box-shadow:
+    0 18px 52px var(--glow-soft),
+    0 0 0 1px var(--focus-cyan);
+}
+
+/* ===== 骨架屏 shimmer(loading 占位) ===== */
+.cyber-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-input);
+  border-radius: 6px;
+}
+.cyber-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--hover-cyan-faint) 40%,
+    var(--hover-cyan-soft) 50%,
+    var(--hover-cyan-faint) 60%,
+    transparent 100%
+  );
+  animation: cyber-shimmer 1.4s var(--ease-standard) infinite;
+}
+@keyframes cyber-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ===== reduced-motion 无障碍降级(系统级偏好) ===== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

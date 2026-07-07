@@ -89,7 +89,7 @@ function onKeyEnter() {
   <v-dialog
     v-model="visible"
     max-width="480"
-    transition="dialog-bottom-transition"
+    transition="cyber-dialog"
     @keydown.esc="onCancel"
   >
     <div class="global-dialog">
