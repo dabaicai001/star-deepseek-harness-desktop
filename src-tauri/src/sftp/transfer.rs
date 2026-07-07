@@ -57,6 +57,7 @@ async fn collect_local_files(
 /// Recursively create directories on remote (like `mkdir -p`).
 /// Silently succeeds if directories already exist.
 async fn mkdir_p(sftp: &Arc<Mutex<SftpSession>>, path: &str) {
+    tracing::debug!("mkdir_p: creating path '{}' via string-match fallback", path);
     let mut current = String::new();
     for segment in path.split('/').filter(|s| !s.is_empty()) {
         current.push('/');
@@ -64,8 +65,14 @@ async fn mkdir_p(sftp: &Arc<Mutex<SftpSession>>, path: &str) {
         if let Err(e) = mkdir(sftp, &current).await {
             let err_str = e.to_string();
             // "File already exists" is expected for mkdir -p
+            // Note: string matching is a compatibility fallback; the ideal fix
+            // would inspect russh_sftp's error type, but this works on OpenSSH.
             if err_str.contains("Failure") || err_str.contains("already exists") {
-                tracing::debug!("mkdir {} already exists, skipping", current);
+                tracing::debug!(
+                    "mkdir {} already exists (matched error: {}), skipping",
+                    current,
+                    err_str
+                );
             } else {
                 tracing::warn!("mkdir {} failed: {}", current, err_str);
             }

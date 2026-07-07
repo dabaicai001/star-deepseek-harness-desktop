@@ -212,7 +212,7 @@ pub async fn db_mysql_get_table_data(
     if let Some(cf) = &column_filters {
         params["columnFilters"] = serde_json::json!(cf);
     }
-    tracing::info!("db_mysql_get_table_data params: {}", params);
+    tracing::debug!("db_mysql_get_table_data");
     sidecar.call("db.mysql.getTableData", params).await
 }
 

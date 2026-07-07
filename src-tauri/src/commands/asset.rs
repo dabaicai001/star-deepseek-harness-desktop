@@ -110,9 +110,6 @@ pub async fn create_asset(params: CreateAssetParams) -> Result<Asset, String> {
     let now = chrono::Utc::now().timestamp();
     let (config, secrets) = keyring::split_config(params.config);
     let has_secrets = secrets.as_object().is_some_and(|values| !values.is_empty());
-    if has_secrets {
-        keyring::store(key_id.clone(), secrets.clone()).await?;
-    }
     let config_json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
     let tags = params.tags.unwrap_or_default();
     let tags_json = serde_json::to_string(&tags).map_err(|e| e.to_string())?;
@@ -132,6 +129,10 @@ pub async fn create_asset(params: CreateAssetParams) -> Result<Asset, String> {
     .execute(pool)
     .await
     .map_err(|e| format!("Failed to create asset: {}", e))?;
+
+    if has_secrets {
+        keyring::store(key_id.clone(), secrets.clone()).await?;
+    }
 
     Ok(Asset {
         id,
@@ -180,11 +181,6 @@ pub async fn update_asset(id: String, params: UpdateAssetParams) -> Result<Asset
         .key_id
         .clone()
         .unwrap_or_else(|| format!("asset:{id}"));
-    if has_secrets {
-        keyring::store(key_id.clone(), secrets.clone()).await?;
-    } else if current.key_id.is_some() {
-        keyring::delete(key_id.clone()).await?;
-    }
 
     let config_json = serde_json::to_string(&sanitized_config).map_err(|e| e.to_string())?;
     let tags_json = serde_json::to_string(&tags).map_err(|e| e.to_string())?;
@@ -204,6 +200,12 @@ pub async fn update_asset(id: String, params: UpdateAssetParams) -> Result<Asset
     .execute(pool)
     .await
     .map_err(|e| format!("Failed to update asset: {}", e))?;
+
+    if has_secrets {
+        keyring::store(key_id.clone(), secrets.clone()).await?;
+    } else if current.key_id.is_some() {
+        keyring::delete(key_id.clone()).await?;
+    }
 
     Ok(Asset {
         id,
@@ -230,6 +232,13 @@ pub async fn delete_asset(id: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to fetch asset: {e}"))?
         .flatten();
 
+    // Delete keyring entry first (best-effort: log on failure but continue)
+    if let Some(ref key_id) = key_id {
+        if let Err(e) = keyring::delete(key_id.clone()).await {
+            tracing::warn!("Failed to delete keyring entry for asset {}: {}", id, e);
+        }
+    }
+
     let result = sqlx::query("DELETE FROM assets WHERE id = ?")
         .bind(&id)
         .execute(pool)
@@ -238,9 +247,6 @@ pub async fn delete_asset(id: String) -> Result<(), String> {
 
     if result.rows_affected() == 0 {
         return Err("Asset not found".to_string());
-    }
-    if let Some(key_id) = key_id {
-        keyring::delete(key_id).await?;
     }
     Ok(())
 }

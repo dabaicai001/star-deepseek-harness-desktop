@@ -22,7 +22,11 @@ pub fn open_file_external(path: String) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn open_with_default_app(path: &PathBuf) -> std::io::Result<std::process::ExitStatus> {
-    Command::new("explorer.exe").arg(path).status()
+    // explorer.exe is a GUI app that returns exit code 1 even on success.
+    // Use `cmd /c start` instead which returns 0 on success.
+    Command::new("cmd")
+        .args(["/c", "start", "", &path.to_string_lossy()])
+        .status()
 }
 
 #[cfg(target_os = "macos")]

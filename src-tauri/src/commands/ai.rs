@@ -10,7 +10,8 @@ pub async fn ai_chat(params: Value) -> Result<Value, String> {
             .as_str()
             .unwrap_or("claude-sonnet-4-20250514")
             .to_string(),
-        messages: serde_json::from_value(params["messages"].clone()).unwrap_or_default(),
+        messages: serde_json::from_value(params["messages"].clone())
+            .map_err(|e| format!("Invalid messages: {}", e))?,
         temperature: params["temperature"].as_f64().map(|v| v as f32),
         max_tokens: params["max_tokens"].as_u64().map(|v| v as u32),
         system: params["system"].as_str().map(|s| s.to_string()),

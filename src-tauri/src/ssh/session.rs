@@ -276,13 +276,22 @@ impl SshSession {
         });
         tokio::spawn(async move {
             loop {
-                let msg = {
+                // Take channel out of the lock so resize can acquire it while we wait
+                let mut ch = {
                     let mut guard = channel_for_read.lock().await;
-                    let Some(ch) = guard.as_mut() else {
-                        break;
-                    };
-                    ch.wait().await
+                    match guard.take() {
+                        Some(ch) => ch,
+                        None => break,
+                    }
                 };
+                // wait() outside the lock — this is the long await that previously
+                // held the Mutex and blocked resize.
+                let msg = ch.wait().await;
+                // Put channel back before processing the message
+                {
+                    let mut guard = channel_for_read.lock().await;
+                    *guard = Some(ch);
+                }
                 match msg {
                     Some(ChannelMsg::Data { data }) => {
                         let _ = app_handle.emit(
@@ -309,13 +318,22 @@ impl SshSession {
     }
 
     pub async fn resize(&self, cols: u32, rows: u32) -> Result<(), String> {
+        // Use take/put-back so we don't hold the lock during window_change await.
+        // If the reader has temporarily taken the channel out, just skip this resize.
+        let mut ch = {
+            let mut guard = self.shell_channel.lock().await;
+            match guard.take() {
+                Some(ch) => ch,
+                None => return Ok(()),
+            }
+        };
+        let result = ch
+            .window_change(cols, rows, 0, 0)
+            .await
+            .map_err(|e| format!("Failed to send window-change: {}", e));
         let mut guard = self.shell_channel.lock().await;
-        if let Some(ch) = guard.as_mut() {
-            ch.window_change(cols, rows, 0, 0)
-                .await
-                .map_err(|e| format!("Failed to send window-change: {}", e))?;
-        }
-        Ok(())
+        *guard = Some(ch);
+        result
     }
 
     pub async fn open_sftp_channel(
@@ -375,7 +393,11 @@ impl SshSession {
         }
         let stdout = String::from_utf8_lossy(&output).to_string();
         match exit_status {
-            Some(0) | None => Ok(stdout),
+            Some(0) => Ok(stdout),
+            None => {
+                tracing::warn!("Command exited with unknown status: {}", stdout);
+                Ok(stdout)
+            }
             Some(code) => Err(format!(
                 "Command exited with code {}: {}",
                 code,
@@ -571,10 +593,12 @@ async fn authenticate_keyboard_interactive(
                 {
                     Ok(Ok(r)) => r,
                     Ok(Err(_)) => {
+                        pending_kb.lock().await.remove(session_id);
                         return Err("[MFA_FAILED] Keyboard-interactive response channel dropped"
                             .to_string())
                     }
                     Err(_) => {
+                        pending_kb.lock().await.remove(session_id);
                         return Err(
                             "[MFA_TIMEOUT] Keyboard-interactive response timed out (360s)"
                                 .to_string(),

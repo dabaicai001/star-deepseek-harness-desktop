@@ -66,8 +66,17 @@ pub async fn ssh_connect(
         }
     }
 
-    // 只在插入 map 时短暂持锁
+    // 只在插入 map 时短暂持锁,同时再次检查 abandoned 以关闭竞态窗口
+    // (disconnect 可能在上面 abandoned 检查和此处 sessions 锁之间执行)
     let mut sessions = manager.sessions.lock().await;
+    {
+        let mut abandoned = manager.abandoned.lock().await;
+        if abandoned.remove(&id) {
+            drop(sessions);
+            session.disconnect();
+            return Err("Connection aborted by client".to_string());
+        }
+    }
     sessions.insert(id, Arc::new(Mutex::new(session)));
 
     Ok(info)

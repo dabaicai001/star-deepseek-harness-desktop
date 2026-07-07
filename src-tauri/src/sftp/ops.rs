@@ -207,6 +207,7 @@ where
     let mut remote_file = remote_file;
     let mut buf = vec![0u8; 65536];
     let mut transferred: u64 = resume_from;
+    let mut session_transferred: u64 = 0;
     let mut chunk_count: u64 = 0;
 
     if resume_from > 0 {
@@ -244,6 +245,7 @@ where
             .with_context(|| format!("write remote chunk failed at offset {}", transferred))?;
 
         transferred += n as u64;
+        session_transferred += n as u64;
         chunk_count += 1;
         if chunk_count <= 3 || chunk_count.is_multiple_of(100) {
             tracing::info!(
@@ -258,7 +260,7 @@ where
 
         // Speed limit throttle
         let current_speed_limit = get_speed_limit();
-        if let Some(expected_ms) = (transferred * 1000).checked_div(current_speed_limit) {
+        if let Some(expected_ms) = (session_transferred * 1000).checked_div(current_speed_limit) {
             let elapsed_ms = start_time.elapsed().as_millis() as u64;
             if expected_ms > elapsed_ms {
                 tokio::time::sleep(tokio::time::Duration::from_millis(expected_ms - elapsed_ms))
@@ -341,6 +343,7 @@ where
 
     let mut buf = vec![0u8; 65536];
     let mut transferred = resume_from;
+    let mut session_transferred: u64 = 0;
 
     on_progress(transferred, total_size);
 
@@ -361,11 +364,12 @@ where
             .with_context(|| "write local chunk failed")?;
 
         transferred += n as u64;
+        session_transferred += n as u64;
         on_progress(transferred, total_size);
 
         // Speed limit throttle
         let current_speed_limit = get_speed_limit();
-        if let Some(expected_ms) = (transferred * 1000).checked_div(current_speed_limit) {
+        if let Some(expected_ms) = (session_transferred * 1000).checked_div(current_speed_limit) {
             let elapsed_ms = start_time.elapsed().as_millis() as u64;
             if expected_ms > elapsed_ms {
                 tokio::time::sleep(tokio::time::Duration::from_millis(expected_ms - elapsed_ms))

@@ -8,7 +8,10 @@ fn host_key(host: &str, port: u16) -> String {
 pub async fn is_known(host: &str, port: u16, key: &PublicKey) -> bool {
     let pool = match crate::db::get_pool() {
         Ok(p) => p,
-        Err(_) => return false,
+        Err(e) => {
+            tracing::warn!("Failed to get DB pool for known_hosts check: {}", e);
+            return false;
+        }
     };
     let hk = host_key(host, port);
     let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();

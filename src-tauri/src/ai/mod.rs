@@ -72,7 +72,10 @@ pub fn list_models() -> Vec<ModelInfo> {
 }
 
 pub async fn chat(request: ChatRequest) -> Result<ChatResponse, String> {
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
     match request.provider.as_str() {
         "claude" => chat_claude(&client, &request).await,
@@ -129,7 +132,7 @@ async fn chat_claude(client: &Client, request: &ChatRequest) -> Result<ChatRespo
 
     let content = json["content"][0]["text"]
         .as_str()
-        .unwrap_or("")
+        .ok_or_else(|| format!("Unexpected API response: missing content field"))?
         .to_string();
 
     let input_tokens = json["usage"]["input_tokens"].as_u64().unwrap_or(0) as u32;
@@ -191,7 +194,7 @@ async fn chat_openai(client: &Client, request: &ChatRequest) -> Result<ChatRespo
 
     let content = json["choices"][0]["message"]["content"]
         .as_str()
-        .unwrap_or("")
+        .ok_or_else(|| format!("Unexpected API response: missing content field"))?
         .to_string();
 
     let input_tokens = json["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32;

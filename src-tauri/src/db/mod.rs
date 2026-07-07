@@ -1,7 +1,8 @@
 pub mod schema;
 
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
+use std::str::FromStr;
 use tauri::AppHandle;
 use tauri::Manager;
 
@@ -19,17 +20,16 @@ pub async fn init_database(app_handle: &AppHandle) -> Result<(), String> {
     let db_path = app_dir.join("starhub.db");
     let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
 
+    let options = SqliteConnectOptions::from_str(&db_url)
+        .map_err(|e| format!("Failed to parse database URL: {}", e))?
+        .foreign_keys(true)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(&db_url)
+        .connect_with(options)
         .await
         .map_err(|e| format!("Failed to connect to database: {}", e))?;
-
-    // Enable foreign keys and WAL mode
-    sqlx::raw_sql("PRAGMA foreign_keys = ON; PRAGMA journal_mode=WAL;")
-        .execute(&pool)
-        .await
-        .map_err(|e| format!("Failed to set pragmas: {}", e))?;
 
     // 创建表
     sqlx::raw_sql(schema::CREATE_TABLES)
@@ -66,7 +66,6 @@ async fn migrate_asset_credentials(pool: &SqlitePool) -> Result<(), String> {
         }
 
         let key_id = format!("asset:{id}");
-        crate::keyring::store(key_id.clone(), secrets).await?;
         let config_json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
         sqlx::query("UPDATE assets SET config_json = ?, key_id = ? WHERE id = ?")
             .bind(config_json)
@@ -75,6 +74,7 @@ async fn migrate_asset_credentials(pool: &SqlitePool) -> Result<(), String> {
             .execute(pool)
             .await
             .map_err(|e| format!("Failed to migrate asset credentials: {e}"))?;
+        crate::keyring::store(key_id, secrets).await?;
     }
 
     Ok(())
