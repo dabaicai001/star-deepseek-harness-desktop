@@ -15,6 +15,14 @@
 
 ---
 
+## [0.13.3] - 2026-07-07
+
+### 修复
+- 🐛 fix(excel): UniverGrid `rowCount` 包含 `containerRows`(容器可容纳行数+5)导致数据少时画布出现大量空行留白;移除 `containerRows`,rowCount 改为 `max(数据行+5, 5)`;新增 `applyContainerHeight()` 让 Univer 容器高度自适应到内容(`min(行数×22+表头, 父容器高度)`),ResizeObserver 改为监听父容器避免循环触发
+- 🐛 fix(brand): `icon.svg` / `icon-source.svg` 仍为旧 "S 轨道" 设计,`tauri icon` 不生成 SVG;改为以 `icon.png` base64 嵌入 SVG `<image>` 保持一致;重新生成 `icon.icns`
+
+---
+
 ## [0.13.2] - 2026-07-07
 
 ### 改进

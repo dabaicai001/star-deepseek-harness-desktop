@@ -96,10 +96,12 @@ function buildCellData(): NonNullable<IWorksheetData['cellData']> {
   return cellData
 }
 
-// 渲染时给数据下方预留 20 行 buffer(用于直接键入新数据);小于 30 时保底 30 行。
+// 渲染时给数据下方预留少量 buffer(用于直接键入新数据);最少保底几行避免空表格太小。
 // store.rowData 仍保留文件原始的全部行,save 时回写文件不会丢数据。
-const VISIBLE_BUFFER_ROWS = 20
-const VISIBLE_MIN_ROWS = 30
+const VISIBLE_BUFFER_ROWS = 5
+const VISIBLE_MIN_ROWS = 5
+// Univer 表头(列号栏)高度,约 20px
+const SHEET_HEADER_HEIGHT = 20
 
 function lastNonEmptyDataIndex(): number {
   const data = store.rowData
@@ -110,16 +112,28 @@ function lastNonEmptyDataIndex(): number {
   return -1
 }
 
-function buildWorkbookData(): IWorkbookData {
-  const sheetId = 'starhub-active-sheet'
-  const columnCount = Math.max(store.columns.length, 10)
+function computeRowCount(): number {
   const lastDataIndex = lastNonEmptyDataIndex()
   // cellData 还要写 1 行表头,所以可见高度 = (lastDataIndex + 1) + 1 + buffer
   const lastDataRowNumber = lastDataIndex + 2 // 1-indexed,且包含表头行
-  // 容器实际高度可容纳的行数(每行 22px),加 5 行 buffer 让底部不出现纯空白
-  const containerHeight = containerRef.value?.clientHeight ?? 0
-  const containerRows = containerHeight > 0 ? Math.ceil(containerHeight / 22) + 5 : 0
-  const rowCount = Math.max(lastDataRowNumber + VISIBLE_BUFFER_ROWS, VISIBLE_MIN_ROWS, containerRows)
+  return Math.max(lastDataRowNumber + VISIBLE_BUFFER_ROWS, VISIBLE_MIN_ROWS)
+}
+
+/// 让 Univer 容器高度自适应到内容,不超过父容器;避免数据少时画布下方出现大量空行或纯空白。
+function applyContainerHeight() {
+  if (!containerRef.value) return
+  const rowCount = computeRowCount()
+  const contentHeight = rowCount * 22 + SHEET_HEADER_HEIGHT
+  const shellHeight = containerRef.value.parentElement?.clientHeight ?? 0
+  const targetHeight = shellHeight > 0 ? Math.min(contentHeight, shellHeight) : contentHeight
+  containerRef.value.style.height = `${targetHeight}px`
+}
+
+function buildWorkbookData(): IWorkbookData {
+  const sheetId = 'starhub-active-sheet'
+  const columnCount = Math.max(store.columns.length, 10)
+  const rowCount = computeRowCount()
+  applyContainerHeight()
   return {
     id: `starhub-${store.connId || 'workbook'}`,
     name: store.filePath || store.activeSheet || 'StarHub Workbook',
@@ -206,9 +220,13 @@ async function renderWorkbook() {
   univerAPIInstance = univerAPI
   univerAPI.createWorkbook(buildWorkbookData())
   resizeObserver = new ResizeObserver(() => {
+    applyContainerHeight()
     window.dispatchEvent(new Event('resize'))
   })
-  resizeObserver.observe(containerRef.value)
+  // 监听父容器(shell)尺寸变化,而非 containerRef 本身(避免 height 由 JS 设置时循环触发)
+  if (containerRef.value?.parentElement) {
+    resizeObserver.observe(containerRef.value.parentElement)
+  }
   commandDisposable = univerAPI.onCommandExecuted((command) => {
     if (syncingFromStore) return
     window.setTimeout(syncSelectionFromUniver, 0)
@@ -353,6 +371,6 @@ watch(sheetVersion, () => {
 
 .univer-grid {
   width: 100%;
-  height: 100%;
+  /* height 由 JS 动态控制(applyContainerHeight),自适应到内容高度 */
 }
 </style>

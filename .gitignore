@@ -79,7 +79,7 @@ ehthumbs.db
 # macOS
 .AppleDouble
 .LSOverride
-Icon?
+/Icon?
 # Linux
 *~
 .fuse_hidden*
