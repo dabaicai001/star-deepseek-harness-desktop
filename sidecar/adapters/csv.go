@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 )
@@ -21,6 +22,7 @@ type CsvConnInfo struct {
 
 // CsvAdapter 封装 CSV 文件操作
 type CsvAdapter struct {
+	mu        sync.Mutex
 	rows      [][]string
 	columns   []string
 	filePath  string
@@ -151,6 +153,8 @@ func (a *CsvAdapter) ReadSheet(sheetName string, offset, limit int) (*SheetData,
 
 // GetRows 分页读取行
 func (a *CsvAdapter) GetRows(offset, limit int) [][]string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	start := offset
 	if start >= len(a.rows) {
 		return nil
@@ -180,6 +184,8 @@ func (a *CsvAdapter) GetFilePath() string {
 
 // WriteCells 批量写入 CSV 数据区单元格
 func (a *CsvAdapter) WriteCells(cells []CellChange) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	for _, cell := range cells {
 		if cell.Row < 0 || cell.Col < 0 {
 			return fmt.Errorf("invalid csv cell row=%d col=%d", cell.Row, cell.Col)
@@ -249,6 +255,8 @@ func (a *CsvAdapter) DeleteRows(dataRow, count int) error {
 
 // InsertCols 插入列
 func (a *CsvAdapter) InsertCols(col, count int) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if count < 1 {
 		count = 1
 	}
@@ -291,6 +299,8 @@ func (a *CsvAdapter) DeleteCols(col, count int) error {
 
 // SortRows 按数据列排序
 func (a *CsvAdapter) SortRows(col int, descending bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if len(a.rows) <= 2 {
 		return nil
 	}

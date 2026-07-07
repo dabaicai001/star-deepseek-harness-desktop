@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 	"github.com/xuri/excelize/v2"
@@ -20,6 +21,7 @@ type ExcelConnInfo struct {
 
 // ExcelAdapter 封装 Excel 文件操作
 type ExcelAdapter struct {
+	mu       sync.Mutex
 	f        *excelize.File
 	filePath string
 }
@@ -84,6 +86,8 @@ func (a *ExcelAdapter) Close() error {
 
 // Ping 存活检测
 func (a *ExcelAdapter) Ping() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.f == nil {
 		return fmt.Errorf("excel adapter not initialized")
 	}
@@ -212,6 +216,8 @@ func (a *ExcelAdapter) WriteHeaders(sheetName string, headers []string) error {
 
 // StyleHeader 应用基础表头样式。
 func (a *ExcelAdapter) StyleHeader(sheetName string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	rows, err := a.f.GetRows(sheetName)
 	if err != nil {
 		return fmt.Errorf("read sheet failed: %w", err)
@@ -293,6 +299,8 @@ func (a *ExcelAdapter) InsertCols(sheetName string, col, count int) error {
 
 // DeleteCols 删除指定列。
 func (a *ExcelAdapter) DeleteCols(sheetName string, col, count int) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if count < 1 {
 		count = 1
 	}
@@ -412,6 +420,8 @@ func (a *ExcelAdapter) SetFreezePanes(sheetName string, rows, cols int) error {
 
 // SetAutoFilter 开启当前已用区域的自动筛选。
 func (a *ExcelAdapter) SetAutoFilter(sheetName string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	dimension, err := a.f.GetSheetDimension(sheetName)
 	if err != nil {
 		return fmt.Errorf("get sheet dimension failed: %w", err)
@@ -456,6 +466,8 @@ func (a *ExcelAdapter) Save() error {
 
 // SaveAs 另存为
 func (a *ExcelAdapter) SaveAs(filePath string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	_ = a.f.UpdateLinkedValue()
 	if err := a.f.SaveAs(filePath); err != nil {
 		return fmt.Errorf("save as failed: %w", err)
@@ -652,7 +664,9 @@ func (a *ExcelAdapter) rewriteSheet(sheetName string, header []string, data [][]
 	for ri := 1; ri <= len(oldRows); ri++ {
 		for ci := 1; ci <= maxCols; ci++ {
 			axis, _ := excelize.CoordinatesToCellName(ci, ri)
-			_ = a.f.SetCellValue(sheetName, axis, "")
+			if err := a.f.SetCellValue(sheetName, axis, ""); err != nil {
+				return fmt.Errorf("clear cell %s failed: %w", axis, err)
+			}
 		}
 	}
 

@@ -91,7 +91,10 @@ func NewDockerAdapter(info *DockerConnInfo) (*DockerAdapter, error) {
 	}
 
 	// 测试连接
-	_, err = cli.Ping(ctx)
+	// TODO(#33): context 不应存储在 struct 中,应通过方法参数传递。
+	pingCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	_, err = cli.Ping(pingCtx)
 	if err != nil {
 		return nil, fmt.Errorf("docker connect failed: %w", err)
 	}
@@ -355,6 +358,9 @@ func (a *DockerAdapter) PullImage(imageName string) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		lastLine = scanner.Text()
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("scan pull image: %w", err)
 	}
 
 	return lastLine, nil

@@ -323,8 +323,13 @@ func (a *ElasticsearchAdapter) CreateIndex(index string, mappings map[string]int
 		return nil, fmt.Errorf("create index failed: %w", err)
 	}
 	defer res.Body.Close()
+	if res.IsError() {
+		return nil, fmt.Errorf("create index error: %s", res.String())
+	}
 	var result map[string]interface{}
-	json.NewDecoder(res.Body).Decode(&result)
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to parse create index result: %w", err)
+	}
 	return result, nil
 }
 
@@ -334,8 +339,13 @@ func (a *ElasticsearchAdapter) DeleteIndex(index string) (map[string]interface{}
 		return nil, fmt.Errorf("delete index failed: %w", err)
 	}
 	defer res.Body.Close()
+	if res.IsError() {
+		return nil, fmt.Errorf("delete index error: %s", res.String())
+	}
 	var result map[string]interface{}
-	json.NewDecoder(res.Body).Decode(&result)
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to parse delete index result: %w", err)
+	}
 	return result, nil
 }
 
@@ -428,6 +438,9 @@ func (a *ElasticsearchAdapter) Count(index string, body map[string]interface{}) 
 		return 0, fmt.Errorf("count failed: %w", err)
 	}
 	defer res.Body.Close()
+	if res.IsError() {
+		return 0, fmt.Errorf("count error: %s", res.String())
+	}
 	var raw struct {
 		Count int64 `json:"count"`
 	}
@@ -474,8 +487,13 @@ func (a *ElasticsearchAdapter) IndexDocument(index, id string, body map[string]i
 		return nil, fmt.Errorf("index document failed: %w", err)
 	}
 	defer res.Body.Close()
+	if res.IsError() {
+		return nil, fmt.Errorf("index document error: %s", res.String())
+	}
 	var result map[string]interface{}
-	json.NewDecoder(res.Body).Decode(&result)
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to parse index document result: %w", err)
+	}
 	return result, nil
 }
 
@@ -490,8 +508,13 @@ func (a *ElasticsearchAdapter) UpdateDocument(index, id string, body map[string]
 		return nil, fmt.Errorf("update document failed: %w", err)
 	}
 	defer res.Body.Close()
+	if res.IsError() {
+		return nil, fmt.Errorf("update document error: %s", res.String())
+	}
 	var result map[string]interface{}
-	json.NewDecoder(res.Body).Decode(&result)
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to parse update document result: %w", err)
+	}
 	return result, nil
 }
 
@@ -501,8 +524,13 @@ func (a *ElasticsearchAdapter) DeleteDocument(index, id string) (map[string]inte
 		return nil, fmt.Errorf("delete document failed: %w", err)
 	}
 	defer res.Body.Close()
+	if res.IsError() {
+		return nil, fmt.Errorf("delete document error: %s", res.String())
+	}
 	var result map[string]interface{}
-	json.NewDecoder(res.Body).Decode(&result)
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to parse delete document result: %w", err)
+	}
 	return result, nil
 }
 
@@ -529,6 +557,9 @@ func (a *ElasticsearchAdapter) BulkIndex(index string, documents []map[string]in
 		return nil, fmt.Errorf("bulk index failed: %w", err)
 	}
 	defer res.Body.Close()
+	if res.IsError() {
+		return nil, fmt.Errorf("bulk index error: %s", res.String())
+	}
 	var result BulkResult
 	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to parse bulk result: %w", err)

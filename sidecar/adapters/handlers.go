@@ -3,10 +3,10 @@ package adapters
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/starhub/sidecar/pool"
 	"github.com/starhub/sidecar/rpc"
 	"github.com/xuri/excelize/v2"
@@ -415,7 +415,7 @@ func handleMySQLGetTableData(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		log.Printf("[handleMySQLGetTableData] filter=%q columnFilters=%v\n", p.Filter, p.ColumnFilters)
+		log.Info().Str("filter", p.Filter).Interface("columnFilters", p.ColumnFilters).Msg("handleMySQLGetTableData")
 		adapter, err := getMySQLAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err

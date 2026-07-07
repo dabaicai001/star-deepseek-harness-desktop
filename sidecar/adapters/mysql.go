@@ -13,6 +13,9 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// limitRegex 用于检测 SQL 中是否已包含 LIMIT 子句,避免重复编译。
+var limitRegex = regexp.MustCompile(`(?i)\bLIMIT\s+\d+`)
+
 // MySQLAdapter 封装 MySQL 连接
 type MySQLAdapter struct {
 	db   *sqlx.DB
@@ -269,7 +272,7 @@ func (a *MySQLAdapter) Execute(sqlStr string) (*QueryResult, error) {
 		strings.HasPrefix(upperCheck, "EXPLAIN")
 
 	if isSelect {
-		if !regexp.MustCompile(`(?i)\bLIMIT\s+\d+`).MatchString(checkStr) && !isSafeSystemQuery(checkStr) {
+		if !limitRegex.MatchString(checkStr) && !isSafeSystemQuery(checkStr) {
 			sqlStr = sqlStr + " LIMIT 100"
 		}
 		return a.executeSelect(sqlStr, start)

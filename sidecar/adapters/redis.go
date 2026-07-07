@@ -90,7 +90,10 @@ func NewRedisAdapter(info *RedisConnInfo) (*RedisAdapter, error) {
 	client := redis.NewClient(opts)
 	ctx := context.Background()
 
-	if err := client.Ping(ctx).Err(); err != nil {
+	// TODO(#33): context 不应存储在 struct 中,应通过方法参数传递。
+	pingCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := client.Ping(pingCtx).Err(); err != nil {
 		return nil, fmt.Errorf("redis connect failed: %w", err)
 	}
 
@@ -115,13 +118,11 @@ func (a *RedisAdapter) Ping() error {
 
 // Select 切换数据库
 func (a *RedisAdapter) Select(db int) error {
+	if err := a.client.Do(a.ctx, "SELECT", db).Err(); err != nil {
+		return err
+	}
 	a.conn.DB = db
-	a.client = redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", a.conn.Host, a.conn.Port),
-		Password: a.conn.Password,
-		DB:       db,
-	})
-	return a.client.Ping(a.ctx).Err()
+	return nil
 }
 
 // GetDB 当前数据库编号
@@ -196,7 +197,7 @@ func (a *RedisAdapter) keyInfos(keys []string, typeFilter string) ([]RedisKeyInf
 		}
 		ttl, err := ttlCmds[i].Result()
 		if err != nil {
-			ttl = 0
+			ttl = -1 * time.Second
 		}
 		keyInfos = append(keyInfos, RedisKeyInfo{
 			Key:  key,
@@ -243,7 +244,10 @@ func (a *RedisAdapter) GetValue(key string) (*RedisValueResult, error) {
 		return nil, fmt.Errorf("type: %w", err)
 	}
 
-	ttl, _ := a.client.TTL(a.ctx, key).Result()
+	ttl, err := a.client.TTL(a.ctx, key).Result()
+	if err != nil {
+		ttl = -1 * time.Second
+	}
 	result := &RedisValueResult{
 		Key:  key,
 		Type: keyType,
@@ -501,8 +505,14 @@ func (a *RedisAdapter) Execute(command string) (*RedisCommandResult, error) {
 		if len(parts) < 4 {
 			return &RedisCommandResult{Error: "LRANGE requires key start stop"}, nil
 		}
-		start, _ := strconv.ParseInt(parts[2], 10, 64)
-		stop, _ := strconv.ParseInt(parts[3], 10, 64)
+		start, perr := strconv.ParseInt(parts[2], 10, 64)
+		if perr != nil {
+			return &RedisCommandResult{Error: "invalid start: " + parts[2]}, nil
+		}
+		stop, perr := strconv.ParseInt(parts[3], 10, 64)
+		if perr != nil {
+			return &RedisCommandResult{Error: "invalid stop: " + parts[3]}, nil
+		}
 		result, err = a.client.LRange(a.ctx, parts[1], start, stop).Result()
 
 	case "LPUSH":
@@ -547,7 +557,10 @@ func (a *RedisAdapter) Execute(command string) (*RedisCommandResult, error) {
 		}
 		zs := make([]redis.Z, 0, (len(parts)-2)/2)
 		for i := 2; i < len(parts); i += 2 {
-			score, _ := strconv.ParseFloat(parts[i], 64)
+			score, perr := strconv.ParseFloat(parts[i], 64)
+			if perr != nil {
+				return &RedisCommandResult{Error: "invalid score: " + parts[i]}, nil
+			}
 			zs = append(zs, redis.Z{Score: score, Member: parts[i+1]})
 		}
 		result, err = a.client.ZAdd(a.ctx, parts[1], zs...).Result()
@@ -562,8 +575,14 @@ func (a *RedisAdapter) Execute(command string) (*RedisCommandResult, error) {
 		if len(parts) < 4 {
 			return &RedisCommandResult{Error: "ZRANGE requires key start stop"}, nil
 		}
-		start, _ := strconv.ParseInt(parts[2], 10, 64)
-		stop, _ := strconv.ParseInt(parts[3], 10, 64)
+		start, perr := strconv.ParseInt(parts[2], 10, 64)
+		if perr != nil {
+			return &RedisCommandResult{Error: "invalid start: " + parts[2]}, nil
+		}
+		stop, perr := strconv.ParseInt(parts[3], 10, 64)
+		if perr != nil {
+			return &RedisCommandResult{Error: "invalid stop: " + parts[3]}, nil
+		}
 		result, err = a.client.ZRange(a.ctx, parts[1], start, stop).Result()
 
 	case "INCR":
@@ -582,7 +601,10 @@ func (a *RedisAdapter) Execute(command string) (*RedisCommandResult, error) {
 		if len(parts) < 3 {
 			return &RedisCommandResult{Error: "EXPIRE requires key and seconds"}, nil
 		}
-		sec, _ := strconv.ParseInt(parts[2], 10, 64)
+		sec, perr := strconv.ParseInt(parts[2], 10, 64)
+		if perr != nil {
+			return &RedisCommandResult{Error: "invalid seconds: " + parts[2]}, nil
+		}
 		result, err = a.client.Expire(a.ctx, parts[1], time.Duration(sec)*time.Second).Result()
 
 	case "PERSIST":
@@ -608,7 +630,10 @@ func (a *RedisAdapter) Execute(command string) (*RedisCommandResult, error) {
 		if len(parts) < 2 {
 			return &RedisCommandResult{Error: "SELECT requires db number"}, nil
 		}
-		db, _ := strconv.Atoi(parts[1])
+		db, perr := strconv.Atoi(parts[1])
+		if perr != nil {
+			return &RedisCommandResult{Error: "invalid db number: " + parts[1]}, nil
+		}
 		err = a.Select(db)
 		if err == nil {
 			result = "OK"
@@ -649,6 +674,11 @@ func parseRedisCommand(command string) []string {
 		ch := command[i]
 
 		if inQuote {
+			if ch == '\\' && i+1 < len(command) {
+				current.WriteByte(command[i+1])
+				i++
+				continue
+			}
 			if ch == quoteChar {
 				inQuote = false
 			} else {
