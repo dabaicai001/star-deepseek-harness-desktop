@@ -15,6 +15,14 @@
 
 ---
 
+## [0.12.1] - 2026-07-07
+
+### 改进
+- 🎨 style(brand): 重新设计应用 Logo 与 `StarHub` 字标,采用手绘插画风格(奶油底 + 粉色 / 芥末黄 / 鼠尾草绿水彩 + 圆润手写体),告别几何轨道风
+- 🎨 style(brand): 全套打包图标资源(Windows `.ico` / macOS `.icns` / Linux PNG / iOS / Android / Windows Store)替换为新版 Logo,exe 安装包与系统托盘同步更新
+
+---
+
 ## [0.12.0] - 2026-07-03
 
 ### 新增

@@ -97,3 +97,6 @@ data/local/
 # 用户资产与配置(不要提交)
 assets.local.json
 config.local.toml
+
+# Logo 候选与临时备份(手动迭代用,不入仓)
+/icons/

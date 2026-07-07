@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="./docs/assets/starhub-logo.png" alt="StarHub" width="240" />
+
 # StarHub
 
 **All-in-One DevOps Desktop Command Center**
