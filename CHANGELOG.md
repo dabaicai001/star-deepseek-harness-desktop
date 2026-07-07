@@ -15,6 +15,13 @@
 
 ---
 
+## [0.12.3] - 2026-07-07
+
+### 改进
+- 🎨 style(brand): 应用图标更换为 `H1-text-below`,通过 `tauri icon` 从 `icons/_candidates/H1-text-below.png` 重新生成全套打包图标(Windows ICO / Store Logo、macOS ICNS、各尺寸 PNG、iOS AppIcon、Android mipmap);源文件实为 JPEG 伪装 .png 扩展名,先用 .NET System.Drawing 转成真 PNG 再生成
+
+---
+
 ## [0.12.2] - 2026-07-07
 
 ### 修复
