@@ -160,7 +160,31 @@ export const useDbStore = defineStore('db', () => {
   async function executeQuery(connId: string, sql: string): Promise<QueryResult> {
     isExecuting.value = true
     try {
-      const result = await dbService.mysqlExecute(connId, sql)
+      const session = sessions.value.get(connId)
+      let result: QueryResult
+      switch (session?.dbType) {
+        case 'clickhouse':
+          result = await dbService.clickhouseExecute(connId, sql)
+          break
+        case 'redis': {
+          // redisExecute 返回 RedisCommandResult,转成 QueryResult 结构
+          const r = await dbService.redisExecute(connId, sql)
+          result = {
+            columns: r.result != null ? [{ name: 'result', type: 'text', nullable: false }] : [],
+            rows: r.result != null ? [[r.result]] : [],
+            rowsAffected: 0,
+            durationMs: 0,
+            isSelect: true,
+            error: r.error
+          }
+          break
+        }
+        case 'mysql':
+        default:
+          // TODO: 其他数据库类型(pg/sqlite/oracle 等)暂无对应 execute 函数,暂时回退到 mysqlExecute
+          result = await dbService.mysqlExecute(connId, sql)
+          break
+      }
       queryResults.value.set(connId, result)
 
       // Add to history

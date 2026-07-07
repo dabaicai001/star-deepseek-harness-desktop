@@ -11,7 +11,7 @@
  * - 单击列名排序(触发 sort-change)
  * - editable=true + pkCols 非空时,行内编辑(emit cell-edit)
  */
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import type { QueryResult, ColumnInfo } from '@/types/db'
@@ -249,8 +249,9 @@ watch(() => props.editable, (val) => {
 function toggleSort(col: string) {
   if (isServerMode.value) {
     // 服务端模式:由父组件发 sort-change
+    const wasSameCol = sortColumn.value === col
     sortColumn.value = col
-    sortDir.value = sortColumn.value === col && sortDir.value === 'ASC' ? 'DESC' : 'ASC'
+    sortDir.value = wasSameCol && sortDir.value === 'ASC' ? 'DESC' : 'ASC'
     emit('sort-change', col)
   } else {
     if (sortColumn.value === col) {

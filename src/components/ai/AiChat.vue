@@ -159,7 +159,7 @@ function shortResult(s: string, max = 240): string {
       </div>
 
       <!-- 消息循环 -->
-      <template v-for="(msg, idx) in session.messages" :key="idx">
+      <template v-for="(msg, idx) in session.messages" :key="msgKey(msg)">
         <!-- 普通消息 (user / assistant / tool) -->
         <div class="msg" :class="msg.role">
           <div class="msg-avatar">

@@ -1,5 +1,9 @@
 import type { ColumnMeta } from '@/types/db'
 
+function quoteIdent(name: string): string {
+  return '`' + name.replace(/`/g, '``') + '`'
+}
+
 export interface ColumnEdit extends ColumnMeta {
   newName: string
   newType: string
@@ -100,7 +104,7 @@ export function generateModifyColumnDDL(
     extra: '', comment: '', newComment: comment,
     ordinalPosition: 0, dirty: true, dropped: false
   }
-  return `ALTER TABLE \`${db}\`.\`${table}\` MODIFY COLUMN \`${name}\` ${buildColumnTypeDef(col)}`
+  return `ALTER TABLE ${quoteIdent(db)}.${quoteIdent(table)} MODIFY COLUMN ${quoteIdent(name)} ${buildColumnTypeDef(col)}`
 }
 
 export function generateDropColumnDDL(db: string, table: string, name: string): string {
@@ -121,7 +125,7 @@ export function generateCreateIndexDDL(
 }
 
 export function generateDropIndexDDL(db: string, table: string, indexName: string): string {
-  return `DROP INDEX \`${indexName}\` ON \`${db}\`.\`${table}\``
+  return `DROP INDEX \`${indexName}\` ON ${quoteIdent(db)}.${quoteIdent(table)}`
 }
 
 export interface IndexEdit {

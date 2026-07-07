@@ -34,6 +34,7 @@ export interface AlertOptions {
 
 // 一次只展示一个 dialog —— 后续调用覆盖前一次(用 ignore 标记,直接 resolve 掉旧的)
 type Resolver<T> = (value: T) => void
+type DialogResult = string | null | boolean | number
 
 export const useDialogStore = defineStore('dialog', () => {
   const visible = ref(false)
@@ -64,7 +65,7 @@ export const useDialogStore = defineStore('dialog', () => {
   const alertConfirmText = ref('')
   const alertColor = ref<'info' | 'success' | 'warning' | 'error'>('info')
 
-  let resolver: Resolver<any> | null = null
+  let resolver: Resolver<DialogResult> | null = null
 
   function reset() {
     promptTitle.value = ''
@@ -122,7 +123,7 @@ export const useDialogStore = defineStore('dialog', () => {
     kind.value = 'confirm'
     visible.value = true
     return new Promise<boolean>((resolve) => {
-      resolver = resolve
+      resolver = resolve as Resolver<DialogResult>
     })
   }
 
@@ -146,11 +147,11 @@ export const useDialogStore = defineStore('dialog', () => {
     kind.value = 'prompt'
     visible.value = true
     return new Promise<string | null>((resolve) => {
-      resolver = resolve
+      resolver = resolve as Resolver<DialogResult>
     })
   }
 
-  function resolveWith(value: any) {
+  function resolveWith(value: DialogResult) {
     const r = resolver
     resolver = null
     visible.value = false

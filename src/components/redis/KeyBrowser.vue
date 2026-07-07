@@ -44,6 +44,11 @@ const sidebarDragging = ref(false)
 const loadTokens = ref<Record<number, number>>({})
 const searchTimers = new Map<number, ReturnType<typeof setTimeout>>()
 
+onBeforeUnmount(() => {
+  searchTimers.forEach(timer => clearTimeout(timer))
+  searchTimers.clear()
+})
+
 // ─── Namespace tree ───
 interface FlatNode {
   id: string

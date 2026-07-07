@@ -43,7 +43,6 @@ const selectedTab = ref<'logs' | 'stats'>('logs')
 const sidebarCollapsed = ref(false)
 const sidebarWidth = ref(260)
 const sidebarDragging = ref(false)
-let statsInterval: ReturnType<typeof setInterval> | null = null
 
 async function connect() {
   if (!asset.value || connected.value) return

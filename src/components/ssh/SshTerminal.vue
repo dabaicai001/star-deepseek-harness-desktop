@@ -252,6 +252,11 @@ onBeforeUnmount(async () => {
     clearTimeout(sftpReadyTimer)
     sftpReadyTimer = null
   }
+  if (captureTimer) {
+    clearTimeout(captureTimer)
+    captureTimer = null
+  }
+  captureResolve = null
   stopTimer()
   await disconnect()
 })

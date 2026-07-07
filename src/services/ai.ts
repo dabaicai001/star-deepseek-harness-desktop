@@ -15,6 +15,8 @@ import { invoke } from '@tauri-apps/api/core'
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  /** 消息唯一标识(用于 v-for key) */
+  id?: string
   /** OpenAI tool message 字段 */
   tool_call_id?: string
   /** OpenAI tool message 字段 */
@@ -129,6 +131,27 @@ export type StreamChunk =
 /**
  * 直接调 OpenAI 兼容 /chat/completions
  */
+
+interface RawToolCall {
+  id: string
+  function?: {
+    name?: string
+    arguments?: string
+  }
+}
+
+interface SseEvent {
+  choices?: Array<{
+    delta?: {
+      content?: string
+      tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>
+    }
+    finish_reason?: string | null
+  }>
+  model?: string
+  usage?: { prompt_tokens?: number; completion_tokens?: number }
+}
+
 export async function chatWithTools(req: NewChatRequest): Promise<NewChatResponse> {
   if (!req.apiKey) {
     throw new Error('API key is empty. Set it in Settings → AI.')
@@ -296,8 +319,8 @@ export async function* chatStream(req: NewChatRequest): AsyncGenerator<StreamChu
           if (line.startsWith('data:')) {
             const data = line.slice(5).trim()
             if (data === '[DONE]') continue
-            let parsed: any
-            try { parsed = JSON.parse(data) } catch { continue }
+            let parsed: SseEvent
+            try { parsed = JSON.parse(data) as SseEvent } catch { continue }
             const choice = parsed.choices?.[0]
             modelName = parsed.model ?? modelName
             if (parsed.usage) {

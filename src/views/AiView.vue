@@ -23,7 +23,9 @@ const globalSession = computed(() => aiStore.getOrCreateSession(GLOBAL_INSTANCE_
 async function loadModels() {
   try {
     models.value = await listModels()
-  } catch {}
+  } catch (e) {
+    console.warn('[AiView] Failed to load models:', e)
+  }
 }
 
 loadModels()
@@ -99,7 +101,7 @@ function clearMessages() {
         <p class="empty-hint">全局 AI 适合问答和排障思路;需要操作 DB / Docker / Excel 时,请进入对应工作区使用右侧上下文 AI。</p>
       </div>
 
-      <div v-for="(msg, i) in globalSession.messages" :key="i" class="message" :class="msg.role">
+      <div v-for="(msg, i) in globalSession.messages" :key="msg.id || i" class="message" :class="msg.role">
         <div class="message-avatar">
           <v-icon v-if="msg.role === 'user'" size="16">mdi-account-outline</v-icon>
           <v-icon v-else size="16">mdi-robot-outline</v-icon>
