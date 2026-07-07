@@ -15,6 +15,13 @@
 
 ---
 
+## [0.13.4] - 2026-07-07
+
+### 修复
+- 🐛 fix(brand): H1-text-below-real.png 无透明通道(Format24bppRgb,米黄色背景),生成的 icon.ico/icon.png 也无透明背景,导致 exe 图标显示为带背景的方形;用 LockBits 将背景色(R≈254 G≈251 B≈238,容差40)设为 Alpha=0(83.6% 像素透明),重新生成全套图标(ICO/ICNS/PNG/iOS/Android);icon.ico MD5 从 062E0003 变为 2DC50447(57934 bytes)
+
+---
+
 ## [0.13.3] - 2026-07-07
 
 ### 修复
