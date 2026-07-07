@@ -15,6 +15,13 @@
 
 ---
 
+## [0.13.2] - 2026-07-07
+
+### 改进
+- 🎨 style(brand): 应用 Logo 更换为 H1-text-below 设计,从 `icons/_candidates/H1-text-below.png`(JPEG 伪装 .png,先用 .NET System.Drawing 转真 PNG)用 `tauri icon` 重新生成全套打包图标(ICO/ICNS/PNG/iOS/Android/Store Logo);CyberLayout titlebar 内 HTML logo 从 CSS 几何轨道风改为 `<img>` 引用实际图标
+
+---
+
 ## [0.13.1] - 2026-07-07
 
 ### 修复

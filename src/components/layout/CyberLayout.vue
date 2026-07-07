@@ -16,6 +16,7 @@ import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import * as tauriWindowApi from '@tauri-apps/api/window'
 import { generateInstanceId } from '@/utils/tabId'
 import { version as appVersion } from '~package.json'
+import logoUrl from '@/assets/logo.png'
 import type { Asset } from '@/types/asset'
 import type { CreateAssetDto } from '@/types/asset'
 

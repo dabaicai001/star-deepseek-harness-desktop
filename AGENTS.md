@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.12.3(应用图标更换为 H1-text-below) |
+| 当前版本 | v0.13.2(Logo 更换 H1-text-below + Excel 渲染修复 + Motion System) |
 
 ---
 
