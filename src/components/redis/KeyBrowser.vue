@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onBeforeUnmount } from 'vue'
 import * as dbService from '@/services/db'
 import type { RedisKeyInfo } from '@/types/db'
 import ContextMenu from '@/components/common/ContextMenu.vue'
