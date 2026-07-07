@@ -15,6 +15,13 @@
 
 ---
 
+## [0.13.5] - 2026-07-07
+
+### 修复
+- 🐛 fix(brand): 标题栏 Logo 还是 CSS 画的旧 S 轨道图标,桌面快捷方式/任务栏图标还是旧设计;CyberLayout titlebar 从 CSS 几何 Logo 改为 `<img>` 引用 `logo-star.png`(H1 星星设计);用 `tauri icon` 从 `H1-text-below-transparent.png` 重新生成全套打包图标(ICO/ICNS/PNG/iOS/Android/Store Logo),确保 exe / 快捷方式 / 托盘全部统一为新星星 Logo
+
+---
+
 ## [0.13.4] - 2026-07-07
 
 ### 修复

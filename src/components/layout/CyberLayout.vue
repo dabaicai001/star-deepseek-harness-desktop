@@ -16,7 +16,7 @@ import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import * as tauriWindowApi from '@tauri-apps/api/window'
 import { generateInstanceId } from '@/utils/tabId'
 import { version as appVersion } from '~package.json'
-import logoUrl from '@/assets/logo.png'
+import logoUrl from '@/assets/logo-star.png'
 import type { Asset } from '@/types/asset'
 import type { CreateAssetDto } from '@/types/asset'
 
@@ -977,13 +977,7 @@ vueWatch(() => appStore.tabs.length, () => {
     <!-- Title Bar (自画 chrome · 替代系统标题栏) -->
     <div class="titlebar" @dblclick="onTitlebarDblclick">
       <div class="logo" aria-label="StarHub">
-        <div class="logo-mark" aria-hidden="true">
-          <span class="logo-orbit"></span>
-          <span class="logo-core">S</span>
-        </div>
-        <div class="logo-wordmark">
-          <span class="logo-word-main">Star</span><span class="logo-word-accent">Hub</span>
-        </div>
+        <img :src="logoUrl" alt="StarHub" class="logo-img" />
       </div>
 
       <div class="top-search">
@@ -1516,72 +1510,12 @@ vueWatch(() => appStore.tabs.length, () => {
   min-width: 0;
 }
 
-.logo-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.1), transparent 40%),
-    var(--grad-primary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
-    0 8px 22px -12px var(--cyan);
-  overflow: hidden;
-}
-
-.logo-mark::before {
-  content: "";
-  position: absolute;
-  inset: 6px;
-  border: 1px solid rgba(8, 13, 20, 0.42);
-  border-radius: 50%;
-}
-
-.logo-orbit {
-  position: absolute;
-  width: 24px;
-  height: 9px;
-  border: 1px solid rgba(8, 13, 20, 0.54);
-  border-left-color: rgba(255, 255, 255, 0.55);
-  border-radius: 50%;
-  transform: rotate(-32deg);
-}
-
-.logo-core {
-  position: relative;
-  z-index: 1;
-  color: var(--bg);
-  font-family: 'Orbitron', sans-serif;
-  font-size: 14px;
-  font-weight: 900;
-  line-height: 1;
-  letter-spacing: 0;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
-}
-
-.logo-wordmark {
-  display: inline-flex;
-  align-items: baseline;
-  font-family: 'Orbitron', 'Outfit', sans-serif;
-  font-size: 15px;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: 0.045em;
-  white-space: nowrap;
-}
-
-.logo-word-main {
-  color: var(--text);
-}
-
-.logo-word-accent {
-  color: var(--cyan);
-  margin-left: 1px;
-  text-shadow: 0 0 14px var(--focus-cyan);
+.logo-img {
+  height: 36px;
+  width: auto;
+  display: block;
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 .top-search {
