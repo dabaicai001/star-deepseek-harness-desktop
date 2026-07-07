@@ -98,5 +98,6 @@ data/local/
 assets.local.json
 config.local.toml
 
-# Logo 候选与临时备份(手动迭代用,不入仓)
-/icons/
+# Logo 候选与临时备份(手动迭代用,不入仓;注意 src-tauri/icons/ 是 Tauri 必需资源,不能误伤)
+/icons/_candidates/
+/icons/_original/
