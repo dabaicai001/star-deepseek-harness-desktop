@@ -413,6 +413,7 @@ function isGroupExpanded(id: string) {
         <span class="count">{{ assetStore.favoriteAssets.length }}</span>
       </div>
       <div v-show="isGroupExpanded('favorite')" class="tree-group-body">
+      <TransitionGroup name="cyber-list">
       <div
         v-for="asset in assetStore.favoriteAssets"
         :key="asset.id"
@@ -438,6 +439,7 @@ function isGroupExpanded(id: string) {
           <v-icon size="13" color="yellow">mdi-star</v-icon>
         </button>
       </div>
+      </TransitionGroup>
       </div>
     </div>
 
@@ -459,6 +461,7 @@ function isGroupExpanded(id: string) {
         <span class="count">{{ sshAssets.length }}</span>
       </div>
       <div v-show="isGroupExpanded('ssh')" class="tree-group-body">
+      <TransitionGroup name="cyber-list">
       <div
         v-for="asset in sshAssets"
         :key="asset.id"
@@ -480,6 +483,7 @@ function isGroupExpanded(id: string) {
         >
           <v-icon size="13">mdi-star-outline</v-icon>
         </button>
+      </div>
       </TransitionGroup>
       <div v-if="sshAssets.length === 0" class="tree-empty">
         <v-icon size="11">mdi-circle-small</v-icon>
@@ -504,6 +508,7 @@ function isGroupExpanded(id: string) {
         <span class="count">{{ dbAssets.length }}</span>
       </div>
       <div v-show="isGroupExpanded('db')" class="tree-group-body">
+      <TransitionGroup name="cyber-list">
       <div
         v-for="asset in dbAssets"
         :key="asset.id"
@@ -529,6 +534,7 @@ function isGroupExpanded(id: string) {
           <v-icon size="13">mdi-star-outline</v-icon>
         </button>
       </div>
+      </TransitionGroup>
       <div v-if="dbAssets.length === 0" class="tree-empty">
         <v-icon size="11">mdi-circle-small</v-icon>
         <span>暂无数据库</span>
@@ -575,6 +581,7 @@ function isGroupExpanded(id: string) {
           <v-icon size="13">mdi-star-outline</v-icon>
         </button>
       </div>
+      </TransitionGroup>
       <div v-if="dockerAssets.length === 0" class="tree-empty">
         <v-icon size="11">mdi-circle-small</v-icon>
         <span>暂无 Docker 主机</span>
@@ -620,6 +627,7 @@ function isGroupExpanded(id: string) {
         >
           <v-icon size="13">mdi-star-outline</v-icon>
         </button>
+      </div>
       </TransitionGroup>
       <div v-if="excelAssets.length === 0" class="tree-empty">
         <v-icon size="11">mdi-circle-small</v-icon>

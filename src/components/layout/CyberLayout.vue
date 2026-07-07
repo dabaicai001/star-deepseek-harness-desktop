@@ -142,7 +142,27 @@ function onTitlebarDblclick() {
   winToggleMaximize()
 }
 
+// ====== 欢迎页 stagger 交错入场 ======
+const welcomeRef = ref<HTMLElement | null>(null)
+const welcomeStaggerRun = ref(false)
+function triggerWelcomeStagger() {
+  if (appStore.tabs.length !== 0) return
+  welcomeStaggerRun.value = false
+  nextTick(() => {
+    if (!welcomeRef.value) return
+    const children = welcomeRef.value.children
+    for (let i = 0; i < children.length; i++) {
+      ;(children[i] as HTMLElement).style.setProperty('--i', String(i))
+    }
+    requestAnimationFrame(() => { welcomeStaggerRun.value = true })
+  })
+}
+vueWatch(() => appStore.tabs.length, (len) => {
+  if (len === 0) triggerWelcomeStagger()
+})
+
 onMounted(async () => {
+  triggerWelcomeStagger()
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('keydown', onSearchShortcut)
   window.addEventListener('keydown', onGlobalKeydown)
@@ -1938,6 +1958,7 @@ kbd {
   overflow-x: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  position: relative; /* TransitionGroup leave 时 tab 变 absolute,需要定位父级 */
 }
 
 .tab-strip::-webkit-scrollbar {
@@ -2482,8 +2503,10 @@ kbd {
 }
 
 .feature-card:hover:not(.disabled-card) {
-  transform: translateY(-2px);
-  box-shadow: var(--glow-soft);
+  transform: translateY(-4px) scale(1.008);
+  box-shadow:
+    0 18px 52px var(--glow-soft),
+    0 0 0 1px var(--focus-cyan);
   border-color: var(--status-connecting-border);
 }
 
