@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.13.5(标题栏/快捷方式图标统一为新星星 Logo) |
+| 当前版本 | v0.13.6(AGENTS.md 补充图标管理章节) |
 
 ---
 
@@ -594,6 +594,40 @@ cargo tauri build
 - Windows 代码签名需 EV 证书(否则 SmartScreen 警告)
 - Linux 优先 AppImage(零依赖)+ deb/rpm 给特定发行版
 
+### 10.6 应用图标管理(重要)
+
+> 换 Logo 时最容易踩的坑:改了打包图标但应用内 / 快捷方式还是旧的。
+
+**图标存在 3 个独立位置,必须全部更新才不漏**:
+
+| 位置 | 文件 | 作用 | 更新方式 |
+|---|---|---|---|
+| 打包图标 | `src-tauri/icons/icon.ico` / `icon.png` / `icon.icns` / 各尺寸 PNG | exe 图标、桌面快捷方式、任务栏、托盘 | `npx @tauri-apps/cli icon <源图.png>` 一键生成全套 |
+| 应用内标题栏 | `src/assets/logo-star.png` + `CyberLayout.vue` 的 `.logo` | 自定义标题栏左上角 Logo(`decorations: false` 时系统标题栏不渲染,Logo 全靠前端画) | 替换图片 + 确认模板用 `<img :src>` 而非 CSS 几何图形 |
+| 前端其他引用 | `src/assets/logo.png` 等 | 设置页、关于弹窗、Loading 等场景 | 全局搜索 `logo` 确认无遗漏 |
+
+**换 Logo 标准流程**:
+
+1. 准备一张 1024×1024 透明背景 PNG,放入 `icons/_candidates/`
+2. 用 `npx @tauri-apps/cli icon icons/_candidates/xxx.png` 生成 `src-tauri/icons/` 全套(ICO/ICNS/PNG/iOS/Android/Store Logo)
+3. 把生成的 `icon.png` 复制到 `src/assets/logo-star.png`(标题栏用)
+4. 确认 `CyberLayout.vue` 模板中 `.logo` 用 `<img :src="logoUrl">`,不是 CSS 画的几何图形
+5. 全局搜索 `logo.png` / `icon.svg` / `logo-mark` / `logo-core` 确认无残留旧引用
+6. **清 Tauri 构建缓存**:`cargo clean -p starhub`(否则 exe 里嵌的还是旧图标)
+7. 重新 `npm run tauri build`
+
+**踩过的坑(v0.13.2 ~ v0.13.5)**:
+
+- ❌ 源图是 JPEG 伪装成 .png → `tauri icon` 生成的图标无透明通道,exe 显示为带米黄背景的方形
+  - 修复:用 .NET `System.Drawing` 转真 PNG + `LockBits` 把背景色设为 Alpha=0
+- ❌ 标题栏 Logo 用 CSS 画的 `S` 轨道几何图形(`.logo-mark` / `.logo-orbit` / `.logo-core`),换 Logo 后应用内不变
+  - 修复:CyberLayout 模板改为 `<img :src="logoUrl">`,删除 CSS 几何 Logo 样式
+- ❌ 改了 `icon.ico` 但 exe / 快捷方式还是旧图标 → Tauri 构建缓存(`target/`)里嵌的旧图标
+  - 修复:`cargo clean -p starhub` 后重新打包
+- ❌ `icon.svg` / `icon-source.svg` 仍是旧设计 → `tauri icon` 不生成 SVG,需要手动用 `icon.png` base64 嵌入 SVG `<image>`
+- ❌ Windows 安装后桌面快捷方式图标不更新 → Windows 图标缓存问题
+  - 修复:`ie4uinit.exe -show` 或重启资源管理器
+
 ---
 
 ## 11. MVP 任务优先级
@@ -637,4 +671,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-07 (v0.13.5)*
+*最后更新: 2026-07-08 (v0.13.6)*
