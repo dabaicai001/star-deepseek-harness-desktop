@@ -100,32 +100,32 @@ html.v-theme--darkTheme {
   --chrome-glass: rgba(12, 19, 29, 0.68);
   --chrome-glass-soft: rgba(16, 24, 34, 0.58);
 
-  /* Excel fidelity mode */
-  --excel-green: #217346;
-  --excel-green-dark: #185c37;
-  --excel-green-soft: #e2f0d9;
-  --excel-green-border: #a9d18e;
-  --excel-title-fg: #ffffff;
-  --excel-title-tab-fg: rgba(255, 255, 255, 0.86);
-  --excel-title-muted: rgba(255, 255, 255, 0.72);
-  --excel-title-warning: #fff2cc;
-  --excel-title-chip: rgba(255, 255, 255, 0.16);
-  --excel-title-chip-border: rgba(255, 255, 255, 0.28);
-  --excel-title-border: rgba(255, 255, 255, 0.35);
-  --excel-title-hover: rgba(255, 255, 255, 0.12);
-  --excel-ribbon-bg: #f3f2f1;
-  --excel-ribbon-tab-bg: #ffffff;
-  --excel-ribbon-line: #d0d7de;
-  --excel-sheet-hover: #e6e6e6;
-  --excel-grid-bg: #ffffff;
-  --excel-grid-line: #d9e1e8;
-  --excel-header-bg: #f3f3f3;
-  --excel-frozen-bg: #f8fdf8;
-  --excel-header-selected: #d9ead3;
-  --excel-selection: #107c41;
-  --excel-selection-fill: rgba(16, 124, 65, 0.12);
-  --excel-text: #1f2328;
-  --excel-muted: #616161;
+  /* Excel cyber theme (dark) */
+  --excel-green: #5dd6d6;
+  --excel-green-dark: #3a9a9a;
+  --excel-green-soft: rgba(93, 214, 214, 0.1);
+  --excel-green-border: rgba(93, 214, 214, 0.3);
+  --excel-title-fg: #dce7f3;
+  --excel-title-tab-fg: #9aa8ba;
+  --excel-title-muted: #607082;
+  --excel-title-warning: #e8c468;
+  --excel-title-chip: rgba(93, 214, 214, 0.12);
+  --excel-title-chip-border: rgba(93, 214, 214, 0.25);
+  --excel-title-border: rgba(122, 156, 185, 0.18);
+  --excel-title-hover: rgba(93, 214, 214, 0.08);
+  --excel-ribbon-bg: #101822;
+  --excel-ribbon-tab-bg: #152032;
+  --excel-ribbon-line: rgba(122, 156, 185, 0.18);
+  --excel-sheet-hover: rgba(93, 214, 214, 0.06);
+  --excel-grid-bg: #0d1420;
+  --excel-grid-line: rgba(122, 156, 185, 0.1);
+  --excel-header-bg: #101822;
+  --excel-frozen-bg: rgba(93, 214, 214, 0.04);
+  --excel-header-selected: rgba(93, 214, 214, 0.15);
+  --excel-selection: #5dd6d6;
+  --excel-selection-fill: rgba(93, 214, 214, 0.12);
+  --excel-text: #dce7f3;
+  --excel-muted: #607082;
 }
 
 /* 注意:light 主题必须挂到 <html> 上,这样 teleport 到 body 的元素也能拿到 token。
@@ -224,32 +224,32 @@ html.v-theme--lightTheme {
   --chrome-glass: rgba(255, 255, 255, 0.6);
   --chrome-glass-soft: rgba(255, 255, 255, 0.4);
 
-  /* Excel fidelity mode */
-  --excel-green: #217346;
-  --excel-green-dark: #185c37;
-  --excel-green-soft: #e2f0d9;
-  --excel-green-border: #a9d18e;
-  --excel-title-fg: #ffffff;
-  --excel-title-tab-fg: rgba(255, 255, 255, 0.86);
-  --excel-title-muted: rgba(255, 255, 255, 0.72);
-  --excel-title-warning: #fff2cc;
-  --excel-title-chip: rgba(255, 255, 255, 0.16);
-  --excel-title-chip-border: rgba(255, 255, 255, 0.28);
-  --excel-title-border: rgba(255, 255, 255, 0.35);
-  --excel-title-hover: rgba(255, 255, 255, 0.12);
-  --excel-ribbon-bg: #f3f2f1;
+  /* Excel cyber theme (light) */
+  --excel-green: #3f6f7a;
+  --excel-green-dark: #2d5560;
+  --excel-green-soft: rgba(63, 111, 122, 0.08);
+  --excel-green-border: rgba(63, 111, 122, 0.25);
+  --excel-title-fg: #1e293b;
+  --excel-title-tab-fg: #475569;
+  --excel-title-muted: #64748b;
+  --excel-title-warning: #ca8a04;
+  --excel-title-chip: rgba(63, 111, 122, 0.1);
+  --excel-title-chip-border: rgba(63, 111, 122, 0.2);
+  --excel-title-border: rgba(63, 111, 122, 0.2);
+  --excel-title-hover: rgba(63, 111, 122, 0.06);
+  --excel-ribbon-bg: #f1f5f9;
   --excel-ribbon-tab-bg: #ffffff;
-  --excel-ribbon-line: #d0d7de;
-  --excel-sheet-hover: #e6e6e6;
+  --excel-ribbon-line: #cbd5e1;
+  --excel-sheet-hover: rgba(63, 111, 122, 0.05);
   --excel-grid-bg: #ffffff;
-  --excel-grid-line: #d9e1e8;
-  --excel-header-bg: #f3f3f3;
-  --excel-frozen-bg: #f8fdf8;
-  --excel-header-selected: #d9ead3;
-  --excel-selection: #107c41;
-  --excel-selection-fill: rgba(16, 124, 65, 0.12);
-  --excel-text: #1f2328;
-  --excel-muted: #616161;
+  --excel-grid-line: #e2e8f0;
+  --excel-header-bg: #f1f5f9;
+  --excel-frozen-bg: rgba(63, 111, 122, 0.03);
+  --excel-header-selected: rgba(63, 111, 122, 0.12);
+  --excel-selection: #3f6f7a;
+  --excel-selection-fill: rgba(63, 111, 122, 0.1);
+  --excel-text: #1e293b;
+  --excel-muted: #64748b;
 }
 
 /* Global styles */
