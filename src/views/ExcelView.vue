@@ -5,8 +5,7 @@ import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useExcelStore, type CellEdit } from '@/stores/excel'
 import { useNotifyStore } from '@/stores/notify'
-import ExcelGrid from '@/components/excel/ExcelGrid.vue'
-import ExcelToolbar from '@/components/excel/ExcelToolbar.vue'
+import UniverGrid from '@/components/excel/UniverGrid.vue'
 import ExcelSheetBar from '@/components/excel/ExcelSheetBar.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
@@ -849,37 +848,8 @@ watch(
             </button>
           </div>
 
-          <ExcelToolbar
-            @save="saveFile"
-            @add-row="handleAddRow()"
-            @delete-row="handleDeleteRow()"
-            @add-col="handleAddCol()"
-            @delete-col="handleDeleteCol()"
-            @sort-asc="sortRows(false)"
-            @sort-desc="sortRows(true)"
-            @filter="toggleFilter"
-            @auto-filter="autoFilter"
-            @remove-duplicates="removeDuplicates"
-            @remove-duplicates-to-sheet="removeDuplicatesToSheet()"
-            @freeze-header="setFreeze(1, 0)"
-            @freeze-first-col="setFreeze(0, 1)"
-            @freeze-both="setFreeze(1, 1)"
-            @unfreeze="setFreeze(0, 0)"
-            @undo="undo"
-            @redo="redo"
-            @replace-all="replaceAll"
-            @import-db="notify.notify({ message: '导入数据库功能还在建设中', color: 'info', timeout: 2200 })"
-          />
-
-          <ExcelGrid
+          <UniverGrid
             @cell-change="onCellChange"
-            @insert-row="handleAddRow"
-            @delete-row="handleDeleteRow"
-            @insert-col="handleAddCol"
-            @delete-col="handleDeleteCol"
-            @sort="(col, descending) => sortRows(descending, col)"
-            @undo="undo"
-            @redo="redo"
           />
 
           <ExcelSheetBar
