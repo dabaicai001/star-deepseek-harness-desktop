@@ -1072,9 +1072,7 @@ vueWatch(() => appStore.tabs.length, () => {
             aria-label="Minimize"
             @click="winMinimize"
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
-            </svg>
+            <v-icon size="14">mdi-window-minimize</v-icon>
           </button>
           <button
             class="win-btn"
@@ -1082,13 +1080,7 @@ vueWatch(() => appStore.tabs.length, () => {
             :aria-label="isMaximized ? 'Restore' : 'Maximize'"
             @click="winToggleMaximize"
           >
-            <svg v-if="!isMaximized" width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <rect x="1.5" y="1.5" width="7" height="7" stroke="currentColor" stroke-width="1" fill="none" rx="0.5"/>
-            </svg>
-            <svg v-else width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <rect x="0.5" y="2.5" width="6" height="6" stroke="currentColor" stroke-width="1" rx="0.5"/>
-              <rect x="2.5" y="0.5" width="6" height="6" stroke="currentColor" stroke-width="1" fill="var(--panel-solid)" rx="0.5"/>
-            </svg>
+            <v-icon size="14">{{ isMaximized ? 'mdi-window-restore' : 'mdi-window-maximize' }}</v-icon>
           </button>
           <button
             class="win-btn close"
@@ -1096,10 +1088,7 @@ vueWatch(() => appStore.tabs.length, () => {
             aria-label="Close"
             @click="winClose"
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <line x1="2" y1="2" x2="8" y2="8" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
-              <line x1="8" y1="2" x2="2" y2="8" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
-            </svg>
+            <v-icon size="14">mdi-window-close</v-icon>
           </button>
         </div>
       </div>

@@ -773,7 +773,7 @@ watch(
     <template v-else>
       <div class="excel-topbar">
         <div class="tb-left">
-          <v-icon size="15" color="green">{{ isCsvFile ? 'mdi-file-delimited-outline' : 'mdi-file-excel-outline' }}</v-icon>
+          <v-icon size="15" class="tb-file-icon">{{ isCsvFile ? 'mdi-file-delimited-outline' : 'mdi-file-excel-outline' }}</v-icon>
           <span class="tb-title">{{ asset.name }}</span>
           <span class="tb-path">{{ store.filePath || asset.config.filePath }}</span>
           <span v-if="store.dirty" class="tb-dirty">● 未保存</span>
@@ -834,7 +834,7 @@ watch(
       <div class="excel-workspace">
         <div class="excel-main">
           <div v-if="showFilter" class="filter-bar">
-            <v-icon size="14" color="cyan">mdi-filter-outline</v-icon>
+            <v-icon size="14" class="filter-icon">mdi-filter-outline</v-icon>
             <input
               v-model="filterInput"
               class="cyber-input filter-input"
@@ -969,6 +969,10 @@ watch(
   min-width: 0;
 }
 
+.tb-file-icon {
+  color: var(--excel-title-fg);
+}
+
 .tb-title {
   font-size: 13px;
   font-weight: 600;
@@ -1072,6 +1076,10 @@ watch(
   padding: 4px 12px;
   background: var(--excel-ribbon-tab-bg);
   border-bottom: 1px solid var(--excel-ribbon-line);
+}
+
+.filter-icon {
+  color: var(--excel-green);
 }
 
 .filter-input {

@@ -238,13 +238,13 @@ func (a *ExcelAdapter) StyleHeader(sheetName string) error {
 	}
 	styleID, err := a.f.NewStyle(&excelize.Style{
 		Font: &excelize.Font{Bold: true, Color: "FFFFFF"},
-		Fill: excelize.Fill{Type: "pattern", Color: []string{"1F6FEB"}, Pattern: 1},
+		Fill: excelize.Fill{Type: "pattern", Color: []string{"107C41"}, Pattern: 1},
 		Alignment: &excelize.Alignment{
 			Horizontal: "center",
 			Vertical:   "center",
 		},
 		Border: []excelize.Border{
-			{Type: "bottom", Color: "7DD3FC", Style: 1},
+			{Type: "bottom", Color: "70AD47", Style: 1},
 		},
 	})
 	if err != nil {

@@ -100,32 +100,32 @@ html.v-theme--darkTheme {
   --chrome-glass: rgba(12, 19, 29, 0.68);
   --chrome-glass-soft: rgba(16, 24, 34, 0.58);
 
-  /* Excel cyber theme (dark) */
-  --excel-green: #5dd6d6;
-  --excel-green-dark: #3a9a9a;
-  --excel-green-soft: rgba(93, 214, 214, 0.1);
-  --excel-green-border: rgba(93, 214, 214, 0.3);
-  --excel-title-fg: #dce7f3;
-  --excel-title-tab-fg: #9aa8ba;
-  --excel-title-muted: #607082;
-  --excel-title-warning: #e8c468;
-  --excel-title-chip: rgba(93, 214, 214, 0.12);
-  --excel-title-chip-border: rgba(93, 214, 214, 0.25);
-  --excel-title-border: rgba(122, 156, 185, 0.18);
-  --excel-title-hover: rgba(93, 214, 214, 0.08);
-  --excel-ribbon-bg: #101822;
-  --excel-ribbon-tab-bg: #152032;
-  --excel-ribbon-line: rgba(122, 156, 185, 0.18);
-  --excel-sheet-hover: rgba(93, 214, 214, 0.06);
-  --excel-grid-bg: #0d1420;
-  --excel-grid-line: rgba(122, 156, 185, 0.1);
-  --excel-header-bg: #101822;
-  --excel-frozen-bg: rgba(93, 214, 214, 0.04);
-  --excel-header-selected: rgba(93, 214, 214, 0.15);
-  --excel-selection: #5dd6d6;
-  --excel-selection-fill: rgba(93, 214, 214, 0.12);
-  --excel-text: #dce7f3;
-  --excel-muted: #607082;
+  /* Excel workspace keeps the familiar Office palette inside the cyber shell. */
+  --excel-green: #107c41;
+  --excel-green-dark: #0b5f31;
+  --excel-green-soft: rgba(16, 124, 65, 0.1);
+  --excel-green-border: rgba(16, 124, 65, 0.3);
+  --excel-title-fg: #ffffff;
+  --excel-title-tab-fg: #323130;
+  --excel-title-muted: rgba(255, 255, 255, 0.72);
+  --excel-title-warning: #ffe08a;
+  --excel-title-chip: rgba(255, 255, 255, 0.14);
+  --excel-title-chip-border: rgba(255, 255, 255, 0.24);
+  --excel-title-border: rgba(255, 255, 255, 0.2);
+  --excel-title-hover: rgba(255, 255, 255, 0.16);
+  --excel-ribbon-bg: #f3f2f1;
+  --excel-ribbon-tab-bg: #ffffff;
+  --excel-ribbon-line: #d2d0ce;
+  --excel-sheet-hover: #edebe9;
+  --excel-grid-bg: #ffffff;
+  --excel-grid-line: #e1dfdd;
+  --excel-header-bg: #f3f2f1;
+  --excel-frozen-bg: rgba(16, 124, 65, 0.04);
+  --excel-header-selected: rgba(16, 124, 65, 0.14);
+  --excel-selection: #107c41;
+  --excel-selection-fill: rgba(16, 124, 65, 0.12);
+  --excel-text: #201f1e;
+  --excel-muted: #605e5c;
 }
 
 /* 注意:light 主题必须挂到 <html> 上,这样 teleport 到 body 的元素也能拿到 token。
@@ -224,32 +224,32 @@ html.v-theme--lightTheme {
   --chrome-glass: rgba(255, 255, 255, 0.6);
   --chrome-glass-soft: rgba(255, 255, 255, 0.4);
 
-  /* Excel cyber theme (light) */
-  --excel-green: #3f6f7a;
-  --excel-green-dark: #2d5560;
-  --excel-green-soft: rgba(63, 111, 122, 0.08);
-  --excel-green-border: rgba(63, 111, 122, 0.25);
-  --excel-title-fg: #1e293b;
-  --excel-title-tab-fg: #475569;
-  --excel-title-muted: #64748b;
-  --excel-title-warning: #ca8a04;
-  --excel-title-chip: rgba(63, 111, 122, 0.1);
-  --excel-title-chip-border: rgba(63, 111, 122, 0.2);
-  --excel-title-border: rgba(63, 111, 122, 0.2);
-  --excel-title-hover: rgba(63, 111, 122, 0.06);
+  /* Excel workspace uses the same Office palette in light mode. */
+  --excel-green: #107c41;
+  --excel-green-dark: #0b5f31;
+  --excel-green-soft: rgba(16, 124, 65, 0.08);
+  --excel-green-border: rgba(16, 124, 65, 0.26);
+  --excel-title-fg: #ffffff;
+  --excel-title-tab-fg: #323130;
+  --excel-title-muted: rgba(255, 255, 255, 0.72);
+  --excel-title-warning: #ffe08a;
+  --excel-title-chip: rgba(255, 255, 255, 0.14);
+  --excel-title-chip-border: rgba(255, 255, 255, 0.24);
+  --excel-title-border: rgba(255, 255, 255, 0.2);
+  --excel-title-hover: rgba(255, 255, 255, 0.16);
   --excel-ribbon-bg: #f1f5f9;
   --excel-ribbon-tab-bg: #ffffff;
   --excel-ribbon-line: #cbd5e1;
-  --excel-sheet-hover: rgba(63, 111, 122, 0.05);
+  --excel-sheet-hover: #edebe9;
   --excel-grid-bg: #ffffff;
   --excel-grid-line: #e2e8f0;
   --excel-header-bg: #f1f5f9;
-  --excel-frozen-bg: rgba(63, 111, 122, 0.03);
-  --excel-header-selected: rgba(63, 111, 122, 0.12);
-  --excel-selection: #3f6f7a;
-  --excel-selection-fill: rgba(63, 111, 122, 0.1);
-  --excel-text: #1e293b;
-  --excel-muted: #64748b;
+  --excel-frozen-bg: rgba(16, 124, 65, 0.03);
+  --excel-header-selected: rgba(16, 124, 65, 0.12);
+  --excel-selection: #107c41;
+  --excel-selection-fill: rgba(16, 124, 65, 0.1);
+  --excel-text: #201f1e;
+  --excel-muted: #605e5c;
 }
 
 /* Global styles */
@@ -1424,43 +1424,47 @@ html.v-theme--lightTheme {
 .window-controls {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   flex-shrink: 0;
+  width: 104px;
+  min-width: 104px;
+  height: 36px;
   gap: 2px;
-  margin-left: 12px;
-  padding-left: 12px;
-  border-left: 1px solid var(--line);
-  height: 100%;
+  margin-left: 6px;
+  padding: 2px;
+  border-left: 1px solid var(--line-2);
 }
 
 .window-controls .win-btn {
   width: 32px;
   height: 32px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
-  border: none;
+  background: var(--hover-cyan-faint);
+  border: 1px solid transparent;
   border-radius: 6px;
-  color: var(--text-2);
+  color: var(--text);
   cursor: pointer;
   font-family: inherit;
   padding: 0;
-  transition: all 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
 .window-controls .win-btn:hover {
   background: var(--icon-bg-cyan);
+  border-color: var(--focus-cyan);
   color: var(--cyan);
 }
 
 .window-controls .win-btn.close:hover {
   background: var(--close-hover-bg);
+  border-color: var(--status-error-border);
   color: var(--red);
 }
 
-.window-controls .win-btn svg {
-  display: block;
-  opacity: 0.85;
+.window-controls .win-btn .v-icon {
+  opacity: 0.95;
 }
 
 /* Sidebar collapsed mode: 仅显示 icon, 隐藏 label/count */
