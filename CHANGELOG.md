@@ -15,6 +15,20 @@
 
 ---
 
+## [0.14.4] - 2026-07-08
+
+### 修复
+- 🐛 fix(excel): 彻底修复 Excel 页面数据下方大面积留白 -- 根因是 Univer Engine 的 `resize()` 方法会缓存上次测量的尺寸(`_previousWidth`/`_previousHeight`),当尺寸未变时跳过 resize,导致画布在 300ms 延迟挂载后尺寸不正确且无法自动修正。修复:1) `requestUniverResize` 改为轮询方式(每 50ms 检查一次,最多 1.5s),等待画布挂载后直接重置引擎尺寸缓存(`_previousWidth = -1`)强制重新测量,若仍不匹配则直接调用 `resizeBySize()` 设置正确尺寸;2) `renderWorkbook` 在创建 Univer 实例前等待容器有非零高度(ResizeObserver + 500ms 超时兜底),避免 0 高度挂载;3) `disposeWorkbook` 清理容器 innerHTML 防止残留 DOM 干扰下次渲染;4) 移除 CSS 中的调试边框(lime/cyan outline);5) `[data-u-comp="workbench-layout"]` 增加 `height: 100% !important` 确保工作区填满容器。
+
+---
+
+## [0.14.3] - 2026-07-08
+
+### 修复
+- 🐛 fix(excel): 修复 Excel 页面大面积留白 -- Univer Engine 的 ResizeObserver 使用 `requestIdleCallback` 延迟画布 resize,导致画布尺寸长时间不正确。修改 `@univerjs/engine-render` 编译产物(ES + CJS),将 `requestIdleCallback` 替换为 `requestAnimationFrame` 使画布在下一帧立即 resize;同时增强 `UniverGrid.vue` 的 `requestUniverResize`,增加多次延迟触发(100ms/350ms/600ms)覆盖 Univer 300ms 延迟挂载,并直接检测 canvas 与容器尺寸是否匹配来强制触发 resize。
+
+---
+
 ## [0.14.2] - 2026-07-08
 
 ### 修复

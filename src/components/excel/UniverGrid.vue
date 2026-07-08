@@ -143,16 +143,104 @@ function refreshViewportRowCount(): boolean {
   return true
 }
 
+let resizePollHandle: number | null = null
+
 function requestUniverResize() {
-  // Univer 的 Engine 不监听 window resize,而是用自己的 ResizeObserver 监听容器。
-  // 通过短暂修改容器尺寸来触发 ResizeObserver,让引擎重新测量并 resize 画布。
-  const el = containerRef.value
-  if (!el) return
-  const oldHeight = el.style.height
-  el.style.height = '99.9%'
-  window.requestAnimationFrame(() => {
-    el.style.height = oldHeight || '100%'
-  })
+  // Univer Engine 在生命周期 Ready 后延迟 300ms 才挂载画布。
+  // 挂载时 engine.resize() 用 getComputedStyle 获取挂载点尺寸,如果此时布局
+  // 尚未稳定或尺寸与 _previousWidth/_previousHeight 相同,则跳过 resize,导致
+  // 画布尺寸不正确,下方出现大面积留白。
+  //
+  // 修复策略:轮询等待画布挂载完成,然后重置引擎的尺寸缓存(_previousWidth/
+  // _previousHeight)强制重新测量。如果仍不匹配,直接调用 resizeBySize()。
+  if (resizePollHandle !== null) window.clearInterval(resizePollHandle)
+
+  let attempts = 0
+  const maxAttempts = 30 // 30 * 50ms = 1.5s
+
+  resizePollHandle = window.setInterval(() => {
+    attempts++
+    if (attempts > maxAttempts) {
+      if (resizePollHandle !== null) {
+        window.clearInterval(resizePollHandle)
+        resizePollHandle = null
+      }
+      return
+    }
+
+    let success = false
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const injector = (univerAPIInstance as any)?._injector
+      if (!injector || !univerInstance) return
+
+      const unitId = univerAPIInstance?.getActiveWorkbook?.()?.getId?.()
+      if (!unitId) return
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const renderMgr = injector.get?.(Symbol.for('IRenderManagerService'))
+      const renderUnit = renderMgr?.getRenderById?.(unitId)
+      const engine = renderUnit?.engine
+      if (!engine) return
+
+      const el = containerRef.value
+      if (!el) return
+
+      const canvas = el.querySelector('[data-u-comp="render-canvas"]') as HTMLCanvasElement | null
+      const mountPoint = el.querySelector('[data-range-selector]') as HTMLElement | null
+
+      // 画布尚未挂载,继续等待
+      if (!canvas || !mountPoint) return
+
+      const mountW = mountPoint.clientWidth
+      const mountH = mountPoint.clientHeight
+
+      // 挂载点尺寸为 0,布局尚未稳定,继续等待
+      if (mountW <= 0 || mountH <= 0) return
+
+      const canvasW = parseFloat(canvas.style.width) || 0
+      const canvasH = parseFloat(canvas.style.height) || 0
+      const sizeMatches = Math.abs(canvasW - mountW) <= 1 && Math.abs(canvasH - mountH) <= 1
+
+      if (!sizeMatches) {
+        // 重置引擎尺寸缓存,强制 resize() 重新测量
+        engine._previousWidth = -1
+        engine._previousHeight = -1
+        engine.resize()
+
+        // resize() 后再次检查,仍不匹配则直接调用 resizeBySize()
+        const newCanvasH = parseFloat(canvas.style.height) || 0
+        if (Math.abs(newCanvasH - mountH) > 1) {
+          engine.resizeBySize(mountW, mountH)
+        }
+      }
+
+      success = true
+    } catch {
+      // 忽略内部 API 变化
+    }
+
+    // 画布尺寸已正确,停止轮询
+    if (success) {
+      // 再验证一次:确认画布尺寸确实正确
+      try {
+        const el = containerRef.value
+        const canvas = el?.querySelector('[data-u-comp="render-canvas"]') as HTMLCanvasElement | null
+        const mountPoint = el?.querySelector('[data-range-selector]') as HTMLElement | null
+        if (canvas && mountPoint) {
+          const canvasH = parseFloat(canvas.style.height) || 0
+          const mountH = mountPoint.clientHeight
+          if (mountH > 0 && Math.abs(canvasH - mountH) <= 1) {
+            if (resizePollHandle !== null) {
+              window.clearInterval(resizePollHandle)
+              resizePollHandle = null
+            }
+            return
+          }
+        }
+      } catch { /* ignore */ }
+    }
+  }, 50)
 }
 
 function queueLayoutRender() {
@@ -196,6 +284,10 @@ function buildWorkbookData(): IWorkbookData {
 }
 
 function disposeWorkbook() {
+  if (resizePollHandle !== null) {
+    window.clearInterval(resizePollHandle)
+    resizePollHandle = null
+  }
   commandDisposable?.dispose()
   commandDisposable = null
   resizeObserver?.disconnect()
@@ -204,11 +296,36 @@ function disposeWorkbook() {
   univerInstance?.dispose()
   univerAPIInstance = null
   univerInstance = null
+  // 清理容器内残留的 Univer DOM,防止下次创建时残留元素干扰布局
+  if (containerRef.value) {
+    containerRef.value.innerHTML = ''
+  }
 }
 
 async function renderWorkbook() {
   await nextTick()
   if (!containerRef.value) return
+
+  // 等待容器有非零高度再创建 Univer 实例。
+  // 如果容器高度为 0(flex 布局尚未稳定),Univer 画布会以 0 高度挂载,
+  // 后续即使容器变大,引擎的 resize 也可能因尺寸缓存而跳过。
+  const shell = containerRef.value.parentElement
+  if (shell && shell.clientHeight === 0) {
+    await new Promise<void>((resolve) => {
+      let resolved = false
+      const finish = () => {
+        if (resolved) return
+        resolved = true
+        observer?.disconnect()
+        resolve()
+      }
+      const observer = new ResizeObserver((entries) => {
+        if (entries[0]?.contentRect.height > 0) finish()
+      })
+      observer.observe(shell)
+      setTimeout(finish, 500) // 超时兜底
+    })
+  }
 
   syncingFromStore = true
   refreshViewportRowCount()
@@ -390,6 +507,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (syncTimer !== null) window.clearTimeout(syncTimer)
   if (layoutRenderTimer !== null) window.clearTimeout(layoutRenderTimer)
+  if (resizePollHandle !== null) window.clearInterval(resizePollHandle)
+  resizePollHandle = null
   disposeWorkbook()
 })
 
@@ -430,6 +549,7 @@ watch(sheetVersion, () => {
 /* 工作区根元素:覆盖 univer-bg-white / dark:!univer-bg-gray-800 */
 :deep([data-u-comp="workbench-layout"]) {
   background-color: var(--excel-grid-bg) !important;
+  height: 100% !important;
 }
 
 /* 内容区 section(有 univer-bg-white 但无 dark 覆盖,是留白的主要来源) */
