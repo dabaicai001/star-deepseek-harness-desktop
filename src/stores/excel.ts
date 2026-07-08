@@ -346,12 +346,30 @@ export const useExcelStore = defineStore('excel', () => {
     if (data.filePath !== undefined) filePath.value = data.filePath
     if (data.sheetNames) sheetNames.value = data.sheetNames
     if (data.sheetName) activeSheet.value = data.sheetName
+    // 双保险:即使后端忘了裁掉尾部空行,前端也要裁,否则 Univer 渲染 + 状态栏都会
+    // 出现大量虚高行数,UI 上呈现大块留白。
+    const trimmedRows = trimTrailingEmptyRows(data.rows)
     columns.value = data.columns
-    rowData.value = data.rows
-    totalRows.value = data.totalRows
+    rowData.value = trimmedRows
+    totalRows.value = Math.min(data.totalRows, trimmedRows.length)
     dirty.value = data.preserveDirty ? wasDirty : false
     undoStack.value = []
     redoStack.value = []
+  }
+
+  function isRowBlank(row: string[] | undefined | null): boolean {
+    if (!row) return true
+    for (const cell of row) {
+      if (cell !== null && cell !== undefined && String(cell).trim() !== '') return false
+    }
+    return true
+  }
+
+  function trimTrailingEmptyRows(rows: string[][]): string[][] {
+    let end = rows.length
+    while (end > 0 && isRowBlank(rows[end - 1])) end--
+    if (end === rows.length) return rows
+    return rows.slice(0, end)
   }
 
   function clear() {

@@ -1,6 +1,9 @@
 package adapters
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
 
 func TestExcelWriteCellsWritesDataRowsBelowHeader(t *testing.T) {
 	adapter, err := NewExcelAdapter(&ExcelConnInfo{})
@@ -133,4 +136,53 @@ func TestDedupKeyTreatsMissingTrailingCellsAsBlank(t *testing.T) {
 	if left != right {
 		t.Fatalf("selected missing trailing blank should match explicit blank")
 	}
+}
+
+// TestReadSheetTrimsTrailingBlankRows 验证 ReadSheet 会裁掉数据区尾部所有空白行,
+// 否则前端会拿到一堆无数据的 row,导致 Excel 视图出现大块留白。
+func TestReadSheetTrimsTrailingBlankRows(t *testing.T) {
+	adapter, err := NewExcelAdapter(&ExcelConnInfo{})
+	if err != nil {
+		t.Fatalf("NewExcelAdapter failed: %v", err)
+	}
+	defer adapter.Close()
+
+	if err := adapter.f.SetCellValue("Sheet1", "A1", "id"); err != nil {
+		t.Fatalf("set header failed: %v", err)
+	}
+	if err := adapter.f.SetCellValue("Sheet1", "B1", "title"); err != nil {
+		t.Fatalf("set header failed: %v", err)
+	}
+	for ri, val := range []string{"10054", "10055", "10056"} {
+		if err := adapter.f.SetCellValue("Sheet1", "A"+itoa(ri+2), val); err != nil {
+			t.Fatalf("set data failed: %v", err)
+		}
+		if err := adapter.f.SetCellValue("Sheet1", "B"+itoa(ri+2), "row-"+itoa(ri)); err != nil {
+			t.Fatalf("set data failed: %v", err)
+		}
+	}
+	// 模拟"曾经编辑过但被清空"的尾部行:这些行 GetRows 会返回,但 ReadSheet 应裁掉。
+	for ri := 5; ri <= 100; ri++ {
+		if err := adapter.f.SetCellValue("Sheet1", "A"+itoa(ri), ""); err != nil {
+			t.Fatalf("seed blank row failed: %v", err)
+		}
+		if err := adapter.f.SetCellValue("Sheet1", "B"+itoa(ri), " "); err != nil {
+			t.Fatalf("seed blank row failed: %v", err)
+		}
+	}
+
+	data, err := adapter.ReadSheet("Sheet1", 0, 0)
+	if err != nil {
+		t.Fatalf("ReadSheet failed: %v", err)
+	}
+	if data.TotalRows != 3 {
+		t.Fatalf("TotalRows mismatch: want 3 (data only), got %d", data.TotalRows)
+	}
+	if len(data.Rows) != 3 {
+		t.Fatalf("Rows length mismatch: want 3, got %d (rows=%#v)", len(data.Rows), data.Rows)
+	}
+}
+
+func itoa(i int) string {
+	return strconv.Itoa(i)
 }

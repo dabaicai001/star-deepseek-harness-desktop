@@ -107,7 +107,10 @@ function lastNonEmptyDataIndex(): number {
   const data = store.rowData
   for (let i = data.length - 1; i >= 0; i--) {
     const row = data[i]
-    if (row && row.some(cell => String(cell ?? '').trim() !== '')) return i
+    if (!row) continue
+    for (const cell of row) {
+      if (cell !== null && cell !== undefined && String(cell).trim() !== '') return i
+    }
   }
   return -1
 }

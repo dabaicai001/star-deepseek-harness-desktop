@@ -101,6 +101,11 @@ func (a *ExcelAdapter) GetSheetNames() []string {
 
 // ReadSheet 读取 Sheet 数据（分页）
 // offset/limit 为 0 表示返回全部（offset 基于数据行，不含标题行）
+//
+// 关键：excelize.GetRows 会保留工作表中所有曾被实例化的行标签（即 "曾经存在过 cell 但后来
+// 被清空" 的行也会一并返回）。如果原样透传给前端,会一次性塞入大量空白行,导致 Excel 视图
+// 出现大块留白且 Univer 渲染超长。这里去掉数据区尾部所有 cell 都为空的行,totalRows 也按
+// trim 后的真实数据行数返回,与前端显示一致。
 func (a *ExcelAdapter) ReadSheet(sheetName string, offset, limit int) (*SheetData, error) {
 	rows, err := a.f.GetRows(sheetName)
 	if err != nil {
@@ -134,6 +139,7 @@ func (a *ExcelAdapter) ReadSheet(sheetName string, offset, limit int) (*SheetDat
 			dataRowsAll = append(dataRowsAll, normalized)
 		}
 	}
+	dataRowsAll = trimTrailingEmptyRows(dataRowsAll)
 	totalDataRows := len(dataRowsAll)
 
 	start := offset
@@ -549,6 +555,27 @@ func maxColumnCount(rows [][]string) int {
 		}
 	}
 	return maxCols
+}
+
+// isRowEmpty 判断一行所有 cell 是否都是空白（含纯空格、制表符等不可见字符）。
+// 用于从 GetRows 结果里裁掉尾部空白行,避免前端一次性收到一堆空 row。
+func isRowEmpty(row []string) bool {
+	for _, cell := range row {
+		if strings.TrimSpace(cell) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// trimTrailingEmptyRows 去掉二维行数组尾部所有空行,不修改原始 slice。
+// 如果整张表都是空的,返回空数组而不是 nil,与原 dataRowsAll 类型一致。
+func trimTrailingEmptyRows(rows [][]string) [][]string {
+	end := len(rows)
+	for end > 0 && isRowEmpty(rows[end-1]) {
+		end--
+	}
+	return rows[:end]
 }
 
 func dataCellName(dataRow, col int) (string, error) {

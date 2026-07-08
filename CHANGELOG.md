@@ -15,6 +15,13 @@
 
 ---
 
+## [0.13.8] - 2026-07-08
+
+### 修复
+- 🐛 fix(excel): 修复 Excel 视图大面积留白 —— `sidecar/adapters/excel.go` 的 `ReadSheet` 用 `excelize.GetRows` 直接拿整张 sheet 的物理 row,会把"曾经编辑过但已清空"的行也一并返回,前端 `store.rowData` 一次性收到 100 行(其中 90 行空白),导致状态栏显示 `100/100`、Univer 渲染远超真实数据量的画布。修复:`ReadSheet` 增加 `trimTrailingEmptyRows` 裁掉数据区尾部所有 cell 为空的行,`totalRows` 也按裁剪后的真实数据行数返回;前端 `stores/excel.ts#loadData` 加双保险再裁一次;`UniverGrid#lastNonEmptyDataIndex` 改用更稳健的 null-safe 判断;新增 Go 单测 `TestReadSheetTrimsTrailingBlankRows` 锁定行为
+
+---
+
 ## [0.13.7] - 2026-07-08
 
 ### 改进
