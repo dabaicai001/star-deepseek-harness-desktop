@@ -85,6 +85,7 @@ let updatingStoreFromUniver = false
 let syncTimer: number | null = null
 let layoutRenderTimer: number | null = null
 const viewportRowCount = ref(0)
+const compactShellHeight = ref<number | null>(null)
 
 const sheetVersion = computed(() => [
   store.connId,
@@ -160,6 +161,19 @@ function refreshViewportRowCount(): boolean {
 
 let resizePollHandle: number | null = null
 
+function updateCompactShellHeight() {
+  const el = containerRef.value
+  if (!el) return
+  const mountPoint = el.querySelector('[data-range-selector]') as HTMLElement | null
+  const shell = el.parentElement
+  if (!mountPoint || !shell) return
+
+  const next = Math.ceil(mountPoint.offsetTop + mountPoint.offsetHeight)
+  const max = shell.parentElement?.clientHeight ?? shell.clientHeight
+  if (next <= 0) return
+  compactShellHeight.value = max > 0 ? Math.min(next, max) : next
+}
+
 function requestUniverResize() {
   // Univer Engine 在生命周期 Ready 后延迟 300ms 才挂载画布。
   // 挂载时 engine.resize() 用 getComputedStyle 获取挂载点尺寸,如果此时布局
@@ -207,6 +221,8 @@ function requestUniverResize() {
       // 画布尚未挂载,继续等待
       if (!canvas || !mountPoint) return
 
+      updateCompactShellHeight()
+
       const mountW = mountPoint.clientWidth
       const mountH = mountPoint.clientHeight
 
@@ -222,11 +238,13 @@ function requestUniverResize() {
         engine._previousWidth = -1
         engine._previousHeight = -1
         engine.resize()
+        updateCompactShellHeight()
 
         // resize() 后再次检查,仍不匹配则直接调用 resizeBySize()
         const newCanvasH = parseFloat(canvas.style.height) || 0
         if (Math.abs(newCanvasH - mountH) > 1) {
           engine.resizeBySize(mountW, mountH)
+          updateCompactShellHeight()
         }
       }
 
@@ -239,6 +257,7 @@ function requestUniverResize() {
     if (success) {
       // 再验证一次:确认画布尺寸确实正确
       try {
+        updateCompactShellHeight()
         const el = containerRef.value
         const canvas = el?.querySelector('[data-u-comp="render-canvas"]') as HTMLCanvasElement | null
         const mountPoint = el?.querySelector('[data-range-selector]') as HTMLElement | null
@@ -299,6 +318,7 @@ function buildWorkbookData(): IWorkbookData {
 }
 
 function disposeWorkbook() {
+  compactShellHeight.value = null
   if (resizePollHandle !== null) {
     window.clearInterval(resizePollHandle)
     resizePollHandle = null
@@ -415,6 +435,7 @@ async function renderWorkbook() {
     syncingFromStore = false
     syncSelectionFromUniver()
     requestUniverResize()
+    updateCompactShellHeight()
   }, 0)
 }
 
@@ -534,32 +555,29 @@ watch(sheetVersion, () => {
 </script>
 
 <template>
-  <div class="univer-grid-shell">
+  <div
+    class="univer-grid-shell"
+    :style="{ height: compactShellHeight ? `${compactShellHeight}px` : '100%' }"
+  >
     <div ref="containerRef" class="univer-grid" />
   </div>
 </template>
 
 <style scoped>
 .univer-grid-shell {
-  flex: 1;
+  flex: 0 0 auto;
+  height: 100%;
   min-height: 0;
+  max-height: 100%;
   overflow: hidden;
-  background:
-    linear-gradient(to right, var(--excel-grid-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--excel-grid-line) 1px, transparent 1px),
-    var(--excel-grid-bg);
-  background-size: 96px 22px;
+  background: var(--excel-grid-bg);
 }
 
 .univer-grid {
   width: 100%;
   height: 100%;
   min-height: 0;
-  background:
-    linear-gradient(to right, var(--excel-grid-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--excel-grid-line) 1px, transparent 1px),
-    var(--excel-grid-bg);
-  background-size: 96px 22px;
+  background: var(--excel-grid-bg);
 }
 
 /* ============================================================
@@ -584,10 +602,6 @@ watch(sheetVersion, () => {
 /* 画布挂载点:网格线未覆盖的区域会显示此背景 */
 :deep([data-range-selector]) {
   background-color: var(--excel-grid-bg) !important;
-  background-image:
-    linear-gradient(to right, var(--excel-grid-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--excel-grid-line) 1px, transparent 1px) !important;
-  background-size: 96px 22px !important;
 }
 
 /* 画布元素本身(透明,但兜底设背景) */
