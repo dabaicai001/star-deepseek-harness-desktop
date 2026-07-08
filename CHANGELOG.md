@@ -15,6 +15,16 @@
 
 ---
 
+## [0.14.7] - 2026-07-08
+
+### 修复
+- 🐛 fix(excel): `UniverGrid` 恢复按当前视口高度补齐底部网格,并给工作区底层增加 Excel 网格背景兜底,避免数据末尾到 Sheet 标签栏之间露出大块纯白留白。
+- 🐛 fix(redis): Redis key 读取遇到已过期/已删除 key 时不再返回 RPC `-32603`,而是转换为可读的“Key 已不存在或已过期”状态;hash/set/zset/list 预览限制为 1000 条采样,避免大 key 查询一次性拉全量导致卡顿。
+- 🐛 fix(redis): 修复 Redis 切换 DB 后 `SCAN` 偶发扫不到 key 的问题。原实现通过连接池执行 `SELECT db`,只改变了池中单条连接的 DB,后续 `SCAN/GET/TYPE` 可能落到其他仍在旧 DB 的连接;现在切 DB 会重建 Redis client 连接池,确保 `DBSIZE`、Key 列表和读取都在同一个 DB。
+- ⚡ perf(redis): Redis key 浏览器单次 SCAN 页面从 500 下调到 120,降低远程 Redis 上 `SCAN + TYPE + TTL` 批量查询的瞬时压力。
+
+---
+
 ## [0.14.6] - 2026-07-08
 
 ### 修复

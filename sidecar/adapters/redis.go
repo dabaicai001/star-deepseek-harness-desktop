@@ -66,8 +66,25 @@ type RedisCommandResult struct {
 	Error      string      `json:"error,omitempty"`
 }
 
+const redisValueSampleLimit int64 = 1000
+
 // NewRedisAdapter 创建 Redis 适配器
 func NewRedisAdapter(info *RedisConnInfo) (*RedisAdapter, error) {
+	client, err := newRedisClient(info)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Info().Str("host", info.Host).Int("port", info.Port).Int("db", info.DB).Msg("redis connected")
+
+	return &RedisAdapter{
+		client: client,
+		conn:   info,
+		ctx:    context.Background(),
+	}, nil
+}
+
+func newRedisClient(info *RedisConnInfo) (*redis.Client, error) {
 	if info.Port == 0 {
 		info.Port = 6379
 	}
@@ -88,22 +105,14 @@ func NewRedisAdapter(info *RedisConnInfo) (*RedisAdapter, error) {
 	}
 
 	client := redis.NewClient(opts)
-	ctx := context.Background()
-
-	// TODO(#33): context 不应存储在 struct 中,应通过方法参数传递。
-	pingCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	pingCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := client.Ping(pingCtx).Err(); err != nil {
+		_ = client.Close()
 		return nil, fmt.Errorf("redis connect failed: %w", err)
 	}
 
-	log.Info().Str("host", info.Host).Int("port", info.Port).Int("db", info.DB).Msg("redis connected")
-
-	return &RedisAdapter{
-		client: client,
-		conn:   info,
-		ctx:    ctx,
-	}, nil
+	return client, nil
 }
 
 // Close 关闭连接
@@ -118,10 +127,23 @@ func (a *RedisAdapter) Ping() error {
 
 // Select 切换数据库
 func (a *RedisAdapter) Select(db int) error {
-	if err := a.client.Do(a.ctx, "SELECT", db).Err(); err != nil {
+	if a.conn != nil && a.conn.DB == db {
+		return nil
+	}
+
+	nextInfo := *a.conn
+	nextInfo.DB = db
+	nextClient, err := newRedisClient(&nextInfo)
+	if err != nil {
 		return err
 	}
+
+	oldClient := a.client
+	a.client = nextClient
 	a.conn.DB = db
+	if oldClient != nil {
+		_ = oldClient.Close()
+	}
 	return nil
 }
 
@@ -257,6 +279,13 @@ func (a *RedisAdapter) GetValue(key string) (*RedisValueResult, error) {
 	switch keyType {
 	case "string":
 		val, err := a.client.Get(a.ctx, key).Result()
+		if err == redis.Nil {
+			result.Type = "none"
+			result.TTL = -2
+			result.Value = nil
+			result.Size = 0
+			return result, nil
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -264,19 +293,24 @@ func (a *RedisAdapter) GetValue(key string) (*RedisValueResult, error) {
 		result.Size = int64(len(val))
 
 	case "hash":
-		val, err := a.client.HGetAll(a.ctx, key).Result()
+		length, _ := a.client.HLen(a.ctx, key).Result()
+		scanned, _, err := a.client.HScan(a.ctx, key, 0, "", redisValueSampleLimit).Result()
 		if err != nil {
 			return nil, err
 		}
+		val := make(map[string]string, len(scanned)/2)
+		for i := 0; i+1 < len(scanned); i += 2 {
+			val[scanned[i]] = scanned[i+1]
+		}
 		result.Value = val
-		result.Size = int64(len(val))
+		result.Size = length
 
 	case "list":
 		length, _ := a.client.LLen(a.ctx, key).Result()
 		// 限制获取数量
 		end := length - 1
-		if end > 999 {
-			end = 999
+		if end >= redisValueSampleLimit {
+			end = redisValueSampleLimit - 1
 		}
 		val, err := a.client.LRange(a.ctx, key, 0, end).Result()
 		if err != nil {
@@ -286,16 +320,17 @@ func (a *RedisAdapter) GetValue(key string) (*RedisValueResult, error) {
 		result.Size = length
 
 	case "set":
-		val, err := a.client.SMembers(a.ctx, key).Result()
+		length, _ := a.client.SCard(a.ctx, key).Result()
+		val, _, err := a.client.SScan(a.ctx, key, 0, "", redisValueSampleLimit).Result()
 		if err != nil {
 			return nil, err
 		}
 		result.Value = val
-		result.Size = int64(len(val))
+		result.Size = length
 
 	case "zset":
 		// 返回带分数的列表
-		val, err := a.client.ZRangeWithScores(a.ctx, key, 0, 999).Result()
+		val, err := a.client.ZRangeWithScores(a.ctx, key, 0, redisValueSampleLimit-1).Result()
 		if err != nil {
 			return nil, err
 		}
@@ -335,7 +370,9 @@ func (a *RedisAdapter) GetValue(key string) (*RedisValueResult, error) {
 		result.Size = length
 
 	case "none":
-		return nil, fmt.Errorf("key not found: %s", key)
+		result.TTL = -2
+		result.Value = nil
+		result.Size = 0
 
 	default:
 		result.Value = fmt.Sprintf("unsupported type: %s", keyType)

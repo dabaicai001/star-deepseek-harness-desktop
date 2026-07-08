@@ -84,6 +84,7 @@ let syncingFromStore = false
 let updatingStoreFromUniver = false
 let syncTimer: number | null = null
 let layoutRenderTimer: number | null = null
+const viewportRowCount = ref(0)
 
 const sheetVersion = computed(() => [
   store.connId,
@@ -128,16 +129,33 @@ function buildCellData(): NonNullable<IWorksheetData['cellData']> {
   return cellData
 }
 
-// 渲染时给数据下方固定预留 2 行空白网格。
-// 这样既保留可继续录入的 Excel 尾部,也避免滚到底部后出现大段空白行。
+// 渲染时给数据下方预留一个视口高度的网格尾部。
+// 这样滚到底部时仍然是 Excel 网格,不会露出外层纯色留白。
 // store.rowData 仍保留文件原始的全部行,save 时回写文件不会丢数据。
-const VISIBLE_TAIL_ROWS = 2
+const VISIBLE_BUFFER_ROWS = 5
+const VISIBLE_MIN_ROWS = 24
+const DEFAULT_ROW_HEIGHT = 22
 
 function computeRowCount(): number {
   // 不能按“最后一个非空单元格”裁剪渲染行数:Excel 文件里真实存在的空数据行
   // 也必须显示行号和网格线,否则会在表格中部露出一整块纯白区域。
   const dataRows = Math.max(store.rowData.length, store.totalRows)
-  return dataRows + 1 + VISIBLE_TAIL_ROWS
+  const tailRows = Math.max(VISIBLE_BUFFER_ROWS, viewportRowCount.value || VISIBLE_MIN_ROWS)
+  return Math.max(dataRows + 1 + tailRows, VISIBLE_MIN_ROWS)
+}
+
+function measureViewportRowCount(): number {
+  if (!containerRef.value) return viewportRowCount.value || VISIBLE_MIN_ROWS
+  const shellHeight = containerRef.value.parentElement?.clientHeight ?? 0
+  if (shellHeight <= 0) return viewportRowCount.value || VISIBLE_MIN_ROWS
+  return Math.max(VISIBLE_MIN_ROWS, Math.ceil(shellHeight / DEFAULT_ROW_HEIGHT))
+}
+
+function refreshViewportRowCount(): boolean {
+  const next = measureViewportRowCount()
+  if (next === viewportRowCount.value) return false
+  viewportRowCount.value = next
+  return true
 }
 
 let resizePollHandle: number | null = null
@@ -325,6 +343,7 @@ async function renderWorkbook() {
   }
 
   syncingFromStore = true
+  refreshViewportRowCount()
   disposeWorkbook()
 
   const { univer, univerAPI } = createUniver({
@@ -370,7 +389,11 @@ async function renderWorkbook() {
   univerAPIInstance = univerAPI
   univerAPI.createWorkbook(buildWorkbookData())
   resizeObserver = new ResizeObserver(() => {
-    requestUniverResize()
+    if (refreshViewportRowCount()) {
+      queueLayoutRender()
+    } else {
+      requestUniverResize()
+    }
   })
   // 监听父容器(shell)尺寸变化,而非 containerRef 本身(避免 height 由 JS 设置时循环触发)
   if (containerRef.value?.parentElement) {
@@ -521,13 +544,22 @@ watch(sheetVersion, () => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: var(--excel-grid-bg);
+  background:
+    linear-gradient(to right, var(--excel-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--excel-grid-line) 1px, transparent 1px),
+    var(--excel-grid-bg);
+  background-size: 96px 22px;
 }
 
 .univer-grid {
   width: 100%;
   height: 100%;
   min-height: 0;
+  background:
+    linear-gradient(to right, var(--excel-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--excel-grid-line) 1px, transparent 1px),
+    var(--excel-grid-bg);
+  background-size: 96px 22px;
 }
 
 /* ============================================================
@@ -552,6 +584,10 @@ watch(sheetVersion, () => {
 /* 画布挂载点:网格线未覆盖的区域会显示此背景 */
 :deep([data-range-selector]) {
   background-color: var(--excel-grid-bg) !important;
+  background-image:
+    linear-gradient(to right, var(--excel-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--excel-grid-line) 1px, transparent 1px) !important;
+  background-size: 96px 22px !important;
 }
 
 /* 画布元素本身(透明,但兜底设背景) */

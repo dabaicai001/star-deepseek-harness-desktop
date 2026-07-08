@@ -43,6 +43,7 @@ const sidebarWidth = ref(260)
 const sidebarDragging = ref(false)
 const loadTokens = ref<Record<number, number>>({})
 const searchTimers = new Map<number, ReturnType<typeof setTimeout>>()
+const REDIS_SCAN_PAGE_SIZE = 120
 
 onBeforeUnmount(() => {
   searchTimers.forEach(timer => clearTimeout(timer))
@@ -250,13 +251,13 @@ async function loadDbKeys(db: number, append = false) {
     // Redis SCAN can legally return an empty page with a non-zero cursor.
     // Keep scanning briefly so the browser does not show a false empty state.
     do {
-      const result = await dbService.redisScan(props.connId, cursorParam, matchParam, 500)
+      const result = await dbService.redisScan(props.connId, cursorParam, matchParam, REDIS_SCAN_PAGE_SIZE)
       if (loadTokens.value[db] !== token) return
       collected.push(...result.keys)
       nextCursor = result.cursor
       cursorParam = nextCursor
       rounds++
-    } while (collected.length === 0 && nextCursor !== 0 && rounds < 8)
+    } while (collected.length === 0 && nextCursor !== 0 && rounds < 6)
 
     const existing = append ? state.keys : []
     const seen = new Set(existing.map(item => item.key))

@@ -170,7 +170,11 @@ export async function redisScan(connId: string, cursor?: number, match?: string,
 }
 
 export async function redisGetValue(connId: string, key: string): Promise<RedisValueResult> {
-  return invoke('db_redis_get_value', { connId, key })
+  const result = await invoke<RedisValueResult>('db_redis_get_value', { connId, key })
+  if (result.type === 'none') {
+    throw new Error(`Key 已不存在或已过期: ${key}`)
+  }
+  return result
 }
 
 export async function redisDel(connId: string, keys: string[]): Promise<DeleteResult> {
