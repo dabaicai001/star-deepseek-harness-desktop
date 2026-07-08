@@ -52,6 +52,8 @@ let resizeObserver: ResizeObserver | null = null
 let syncingFromStore = false
 let updatingStoreFromUniver = false
 let syncTimer: number | null = null
+let layoutRenderTimer: number | null = null
+const viewportRowCount = ref(0)
 
 const sheetVersion = computed(() => [
   store.connId,
@@ -99,9 +101,8 @@ function buildCellData(): NonNullable<IWorksheetData['cellData']> {
 // 渲染时给数据下方预留少量 buffer(用于直接键入新数据);最少保底几行避免空表格太小。
 // store.rowData 仍保留文件原始的全部行,save 时回写文件不会丢数据。
 const VISIBLE_BUFFER_ROWS = 5
-const VISIBLE_MIN_ROWS = 5
-// Univer 表头(列号栏)高度,约 20px
-const SHEET_HEADER_HEIGHT = 20
+const VISIBLE_MIN_ROWS = 24
+const DEFAULT_ROW_HEIGHT = 22
 
 function lastNonEmptyDataIndex(): number {
   const data = store.rowData
@@ -119,24 +120,49 @@ function computeRowCount(): number {
   const lastDataIndex = lastNonEmptyDataIndex()
   // cellData 还要写 1 行表头,所以可见高度 = (lastDataIndex + 1) + 1 + buffer
   const lastDataRowNumber = lastDataIndex + 2 // 1-indexed,且包含表头行
-  return Math.max(lastDataRowNumber + VISIBLE_BUFFER_ROWS, VISIBLE_MIN_ROWS)
+  return Math.max(
+    lastDataRowNumber + VISIBLE_BUFFER_ROWS,
+    viewportRowCount.value,
+    VISIBLE_MIN_ROWS,
+  )
 }
 
-/// 让 Univer 容器高度自适应到内容,不超过父容器;避免数据少时画布下方出现大量空行或纯空白。
-function applyContainerHeight() {
-  if (!containerRef.value) return
-  const rowCount = computeRowCount()
-  const contentHeight = rowCount * 22 + SHEET_HEADER_HEIGHT
+function measureViewportRowCount(): number {
+  if (!containerRef.value) return viewportRowCount.value || VISIBLE_MIN_ROWS
   const shellHeight = containerRef.value.parentElement?.clientHeight ?? 0
-  const targetHeight = shellHeight > 0 ? Math.min(contentHeight, shellHeight) : contentHeight
-  containerRef.value.style.height = `${targetHeight}px`
+  if (shellHeight <= 0) return viewportRowCount.value || VISIBLE_MIN_ROWS
+  return Math.max(VISIBLE_MIN_ROWS, Math.ceil(shellHeight / DEFAULT_ROW_HEIGHT) + VISIBLE_BUFFER_ROWS)
+}
+
+function refreshViewportRowCount(): boolean {
+  const next = measureViewportRowCount()
+  if (next === viewportRowCount.value) return false
+  viewportRowCount.value = next
+  return true
+}
+
+function requestUniverResize() {
+  window.requestAnimationFrame(() => {
+    window.dispatchEvent(new Event('resize'))
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(new Event('resize'))
+    })
+  })
+}
+
+function queueLayoutRender() {
+  if (layoutRenderTimer !== null) window.clearTimeout(layoutRenderTimer)
+  layoutRenderTimer = window.setTimeout(() => {
+    layoutRenderTimer = null
+    if (!syncingFromStore) syncDataFromUniver()
+    void renderWorkbook()
+  }, 80)
 }
 
 function buildWorkbookData(): IWorkbookData {
   const sheetId = 'starhub-active-sheet'
   const columnCount = Math.max(store.columns.length, 10)
   const rowCount = computeRowCount()
-  applyContainerHeight()
   return {
     id: `starhub-${store.connId || 'workbook'}`,
     name: store.filePath || store.activeSheet || 'StarHub Workbook',
@@ -180,6 +206,7 @@ async function renderWorkbook() {
   if (!containerRef.value) return
 
   syncingFromStore = true
+  refreshViewportRowCount()
   disposeWorkbook()
 
   const { univer, univerAPI } = createUniver({
@@ -223,8 +250,11 @@ async function renderWorkbook() {
   univerAPIInstance = univerAPI
   univerAPI.createWorkbook(buildWorkbookData())
   resizeObserver = new ResizeObserver(() => {
-    applyContainerHeight()
-    window.dispatchEvent(new Event('resize'))
+    if (refreshViewportRowCount()) {
+      queueLayoutRender()
+    } else {
+      requestUniverResize()
+    }
   })
   // 监听父容器(shell)尺寸变化,而非 containerRef 本身(避免 height 由 JS 设置时循环触发)
   if (containerRef.value?.parentElement) {
@@ -245,6 +275,7 @@ async function renderWorkbook() {
   window.setTimeout(() => {
     syncingFromStore = false
     syncSelectionFromUniver()
+    requestUniverResize()
   }, 0)
 }
 
@@ -349,6 +380,7 @@ function syncSelectionFromUniver() {
 onMounted(renderWorkbook)
 onBeforeUnmount(() => {
   if (syncTimer !== null) window.clearTimeout(syncTimer)
+  if (layoutRenderTimer !== null) window.clearTimeout(layoutRenderTimer)
   disposeWorkbook()
 })
 
@@ -374,6 +406,7 @@ watch(sheetVersion, () => {
 
 .univer-grid {
   width: 100%;
-  /* height 由 JS 动态控制(applyContainerHeight),自适应到内容高度 */
+  height: 100%;
+  min-height: 0;
 }
 </style>
