@@ -15,6 +15,13 @@
 
 ---
 
+## [0.14.2] - 2026-07-08
+
+### 修复
+- 🐛 fix(excel): 修复 Excel 页面大面积留白根因 -- `UniverGrid.vue` 的所有 `:deep()` CSS 选择器(如 `.univer-workbench`、`.univer-sheet-canvas` 等)使用的是 Univer 旧版类名,在 Univer 0.25.1 中不存在(改用了 Tailwind 工具类 + `data-u-comp` 属性),导致全部深色主题覆盖 CSS 失效。修复:1) 通过 Univer 官方主题系统注入 `starhubTheme`(覆盖 `gray.800`/`gray.900` 为 `#0d1420`/`#080d14`),传入 `darkMode: true`;2) CSS 选择器全部替换为 `[data-u-comp="workbench-layout"]`、`[data-range-selector]`、`[data-u-comp="render-canvas"]` 等属性选择器;3) 移除 330 行对 canvas 渲染元素的无效 CSS(行/列头、单元格、选区等由画布引擎绘制,无法用 CSS 覆盖);4) `requestUniverResize` 从 dispatch `window.resize`(Univer 不监听)改为短暂修改容器尺寸触发 Engine 的 `ResizeObserver`;5) `VISIBLE_MIN_ROWS` 从 24 提升到 40。
+
+---
+
 ## [0.14.1] - 2026-07-08
 
 ### 修复
