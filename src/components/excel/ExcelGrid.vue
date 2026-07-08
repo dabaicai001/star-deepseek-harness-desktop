@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useExcelStore, type CellEdit } from '@/stores/excel'
 
 const store = useExcelStore()
@@ -10,6 +10,7 @@ const scrollTop = ref(0)
 const editingCell = ref<{ row: number; col: number } | null>(null)
 const editValue = ref('')
 const editInputRef = ref<HTMLInputElement | null>(null)
+const formulaInput = ref('')
 const contextMenu = ref<{ x: number; y: number; row: number; col: number } | null>(null)
 const headerFilter = ref<{ x: number; y: number; col: number; text: string; selectedValues: Set<string> } | null>(null)
 const draggingSelection = ref(false)
@@ -31,48 +32,59 @@ const containerWidth = computed(() => containerRef.value?.clientWidth ?? 800)
 
 const HEADER_HEIGHT = 24
 const ROW_HEADER_WIDTH = 46
+const MIN_VIEWPORT_ROWS = 24
+const VISIBLE_OVERSCAN = 8
 
 // 使用筛选后的数据
 const displayData = computed(() => store.filteredRowData)
+const gridColumnCount = computed(() => Math.max(store.columns.length, 10))
+const viewportDataRows = computed(() => {
+  const availableHeight = Math.max(0, containerHeight.value - HEADER_HEIGHT - store.ROW_HEIGHT)
+  return Math.max(MIN_VIEWPORT_ROWS, Math.ceil(availableHeight / store.ROW_HEIGHT) + VISIBLE_OVERSCAN)
+})
+const renderDataRowCount = computed(() => Math.max(displayData.value.length, viewportDataRows.value, 1))
+const fieldHeaderFrozen = computed(() => store.frozenRows >= 1)
 
 const dataFrozenRows = computed(() => Math.max(0, store.frozenRows - 1))
-const visibleStartRow = computed(() => Math.max(0, Math.floor(scrollTop.value / store.ROW_HEIGHT) - 5))
+const visibleStartRow = computed(() => {
+  const dataTop = HEADER_HEIGHT + store.ROW_HEIGHT
+  return Math.max(0, Math.floor((scrollTop.value - dataTop) / store.ROW_HEIGHT) - VISIBLE_OVERSCAN)
+})
 const visibleEndRow = computed(() => {
-  const visible = Math.ceil((containerHeight.value - HEADER_HEIGHT) / store.ROW_HEIGHT) + 5
-  return Math.min(Math.max(displayData.value.length, 1), visibleStartRow.value + visible + 10)
+  const visible = Math.ceil(containerHeight.value / store.ROW_HEIGHT) + VISIBLE_OVERSCAN
+  return Math.min(renderDataRowCount.value, visibleStartRow.value + visible + VISIBLE_OVERSCAN)
 })
 
 const visibleStartCol = computed(() => {
   let x = 0
-  for (let c = 0; c < store.columns.length; c++) {
+  for (let c = 0; c < gridColumnCount.value; c++) {
     const w = store.getColWidth(c)
     if (x + w > scrollLeft.value) return Math.max(0, c - 1)
     x += w
   }
-  return Math.max(0, store.columns.length - 1)
+  return Math.max(0, gridColumnCount.value - 1)
 })
 
 const visibleEndCol = computed(() => {
   let x = 0
   const start = visibleStartCol.value
-  for (let c = start; c < store.columns.length; c++) {
+  for (let c = start; c < gridColumnCount.value; c++) {
     x += store.getColWidth(c)
-    if (x > containerWidth.value + 200) return Math.min(store.columns.length, c + 1)
+    if (x > containerWidth.value + 200) return Math.min(gridColumnCount.value, c + 1)
   }
-  return store.columns.length
+  return gridColumnCount.value
 })
 
 const totalWidth = computed(() => {
   let w = ROW_HEADER_WIDTH
-  for (let i = 0; i < store.columns.length; i++) {
+  for (let i = 0; i < gridColumnCount.value; i++) {
     w += store.getColWidth(i)
   }
   return Math.max(w, containerWidth.value)
 })
 
 const totalHeight = computed(() => {
-  const rows = Math.max(displayData.value.length, 1)
-  return rows * store.ROW_HEIGHT + HEADER_HEIGHT
+  return (renderDataRowCount.value + 1) * store.ROW_HEIGHT + HEADER_HEIGHT
 })
 
 function colLeftOffset(col: number): number {
@@ -100,7 +112,7 @@ function cellLeftOffset(col: number): number {
 
 const visibleCols = computed(() => {
   const colMap = new Map<number, { index: number; letter: string; label: string; width: number; left: number; frozen: boolean }>()
-  for (let c = 0; c < Math.min(store.frozenCols, store.columns.length); c++) {
+  for (let c = 0; c < Math.min(store.frozenCols, gridColumnCount.value); c++) {
     const letter = store.colIndexToLetter(c)
     colMap.set(c, {
       index: c,
@@ -125,11 +137,20 @@ const visibleCols = computed(() => {
   return Array.from(colMap.values()).sort((a, b) => a.index - b.index)
 })
 
+const fieldHeaderCells = computed(() => visibleCols.value.map(col => ({
+  col: col.index,
+  value: store.columns[col.index] ?? '',
+})))
+
+const fieldHeaderTop = computed(() => (
+  fieldHeaderFrozen.value ? HEADER_HEIGHT + scrollTop.value : HEADER_HEIGHT
+))
+
 const visibleRows = computed(() => {
   const rows: { row: number; cells: { col: number; value: string }[]; top: number; frozen: boolean }[] = []
   const data = displayData.value
   const rowSet = new Set<number>()
-  for (let r = 0; r < Math.min(dataFrozenRows.value, data.length); r++) {
+  for (let r = 0; r < Math.min(dataFrozenRows.value, renderDataRowCount.value); r++) {
     rowSet.add(r)
   }
   for (let r = visibleStartRow.value; r < visibleEndRow.value; r++) {
@@ -144,12 +165,19 @@ const visibleRows = computed(() => {
     rows.push({
       row: r,
       cells,
-      top: frozen ? HEADER_HEIGHT + scrollTop.value + (r * store.ROW_HEIGHT) : HEADER_HEIGHT + (r * store.ROW_HEIGHT),
+      top: frozen
+        ? HEADER_HEIGHT + store.ROW_HEIGHT + scrollTop.value + (r * store.ROW_HEIGHT)
+        : HEADER_HEIGHT + store.ROW_HEIGHT + (r * store.ROW_HEIGHT),
       frozen,
     })
   })
   return rows
 })
+
+function dataRowLabel(row: number): number {
+  if (row < displayData.value.length) return store.displayRowToExcelRow(row)
+  return row + 2
+}
 
 function visibleColByIndex(col: number) {
   return visibleCols.value.find(c => c.index === col)
@@ -329,6 +357,10 @@ function handleColHeaderClick(col: number) {
   store.selectCol(col)
 }
 
+function handleFieldHeaderClick(col: number) {
+  store.selectCol(col)
+}
+
 function openHeaderFilter(e: MouseEvent, col: number) {
   e.preventDefault()
   e.stopPropagation()
@@ -448,8 +480,8 @@ async function handleKeydown(e: KeyboardEvent) {
   if (!sel) return
 
   const { row, col } = sel
-  const maxRow = Math.max(displayData.value.length - 1, 0)
-  const maxCol = Math.max(store.columns.length - 1, 0)
+  const maxRow = Math.max(renderDataRowCount.value - 1, 0)
+  const maxCol = Math.max(gridColumnCount.value - 1, 0)
   const meta = e.ctrlKey || e.metaKey
 
   if (meta && e.key.toLowerCase() === 'c') {
@@ -562,6 +594,23 @@ function handleSelectionMouseup() {
   draggingSelection.value = false
 }
 
+function resetFormulaInput() {
+  formulaInput.value = store.selectedCellValue
+}
+
+function commitFormulaInput() {
+  const sel = store.selectedCell
+  if (!sel) return
+  const edits = store.commitDisplayCellEdits([{ row: sel.row, col: sel.col, value: formulaInput.value }])
+  if (edits.length > 0) emit('cell-change', edits)
+}
+
+watch(
+  () => [store.activeCellLabel, store.selectedCellValue],
+  resetFormulaInput,
+  { immediate: true },
+)
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('click', closeContextMenu)
@@ -581,6 +630,23 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="excel-grid-container">
+    <div class="excel-formula-bar">
+      <div class="formula-name-box">{{ store.activeCellLabel || 'A1' }}</div>
+      <button class="formula-action" title="取消输入" @click="resetFormulaInput">
+        <v-icon size="14">mdi-close</v-icon>
+      </button>
+      <button class="formula-action" title="确认输入" @click="commitFormulaInput">
+        <v-icon size="14">mdi-check</v-icon>
+      </button>
+      <div class="formula-fx">fx</div>
+      <input
+        v-model="formulaInput"
+        class="formula-input"
+        @keydown.enter.prevent="commitFormulaInput"
+        @keydown.escape.prevent="resetFormulaInput"
+      />
+    </div>
+
     <div
       ref="containerRef"
       class="excel-grid-scroll"
@@ -624,6 +690,45 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <!-- Field names are rendered as the real Excel row 1. -->
+        <div
+          class="excel-field-row"
+          :class="{ frozen: fieldHeaderFrozen }"
+          :style="{
+            top: fieldHeaderTop + 'px',
+            height: store.ROW_HEIGHT + 'px',
+          }"
+        >
+          <div
+            class="excel-row-header excel-field-row-header"
+            :style="{
+              width: ROW_HEADER_WIDTH + 'px',
+              height: store.ROW_HEIGHT + 'px',
+            }"
+            @click="store.clearSelection()"
+          >
+            1
+          </div>
+          <div
+            v-for="cell in fieldHeaderCells"
+            :key="'field' + cell.col"
+            class="excel-cell excel-field-cell"
+            :class="{
+              'col-highlight': isColSelected(cell.col),
+              'frozen-col': cell.col < store.frozenCols,
+            }"
+            :style="{
+              left: (visibleColByIndex(cell.col)?.left || 0) + 'px',
+              width: (visibleColByIndex(cell.col)?.width || 120) + 'px',
+              height: store.ROW_HEIGHT + 'px',
+            }"
+            @mousedown.stop="handleFieldHeaderClick(cell.col)"
+            @contextmenu.stop="openContextMenu($event, 0, cell.col)"
+          >
+            <span class="cell-content">{{ cell.value }}</span>
+          </div>
+        </div>
+
         <!-- Data rows -->
         <div
           v-for="r in visibleRows"
@@ -645,7 +750,7 @@ onBeforeUnmount(() => {
             @click="handleRowHeaderClick(r.row)"
             @contextmenu.prevent="openContextMenu($event, r.row, 0)"
           >
-            {{ r.row + 1 }}
+            {{ dataRowLabel(r.row) }}
           </div>
 
           <div
@@ -814,13 +919,91 @@ onBeforeUnmount(() => {
 <style scoped>
 .excel-grid-container {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--excel-grid-bg);
+  color: var(--excel-text);
+}
+
+.excel-formula-bar {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: var(--excel-ribbon-tab-bg);
+  border-bottom: 1px solid var(--excel-ribbon-line);
+  color: var(--excel-text);
+  font-family: Arial, 'Microsoft YaHei', sans-serif;
+}
+
+.formula-name-box {
+  width: 74px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--excel-ribbon-line);
+  background: var(--excel-ribbon-tab-bg);
+  color: var(--excel-text);
+  font-size: 12px;
+}
+
+.formula-action {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--excel-muted);
+  cursor: pointer;
+}
+
+.formula-action:hover {
+  color: var(--excel-green);
+  background: var(--excel-green-soft);
+  border-color: var(--excel-green-border);
+}
+
+.formula-fx {
+  width: 28px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid var(--excel-ribbon-line);
+  color: var(--excel-text);
+  font-size: 14px;
+  font-style: italic;
+  font-weight: 600;
+}
+
+.formula-input {
+  min-width: 0;
+  flex: 1;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--excel-ribbon-line);
+  outline: 0;
+  background: var(--excel-ribbon-tab-bg);
+  color: var(--excel-text);
+  font-size: 12px;
+  font-family: Calibri, Arial, 'Microsoft YaHei', sans-serif;
+}
+
+.formula-input:focus {
+  border-color: var(--excel-selection);
 }
 
 .excel-grid-scroll {
+  flex: 1;
+  min-height: 0;
   width: 100%;
-  height: 100%;
   overflow: auto;
   position: relative;
 }
@@ -932,6 +1115,38 @@ onBeforeUnmount(() => {
   position: absolute;
   left: 0;
   right: 0;
+}
+
+.excel-field-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+}
+
+.excel-field-row.frozen {
+  z-index: 6;
+}
+
+.excel-field-row-header {
+  color: var(--excel-text);
+  font-weight: 600;
+}
+
+.excel-cell.excel-field-cell {
+  background: var(--excel-green);
+  color: var(--excel-title-fg);
+  font-weight: 700;
+}
+
+.excel-cell.excel-field-cell.col-highlight {
+  background: var(--excel-green-dark);
+}
+
+.excel-cell.excel-field-cell.frozen-col {
+  background: var(--excel-green);
+  color: var(--excel-title-fg);
+  z-index: 5;
 }
 
 .excel-data-row.row-selected .excel-cell {
