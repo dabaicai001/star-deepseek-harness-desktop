@@ -85,7 +85,6 @@ let updatingStoreFromUniver = false
 let syncTimer: number | null = null
 let layoutRenderTimer: number | null = null
 const viewportRowCount = ref(0)
-const compactShellHeight = ref<number | null>(null)
 
 const sheetVersion = computed(() => [
   store.connId,
@@ -130,18 +129,22 @@ function buildCellData(): NonNullable<IWorksheetData['cellData']> {
   return cellData
 }
 
-// 渲染时给数据下方预留一个视口高度的网格尾部。
-// 这样滚到底部时仍然是 Excel 网格,不会露出外层纯色留白。
+// 渲染时只给数据下方预留少量自适应尾行,避免滚到底部后出现一整屏空白网格。
 // store.rowData 仍保留文件原始的全部行,save 时回写文件不会丢数据。
 const VISIBLE_BUFFER_ROWS = 5
 const VISIBLE_MIN_ROWS = 24
 const DEFAULT_ROW_HEIGHT = 22
 
+function computeTailRows(dataRows: number): number {
+  if (dataRows <= 0) return VISIBLE_BUFFER_ROWS
+  return Math.max(3, Math.min(8, Math.ceil(dataRows * 0.05)))
+}
+
 function computeRowCount(): number {
   // 不能按“最后一个非空单元格”裁剪渲染行数:Excel 文件里真实存在的空数据行
   // 也必须显示行号和网格线,否则会在表格中部露出一整块纯白区域。
   const dataRows = Math.max(store.rowData.length, store.totalRows)
-  const tailRows = Math.max(VISIBLE_BUFFER_ROWS, viewportRowCount.value || VISIBLE_MIN_ROWS)
+  const tailRows = computeTailRows(dataRows)
   return Math.max(dataRows + 1 + tailRows, VISIBLE_MIN_ROWS)
 }
 
@@ -160,19 +163,6 @@ function refreshViewportRowCount(): boolean {
 }
 
 let resizePollHandle: number | null = null
-
-function updateCompactShellHeight() {
-  const el = containerRef.value
-  if (!el) return
-  const mountPoint = el.querySelector('[data-range-selector]') as HTMLElement | null
-  const shell = el.parentElement
-  if (!mountPoint || !shell) return
-
-  const next = Math.ceil(mountPoint.offsetTop + mountPoint.offsetHeight)
-  const max = shell.parentElement?.clientHeight ?? shell.clientHeight
-  if (next <= 0) return
-  compactShellHeight.value = max > 0 ? Math.min(next, max) : next
-}
 
 function requestUniverResize() {
   // Univer Engine 在生命周期 Ready 后延迟 300ms 才挂载画布。
@@ -221,8 +211,6 @@ function requestUniverResize() {
       // 画布尚未挂载,继续等待
       if (!canvas || !mountPoint) return
 
-      updateCompactShellHeight()
-
       const mountW = mountPoint.clientWidth
       const mountH = mountPoint.clientHeight
 
@@ -238,13 +226,11 @@ function requestUniverResize() {
         engine._previousWidth = -1
         engine._previousHeight = -1
         engine.resize()
-        updateCompactShellHeight()
 
         // resize() 后再次检查,仍不匹配则直接调用 resizeBySize()
         const newCanvasH = parseFloat(canvas.style.height) || 0
         if (Math.abs(newCanvasH - mountH) > 1) {
           engine.resizeBySize(mountW, mountH)
-          updateCompactShellHeight()
         }
       }
 
@@ -257,7 +243,6 @@ function requestUniverResize() {
     if (success) {
       // 再验证一次:确认画布尺寸确实正确
       try {
-        updateCompactShellHeight()
         const el = containerRef.value
         const canvas = el?.querySelector('[data-u-comp="render-canvas"]') as HTMLCanvasElement | null
         const mountPoint = el?.querySelector('[data-range-selector]') as HTMLElement | null
@@ -318,7 +303,6 @@ function buildWorkbookData(): IWorkbookData {
 }
 
 function disposeWorkbook() {
-  compactShellHeight.value = null
   if (resizePollHandle !== null) {
     window.clearInterval(resizePollHandle)
     resizePollHandle = null
@@ -435,7 +419,6 @@ async function renderWorkbook() {
     syncingFromStore = false
     syncSelectionFromUniver()
     requestUniverResize()
-    updateCompactShellHeight()
   }, 0)
 }
 
@@ -555,20 +538,15 @@ watch(sheetVersion, () => {
 </script>
 
 <template>
-  <div
-    class="univer-grid-shell"
-    :style="{ height: compactShellHeight ? `${compactShellHeight}px` : '100%' }"
-  >
+  <div class="univer-grid-shell">
     <div ref="containerRef" class="univer-grid" />
   </div>
 </template>
 
 <style scoped>
 .univer-grid-shell {
-  flex: 0 0 auto;
-  height: 100%;
+  flex: 1;
   min-height: 0;
-  max-height: 100%;
   overflow: hidden;
   background: var(--excel-grid-bg);
 }
