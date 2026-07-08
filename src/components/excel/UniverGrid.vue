@@ -80,8 +80,8 @@ function buildCellData(): NonNullable<IWorksheetData['cellData']> {
       v: header,
       s: {
         bl: 1,
-        bg: { rgb: '#1f6f43' },
-        cl: { rgb: '#ffffff' },
+        bg: { rgb: '#152032' },
+        cl: { rgb: '#5dd6d6' },
       },
     } as ICellData
   })
@@ -365,8 +365,12 @@ function syncSelectionFromUniver() {
   }
 }
 
-onMounted(renderWorkbook)
+onMounted(() => {
+  document.documentElement.classList.add('univer-dark')
+  void renderWorkbook()
+})
 onBeforeUnmount(() => {
+  document.documentElement.classList.remove('univer-dark')
   if (syncTimer !== null) window.clearTimeout(syncTimer)
   if (layoutRenderTimer !== null) window.clearTimeout(layoutRenderTimer)
   disposeWorkbook()
@@ -396,5 +400,342 @@ watch(sheetVersion, () => {
   width: 100%;
   height: 100%;
   min-height: 0;
+}
+
+/* ============================================================
+   Univer DOM 深色覆盖 — cyber 主题
+   ============================================================ */
+
+/* 整体工作区背景 */
+:deep(.univer-workbench) {
+  background: var(--excel-grid-bg) !important;
+}
+
+:deep(.univer-workbench-container) {
+  background: var(--excel-grid-bg) !important;
+}
+
+:deep(.univer-sheet-container) {
+  background: var(--excel-grid-bg) !important;
+}
+
+:deep(.univer-sheet-canvas) {
+  background: var(--excel-grid-bg) !important;
+}
+
+/* 网格主区域 */
+:deep(.univer-sheet) {
+  background: var(--excel-grid-bg) !important;
+}
+
+:deep(.univer-sheet-grid) {
+  background: var(--excel-grid-bg) !important;
+}
+
+/* 行/列头 */
+:deep(.univer-sheet-header) {
+  background: var(--excel-header-bg) !important;
+}
+
+:deep(.univer-sheet-row-header) {
+  background: var(--excel-header-bg) !important;
+}
+
+:deep(.univer-sheet-column-header) {
+  background: var(--excel-header-bg) !important;
+}
+
+:deep(.univer-sheet-row-header-item) {
+  background: var(--excel-header-bg) !important;
+  color: var(--excel-muted) !important;
+  border-color: var(--excel-grid-line) !important;
+}
+
+:deep(.univer-sheet-column-header-item) {
+  background: var(--excel-header-bg) !important;
+  color: var(--excel-muted) !important;
+  border-color: var(--excel-grid-line) !important;
+}
+
+/* 选中状态的行列头 */
+:deep(.univer-sheet-row-header-item.active) {
+  background: var(--excel-header-selected) !important;
+  color: var(--excel-green) !important;
+}
+
+:deep(.univer-sheet-column-header-item.active) {
+  background: var(--excel-header-selected) !important;
+  color: var(--excel-green) !important;
+}
+
+/* 单元格文字颜色 */
+:deep(.univer-sheet-cell) {
+  color: var(--excel-text) !important;
+}
+
+:deep(.univer-sheet-cell-container) {
+  color: var(--excel-text) !important;
+}
+
+:deep(.univer-sheet-cell-text) {
+  color: var(--excel-text) !important;
+}
+
+/* 选区高亮 */
+:deep(.univer-sheet-selection) {
+  border-color: var(--excel-selection) !important;
+}
+
+:deep(.univer-sheet-selection-fill) {
+  background: var(--excel-selection-fill) !important;
+}
+
+:deep(.univer-sheet-selection-anchor) {
+  background: var(--excel-selection) !important;
+  border-color: var(--excel-selection) !important;
+}
+
+/* 冻结区域 */
+:deep(.univer-sheet-frozen) {
+  background: var(--excel-frozen-bg) !important;
+}
+
+/* 编辑器(单元格内编辑) */
+:deep(.univer-sheet-editor) {
+  background: var(--excel-grid-bg) !important;
+  color: var(--excel-text) !important;
+  border-color: var(--excel-green) !important;
+}
+
+:deep(.univer-sheet-editor-container) {
+  background: var(--excel-grid-bg) !important;
+}
+
+/* 工具栏 */
+:deep(.univer-toolbar) {
+  background: var(--excel-ribbon-bg) !important;
+  border-color: var(--excel-ribbon-line) !important;
+}
+
+:deep(.univer-toolbar-container) {
+  background: var(--excel-ribbon-bg) !important;
+}
+
+:deep(.univer-toolbar-button) {
+  color: var(--excel-title-tab-fg) !important;
+}
+
+:deep(.univer-toolbar-button:hover) {
+  background: var(--excel-sheet-hover) !important;
+  color: var(--excel-green) !important;
+}
+
+:deep(.univer-toolbar-button.active) {
+  background: var(--excel-header-selected) !important;
+  color: var(--excel-green) !important;
+}
+
+:deep(.univer-toolbar-menu) {
+  background: var(--excel-ribbon-tab-bg) !important;
+  border-color: var(--excel-ribbon-line) !important;
+}
+
+:deep(.univer-toolbar-menu-item) {
+  color: var(--excel-text) !important;
+}
+
+:deep(.univer-toolbar-menu-item:hover) {
+  background: var(--excel-sheet-hover) !important;
+  color: var(--excel-green) !important;
+}
+
+/* 公式栏 / 编辑栏 */
+:deep(.univer-formula-bar) {
+  background: var(--excel-ribbon-bg) !important;
+  border-color: var(--excel-ribbon-line) !important;
+  color: var(--excel-text) !important;
+}
+
+:deep(.univer-formula-bar-input) {
+  background: var(--excel-grid-bg) !important;
+  color: var(--excel-text) !important;
+  border-color: var(--excel-grid-line) !important;
+}
+
+:deep(.univer-formula-bar-name) {
+  background: var(--excel-grid-bg) !important;
+  color: var(--excel-text) !important;
+  border-color: var(--excel-grid-line) !important;
+}
+
+/* 右键菜单 */
+:deep(.univer-context-menu) {
+  background: var(--excel-ribbon-tab-bg) !important;
+  border-color: var(--excel-ribbon-line) !important;
+  box-shadow: var(--shadow) !important;
+}
+
+:deep(.univer-context-menu-item) {
+  color: var(--excel-text) !important;
+}
+
+:deep(.univer-context-menu-item:hover) {
+  background: var(--excel-sheet-hover) !important;
+  color: var(--excel-green) !important;
+}
+
+:deep(.univer-context-menu-divider) {
+  border-color: var(--excel-ribbon-line) !important;
+}
+
+/* 弹窗 / 对话框 */
+:deep(.univer-dialog) {
+  background: var(--excel-ribbon-tab-bg) !important;
+  border-color: var(--excel-ribbon-line) !important;
+  box-shadow: var(--shadow) !important;
+}
+
+:deep(.univer-dialog-title) {
+  color: var(--excel-text) !important;
+}
+
+:deep(.univer-dialog-content) {
+  color: var(--excel-title-tab-fg) !important;
+}
+
+:deep(.univer-dialog-input) {
+  background: var(--excel-grid-bg) !important;
+  color: var(--excel-text) !important;
+  border-color: var(--excel-grid-line) !important;
+}
+
+/* 下拉选择 */
+:deep(.univer-select) {
+  background: var(--excel-ribbon-tab-bg) !important;
+  border-color: var(--excel-ribbon-line) !important;
+}
+
+:deep(.univer-select-option) {
+  color: var(--excel-text) !important;
+}
+
+:deep(.univer-select-option:hover) {
+  background: var(--excel-sheet-hover) !important;
+  color: var(--excel-green) !important;
+}
+
+:deep(.univer-select-option.active) {
+  background: var(--excel-header-selected) !important;
+  color: var(--excel-green) !important;
+}
+
+/* 滚动条 */
+:deep(.univer-scrollbar-thumb) {
+  background: var(--excel-ribbon-line) !important;
+}
+
+:deep(.univer-scrollbar-thumb:hover) {
+  background: var(--excel-title-tab-fg) !important;
+}
+
+/* 过滤器 */
+:deep(.univer-filter) {
+  background: var(--excel-ribbon-tab-bg) !important;
+  border-color: var(--excel-ribbon-line) !important;
+}
+
+:deep(.univer-filter-button) {
+  color: var(--excel-title-tab-fg) !important;
+}
+
+:deep(.univer-filter-button:hover) {
+  color: var(--excel-green) !important;
+}
+
+/* 浮动面板(如筛选面板) */
+:deep(.univer-panel) {
+  background: var(--excel-ribbon-tab-bg) !important;
+  border-color: var(--excel-ribbon-line) !important;
+  box-shadow: var(--shadow) !important;
+}
+
+:deep(.univer-panel-header) {
+  color: var(--excel-text) !important;
+  border-color: var(--excel-ribbon-line) !important;
+}
+
+:deep(.univer-panel-content) {
+  color: var(--excel-title-tab-fg) !important;
+}
+
+/* 提示 / tooltip */
+:deep(.univer-tooltip) {
+  background: var(--excel-ribbon-tab-bg) !important;
+  color: var(--excel-text) !important;
+  border-color: var(--excel-ribbon-line) !important;
+}
+
+/* 状态栏 */
+:deep(.univer-status-bar) {
+  background: var(--excel-ribbon-bg) !important;
+  border-color: var(--excel-ribbon-line) !important;
+  color: var(--excel-title-tab-fg) !important;
+}
+
+/* 通用输入框 */
+:deep(.univer-input) {
+  background: var(--excel-grid-bg) !important;
+  color: var(--excel-text) !important;
+  border-color: var(--excel-grid-line) !important;
+}
+
+:deep(.univer-input:focus) {
+  border-color: var(--excel-green) !important;
+}
+
+/* 通用按钮 */
+:deep(.univer-button) {
+  color: var(--excel-text) !important;
+  border-color: var(--excel-ribbon-line) !important;
+}
+
+:deep(.univer-button:hover) {
+  background: var(--excel-sheet-hover) !important;
+  color: var(--excel-green) !important;
+}
+
+:deep(.univer-button.primary) {
+  background: var(--excel-green) !important;
+  color: var(--bg) !important;
+  border-color: var(--excel-green) !important;
+}
+
+:deep(.univer-button.primary:hover) {
+  background: var(--excel-green-dark) !important;
+}
+
+/* 分隔线 */
+:deep(.univer-divider) {
+  border-color: var(--excel-ribbon-line) !important;
+}
+
+/* 工作表标签栏(底部) */
+:deep(.univer-sheetbar) {
+  background: var(--excel-ribbon-bg) !important;
+  border-color: var(--excel-ribbon-line) !important;
+}
+
+:deep(.univer-sheetbar-tab) {
+  color: var(--excel-title-tab-fg) !important;
+}
+
+:deep(.univer-sheetbar-tab:hover) {
+  color: var(--excel-green) !important;
+  background: var(--excel-sheet-hover) !important;
+}
+
+:deep(.univer-sheetbar-tab.active) {
+  color: var(--excel-green) !important;
+  box-shadow: inset 0 -2px 0 var(--excel-green) !important;
 }
 </style>

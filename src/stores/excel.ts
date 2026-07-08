@@ -1,5 +1,9 @@
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
+
+// ============================================================
+// 类型定义
+// ============================================================
 
 export interface CellPosition {
   row: number
@@ -30,37 +34,114 @@ interface CellHistoryEntry {
   after: CellEdit[]
 }
 
+// ============================================================
+// 常量
+// ============================================================
+
+const DEFAULT_COL_WIDTH = 96
+const ROW_HEIGHT = 22
+const MAX_UNDO_STACK = 100
+
+// ============================================================
+// Store
+// ============================================================
+
 export const useExcelStore = defineStore('excel', () => {
+  // --- 文件 / 连接状态 ---
   const loading = ref(false)
   const connId = ref<string | null>(null)
   const filePath = ref('')
   const sheetNames = ref<string[]>([])
   const activeSheet = ref('')
+  const dirty = ref(false)
+
+  // --- 数据 ---
   const columns = ref<string[]>([])
   const rowData = ref<string[][]>([])
   const totalRows = ref(0)
   const columnWidths = ref<Record<number, number>>({})
   const frozenRows = ref(0)
   const frozenCols = ref(0)
-  const dirty = ref(false)
 
-  // 筛选
+  // --- 筛选 ---
   const filterText = ref('')
-  const filterCol = ref<number | null>(null) // null = 全列
+  const filterCol = ref<number | null>(null)
   const filterValues = ref<string[]>([])
 
-  // 选区
+  // --- 选区 ---
   const selectedCell = ref<{ row: number; col: number } | null>(null)
   const selectionMode = ref<SelectionMode>(null)
   const selectedRange = ref<{ startRow: number; endRow: number; startCol: number; endCol: number } | null>(null)
   const selectedCells = ref<string[]>([])
+
+  // --- 撤销 / 重做 ---
   const undoStack = ref<CellHistoryEntry[]>([])
   const redoStack = ref<CellHistoryEntry[]>([])
 
-  const DEFAULT_COL_WIDTH = 96
-  const ROW_HEIGHT = 22
+  // ============================================================
+  // 私有工具
+  // ============================================================
 
-  // 筛选后的行索引映射
+  function cellKey(row: number, col: number): string {
+    return `${row}:${col}`
+  }
+
+  function parseCellKey(key: string): CellPosition | null {
+    const [rowText, colText] = key.split(':')
+    const row = Number(rowText)
+    const col = Number(colText)
+    if (!Number.isInteger(row) || !Number.isInteger(col)) return null
+    return { row, col }
+  }
+
+  function ensureCell(row: number, col: number) {
+    while (rowData.value.length <= row) {
+      rowData.value.push(new Array(Math.max(columns.value.length, col + 1, 10)).fill(''))
+    }
+    while (columns.value.length <= col) {
+      columns.value.push('')
+    }
+    while (rowData.value[row].length <= col) {
+      rowData.value[row].push('')
+    }
+  }
+
+  function pushHistory(entry: CellHistoryEntry) {
+    undoStack.value.push(entry)
+    if (undoStack.value.length > MAX_UNDO_STACK) undoStack.value.shift()
+    redoStack.value = []
+  }
+
+  function normalizedSelectionRange() {
+    const range = selectedRange.value
+    if (!range) return null
+    return {
+      startRow: Math.min(range.startRow, range.endRow),
+      endRow: Math.max(range.startRow, range.endRow),
+      startCol: Math.min(range.startCol, range.endCol),
+      endCol: Math.max(range.startCol, range.endCol),
+    }
+  }
+
+  function isRowBlank(row: string[] | undefined | null): boolean {
+    if (!row) return true
+    for (const cell of row) {
+      if (cell !== null && cell !== undefined && String(cell).trim() !== '') return false
+    }
+    return true
+  }
+
+  function trimTrailingEmptyRows(rows: string[][]): string[][] {
+    let end = rows.length
+    while (end > 0 && isRowBlank(rows[end - 1])) end--
+    if (end === rows.length) return rows
+    return rows.slice(0, end)
+  }
+
+  // ============================================================
+  // Computed
+  // ============================================================
+
   const filteredRowIndices = computed<number[]>(() => {
     const text = filterText.value.toLowerCase().trim()
     const col = filterCol.value
@@ -84,37 +165,21 @@ export const useExcelStore = defineStore('excel', () => {
     return filteredRowIndices.value.map(i => rowData.value[i])
   })
 
-  function setLoading(v: boolean) { loading.value = v }
-  function setDirty(v: boolean) { dirty.value = v }
-
-  function getCell(row: number, col: number): string {
-    const data = filteredRowData.value
-    if (row >= 0 && row < data.length) {
-      return data[row][col] ?? ''
-    }
-    return ''
-  }
-
-  function getRawCell(rawRow: number, col: number): string {
-    if (rawRow >= 0 && rawRow < rowData.value.length) {
-      return rowData.value[rawRow][col] ?? ''
-    }
-    return ''
-  }
-
-  // 筛选后的行数
   const displayRowCount = computed(() => filteredRowData.value.length)
   const canUndo = computed(() => undoStack.value.length > 0)
   const canRedo = computed(() => redoStack.value.length > 0)
+
   const selectedCellValue = computed(() => {
     const sel = selectedCell.value
     return sel ? getCell(sel.row, sel.col) : ''
   })
+
   const activeCellLabel = computed(() => {
     const sel = selectedCell.value
     if (!sel) return ''
     return `${colIndexToLetter(sel.col)}${displayRowToExcelRow(sel.row)}`
   })
+
   const selectedStats = computed(() => {
     if (selectedCells.value.length > 0) {
       let numericCount = 0
@@ -179,6 +244,47 @@ export const useExcelStore = defineStore('excel', () => {
     }
   })
 
+  // ============================================================
+  // 行 / 列映射
+  // ============================================================
+
+  function displayRowToRawRow(row: number): number {
+    return filterText.value.trim() || filterValues.value.length > 0 ? (filteredRowIndices.value[row] ?? row) : row
+  }
+
+  function displayRowToExcelRow(row: number): number {
+    return displayRowToRawRow(row) + 2
+  }
+
+  function colIndexToLetter(col: number): string {
+    let letter = ''
+    let n = col
+    while (n >= 0) {
+      letter = String.fromCharCode(65 + (n % 26)) + letter
+      n = Math.floor(n / 26) - 1
+    }
+    return letter
+  }
+
+  // ============================================================
+  // 数据读写
+  // ============================================================
+
+  function getCell(row: number, col: number): string {
+    const data = filteredRowData.value
+    if (row >= 0 && row < data.length) {
+      return data[row][col] ?? ''
+    }
+    return ''
+  }
+
+  function getRawCell(rawRow: number, col: number): string {
+    if (rawRow >= 0 && rawRow < rowData.value.length) {
+      return rowData.value[rawRow][col] ?? ''
+    }
+    return ''
+  }
+
   function setCell(row: number, col: number, value: string) {
     while (rowData.value.length <= row) {
       rowData.value.push(new Array(columns.value.length || 10).fill(''))
@@ -240,31 +346,9 @@ export const useExcelStore = defineStore('excel', () => {
     return entry.after
   }
 
-  function pushHistory(entry: CellHistoryEntry) {
-    undoStack.value.push(entry)
-    if (undoStack.value.length > 100) undoStack.value.shift()
-    redoStack.value = []
-  }
-
-  function ensureCell(row: number, col: number) {
-    while (rowData.value.length <= row) {
-      rowData.value.push(new Array(Math.max(columns.value.length, col + 1, 10)).fill(''))
-    }
-    while (columns.value.length <= col) {
-      columns.value.push('')
-    }
-    while (rowData.value[row].length <= col) {
-      rowData.value[row].push('')
-    }
-  }
-
-  function displayRowToRawRow(row: number): number {
-    return filterText.value.trim() || filterValues.value.length > 0 ? (filteredRowIndices.value[row] ?? row) : row
-  }
-
-  function displayRowToExcelRow(row: number): number {
-    return displayRowToRawRow(row) + 2
-  }
+  // ============================================================
+  // 行列操作
+  // ============================================================
 
   function addRow(afterRow: number) {
     const newRow: string[] = new Array(columns.value.length || 10).fill('')
@@ -321,15 +405,9 @@ export const useExcelStore = defineStore('excel', () => {
     columnWidths.value[col] = Math.max(40, width)
   }
 
-  function colIndexToLetter(col: number): string {
-    let letter = ''
-    let n = col
-    while (n >= 0) {
-      letter = String.fromCharCode(65 + (n % 26)) + letter
-      n = Math.floor(n / 26) - 1
-    }
-    return letter
-  }
+  // ============================================================
+  // 数据加载 / 清空
+  // ============================================================
 
   function loadData(data: {
     sheetName?: string
@@ -346,8 +424,6 @@ export const useExcelStore = defineStore('excel', () => {
     if (data.filePath !== undefined) filePath.value = data.filePath
     if (data.sheetNames) sheetNames.value = data.sheetNames
     if (data.sheetName) activeSheet.value = data.sheetName
-    // 双保险:即使后端忘了裁掉尾部空行,前端也要裁,否则 Univer 渲染 + 状态栏都会
-    // 出现大量虚高行数,UI 上呈现大块留白。
     const trimmedRows = trimTrailingEmptyRows(data.rows)
     columns.value = data.columns
     rowData.value = trimmedRows
@@ -355,21 +431,6 @@ export const useExcelStore = defineStore('excel', () => {
     dirty.value = data.preserveDirty ? wasDirty : false
     undoStack.value = []
     redoStack.value = []
-  }
-
-  function isRowBlank(row: string[] | undefined | null): boolean {
-    if (!row) return true
-    for (const cell of row) {
-      if (cell !== null && cell !== undefined && String(cell).trim() !== '') return false
-    }
-    return true
-  }
-
-  function trimTrailingEmptyRows(rows: string[][]): string[][] {
-    let end = rows.length
-    while (end > 0 && isRowBlank(rows[end - 1])) end--
-    if (end === rows.length) return rows
-    return rows.slice(0, end)
   }
 
   function clear() {
@@ -396,6 +457,10 @@ export const useExcelStore = defineStore('excel', () => {
     redoStack.value = []
   }
 
+  // ============================================================
+  // 筛选
+  // ============================================================
+
   function setFilter(text: string, col: number | null = null, values: string[] = []) {
     filterText.value = text
     filterCol.value = col
@@ -407,6 +472,10 @@ export const useExcelStore = defineStore('excel', () => {
     filterCol.value = null
     filterValues.value = []
   }
+
+  // ============================================================
+  // 选区
+  // ============================================================
 
   function selectCell(row: number, col: number) {
     selectedCell.value = { row, col }
@@ -449,29 +518,6 @@ export const useExcelStore = defineStore('excel', () => {
     }
   }
 
-  function normalizedSelectionRange() {
-    const range = selectedRange.value
-    if (!range) return null
-    return {
-      startRow: Math.min(range.startRow, range.endRow),
-      endRow: Math.max(range.startRow, range.endRow),
-      startCol: Math.min(range.startCol, range.endCol),
-      endCol: Math.max(range.startCol, range.endCol),
-    }
-  }
-
-  function cellKey(row: number, col: number): string {
-    return `${row}:${col}`
-  }
-
-  function parseCellKey(key: string): CellPosition | null {
-    const [rowText, colText] = key.split(':')
-    const row = Number(rowText)
-    const col = Number(colText)
-    if (!Number.isInteger(row) || !Number.isInteger(col)) return null
-    return { row, col }
-  }
-
   function toggleCell(row: number, col: number) {
     const next = new Set(selectedCells.value)
     if (next.size === 0 && selectedCell.value) {
@@ -494,6 +540,10 @@ export const useExcelStore = defineStore('excel', () => {
     const range = normalizedSelectionRange()
     return !!range && row >= range.startRow && row <= range.endRow && col >= range.startCol && col <= range.endCol
   }
+
+  // ============================================================
+  // 剪贴板(TSV)
+  // ============================================================
 
   function selectionToTsv(): string {
     if (selectedCells.value.length > 0) {
@@ -539,40 +589,66 @@ export const useExcelStore = defineStore('excel', () => {
     return commitDisplayCellEdits(changes)
   }
 
+  // ============================================================
+  // 状态设置器
+  // ============================================================
+
+  function setLoading(v: boolean) { loading.value = v }
+  function setDirty(v: boolean) { dirty.value = v }
+
+  // ============================================================
+  // 导出
+  // ============================================================
+
   return {
+    // 常量
+    DEFAULT_COL_WIDTH,
+    ROW_HEIGHT,
+
+    // 文件 / 连接状态
     loading,
     connId,
     filePath,
     sheetNames,
     activeSheet,
+    dirty,
+
+    // 数据
     columns,
     rowData,
     totalRows,
     columnWidths,
     frozenRows,
     frozenCols,
-    dirty,
+
+    // 筛选
     filterText,
     filterCol,
     filterValues,
     filteredRowIndices,
     filteredRowData,
     displayRowCount,
+
+    // 选区
     selectedCell,
     selectionMode,
     selectedRange,
     selectedCells,
     undoStack,
     redoStack,
+
+    // Computed
     canUndo,
     canRedo,
     selectedCellValue,
     activeCellLabel,
     selectedStats,
-    DEFAULT_COL_WIDTH,
-    ROW_HEIGHT,
+
+    // 状态设置器
     setLoading,
     setDirty,
+
+    // 数据读写
     getCell,
     getRawCell,
     setCell,
@@ -581,19 +657,29 @@ export const useExcelStore = defineStore('excel', () => {
     applyRawCellEdits,
     undo,
     redo,
+
+    // 行 / 列映射
     displayRowToRawRow,
     displayRowToExcelRow,
+    colIndexToLetter,
+
+    // 行列操作
     addRow,
     deleteRow,
     addCol,
     deleteCol,
     getColWidth,
     setColWidth,
-    colIndexToLetter,
+
+    // 数据加载 / 清空
     loadData,
     clear,
+
+    // 筛选
     setFilter,
     clearFilter,
+
+    // 选区
     selectCell,
     selectRow,
     selectCol,
@@ -602,6 +688,8 @@ export const useExcelStore = defineStore('excel', () => {
     toggleCell,
     isCellSelected,
     normalizedSelectionRange,
+
+    // 剪贴板
     selectionToTsv,
     pasteTsv,
   }
