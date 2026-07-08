@@ -162,7 +162,73 @@ function refreshViewportRowCount(): boolean {
   return true
 }
 
-let resizePollHandle: number | null = null
+let canvasMountObserver: MutationObserver | null = null
+let canvasMountFallbackTimer: number | null = null
+
+// 把"等画布挂载 + 强制引擎重测尺寸"抽出成纯函数,被初始化/ResizeObserver 复用。
+function syncUniverCanvasSize(): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const injector = (univerAPIInstance as any)?._injector
+    if (!injector || !univerInstance) return false
+
+    const unitId = univerAPIInstance?.getActiveWorkbook?.()?.getId?.()
+    if (!unitId) return false
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const renderMgr = injector.get?.(Symbol.for('IRenderManagerService'))
+    const renderUnit = renderMgr?.getRenderById?.(unitId)
+    const engine = renderUnit?.engine
+    if (!engine) return false
+
+    const el = containerRef.value
+    if (!el) return false
+
+    const canvas = el.querySelector('[data-u-comp="render-canvas"]') as HTMLCanvasElement | null
+    const mountPoint = el.querySelector('[data-range-selector]') as HTMLElement | null
+    // 画布或挂载点尚未就绪
+    if (!canvas || !mountPoint) return false
+
+    const mountW = mountPoint.clientWidth
+    const mountH = mountPoint.clientHeight
+    // 布局尚未稳定
+    if (mountW <= 0 || mountH <= 0) return false
+
+    const canvasW = parseFloat(canvas.style.width) || 0
+    const canvasH = parseFloat(canvas.style.height) || 0
+    const sizeMatches = Math.abs(canvasW - mountW) <= 1 && Math.abs(canvasH - mountH) <= 1
+
+    if (!sizeMatches) {
+      // 重置引擎尺寸缓存,强制 resize() 重新测量
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(engine as any)._previousWidth = -1
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(engine as any)._previousHeight = -1
+      engine.resize()
+
+      // resize() 后再次检查,仍不匹配则直接调用 resizeBySize()
+      const newCanvasH = parseFloat(canvas.style.height) || 0
+      if (Math.abs(newCanvasH - mountH) > 1) {
+        engine.resizeBySize(mountW, mountH)
+      }
+      return false // 本轮触发了重测,等下一轮 style 变化再确认
+    }
+
+    return true
+  } catch {
+    // 忽略内部 API 变化
+    return false
+  }
+}
+
+function stopCanvasMountObserver() {
+  canvasMountObserver?.disconnect()
+  canvasMountObserver = null
+  if (canvasMountFallbackTimer !== null) {
+    window.clearTimeout(canvasMountFallbackTimer)
+    canvasMountFallbackTimer = null
+  }
+}
 
 function requestUniverResize() {
   // Univer Engine 在生命周期 Ready 后延迟 300ms 才挂载画布。
@@ -170,96 +236,30 @@ function requestUniverResize() {
   // 尚未稳定或尺寸与 _previousWidth/_previousHeight 相同,则跳过 resize,导致
   // 画布尺寸不正确,下方出现大面积留白。
   //
-  // 修复策略:轮询等待画布挂载完成,然后重置引擎的尺寸缓存(_previousWidth/
-  // _previousHeight)强制重新测量。如果仍不匹配,直接调用 resizeBySize()。
-  if (resizePollHandle !== null) window.clearInterval(resizePollHandle)
+  // 修复策略:用 MutationObserver 监听容器内 canvas 出现 / style 变化,
+  // 一旦画布尺寸与挂载点对齐就立刻 disconnect —— 比 setInterval 轮询省 CPU。
+  stopCanvasMountObserver()
 
-  let attempts = 0
-  const maxAttempts = 30 // 30 * 50ms = 1.5s
+  const el = containerRef.value
+  if (!el) return
 
-  resizePollHandle = window.setInterval(() => {
-    attempts++
-    if (attempts > maxAttempts) {
-      if (resizePollHandle !== null) {
-        window.clearInterval(resizePollHandle)
-        resizePollHandle = null
-      }
-      return
+  // 同步快路径:画布已挂载且尺寸正确,直接收手
+  if (syncUniverCanvasSize()) return
+
+  canvasMountObserver = new MutationObserver(() => {
+    if (syncUniverCanvasSize()) {
+      stopCanvasMountObserver()
     }
+  })
+  canvasMountObserver.observe(el, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['style'],
+  })
 
-    let success = false
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const injector = (univerAPIInstance as any)?._injector
-      if (!injector || !univerInstance) return
-
-      const unitId = univerAPIInstance?.getActiveWorkbook?.()?.getId?.()
-      if (!unitId) return
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const renderMgr = injector.get?.(Symbol.for('IRenderManagerService'))
-      const renderUnit = renderMgr?.getRenderById?.(unitId)
-      const engine = renderUnit?.engine
-      if (!engine) return
-
-      const el = containerRef.value
-      if (!el) return
-
-      const canvas = el.querySelector('[data-u-comp="render-canvas"]') as HTMLCanvasElement | null
-      const mountPoint = el.querySelector('[data-range-selector]') as HTMLElement | null
-
-      // 画布尚未挂载,继续等待
-      if (!canvas || !mountPoint) return
-
-      const mountW = mountPoint.clientWidth
-      const mountH = mountPoint.clientHeight
-
-      // 挂载点尺寸为 0,布局尚未稳定,继续等待
-      if (mountW <= 0 || mountH <= 0) return
-
-      const canvasW = parseFloat(canvas.style.width) || 0
-      const canvasH = parseFloat(canvas.style.height) || 0
-      const sizeMatches = Math.abs(canvasW - mountW) <= 1 && Math.abs(canvasH - mountH) <= 1
-
-      if (!sizeMatches) {
-        // 重置引擎尺寸缓存,强制 resize() 重新测量
-        engine._previousWidth = -1
-        engine._previousHeight = -1
-        engine.resize()
-
-        // resize() 后再次检查,仍不匹配则直接调用 resizeBySize()
-        const newCanvasH = parseFloat(canvas.style.height) || 0
-        if (Math.abs(newCanvasH - mountH) > 1) {
-          engine.resizeBySize(mountW, mountH)
-        }
-      }
-
-      success = true
-    } catch {
-      // 忽略内部 API 变化
-    }
-
-    // 画布尺寸已正确,停止轮询
-    if (success) {
-      // 再验证一次:确认画布尺寸确实正确
-      try {
-        const el = containerRef.value
-        const canvas = el?.querySelector('[data-u-comp="render-canvas"]') as HTMLCanvasElement | null
-        const mountPoint = el?.querySelector('[data-range-selector]') as HTMLElement | null
-        if (canvas && mountPoint) {
-          const canvasH = parseFloat(canvas.style.height) || 0
-          const mountH = mountPoint.clientHeight
-          if (mountH > 0 && Math.abs(canvasH - mountH) <= 1) {
-            if (resizePollHandle !== null) {
-              window.clearInterval(resizePollHandle)
-              resizePollHandle = null
-            }
-            return
-          }
-        }
-      } catch { /* ignore */ }
-    }
-  }, 50)
+  // 兜底:1.5s 内若仍没对齐,强制 disconnect 避免观察器长期挂载
+  canvasMountFallbackTimer = window.setTimeout(stopCanvasMountObserver, 1500)
 }
 
 function queueLayoutRender() {
@@ -303,10 +303,7 @@ function buildWorkbookData(): IWorkbookData {
 }
 
 function disposeWorkbook() {
-  if (resizePollHandle !== null) {
-    window.clearInterval(resizePollHandle)
-    resizePollHandle = null
-  }
+  stopCanvasMountObserver()
   commandDisposable?.dispose()
   commandDisposable = null
   resizeObserver?.disconnect()
@@ -526,8 +523,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (syncTimer !== null) window.clearTimeout(syncTimer)
   if (layoutRenderTimer !== null) window.clearTimeout(layoutRenderTimer)
-  if (resizePollHandle !== null) window.clearInterval(resizePollHandle)
-  resizePollHandle = null
+  stopCanvasMountObserver()
   disposeWorkbook()
 })
 

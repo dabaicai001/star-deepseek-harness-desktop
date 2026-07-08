@@ -1819,6 +1819,8 @@ kbd {
   align-items: center;
   padding: 0 12px;
   gap: 2px;
+  min-width: 0;
+  overflow: hidden;
   font-size: 12px;
   color: var(--text-2);
   backdrop-filter: blur(10px);
@@ -1953,7 +1955,7 @@ kbd {
 
 /* 无 tab 时,tab 栏居中显示"最近用过"快速启动条 */
 .quick-start-bar {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -1977,6 +1979,8 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: 260px;
   padding: 3px 8px 3px 6px;
   background: var(--hover-cyan-faint);
   border: 1px solid var(--line-2);
@@ -2007,6 +2011,9 @@ kbd {
 .quick-start-bar .qs-chip .db-type-label { font-size: 8px; padding: 1px 4px; }
 .quick-start-bar .qs-name {
   font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .quick-start-bar .qs-time {
   font-family: 'JetBrains Mono', monospace;
@@ -2015,6 +2022,7 @@ kbd {
   padding-left: 4px;
   border-left: 1px solid var(--line-2);
   margin-left: 2px;
+  flex-shrink: 0;
 }
 .quick-start-bar .qs-hint {
   font-size: 10px;
@@ -2187,6 +2195,7 @@ kbd {
 
 .workspace {
   flex: 1;
+  min-width: 0;
   background: transparent;
   overflow: hidden;
   display: flex;
@@ -2197,6 +2206,7 @@ kbd {
 .workspace-welcome {
   flex: 1;
   overflow: auto;
+  overflow-x: hidden;
   min-width: 0;
   min-height: 0;
   padding: clamp(12px, 2vw, 32px);
@@ -2213,7 +2223,7 @@ kbd {
 
 .welcome-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(240px, 0.7fr);
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.7fr);
   gap: clamp(16px, 2vw, 32px);
   align-items: stretch;
 }
@@ -2270,7 +2280,7 @@ kbd {
 
 .welcome-metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr));
   gap: 12px;
 }
 
@@ -2300,7 +2310,7 @@ kbd {
 
 .feature-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 12px;
   margin: 0;
 }
@@ -2308,7 +2318,7 @@ kbd {
 .onboarding-panel {
   margin: 24px 0 16px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 8px;
 }
 
@@ -2536,7 +2546,7 @@ kbd {
 
 .recent-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 8px;
 }
 
