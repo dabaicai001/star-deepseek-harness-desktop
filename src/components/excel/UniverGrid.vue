@@ -104,24 +104,12 @@ const VISIBLE_BUFFER_ROWS = 5
 const VISIBLE_MIN_ROWS = 24
 const DEFAULT_ROW_HEIGHT = 22
 
-function lastNonEmptyDataIndex(): number {
-  const data = store.rowData
-  for (let i = data.length - 1; i >= 0; i--) {
-    const row = data[i]
-    if (!row) continue
-    for (const cell of row) {
-      if (cell !== null && cell !== undefined && String(cell).trim() !== '') return i
-    }
-  }
-  return -1
-}
-
 function computeRowCount(): number {
-  const lastDataIndex = lastNonEmptyDataIndex()
-  // cellData 还要写 1 行表头,所以可见高度 = (lastDataIndex + 1) + 1 + buffer
-  const lastDataRowNumber = lastDataIndex + 2 // 1-indexed,且包含表头行
+  // 不能按“最后一个非空单元格”裁剪渲染行数:Excel 文件里真实存在的空数据行
+  // 也必须显示行号和网格线,否则会在表格中部露出一整块纯白区域。
+  const rowDataHeight = store.rowData.length + 1 + VISIBLE_BUFFER_ROWS
   return Math.max(
-    lastDataRowNumber + VISIBLE_BUFFER_ROWS,
+    rowDataHeight,
     viewportRowCount.value,
     VISIBLE_MIN_ROWS,
   )
