@@ -14,6 +14,14 @@
 
 ---
 
+## [0.17.2] - 2026-07-09
+
+### 修复
+- 🐛 fix(db): 刷新 / 翻页 / 排序时 `setValues` / `setColumnWidth` 触发 Univer 的 Workbook Edit permission 拦截并弹出"sheets-ui.permission.dialog.alert"权限警告;新增 `withEditableBypass` 在程序化写入时临时打开 editable,写完按 props.editable 恢复,用户视觉上仍是 read-only。
+- 🐛 fix(db): 数据网格线颜色用 `--line-2`(`rgba(122,156,185,0.18)`)在深色背景上几乎不可见;新增专门的 `--gridline` token,深色模式 `rgba(93,214,214,0.22)`、浅色模式 `rgba(30,45,62,0.22)`,跟面板分隔线形成层次。
+
+---
+
 ## [0.17.1] - 2026-07-09
 
 ### 优化

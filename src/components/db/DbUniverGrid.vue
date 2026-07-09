@@ -258,20 +258,24 @@ function syncChangesFromUniver() {
     .getRange(1, 0, props.rows.length, props.columns.length)
     .getValues()
 
-  values.forEach((row, rowIndex) => {
-    row.forEach((rawValue, columnIndex) => {
-      const original = baselineRows[rowIndex]?.[columnIndex]
-      const value = coerceValue(rawValue, original, props.columns[columnIndex])
-      if (!valuesEqual(value, original)) {
-        baselineRows[rowIndex][columnIndex] = value
-        const isDirty = !valuesEqual(value, props.rows[rowIndex]?.[columnIndex])
-        worksheet
-          .getRange(rowIndex + 1, columnIndex, 1, 1)
-          .setBackground(cssVar(isDirty ? '--active-cyan' : '--panel-solid', isDirty ? 'rgba(93, 214, 214, 0.11)' : '#101822'))
-          .setFontColor(cssVar(value === null ? '--muted' : '--text', value === null ? '#607082' : '#dce7f3'))
-          .setFontStyle(value === null ? 'italic' : 'normal')
-        emit('cell-change', rowIndex, props.columns[columnIndex].name, value)
-      }
+  // 编辑态下用户改单元格,我们回写脏标记颜色。同样走 command 路径,
+  // 套上 withEditableBypass 防止 props.editable 翻转瞬间撞 permission。
+  withEditableBypass(() => {
+    values.forEach((row, rowIndex) => {
+      row.forEach((rawValue, columnIndex) => {
+        const original = baselineRows[rowIndex]?.[columnIndex]
+        const value = coerceValue(rawValue, original, props.columns[columnIndex])
+        if (!valuesEqual(value, original)) {
+          baselineRows[rowIndex][columnIndex] = value
+          const isDirty = !valuesEqual(value, props.rows[rowIndex]?.[columnIndex])
+          worksheet
+            .getRange(rowIndex + 1, columnIndex, 1, 1)
+            .setBackground(cssVar(isDirty ? '--active-cyan' : '--panel-solid', isDirty ? 'rgba(93, 214, 214, 0.11)' : '#101822'))
+            .setFontColor(cssVar(value === null ? '--muted' : '--text', value === null ? '#607082' : '#dce7f3'))
+            .setFontStyle(value === null ? 'italic' : 'normal')
+          emit('cell-change', rowIndex, props.columns[columnIndex].name, value)
+        }
+      })
     })
   })
 }
@@ -281,14 +285,16 @@ function syncRowsInPlace() {
   if (!worksheet || props.columns.length === 0) return
 
   syncing = true
-  const rowCount = Math.max(props.rows.length + 1, 2)
-  const columnCount = Math.max(props.columns.length, 1)
-  worksheet.setRowCount(rowCount)
-  worksheet.setColumnCount(columnCount)
-  worksheet
-    .getRange(0, 0, rowCount, columnCount)
-    .setValues(buildGridMatrix())
-  baselineRows = props.rows.map(row => [...row])
+  withEditableBypass(() => {
+    const rowCount = Math.max(props.rows.length + 1, 2)
+    const columnCount = Math.max(props.columns.length, 1)
+    worksheet.setRowCount(rowCount)
+    worksheet.setColumnCount(columnCount)
+    worksheet
+      .getRange(0, 0, rowCount, columnCount)
+      .setValues(buildGridMatrix())
+    baselineRows = props.rows.map(row => [...row])
+  })
   window.setTimeout(() => {
     syncing = false
   }, 0)
@@ -298,12 +304,37 @@ function syncHeaderInPlace() {
   const worksheet = univerAPIInstance?.getActiveWorkbook()?.getActiveSheet()
   if (!worksheet || props.columns.length === 0) return
   syncing = true
-  worksheet
-    .getRange(0, 0, 1, props.columns.length)
-    .setValues([props.columns.map(column => buildHeaderCell(column))])
+  withEditableBypass(() => {
+    worksheet
+      .getRange(0, 0, 1, props.columns.length)
+      .setValues([props.columns.map(column => buildHeaderCell(column))])
+  })
   window.setTimeout(() => {
     syncing = false
   }, 0)
+}
+
+/**
+ * 包裹 setValues / setRangeValues 写入。
+ *
+ * `workbook.setEditable(false)` 会注册 WorkbookEdit permission point,
+ * 把整张表锁成 read-only;此后再调 setValues 会被 SheetPermissionCheckUIController
+ * 拦截并弹出 "sheets-ui.permission.dialog.alert" 权限警告 — 即使是程序化
+ * 写入也不允许。我们要在原地同步数据时临时打开 editable,写完立刻恢复,
+ * 让用户视觉上仍然是 read-only(因为 watcher 会随后再次 setEditable(false) 兜底)。
+ */
+function withEditableBypass(fn: () => void) {
+  const workbook = univerAPIInstance?.getActiveWorkbook()
+  if (!workbook || props.editable) {
+    fn()
+    return
+  }
+  workbook.setEditable(true)
+  try {
+    fn()
+  } finally {
+    workbook.setEditable(false)
+  }
 }
 
 function queueChangeSync() {
@@ -401,16 +432,23 @@ async function renderGrid() {
   univerInstance = univer
   univerAPIInstance = univerAPI
   const workbook = univerAPI.createWorkbook(buildWorkbookData())
-  workbook.setEditable(props.editable)
   const worksheet = workbook.getActiveSheet()
-  props.columns.forEach((column, index) => {
-    worksheet.setColumnWidth(index, columnWidth(column, index))
+  // 写入操作(setColumnWidth / setHiddenGridlines / setGridLinesColor)
+  // 全部走 SetColWidthCommand 等 command 路径,会被 Workbook Edit permission
+  // 拦截并弹"sheets-ui.permission.dialog.alert"警告。
+  // 策略:临时 setEditable(true),写完再根据 props.editable 恢复。
+  withEditableBypass(() => {
+    props.columns.forEach((column, index) => {
+      worksheet.setColumnWidth(index, columnWidth(column, index))
+    })
+    // 数据库结果区需要看到行/列分割线 — Univer 默认会把它们关掉以模拟
+    // "无格线 Excel" 视图。这里强制开,颜色用 StarHub 专门的 --gridline token,
+    // 比 --line-2 明显一档并带主青色调,既能在深色背景上识别单元格边界,
+    // 又跟面板分隔线形成层次。
+    worksheet.setHiddenGridlines(false)
+    worksheet.setGridLinesColor(cssVar('--gridline', 'rgba(93, 214, 214, 0.22)'))
   })
-  // 数据库结果区需要看到行/列分割线 — Univer 默认会把它们关掉以模拟
-  // "无格线 Excel" 视图。这里强制开,颜色用 StarHub 的低饱和分隔线 token,
-  // 与 cyber.css 里 --line-2 保持一致,视觉上像控制台的数据面板而不是白表格。
-  worksheet.setHiddenGridlines(false)
-  worksheet.setGridLinesColor(cssVar('--line-2', 'rgba(122, 156, 185, 0.18)'))
+  workbook.setEditable(props.editable)
 
   eventDisposables.push(
     univerAPI.addEvent(univerAPI.Event.BeforeSheetEditStart, params => {
