@@ -163,6 +163,7 @@ function refreshViewportRowCount(): boolean {
 }
 
 let canvasMountObserver: MutationObserver | null = null
+let mountPointResizeObserver: ResizeObserver | null = null
 let canvasMountFallbackTimer: number | null = null
 
 // 把"等画布挂载 + 强制引擎重测尺寸"抽出成纯函数,被初始化/ResizeObserver 复用。
@@ -211,7 +212,7 @@ function syncUniverCanvasSize(): boolean {
       if (Math.abs(newCanvasH - mountH) > 1) {
         engine.resizeBySize(mountW, mountH)
       }
-      return false // 本轮触发了重测,等下一轮 style 变化再确认
+      return false // 本轮触发了重测,等下一轮尺寸变化再确认
     }
 
     return true
@@ -221,9 +222,21 @@ function syncUniverCanvasSize(): boolean {
   }
 }
 
-function stopCanvasMountObserver() {
+function attachMountPointResizeObserver(mountPoint: HTMLElement) {
+  mountPointResizeObserver?.disconnect()
+  mountPointResizeObserver = new ResizeObserver(() => {
+    syncUniverCanvasSize()
+  })
+  mountPointResizeObserver.observe(mountPoint)
+  // 首次挂载立刻校准一次,处理引擎 _previousWidth 缓存的旧尺寸
+  syncUniverCanvasSize()
+}
+
+function stopCanvasSizeTracking() {
   canvasMountObserver?.disconnect()
   canvasMountObserver = null
+  mountPointResizeObserver?.disconnect()
+  mountPointResizeObserver = null
   if (canvasMountFallbackTimer !== null) {
     window.clearTimeout(canvasMountFallbackTimer)
     canvasMountFallbackTimer = null
@@ -232,34 +245,39 @@ function stopCanvasMountObserver() {
 
 function requestUniverResize() {
   // Univer Engine 在生命周期 Ready 后延迟 300ms 才挂载画布。
-  // 挂载时 engine.resize() 用 getComputedStyle 获取挂载点尺寸,如果此时布局
-  // 尚未稳定或尺寸与 _previousWidth/_previousHeight 相同,则跳过 resize,导致
-  // 画布尺寸不正确,下方出现大面积留白。
+  // 挂载时 engine.resize() 用 _previousWidth/_previousHeight 缓存比对尺寸,
+  // 相同则跳过 resize,导致画布尺寸不正确,下方留白。
   //
-  // 修复策略:用 MutationObserver 监听容器内 canvas 出现 / style 变化,
-  // 一旦画布尺寸与挂载点对齐就立刻 disconnect —— 比 setInterval 轮询省 CPU。
-  stopCanvasMountObserver()
+  // 修复策略:
+  // - 轻量 MutationObserver 只等 [data-range-selector] 元素出现(childList 即可)
+  // - mountPoint 出现后立刻切换为 ResizeObserver 监听 mountPoint 尺寸变化
+  // - 任一尺寸变化触发 syncUniverCanvasSize() 强制重测 canvas 对齐
+  // 比持续监听 attributes:style 更省 CPU,也避免了 style 抖动引起的多余回调。
+  stopCanvasSizeTracking()
 
   const el = containerRef.value
   if (!el) return
 
-  // 同步快路径:画布已挂载且尺寸正确,直接收手
-  if (syncUniverCanvasSize()) return
+  const mountPoint = el.querySelector('[data-range-selector]') as HTMLElement | null
 
+  // 快路径:mountPoint 已挂载,直接绑定 ResizeObserver
+  if (mountPoint) {
+    attachMountPointResizeObserver(mountPoint)
+    return
+  }
+
+  // 元素还没出现 → MutationObserver 等到 mountPoint 出现就立刻切换为 ResizeObserver
   canvasMountObserver = new MutationObserver(() => {
-    if (syncUniverCanvasSize()) {
-      stopCanvasMountObserver()
-    }
+    const mp = el.querySelector('[data-range-selector]') as HTMLElement | null
+    if (!mp) return
+    canvasMountObserver?.disconnect()
+    canvasMountObserver = null
+    attachMountPointResizeObserver(mp)
   })
-  canvasMountObserver.observe(el, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ['style'],
-  })
+  canvasMountObserver.observe(el, { childList: true, subtree: true })
 
-  // 兜底:1.5s 内若仍没对齐,强制 disconnect 避免观察器长期挂载
-  canvasMountFallbackTimer = window.setTimeout(stopCanvasMountObserver, 1500)
+  // 兜底:1.5s 内若仍没出现,强制 disconnect 避免观察器长期挂载
+  canvasMountFallbackTimer = window.setTimeout(stopCanvasSizeTracking, 1500)
 }
 
 function queueLayoutRender() {
@@ -303,7 +321,7 @@ function buildWorkbookData(): IWorkbookData {
 }
 
 function disposeWorkbook() {
-  stopCanvasMountObserver()
+  stopCanvasSizeTracking()
   commandDisposable?.dispose()
   commandDisposable = null
   resizeObserver?.disconnect()
@@ -523,7 +541,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (syncTimer !== null) window.clearTimeout(syncTimer)
   if (layoutRenderTimer !== null) window.clearTimeout(layoutRenderTimer)
-  stopCanvasMountObserver()
+  stopCanvasSizeTracking()
   disposeWorkbook()
 })
 

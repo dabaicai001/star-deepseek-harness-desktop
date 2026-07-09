@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.14.11(Excel 画布 resize 用 MutationObserver 替代 setInterval 轮询) |
+| 当前版本 | v0.14.12(Excel 画布 resize 用 ResizeObserver + 一次性 MutationObserver 替代持续 style 监听) |
 
 ---
 
@@ -671,4 +671,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-08 (v0.14.11)*
+*最后更新: 2026-07-09 (v0.14.12)*

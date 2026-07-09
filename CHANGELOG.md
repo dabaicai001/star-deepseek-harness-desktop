@@ -15,6 +15,13 @@
 
 ---
 
+## [0.14.12] - 2026-07-09
+
+### 优化
+- ⚡ perf(excel): `UniverGrid` 把 `requestUniverResize` 从「`MutationObserver` 持续监听 `attributes:style`」改为「轻量 `MutationObserver` 仅等 `[data-range-selector]` 出现 → 立刻切换为 `ResizeObserver` 监听 mountPoint 尺寸变化」。`ResizeObserver` 的初始回调顺带校准一次,处理引擎 `_previousWidth/_previousHeight` 缓存导致首次挂载尺寸错位的旧 bug。比持续监听 style 更省 CPU,也避免了父层尺寸变化时 style 抖动引起的多余回调。
+
+---
+
 ## [0.14.11] - 2026-07-08
 
 ### 优化
