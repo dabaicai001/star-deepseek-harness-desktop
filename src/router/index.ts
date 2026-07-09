@@ -49,6 +49,18 @@ const router = createRouter({
           props: true,
         },
         {
+          path: 'db/postgresql/:id',
+          name: 'db-postgresql',
+          component: () => import('@/views/DbView.vue'),
+          props: true,
+        },
+        {
+          path: 'broker/:id',
+          name: 'db-broker',
+          component: () => import('@/views/BrokerView.vue'),
+          props: true,
+        },
+        {
           path: 'docker/:id',
           name: 'docker',
           component: () => import('@/views/DockerView.vue'),

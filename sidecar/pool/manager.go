@@ -12,6 +12,7 @@ type ConnType string
 
 const (
 	ConnMySQL  ConnType = "mysql"
+	ConnPG     ConnType = "postgresql"
 	ConnRedis  ConnType = "redis"
 	ConnDocker ConnType = "docker"
 	ConnES     ConnType = "elasticsearch"

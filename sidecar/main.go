@@ -37,7 +37,7 @@ func main() {
 			"version":         sidecarVersion,
 			"protocolVersion": protocolVersion,
 			"go":              "1.25+",
-			"modules":         "mysql,redis,elasticsearch,clickhouse,docker,excel,csv",
+			"modules":         "mysql,postgresql,redis,elasticsearch,clickhouse,kafka,nsq,docker,excel,csv",
 			"methods":         server.Methods(),
 		}, nil
 	})

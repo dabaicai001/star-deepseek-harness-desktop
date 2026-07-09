@@ -37,6 +37,37 @@ pub async fn db_mysql_disconnect(
         .await
 }
 
+// ─── PostgreSQL Commands ───
+
+#[tauri::command]
+pub async fn db_postgres_connect(
+    sidecar: State<'_, SidecarManager>,
+    params: Value,
+) -> Result<Value, String> {
+    sidecar.call("db.postgres.connect", params).await
+}
+
+#[tauri::command]
+pub async fn db_postgres_test(
+    sidecar: State<'_, SidecarManager>,
+    params: Value,
+) -> Result<Value, String> {
+    sidecar.call("db.postgres.test", params).await
+}
+
+#[tauri::command]
+pub async fn db_postgres_disconnect(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "db.postgres.disconnect",
+            serde_json::json!({ "connId": conn_id }),
+        )
+        .await
+}
+
 #[tauri::command]
 pub async fn db_mysql_list_databases(
     sidecar: State<'_, SidecarManager>,

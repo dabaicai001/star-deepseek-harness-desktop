@@ -65,6 +65,10 @@ html.v-theme--darkTheme {
   --db-clickhouse-bg: rgba(197, 170, 98, 0.13);
   --db-elasticsearch: #8f7bd8;
   --db-elasticsearch-bg: rgba(143, 123, 216, 0.12);
+  --db-kafka: #a9b6c6;
+  --db-kafka-bg: rgba(169, 182, 198, 0.12);
+  --db-nsq: #5dd6d6;
+  --db-nsq-bg: rgba(93, 214, 214, 0.12);
   --grad-primary: linear-gradient(135deg, #5dd6d6 0%, #8f7bd8 100%);
   --grad-accent: linear-gradient(135deg, #d46aa3 0%, #d89b65 100%);
   --grad-cool: linear-gradient(135deg, #5dd6d6 0%, #7297e8 100%);
@@ -191,6 +195,10 @@ html.v-theme--lightTheme {
   --db-clickhouse-bg: rgba(141, 116, 64, 0.1);
   --db-elasticsearch: #74678e;
   --db-elasticsearch-bg: rgba(116, 103, 142, 0.09);
+  --db-kafka: #4f5e6d;
+  --db-kafka-bg: rgba(79, 94, 109, 0.1);
+  --db-nsq: #3f6f7a;
+  --db-nsq-bg: rgba(63, 111, 122, 0.1);
   --grad-primary: linear-gradient(135deg, #536a78 0%, #6d6598 100%);
   --grad-accent: linear-gradient(135deg, #aa617f 0%, #b0744d 100%);
   --grad-cool: linear-gradient(135deg, #536a78 0%, #55729f 100%);
@@ -1953,6 +1961,361 @@ html.v-theme--lightTheme {
   text-align: right;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.dashboard-detail-chart {
+  margin-bottom: 16px;
+  padding: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, var(--hover-cyan-faint), transparent),
+    var(--panel-solid);
+}
+
+.dashboard-detail-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.dashboard-detail-chart-head strong {
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.dashboard-detail-chart-head span,
+.dashboard-line-range {
+  color: var(--muted);
+  font: 9px/1.4 'JetBrains Mono', monospace;
+}
+
+.dashboard-line-wrap {
+  position: relative;
+}
+
+.dashboard-line {
+  display: block;
+  width: 100%;
+  height: 116px;
+  overflow: visible;
+}
+
+.dashboard-line-grid {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.dashboard-line-area {
+  fill: var(--hover-cyan);
+}
+
+.dashboard-line-value {
+  fill: none;
+  stroke: var(--cyan);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 4px var(--cyan));
+}
+
+.dashboard-line-range {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.dashboard-donut-wrap {
+  position: relative;
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  grid-template-rows: 1fr 1fr;
+  align-items: center;
+  column-gap: 20px;
+  min-height: 128px;
+}
+
+.dashboard-donut {
+  grid-row: 1 / 3;
+  width: 120px;
+  height: 120px;
+  transform: rotate(-90deg);
+}
+
+.dashboard-donut circle {
+  fill: none;
+  stroke-width: 12;
+}
+
+.dashboard-donut-track {
+  stroke: var(--line-2);
+}
+
+.dashboard-donut-value {
+  stroke: var(--cyan);
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.3s var(--ease-standard);
+  filter: drop-shadow(0 0 4px var(--cyan));
+}
+
+.dashboard-detail-panel.color-green .dashboard-donut-value { stroke: var(--green); }
+.dashboard-detail-panel.color-yellow .dashboard-donut-value { stroke: var(--yellow); }
+.dashboard-detail-panel.color-red .dashboard-donut-value { stroke: var(--red); }
+.dashboard-detail-panel.color-purple .dashboard-donut-value { stroke: var(--purple); }
+.dashboard-detail-panel.color-blue .dashboard-donut-value { stroke: var(--term-blue); }
+
+.dashboard-donut-label {
+  position: absolute;
+  width: 120px;
+  margin-top: 4px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.dashboard-donut-label strong {
+  color: var(--text);
+  font: 600 20px/1.2 'JetBrains Mono', monospace;
+}
+
+.dashboard-donut-label span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.dashboard-donut-legend {
+  display: grid;
+  align-self: start;
+  gap: 8px;
+  color: var(--text-2);
+  font: 10px/1.4 'JetBrains Mono', monospace;
+}
+
+.dashboard-donut-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dashboard-donut-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--line-2);
+}
+
+.dashboard-donut-legend i.used {
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+
+.dashboard-detail-table-wrap {
+  max-height: 320px;
+  margin-top: 16px;
+  overflow: auto;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--panel-solid);
+}
+
+.dashboard-detail-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  color: var(--text-2);
+  font: 10px/1.45 'JetBrains Mono', monospace;
+}
+
+.dashboard-detail-table th,
+.dashboard-detail-table td {
+  padding: 8px 10px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-detail-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--cyan);
+  background: var(--panel-solid-2);
+  font-weight: 600;
+}
+
+.dashboard-detail-table td.wide {
+  width: 38%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-detail-table .right {
+  text-align: right;
+}
+
+.dashboard-detail-table th:last-child,
+.dashboard-detail-table td:last-child {
+  border-right: 0;
+}
+
+.dashboard-detail-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.dashboard-detail-table tbody tr:hover td {
+  background: var(--hover-cyan-soft);
+}
+
+.dashboard-detail-table .dashboard-detail-empty {
+  padding: 28px 12px;
+  color: var(--muted);
+  text-align: center;
+  white-space: normal;
+}
+
+/* Docker 连接协议选择器。 */
+.docker-transport-switch {
+  display: flex;
+  gap: 6px;
+}
+
+.docker-transport-switch button {
+  min-width: 0;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  color: var(--text-2);
+  background: var(--bg-input);
+  font: 11px/1.3 'Outfit', sans-serif;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-standard);
+}
+
+.docker-transport-switch button:hover {
+  color: var(--cyan);
+  border-color: var(--status-connecting-border);
+  background: var(--hover-cyan-soft);
+}
+
+.docker-transport-switch button.active {
+  color: var(--cyan);
+  border-color: var(--cyan);
+  background: var(--active-cyan);
+  box-shadow: var(--glow-soft);
+}
+
+/* 数据库 / 中间件品牌图标统一入口，SVG 仅作为 mask 使用并继承 token 色。 */
+.product-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: var(--db-mysql);
+  background: currentColor;
+  -webkit-mask: var(--product-icon) center / contain no-repeat;
+  mask: var(--product-icon) center / contain no-repeat;
+}
+
+.product-icon.product-postgresql { color: var(--db-postgresql); }
+.product-icon.product-redis { color: var(--db-redis); }
+.product-icon.product-elasticsearch { color: var(--db-elasticsearch); }
+.product-icon.product-clickhouse { color: var(--db-clickhouse); }
+.product-icon.product-kafka { color: var(--db-kafka); }
+.product-icon.product-nsq { color: var(--db-nsq); }
+
+.product-icon.product-icon-text {
+  -webkit-mask: none;
+  mask: none;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+}
+
+.product-icon.product-icon-text span {
+  color: currentColor;
+  font: 700 0.48em/1 'JetBrains Mono', monospace;
+  letter-spacing: -0.04em;
+}
+
+/* Kafka / NSQ 状态工作台。 */
+.broker-view {
+  position: relative;
+  height: 100%;
+  padding: 16px;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.broker-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding: 12px 16px;
+}
+
+.broker-header > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--cyan);
+}
+
+.broker-header span {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.broker-header code {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.broker-error {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  color: var(--red);
+  border-color: var(--status-error-border);
+  font-size: 11px;
+}
+
+.broker-dashboard-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
 }
 
 /* ===== 数据库 Univer 结果网格 ===== */

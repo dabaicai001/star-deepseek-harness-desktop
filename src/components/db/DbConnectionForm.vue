@@ -3,6 +3,8 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CreateAssetDto, DatabaseType } from '@/types/asset'
 import * as dbService from '@/services/db'
+import { testBroker } from '@/services/broker'
+import ProductIcon from '@/components/common/ProductIcon.vue'
 
 const { t } = useI18n()
 
@@ -60,6 +62,12 @@ watch(dbType, (type) => {
     port.value = 9200
   } else if (type === 'clickhouse') {
     port.value = 9000
+  } else if (type === 'postgresql') {
+    port.value = 5432
+  } else if (type === 'kafka') {
+    port.value = 9092
+  } else if (type === 'nsq') {
+    port.value = 4150
   }
 })
 
@@ -70,7 +78,16 @@ watch(
     dbType.value = next.dbType ?? 'mysql'
     name.value = next.name ?? ''
     host.value = next.host ?? ''
-    port.value = next.port ?? (next.dbType === 'redis' ? 6379 : next.dbType === 'elasticsearch' ? 9200 : next.dbType === 'clickhouse' ? 9000 : 3306)
+    const defaults: Partial<Record<DatabaseType, number>> = {
+      mysql: 3306,
+      postgresql: 5432,
+      redis: 6379,
+      elasticsearch: 9200,
+      clickhouse: 9000,
+      kafka: 9092,
+      nsq: 4150,
+    }
+    port.value = next.port ?? defaults[next.dbType ?? 'mysql'] ?? 3306
     username.value = next.username ?? ''
     password.value = next.password ?? ''
     database.value = next.database ?? ''
@@ -82,6 +99,7 @@ watch(
 const canSubmit = computed(() => {
   if (!name.value || !host.value) return false
   if (dbType.value === 'mysql') return !!username.value
+  if (dbType.value === 'postgresql') return !!username.value
   if (dbType.value === 'clickhouse') return !!username.value
   if (dbType.value === 'elasticsearch') return esAuthMode.value === 'apikey' ? !!esApiKey.value : true
   return true
@@ -90,10 +108,18 @@ const canSubmit = computed(() => {
 const canTest = computed(() => {
   if (!host.value) return false
   if (dbType.value === 'mysql') return !!username.value
+  if (dbType.value === 'postgresql') return !!username.value
   if (dbType.value === 'clickhouse') return !!username.value
   if (dbType.value === 'elasticsearch') return esAuthMode.value === 'apikey' ? !!esApiKey.value : true
   return true
 })
+const hostPlaceholder = computed(() => {
+  if (dbType.value === 'kafka') return t('db.kafkaHostPlaceholder')
+  if (dbType.value === 'nsq') return t('db.nsqHostPlaceholder')
+  return t('asset.placeholderDb')
+})
+const databaseHint = computed(() =>
+  dbType.value === 'postgresql' ? t('db.postgresDatabaseHint') : t('db.initialDbHint'))
 
 async function onTestConnection() {
   if (!canTest.value) return
@@ -140,6 +166,27 @@ async function onTestConnection() {
         password: password.value,
         database: database.value || undefined,
         ssl: ssl.value
+      })
+      testStatus.value = result.ok ? 'success' : 'fail'
+      testMessage.value = result.message
+    } else if (dbType.value === 'postgresql') {
+      const result = await dbService.postgresTest({
+        host: host.value,
+        port: port.value,
+        username: username.value,
+        password: password.value,
+        database: database.value || 'postgres',
+        ssl: ssl.value,
+      })
+      testStatus.value = result.ok ? 'success' : 'fail'
+      testMessage.value = result.message
+    } else if (dbType.value === 'kafka' || dbType.value === 'nsq') {
+      const result = await testBroker(dbType.value, {
+        host: host.value,
+        port: port.value,
+        username: username.value || undefined,
+        password: password.value || undefined,
+        ssl: ssl.value,
       })
       testStatus.value = result.ok ? 'success' : 'fail'
       testMessage.value = result.message
@@ -195,15 +242,23 @@ function onKeydown(e: KeyboardEvent) {
         :class="{ active: dbType === 'mysql' }"
         @click="dbType = 'mysql'"
       >
-        <v-icon size="16">mdi-database</v-icon>
+        <ProductIcon product="mysql" :size="17" />
         <span>MySQL</span>
+      </div>
+      <div
+        class="db-type-btn"
+        :class="{ active: dbType === 'postgresql' }"
+        @click="dbType = 'postgresql'"
+      >
+        <ProductIcon product="postgresql" :size="17" />
+        <span>PostgreSQL</span>
       </div>
       <div
         class="db-type-btn"
         :class="{ active: dbType === 'redis' }"
         @click="dbType = 'redis'"
       >
-        <v-icon size="16">mdi-database-eye</v-icon>
+        <ProductIcon product="redis" :size="17" />
         <span>Redis</span>
       </div>
       <div
@@ -211,7 +266,7 @@ function onKeydown(e: KeyboardEvent) {
         :class="{ active: dbType === 'elasticsearch' }"
         @click="dbType = 'elasticsearch'"
       >
-        <v-icon size="16">mdi-database-search</v-icon>
+        <ProductIcon product="elasticsearch" :size="17" />
         <span>Elasticsearch</span>
       </div>
       <div
@@ -219,8 +274,24 @@ function onKeydown(e: KeyboardEvent) {
         :class="{ active: dbType === 'clickhouse' }"
         @click="dbType = 'clickhouse'"
       >
-        <v-icon size="16">mdi-database</v-icon>
+        <ProductIcon product="clickhouse" :size="17" />
         <span>ClickHouse</span>
+      </div>
+      <div
+        class="db-type-btn"
+        :class="{ active: dbType === 'kafka' }"
+        @click="dbType = 'kafka'"
+      >
+        <ProductIcon product="kafka" :size="17" />
+        <span>Kafka</span>
+      </div>
+      <div
+        class="db-type-btn"
+        :class="{ active: dbType === 'nsq' }"
+        @click="dbType = 'nsq'"
+      >
+        <ProductIcon product="nsq" :size="17" />
+        <span>NSQ</span>
       </div>
     </div>
 
@@ -258,24 +329,24 @@ function onKeydown(e: KeyboardEvent) {
               v-model="host"
               type="text"
               class="cyber-input"
-              :placeholder="t('asset.placeholderDb')"
+              :placeholder="hostPlaceholder"
               required
             />
             <input
               v-model.number="port"
               type="number"
               class="cyber-input mono"
-              :placeholder="dbType === 'mysql' ? '3306' : dbType === 'clickhouse' ? '9000' : dbType === 'elasticsearch' ? '9200' : '6379'"
+              :placeholder="String(port)"
             />
           </div>
         </div>
 
         <!-- 用户名 (MySQL / ClickHouse) -->
-        <div v-if="dbType === 'mysql' || dbType === 'clickhouse'" class="form-field">
+        <div v-if="dbType === 'mysql' || dbType === 'postgresql' || dbType === 'clickhouse' || dbType === 'kafka'" class="form-field">
           <label class="field-label">
             <v-icon size="12">mdi-account-outline</v-icon>
             {{ t('asset.username') }}
-            <span class="required">*</span>
+            <span v-if="dbType !== 'kafka'" class="required">*</span>
           </label>
           <div class="input-group">
             <span class="input-prefix">@</span>
@@ -283,8 +354,8 @@ function onKeydown(e: KeyboardEvent) {
               v-model="username"
               type="text"
               class="cyber-input"
-              :placeholder="t('asset.placeholderUser')"
-              required
+              :placeholder="t('db.usernamePlaceholder')"
+              :required="dbType !== 'kafka'"
             />
           </div>
         </div>
@@ -299,7 +370,7 @@ function onKeydown(e: KeyboardEvent) {
           <label class="field-label">
             <v-icon size="12">mdi-lock-outline</v-icon>
             {{ t('asset.password') }}
-            <span class="optional">{{ t('ssh.passwordOptional') }}</span>
+            <span class="optional">{{ t('db.passwordOptional') }}</span>
           </label>
           <div class="input-group">
             <v-icon class="input-prefix" size="13">mdi-lock-outline</v-icon>
@@ -321,11 +392,11 @@ function onKeydown(e: KeyboardEvent) {
         </div>
 
         <!-- 数据库 (MySQL / ClickHouse) -->
-        <div v-if="dbType === 'mysql' || dbType === 'clickhouse'" class="form-field">
+        <div v-if="dbType === 'mysql' || dbType === 'postgresql' || dbType === 'clickhouse'" class="form-field">
           <label class="field-label">
             <v-icon size="12">mdi-database-outline</v-icon>
             {{ t('asset.database') }}
-            <span class="optional">{{ t('db.initialDbHint') }}</span>
+            <span class="optional">{{ databaseHint }}</span>
           </label>
           <input
             v-model="database"
@@ -481,12 +552,13 @@ function onKeydown(e: KeyboardEvent) {
 
 .db-type-switcher {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
 }
 
 .db-type-btn {
-  flex: 1;
+  flex: 1 1 120px;
   display: flex;
   align-items: center;
   justify-content: center;

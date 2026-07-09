@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.17.5(数据网格线颜色加深) |
+| 当前版本 | v0.18.0(可观测性与连接协议扩展) |
 
 ---
 
@@ -147,6 +147,8 @@ starhub/
 | Oracle | `github.com/sijms/go-ora` | 纯 Go,无需 Instant Client |
 | Elasticsearch | `github.com/elastic/go-elasticsearch/v8` | 官方 |
 | MongoDB | `go.mongodb.org/mongo-driver` | |
+| Kafka | `github.com/segmentio/kafka-go` | Broker 元数据、Topic / 分区状态 |
+| NSQ | nsqd TCP + HTTP Stats API | Topic / Channel / 积压状态 |
 | 国产库兜底 | `github.com/alexbrainman/odbc` | 达梦/金仓 ODBC 桥 |
 | SQL 工具 | `github.com/jmoiron/sqlx` | Struct 映射 + 命名参数 |
 | Excel | `github.com/xuri/excelize/v2` | 导入导出、工作簿编辑 |
@@ -259,6 +261,16 @@ starhub/
 | `.db-grid-loading-*` / `.db-column-tooltip` | 数据库原地刷新遮罩 / 字段备注悬停详情 |
 | `.dashboard-detail-*` | 可钻取仪表盘指标详情弹层、键值明细 |
 | `.column-action-tools` / `.column-action-select` | 数据网格列选择、排序、服务端筛选工具 |
+| `.product-icon` / `.product-icon-mask` | 数据库与消息产品品牌图标容器 / 单色 SVG mask |
+| `.dashboard-chart-*` / `.dashboard-detail-table-*` | 指标折线/环图与可钻取明细表 |
+| `.broker-*` / `.docker-transport-switch` | Kafka/NSQ 状态页与 Docker 连接协议切换 |
+
+#### 4.4.5.1 数据库与消息产品图标(强制)
+
+- MySQL / PostgreSQL / Redis / Elasticsearch / ClickHouse / Kafka 必须使用各自官方品牌图形,统一由 `ProductIcon.vue` 封装并从 `simple-icons` 取 SVG。
+- NSQ 在上游图标库缺少官方条目时使用等宽 `NSQ` 产品字标,不得回退成 MySQL 或通用数据库圆柱图标。
+- 资产树、连接表单、工作区标题、快速入口必须复用同一 `ProductIcon`,禁止各页面各画一套。
+- 图标颜色只能走 `--db-*` token;新增产品时同时补充深浅主题 token、`ProductIcon` 映射和本节说明。
 
 #### 4.4.6 状态色语义
 
@@ -711,4 +723,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-09 (v0.17.5)*
+*最后更新: 2026-07-09 (v0.18.0)*

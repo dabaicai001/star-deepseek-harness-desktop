@@ -5,6 +5,7 @@
  */
 import { ref, onMounted, onBeforeUnmount, onActivated, onDeactivated, computed, watch } from 'vue'
 import DashboardCard from './DashboardCard.vue'
+import type { DashboardDetailTable } from './DashboardCard.vue'
 import { sshExec } from '@/services/ssh'
 import {
   parseMemInfo,
@@ -29,6 +30,7 @@ const props = defineProps<{
 const loading = ref(true)
 const refreshing = ref(false)
 const error = ref<string | null>(null)
+const sampleKey = ref(0)
 
 const mem = ref<SshMemInfo>({
   total: 0, free: 0, available: 0, buffers: 0, cached: 0,
@@ -53,6 +55,23 @@ const cpuUsage = computed(() => {
   if (load.value.cpuCores <= 0) return 0
   return Math.min(100, (load.value.load1 / load.value.cpuCores) * 100)
 })
+const diskTable = computed<DashboardDetailTable>(() => ({
+  columns: [
+    { key: 'mountpoint', label: '挂载点' },
+    { key: 'usage', label: '使用率', align: 'right' },
+    { key: 'used', label: '已用', align: 'right' },
+    { key: 'free', label: '可用', align: 'right' },
+    { key: 'total', label: '容量', align: 'right' },
+  ],
+  rows: disk.value.entries.map(entry => ({
+    mountpoint: entry.mountpoint,
+    usage: `${((entry.used / Math.max(entry.total, 1)) * 100).toFixed(1)}%`,
+    used: formatBytes(entry.used),
+    free: formatBytes(entry.free),
+    total: formatBytes(entry.total),
+  })),
+  emptyText: '未发现可统计的真实文件系统挂载点。',
+}))
 
 /** 用 Promise.all 并发跑所有采集命令,谁先报错就显示 error,但仍展示已收到的部分 */
 async function loadAll() {
@@ -91,6 +110,7 @@ async function loadAll() {
       system.value = parseSystemInfo(rUname.value, rHost.value)
     }
     if (rUp.status === 'fulfilled') uptime.value = parseUptime(rUp.value)
+    sampleKey.value += 1
   } catch (e) {
     error.value = String(e ?? '').slice(0, 200)
   } finally {
@@ -178,6 +198,13 @@ watch(() => [props.sessionId, props.connected], ([id, conn], [oldId, oldConn]) =
         :subtitle="`${uptime.seconds} 秒`"
         color="cyan"
         :loading="loading"
+        :chart-value="uptime.seconds"
+        :sample-key="sampleKey"
+        :details="[
+          { label: '主机名', value: system.hostname },
+          { label: '内核', value: system.kernel },
+          { label: '架构', value: system.arch },
+        ]"
       />
 
       <DashboardCard
@@ -187,6 +214,8 @@ watch(() => [props.sessionId, props.connected], ([id, conn], [oldId, oldConn]) =
         :subtitle="`5m ${load.load5.toFixed(2)} · 15m ${load.load15.toFixed(2)}`"
         color="green"
         :loading="loading"
+        :chart-value="load.load1"
+        :sample-key="sampleKey"
       />
 
       <DashboardCard
@@ -197,6 +226,8 @@ watch(() => [props.sessionId, props.connected], ([id, conn], [oldId, oldConn]) =
         :progress="cpuUsage"
         :color="cpuUsage > 80 ? 'red' : cpuUsage > 50 ? 'yellow' : 'cyan'"
         :loading="loading"
+        :chart-value="cpuUsage"
+        :sample-key="sampleKey"
         description="用 1 分钟系统负载除以 CPU 核心数估算饱和度；它不是采样型 CPU 百分比。"
       />
 
@@ -208,6 +239,8 @@ watch(() => [props.sessionId, props.connected], ([id, conn], [oldId, oldConn]) =
         :progress="memUsage"
         :color="memUsage > 80 ? 'red' : memUsage > 60 ? 'yellow' : 'green'"
         :loading="loading"
+        :chart-value="memUsage"
+        :sample-key="sampleKey"
         :details="[
           { label: '可用内存', value: formatBytes(mem.available) },
           { label: '缓存', value: formatBytes(mem.cached) },
@@ -223,6 +256,9 @@ watch(() => [props.sessionId, props.connected], ([id, conn], [oldId, oldConn]) =
         :progress="diskUsage"
         :color="diskUsage > 90 ? 'red' : diskUsage > 70 ? 'yellow' : 'cyan'"
         :loading="loading"
+        :chart-value="diskUsage"
+        :sample-key="sampleKey"
+        :detail-table="diskTable"
         :details="disk.entries.map(entry => ({
           label: entry.mountpoint,
           value: `${formatBytes(entry.used)} / ${formatBytes(entry.total)}`,
@@ -235,6 +271,8 @@ watch(() => [props.sessionId, props.connected], ([id, conn], [oldId, oldConn]) =
         :value="formatBytes(mem.available)"
         color="cyan"
         :loading="loading"
+        :chart-value="mem.available"
+        :sample-key="sampleKey"
       />
 
       <DashboardCard
@@ -245,6 +283,8 @@ watch(() => [props.sessionId, props.connected], ([id, conn], [oldId, oldConn]) =
         :progress="mem.swapTotal > 0 ? ((mem.swapTotal - mem.swapFree) / mem.swapTotal) * 100 : 0"
         :color="(mem.swapTotal - mem.swapFree) / Math.max(1, mem.swapTotal) > 0.3 ? 'red' : 'green'"
         :loading="loading"
+        :chart-value="mem.swapTotal - mem.swapFree"
+        :sample-key="sampleKey"
       />
 
       <DashboardCard
@@ -254,6 +294,9 @@ watch(() => [props.sessionId, props.connected], ([id, conn], [oldId, oldConn]) =
         :subtitle="`空闲 ${formatBytes(disk.free)}`"
         color="purple"
         :loading="loading"
+        :chart-value="disk.total"
+        :sample-key="sampleKey"
+        :detail-table="diskTable"
       />
     </div>
   </div>

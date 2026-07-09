@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -13,19 +14,25 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/crypto/ssh"
 )
 
 // DockerAdapter 封装 Docker 连接
 type DockerAdapter struct {
-	cli  *client.Client
-	ctx  context.Context
-	info *DockerConnInfo
+	cli        *client.Client
+	ctx        context.Context
+	info       *DockerConnInfo
+	transport  *http.Transport
+	sshClients []*ssh.Client
 }
 
 // DockerConnInfo Docker 连接参数
 type DockerConnInfo struct {
-	Host       string `json:"host,omitempty"`
-	APIVersion string `json:"apiVersion,omitempty"`
+	Host       string           `json:"host,omitempty"`
+	APIVersion string           `json:"apiVersion,omitempty"`
+	Transport  string           `json:"transport,omitempty"`
+	SocketPath string           `json:"socketPath,omitempty"`
+	SSH        *DockerSSHConfig `json:"ssh,omitempty"`
 }
 
 // ContainerInfo 容器信息
@@ -80,13 +87,27 @@ type LogEntry struct {
 func NewDockerAdapter(info *DockerConnInfo) (*DockerAdapter, error) {
 	ctx := context.Background()
 	opts := []client.Opt{client.FromEnv, client.WithAPIVersionNegotiation()}
+	var httpTransport *http.Transport
+	var sshClients []*ssh.Client
 
-	if info.Host != "" {
+	if info.Transport == "ssh" {
+		transport, clients, err := newDockerSSHTransport(info)
+		if err != nil {
+			return nil, err
+		}
+		httpTransport = transport
+		sshClients = clients
+		opts = append(opts,
+			client.WithHost("http://docker-over-ssh"),
+			client.WithHTTPClient(&http.Client{Transport: transport}),
+		)
+	} else if info.Host != "" {
 		opts = append(opts, client.WithHost(info.Host))
 	}
 
 	cli, err := client.NewClientWithOpts(opts...)
 	if err != nil {
+		closeSSHClients(sshClients)
 		return nil, fmt.Errorf("docker client create failed: %w", err)
 	}
 
@@ -96,21 +117,33 @@ func NewDockerAdapter(info *DockerConnInfo) (*DockerAdapter, error) {
 	defer cancel()
 	_, err = cli.Ping(pingCtx)
 	if err != nil {
+		_ = cli.Close()
+		if httpTransport != nil {
+			httpTransport.CloseIdleConnections()
+		}
+		closeSSHClients(sshClients)
 		return nil, fmt.Errorf("docker connect failed: %w", err)
 	}
 
 	log.Info().Str("host", info.Host).Msg("docker connected")
 
 	return &DockerAdapter{
-		cli:  cli,
-		ctx:  ctx,
-		info: info,
+		cli:        cli,
+		ctx:        ctx,
+		info:       info,
+		transport:  httpTransport,
+		sshClients: sshClients,
 	}, nil
 }
 
 // Close 关闭连接
 func (a *DockerAdapter) Close() error {
-	return a.cli.Close()
+	err := a.cli.Close()
+	if a.transport != nil {
+		a.transport.CloseIdleConnections()
+	}
+	closeSSHClients(a.sshClients)
+	return err
 }
 
 // Ping 检测连接

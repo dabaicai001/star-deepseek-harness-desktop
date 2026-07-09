@@ -88,6 +88,10 @@ type TableStats struct {
 	LastModifyTime string `json:"lastModifyTime,omitempty" db:"last_modify_time"`
 }
 
+const clickHouseListTablesQuery = `SELECT name, engine as type, engine,
+		coalesce(total_rows, 0) as rows, coalesce(comment, '') as comment
+		FROM system.tables WHERE database = ? ORDER BY name`
+
 // extractBaseType 从 Nullable(UInt8) 等提取基础类型
 func extractBaseType(chType string) string {
 	if strings.HasPrefix(chType, "Nullable(") {
@@ -172,10 +176,8 @@ func (a *ClickHouseAdapter) ListTables(database string) ([]TableInfo, error) {
 	if database == "" {
 		database = a.conn.Database
 	}
-	query := `SELECT name, engine as type, engine, total_rows as rows, comment 
-		FROM system.tables WHERE database = ? ORDER BY name`
 	var tables []TableInfo
-	err := a.db.Select(&tables, query, database)
+	err := a.db.Select(&tables, clickHouseListTablesQuery, database)
 	if err != nil {
 		return nil, fmt.Errorf("list tables: %w", err)
 	}
@@ -622,10 +624,10 @@ func (a *ClickHouseAdapter) GetTableStats(database, table string) (*TableStats, 
 		database = a.conn.Database
 	}
 	query := `SELECT 
-		total_rows, 
-		total_bytes, 
-		total_columns as total_cols,
-		parts_count,
+		coalesce(total_rows, 0) AS total_rows,
+		coalesce(total_bytes, 0) AS total_bytes,
+		coalesce(total_columns, 0) AS total_cols,
+		coalesce(parts_count, 0) AS parts_count,
 		engine
 		FROM system.tables 
 		WHERE database = ? AND table = ?`

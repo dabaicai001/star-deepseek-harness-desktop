@@ -258,9 +258,8 @@ function syncChangesFromUniver() {
     .getRange(1, 0, props.rows.length, props.columns.length)
     .getValues()
 
-  // 编辑态下用户改单元格,我们回写脏标记颜色。同样走 command 路径,
-  // 套上 withEditableBypass 防止 props.editable 翻转瞬间撞 permission。
-  withEditableBypass(() => {
+  // 编辑态下用户改单元格,我们回写脏标记颜色。
+  runProgrammaticUpdate(() => {
     values.forEach((row, rowIndex) => {
       row.forEach((rawValue, columnIndex) => {
         const original = baselineRows[rowIndex]?.[columnIndex]
@@ -285,7 +284,7 @@ function syncRowsInPlace() {
   if (!worksheet || props.columns.length === 0) return
 
   syncing = true
-  withEditableBypass(() => {
+  runProgrammaticUpdate(() => {
     const rowCount = Math.max(props.rows.length + 1, 2)
     const columnCount = Math.max(props.columns.length, 1)
     worksheet.setRowCount(rowCount)
@@ -304,7 +303,7 @@ function syncHeaderInPlace() {
   const worksheet = univerAPIInstance?.getActiveWorkbook()?.getActiveSheet()
   if (!worksheet || props.columns.length === 0) return
   syncing = true
-  withEditableBypass(() => {
+  runProgrammaticUpdate(() => {
     worksheet
       .getRange(0, 0, 1, props.columns.length)
       .setValues([props.columns.map(column => buildHeaderCell(column))])
@@ -315,27 +314,44 @@ function syncHeaderInPlace() {
 }
 
 /**
- * 包裹 setValues / setRangeValues 写入。
+ * 标记 setValues / setRangeValues 等由 StarHub 发起的程序化写入。
  *
  * `workbook.setEditable(false)` 会注册 WorkbookEdit permission point,
- * 把整张表锁成 read-only;此后再调 setValues 会被 SheetPermissionCheckUIController
- * 拦截并弹出 "sheets-ui.permission.dialog.alert" 权限警告 — 即使是程序化
- * 写入也不允许。我们要在原地同步数据时临时打开 editable,写完立刻恢复,
- * 让用户视觉上仍然是 read-only(因为 watcher 会随后再次 setEditable(false) 兜底)。
+ * 之后的程序化刷新也会被 SheetPermissionCheckUIController 拦截并弹出权限
+ * 对话框。数据库结果工作簿因此始终保持 Univer 内部 editable,只在 UI 事件和
+ * 命令入口拦截用户修改；程序化刷新用 syncing 标记放行。
  */
-function withEditableBypass(fn: () => void) {
-  const workbook = univerAPIInstance?.getActiveWorkbook()
-  if (!workbook || props.editable) {
-    fn()
-    return
-  }
-  workbook.setEditable(true)
+function runProgrammaticUpdate(fn: () => void) {
+  const wasSyncing = syncing
+  syncing = true
   try {
     fn()
   } finally {
-    workbook.setEditable(false)
+    syncing = wasSyncing
   }
 }
+
+const READ_ONLY_MUTATION_COMMANDS = new Set([
+  'sheet.command.auto-clear-content',
+  'sheet.command.auto-fill',
+  'sheet.command.clear-selection-all',
+  'sheet.command.clear-selection-content',
+  'sheet.command.clear-selection-format',
+  'sheet.command.copy-down',
+  'sheet.command.copy-right',
+  'sheet.command.delete-range-move-left',
+  'sheet.command.delete-range-move-up',
+  'sheet.command.insert-col-by-range',
+  'sheet.command.insert-range-move-down',
+  'sheet.command.insert-range-move-right',
+  'sheet.command.insert-row-by-range',
+  'sheet.command.move-range',
+  'sheet.command.paste-by-short-key',
+  'sheet.command.refill',
+  'sheet.command.remove-col-by-range',
+  'sheet.command.remove-row-by-range',
+  'sheet.command.set-range-values',
+])
 
 function queueChangeSync() {
   if (syncTimer !== null) window.clearTimeout(syncTimer)
@@ -441,11 +457,7 @@ async function renderGrid() {
   univerAPIInstance = univerAPI
   const workbook = univerAPI.createWorkbook(buildWorkbookData())
   const worksheet = workbook.getActiveSheet()
-  // 写入操作(setColumnWidth / setHiddenGridlines / setGridLinesColor)
-  // 全部走 SetColWidthCommand 等 command 路径,会被 Workbook Edit permission
-  // 拦截并弹"sheets-ui.permission.dialog.alert"警告。
-  // 策略:临时 setEditable(true),写完再根据 props.editable 恢复。
-  withEditableBypass(() => {
+  runProgrammaticUpdate(() => {
     props.columns.forEach((column, index) => {
       worksheet.setColumnWidth(index, columnWidth(column, index))
     })
@@ -456,9 +468,16 @@ async function renderGrid() {
     worksheet.setHiddenGridlines(false)
     worksheet.setGridLinesColor(cssVar('--gridline', 'rgba(93, 214, 214, 0.42)'))
   })
-  workbook.setEditable(props.editable)
+  // 不调用 workbook.setEditable(false):它会安装全局权限点并误伤刷新。
+  // 只读由下面的 BeforeSheetEditStart / BeforeCommandExecute 精确实现。
+  workbook.setEditable(true)
 
   eventDisposables.push(
+    univerAPI.addEvent(univerAPI.Event.BeforeCommandExecute, command => {
+      if (!props.editable && !syncing && READ_ONLY_MUTATION_COMMANDS.has(command.id)) {
+        command.cancel = true
+      }
+    }),
     univerAPI.addEvent(univerAPI.Event.BeforeSheetEditStart, params => {
       if (!props.editable || params.row === 0 || params.row > props.rows.length) params.cancel = true
     }),
@@ -551,10 +570,6 @@ watch(
 watch(
   [() => props.sortColumn, () => props.sortDirection],
   () => syncHeaderInPlace(),
-)
-watch(
-  () => props.editable,
-  value => univerAPIInstance?.getActiveWorkbook()?.setEditable(value),
 )
 watch(
   () => props.themeKey,

@@ -52,6 +52,7 @@ fn main() {
             commands::ssh::test_ssh_connection,
             commands::ssh::ssh_kb_response,
             commands::ssh::ssh_hostkey_response,
+            commands::ssh::ssh_get_trusted_host_key,
             commands::sftp::sftp_list,
             commands::sftp::sftp_read,
             commands::sftp::sftp_write,
@@ -73,6 +74,9 @@ fn main() {
             commands::db::db_mysql_connect,
             commands::db::db_mysql_test,
             commands::db::db_mysql_disconnect,
+            commands::db::db_postgres_connect,
+            commands::db::db_postgres_test,
+            commands::db::db_postgres_disconnect,
             commands::db::db_mysql_list_databases,
             commands::db::db_mysql_list_tables,
             commands::db::db_mysql_list_columns,
@@ -174,6 +178,8 @@ fn main() {
             commands::docker::docker_remove_image,
             commands::docker::docker_prune_images,
             commands::docker::docker_exec,
+            commands::broker::broker_test,
+            commands::broker::broker_overview,
             // File
             commands::file::open_file_external,
             // AI

@@ -21,9 +21,11 @@ type ExcelConnInfo struct {
 
 // ExcelAdapter 封装 Excel 文件操作
 type ExcelAdapter struct {
-	mu       sync.Mutex
-	f        *excelize.File
-	filePath string
+	mu                sync.Mutex
+	f                 *excelize.File
+	filePath          string
+	formulaCells      map[string]map[string]string
+	formulaIndexReady bool
 }
 
 // CellChange 单元格修改
@@ -55,14 +57,23 @@ func NewExcelAdapter(info *ExcelConnInfo) (*ExcelAdapter, error) {
 	if info.FilePath == "" {
 		// 新建空白工作簿
 		f := excelize.NewFile()
-		return &ExcelAdapter{f: f}, nil
+		return &ExcelAdapter{
+			f:                 f,
+			formulaCells:      make(map[string]map[string]string),
+			formulaIndexReady: false,
+		}, nil
 	}
 
 	// 检查文件是否存在
 	if _, err := os.Stat(info.FilePath); os.IsNotExist(err) {
 		// 文件不存在,创建空白工作簿
 		f := excelize.NewFile()
-		return &ExcelAdapter{f: f, filePath: info.FilePath}, nil
+		return &ExcelAdapter{
+			f:                 f,
+			filePath:          info.FilePath,
+			formulaCells:      make(map[string]map[string]string),
+			formulaIndexReady: false,
+		}, nil
 	}
 
 	f, err := excelize.OpenFile(info.FilePath)
@@ -70,8 +81,18 @@ func NewExcelAdapter(info *ExcelConnInfo) (*ExcelAdapter, error) {
 		return nil, fmt.Errorf("excel open failed: %w", err)
 	}
 
+	formulaCells, formulaErr := readExcelFormulaIndex(info.FilePath)
+	if formulaErr != nil {
+		log.Warn().Err(formulaErr).Str("file", info.FilePath).
+			Msg("excel formula index unavailable, falling back to cell scan")
+	}
 	log.Info().Str("file", info.FilePath).Msg("excel file opened")
-	return &ExcelAdapter{f: f, filePath: info.FilePath}, nil
+	return &ExcelAdapter{
+		f:                 f,
+		filePath:          info.FilePath,
+		formulaCells:      formulaCells,
+		formulaIndexReady: formulaErr == nil,
+	}, nil
 }
 
 // Close 关闭适配器
@@ -141,17 +162,40 @@ func (a *ExcelAdapter) ReadSheet(sheetName string, offset, limit int) (*SheetDat
 	// 数据行 = 去掉标题行
 	dataRowsAll := [][]string{}
 	if rawTotal > 1 {
-		for ri, row := range rows[1:] {
+		for _, row := range rows[1:] {
 			normalized := make([]string, maxCols)
 			copy(normalized, row)
+			dataRowsAll = append(dataRowsAll, normalized)
+		}
+	}
+	if a.formulaIndexReady {
+		// 只访问 XML 索引中真正含 <f> 的单元格。旧实现对 rows*columns
+		// 每一格调用 GetCellFormula，VLOOKUP 填充表会产生数万次随机访问。
+		for axis, indexedFormula := range a.formulaCells[sheetName] {
+			col, row, coordErr := excelize.CellNameToCoordinates(axis)
+			if coordErr != nil || row < 2 || row > rawTotal || col < 1 || col > maxCols {
+				continue
+			}
+			formula := indexedFormula
+			// shared formula 的从属单元格 XML 内容为空，由 excelize 仅对这些
+			// 少量真实公式格做一次展开，避免自行改写相对/绝对引用。
+			if formula == "" {
+				formula, err = a.f.GetCellFormula(sheetName, axis)
+			}
+			if err == nil && formula != "" {
+				dataRowsAll[row-2][col-1] = "=" + formula
+			}
+		}
+	} else {
+		// 非标准工作簿或索引解析失败时保留完整兼容回退。
+		for ri := range dataRowsAll {
 			for ci := 0; ci < maxCols; ci++ {
 				axis, _ := excelize.CoordinatesToCellName(ci+1, ri+2)
-				formula, err := a.f.GetCellFormula(sheetName, axis)
-				if err == nil && formula != "" {
-					normalized[ci] = "=" + formula
+				formula, formulaErr := a.f.GetCellFormula(sheetName, axis)
+				if formulaErr == nil && formula != "" {
+					dataRowsAll[ri][ci] = "=" + formula
 				}
 			}
-			dataRowsAll = append(dataRowsAll, normalized)
 		}
 	}
 	dataRowsAll = trimTrailingEmptyRows(dataRowsAll)
@@ -197,6 +241,7 @@ func (a *ExcelAdapter) WriteCells(sheetName string, cells []CellChange) error {
 			if err := a.f.SetCellFormula(sheetName, axis, value[1:]); err != nil {
 				return fmt.Errorf("write formula %s failed: %w", axis, err)
 			}
+			a.setIndexedFormula(sheetName, axis, value[1:])
 			continue
 		}
 		if err := a.f.SetCellFormula(sheetName, axis, ""); err != nil {
@@ -205,6 +250,7 @@ func (a *ExcelAdapter) WriteCells(sheetName string, cells []CellChange) error {
 		if err := a.f.SetCellValue(sheetName, axis, cell.Value); err != nil {
 			return fmt.Errorf("write cell %s failed: %w", axis, err)
 		}
+		a.deleteIndexedFormula(sheetName, axis)
 	}
 	return nil
 }
@@ -459,17 +505,29 @@ func (a *ExcelAdapter) SetAutoFilter(sheetName string) error {
 // AddSheet 添加 Sheet
 func (a *ExcelAdapter) AddSheet(sheetName string) error {
 	_, err := a.f.NewSheet(sheetName)
+	if err == nil {
+		a.formulaCells[sheetName] = make(map[string]string)
+	}
 	return err
 }
 
 // RemoveSheet 删除 Sheet
 func (a *ExcelAdapter) RemoveSheet(sheetName string) error {
-	return a.f.DeleteSheet(sheetName)
+	if err := a.f.DeleteSheet(sheetName); err != nil {
+		return err
+	}
+	delete(a.formulaCells, sheetName)
+	return nil
 }
 
 // RenameSheet 重命名 Sheet
 func (a *ExcelAdapter) RenameSheet(oldName, newName string) error {
-	return a.f.SetSheetName(oldName, newName)
+	if err := a.f.SetSheetName(oldName, newName); err != nil {
+		return err
+	}
+	a.formulaCells[newName] = a.formulaCells[oldName]
+	delete(a.formulaCells, oldName)
+	return nil
 }
 
 // Save 保存文件
@@ -685,6 +743,7 @@ func replaceAllFold(value, find, replace string) string {
 }
 
 func (a *ExcelAdapter) rewriteSheet(sheetName string, header []string, data [][]string) error {
+	a.formulaCells[sheetName] = make(map[string]string)
 	maxCols := len(header)
 	for _, row := range data {
 		if len(row) > maxCols {

@@ -77,6 +77,30 @@ export const useDbStore = defineStore('db', () => {
     return session
   }
 
+  async function connectPostgres(assetId: string, name: string, params: {
+    host: string
+    port: number
+    username: string
+    password: string
+    database?: string
+    ssl?: boolean
+  }): Promise<DbSession> {
+    const info = await dbService.postgresConnect(params)
+    const session: DbSession = {
+      connId: info.connId,
+      dbType: 'postgresql',
+      host: info.host,
+      port: info.port,
+      database: info.database || 'postgres',
+      connected: true,
+      name,
+      assetId,
+    }
+    sessions.value.set(info.connId, session)
+    currentConnId.value = info.connId
+    return session
+  }
+
   async function connectElasticsearch(assetId: string, name: string, params: {
     host: string
     port: number
@@ -132,6 +156,8 @@ export const useDbStore = defineStore('db', () => {
     try {
       if (session.dbType === 'mysql') {
         await dbService.mysqlDisconnect(connId)
+      } else if (session.dbType === 'postgresql') {
+        await dbService.postgresDisconnect(connId)
       } else if (session.dbType === 'redis') {
         await dbService.redisDisconnect(connId)
       } else if (session.dbType === 'elasticsearch') {
@@ -181,7 +207,7 @@ export const useDbStore = defineStore('db', () => {
         }
         case 'mysql':
         default:
-          // TODO: 其他数据库类型(pg/sqlite/oracle 等)暂无对应 execute 函数,暂时回退到 mysqlExecute
+          // PostgreSQL 复用关系型 RPC 名称，Sidecar 按 connId 类型分派到 pgx 适配器。
           result = await dbService.mysqlExecute(connId, sql)
           break
       }
@@ -244,6 +270,7 @@ export const useDbStore = defineStore('db', () => {
     currentSession,
     currentResult,
     connectMySQL,
+    connectPostgres,
     connectRedis,
     connectElasticsearch,
     connectClickHouse,

@@ -98,6 +98,12 @@ type TableMeta struct {
 	RowCount int64        `json:"rowCount"`
 }
 
+const mysqlListTablesQuery = `SELECT TABLE_NAME as name, TABLE_TYPE as type,
+		COALESCE(ENGINE, '') as engine,
+		COALESCE(TABLE_ROWS, 0) as rows,
+		COALESCE(TABLE_COMMENT, '') as comment
+		FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`
+
 // NewMySQLAdapter 创建 MySQL 适配器
 func NewMySQLAdapter(info *MySQLConnInfo) (*MySQLAdapter, error) {
 	if info.Port == 0 {
@@ -147,6 +153,14 @@ func (a *MySQLAdapter) Ping() error {
 	return a.db.Ping()
 }
 
+func (a *MySQLAdapter) DefaultNamespace() string { return a.conn.Database }
+func (a *MySQLAdapter) ScopeSQL(sqlText, namespace string) string {
+	if namespace == "" || strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sqlText)), "USE ") {
+		return sqlText
+	}
+	return fmt.Sprintf("USE %s; %s", quoteIdentifier(namespace), sqlText)
+}
+
 // ListDatabases 列出所有数据库
 func (a *MySQLAdapter) ListDatabases() ([]string, error) {
 	var dbs []string
@@ -162,13 +176,8 @@ func (a *MySQLAdapter) ListTables(database string) ([]TableInfo, error) {
 	if database == "" {
 		database = a.conn.Database
 	}
-	query := `SELECT TABLE_NAME as name, TABLE_TYPE as type, 
-		COALESCE(ENGINE, '') as engine, 
-		COALESCE(TABLE_ROWS, 0) as rows, 
-		COALESCE(TABLE_COMMENT, '') as comment 
-		FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`
 	var tables []TableInfo
-	err := a.db.Select(&tables, query, database)
+	err := a.db.Select(&tables, mysqlListTablesQuery, database)
 	if err != nil {
 		return nil, fmt.Errorf("list tables: %w", err)
 	}

@@ -26,6 +26,11 @@ impl SshManager {
 }
 
 #[tauri::command]
+pub async fn ssh_get_trusted_host_key(host: String, port: u16) -> Result<Option<String>, String> {
+    crate::ssh::known_hosts::get_trusted_public_key(&host, port).await
+}
+
+#[tauri::command]
 pub async fn ssh_connect(
     manager: State<'_, SshManager>,
     id: String,

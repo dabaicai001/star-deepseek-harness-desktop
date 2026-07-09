@@ -12,6 +12,7 @@ import RightPanel from '@/components/layout/RightPanel.vue'
 import ResizableSidebarHandle from '@/components/layout/ResizableSidebarHandle.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
+import ProductIcon from '@/components/common/ProductIcon.vue'
 import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller } from '@/utils/aiTools'
@@ -338,6 +339,26 @@ async function connect() {
         console.warn('[db] list databases failed:', err)
         notify.notify({ message: t('db.listDbFailed', { msg }), color: 'warning' })
         // 允许部分无权限场景,databases 留空,用户可重试或自己 SQL 编辑
+      }
+    } else if (dbType === 'postgresql') {
+      const session = await dbStore.connectPostgres(assetId.value, asset.value.name, {
+        host: config.host || '',
+        port: config.port || 5432,
+        username: config.username || '',
+        password: config.password || '',
+        database: config.database || 'postgres',
+        ssl: config.ssl,
+      })
+      connId.value = session.connId
+      connected.value = true
+      try {
+        // PostgreSQL 左树展示当前数据库内的 schema。
+        databases.value = await dbService.mysqlListDatabases(session.connId)
+        restoreDatabaseSelection(databases.value, 'public')
+      } catch (err) {
+        const msg = errMsg(err)
+        console.warn('[db] list postgres schemas failed:', err)
+        notify.notify({ message: t('db.listDbFailed', { msg }), color: 'warning' })
       }
     } else if (dbType === 'clickhouse') {
       const session = await dbStore.connectClickHouse(assetId.value, asset.value.name, {
@@ -1880,6 +1901,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         <!-- Connection status -->
         <div class="conn-status" :class="{ connected, connecting }">
           <span class="status-dot" :class="{ online: connected, connecting }"></span>
+          <ProductIcon :product="asset?.config.dbType || 'mysql'" :size="14" />
           <span class="conn-name">{{ asset?.name || '...' }}</span>
         </div>
 
@@ -2007,7 +2029,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           {{ t('db.newQuery', '新建查询') }}
         </button>
         <button
-          v-if="asset?.config.dbType === 'mysql' || asset?.config.dbType === 'clickhouse'"
+          v-if="asset?.config.dbType === 'mysql' || asset?.config.dbType === 'postgresql' || asset?.config.dbType === 'clickhouse'"
           class="cyber-btn-secondary"
           @click="openNewTableDialog()"
           :disabled="!connected"
@@ -2017,7 +2039,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         </button>
         <div class="db-toolbar-spacer"></div>
         <select
-          v-if="asset?.config.dbType === 'mysql' || asset?.config.dbType === 'clickhouse'"
+          v-if="asset?.config.dbType === 'mysql' || asset?.config.dbType === 'postgresql' || asset?.config.dbType === 'clickhouse'"
           v-model="selectedDb"
           class="db-selector-inline"
           :class="{ 'no-db': !selectedDb }"
@@ -2198,7 +2220,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                   <v-icon size="14">mdi-delete-outline</v-icon>
                 </button>
                 <select
-                  v-if="asset?.config.dbType === 'mysql' || asset?.config.dbType === 'clickhouse'"
+                  v-if="asset?.config.dbType === 'mysql' || asset?.config.dbType === 'postgresql' || asset?.config.dbType === 'clickhouse'"
                   v-model="activeSqlEditorTab.selectedDb"
                   class="db-selector-inline"
                   :class="{ 'no-db': !activeSqlEditorTab.selectedDb }"
@@ -2213,7 +2235,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               </div>
               <SqlEditor
                 v-model="activeSqlEditorTab.sqlText"
-                :dialect="asset?.config.dbType === 'redis' ? 'redis' : 'mysql'"
+                :dialect="asset?.config.dbType === 'redis' ? 'redis' : asset?.config.dbType === 'postgresql' ? 'postgresql' : 'mysql'"
                 :tables="allTableNames"
                 @execute="executeSql"
                 @explain="explainSql"

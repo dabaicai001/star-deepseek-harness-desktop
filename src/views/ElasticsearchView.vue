@@ -15,6 +15,7 @@ import ContextMenu from '@/components/common/ContextMenu.vue'
 import ResizableSidebarHandle from '@/components/layout/ResizableSidebarHandle.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import type { EsIndexInfo, EsSearchResult } from '@/types/db'
+import ProductIcon from '@/components/common/ProductIcon.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -362,6 +363,7 @@ onMounted(() => initConnection())
     <div class="es-header">
       <div class="header-left">
         <span class="status-dot" :class="session?.connected ? 'online' : 'offline'" />
+        <ProductIcon product="elasticsearch" :size="16" />
         <span class="header-label">Elasticsearch</span>
         <template v-if="session">
           <span class="header-sep">·</span>

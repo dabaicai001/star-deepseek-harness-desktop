@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useAssetStore } from '@/stores/asset'
 import SshConnectionForm from '@/components/ssh/SshConnectionForm.vue'
 import DbConnectionForm from '@/components/db/DbConnectionForm.vue'
 import type { CreateAssetDto, Asset } from '@/types/asset'
 
 const { t } = useI18n()
+const assetStore = useAssetStore()
 
 const props = defineProps<{
   modelValue: boolean
@@ -22,6 +24,9 @@ const emit = defineEmits<{
 const step = ref<'type' | 'ssh' | 'db' | 'docker' | 'excel'>('type')
 const dockerName = ref('')
 const dockerSocket = ref('')
+const dockerTransport = ref<'socket' | 'tcp' | 'ssh'>('socket')
+const dockerSshAssetId = ref('')
+const dockerSshProtocol = ref<'unix-over-nc' | 'unix-over-nc-sudo'>('unix-over-nc-sudo')
 const excelName = ref('')
 const excelFilePath = ref('')
 const excelFormat = ref<'xlsx' | 'csv'>('xlsx')
@@ -30,6 +35,7 @@ let unlistenExcelDrop: (() => void) | null = null
 
 const mode = computed<'create' | 'edit'>(() => (props.asset ? 'edit' : 'create'))
 const canGoBackToType = computed(() => mode.value === 'create' && !props.initialType)
+const sshAssets = computed(() => assetStore.assets.filter(asset => asset.type === 'ssh'))
 
 function selectType(type: string) {
   if (type === 'ssh') {
@@ -46,7 +52,12 @@ function selectType(type: string) {
 function syncDockerFromAsset() {
   if (!props.asset || props.asset.type !== 'docker') return
   dockerName.value = props.asset.name
-  dockerSocket.value = props.asset.config.socketPath || ''
+  dockerTransport.value = props.asset.config.dockerTransport || 'socket'
+  dockerSocket.value = props.asset.config.remoteHost
+    || props.asset.config.socketPath
+    || (dockerTransport.value === 'tcp' ? 'tcp://127.0.0.1:2375' : '/var/run/docker.sock')
+  dockerSshAssetId.value = props.asset.config.dockerSshAssetId || ''
+  dockerSshProtocol.value = props.asset.config.dockerSshProtocol || 'unix-over-nc-sudo'
 }
 
 function syncExcelFromAsset() {
@@ -190,6 +201,9 @@ function close() {
   step.value = 'type'
   dockerName.value = ''
   dockerSocket.value = ''
+  dockerTransport.value = 'socket'
+  dockerSshAssetId.value = ''
+  dockerSshProtocol.value = 'unix-over-nc-sudo'
   excelName.value = ''
   excelFilePath.value = ''
   excelFormat.value = 'xlsx'
@@ -409,7 +423,13 @@ onBeforeUnmount(cleanupExcelDropListener)
           <form class="docker-form" @submit.prevent="handleDockerSubmit({
             type: 'docker',
             name: dockerName,
-            config: { socketPath: dockerSocket }
+            config: {
+              dockerTransport,
+              socketPath: dockerTransport === 'tcp' ? undefined : dockerSocket,
+              remoteHost: dockerTransport === 'tcp' ? dockerSocket : undefined,
+              dockerSshAssetId: dockerTransport === 'ssh' ? dockerSshAssetId : undefined,
+              dockerSshProtocol: dockerTransport === 'ssh' ? dockerSshProtocol : undefined
+            }
           })">
             <div class="form-field">
               <label class="field-label">
@@ -421,11 +441,64 @@ onBeforeUnmount(cleanupExcelDropListener)
             </div>
             <div class="form-field">
               <label class="field-label">
-                <v-icon size="12">mdi-server-network</v-icon>
-                {{ t('asset.dockerSocket') }}
+                <v-icon size="12">mdi-transit-connection-variant</v-icon>
+                连接方式
               </label>
-              <input v-model="dockerSocket" type="text" class="cyber-input" placeholder="unix:///var/run/docker.sock" />
-              <div class="field-hint">{{ t('asset.dockerSocketHint') }}</div>
+              <div class="docker-transport-switch">
+                <button type="button" :class="{ active: dockerTransport === 'socket' }" @click="dockerTransport = 'socket'">
+                  <v-icon size="13">mdi-lan-connect</v-icon>本地 Socket
+                </button>
+                <button type="button" :class="{ active: dockerTransport === 'tcp' }" @click="dockerTransport = 'tcp'; dockerSocket = 'tcp://127.0.0.1:2375'">
+                  <v-icon size="13">mdi-network-outline</v-icon>TCP
+                </button>
+                <button type="button" :class="{ active: dockerTransport === 'ssh' }" @click="dockerTransport = 'ssh'; dockerSocket = '/var/run/docker.sock'">
+                  <v-icon size="13">mdi-tunnel-outline</v-icon>SSH 隧道
+                </button>
+              </div>
+            </div>
+            <div v-if="dockerTransport === 'ssh'" class="form-field">
+              <label class="field-label">
+                <v-icon size="12">mdi-console-network-outline</v-icon>
+                复用 SSH 资产
+                <span class="required">*</span>
+              </label>
+              <select v-model="dockerSshAssetId" class="cyber-input" required>
+                <option value="" disabled>选择已有 SSH 连接</option>
+                <option v-for="sshAsset in sshAssets" :key="sshAsset.id" :value="sshAsset.id">
+                  {{ sshAsset.name }} · {{ sshAsset.config.host }}:{{ sshAsset.config.port || 22 }}
+                </option>
+              </select>
+              <div class="field-hint">首次使用前请打开该 SSH 连接并确认主机密钥。</div>
+            </div>
+            <div v-if="dockerTransport === 'ssh'" class="form-field">
+              <label class="field-label">
+                <v-icon size="12">mdi-shield-key-outline</v-icon>
+                Unix Socket 协议
+              </label>
+              <div class="docker-transport-switch">
+                <button type="button" :class="{ active: dockerSshProtocol === 'unix-over-nc' }" @click="dockerSshProtocol = 'unix-over-nc'">
+                  Unix-Over-Nc
+                </button>
+                <button type="button" :class="{ active: dockerSshProtocol === 'unix-over-nc-sudo' }" @click="dockerSshProtocol = 'unix-over-nc-sudo'">
+                  Unix-Over-Nc-Sudo
+                </button>
+              </div>
+              <div class="field-hint">Sudo 模式要求远端账号可无交互执行 sudo -n nc。</div>
+            </div>
+            <div class="form-field">
+              <label class="field-label">
+                <v-icon size="12">mdi-server-network</v-icon>
+                {{ dockerTransport === 'tcp' ? 'Docker TCP Endpoint' : t('asset.dockerSocket') }}
+              </label>
+              <input
+                v-model="dockerSocket"
+                type="text"
+                class="cyber-input"
+                :placeholder="dockerTransport === 'tcp' ? 'tcp://host:2375' : '/var/run/docker.sock'"
+              />
+              <div class="field-hint">
+                {{ dockerTransport === 'ssh' ? '远端 Docker Unix Socket 路径' : t('asset.dockerSocketHint') }}
+              </div>
             </div>
             <div class="form-footer">
               <div></div>
@@ -434,7 +507,7 @@ onBeforeUnmount(cleanupExcelDropListener)
                   <v-icon size="14">mdi-close</v-icon>
                   {{ t('common.cancel') }}
                 </button>
-                <button type="submit" class="cyber-btn" :disabled="!dockerName">
+                <button type="submit" class="cyber-btn" :disabled="!dockerName || (dockerTransport === 'ssh' && !dockerSshAssetId)">
                   <v-icon size="14">mdi-content-save-outline</v-icon>
                   {{ t('common.save') }}
                 </button>

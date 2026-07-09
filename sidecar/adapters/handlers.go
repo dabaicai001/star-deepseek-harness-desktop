@@ -3,7 +3,6 @@ package adapters
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -17,6 +16,7 @@ type Handler = rpc.Handler
 
 // RegisterDBHandlers 注册所有数据库相关 RPC 方法
 func RegisterDBHandlers(server ServerInterface, mgr *pool.Manager) {
+	registerBrokerHandlers(server)
 	// MySQL
 	server.Register("db.mysql.connect", handleMySQLConnect(mgr))
 	server.Register("db.mysql.test", handleMySQLTest())
@@ -40,6 +40,11 @@ func RegisterDBHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("db.mysql.getTableMeta", handleMySQLGetTableMeta(mgr))
 	server.Register("db.mysql.createIndex", handleMySQLCreateIndex(mgr))
 	server.Register("db.mysql.dropIndex", handleMySQLDropIndex(mgr))
+
+	// PostgreSQL 连接建立后复用上面的关系型数据库 CRUD handlers。
+	server.Register("db.postgres.connect", handlePostgresConnect(mgr))
+	server.Register("db.postgres.test", handlePostgresTest())
+	server.Register("db.postgres.disconnect", handleDisconnect(mgr))
 
 	// ClickHouse
 	server.Register("db.clickhouse.connect", handleClickHouseConnect(mgr))
@@ -193,15 +198,45 @@ func handleDisconnect(mgr *pool.Manager) Handler {
 	}
 }
 
-func getMySQLAdapter(mgr *pool.Manager, connID string) (*MySQLAdapter, error) {
+type relationalAdapter interface {
+	pool.DBAdapter
+	DefaultNamespace() string
+	ScopeSQL(string, string) string
+	ListDatabases() ([]string, error)
+	ListTables(string) ([]TableInfo, error)
+	ListColumns(string, string) ([]ColumnMeta, error)
+	ListIndexes(string, string) ([]IndexInfo, error)
+	CreateIndex(string, string, string, []string, bool, string) error
+	DropIndex(string, string, string) error
+	Execute(string) (*QueryResult, error)
+	Explain(string) (*QueryResult, error)
+	GetTableDDL(string, string) (string, error)
+	GetTableData(string, string, int, int, string, string, string, map[string]string) (*QueryResult, error)
+	DropTable(string, string, bool) error
+	TruncateTable(string, string) error
+	RenameTable(string, string, string) error
+	InsertRow(string, string, map[string]interface{}) (int64, error)
+	UpdateRows(string, string, map[string]interface{}, string) (int64, error)
+	DeleteRows(string, string, string) (int64, error)
+	ExportCSV(string, string, int) (*QueryResult, error)
+	ExportJSON(string, string, int) (string, error)
+	GetRowCount(string, string) (int64, error)
+	GetTableMeta(string, string) (*TableMeta, error)
+}
+
+func getRelationalAdapter(mgr *pool.Manager, connID string) (relationalAdapter, error) {
 	adapter, info, err := mgr.Get(connID)
 	if err != nil {
 		return nil, err
 	}
-	if info.Type != pool.ConnMySQL {
-		return nil, fmt.Errorf("connection %s is not MySQL (type=%s)", connID, info.Type)
+	if info.Type != pool.ConnMySQL && info.Type != pool.ConnPG {
+		return nil, fmt.Errorf("connection %s is not relational SQL (type=%s)", connID, info.Type)
 	}
-	return adapter.(*MySQLAdapter), nil
+	relational, ok := adapter.(relationalAdapter)
+	if !ok {
+		return nil, fmt.Errorf("connection %s does not implement relational operations", connID)
+	}
+	return relational, nil
 }
 
 func getClickHouseAdapter(mgr *pool.Manager, connID string) (*ClickHouseAdapter, error) {
@@ -223,7 +258,7 @@ func handleMySQLListDatabases(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +275,7 @@ func handleMySQLListTables(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -258,7 +293,7 @@ func handleMySQLListColumns(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -276,7 +311,7 @@ func handleMySQLListIndexes(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -298,7 +333,7 @@ func handleMySQLCreateIndex(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -317,7 +352,7 @@ func handleMySQLDropIndex(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -335,18 +370,16 @@ func handleMySQLExecute(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
 		sql := p.SQL
 		dbName := p.Database
 		if dbName == "" {
-			dbName = adapter.conn.Database
+			dbName = adapter.DefaultNamespace()
 		}
-		if dbName != "" && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "USE ") {
-			sql = fmt.Sprintf("USE %s; %s", quoteIdentifier(dbName), sql)
-		}
+		sql = adapter.ScopeSQL(sql, dbName)
 		return adapter.Execute(sql)
 	}
 }
@@ -361,18 +394,16 @@ func handleMySQLExplain(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
 		sql := p.SQL
 		dbName := p.Database
 		if dbName == "" {
-			dbName = adapter.conn.Database
+			dbName = adapter.DefaultNamespace()
 		}
-		if dbName != "" && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "USE ") {
-			sql = fmt.Sprintf("USE %s; %s", quoteIdentifier(dbName), sql)
-		}
+		sql = adapter.ScopeSQL(sql, dbName)
 		return adapter.Explain(sql)
 	}
 }
@@ -387,7 +418,7 @@ func handleMySQLGetTableDDL(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -416,7 +447,7 @@ func handleMySQLGetTableData(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		log.Info().Str("filter", p.Filter).Interface("columnFilters", p.ColumnFilters).Msg("handleMySQLGetTableData")
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -435,7 +466,7 @@ func handleMySQLDropTable(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -453,7 +484,7 @@ func handleMySQLTruncateTable(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -472,7 +503,7 @@ func handleMySQLRenameTable(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -491,7 +522,7 @@ func handleMySQLInsertRow(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -515,7 +546,7 @@ func handleMySQLUpdateRows(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -538,7 +569,7 @@ func handleMySQLDeleteRows(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -562,7 +593,7 @@ func handleMySQLExportData(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -594,7 +625,7 @@ func handleMySQLGetRowCount(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -616,7 +647,7 @@ func handleMySQLGetTableMeta(mgr *pool.Manager) Handler {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, err
 		}
-		adapter, err := getMySQLAdapter(mgr, p.ConnID)
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
 		if err != nil {
 			return nil, err
 		}
@@ -1543,15 +1574,25 @@ func handleDockerConnect(mgr *pool.Manager) Handler {
 		}
 
 		connID := fmt.Sprintf("docker_%d", time.Now().UnixNano())
+		displayHost := info.Host
+		if info.Transport == "ssh" && info.SSH != nil {
+			displayHost = fmt.Sprintf(
+				"ssh://%s@%s:%d%s",
+				info.SSH.Username,
+				info.SSH.Host,
+				info.SSH.Port,
+				info.SocketPath,
+			)
+		}
 		mgr.Register(connID, adapter, pool.ConnInfo{
 			ID:   connID,
 			Type: pool.ConnDocker,
-			Host: info.Host,
+			Host: displayHost,
 		})
 
 		return map[string]interface{}{
 			"connId": connID,
-			"host":   info.Host,
+			"host":   displayHost,
 		}, nil
 	}
 }

@@ -17,7 +17,7 @@ import { usePersistentPanelState } from '@/utils/panelState'
 import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller } from '@/utils/aiTools'
 import * as dockerService from '@/services/docker'
 import type { LlmToolCall } from '@/services/ai'
-import type { ContainerInfo } from '@/types/docker'
+import type { ContainerInfo, DockerConnectParams } from '@/types/docker'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -50,9 +50,64 @@ async function connect() {
   connectError.value = null
   try {
     const config = asset.value.config
-    const session = await dockerStore.connect(assetId.value, asset.value.name, {
-      host: config.socketPath || config.remoteHost
-    })
+    const transport = config.dockerTransport || (config.remoteHost ? 'tcp' : 'socket')
+    let params: DockerConnectParams
+    if (transport === 'ssh') {
+      const sshAsset = assetStore.assets.find(item =>
+        item.id === config.dockerSshAssetId && item.type === 'ssh')
+      if (!sshAsset?.config.host || !sshAsset.config.username) {
+        throw new Error('所选 SSH 资产不存在或配置不完整')
+      }
+      const { invoke } = await import('@tauri-apps/api/core')
+      const sshPort = sshAsset.config.port || 22
+      const knownHostKey = await invoke<string | null>('ssh_get_trusted_host_key', {
+        host: sshAsset.config.host,
+        port: sshPort,
+      })
+      if (!knownHostKey) {
+        throw new Error(`尚未信任 ${sshAsset.config.host}:${sshPort}，请先打开该 SSH 连接并确认主机密钥`)
+      }
+      let jumpKnownHostKey: string | undefined
+      if (sshAsset.config.jumpHost) {
+        jumpKnownHostKey = await invoke<string | null>('ssh_get_trusted_host_key', {
+          host: sshAsset.config.jumpHost,
+          port: sshAsset.config.jumpPort || 22,
+        }) || undefined
+        if (!jumpKnownHostKey) {
+          throw new Error(`尚未信任跳板机 ${sshAsset.config.jumpHost}:${sshAsset.config.jumpPort || 22}`)
+        }
+      }
+      params = {
+        transport: 'ssh',
+        socketPath: config.socketPath || '/var/run/docker.sock',
+        ssh: {
+          host: sshAsset.config.host,
+          port: sshPort,
+          username: sshAsset.config.username,
+          password: sshAsset.config.password,
+          privateKey: sshAsset.config.privateKey,
+          passphrase: sshAsset.config.passphrase,
+          knownHostKey,
+          jumpHost: sshAsset.config.jumpHost,
+          jumpPort: sshAsset.config.jumpPort,
+          jumpUsername: sshAsset.config.jumpUsername,
+          jumpPassword: sshAsset.config.jumpPassword,
+          jumpPrivateKey: sshAsset.config.jumpPrivateKey,
+          jumpPassphrase: sshAsset.config.jumpPassphrase,
+          jumpKnownHostKey,
+          protocol: config.dockerSshProtocol || 'unix-over-nc-sudo',
+        },
+      }
+    } else if (transport === 'tcp') {
+      params = { transport: 'tcp', host: config.remoteHost || 'tcp://127.0.0.1:2375' }
+    } else {
+      const socketPath = config.socketPath || '/var/run/docker.sock'
+      params = {
+        transport: 'socket',
+        host: socketPath.includes('://') ? socketPath : `unix://${socketPath}`,
+      }
+    }
+    const session = await dockerStore.connect(assetId.value, asset.value.name, params)
     connected.value = true
     await dockerStore.loadContainers()
     await dockerStore.loadImages()

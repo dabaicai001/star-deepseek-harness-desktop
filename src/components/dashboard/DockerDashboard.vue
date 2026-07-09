@@ -5,6 +5,7 @@
  */
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import DashboardCard from './DashboardCard.vue'
+import type { DashboardDetailTable } from './DashboardCard.vue'
 import { listContainers, listImages } from '@/services/docker'
 import { formatBytes } from '@/utils/sshMetrics'
 import type { ContainerInfo, ImageInfo } from '@/types/docker'
@@ -17,6 +18,7 @@ const props = defineProps<{
 const loading = ref(true)
 const refreshing = ref(false)
 const error = ref<string | null>(null)
+const sampleKey = ref(0)
 const containers = ref<ContainerInfo[]>([])
 const images = ref<ImageInfo[]>([])
 
@@ -53,6 +55,42 @@ const usedPorts = computed(() => {
   }
   return set.size
 })
+const containerTable = computed<DashboardDetailTable>(() => ({
+  columns: [
+    { key: 'name', label: '容器' },
+    { key: 'image', label: '镜像' },
+    { key: 'state', label: '状态' },
+    { key: 'status', label: '当前状态', wide: true },
+    { key: 'ports', label: '端口' },
+  ],
+  rows: containers.value.map(container => ({
+    name: container.name || container.id.slice(0, 12),
+    image: container.image,
+    state: container.state,
+    status: container.status || '--',
+    ports: (container.ports || [])
+      .map(port => `${port.public ? `${port.public}:` : ''}${port.private}/${port.type}`)
+      .join(', ') || '--',
+  })),
+  emptyText: '当前 Docker 主机没有容器。',
+}))
+const imageTable = computed<DashboardDetailTable>(() => ({
+  columns: [
+    { key: 'tag', label: '镜像标签', wide: true },
+    { key: 'id', label: '镜像 ID' },
+    { key: 'size', label: '大小', align: 'right' },
+    { key: 'created', label: '创建时间' },
+  ],
+  rows: images.value.map(image => ({
+    tag: image.tags.join(', ') || '<none>',
+    id: image.id.replace('sha256:', '').slice(0, 12),
+    size: formatBytes(image.size),
+    created: image.created
+      ? new Date(image.created * 1000).toLocaleString('zh-CN', { hour12: false })
+      : '--',
+  })),
+  emptyText: '当前 Docker 主机没有镜像。',
+}))
 
 async function loadAll() {
   if (!props.connId) {
@@ -70,6 +108,7 @@ async function loadAll() {
     ])
     containers.value = cs || []
     images.value = imgs || []
+    sampleKey.value += 1
     error.value = null
   } catch (e) {
     error.value = String(e ?? '').slice(0, 200)
@@ -137,6 +176,9 @@ watch(() => [props.connId, props.connected], ([id, conn], [oldId, oldConn]) => {
         :progress="runningRate"
         :color="containerColor"
         :loading="loading"
+        :chart-value="total"
+        :sample-key="sampleKey"
+        :detail-table="containerTable"
         :details="containers.slice(0, 12).map(container => ({
           label: container.name || container.id.slice(0, 12),
           value: container.state,
@@ -149,6 +191,9 @@ watch(() => [props.connId, props.connected], ([id, conn], [oldId, oldConn]) => {
         :value="runningCount"
         color="green"
         :loading="loading"
+        :chart-value="runningCount"
+        :sample-key="sampleKey"
+        :detail-table="containerTable"
       />
 
       <DashboardCard
@@ -157,6 +202,9 @@ watch(() => [props.connId, props.connected], ([id, conn], [oldId, oldConn]) => {
         :value="stoppedCount"
         :color="stoppedCount > 0 ? 'yellow' : 'cyan'"
         :loading="loading"
+        :chart-value="stoppedCount"
+        :sample-key="sampleKey"
+        :detail-table="containerTable"
       />
 
       <DashboardCard
@@ -165,6 +213,9 @@ watch(() => [props.connId, props.connected], ([id, conn], [oldId, oldConn]) => {
         :value="pausedCount"
         color="purple"
         :loading="loading"
+        :chart-value="pausedCount"
+        :sample-key="sampleKey"
+        :detail-table="containerTable"
       />
 
       <DashboardCard
@@ -173,6 +224,9 @@ watch(() => [props.connId, props.connected], ([id, conn], [oldId, oldConn]) => {
         :value="images.length"
         color="cyan"
         :loading="loading"
+        :chart-value="images.length"
+        :sample-key="sampleKey"
+        :detail-table="imageTable"
       />
 
       <DashboardCard
@@ -181,6 +235,9 @@ watch(() => [props.connId, props.connected], ([id, conn], [oldId, oldConn]) => {
         :value="imagesSizePretty"
         color="purple"
         :loading="loading"
+        :chart-value="imagesSize"
+        :sample-key="sampleKey"
+        :detail-table="imageTable"
       />
 
       <DashboardCard
@@ -190,6 +247,9 @@ watch(() => [props.connId, props.connected], ([id, conn], [oldId, oldConn]) => {
         :subtitle="`通过 ${runningCount} 个运行中容器`"
         color="blue"
         :loading="loading"
+        :chart-value="usedPorts"
+        :sample-key="sampleKey"
+        :detail-table="containerTable"
       />
 
       <DashboardCard
@@ -200,6 +260,9 @@ watch(() => [props.connId, props.connected], ([id, conn], [oldId, oldConn]) => {
         :progress="runningRate"
         :color="runningRate === 100 ? 'green' : runningRate >= 50 ? 'cyan' : 'yellow'"
         :loading="loading"
+        :chart-value="runningRate"
+        :sample-key="sampleKey"
+        :detail-table="containerTable"
         description="当前处于 running 状态的容器占全部容器的比例，不等同于 Docker HEALTHCHECK 健康状态。"
       />
     </div>

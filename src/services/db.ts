@@ -47,6 +47,18 @@ export async function mysqlDisconnect(connId: string): Promise<void> {
   return invoke('db_mysql_disconnect', { connId })
 }
 
+export async function postgresConnect(params: MySQLConnectParams): Promise<DbConnectionInfo> {
+  return invoke('db_postgres_connect', { params })
+}
+
+export async function postgresTest(params: MySQLConnectParams): Promise<TestResult> {
+  return invoke('db_postgres_test', { params })
+}
+
+export async function postgresDisconnect(connId: string): Promise<void> {
+  return invoke('db_postgres_disconnect', { connId })
+}
+
 export async function mysqlListDatabases(connId: string): Promise<string[]> {
   return invoke('db_mysql_list_databases', { connId })
 }

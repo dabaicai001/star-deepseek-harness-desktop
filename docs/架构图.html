@@ -646,6 +646,8 @@
         <li><code>jackc/pgx/v5</code></li>
         <li><code>modernc.org/sqlite</code></li>
         <li><code>redis/go-redis/v9</code></li>
+        <li><code>segmentio/kafka-go</code> / NSQ Stats API</li>
+        <li>Docker SSH: Unix-Over-Nc(-Sudo)</li>
         <li>流式查询 (goroutine + channel)</li>
         <li>Excel 全 Sheet 快照 / 公式持久化</li>
         <li>国产库 ODBC 桥接</li>
@@ -722,7 +724,7 @@ graph LR
         <td>跨平台 CPU/内存/进程信息</td>
       </tr>
       <tr>
-        <td rowspan="4"><strong>Go 侧</strong></td>
+        <td rowspan="6"><strong>Go 侧</strong></td>
         <td>MySQL</td>
         <td>go-sql-driver/mysql</td>
         <td>流式查询支持好</td>
@@ -741,6 +743,16 @@ graph LR
         <td>SQLite</td>
         <td>modernc.org/sqlite(纯 Go)</td>
         <td>同步,极快,适合本地</td>
+      </tr>
+      <tr>
+        <td>Kafka</td>
+        <td>segmentio/kafka-go</td>
+        <td>Broker 元数据、Topic 与分区状态</td>
+      </tr>
+      <tr>
+        <td>NSQ</td>
+        <td>nsqd TCP + HTTP Stats API</td>
+        <td>Topic、Channel、积压与消息统计</td>
       </tr>
     </tbody>
   </table>

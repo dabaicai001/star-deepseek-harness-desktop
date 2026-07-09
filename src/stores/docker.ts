@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { DockerSession, ContainerInfo, ImageInfo, ContainerStats, LogEntry } from '@/types/docker'
+import type { DockerSession, DockerConnectParams, ContainerInfo, ImageInfo, ContainerStats, LogEntry } from '@/types/docker'
 import * as dockerService from '@/services/docker'
 
 export const useDockerStore = defineStore('docker', () => {
@@ -27,7 +27,7 @@ export const useDockerStore = defineStore('docker', () => {
   const runningContainers = computed(() => containers.value.filter(c => c.state === 'running'))
   const stoppedContainers = computed(() => containers.value.filter(c => c.state !== 'running'))
 
-  async function connect(assetId: string, name: string, params: { host?: string }): Promise<DockerSession> {
+  async function connect(assetId: string, name: string, params: DockerConnectParams): Promise<DockerSession> {
     const info = await dockerService.dockerConnect(params)
     const session: DockerSession = {
       connId: info.connId,

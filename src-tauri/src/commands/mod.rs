@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod asset;
+pub mod broker;
 pub mod db;
 pub mod docker;
 pub mod file;

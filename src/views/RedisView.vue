@@ -22,6 +22,7 @@ import RightPanel from '@/components/layout/RightPanel.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import type { RightPanelTab } from '@/components/layout/RightPanel.vue'
+import ProductIcon from '@/components/common/ProductIcon.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -342,7 +343,7 @@ watch(() => assetId.value, () => {
       <!-- Header bar -->
       <div class="redis-header">
         <div class="connection-card">
-          <v-icon size="18" color="cyan">mdi-database</v-icon>
+          <ProductIcon product="redis" :size="18" />
           <span class="conn-name">{{ asset?.name || '...' }}</span>
           <span class="cyber-badge">db{{ currentDb }}</span>
           <span class="key-count">{{ dbsize.toLocaleString() }} keys</span>

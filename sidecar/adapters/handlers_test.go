@@ -20,8 +20,14 @@ func TestRegisterDBHandlersIncludesTableMetadataMethods(t *testing.T) {
 	required := []string{
 		"db.mysql.getTableMeta",
 		"db.mysql.getTableData",
+		"db.postgres.connect",
+		"db.postgres.test",
 		"db.clickhouse.getTableMeta",
 		"db.clickhouse.getTableData",
+		"broker.kafka.test",
+		"broker.kafka.overview",
+		"broker.nsq.test",
+		"broker.nsq.overview",
 	}
 	for _, method := range required {
 		if _, ok := collector[method]; !ok {

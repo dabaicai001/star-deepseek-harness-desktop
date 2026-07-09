@@ -8,6 +8,7 @@ import { useNotifyStore } from '@/stores/notify'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ProductIcon from '@/components/common/ProductIcon.vue'
 import { generateInstanceId } from '@/utils/tabId'
 import type { Asset, CreateAssetDto } from '@/types/asset'
 
@@ -67,6 +68,9 @@ function getDbLabel(dbType?: string): string {
     case 'postgresql': return 'PG'
     case 'sqlite': return 'SQLITE'
     case 'elasticsearch': return 'ES'
+    case 'clickhouse': return 'CLICKHOUSE'
+    case 'kafka': return 'KAFKA'
+    case 'nsq': return 'NSQ'
     case 'mysql':
     default: return 'MYSQL'
   }
@@ -113,6 +117,8 @@ function routeNameForAsset(asset: Asset): string {
   if (dbType === 'redis') return 'db-redis'
   if (dbType === 'elasticsearch') return 'db-elasticsearch'
   if (dbType === 'clickhouse') return 'db-clickhouse'
+  if (dbType === 'postgresql') return 'db-postgresql'
+  if (dbType === 'kafka' || dbType === 'nsq') return 'db-broker'
   return 'db-mysql'
 }
 
@@ -335,8 +341,7 @@ async function duplicateAsset(asset: Asset) {
   if (newAsset.type === 'ssh') {
     router.push({ name: 'ssh-terminal', params: { id: instanceId } })
   } else if (newAsset.type === 'db') {
-    const dbType = newAsset.config.dbType || 'mysql'
-    router.push({ name: dbType === 'redis' ? 'db-redis' : dbType === 'elasticsearch' ? 'db-elasticsearch' : 'db-mysql', params: { id: instanceId } })
+    router.push({ name: routeNameForAsset(newAsset), params: { id: instanceId } })
   } else if (newAsset.type === 'excel') {
     router.push({ name: 'excel', params: { id: instanceId } })
   }
@@ -426,7 +431,7 @@ function isGroupExpanded(id: string) {
         @keydown="onAssetKeydown($event, asset)"
       >
         <span class="db-badge-wrap">
-          <v-icon size="13" :class="[asset.type, `db-${asset.config.dbType || 'mysql'}`]">{{ getIcon(asset.type, asset.config.dbType) }}</v-icon>
+          <ProductIcon :product="asset.config.dbType || 'mysql'" :size="13" />
           <span class="db-type-label" :class="`db-${asset.config.dbType || 'mysql'}`">{{ getDbLabel(asset.config.dbType) }}</span>
         </span>
         <span class="name">{{ asset.name }}</span>
@@ -521,7 +526,7 @@ function isGroupExpanded(id: string) {
         @keydown="onAssetKeydown($event, asset)"
       >
         <span class="db-badge-wrap">
-          <v-icon size="13" :class="[asset.type, `db-${asset.config.dbType || 'mysql'}`]">{{ getIcon(asset.type, asset.config.dbType) }}</v-icon>
+          <ProductIcon :product="asset.config.dbType || 'mysql'" :size="13" />
           <span class="db-type-label" :class="`db-${asset.config.dbType || 'mysql'}`">{{ getDbLabel(asset.config.dbType) }}</span>
         </span>
         <span class="name">{{ asset.name }}</span>
@@ -931,6 +936,8 @@ function isGroupExpanded(id: string) {
 .db-type-label.db-sqlite { color: var(--db-sqlite); background: var(--db-sqlite-bg); }
 .db-type-label.db-clickhouse { color: var(--db-clickhouse); background: var(--db-clickhouse-bg); }
 .db-type-label.db-elasticsearch { color: var(--db-elasticsearch); background: var(--db-elasticsearch-bg); }
+.db-type-label.db-kafka { color: var(--db-kafka); background: var(--db-kafka-bg); }
+.db-type-label.db-nsq { color: var(--db-nsq); background: var(--db-nsq-bg); }
 
 .tree-empty {
   padding: 4px 28px;

@@ -48,6 +48,32 @@ export interface MysqlMetrics {
   indexSize: number
 }
 
+/** MySQL 当前连接/会话明细，来自 information_schema.PROCESSLIST。 */
+export interface MysqlProcessDetail {
+  id: number
+  user: string
+  host: string
+  ip: string
+  database: string
+  command: string
+  timeSeconds: number
+  state: string
+  sql: string
+}
+
+/** MySQL 慢语句明细，优先来自 mysql.slow_log，必要时回退到 digest 汇总。 */
+export interface MysqlSlowQueryDetail {
+  startedAt: string
+  duration: string
+  lockTime: string
+  rowsExamined: number
+  database: string
+  userHost: string
+  sql: string
+  executions?: number
+  source: 'slow_log' | 'performance_schema'
+}
+
 /** 字节 → 可读 */
 export function formatDbBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return '0 B'
@@ -120,6 +146,74 @@ export function rowsToDict(result: QueryResult): Record<string, string> {
     if (k) dict[k] = v
   }
   return dict
+}
+
+/** 把 QueryResult 转为以小写列名索引的对象，兼容驱动返回的列名大小写。 */
+export function queryRowsToRecords(result?: QueryResult): Array<Record<string, unknown>> {
+  if (!result?.rows?.length) return []
+  const columns = result.columns.map(column => column.name.toLowerCase())
+  return result.rows.map(row => Object.fromEntries(
+    columns.map((column, index) => [column, row[index]]),
+  ))
+}
+
+function text(value: unknown, fallback = ''): string {
+  if (value === null || value === undefined) return fallback
+  return String(value)
+}
+
+function integer(value: unknown): number {
+  const parsed = Number.parseInt(text(value, '0'), 10)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+/** 从 PROCESSLIST 的 host:port 中拆出可直接识别的客户端 IP/主机名。 */
+export function mysqlClientIp(host: string): string {
+  const trimmed = host.trim()
+  if (!trimmed) return '--'
+  if (trimmed.startsWith('[')) {
+    const closing = trimmed.indexOf(']')
+    if (closing > 1) return trimmed.slice(1, closing)
+  }
+  const separator = trimmed.lastIndexOf(':')
+  if (separator > 0 && /^\d+$/.test(trimmed.slice(separator + 1))) {
+    return trimmed.slice(0, separator)
+  }
+  return trimmed
+}
+
+export function parseMysqlProcessDetails(result?: QueryResult): MysqlProcessDetail[] {
+  return queryRowsToRecords(result).map(row => {
+    const host = text(row.host, '--')
+    return {
+      id: integer(row.id),
+      user: text(row.user, '--'),
+      host,
+      ip: mysqlClientIp(host),
+      database: text(row.db, '--'),
+      command: text(row.command, '--'),
+      timeSeconds: integer(row.time),
+      state: text(row.state, '--'),
+      sql: text(row.info, '').trim() || '(空闲连接)',
+    }
+  })
+}
+
+export function parseMysqlSlowQueryDetails(
+  result: QueryResult | undefined,
+  source: MysqlSlowQueryDetail['source'],
+): MysqlSlowQueryDetail[] {
+  return queryRowsToRecords(result).map(row => ({
+    startedAt: text(row.started_at ?? row.first_seen, '--'),
+    duration: text(row.duration ?? row.total_latency, '--'),
+    lockTime: text(row.lock_time, '--'),
+    rowsExamined: integer(row.rows_examined),
+    database: text(row.db, '--'),
+    userHost: text(row.user_host, source === 'performance_schema' ? '聚合语句' : '--'),
+    sql: text(row.sql_text ?? row.digest_text, '--'),
+    executions: row.executions === undefined ? undefined : integer(row.executions),
+    source,
+  }))
 }
 
 /** 从 dict 取数字,缺失返回 fallback */

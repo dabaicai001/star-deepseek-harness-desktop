@@ -16,6 +16,10 @@ const ldflags = ['-s', '-w']
 const requiredMethods = [
   'db.mysql.getTableMeta',
   'db.mysql.getTableData',
+  'db.postgres.connect',
+  'db.clickhouse.getTableMeta',
+  'broker.kafka.overview',
+  'broker.nsq.overview',
   'file.csv.open',
   'file.csv.readSheet',
   'file.csv.writeCells',

@@ -48,6 +48,8 @@ function routeNameForAsset(asset: Asset): string {
   if (dbType === 'redis') return 'db-redis'
   if (dbType === 'elasticsearch') return 'db-elasticsearch'
   if (dbType === 'clickhouse') return 'db-clickhouse'
+  if (dbType === 'postgresql') return 'db-postgresql'
+  if (dbType === 'kafka' || dbType === 'nsq') return 'db-broker'
   return 'db-mysql'
 }
 

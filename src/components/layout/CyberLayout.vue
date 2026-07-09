@@ -13,6 +13,7 @@ import CommandPalette from '@/components/layout/CommandPalette.vue'
 import NotificationCenter from '@/components/layout/NotificationCenter.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
+import ProductIcon from '@/components/common/ProductIcon.vue'
 import * as tauriWindowApi from '@tauri-apps/api/window'
 import { generateInstanceId } from '@/utils/tabId'
 import { version as appVersion } from '~package.json'
@@ -618,18 +619,16 @@ function getIcon(type: string) {
   }
 }
 
-/** DB 类型细分图标:与侧边栏 AssetTree 保持一致,redis 走 mdi-key-variant,其他走 mdi-database */
-function getDbChipIcon(asset: Asset): string {
-  if (asset.config.dbType === 'redis') return 'mdi-key-variant'
-  return 'mdi-database'
-}
-
 /** DB 类型徽章文本:REDIS / PG / SQLITE / MYSQL,跟侧边栏一致 */
 function getDbLabel(dbType?: string): string {
   switch (dbType) {
     case 'redis': return 'REDIS'
     case 'postgresql': return 'PG'
     case 'sqlite': return 'SQLITE'
+    case 'elasticsearch': return 'ES'
+    case 'clickhouse': return 'CLICKHOUSE'
+    case 'kafka': return 'KAFKA'
+    case 'nsq': return 'NSQ'
     case 'mysql':
     default: return 'MYSQL'
   }
@@ -648,6 +647,8 @@ function routeNameForAsset(asset: Asset): string {
   if (dbType === 'redis') return 'db-redis'
   if (dbType === 'elasticsearch') return 'db-elasticsearch'
   if (dbType === 'clickhouse') return 'db-clickhouse'
+  if (dbType === 'postgresql') return 'db-postgresql'
+  if (dbType === 'kafka' || dbType === 'nsq') return 'db-broker'
   return 'db-mysql'
 }
 
@@ -1008,7 +1009,8 @@ vueWatch(() => appStore.tabs.length, () => {
             @mousedown.prevent="openAsset(a)"
             @mouseenter="searchSelectedIdx = idx"
           >
-            <v-icon size="14" :color="assetIconColor(a.type)">{{ assetIcon(a.type) }}</v-icon>
+            <ProductIcon v-if="a.type === 'db'" :product="a.config.dbType || 'mysql'" :size="14" />
+            <v-icon v-else size="14" :color="assetIconColor(a.type)">{{ assetIcon(a.type) }}</v-icon>
             <div class="search-result-info">
               <div class="search-result-name">{{ a.name }}</div>
               <div class="search-result-host">{{ a.config.host || a.config.dbType || a.type.toUpperCase() }}</div>
@@ -1166,7 +1168,7 @@ vueWatch(() => appStore.tabs.length, () => {
           >
             <!-- DB 类型:与侧边栏一致,用 db-badge-wrap(图标 + 类型徽章),区分 mysql/redis/pg/sqlite -->
             <span v-if="a.type === 'db'" class="db-badge-wrap">
-              <v-icon size="13" :class="[a.type, `db-${a.config.dbType || 'mysql'}`]">{{ getDbChipIcon(a) }}</v-icon>
+              <ProductIcon :product="a.config.dbType || 'mysql'" :size="13" />
               <span class="db-type-label" :class="`db-${a.config.dbType || 'mysql'}`">{{ getDbLabel(a.config.dbType) }}</span>
             </span>
             <!-- SSH / Docker:裸图标,与侧边栏一致 -->

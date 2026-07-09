@@ -1,4 +1,4 @@
-export type DatabaseType = 'mysql' | 'redis' | 'elasticsearch' | 'clickhouse'
+export type DatabaseType = 'mysql' | 'postgresql' | 'redis' | 'elasticsearch' | 'clickhouse' | 'kafka' | 'nsq'
 
 export interface DbConnectionInfo {
   connId: string

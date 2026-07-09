@@ -1,6 +1,6 @@
 export type AssetType = 'ssh' | 'db' | 'docker' | 'excel'
 
-export type DatabaseType = 'mysql' | 'postgresql' | 'sqlite' | 'redis' | 'elasticsearch' | 'clickhouse'
+export type DatabaseType = 'mysql' | 'postgresql' | 'sqlite' | 'redis' | 'elasticsearch' | 'clickhouse' | 'kafka' | 'nsq'
 
 export interface AssetGroup {
   id: number
@@ -57,6 +57,9 @@ export interface AssetConfig {
   // Docker 配置
   socketPath?: string
   remoteHost?: string
+  dockerTransport?: 'socket' | 'tcp' | 'ssh'
+  dockerSshAssetId?: string
+  dockerSshProtocol?: 'unix-over-nc' | 'unix-over-nc-sudo'
 
   // Excel 配置
   filePath?: string

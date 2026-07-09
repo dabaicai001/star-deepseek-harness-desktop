@@ -53,6 +53,22 @@ pub async fn add_host(host: &str, port: u16, key: &PublicKey) -> Result<(), Stri
     Ok(())
 }
 
+/// 返回已由用户确认并持久化的 OpenSSH 公钥，供 Docker SSH 隧道复用。
+pub async fn get_trusted_public_key(host: &str, port: u16) -> Result<Option<String>, String> {
+    let pool = crate::db::get_pool()?;
+    let key = sqlx::query_scalar::<_, Vec<u8>>(
+        "SELECT public_key FROM known_hosts WHERE host_key = ?1 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(host_key(host, port))
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("Failed to read trusted host key: {e}"))?;
+    key.map(|bytes| {
+        String::from_utf8(bytes).map_err(|_| "Stored host key is not valid UTF-8".to_string())
+    })
+    .transpose()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

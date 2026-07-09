@@ -8,9 +8,31 @@
 ## [未发布]
 
 ### 计划中
-- PostgreSQL / SQLite 数据库适配器
+- SQLite 数据库适配器
 - AI 助手流式输出
 - Settings 补「代理」「安全」2 个 tab
+
+---
+
+## [0.18.0] - 2026-07-09
+
+### 新增
+- ✨ feat(db): 新增 PostgreSQL 完整连接、Schema/表/字段/索引浏览、SQL 与数据编辑，并增加连接 IP、当前 SQL、慢语句、缓存命中率等可钻取监控。
+- ✨ feat(broker): 新增 Kafka 与 NSQ 连接测试、资产入口、产品图标、主题一致的节点/Topic/Channel 状态仪表盘。
+- ✨ feat(docker): Docker 新增本地 Socket、TCP、复用现有 SSH 资产三种连接方式；SSH 支持跳板机与 `Unix-Over-Nc` / `Unix-Over-Nc-Sudo`，严格复用已信任 Host Key。
+- ✨ feat(dashboard): MySQL、PostgreSQL、Redis、SSH、Docker 指标统一增加实时折线/环图和明细钻取；连接数显示客户端 IP 与当前 SQL，慢查询显示具体语句。
+
+### 修复
+- 🐛 fix(db): Univer 数据刷新改为内部可写、用户编辑命令精确拦截，消除刷新时错误弹出的 `sheets-ui.permission.dialog.alert`。
+- 🐛 fix(clickhouse): `system.tables.total_rows` / comment 等可空字段统一 `coalesce`，修复 `NULL to int64`；侧栏按真实 ClickHouse 类型展示品牌图标。
+- 🐛 fix(db): 审核 MySQL、PostgreSQL、ClickHouse、Redis、Elasticsearch 元数据路径，对可空标量采用 SQL `COALESCE` 或 Go 指针字段，并加入回归测试。
+
+### 优化
+- ⚡ perf(excel): 打开工作簿时从 XLSX XML 一次性建立稀疏公式索引，读取 Sheet 不再逐单元格调用 `GetCellFormula`，显著改善跨 Sheet VLOOKUP 工作簿加载卡顿。
+- 🎨 style(design-system): 增加产品品牌图标、仪表盘图表/明细表、消息队列状态页和 Docker 连接协议切换组件类。
+
+### 测试
+- ✅ test(build): Go 全量测试、TypeScript strict/Vite 构建、Rust `cargo check` 与 Windows Tauri 打包通过。
 
 ---
 

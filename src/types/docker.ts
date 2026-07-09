@@ -6,6 +6,25 @@ export interface DockerConnectionInfo {
 export interface DockerConnectParams {
   host?: string
   apiVersion?: string
+  transport?: 'socket' | 'tcp' | 'ssh'
+  socketPath?: string
+  ssh?: {
+    host: string
+    port: number
+    username: string
+    password?: string
+    privateKey?: string
+    passphrase?: string
+    knownHostKey: string
+    jumpHost?: string
+    jumpPort?: number
+    jumpUsername?: string
+    jumpPassword?: string
+    jumpPrivateKey?: string
+    jumpPassphrase?: string
+    jumpKnownHostKey?: string
+    protocol: 'unix-over-nc' | 'unix-over-nc-sudo'
+  }
 }
 
 export interface TestResult {

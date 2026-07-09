@@ -3,11 +3,29 @@
  * 仪表盘通用卡片组件
  * 用于展示单个指标，支持进度条、趋势、颜色主题
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 export interface DashboardDetail {
   label: string
   value: string | number
+}
+
+export interface DashboardDetailColumn {
+  key: string
+  label: string
+  align?: 'left' | 'right'
+  wide?: boolean
+}
+
+export interface DashboardDetailTable {
+  columns: DashboardDetailColumn[]
+  rows: Array<Record<string, string | number | null | undefined>>
+  emptyText?: string
+}
+
+export interface DashboardChartPoint {
+  label: string
+  value: number
 }
 
 const props = withDefaults(defineProps<{
@@ -21,9 +39,15 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   description?: string
   details?: DashboardDetail[]
+  detailTable?: DashboardDetailTable
+  chartType?: 'auto' | 'line' | 'donut' | 'none'
+  chartValue?: number
+  chartData?: DashboardChartPoint[]
+  sampleKey?: string | number
 }>(), {
   color: 'cyan',
-  loading: false
+  loading: false,
+  chartType: 'auto',
 })
 
 const progressWidth = computed(() => {
@@ -31,11 +55,71 @@ const progressWidth = computed(() => {
   return Math.min(100, Math.max(0, props.progress))
 })
 const detailOpen = ref(false)
+const sampledHistory = ref<DashboardChartPoint[]>([])
 const detailRows = computed<DashboardDetail[]>(() => {
   const rows: DashboardDetail[] = [{ label: '当前值', value: props.value }]
   if (props.subtitle) rows.push({ label: '补充信息', value: props.subtitle })
   if (props.progress !== undefined) rows.push({ label: '占比', value: `${progressWidth.value.toFixed(2)}%` })
   return [...rows, ...(props.details ?? [])]
+})
+
+function numericValue(value: string | number): number | null {
+  if (props.chartValue !== undefined && Number.isFinite(props.chartValue)) return props.chartValue
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  const match = value.replace(/,/g, '').match(/-?\d+(?:\.\d+)?/)
+  if (!match) return null
+  const parsed = Number(match[0])
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+watch(
+  () => [props.value, props.chartValue, props.sampleKey] as const,
+  () => {
+    const value = numericValue(props.value)
+    if (value === null) return
+    const label = new Date().toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+    sampledHistory.value = [...sampledHistory.value, { label, value }].slice(-20)
+  },
+  { immediate: true },
+)
+
+const chartPoints = computed(() =>
+  props.chartData?.length ? props.chartData.slice(-20) : sampledHistory.value)
+const effectiveChartType = computed<'line' | 'donut' | 'none'>(() => {
+  if (props.chartType === 'none') return 'none'
+  if (props.chartType === 'line' || props.chartType === 'donut') return props.chartType
+  if (props.progress !== undefined) return 'donut'
+  return chartPoints.value.length ? 'line' : 'none'
+})
+const chartRange = computed(() => {
+  const values = chartPoints.value.map(point => point.value)
+  if (!values.length) return { min: 0, max: 0 }
+  return { min: Math.min(...values), max: Math.max(...values) }
+})
+const linePoints = computed(() => {
+  const points = chartPoints.value
+  if (!points.length) return ''
+  const { min, max } = chartRange.value
+  const span = Math.max(max - min, Math.abs(max) * 0.08, 1)
+  return points.map((point, index) => {
+    const x = points.length === 1 ? 160 : 12 + (index / (points.length - 1)) * 296
+    const y = 100 - ((point.value - min) / span) * 80
+    return `${x.toFixed(1)},${Math.max(12, Math.min(100, y)).toFixed(1)}`
+  }).join(' ')
+})
+const lineAreaPoints = computed(() =>
+  linePoints.value ? `12,104 ${linePoints.value} 308,104` : '')
+const chartCaption = computed(() => {
+  if (effectiveChartType.value === 'donut') {
+    return `${progressWidth.value.toFixed(1)}% 已使用 · ${(100 - progressWidth.value).toFixed(1)}% 可用`
+  }
+  if (!chartPoints.value.length) return '等待采集'
+  return `${chartPoints.value.length} 个真实采样点 · ${chartPoints.value.at(-1)?.label ?? ''}`
 })
 
 const trendIcon = computed(() => {
@@ -100,7 +184,11 @@ const trendColor = computed(() => {
     </div>
   </button>
 
-  <v-dialog v-model="detailOpen" transition="cyber-dialog" max-width="480">
+  <v-dialog
+    v-model="detailOpen"
+    transition="cyber-dialog"
+    :max-width="detailTable ? 920 : 640"
+  >
     <div class="dashboard-detail-panel cyber-panel" :class="[`color-${color}`]">
       <div class="dashboard-detail-header">
         <div class="card-icon"><v-icon size="18">{{ icon }}</v-icon></div>
@@ -116,11 +204,81 @@ const trendColor = computed(() => {
       <p class="dashboard-detail-description">
         {{ description || '该指标来自当前连接的实时采集结果，每 30 秒自动刷新一次。' }}
       </p>
+      <div v-if="effectiveChartType !== 'none'" class="dashboard-detail-chart">
+        <div class="dashboard-detail-chart-head">
+          <strong>{{ effectiveChartType === 'donut' ? '占比构成' : '实时趋势' }}</strong>
+          <span>{{ chartCaption }}</span>
+        </div>
+        <div v-if="effectiveChartType === 'donut'" class="dashboard-donut-wrap">
+          <svg class="dashboard-donut" viewBox="0 0 120 120" role="img" :aria-label="chartCaption">
+            <circle class="dashboard-donut-track" cx="60" cy="60" r="46" />
+            <circle
+              class="dashboard-donut-value"
+              cx="60"
+              cy="60"
+              r="46"
+              pathLength="100"
+              :stroke-dasharray="`${progressWidth} ${100 - progressWidth}`"
+            />
+          </svg>
+          <div class="dashboard-donut-label">
+            <strong>{{ progressWidth.toFixed(1) }}%</strong>
+            <span>当前占比</span>
+          </div>
+          <div class="dashboard-donut-legend">
+            <span><i class="used" />已使用 {{ progressWidth.toFixed(1) }}%</span>
+            <span><i />可用 {{ (100 - progressWidth).toFixed(1) }}%</span>
+          </div>
+        </div>
+        <div v-else class="dashboard-line-wrap">
+          <svg class="dashboard-line" viewBox="0 0 320 116" preserveAspectRatio="none" role="img" :aria-label="chartCaption">
+            <path class="dashboard-line-grid" d="M12 24H308 M12 64H308 M12 104H308" />
+            <polygon v-if="lineAreaPoints" class="dashboard-line-area" :points="lineAreaPoints" />
+            <polyline v-if="linePoints" class="dashboard-line-value" :points="linePoints" />
+          </svg>
+          <div class="dashboard-line-range">
+            <span>MIN {{ chartRange.min.toLocaleString() }}</span>
+            <span>MAX {{ chartRange.max.toLocaleString() }}</span>
+          </div>
+        </div>
+      </div>
       <div class="dashboard-detail-list">
         <div v-for="row in detailRows" :key="row.label" class="dashboard-detail-row">
           <span>{{ row.label }}</span>
           <code>{{ row.value }}</code>
         </div>
+      </div>
+      <div v-if="detailTable" class="dashboard-detail-table-wrap">
+        <table class="dashboard-detail-table">
+          <thead>
+            <tr>
+              <th
+                v-for="column in detailTable.columns"
+                :key="column.key"
+                :class="{ wide: column.wide, right: column.align === 'right' }"
+              >
+                {{ column.label }}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="detailTable.rows.length === 0">
+              <td :colspan="detailTable.columns.length" class="dashboard-detail-empty">
+                {{ detailTable.emptyText || '暂无明细或当前账号无权读取。' }}
+              </td>
+            </tr>
+            <tr v-for="(row, index) in detailTable.rows" v-else :key="index">
+              <td
+                v-for="column in detailTable.columns"
+                :key="column.key"
+                :class="{ wide: column.wide, right: column.align === 'right' }"
+                :title="String(row[column.key] ?? '--')"
+              >
+                {{ row[column.key] ?? '--' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </v-dialog>

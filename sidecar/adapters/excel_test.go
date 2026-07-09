@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"path/filepath"
 	"strconv"
 	"testing"
 )
@@ -102,6 +103,46 @@ func TestExcelReadWorkbookReturnsAllSheetsAndCrossSheetFormula(t *testing.T) {
 	}
 	if got := sheets[1].Rows[0][1]; got != "嘉定区" {
 		t.Fatalf("lookup sheet data mismatch: got %q", got)
+	}
+}
+
+func TestExcelReopenBuildsSparseFormulaIndex(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "formula-index.xlsx")
+	writer, err := NewExcelAdapter(&ExcelConnInfo{})
+	if err != nil {
+		t.Fatalf("NewExcelAdapter failed: %v", err)
+	}
+	if err := writer.f.SetCellValue("Sheet1", "A1", "result"); err != nil {
+		t.Fatalf("set header failed: %v", err)
+	}
+	if err := writer.WriteCells("Sheet1", []CellChange{
+		{Row: 0, Col: 0, Value: "=VLOOKUP(B2,$D$2:$E$4,2,FALSE)"},
+		{Row: 0, Col: 1, Value: "key-1"},
+	}); err != nil {
+		t.Fatalf("write cells failed: %v", err)
+	}
+	if err := writer.SaveAs(filePath); err != nil {
+		t.Fatalf("save workbook failed: %v", err)
+	}
+	_ = writer.Close()
+
+	reader, err := NewExcelAdapter(&ExcelConnInfo{FilePath: filePath})
+	if err != nil {
+		t.Fatalf("reopen workbook failed: %v", err)
+	}
+	defer reader.Close()
+	if !reader.formulaIndexReady {
+		t.Fatal("formula index should be ready after reopening xlsx")
+	}
+	if got := reader.formulaCells["Sheet1"]["A2"]; got != "VLOOKUP(B2,$D$2:$E$4,2,FALSE)" {
+		t.Fatalf("formula index mismatch: got %q", got)
+	}
+	data, err := reader.ReadSheet("Sheet1", 0, 0)
+	if err != nil {
+		t.Fatalf("read indexed sheet failed: %v", err)
+	}
+	if got := data.Rows[0][0]; got != "=VLOOKUP(B2,$D$2:$E$4,2,FALSE)" {
+		t.Fatalf("indexed formula mismatch: got %q", got)
 	}
 }
 
