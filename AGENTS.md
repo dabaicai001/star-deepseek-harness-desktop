@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.16.0(MySQL / ClickHouse 数据展示统一使用 Univer 网格) |
+| 当前版本 | v0.17.0(Excel / 数据库网格性能与交互、可钻取仪表盘、SSH ZMODEM) |
 
 ---
 
@@ -256,6 +256,8 @@ starhub/
 | `.cyber-count-pop` | 数字 pop 动画(计数变化时弹跳放大 + 青色高亮) |
 | `.cyber-skeleton` | 骨架屏 shimmer(loading 占位,`::after` 光带扫过) |
 | `.db-univer-shell` / `.db-univer-host` | 数据库结果 Univer 画布外壳 / 挂载根,维持完整 flex 高度链 |
+| `.db-grid-loading-*` / `.db-column-tooltip` | 数据库原地刷新遮罩 / 字段备注悬停详情 |
+| `.dashboard-detail-*` | 可钻取仪表盘指标详情弹层、键值明细 |
 | `.column-action-tools` / `.column-action-select` | 数据网格列选择、排序、服务端筛选工具 |
 
 #### 4.4.6 状态色语义
@@ -543,9 +545,12 @@ cargo tauri build
 
 ### 10.2 ZMODEM 协议
 
-没有现成的 Rust 库。后续实现:
-- MVP 阶段先用 C 库 `lrzsz` 通过 `autocxx` 桥接
-- 长期方案:纯 Rust 移植(工作量 2-3 周)
+v0.17.0 使用 `zmodem.js` 在 Webview 侧实现 `rz` / `sz` 协议:
+- SSH 输出事件必须传 `Vec<u8>` JSON 字节数组,禁止先 `String::from_utf8_lossy`;ZMODEM 是二进制协议,一次 UTF-8 损失转换就会破坏握手和文件
+- 前端所有 SSH 输出先经过 `Zmodem.Sentry`;普通终端字节由 `to_terminal` 交给 `TextDecoder(stream:true)` 与 xterm,ZMODEM 字节由 session 消费
+- 协议回包通过 `ssh_write_binary(Vec<u8>)` 写入 russh channel;普通键盘输入仍走 `ssh_write(String)`
+- 远端执行 `rz` 时弹出本地文件选择条并发送;远端执行 `sz <file>` 时接收后触发本地保存
+- 后续若替换协议库,必须保留“端到端原始字节”边界并用真实 lrzsz 主机做双向回归
 
 ### 10.3 国产数据库适配
 
@@ -654,6 +659,9 @@ cargo tauri build
    - 数据 canvas
 5. 正确状态是挂载根与 Workbench 等高、`data-range-selector` 与数据 canvas 等高;若父层已被拆行,不要先改 canvas resize
 6. 修复后必须在浏览器截图确认网格连续铺到 Sheet 标签栏,并检查控制台无新增错误
+7. 覆盖 Univer 内部布局时必须限制到直接子级(例如 `> section > .univer-grid`),禁止用后代选择器覆盖全部 `.univer-grid`;后者会误伤 Ribbon 内部网格并把工具按钮折叠成省略号
+8. Sheet 切换禁止 dispose/recreate Univer。工作簿首次加载后只调用 `workbook.setActiveSheet()`,仅在缓存对象真正替换时用 `setValues()` 原地同步数据
+9. 数据库分页、排序、刷新和保存后也必须保留 `DbUniverGrid` 实例,用 loading 遮罩 + 原地 `setValues()` 更新,否则会闪白并丢失滚动位置
 
 **本次实测判据(v0.14.15)**:
 
@@ -703,4 +711,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-09 (v0.16.0)*
+*最后更新: 2026-07-09 (v0.17.0)*

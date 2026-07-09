@@ -137,6 +137,10 @@ watch(() => [props.connId, props.connected], ([id, conn], [oldId, oldConn]) => {
         :progress="runningRate"
         :color="containerColor"
         :loading="loading"
+        :details="containers.slice(0, 12).map(container => ({
+          label: container.name || container.id.slice(0, 12),
+          value: container.state,
+        }))"
       />
 
       <DashboardCard
@@ -189,13 +193,14 @@ watch(() => [props.connId, props.connected], ([id, conn], [oldId, oldConn]) => {
       />
 
       <DashboardCard
-        title="健康率"
+        title="运行率"
         icon="mdi-heart-pulse"
         :value="runningRate.toFixed(0) + '%'"
         :subtitle="`${runningCount}/${total} 容器运行中`"
         :progress="runningRate"
         :color="runningRate === 100 ? 'green' : runningRate >= 50 ? 'cyan' : 'yellow'"
         :loading="loading"
+        description="当前处于 running 状态的容器占全部容器的比例，不等同于 Docker HEALTHCHECK 健康状态。"
       />
     </div>
   </div>

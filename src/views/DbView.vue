@@ -69,7 +69,6 @@ const sidebarDragging = ref(false)
 const selectedDb = ref<string>('')
 
 // tableDataCache: key = "db.table", caches columns + rowCount + data to avoid refetch on tab switch
-const tableDataVersion = ref(0)
 
 // ============ 子标签系统:打开的表 + SQL 结果 ============
 // 设计:把"点哪个表"和"执行 SQL"统一为一组 sub-tab,每个 tab 独立持有状态,
@@ -145,7 +144,9 @@ const showCreateTableDDL = ref(false)
 const showNewTable = ref(false)
 const showRenameTable = ref(false)
 const renameTableNewName = ref('')
-const activeDataGridRef = ref<{ clearDirty: () => void } | null>(null)
+const activeDataGridRef = ref<{
+  clearDirty: (changes?: Array<{ rowIndex: number; column: string }>) => void
+} | null>(null)
 
 /** 内部视图(data / structure)按激活的表 tab 自身持有,模板用 computed 取出 */
 const activeSubTab = computed(() => subTabs.value.find(t => t.id === activeSubTabId.value) || null)
@@ -556,9 +557,6 @@ async function refreshCurrentTable() {
   const tab = activeTableTab.value
   if (!tab || !connId.value) return
   tab.columns = []
-  tab.data = null
-  tab.dataTotal = 0
-  tableDataVersion.value++
   await loadTableDataFor(tab, true)
   const refreshedData = activeTableTab.value?.data as QueryResult | null
   if (tab.error || refreshedData?.error) {
@@ -689,7 +687,16 @@ async function doDropTable(db: string, table: string) {
     } else {
       await dbService.mysqlDropTable(connId.value!, table, false, db)
     }
-    notify.notify({ message: t('db.tableDropped', `表 ${table} 已删除`), color: 'success' })
+    notify.notify({
+      title: '删除数据表',
+      message: t('db.tableDropped', `表 ${table} 已删除`),
+      details: [
+        `数据库: ${db}`,
+        `表: ${table}`,
+        `SQL:\nDROP TABLE ${qualifiedTableSql(db, table)};`,
+      ],
+      color: 'success',
+    })
     closeTableTabs(db, table)
     await refreshTablesForDb(db)
   } catch (err: unknown) {
@@ -713,7 +720,17 @@ async function doTruncateTable(db: string, table: string) {
     } else {
       await dbService.mysqlTruncateTable(connId.value!, table, db)
     }
-    notify.notify({ message: t('db.tableTruncated', `表 ${table} 已清空`), color: 'success' })
+    notify.notify({
+      title: '清空数据表',
+      message: t('db.tableTruncated', `表 ${table} 已清空`),
+      details: [
+        `数据库: ${db}`,
+        `表: ${table}`,
+        '删除内容: 表内全部数据',
+        `SQL:\nTRUNCATE TABLE ${qualifiedTableSql(db, table)};`,
+      ],
+      color: 'success',
+    })
     await refreshOpenTableTabs(db, table)
   } catch (err: unknown) {
     notify.notify({ message: errMsg(err), color: 'error' })
@@ -801,7 +818,6 @@ function applyTableFilters() {
   const tab = activeTableTab.value
   if (!tab) return
   tab.dataPage = 0
-  tableDataVersion.value++
   void loadTableDataFor(tab, true)
 }
 
@@ -811,7 +827,6 @@ function removeColumnFilter(col: string) {
   delete tab.columnFilters[col]
   tab.columnFilters = { ...tab.columnFilters }
   tab.dataPage = 0
-  tableDataVersion.value++
   void loadTableDataFor(tab, true)
 }
 
@@ -821,7 +836,6 @@ function clearAllFilters() {
   tab.whereClause = ''
   tab.columnFilters = {}
   tab.dataPage = 0
-  tableDataVersion.value++
   void loadTableDataFor(tab, true)
 }
 
@@ -835,7 +849,6 @@ function setColumnFilter(col: string, value: string) {
     tab.columnFilters = { ...tab.columnFilters }
   }
   tab.dataPage = 0
-  tableDataVersion.value++
   void loadTableDataFor(tab, true)
 }
 
@@ -863,48 +876,189 @@ async function onSaveBatch(changes: Array<{ rowIndex: number; column: string; or
   }
   const result = tab.data
   if (!result) return
-  let failCount = 0
+  const grouped = new Map<number, typeof changes>()
   for (const change of changes) {
-    const row = result.rows[change.rowIndex]
-    if (!row) { failCount++; continue }
+    const rowChanges = grouped.get(change.rowIndex) || []
+    rowChanges.push(change)
+    grouped.set(change.rowIndex, rowChanges)
+  }
+
+  let failCount = 0
+  const successfulChanges: typeof changes = []
+  const executedSql: string[] = []
+  const changeDetails: string[] = []
+  const failureDetails: string[] = []
+
+  for (const [rowIndex, rowChanges] of grouped) {
+    const row = result.rows[rowIndex]
+    if (!row) {
+      failCount += rowChanges.length
+      failureDetails.push(`第 ${rowIndex + 1} 行: 原始数据已不存在`)
+      continue
+    }
     const where = tablePrimaryKeys.value
       .map(pk => {
         const pkIdx = result.columns.findIndex(c => c.name === pk)
         if (pkIdx < 0) return null
         const v = row[pkIdx]
-        return `\`${pk}\` = ${formatSqlValue(v)}`
+        return `${quoteSqlIdentifier(pk)} = ${formatSqlValue(v)}`
       })
       .filter(Boolean)
       .join(' AND ')
-    if (!where) { failCount++; continue }
+    if (!where) {
+      failCount += rowChanges.length
+      failureDetails.push(`第 ${rowIndex + 1} 行: 无法生成主键 WHERE`)
+      continue
+    }
+
+    const sets = Object.fromEntries(rowChanges.map(change => [change.column, change.newValue]))
+    const setSql = rowChanges
+      .map(change => `${quoteSqlIdentifier(change.column)} = ${formatSqlValue(change.newValue)}`)
+      .join(', ')
+    const sql = isClickhouse.value
+      ? `ALTER TABLE ${qualifiedTableSql(tab.db, tab.table)} UPDATE ${setSql} WHERE ${where};`
+      : `UPDATE ${qualifiedTableSql(tab.db, tab.table)} SET ${setSql} WHERE ${where};`
+
     try {
       if (isClickhouse.value) {
-        await dbService.clickhouseUpdateRows(connId.value, tab.table, { [change.column]: change.newValue }, where, tab.db)
+        await dbService.clickhouseUpdateRows(connId.value, tab.table, sets, where, tab.db)
       } else {
-        await dbService.mysqlUpdateRows(connId.value, tab.table, { [change.column]: change.newValue }, where, tab.db)
+        await dbService.mysqlUpdateRows(connId.value, tab.table, sets, where, tab.db)
       }
+      successfulChanges.push(...rowChanges)
+      executedSql.push(sql)
+      changeDetails.push(
+        `行 ${tab.dataPage * tab.dataPageSize + rowIndex + 1} (${where}):\n`
+        + rowChanges
+          .map(change => `  ${change.column}: ${formatAuditValue(change.originalValue)} → ${formatAuditValue(change.newValue)}`)
+          .join('\n')
+      )
     } catch (err: unknown) {
       console.warn('[db] save cell failed:', err)
-      failCount++
+      failCount += rowChanges.length
+      failureDetails.push(`行 ${rowIndex + 1} (${where}): ${errMsg(err)}`)
     }
   }
+
+  if (successfulChanges.length > 0) {
+    patchTableDataRows(tab, successfulChanges)
+    activeDataGridRef.value?.clearDirty(successfulChanges)
+  }
+
+  const details = [
+    `数据库: ${tab.db}`,
+    `表: ${tab.table}`,
+    ...changeDetails,
+    ...(failureDetails.length > 0 ? [`失败明细:\n${failureDetails.join('\n')}`] : []),
+    ...(executedSql.length > 0 ? [`SQL:\n${executedSql.join('\n')}`] : []),
+  ]
+
   if (failCount > 0) {
     const msg = `${failCount} / ${changes.length}`
-    notify.notify({ message: t('db.saveFailed', { msg }), color: 'error', timeout: 5000 })
+    notify.notify({
+      title: successfulChanges.length > 0 ? '数据更新部分完成' : '数据更新失败',
+      message: successfulChanges.length > 0
+        ? `已保存 ${successfulChanges.length} 处，失败 ${failCount} 处`
+        : t('db.saveFailed', { msg }),
+      details,
+      color: 'error',
+      timeout: 5000,
+    })
     void dlg.alert({ message: t('db.saveFailed', { msg }), color: 'error' })
   } else {
-    patchTableDataRows(tab, changes)
-    activeDataGridRef.value?.clearDirty()
-    notify.notify({ message: t('db.saveSuccess', { count: changes.length }), color: 'success', timeout: 2500 })
+    notify.notify({
+      title: '数据更新',
+      message: `已保存 ${changes.length} 处更改 · ${tab.db}.${tab.table}`,
+      details,
+      color: 'success',
+      timeout: 3200,
+    })
   }
   await loadTableDataFor(tab, true)
+}
+
+async function onDeleteRow(rowIndex: number) {
+  const tab = activeTableTab.value
+  const result = tab?.data
+  if (!tab || !result || !connId.value || tablePrimaryKeys.value.length === 0) {
+    void dlg.alert({ message: t('db.needPrimaryKey'), color: 'warning' })
+    return
+  }
+  const row = result.rows[rowIndex]
+  if (!row) return
+  const where = tablePrimaryKeys.value
+    .map(pk => {
+      const pkIndex = result.columns.findIndex(column => column.name === pk)
+      return pkIndex < 0 ? null : `${quoteSqlIdentifier(pk)} = ${formatSqlValue(row[pkIndex])}`
+    })
+    .filter(Boolean)
+    .join(' AND ')
+  if (!where) return
+
+  const sql = isClickhouse.value
+    ? `ALTER TABLE ${qualifiedTableSql(tab.db, tab.table)} DELETE WHERE ${where};`
+    : `DELETE FROM ${qualifiedTableSql(tab.db, tab.table)} WHERE ${where};`
+  const confirmed = await dlg.confirm({
+    title: '删除数据行',
+    message: `确定删除 ${tab.db}.${tab.table} 中 ${where} 对应的数据吗？`,
+    confirmText: t('common.delete'),
+    cancelText: t('common.cancel'),
+    danger: true,
+  })
+  if (!confirmed) return
+
+  try {
+    if (isClickhouse.value) {
+      await dbService.clickhouseDeleteRows(connId.value, tab.table, where, tab.db)
+    } else {
+      await dbService.mysqlDeleteRows(connId.value, tab.table, where, tab.db)
+    }
+    notify.notify({
+      title: '数据删除',
+      message: `已删除 1 行 · ${tab.db}.${tab.table}`,
+      details: [
+        `数据库: ${tab.db}`,
+        `表: ${tab.table}`,
+        `定位条件: ${where}`,
+        `删除内容:\n${result.columns.map((column, index) => `  ${column.name}: ${formatAuditValue(row[index])}`).join('\n')}`,
+        `SQL:\n${sql}`,
+      ],
+      color: 'success',
+      timeout: 3500,
+    })
+    await loadTableDataFor(tab, true)
+  } catch (err: unknown) {
+    notify.notify({
+      title: '数据删除失败',
+      message: errMsg(err),
+      details: [`数据库: ${tab.db}`, `表: ${tab.table}`, `SQL:\n${sql}`],
+      color: 'error',
+      timeout: 5000,
+    })
+  }
+}
+
+function quoteSqlIdentifier(value: string): string {
+  return `\`${value.replace(/`/g, '``')}\``
+}
+
+function qualifiedTableSql(database: string, table: string): string {
+  return `${quoteSqlIdentifier(database)}.${quoteSqlIdentifier(table)}`
+}
+
+function formatAuditValue(value: unknown): string {
+  if (value === null || value === undefined) return 'NULL'
+  if (typeof value === 'object') return JSON.stringify(value)
+  if (typeof value === 'string') return JSON.stringify(value)
+  return String(value)
 }
 
 function formatSqlValue(v: unknown): string {
   if (v === null || v === undefined) return 'NULL'
   if (typeof v === 'number') return String(v)
   if (typeof v === 'boolean') return v ? '1' : '0'
-  return `'${String(v).replace(/'/g, "''")}'`
+  const value = typeof v === 'object' ? JSON.stringify(v) : String(v)
+  return `'${value.replace(/'/g, "''")}'`
 }
 
 /** SQL 编辑器标签页分页 */
@@ -1765,7 +1919,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                   v-for="col in activeTableTab.columns"
                   :key="col.name"
                   class="filter-col-chip"
-                  :title="`${col.name} (${col.type})`"
+                  :title="`${col.name} (${col.type})${col.comment ? ` — ${col.comment}` : ' — 暂无字段备注'}`"
                   @click="insertColumnName(col.name)"
                 >{{ col.name }}</button>
               </div>
@@ -1790,7 +1944,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
             </div>
             <DataGrid
               ref="activeDataGridRef"
-              :key="`${activeTableTab.db}.${activeTableTab.table}.v${tableDataVersion}`"
+              :key="`${activeTableTab.db}.${activeTableTab.table}`"
               :result="activeTableTab.data"
               :loading="activeTableTab.dataLoading"
               :total-rows="activeTableTab.dataTotal"
@@ -1802,12 +1956,16 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               :pk-cols="tablePrimaryKeys"
               :table-name="activeTableTab.table"
               :column-filters="activeTableTab.columnFilters"
+              :server-sort-column="activeTableTab.dataOrderBy"
+              :server-sort-direction="activeTableTab.dataOrderDir"
+              :column-metadata="activeTableTab.columns"
               @page-change="onTableDataPageChange"
               @page-size-change="onTableDataPageSizeChange"
               @sort-change="onTableDataSortChange"
               @column-filter="setColumnFilter"
               @refresh="refreshCurrentTable"
               @save-batch="onSaveBatch"
+              @row-delete="onDeleteRow"
               @export="handleExport"
               @export-excel="handleExportExcel"
             />
@@ -1944,6 +2102,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           :conn-id="connId || ''"
           :db-type="asset?.config.dbType || 'mysql'"
           :connected="connected"
+          :database="selectedDb"
         />
       </template>
       <template #tab-ai>
@@ -2344,24 +2503,24 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 /* ====== 子标签栏(打开的表 + SQL 结果) ====== */
 .sub-tab-strip-wrap {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   flex-shrink: 0;
   border-bottom: 1px solid var(--line);
   /* 背景用主题色低透明叠加,跟着 useThemeStore.accent 走 */
   background: color-mix(in srgb, var(--cyan) 6%, transparent);
-  min-height: 32px;
-  padding: 0 4px;
+  min-height: 34px;
+  padding: 0;
   position: relative;
 }
 
 .sub-tab-strip {
   flex: 1;
   display: flex;
-  gap: 2px;
+  gap: 0;
   overflow-x: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  padding: 0 4px;
+  padding: 0;
   min-width: 0;
 }
 .sub-tab-strip::-webkit-scrollbar { display: none; }
@@ -2378,25 +2537,26 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   background: transparent;
   border: 1px solid transparent;
   cursor: pointer;
-  margin: 0 2px;
-  transition: all 0.15s;
+  margin: 0;
+  transition: color 0.2s var(--ease-standard), background 0.2s var(--ease-standard), border-color 0.2s var(--ease-standard);
 }
 .sub-tab-scroll-btn:hover {
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.08);
-  border-color: rgba(0, 240, 255, 0.3);
+  background: var(--hover-cyan-soft);
+  border-color: var(--line-2);
 }
 
 .sub-tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  min-height: 34px;
+  padding: 0 12px;
   font-size: 11px;
   font-family: 'JetBrains Mono', monospace;
   color: var(--text-2);
   cursor: pointer;
-  border-radius: 4px 4px 0 0;
+  border-radius: 0;
   border: 1px solid transparent;
   border-bottom: none;
   flex: 0 0 auto;
@@ -2404,29 +2564,37 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   max-width: 200px;
   user-select: none;
   position: relative;
-  transition: all 0.15s;
+  transition:
+    color 0.2s var(--ease-standard),
+    background 0.2s var(--ease-standard),
+    border-color 0.2s var(--ease-standard);
   background: transparent;
+  animation: db-sub-tab-enter 0.2s var(--ease-standard);
 }
 .sub-tab:hover {
-  background: rgba(0, 240, 255, 0.05);
+  background: var(--hover-cyan-soft);
   color: var(--text);
 }
 .sub-tab.active {
   background: var(--panel-solid-2);
   color: var(--cyan);
   border-color: var(--line);
-  /* active 标签底部留出一行,让它"接上"下面的 result-area,像贴边 */
-  margin-bottom: -1px;
+  margin-bottom: 0;
 }
 .sub-tab.active::after {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -1px;
+  bottom: 0;
   height: 2px;
   background: var(--cyan);
   box-shadow: 0 0 6px var(--cyan);
+}
+
+@keyframes db-sub-tab-enter {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .sub-tab.loading .sub-tab-spin { display: inline-flex; }
 .sub-tab.loading .sub-tab-close { display: none; }

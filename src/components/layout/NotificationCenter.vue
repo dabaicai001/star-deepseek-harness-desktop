@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useNotifyStore } from '@/stores/notify'
+import type { NotifyHistoryItem } from '@/stores/notify'
 
 const notify = useNotifyStore()
 const open = ref(false)
 const containerRef = ref<HTMLElement>()
+const copiedId = ref<string | null>(null)
+let copiedTimer: number | null = null
 
 function toggle() {
   open.value = !open.value
@@ -19,7 +22,10 @@ function onDocClick(e: MouseEvent) {
 }
 
 onMounted(() => document.addEventListener('click', onDocClick))
-onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick)
+  if (copiedTimer !== null) window.clearTimeout(copiedTimer)
+})
 
 function iconFor(color: string) {
   if (color === 'success') return 'mdi-check-circle-outline'
@@ -70,6 +76,28 @@ function detailsFor(item: {
     `内容: ${item.message}`
   ]
 }
+
+async function copyNotification(item: NotifyHistoryItem) {
+  const text = detailsFor(item).join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    textarea.remove()
+  }
+  copiedId.value = item.id
+  if (copiedTimer !== null) window.clearTimeout(copiedTimer)
+  copiedTimer = window.setTimeout(() => {
+    copiedId.value = null
+    copiedTimer = null
+  }, 1600)
+}
 </script>
 
 <template>
@@ -102,10 +130,18 @@ function detailsFor(item: {
             <div class="notify-line">
               <span class="notify-item-title">{{ item.title }}</span>
               <span class="notify-time">{{ timeAgo(item.createdAt) }}</span>
+              <button
+                class="notify-copy-btn"
+                :class="{ copied: copiedId === item.id }"
+                :title="copiedId === item.id ? '已复制' : '复制完整详情'"
+                @click="copyNotification(item)"
+              >
+                <v-icon size="12">{{ copiedId === item.id ? 'mdi-check' : 'mdi-content-copy' }}</v-icon>
+              </button>
             </div>
             <div class="notify-message">{{ item.message }}</div>
             <div class="notify-details" aria-label="操作详情">
-              <div v-for="detail in detailsFor(item)" :key="detail" class="notify-detail-row">
+              <div v-for="(detail, index) in detailsFor(item)" :key="`${index}-${detail}`" class="notify-detail-row">
                 {{ detail }}
               </div>
             </div>
@@ -141,7 +177,7 @@ function detailsFor(item: {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: 360px;
+  width: 480px;
   max-width: calc(100vw - 24px);
   max-height: 520px;
   display: flex;
@@ -219,6 +255,37 @@ function detailsFor(item: {
   font-size: 10px;
   color: var(--muted);
   font-family: 'JetBrains Mono', monospace;
+}
+
+.notify-copy-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 0.2s var(--ease-standard),
+    background 0.2s var(--ease-standard),
+    border-color 0.2s var(--ease-standard),
+    transform 0.2s var(--ease-standard);
+}
+
+.notify-copy-btn:hover {
+  color: var(--cyan);
+  border-color: var(--line-2);
+  background: var(--hover-cyan-soft);
+  transform: translateY(-1px);
+}
+
+.notify-copy-btn.copied {
+  color: var(--green);
+  background: var(--status-online-bg);
 }
 
 .notify-message {

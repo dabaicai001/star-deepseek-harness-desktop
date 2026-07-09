@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { FUniver, Univer } from '@/lib/univer'
-import type { ColumnInfo } from '@/types/db'
+import type { ColumnInfo, ColumnMeta } from '@/types/db'
 import type { ICellData, IWorkbookData, IWorksheetData } from '@univerjs/core'
 import { CellValueType, LocaleType } from '@univerjs/core'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
@@ -15,20 +15,28 @@ const props = withDefaults(defineProps<{
   rows: unknown[][]
   pageOffset?: number
   editable?: boolean
-  dirtyCells?: string[]
+  sortColumn?: string | null
+  sortDirection?: 'ASC' | 'DESC'
+  themeKey?: string
+  columnMetadata?: ColumnMeta[]
 }>(), {
   pageOffset: 0,
   editable: false,
-  dirtyCells: () => [],
+  sortColumn: null,
+  sortDirection: 'ASC',
+  themeKey: '',
+  columnMetadata: () => [],
 })
 
 const emit = defineEmits<{
   'cell-change': [row: number, column: string, value: unknown]
   'sort-change': [column: string]
+  'column-selected': [column: string]
   'row-context': [row: number, x: number, y: number]
 }>()
 
 const containerRef = ref<HTMLElement | null>(null)
+const headerTooltip = ref({ visible: false, x: 0, y: 0, column: -1 })
 let univerInstance: Univer | null = null
 let univerAPIInstance: FUniver | null = null
 let resizeObserver: ResizeObserver | null = null
@@ -53,44 +61,85 @@ function serializeCell(value: unknown): string | number | boolean {
 function cellType(value: unknown): CellValueType {
   if (typeof value === 'number') return CellValueType.NUMBER
   if (typeof value === 'boolean') return CellValueType.BOOLEAN
-  return CellValueType.FORCE_STRING
+  // 数据库的 VARCHAR/DECIMAL 文本不应标记为 Excel 的“强制字符串”,
+  // 否则 Univer 会为数字形文本绘制绿色警告角并弹出 numfmt 告警。
+  return CellValueType.STRING
+}
+
+function headerLabel(column: ColumnInfo): string {
+  const sortMark = props.sortColumn === column.name
+    ? props.sortDirection === 'DESC' ? '▼' : '▲'
+    : '↕'
+  return `${column.name}  ·  ${column.type}  ${sortMark}`
+}
+
+function columnMeta(columnIndex: number): ColumnMeta | undefined {
+  const name = props.columns[columnIndex]?.name
+  return name ? props.columnMetadata.find(column => column.name === name) : undefined
+}
+
+function headerTooltipText(columnIndex: number): string {
+  const column = props.columns[columnIndex]
+  if (!column) return ''
+  const meta = columnMeta(columnIndex)
+  const details = [
+    `${column.name} · ${meta?.type || column.type}`,
+    meta?.comment?.trim() || '暂无字段备注',
+  ]
+  if (meta) {
+    details.push(
+      `可空: ${meta.nullable === 'YES' ? '是' : '否'}`
+      + `${meta.key ? ` · 键: ${meta.key}` : ''}`
+      + `${meta.defaultValue !== null ? ` · 默认值: ${String(meta.defaultValue)}` : ''}`,
+    )
+  }
+  return details.join('\n')
+}
+
+function buildHeaderCell(column: ColumnInfo): ICellData {
+  const isSorted = props.sortColumn === column.name
+  return {
+    v: headerLabel(column),
+    t: CellValueType.STRING,
+    s: {
+      bl: 1,
+      cl: {
+        rgb: cssVar(isSorted ? '--cyan' : '--text', isSorted ? '#5dd6d6' : '#dce7f3'),
+      },
+      bg: {
+        rgb: cssVar(isSorted ? '--active-cyan' : '--panel-solid-2', isSorted ? 'rgba(93, 214, 214, 0.11)' : '#152032'),
+      },
+    },
+  } as ICellData
+}
+
+function buildValueCell(value: unknown, dirty = false): ICellData {
+  const isNull = value === null || value === undefined
+  return {
+    v: serializeCell(value),
+    t: cellType(value),
+    s: {
+      cl: {
+        rgb: cssVar(isNull ? '--muted' : '--text', isNull ? '#607082' : '#dce7f3'),
+      },
+      bg: {
+        rgb: cssVar(dirty ? '--active-cyan' : '--panel-solid', dirty ? 'rgba(93, 214, 214, 0.11)' : '#101822'),
+      },
+      it: isNull ? 1 : 0,
+    },
+  } as ICellData
 }
 
 function buildCellData(): NonNullable<IWorksheetData['cellData']> {
   const cellData: NonNullable<IWorksheetData['cellData']> = { 0: {} }
-  const dirty = new Set(props.dirtyCells)
   props.columns.forEach((column, columnIndex) => {
-    cellData[0][columnIndex] = {
-      v: `${column.name}  ·  ${column.type}`,
-      t: CellValueType.FORCE_STRING,
-      s: {
-        bl: 1,
-        cl: { rgb: cssVar('--excel-green', '#107c41') },
-        bg: { rgb: cssVar('--excel-header-bg', '#f3f2f1') },
-      },
-    } as ICellData
+    cellData[0][columnIndex] = buildHeaderCell(column)
   })
   props.rows.forEach((row, rowIndex) => {
     const sheetRow = rowIndex + 1
     row.forEach((value, columnIndex) => {
       if (!cellData[sheetRow]) cellData[sheetRow] = {}
-      const isNull = value === null || value === undefined
-      const isDirty = dirty.has(`${rowIndex}:${columnIndex}`)
-      cellData[sheetRow][columnIndex] = {
-        v: serializeCell(value),
-        t: cellType(value),
-        s: {
-          cl: {
-            rgb: isNull
-              ? cssVar('--muted', '#607082')
-              : cssVar('--excel-text', '#201f1e'),
-          },
-          bg: isDirty
-            ? { rgb: cssVar('--excel-selection-fill', '#e9f5ed') }
-            : undefined,
-          it: isNull ? 1 : 0,
-        },
-      } as ICellData
+      cellData[sheetRow][columnIndex] = buildValueCell(value)
     })
   })
   return cellData
@@ -99,7 +148,7 @@ function buildCellData(): NonNullable<IWorksheetData['cellData']> {
 function columnWidth(column: ColumnInfo, columnIndex: number): number {
   const samples = props.rows.slice(0, 40).map(row => serializeCell(row[columnIndex]))
   const longest = Math.max(
-    `${column.name}  ·  ${column.type}`.length,
+    headerLabel(column).length,
     ...samples.map(value => String(value).length),
   )
   return Math.max(88, Math.min(280, longest * 8 + 28))
@@ -131,6 +180,17 @@ function buildWorkbookData(): IWorkbookData {
       },
     },
   } as IWorkbookData
+}
+
+function buildGridMatrix(): ICellData[][] {
+  const header = props.columns.map(column => buildHeaderCell(column))
+  const rows = props.rows.map(row =>
+    props.columns.map((_, columnIndex) => buildValueCell(row[columnIndex]))
+  )
+  if (rows.length === 0) {
+    rows.push(props.columns.map(() => buildValueCell('')))
+  }
+  return [header, ...rows]
 }
 
 function valuesEqual(left: unknown, right: unknown): boolean {
@@ -179,10 +239,46 @@ function syncChangesFromUniver() {
       const value = coerceValue(rawValue, original, props.columns[columnIndex])
       if (!valuesEqual(value, original)) {
         baselineRows[rowIndex][columnIndex] = value
+        const isDirty = !valuesEqual(value, props.rows[rowIndex]?.[columnIndex])
+        worksheet
+          .getRange(rowIndex + 1, columnIndex, 1, 1)
+          .setBackground(cssVar(isDirty ? '--active-cyan' : '--panel-solid', isDirty ? 'rgba(93, 214, 214, 0.11)' : '#101822'))
+          .setFontColor(cssVar(value === null ? '--muted' : '--text', value === null ? '#607082' : '#dce7f3'))
+          .setFontStyle(value === null ? 'italic' : 'normal')
         emit('cell-change', rowIndex, props.columns[columnIndex].name, value)
       }
     })
   })
+}
+
+function syncRowsInPlace() {
+  const worksheet = univerAPIInstance?.getActiveWorkbook()?.getActiveSheet()
+  if (!worksheet || props.columns.length === 0) return
+
+  syncing = true
+  const rowCount = Math.max(props.rows.length + 1, 2)
+  const columnCount = Math.max(props.columns.length, 1)
+  worksheet.setRowCount(rowCount)
+  worksheet.setColumnCount(columnCount)
+  worksheet
+    .getRange(0, 0, rowCount, columnCount)
+    .setValues(buildGridMatrix())
+  baselineRows = props.rows.map(row => [...row])
+  window.setTimeout(() => {
+    syncing = false
+  }, 0)
+}
+
+function syncHeaderInPlace() {
+  const worksheet = univerAPIInstance?.getActiveWorkbook()?.getActiveSheet()
+  if (!worksheet || props.columns.length === 0) return
+  syncing = true
+  worksheet
+    .getRange(0, 0, 1, props.columns.length)
+    .setValues([props.columns.map(column => buildHeaderCell(column))])
+  window.setTimeout(() => {
+    syncing = false
+  }, 0)
 }
 
 function queueChangeSync() {
@@ -228,6 +324,8 @@ function disposeGrid() {
   resizeObserver?.disconnect()
   resizeObserver = null
   containerRef.value?.removeEventListener('contextmenu', onContextMenu)
+  containerRef.value?.removeEventListener('pointermove', onPointerMove)
+  containerRef.value?.removeEventListener('pointerleave', hideHeaderTooltip)
   univerAPIInstance?.dispose()
   univerInstance?.dispose()
   univerAPIInstance = null
@@ -245,10 +343,22 @@ async function renderGrid() {
 
   const { univer, univerAPI } = createUniver({
     locale: LocaleType.ZH_CN,
-    theme: buildStarhubTheme(),
-    darkMode: false,
+    theme: buildStarhubTheme('system'),
+    darkMode: document.documentElement.classList.contains('v-theme--darkTheme'),
     locales: {
-      [LocaleType.ZH_CN]: mergeLocales(UniverPresetSheetsCoreZhCN),
+      [LocaleType.ZH_CN]: mergeLocales(
+        UniverPresetSheetsCoreZhCN,
+        {
+          // Univer 0.25.1 的数字文本提示错误地读取 sheets-ui.info,
+          // 上游 zh-CN 仅放在 sheets-numfmt-ui.info,这里补兼容映射。
+          'sheets-ui': {
+            info: {
+              error: '错误',
+              forceStringInfo: '此数字以文本形式存储',
+            },
+          },
+        },
+      ),
     },
     presets: [
       UniverSheetsCorePreset({
@@ -289,12 +399,16 @@ async function renderGrid() {
     }),
     univerAPI.addEvent(univerAPI.Event.ColumnHeaderClick, params => {
       const column = props.columns[params.column]
-      if (column) emit('sort-change', column.name)
+      if (column) emit('column-selected', column.name)
     }),
     univerAPI.addEvent(univerAPI.Event.CellClicked, params => {
       if (params.row !== 0) return
       const column = props.columns[params.column]
       if (column) emit('sort-change', column.name)
+    }),
+    univerAPI.addEvent(univerAPI.Event.CellHover, params => {
+      headerTooltip.value.visible = params.row === 0 && Boolean(props.columns[params.column])
+      headerTooltip.value.column = params.column
     }),
   )
 
@@ -312,6 +426,8 @@ async function renderGrid() {
   })
 
   containerRef.value.addEventListener('contextmenu', onContextMenu)
+  containerRef.value.addEventListener('pointermove', onPointerMove)
+  containerRef.value.addEventListener('pointerleave', hideHeaderTooltip)
   resizeObserver = new ResizeObserver(() => syncCanvasSize())
   resizeObserver.observe(containerRef.value)
   window.setTimeout(() => {
@@ -333,19 +449,39 @@ function onContextMenu(event: MouseEvent) {
   if (row >= 0 && row < props.rows.length) emit('row-context', row, event.clientX, event.clientY)
 }
 
+function onPointerMove(event: PointerEvent) {
+  if (!headerTooltip.value.visible) return
+  headerTooltip.value.x = Math.max(8, Math.min(window.innerWidth - 328, event.clientX + 14))
+  headerTooltip.value.y = Math.max(8, Math.min(window.innerHeight - 112, event.clientY + 14))
+}
+
+function hideHeaderTooltip() {
+  headerTooltip.value.visible = false
+}
+
 onMounted(() => void renderGrid())
 onBeforeUnmount(() => {
   containerRef.value?.removeEventListener('contextmenu', onContextMenu)
   disposeGrid()
 })
 watch(
-  [
-    () => props.columns,
-    () => props.rows,
-    () => props.pageOffset,
-    () => props.editable,
-    () => props.dirtyCells,
-  ],
+  () => props.columns.map(column => `${column.name}:${column.type}:${column.nullable}`).join('|'),
+  () => void renderGrid(),
+)
+watch(
+  () => props.rows,
+  () => syncRowsInPlace(),
+)
+watch(
+  [() => props.sortColumn, () => props.sortDirection],
+  () => syncHeaderInPlace(),
+)
+watch(
+  () => props.editable,
+  value => univerAPIInstance?.getActiveWorkbook()?.setEditable(value),
+)
+watch(
+  () => props.themeKey,
   () => void renderGrid(),
 )
 </script>
@@ -353,5 +489,14 @@ watch(
 <template>
   <div class="db-univer-shell">
     <div ref="containerRef" class="univer-host db-univer-host" />
+    <Transition name="db-column-tip">
+      <div
+        v-if="headerTooltip.visible"
+        class="db-column-tooltip"
+        :style="{ left: `${headerTooltip.x}px`, top: `${headerTooltip.y}px` }"
+      >
+        {{ headerTooltipText(headerTooltip.column) }}
+      </div>
+    </Transition>
   </div>
 </template>

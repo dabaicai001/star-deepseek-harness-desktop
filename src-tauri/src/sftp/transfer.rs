@@ -57,7 +57,10 @@ async fn collect_local_files(
 /// Recursively create directories on remote (like `mkdir -p`).
 /// Silently succeeds if directories already exist.
 async fn mkdir_p(sftp: &Arc<Mutex<SftpSession>>, path: &str) {
-    tracing::debug!("mkdir_p: creating path '{}' via string-match fallback", path);
+    tracing::debug!(
+        "mkdir_p: creating path '{}' via string-match fallback",
+        path
+    );
     let mut current = String::new();
     for segment in path.split('/').filter(|s| !s.is_empty()) {
         current.push('/');

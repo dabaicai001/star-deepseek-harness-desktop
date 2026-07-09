@@ -1873,20 +1873,97 @@ html.v-theme--lightTheme {
   100% { transform: translateX(100%); }
 }
 
+/* 仪表盘指标详情:DashboardCard 通过 v-dialog teleport 到 body,必须放全局样式。 */
+.dashboard-detail-panel {
+  padding: 20px;
+  color: var(--text);
+}
+
+.dashboard-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dashboard-detail-header > div:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+
+.dashboard-detail-header strong {
+  font-size: 14px;
+}
+
+.dashboard-detail-header span {
+  color: var(--muted);
+  font: 10px/1.4 'JetBrains Mono', monospace;
+}
+
+.dashboard-detail-value {
+  margin: 20px 0 8px;
+  color: var(--cyan);
+  font: 600 32px/1.1 'JetBrains Mono', monospace;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-detail-description {
+  margin: 0 0 16px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.dashboard-detail-list {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.dashboard-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dashboard-detail-row:last-child {
+  border-bottom: 0;
+}
+
+.dashboard-detail-row span {
+  flex: 0 0 88px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.dashboard-detail-row code {
+  min-width: 0;
+  flex: 1;
+  color: var(--text);
+  font-size: 11px;
+  text-align: right;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* ===== 数据库 Univer 结果网格 ===== */
 .db-univer-shell {
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--excel-grid-bg);
+  background: var(--panel-solid);
 }
 
 .db-univer-host {
   width: 100%;
   height: 100%;
   min-height: 0;
-  background: var(--excel-grid-bg);
+  background: var(--panel-solid);
 }
 
 .db-univer-host [data-u-comp="workbench-layout"] {
@@ -1895,7 +1972,7 @@ html.v-theme--lightTheme {
   width: 100% !important;
   height: 100% !important;
   min-height: 0 !important;
-  background: var(--excel-grid-bg) !important;
+  background: var(--panel-solid) !important;
 }
 
 .db-univer-host [data-u-comp="workbench-layout"] > section {
@@ -1925,17 +2002,111 @@ html.v-theme--lightTheme {
   flex: 1 1 0 !important;
   min-height: 0 !important;
   overflow: hidden !important;
-  background: var(--excel-grid-bg) !important;
+  background: var(--panel-solid) !important;
 }
 
 .db-univer-host [data-u-comp="render-canvas"] {
-  background: var(--excel-grid-bg) !important;
+  background: var(--panel-solid) !important;
 }
 
 .db-univer-host input {
-  color: var(--excel-text) !important;
-  background: var(--excel-grid-bg) !important;
-  border-color: var(--excel-grid-line) !important;
+  color: var(--text) !important;
+  background: var(--panel-solid) !important;
+  border-color: var(--line-2) !important;
+}
+
+.db-grid-stage {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel-solid);
+}
+
+.db-grid-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--panel-solid) 20%, transparent);
+  backdrop-filter: blur(1px);
+  cursor: wait;
+}
+
+.db-grid-loading-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--panel-solid-2);
+  box-shadow: var(--shadow-soft), var(--glow-soft);
+  font-size: 11px;
+}
+
+.db-grid-loading-pill .v-icon {
+  color: var(--cyan);
+}
+
+.db-grid-loading-line {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 35%;
+  height: 2px;
+  background: var(--grad-primary);
+  box-shadow: var(--glow-cyan);
+  animation: db-grid-loading-slide 1s var(--ease-standard) infinite;
+}
+
+.db-loading-fade-enter-active,
+.db-loading-fade-leave-active {
+  transition: opacity 0.2s var(--ease-standard);
+}
+
+.db-loading-fade-enter-from,
+.db-loading-fade-leave-to {
+  opacity: 0;
+}
+
+@keyframes db-grid-loading-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(390%); }
+}
+
+.db-column-tooltip {
+  position: fixed;
+  z-index: 2600;
+  width: max-content;
+  max-width: 320px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--panel-solid-2);
+  box-shadow: var(--shadow);
+  font: 11px/1.6 'JetBrains Mono', monospace;
+  white-space: pre-line;
+  pointer-events: none;
+}
+
+.db-column-tip-enter-active,
+.db-column-tip-leave-active {
+  transition: opacity 0.2s, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.db-column-tip-enter-from,
+.db-column-tip-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 
 .column-action-tools {

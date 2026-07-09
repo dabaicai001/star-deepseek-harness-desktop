@@ -11,8 +11,8 @@ pub fn open_file_external(path: String) -> Result<(), String> {
         return Err("path is not a file".to_string());
     }
 
-    let status = open_with_default_app(&file_path)
-        .map_err(|e| format!("open external file failed: {e}"))?;
+    let status =
+        open_with_default_app(&file_path).map_err(|e| format!("open external file failed: {e}"))?;
     if status.success() {
         Ok(())
     } else {

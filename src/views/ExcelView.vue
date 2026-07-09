@@ -45,6 +45,7 @@ const aiSession = computed(() => {
 
 const loading = ref(false)
 const error = ref<string | null>(null)
+const mockActive = ref(false)
 const showFilter = ref(false)
 const filterInput = ref('')
 const rightActiveTab = ref('ai')
@@ -87,6 +88,92 @@ async function openDroppedFile(path: string) {
 async function sidecarRpc<T>(method: string, params: Record<string, unknown>): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core')
   return invoke<T>('sidecar_rpc', { method, params })
+}
+
+// ============================================================
+// Dev-only mock 路径
+// ============================================================
+// 在 vite dev 下用 `?mock=1&mockRows=N&mockSparse=1` 绕过 sidecar,直接注入
+// 假数据到 store,用于验证 UniverGrid 留白与 canvas 渲染问题。
+// 仅 `import.meta.env.DEV` 生效,production build 会被 Vite tree-shake 掉。
+type MockScenario = 'dense' | 'sparse' | 'tail-empty'
+
+interface MockOptions {
+  rows: number
+  scenario: MockScenario
+  sparseUpTo?: number
+}
+
+function parseMockOptions(): MockOptions | null {
+  if (!import.meta.env.DEV) return null
+  const url = new URL(window.location.href)
+  if (url.searchParams.get('mock') !== '1') return null
+  const rows = Math.max(1, Math.min(Number(url.searchParams.get('mockRows') ?? '50'), 200))
+  const scenarioRaw = url.searchParams.get('mockScenario') as MockScenario | null
+  const scenario: MockScenario = scenarioRaw === 'sparse' || scenarioRaw === 'tail-empty'
+    ? scenarioRaw
+    : 'dense'
+  const sparseUpTo = Number(url.searchParams.get('mockSparseUpTo') ?? '9')
+  return { rows, scenario, sparseUpTo: Number.isFinite(sparseUpTo) && sparseUpTo > 0 ? sparseUpTo : 9 }
+}
+
+function buildMockSheet(options: MockOptions) {
+  const columns = ['街道镇', '区县', '社区', '人口数', '户数', '备注']
+  const sampleValues = [
+    '朝阳区', '海淀区', '丰台区', '石景山区', '西城区', '东城区',
+    '通州区', '昌平区', '大兴区', '顺义区',
+  ]
+  const rows: string[][] = []
+  for (let r = 0; r < options.rows; r++) {
+    if (options.scenario === 'sparse' && r >= (options.sparseUpTo ?? 9)) {
+      // 完全空白行
+      rows.push(['', '', '', '', '', ''])
+      continue
+    }
+    if (options.scenario === 'tail-empty') {
+      // 前半有数据,后半空
+      const half = Math.floor(options.rows / 2)
+      if (r >= half) {
+        rows.push(['', '', '', '', '', ''])
+        continue
+      }
+    }
+    rows.push([
+      sampleValues[r % sampleValues.length],
+      sampleValues[(r + 3) % sampleValues.length],
+      `${r + 1} 号社区`,
+      String(1000 + r * 17),
+      String(300 + r * 5),
+      r % 3 === 0 ? '重点关注' : '',
+    ])
+  }
+  return {
+    sheetName: 'MockSheet',
+    columns,
+    rows,
+    totalRows: options.rows,
+  }
+}
+
+function applyMockData(options: MockOptions) {
+  const sheet = buildMockSheet(options)
+  const secondSheet = {
+    ...buildMockSheet({ ...options, rows: Math.max(12, Math.floor(options.rows / 2)) }),
+    sheetName: '汇总',
+  }
+  const thirdSheet = {
+    ...buildMockSheet({ ...options, rows: Math.max(8, Math.floor(options.rows / 3)) }),
+    sheetName: '归档',
+  }
+  store.loadWorkbook({
+    connId: 'mock-conn',
+    filePath: '(mock) /tmp/test.xlsx',
+    sheets: [sheet, secondSheet, thirdSheet],
+    activeSheet: sheet.sheetName,
+  })
+  loading.value = false
+  error.value = null
+  mockActive.value = true
 }
 
 async function openExcel() {
@@ -158,6 +245,19 @@ async function openInNativeExcel() {
 
 async function switchSheet(sheetName: string, options: { preserveDirty?: boolean } = {}) {
   if (!store.connId) return
+
+  // 已读取的 Sheet 直接在前端工作簿内激活。避免每次切换都走 sidecar
+  // + 重建 Univer，千行工作表也能保持接近原生 Excel 的切换速度。
+  const cached = store.workbookSheets[sheetName]
+  if (cached) {
+    store.syncActiveSheetCache()
+    store.activeSheet = sheetName
+    store.columns = cached.columns
+    store.rowData = cached.rows
+    store.totalRows = cached.totalRows
+    return
+  }
+
   store.setLoading(true)
   try {
     const result = await sidecarRpc<SheetPayload>(`${rpcPrefix.value}.readSheet`, { connId: store.connId, sheetName })
@@ -716,7 +816,10 @@ function handleGlobalKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => {
-  if (asset.value) {
+  const mockOptions = parseMockOptions()
+  if (mockOptions) {
+    applyMockData(mockOptions)
+  } else if (asset.value) {
     openExcel()
   }
   window.addEventListener('keydown', handleGlobalKeydown)
@@ -751,6 +854,11 @@ onBeforeUnmount(() => {
 watch(
   [() => asset.value?.id, () => asset.value?.config.filePath, () => fileFormat.value],
   ([assetId, filePath]) => {
+    if (!import.meta.env.DEV) {
+      if (assetId && filePath) openExcel()
+      return
+    }
+    if (parseMockOptions()) return
     if (assetId && filePath) openExcel()
   }
 )
@@ -764,7 +872,7 @@ watch(
       <span>释放以导入 Excel / CSV 文件</span>
     </div>
 
-    <div v-if="!asset" class="excel-empty">
+    <div v-if="!asset && !mockActive" class="excel-empty">
       <v-icon size="48" color="muted">mdi-file-alert-outline</v-icon>
       <p>文件未找到</p>
     </div>
@@ -784,8 +892,8 @@ watch(
       <div class="excel-topbar">
         <div class="tb-left">
           <v-icon size="15" class="tb-file-icon">{{ isCsvFile ? 'mdi-file-delimited-outline' : 'mdi-file-excel-outline' }}</v-icon>
-          <span class="tb-title">{{ asset.name }}</span>
-          <span class="tb-path">{{ store.filePath || asset.config.filePath }}</span>
+          <span class="tb-title">{{ asset?.name || 'Mock Workbook' }}</span>
+          <span class="tb-path">{{ store.filePath || asset?.config.filePath }}</span>
           <span v-if="store.dirty" class="tb-dirty">● 未保存</span>
         </div>
         <div class="tb-right">
@@ -797,14 +905,6 @@ watch(
           >
             <v-icon size="15">mdi-table-multiple</v-icon>
             <span>选中列去重到新 Sheet</span>
-          </button>
-          <button
-            class="excel-quick-btn"
-            title="为当前表写入筛选"
-            @click="autoFilter"
-          >
-            <v-icon size="15">mdi-filter-check-outline</v-icon>
-            <span>筛选</span>
           </button>
           <button
             class="excel-quick-btn"

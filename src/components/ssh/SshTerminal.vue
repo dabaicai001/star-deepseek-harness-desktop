@@ -22,6 +22,48 @@ import { parseInstanceId } from '@/utils/tabId'
 import { SSH_SYSTEM_PROMPT, sshTools, makeSshToolCaller } from '@/utils/aiTools'
 import { extractWhitelistPrefix } from '@/utils/commandGuard'
 import type { LlmToolCall } from '@/services/ai'
+import ZmodemModule from 'zmodem.js/src/zmodem_browser.js'
+
+interface ZmodemTransfer {
+  get_details: () => { name: string; size?: number | null }
+  get_offset: () => number
+  accept: () => Promise<Array<Uint8Array>>
+}
+
+interface ZmodemSession {
+  type: 'send' | 'receive'
+  on: (event: string, handler: (...args: unknown[]) => void) => ZmodemSession
+  start: () => void
+  close: () => Promise<void>
+  abort: () => void
+}
+
+interface ZmodemDetection {
+  confirm: () => ZmodemSession
+  deny: () => void
+}
+
+interface ZmodemApi {
+  Sentry: new (options: {
+    to_terminal: (octets: number[]) => void
+    sender: (octets: number[]) => void
+    on_detect: (detection: ZmodemDetection) => void
+    on_retract: () => void
+  }) => { consume: (octets: number[] | Uint8Array) => void }
+  Browser: {
+    send_files: (
+      session: ZmodemSession,
+      files: FileList,
+      options: {
+        on_progress?: (file: File, transfer: ZmodemTransfer) => void
+        on_file_complete?: (file: File) => void
+      },
+    ) => Promise<void>
+    save_to_disk: (payloads: Array<Uint8Array>, name: string) => void
+  }
+}
+
+const Zmodem = ZmodemModule as ZmodemApi
 
 const { t } = useI18n()
 const assetStore = useAssetStore()
@@ -94,6 +136,13 @@ const statusText = computed(() => {
 const fontSize = computed(() => themeStore.fontSize)
 const showSearch = ref(false)
 const searchQuery = ref('')
+const zmodemInputRef = ref<HTMLInputElement>()
+const zmodemPromptVisible = ref(false)
+const zmodemStatus = ref('')
+const zmodemProgress = ref(0)
+let zmodemSession: ZmodemSession | null = null
+let zmodemSentry: InstanceType<ZmodemApi['Sentry']> | null = null
+const terminalDecoder = new TextDecoder()
 
 // ======右侧 Panel(仪表盘 / AI切换) ======
 const rightActiveTab = ref<string>('dashboard')
@@ -411,24 +460,19 @@ async function connect() {
   terminalRef.value?.writeln('\x1b[32m✓ Connected\x1b[0m')
   startTimer()
 
+  setupZmodemSentry()
   unlisten = await listen(`ssh:data:${sessionId}`, (event) => {
-  const chunk = event.payload as string
-  terminalRef.value?.write(chunk)
-  markSftpReady()
-  //收集到 buffer(AI助手用)
-  dataBuffer.value.push(chunk)
-  //检测 pwd 输出,更新当前工作目录
-  const pwdMatch = chunk.match(/(?:\r\n|\n|\r)(\/[\w\-./]{1,200})\s*(?:\r\n|\n|\r|$)/)
-  if (pwdMatch && pwdMatch[1].startsWith('/')) {
-    sshCwd.value = pwdMatch[1]
-  }
-  //唤醒正在等待的 captureOutput
-  maybeResolveCapture()
+  const payload = event.payload
+  const octets = typeof payload === 'string'
+    ? Array.from(new TextEncoder().encode(payload))
+    : Array.from(payload as number[])
+  zmodemSentry?.consume(octets)
   })
   scheduleSftpReadyFallback()
 
   unlistenClose = await listen(`ssh:close:${sessionId}`, () => {
   connected.value = false
+  resetZmodem()
   resetSftpReady()
   stopTimer()
   terminalRef.value?.writeln('\r\n\x1b[33m! Connection closed by remote host\x1b[0m')
@@ -453,9 +497,9 @@ async function connect() {
   }
   // If currently in auto-reconnect flow, schedule next attempt without notification spam
   if (reconnectAttempt.value > 0 && connectCallId === currentConnectId && autoReconnect.value) {
-    tryReconnect(sessionId)
-    connecting.value = false
-    return
+  tryReconnect(sessionId)
+  connecting.value = false
+  return
   }
   notify.notify({
   message: `SSH 连接失败: ${msg}`,
@@ -470,7 +514,113 @@ async function connect() {
  }
 }
 
+function handleTerminalOctets(octets: number[]) {
+  const chunk = terminalDecoder.decode(new Uint8Array(octets), { stream: true })
+  if (!chunk) return
+  terminalRef.value?.write(chunk)
+  markSftpReady()
+  //收集到 buffer(AI助手用)
+  dataBuffer.value.push(chunk)
+  //检测 pwd 输出,更新当前工作目录
+  const pwdMatch = chunk.match(/(?:\r\n|\n|\r)(\/[\w\-./]{1,200})\s*(?:\r\n|\n|\r|$)/)
+  if (pwdMatch && pwdMatch[1].startsWith('/')) {
+    sshCwd.value = pwdMatch[1]
+  }
+  //唤醒正在等待的 captureOutput
+  maybeResolveCapture()
+}
+
+function setupZmodemSentry() {
+  resetZmodem()
+  zmodemSentry = new Zmodem.Sentry({
+    to_terminal: handleTerminalOctets,
+    sender: octets => {
+      void invoke('ssh_write_binary', { id: props.id, data: octets })
+    },
+    on_detect: detection => {
+      zmodemSession = detection.confirm()
+      zmodemProgress.value = 0
+      if (zmodemSession.type === 'send') {
+        zmodemStatus.value = '远端 rz 已就绪，请选择要发送的文件'
+        zmodemPromptVisible.value = true
+        return
+      }
+
+      zmodemStatus.value = '正在等待远端文件…'
+      zmodemPromptVisible.value = true
+      zmodemSession.on('offer', (...args: unknown[]) => {
+        const transfer = args[0] as ZmodemTransfer
+        const details = transfer.get_details()
+        zmodemStatus.value = `正在接收 ${details.name}`
+        void transfer.accept().then(payloads => {
+          Zmodem.Browser.save_to_disk(payloads, details.name)
+          zmodemStatus.value = `已接收 ${details.name}`
+          zmodemProgress.value = 100
+        })
+      })
+      zmodemSession.on('session_end', finishZmodem)
+      zmodemSession.start()
+    },
+    on_retract: () => {
+      if (!zmodemSession) finishZmodem()
+    },
+  })
+}
+
+function chooseZmodemFiles() {
+  zmodemInputRef.value?.click()
+}
+
+async function onZmodemFilesSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files?.length || !zmodemSession) return
+  const files = input.files
+  const totalBytes = Array.from(files).reduce((sum, file) => sum + file.size, 0)
+  try {
+    zmodemStatus.value = `正在发送 ${files.length} 个文件`
+    await Zmodem.Browser.send_files(zmodemSession, files, {
+      on_progress: (_file, transfer) => {
+        const sent = transfer.get_offset()
+        zmodemProgress.value = totalBytes > 0 ? Math.min(99, sent / totalBytes * 100) : 0
+      },
+      on_file_complete: file => {
+        zmodemStatus.value = `已发送 ${file.name}`
+      },
+    })
+    await zmodemSession.close()
+    zmodemProgress.value = 100
+    notify.notify({ message: 'ZMODEM 文件发送完成', color: 'success', timeout: 2200 })
+  } catch (error) {
+    notify.notify({ message: `ZMODEM 发送失败: ${String(error)}`, color: 'error', timeout: 5000 })
+    zmodemSession?.abort()
+  } finally {
+    input.value = ''
+    window.setTimeout(finishZmodem, 700)
+  }
+}
+
+function cancelZmodem() {
+  zmodemSession?.abort()
+  finishZmodem()
+}
+
+function finishZmodem() {
+  zmodemSession = null
+  zmodemPromptVisible.value = false
+  zmodemStatus.value = ''
+  zmodemProgress.value = 0
+}
+
+function resetZmodem() {
+  if (zmodemSession) {
+    try { zmodemSession.abort() } catch { /* session may already be closed */ }
+  }
+  finishZmodem()
+  zmodemSentry = null
+}
+
 async function disconnect() {
+   resetZmodem()
    resetSftpReady()
    if (unlisten) {
      unlisten()
@@ -740,7 +890,8 @@ function handleKbCancelled() {
  <!--字体缩放 -->
  <button
  class="action-btn"
- :data-tooltip="`- font`"
+ data-tooltip="减小终端字号"
+ title="减小终端字号"
  @click="adjustFontSize(-1)"
  >
  <v-icon size="14">mdi-format-font-size-decrease</v-icon>
@@ -748,7 +899,8 @@ function handleKbCancelled() {
  <span class="font-size-indicator">{{ fontSize }}px</span>
  <button
  class="action-btn"
- :data-tooltip="`+ font`"
+ data-tooltip="增大终端字号"
+ title="增大终端字号"
  @click="adjustFontSize(1)"
  >
  <v-icon size="14">mdi-format-font-size-increase</v-icon>
@@ -771,6 +923,7 @@ function handleKbCancelled() {
  v-else
  class="action-btn"
  :data-tooltip="t('ssh.search')"
+ :title="t('ssh.search')"
  @click="showSearch = true"
  >
  <v-icon size="14">mdi-magnify</v-icon>
@@ -780,6 +933,7 @@ function handleKbCancelled() {
  <button
  class="action-btn"
  :data-tooltip="t('ssh.clear')"
+ :title="t('ssh.clear')"
  @click="handleClear"
  >
  <v-icon size="14">mdi-broom</v-icon>
@@ -796,6 +950,7 @@ function handleKbCancelled() {
  <button
  class="action-btn reconnect-btn"
  :data-tooltip="t('asset.connect')"
+ :title="t('asset.connect')"
  :disabled="connecting || !asset"
  @click="connect"
  >
@@ -806,6 +961,7 @@ function handleKbCancelled() {
   class="action-btn disconnect-btn"
   :class="{ 'pulse-danger': connected }"
   :data-tooltip="t('asset.disconnect')"
+  :title="t('asset.disconnect')"
   :disabled="!connected"
   @click="disconnect"
   >
@@ -814,7 +970,8 @@ function handleKbCancelled() {
 
   <button
   class="action-btn"
-  data-tooltip="Broadcast"
+  data-tooltip="命令广播"
+  title="命令广播"
   @click="handleBroadcast"
   >
   <v-icon size="14">mdi-broadcast</v-icon>
@@ -824,6 +981,37 @@ function handleKbCancelled() {
 
  <div class="workspace">
  <div class="terminal-pane">
+ <input
+ ref="zmodemInputRef"
+ class="zmodem-file-input"
+ type="file"
+ multiple
+ @change="onZmodemFilesSelected"
+ />
+ <Transition name="zmodem-transfer">
+ <div v-if="zmodemPromptVisible" class="zmodem-transfer-bar">
+   <div class="zmodem-transfer-icon">
+     <v-icon size="16">mdi-swap-vertical-bold</v-icon>
+   </div>
+   <div class="zmodem-transfer-copy">
+     <strong>ZMODEM</strong>
+     <span>{{ zmodemStatus }}</span>
+     <div class="zmodem-progress">
+       <span :style="{ width: `${zmodemProgress}%` }" />
+     </div>
+   </div>
+   <button
+     v-if="zmodemSession?.type === 'send'"
+     class="cyber-btn zmodem-select-btn"
+     @click="chooseZmodemFiles"
+   >
+     选择文件
+   </button>
+   <button class="action-btn" title="取消 ZMODEM 传输" @click="cancelZmodem">
+     <v-icon size="14">mdi-close</v-icon>
+   </button>
+ </div>
+ </Transition>
  <!--快速命令栏:刚连接时给新手指引,常用查看命令一键发 -->
  <div v-if="connected" class="quick-commands">
  <span class="qc-label">QUICK</span>
@@ -925,6 +1113,86 @@ function handleKbCancelled() {
  flex-direction: column;
 }
 
+.zmodem-file-input {
+ display: none;
+}
+
+.zmodem-transfer-bar {
+ display: flex;
+ align-items: center;
+ gap: 12px;
+ padding: 8px 12px;
+ margin-bottom: 8px;
+ border: 1px solid var(--focus-cyan);
+ border-radius: 8px;
+ background: var(--panel-solid-2);
+ box-shadow: var(--glow-cyan);
+}
+
+.zmodem-transfer-icon {
+ width: 30px;
+ height: 30px;
+ display: grid;
+ place-items: center;
+ flex: 0 0 auto;
+ border-radius: 6px;
+ color: var(--cyan);
+ background: var(--active-cyan);
+}
+
+.zmodem-transfer-copy {
+ min-width: 0;
+ flex: 1;
+ display: grid;
+ gap: 2px;
+}
+
+.zmodem-transfer-copy strong {
+ color: var(--cyan);
+ font: 600 10px/1.2 'Orbitron', sans-serif;
+ letter-spacing: 0.1em;
+}
+
+.zmodem-transfer-copy > span {
+ overflow: hidden;
+ color: var(--text-2);
+ font-size: 11px;
+ text-overflow: ellipsis;
+ white-space: nowrap;
+}
+
+.zmodem-progress {
+ height: 2px;
+ overflow: hidden;
+ border-radius: 2px;
+ background: var(--line-2);
+}
+
+.zmodem-progress span {
+ display: block;
+ height: 100%;
+ border-radius: inherit;
+ background: var(--grad-primary);
+ transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.zmodem-select-btn {
+ min-height: 28px;
+ padding: 4px 12px;
+ font-size: 11px;
+}
+
+.zmodem-transfer-enter-active,
+.zmodem-transfer-leave-active {
+ transition: opacity 0.2s, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.zmodem-transfer-enter-from,
+.zmodem-transfer-leave-to {
+ opacity: 0;
+ transform: translateY(-6px);
+}
+
 .terminal-pane > :deep(.terminal-container) {
  flex:1;
 }
@@ -932,41 +1200,47 @@ function handleKbCancelled() {
 .quick-commands {
  display: flex;
  align-items: center;
- gap:4px;
- padding:6px10px;
+ gap: 8px;
+ padding: 8px 12px;
  background: var(--hover-cyan-faint);
- border:1px solid var(--line-2);
- border-radius:6px;
- margin-bottom:6px;
+ border: 1px solid var(--line-2);
+ border-radius: 8px;
+ margin-bottom: 8px;
  flex-wrap: wrap;
+ box-shadow: inset 2px 0 0 var(--cyan);
 }
 .qc-label {
- font-size:9px;
- font-weight:700;
+ font-size: 9px;
+ font-weight: 700;
  font-family: 'Orbitron', sans-serif;
  color: var(--cyan);
- letter-spacing:0.12em;
- margin-right:4px;
- text-shadow:006px var(--glow-soft);
+ letter-spacing: 0.12em;
+ margin-right: 4px;
+ padding-right: 10px;
+ border-right: 1px solid var(--line-2);
+ text-shadow: 0 0 6px var(--glow-soft);
 }
 .qc-btn {
  display: inline-flex;
  align-items: center;
- gap:4px;
- padding:3px8px;
+ gap: 5px;
+ min-height: 26px;
+ padding: 4px 10px;
  background: var(--hover-cyan-soft);
- border:1px solid var(--line-2);
- border-radius:4px;
+ border: 1px solid var(--line-2);
+ border-radius: 6px;
  color: var(--text-2);
- font-size:11px;
+ font-size: 11px;
  font-family: 'JetBrains Mono', monospace;
  cursor: pointer;
- transition: all0.15s;
+ transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .qc-btn:hover:not(:disabled) {
  background: var(--active-cyan);
  border-color: var(--focus-cyan);
  color: var(--cyan);
+ transform: translateY(-1px);
+ box-shadow: 0 4px 12px var(--glow-soft);
 }
 .qc-btn:disabled {
  opacity:0.4;

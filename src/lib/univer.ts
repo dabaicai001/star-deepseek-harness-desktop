@@ -89,18 +89,19 @@ function cssVar(name: string, fallback: string): string {
   return window.getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
 }
 
-/** 将 StarHub 的 Excel/数据库 token 映射到 Univer canvas 主题。 */
-export function buildStarhubTheme() {
-  const gridBg = cssVar('--excel-grid-bg', '#ffffff')
-  const ribbonBg = cssVar('--excel-ribbon-bg', '#f3f2f1')
-  const line = cssVar('--excel-grid-line', '#e1dfdd')
-  const text = cssVar('--excel-text', '#201f1e')
-  const muted = cssVar('--excel-muted', '#605e5c')
-  const green = cssVar('--excel-green', '#107c41')
+/** 将 StarHub token 映射到 Univer canvas 主题。 */
+export function buildStarhubTheme(mode: 'excel' | 'system' = 'excel') {
+  const isSystem = mode === 'system'
+  const gridBg = cssVar(isSystem ? '--panel-solid' : '--excel-grid-bg', isSystem ? '#101822' : '#ffffff')
+  const ribbonBg = cssVar(isSystem ? '--panel-solid-2' : '--excel-ribbon-bg', isSystem ? '#152032' : '#f3f2f1')
+  const line = cssVar(isSystem ? '--line-2' : '--excel-grid-line', isSystem ? '#283848' : '#e1dfdd')
+  const text = cssVar(isSystem ? '--text' : '--excel-text', isSystem ? '#dce7f3' : '#201f1e')
+  const muted = cssVar(isSystem ? '--text-2' : '--excel-muted', isSystem ? '#9aa8ba' : '#605e5c')
+  const primary = cssVar(isSystem ? '--cyan' : '--excel-green', isSystem ? '#5dd6d6' : '#107c41')
 
   return {
     ...defaultTheme,
-    primaryColor: green,
+    primaryColor: primary,
     gray: {
       ...defaultTheme.gray,
       50: gridBg,

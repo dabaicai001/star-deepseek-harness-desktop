@@ -14,7 +14,7 @@
 import { ref, computed, defineAsyncComponent, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
-import type { QueryResult } from '@/types/db'
+import type { ColumnMeta, QueryResult } from '@/types/db'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 
@@ -43,6 +43,12 @@ const props = withDefaults(defineProps<{
   columnFilters?: Record<string, string>
   /** 是否显示刷新按钮 */
   refreshable?: boolean
+  /** 服务端当前排序列 */
+  serverSortColumn?: string | null
+  /** 服务端当前排序方向 */
+  serverSortDirection?: 'ASC' | 'DESC'
+  /** 表结构元数据,用于列头备注提示 */
+  columnMetadata?: ColumnMeta[]
 }>(), {
   totalRows: undefined,
   page: 0,
@@ -52,7 +58,10 @@ const props = withDefaults(defineProps<{
   editable: false,
   pkCols: () => [],
   columnFilters: () => ({}),
-  refreshable: false
+  refreshable: false,
+  serverSortColumn: null,
+  serverSortDirection: 'ASC',
+  columnMetadata: () => [],
 })
 
 const emit = defineEmits<{
@@ -78,8 +87,10 @@ function closeRowCtxMenu() {
 function onUniverRowContext(rowIdx: number, x: number, y: number) {
   const items: MenuItem[] = [
     { type: 'item', label: t('db.copyInsert'), icon: 'mdi-content-copy', onClick: () => copyInsert(rowIdx) },
-    { type: 'item', label: t('db.deleteRow'), icon: 'mdi-delete', danger: true, onClick: () => deleteRow(rowIdx) },
   ]
+  if (props.editable) {
+    items.push({ type: 'item', label: t('db.deleteRow'), icon: 'mdi-delete', danger: true, onClick: () => deleteRow(rowIdx) })
+  }
   rowCtxMenu.value = { x, y, rowIdx, items }
 }
 
@@ -144,6 +155,16 @@ const sortDir = ref<'ASC' | 'DESC'>('ASC')
 
 // 服务端模式 vs 客户端模式:有 totalRows 走服务端
 const isServerMode = computed(() => props.totalRows != null)
+
+watch(
+  [() => props.serverSortColumn, () => props.serverSortDirection],
+  ([column, direction]) => {
+    if (!isServerMode.value) return
+    sortColumn.value = column || null
+    sortDir.value = direction || 'ASC'
+  },
+  { immediate: true },
+)
 
 const columns = computed(() => props.result?.columns || [])
 const allRows = computed(() => props.result?.rows || [])
@@ -226,6 +247,7 @@ watch(() => props.editable, (val) => {
 }, { immediate: true })
 
 function toggleSort(col: string) {
+  if (!col || props.loading) return
   if (isServerMode.value) {
     // 服务端模式:由父组件发 sort-change
     const wasSameCol = sortColumn.value === col
@@ -299,18 +321,6 @@ function stageCellChange(rowIdx: number, col: string, originalValue: unknown, ne
   dirtyCells.value = new Map(dirtyCells.value)
 }
 
-const displayedRows = computed(() => pagedRows.value.map((row, rowIdx) =>
-  row.map((cell, colIdx) =>
-    getDisplayedCellValue(rowIdx, columns.value[colIdx]?.name || '', cell)
-  )
-))
-
-const dirtyCoordinates = computed(() => Array.from(dirtyCells.value.keys()).flatMap(key => {
-  const [rowText, column] = key.split('::')
-  const columnIndex = columns.value.findIndex(item => item.name === column)
-  return columnIndex >= 0 ? [`${Number(rowText)}:${columnIndex}`] : []
-}))
-
 function onUniverCellChange(rowIdx: number, col: string, value: unknown) {
   const columnIndex = columns.value.findIndex(column => column.name === col)
   const originalValue = pagedRows.value[rowIdx]?.[columnIndex]
@@ -333,8 +343,14 @@ function saveAll() {
   emit('saveBatch', changes)
 }
 
-function clearDirty() {
-  dirtyCells.value = new Map()
+function clearDirty(changes?: Array<{ rowIndex: number; column: string }>) {
+  if (!changes) {
+    dirtyCells.value = new Map()
+    return
+  }
+  const next = new Map(dirtyCells.value)
+  changes.forEach(change => next.delete(dirtyKey(change.rowIndex, change.column)))
+  dirtyCells.value = next
 }
 
 defineExpose({ clearDirty, hasDirty })
@@ -434,7 +450,7 @@ defineExpose({ clearDirty, hasDirty })
     </div>
 
     <!-- Table -->
-    <div v-if="loading" class="grid-loading">
+    <div v-if="loading && (!result || columns.length === 0)" class="grid-loading">
       <v-icon size="24" class="spin">mdi-loading</v-icon>
       <span>{{ t('common.loading') }}</span>
     </div>
@@ -445,17 +461,32 @@ defineExpose({ clearDirty, hasDirty })
     </div>
 
     <template v-else>
-      <DbUniverGrid
-        :columns="columns"
-        :rows="displayedRows"
-        :page-offset="(page || 0) * (pageSize || 1000)"
-        :editable="editable"
-        :dirty-cells="dirtyCoordinates"
-        :style="{ fontSize: themeStore.fontSize + 'px' }"
-        @cell-change="onUniverCellChange"
-        @sort-change="toggleSort"
-        @row-context="onUniverRowContext"
-      />
+      <div class="db-grid-stage">
+        <DbUniverGrid
+          :columns="columns"
+          :rows="pagedRows"
+          :page-offset="(page || 0) * (pageSize || 1000)"
+          :editable="editable"
+          :sort-column="sortColumn"
+          :sort-direction="sortDir"
+          :theme-key="themeStore.theme"
+          :column-metadata="columnMetadata"
+          :style="{ fontSize: themeStore.fontSize + 'px' }"
+          @cell-change="onUniverCellChange"
+          @sort-change="toggleSort"
+          @column-selected="selectedActionColumn = $event"
+          @row-context="onUniverRowContext"
+        />
+        <Transition name="db-loading-fade">
+          <div v-if="loading" class="db-grid-loading-overlay" role="status">
+            <div class="db-grid-loading-pill">
+              <v-icon size="15" class="spin">mdi-loading</v-icon>
+              <span>正在刷新数据…</span>
+            </div>
+            <div class="db-grid-loading-line" />
+          </div>
+        </Transition>
+      </div>
 
       <!-- Column filter popover -->
       <teleport to="body">
@@ -502,11 +533,11 @@ defineExpose({ clearDirty, hasDirty })
         <span class="page-info">
           {{ visibleRange.start }}-{{ visibleRange.end }} / {{ visibleRange.total.toLocaleString() }}
         </span>
-        <button class="page-btn" :disabled="(page || 0) === 0" @click="prevPage">
+        <button class="page-btn" :disabled="loading || (page || 0) === 0" @click="prevPage">
           <v-icon size="14">mdi-chevron-left</v-icon>
         </button>
         <span class="page-num">{{ (page || 0) + 1 }} / {{ totalPages.toLocaleString() }}</span>
-        <button class="page-btn" :disabled="(page || 0) >= totalPages - 1" @click="nextPage">
+        <button class="page-btn" :disabled="loading || (page || 0) >= totalPages - 1" @click="nextPage">
           <v-icon size="14">mdi-chevron-right</v-icon>
         </button>
       </div>

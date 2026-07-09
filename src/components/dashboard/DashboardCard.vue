@@ -3,7 +3,12 @@
  * 仪表盘通用卡片组件
  * 用于展示单个指标，支持进度条、趋势、颜色主题
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+
+export interface DashboardDetail {
+  label: string
+  value: string | number
+}
 
 const props = withDefaults(defineProps<{
   title: string
@@ -14,6 +19,8 @@ const props = withDefaults(defineProps<{
   color?: 'cyan' | 'green' | 'yellow' | 'red' | 'purple' | 'blue'
   trend?: 'up' | 'down' | 'stable'
   loading?: boolean
+  description?: string
+  details?: DashboardDetail[]
 }>(), {
   color: 'cyan',
   loading: false
@@ -22,6 +29,13 @@ const props = withDefaults(defineProps<{
 const progressWidth = computed(() => {
   if (props.progress === undefined) return 0
   return Math.min(100, Math.max(0, props.progress))
+})
+const detailOpen = ref(false)
+const detailRows = computed<DashboardDetail[]>(() => {
+  const rows: DashboardDetail[] = [{ label: '当前值', value: props.value }]
+  if (props.subtitle) rows.push({ label: '补充信息', value: props.subtitle })
+  if (props.progress !== undefined) rows.push({ label: '占比', value: `${progressWidth.value.toFixed(2)}%` })
+  return [...rows, ...(props.details ?? [])]
 })
 
 const trendIcon = computed(() => {
@@ -44,7 +58,14 @@ const trendColor = computed(() => {
 </script>
 
 <template>
-  <div class="dashboard-card" :class="[`color-${color}`]">
+  <button
+    type="button"
+    class="dashboard-card"
+    :class="[`color-${color}`]"
+    :disabled="loading"
+    :title="`${title}: ${value}（点击查看详情）`"
+    @click="detailOpen = true"
+  >
     <div class="card-header">
       <div class="card-icon">
         <v-icon size="16">{{ icon }}</v-icon>
@@ -53,6 +74,7 @@ const trendColor = computed(() => {
       <v-icon v-if="trendIcon" size="14" :style="{ color: trendColor }">
         {{ trendIcon }}
       </v-icon>
+      <v-icon class="detail-chevron" size="13">mdi-chevron-right</v-icon>
     </div>
 
     <div class="card-body">
@@ -76,11 +98,39 @@ const trendColor = computed(() => {
       </div>
       <span class="progress-text">{{ progressWidth.toFixed(1) }}%</span>
     </div>
-  </div>
+  </button>
+
+  <v-dialog v-model="detailOpen" transition="cyber-dialog" max-width="480">
+    <div class="dashboard-detail-panel cyber-panel" :class="[`color-${color}`]">
+      <div class="dashboard-detail-header">
+        <div class="card-icon"><v-icon size="18">{{ icon }}</v-icon></div>
+        <div>
+          <strong>{{ title }}</strong>
+          <span>实时指标详情</span>
+        </div>
+        <button class="action-btn" title="关闭" @click="detailOpen = false">
+          <v-icon size="15">mdi-close</v-icon>
+        </button>
+      </div>
+      <div class="dashboard-detail-value">{{ value }}</div>
+      <p class="dashboard-detail-description">
+        {{ description || '该指标来自当前连接的实时采集结果，每 30 秒自动刷新一次。' }}
+      </p>
+      <div class="dashboard-detail-list">
+        <div v-for="row in detailRows" :key="row.label" class="dashboard-detail-row">
+          <span>{{ row.label }}</span>
+          <code>{{ row.value }}</code>
+        </div>
+      </div>
+    </div>
+  </v-dialog>
 </template>
 
 <style scoped>
 .dashboard-card {
+  width: 100%;
+  text-align: left;
+  font: inherit;
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -88,6 +138,7 @@ const trendColor = computed(() => {
   transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
+  cursor: pointer;
 }
 
 .dashboard-card::before {
@@ -103,7 +154,12 @@ const trendColor = computed(() => {
 
 .dashboard-card:hover {
   border-color: var(--line-2);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: var(--glow-soft);
+}
+
+.dashboard-card:disabled {
+  cursor: wait;
 }
 
 .dashboard-card:hover::before {
@@ -148,16 +204,29 @@ const trendColor = computed(() => {
   letter-spacing: 0.02em;
 }
 
+.detail-chevron {
+  color: var(--muted);
+  transition: transform 0.2s, color 0.2s;
+}
+
+.dashboard-card:hover .detail-chevron {
+  color: var(--cyan);
+  transform: translateX(2px);
+}
+
 .card-body {
   min-height: 32px;
 }
 
 .card-value {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 20px;
+  font-size: clamp(16px, 1.15vw, 20px);
   font-weight: 600;
   color: var(--text);
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .color-cyan .card-value { color: var(--cyan); }

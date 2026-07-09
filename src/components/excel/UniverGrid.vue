@@ -61,14 +61,15 @@ let syncTimer: number | null = null
 let layoutRenderTimer: number | null = null
 const viewportRowCount = ref(0)
 
-const sheetVersion = computed(() => [
+const workbookVersion = computed(() => [
   store.connId,
-  store.activeSheet,
+  store.filePath,
   store.sheetNames.join('\u001a'),
-  store.columns.join('\u001f'),
-  store.rowData.length,
-  store.rowData.map(row => row.join('\u001e')).join('\u001d'),
 ].join('\u001c'))
+
+const activeSheetSource = computed(() =>
+  store.workbookSheets[store.activeSheet] ?? null
+)
 
 function normalizeCellValue(value: unknown): string {
   if (value === null || value === undefined) return ''
@@ -143,6 +144,7 @@ function refreshViewportRowCount(): boolean {
 let canvasMountObserver: MutationObserver | null = null
 let mountPointResizeObserver: ResizeObserver | null = null
 let canvasMountFallbackTimer: number | null = null
+const renderedSheetSources = new Map<string, WorkbookSheetData>()
 
 // 把"等画布挂载 + 强制引擎重测尺寸"抽出成纯函数,被初始化/ResizeObserver 复用。
 function syncUniverCanvasSize(): boolean {
@@ -263,7 +265,7 @@ function queueLayoutRender() {
   layoutRenderTimer = window.setTimeout(() => {
     layoutRenderTimer = null
     if (!syncingFromStore) syncDataFromUniver()
-    void renderWorkbook()
+    requestUniverResize()
   }, 80)
 }
 
@@ -321,6 +323,7 @@ function disposeWorkbook() {
   univerInstance?.dispose()
   univerAPIInstance = null
   univerInstance = null
+  renderedSheetSources.clear()
   // 清理容器内残留的 Univer DOM,防止下次创建时残留元素干扰布局
   if (containerRef.value) {
     containerRef.value.innerHTML = ''
@@ -372,6 +375,14 @@ async function renderWorkbook() {
         UniverPresetSheetsFindReplaceZhCN,
         UniverPresetSheetsNoteZhCN,
         UniverPresetSheetsTableZhCN,
+        {
+          'sheets-ui': {
+            info: {
+              error: '错误',
+              forceStringInfo: '此数字以文本形式存储',
+            },
+          },
+        },
       ),
     },
     presets: [
@@ -398,6 +409,10 @@ async function renderWorkbook() {
   univerInstance = univer
   univerAPIInstance = univerAPI
   const workbook = univerAPI.createWorkbook(buildWorkbookData())
+  store.sheetNames.forEach(sheetName => {
+    const source = store.workbookSheets[sheetName]
+    if (source) renderedSheetSources.set(sheetName, source)
+  })
   const activeSheet = workbook.getSheetByName(store.activeSheet)
   if (activeSheet) workbook.setActiveSheet(activeSheet)
   resizeObserver = new ResizeObserver(() => {
@@ -427,6 +442,52 @@ async function renderWorkbook() {
       queueSnapshotSync()
     }
   })
+
+  window.setTimeout(() => {
+    syncingFromStore = false
+    syncSelectionFromUniver()
+    requestUniverResize()
+  }, 0)
+}
+
+function buildSheetValues(sheet: WorkbookSheetData): string[][] {
+  const columnCount = Math.max(sheet.columns.length, 1)
+  const values = [
+    Array.from({ length: columnCount }, (_, col) => sheet.columns[col] ?? ''),
+    ...sheet.rows.map(row =>
+      Array.from({ length: columnCount }, (_, col) => row[col] ?? '')
+    ),
+  ]
+  if (values.length === 1) values.push(Array.from({ length: columnCount }, () => ''))
+  return values
+}
+
+/**
+ * Sheet 切换快路径:保留同一个 Univer/Workbook/Canvas 实例,只激活目标
+ * Worksheet。仅当后端重新读取导致缓存对象真正替换时,才原地写回数据。
+ */
+function syncActiveSheetInPlace() {
+  if (!univerAPIInstance || !store.activeSheet) return
+  const workbook = univerAPIInstance.getActiveWorkbook()
+  const worksheet = workbook?.getSheetByName(store.activeSheet)
+  if (!workbook || !worksheet) {
+    void renderWorkbook()
+    return
+  }
+
+  syncingFromStore = true
+  workbook.setActiveSheet(worksheet)
+  const source = activeSheetSource.value
+  if (source && renderedSheetSources.get(store.activeSheet) !== source) {
+    const rowCount = Math.max(computeRowCount(source), 2)
+    const columnCount = Math.max(source.columns.length, 10)
+    worksheet.setRowCount(rowCount)
+    worksheet.setColumnCount(columnCount)
+    worksheet
+      .getRange(0, 0, Math.max(source.rows.length + 1, 2), Math.max(source.columns.length, 1))
+      .setValues(buildSheetValues(source))
+    renderedSheetSources.set(store.activeSheet, source)
+  }
 
   window.setTimeout(() => {
     syncingFromStore = false
@@ -549,10 +610,19 @@ onBeforeUnmount(() => {
   disposeWorkbook()
 })
 
-watch(sheetVersion, () => {
+watch(workbookVersion, () => {
   if (updatingStoreFromUniver) return
   void renderWorkbook()
 })
+
+watch(
+  [() => store.activeSheet, activeSheetSource],
+  () => {
+    if (updatingStoreFromUniver) return
+    void nextTick(syncActiveSheetInPlace)
+  },
+  { flush: 'post' },
+)
 </script>
 
 <template>
@@ -627,7 +697,7 @@ watch(sheetVersion, () => {
 }
 
 /* content section 里的 .univer-grid:横向 flex 3 列 */
-:deep([data-u-comp="workbench-layout"] .univer-grid) {
+:deep([data-u-comp="workbench-layout"] > section > .univer-grid) {
   display: flex !important;
   flex: 1 1 0 !important;
   min-height: 0 !important;
@@ -641,7 +711,7 @@ watch(sheetVersion, () => {
 }
 
 /* 中间列(flex 1):纵向 flex,列头 auto + data-range-selector 撑满 */
-:deep([data-u-comp="workbench-layout"] .univer-grid > section) {
+:deep([data-u-comp="workbench-layout"] > section > .univer-grid > section) {
   display: flex !important;
   flex: 1 1 0 !important;
   flex-direction: column !important;
@@ -650,7 +720,7 @@ watch(sheetVersion, () => {
 }
 
 /* 列头(header):高度 auto */
-:deep([data-u-comp="workbench-layout"] .univer-grid > section > header) {
+:deep([data-u-comp="workbench-layout"] > section > .univer-grid > section > header) {
   flex: 0 0 auto !important;
 }
 

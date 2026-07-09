@@ -10,8 +10,28 @@
 ### 计划中
 - PostgreSQL / SQLite 数据库适配器
 - AI 助手流式输出
-- ZMODEM 文件传输
 - Settings 补「代理」「安全」2 个 tab
+
+---
+
+## [0.17.0] - 2026-07-09
+
+### 新增
+- ✨ feat(ssh): SSH PTY 输出改为原始字节事件,增加 `ssh_write_binary` 与 `zmodem.js` Sentry,支持远端 `rz` 选择本地文件发送、远端 `sz` 接收并保存,并提供传输状态与进度交互。
+- ✨ feat(dashboard): DB / SSH / Docker 指标卡支持点击钻取,展示完整值、指标解释、构成与实时明细;统一增加弹层动画和 hover 反馈。
+- ✨ feat(db): 数据库字段首行悬停显示字段类型、可空、键、默认值与备注;通知中心记录更新/删除明细、主键条件和可复制 SQL。
+
+### 修复
+- 🐛 fix(excel): Sheet 切换复用同一 Univer Workbook/Canvas 实例并优先读取前端缓存,不再每次访问 Sidecar 后销毁重建;修复切换卡顿。
+- 🐛 fix(excel): 收窄 Workbench flex 覆盖选择器,避免误伤 Ribbon 内部 `.univer-grid`,恢复被折叠为省略号的完整工具按钮;移除顶部重复筛选按钮。
+- 🐛 fix(db): 分页、排序、刷新、整列选择和保存后改为原地更新网格,保留滚动位置并用 loading 遮罩反馈;列头跟随系统主题并显示升降序状态。
+- 🐛 fix(db): MySQL 仪表盘按当前数据库统计表数量与数据/索引容量,修正 InnoDB 缓冲池命中率与页大小口径,完整大数字可在详情中查看。
+- 🐛 fix(db): 普通字符串不再标记为 Univer `FORCE_STRING`,移除数字文本绿色告警角和 `sheets-ui.info.*` 泄漏,并补齐兼容中文 locale。
+- 🐛 fix(ssh): 顶部纯图标按钮补齐悬停文案,Quick 命令区增加分组、间距、换行与交互动效。
+
+### 测试
+- ✅ test(excel): Vite dev mock 注入 190 行、3 个 Sheet,实测完整 Ribbon 30+ 工具按钮、单 Workbench 原地切换和画布铺满 SheetBar。
+- ✅ test(build): TypeScript strict、Vite production build、`cargo fmt --check`、`cargo check` 与 Rust 13 个单元测试通过。
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "starhub",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -42,7 +42,8 @@
     "vue": "^3.4.0",
     "vue-i18n": "^9.9.0",
     "vue-router": "^4.3.0",
-    "vuetify": "^3.5.0"
+    "vuetify": "^3.5.0",
+    "zmodem.js": "0.1.10"
   },
   "devDependencies": {
     "@tauri-apps/api": "^2.0.0",

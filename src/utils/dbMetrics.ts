@@ -161,13 +161,14 @@ export function parseMysqlMetrics(opts: {
   const innodbBPDirty = num(status, 'Innodb_buffer_pool_pages_dirty') || 0
   const innodbBPData = num(status, 'Innodb_buffer_pool_pages_data') || 0
   const innodbBPSize = num(variables, 'innodb_buffer_pool_size')
+  const innodbPageSize = num(variables, 'innodb_page_size', 16 * 1024)
   const innodbReadReq = num(status, 'Innodb_buffer_pool_read_requests')
   const innodbReads = num(status, 'Innodb_buffer_pool_reads')
-  const hitRate = innodbReadReq + innodbReads > 0
-    ? (innodbReadReq / (innodbReadReq + innodbReads)) * 100
+  const hitRate = innodbReadReq > 0
+    ? Math.max(0, (1 - innodbReads / innodbReadReq) * 100)
     : 0
   // 实际已用: pages_total - pages_free - pages_misc(用 dirty 近似) 这种不严谨,直接用 total - free
-  const bufferPoolUsed = Math.max(0, (innodbBP - innodbBPFree) * 16 * 1024)
+  const bufferPoolUsed = Math.max(0, (innodbBP - innodbBPFree) * innodbPageSize)
   let tableCount = 0
   let dataSize = 0
   let indexSize = 0

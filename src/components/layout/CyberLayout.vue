@@ -23,6 +23,9 @@ import type { CreateAssetDto } from '@/types/asset'
 const { t, locale } = useI18n()
 const router = useRouter()
 const route = useRoute()
+// Vite 开发态允许 `?mock=1` 直接挂载目标路由,无需先创建持久化资产/tab。
+// 仅用于真实布局下的视觉与性能回归,生产构建恒为 false。
+const devMockWorkspace = computed(() => import.meta.env.DEV && route.query.mock === '1')
 const assetStore = useAssetStore()
 const appStore = useAppStore()
 const themeStore = useThemeStore()
@@ -1205,7 +1208,7 @@ vueWatch(() => appStore.tabs.length, () => {
 
       <!-- Workspace -->
       <div class="workspace">
-        <div v-if="appStore.tabs.length === 0" class="workspace-welcome" @contextmenu="openWorkspaceContextMenu">
+        <div v-if="appStore.tabs.length === 0 && !devMockWorkspace" class="workspace-welcome" @contextmenu="openWorkspaceContextMenu">
           <div ref="welcomeRef" class="welcome-content cyber-panel cyber-stagger" :class="{ run: welcomeStaggerRun }">
             <div class="welcome-hero">
               <div class="welcome-copy">

@@ -45,6 +45,7 @@ fn main() {
             commands::ssh::ssh_connect,
             commands::ssh::ssh_disconnect,
             commands::ssh::ssh_write,
+            commands::ssh::ssh_write_binary,
             commands::ssh::ssh_resize,
             commands::ssh::ssh_get_sessions,
             commands::ssh::ssh_exec,

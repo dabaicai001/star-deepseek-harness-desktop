@@ -21,6 +21,7 @@ const props = defineProps<{
   connId: string
   dbType: string
   connected: boolean
+  database?: string
 }>()
 
 const loading = ref(true)
@@ -89,17 +90,20 @@ async function loadRedis() {
 async function loadMysql() {
   // 跑 status + variables + table count + size sum
   const [status, variables, tableStats, sizeStats] = await Promise.allSettled([
-    mysqlExecute(props.connId, 'SHOW GLOBAL STATUS'),
-    mysqlExecute(props.connId, 'SHOW GLOBAL VARIABLES'),
+    mysqlExecute(props.connId, 'SHOW GLOBAL STATUS', props.database || undefined),
+    mysqlExecute(props.connId, 'SHOW GLOBAL VARIABLES', props.database || undefined),
     mysqlExecute(
       props.connId,
       `SELECT COUNT(*) AS table_count FROM information_schema.tables
        WHERE table_schema = DATABASE()`,
+      props.database || undefined,
     ),
     mysqlExecute(
       props.connId,
-      `SELECT COALESCE(SUM(data_length), 0), COALESCE(SUM(index_length), 0)
+      `SELECT COALESCE(SUM(data_length), 0) AS data_size,
+              COALESCE(SUM(index_length), 0) AS index_size
        FROM information_schema.tables WHERE table_schema = DATABASE()`,
+      props.database || undefined,
     ),
   ])
   if (status.status !== 'fulfilled') throw status.reason
@@ -159,7 +163,7 @@ onBeforeUnmount(() => {
   if (refreshTimer) clearInterval(refreshTimer)
 })
 
-watch(() => [props.connId, props.dbType, props.connected], () => {
+watch(() => [props.connId, props.dbType, props.connected, props.database], () => {
   loading.value = true
   loadAll()
 })
@@ -172,6 +176,7 @@ watch(() => [props.connId, props.dbType, props.connected], () => {
         <v-icon size="16" color="purple">mdi-database</v-icon>
         <span class="db-type">{{ dbTypeName }}</span>
         <span class="version">v{{ dbType === 'redis' ? redis.version : mysql.version }}</span>
+        <span v-if="database" class="version">{{ database }}</span>
       </div>
       <button class="refresh-btn" @click="refresh" :disabled="loading">
         <v-icon size="14" :class="{ spinning: refreshing }">mdi-refresh</v-icon>
@@ -198,6 +203,7 @@ watch(() => [props.connId, props.dbType, props.connected], () => {
           :subtitle="`${redis.uptimeSeconds} 秒`"
           color="cyan"
           :loading="loading"
+          description="MySQL 服务自启动以来的持续运行时间。"
         />
 
         <DashboardCard
@@ -208,6 +214,7 @@ watch(() => [props.connId, props.dbType, props.connected], () => {
           :progress="redisMemUsage"
           :color="redisMemUsage > 80 ? 'red' : redisMemUsage > 60 ? 'yellow' : 'green'"
           :loading="loading"
+          description="当前客户端连接数及正在执行语句的活跃线程数。"
         />
 
         <DashboardCard
@@ -290,8 +297,10 @@ watch(() => [props.connId, props.dbType, props.connected], () => {
           title="累计查询"
           icon="mdi-database-search"
           :value="mysql.queries.toLocaleString()"
+          :subtitle="`Questions ${mysql.questions.toLocaleString()}`"
           color="cyan"
           :loading="loading"
+          description="Queries 包含服务端执行的全部语句；Questions 更接近客户端发起的语句数量。"
         />
 
         <DashboardCard
@@ -300,6 +309,7 @@ watch(() => [props.connId, props.dbType, props.connected], () => {
           :value="mysql.slowQueries"
           :color="mysql.slowQueries > 100 ? 'red' : mysql.slowQueries > 10 ? 'yellow' : 'green'"
           :loading="loading"
+          description="Slow_queries 累计值；需要结合 long_query_time 与慢日志进一步定位。"
         />
 
         <DashboardCard
@@ -310,6 +320,7 @@ watch(() => [props.connId, props.dbType, props.connected], () => {
           :progress="mysql.bufferPoolHitRate"
           :color="mysql.bufferPoolHitRate >= 99 ? 'green' : mysql.bufferPoolHitRate >= 95 ? 'cyan' : 'red'"
           :loading="loading"
+          description="根据 InnoDB 逻辑读请求与物理读计算，越接近 100% 越好。"
         />
 
         <DashboardCard
@@ -319,6 +330,7 @@ watch(() => [props.connId, props.dbType, props.connected], () => {
           :subtitle="`索引 ${formatDbBytes(mysql.indexSize)}`"
           color="blue"
           :loading="loading"
+          :description="database ? `当前数据库 ${database} 的表数据与索引占用。` : '请先选择数据库后查看准确容量。'"
         />
 
         <DashboardCard
@@ -327,6 +339,7 @@ watch(() => [props.connId, props.dbType, props.connected], () => {
           :value="mysql.tableCount"
           color="cyan"
           :loading="loading"
+          :description="database ? `当前数据库 ${database} 的基础表与视图数量。` : '请先选择数据库后查看准确表数量。'"
         />
 
         <DashboardCard

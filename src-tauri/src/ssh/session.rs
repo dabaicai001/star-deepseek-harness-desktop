@@ -294,16 +294,12 @@ impl SshSession {
                 }
                 match msg {
                     Some(ChannelMsg::Data { data }) => {
-                        let _ = app_handle.emit(
-                            &format!("ssh:data:{}", id_for_read),
-                            String::from_utf8_lossy(&data).to_string(),
-                        );
+                        let _ =
+                            app_handle.emit(&format!("ssh:data:{}", id_for_read), data.to_vec());
                     }
                     Some(ChannelMsg::ExtendedData { data, .. }) => {
-                        let _ = app_handle.emit(
-                            &format!("ssh:data:{}", id_for_read),
-                            String::from_utf8_lossy(&data).to_string(),
-                        );
+                        let _ =
+                            app_handle.emit(&format!("ssh:data:{}", id_for_read), data.to_vec());
                     }
                     Some(ChannelMsg::WindowChange { .. }) | Some(ChannelMsg::Success) => {}
                     Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
@@ -595,14 +591,14 @@ async fn authenticate_keyboard_interactive(
                     Ok(Err(_)) => {
                         pending_kb.lock().await.remove(session_id);
                         return Err("[MFA_FAILED] Keyboard-interactive response channel dropped"
-                            .to_string())
+                            .to_string());
                     }
                     Err(_) => {
                         pending_kb.lock().await.remove(session_id);
                         return Err(
                             "[MFA_TIMEOUT] Keyboard-interactive response timed out (360s)"
                                 .to_string(),
-                        )
+                        );
                     }
                 };
 

@@ -190,13 +190,14 @@ watch(() => [props.sessionId, props.connected], ([id, conn], [oldId, oldConn]) =
       />
 
       <DashboardCard
-        title="CPU 使用率"
+        title="负载占用"
         icon="mdi-cpu-64-bit"
         :value="cpuUsage.toFixed(1) + '%'"
         :subtitle="`${load.cpuCores} 核心`"
         :progress="cpuUsage"
         :color="cpuUsage > 80 ? 'red' : cpuUsage > 50 ? 'yellow' : 'cyan'"
         :loading="loading"
+        description="用 1 分钟系统负载除以 CPU 核心数估算饱和度；它不是采样型 CPU 百分比。"
       />
 
       <DashboardCard
@@ -207,6 +208,11 @@ watch(() => [props.sessionId, props.connected], ([id, conn], [oldId, oldConn]) =
         :progress="memUsage"
         :color="memUsage > 80 ? 'red' : memUsage > 60 ? 'yellow' : 'green'"
         :loading="loading"
+        :details="[
+          { label: '可用内存', value: formatBytes(mem.available) },
+          { label: '缓存', value: formatBytes(mem.cached) },
+          { label: '缓冲区', value: formatBytes(mem.buffers) },
+        ]"
       />
 
       <DashboardCard
@@ -217,6 +223,10 @@ watch(() => [props.sessionId, props.connected], ([id, conn], [oldId, oldConn]) =
         :progress="diskUsage"
         :color="diskUsage > 90 ? 'red' : diskUsage > 70 ? 'yellow' : 'cyan'"
         :loading="loading"
+        :details="disk.entries.map(entry => ({
+          label: entry.mountpoint,
+          value: `${formatBytes(entry.used)} / ${formatBytes(entry.total)}`,
+        }))"
       />
 
       <DashboardCard

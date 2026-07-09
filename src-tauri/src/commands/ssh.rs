@@ -123,6 +123,26 @@ pub async fn ssh_write(
     Ok(())
 }
 
+/// 向交互式 SSH channel 写入原始字节。
+///
+/// ZMODEM(rz/sz)是二进制协议,不能经过 UTF-8 String 转换,否则高位字节
+/// 会被替换而导致握手或文件内容损坏。
+#[tauri::command]
+pub async fn ssh_write_binary(
+    manager: State<'_, SshManager>,
+    id: String,
+    data: Vec<u8>,
+) -> Result<(), String> {
+    let channels = manager.channels.lock().await;
+
+    if let Some(tx) = channels.get(&id) {
+        tx.send(data)
+            .map_err(|_| "Failed to send binary data to channel".to_string())?;
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn ssh_resize(
     manager: State<'_, SshManager>,
