@@ -22,6 +22,13 @@ export interface DisplayCellEdit {
   value: string
 }
 
+export interface WorkbookSheetData {
+  sheetName: string
+  columns: string[]
+  rows: string[][]
+  totalRows: number
+}
+
 export interface ColumnInfo {
   name: string
   width: number
@@ -53,6 +60,7 @@ export const useExcelStore = defineStore('excel', () => {
   const filePath = ref('')
   const sheetNames = ref<string[]>([])
   const activeSheet = ref('')
+  const workbookSheets = ref<Record<string, WorkbookSheetData>>({})
   const dirty = ref(false)
 
   // --- 数据 ---
@@ -136,6 +144,26 @@ export const useExcelStore = defineStore('excel', () => {
     while (end > 0 && isRowBlank(rows[end - 1])) end--
     if (end === rows.length) return rows
     return rows.slice(0, end)
+  }
+
+  function normalizeSheetData(data: WorkbookSheetData): WorkbookSheetData {
+    const rows = trimTrailingEmptyRows(data.rows)
+    return {
+      sheetName: data.sheetName,
+      columns: data.columns,
+      rows,
+      totalRows: Math.min(data.totalRows, rows.length),
+    }
+  }
+
+  function syncActiveSheetCache() {
+    if (!activeSheet.value) return
+    workbookSheets.value[activeSheet.value] = {
+      sheetName: activeSheet.value,
+      columns: columns.value,
+      rows: rowData.value,
+      totalRows: totalRows.value,
+    }
   }
 
   // ============================================================
@@ -294,6 +322,7 @@ export const useExcelStore = defineStore('excel', () => {
     }
     rowData.value[row][col] = value
     dirty.value = true
+    syncActiveSheetCache()
   }
 
   function updateCellValue(row: number, col: number, value: string) {
@@ -318,6 +347,7 @@ export const useExcelStore = defineStore('excel', () => {
     if (after.length > 0) {
       pushHistory({ before, after })
       dirty.value = true
+      syncActiveSheetCache()
     }
     return after
   }
@@ -327,7 +357,10 @@ export const useExcelStore = defineStore('excel', () => {
       ensureCell(edit.row, edit.col)
       rowData.value[edit.row][edit.col] = edit.value
     }
-    if (edits.length > 0) dirty.value = true
+    if (edits.length > 0) {
+      dirty.value = true
+      syncActiveSheetCache()
+    }
   }
 
   function undo(): CellEdit[] {
@@ -359,6 +392,7 @@ export const useExcelStore = defineStore('excel', () => {
     }
     totalRows.value++
     dirty.value = true
+    syncActiveSheetCache()
   }
 
   function deleteRow(row: number) {
@@ -366,6 +400,7 @@ export const useExcelStore = defineStore('excel', () => {
       rowData.value.splice(row, 1)
       totalRows.value--
       dirty.value = true
+      syncActiveSheetCache()
     }
   }
 
@@ -383,6 +418,7 @@ export const useExcelStore = defineStore('excel', () => {
       columns.value.splice(colIdx, 0, String.fromCharCode(64 + colIdx + 1))
     }
     dirty.value = true
+    syncActiveSheetCache()
   }
 
   function deleteCol(col: number) {
@@ -395,6 +431,7 @@ export const useExcelStore = defineStore('excel', () => {
       columns.value.splice(col, 1)
     }
     dirty.value = true
+    syncActiveSheetCache()
   }
 
   function getColWidth(col: number): number {
@@ -408,6 +445,36 @@ export const useExcelStore = defineStore('excel', () => {
   // ============================================================
   // 数据加载 / 清空
   // ============================================================
+
+  function loadWorkbook(data: {
+    sheets: WorkbookSheetData[]
+    activeSheet?: string
+    connId?: string
+    filePath?: string
+  }) {
+    if (data.connId !== undefined) connId.value = data.connId
+    if (data.filePath !== undefined) filePath.value = data.filePath
+
+    const nextSheets: Record<string, WorkbookSheetData> = {}
+    for (const sheet of data.sheets) {
+      const normalized = normalizeSheetData(sheet)
+      nextSheets[normalized.sheetName] = normalized
+    }
+    workbookSheets.value = nextSheets
+    sheetNames.value = data.sheets.map(sheet => sheet.sheetName)
+
+    const nextActive = data.activeSheet && nextSheets[data.activeSheet]
+      ? data.activeSheet
+      : sheetNames.value[0] || ''
+    activeSheet.value = nextActive
+    const active = nextSheets[nextActive]
+    columns.value = active?.columns || []
+    rowData.value = active?.rows || []
+    totalRows.value = active?.totalRows || 0
+    dirty.value = false
+    undoStack.value = []
+    redoStack.value = []
+  }
 
   function loadData(data: {
     sheetName?: string
@@ -424,10 +491,16 @@ export const useExcelStore = defineStore('excel', () => {
     if (data.filePath !== undefined) filePath.value = data.filePath
     if (data.sheetNames) sheetNames.value = data.sheetNames
     if (data.sheetName) activeSheet.value = data.sheetName
-    const trimmedRows = trimTrailingEmptyRows(data.rows)
-    columns.value = data.columns
-    rowData.value = trimmedRows
-    totalRows.value = Math.min(data.totalRows, trimmedRows.length)
+    const normalized = normalizeSheetData({
+      sheetName: data.sheetName || activeSheet.value || 'Sheet1',
+      columns: data.columns,
+      rows: data.rows,
+      totalRows: data.totalRows,
+    })
+    columns.value = normalized.columns
+    rowData.value = normalized.rows
+    totalRows.value = normalized.totalRows
+    workbookSheets.value[normalized.sheetName] = normalized
     dirty.value = data.preserveDirty ? wasDirty : false
     undoStack.value = []
     redoStack.value = []
@@ -438,6 +511,7 @@ export const useExcelStore = defineStore('excel', () => {
     filePath.value = ''
     sheetNames.value = []
     activeSheet.value = ''
+    workbookSheets.value = {}
     columns.value = []
     rowData.value = []
     totalRows.value = 0
@@ -611,6 +685,7 @@ export const useExcelStore = defineStore('excel', () => {
     filePath,
     sheetNames,
     activeSheet,
+    workbookSheets,
     dirty,
 
     // 数据
@@ -673,6 +748,8 @@ export const useExcelStore = defineStore('excel', () => {
 
     // 数据加载 / 清空
     loadData,
+    loadWorkbook,
+    syncActiveSheetCache,
     clear,
 
     // 筛选

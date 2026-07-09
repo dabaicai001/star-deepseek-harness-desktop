@@ -2264,12 +2264,16 @@ func handleExcelOpen(mgr *pool.Manager) Handler {
 			"sheetNames": sheets,
 		}
 
-		// 如果有 Sheet,返回第一个 Sheet 的数据
-		if len(sheets) > 0 {
-			data, err := adapter.ReadSheet(sheets[0], 0, 0)
-			if err == nil {
-				result["initialData"] = data
+		workbookSheets, err := adapter.ReadWorkbook()
+		if err != nil {
+			if removeErr := mgr.Remove(connID); removeErr != nil {
+				return nil, fmt.Errorf("load workbook: %w; remove adapter: %v", err, removeErr)
 			}
+			return nil, fmt.Errorf("load workbook: %w", err)
+		}
+		result["sheetsData"] = workbookSheets
+		if len(workbookSheets) > 0 {
+			result["initialData"] = workbookSheets[0]
 		}
 
 		return result, nil

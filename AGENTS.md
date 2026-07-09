@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.14.15(消除 Univer 挂载容器类名冲突,彻底解决 Excel 视图下方留白) |
+| 当前版本 | v0.15.0(完整工作簿加载,支持跨 Sheet 公式与 Office 风格自动填充) |
 
 ---
 
@@ -628,6 +628,36 @@ cargo tauri build
 - ❌ Windows 安装后桌面快捷方式图标不更新 → Windows 图标缓存问题
   - 修复:`ie4uinit.exe -show` 或重启资源管理器
 
+### 10.7 Univer 视图下方留白与 CSS 类名冲突
+
+> v0.14.6 ~ v0.14.14 曾连续从尾行数量、canvas resize、grid 模板和 flex 高度链排查 Excel 下方留白,最终在 v0.14.15 通过 Vite 真实 DOM 尺寸测量找到根因。后续 Agent 遇到类似问题必须先量尺寸,不要继续凭视觉猜高度。
+
+**最终根因**:
+
+- StarHub 原本把 Univer 挂载容器命名为 `.univer-grid`
+- Univer 0.25.1 自己也提供全局 Tailwind 工具类 `.univer-grid { display: grid }`
+- 全局样式污染挂载容器后,504px 高度被浏览器自动拆成约 `290px + 214px` 两个 grid 行
+- `[data-u-comp="workbench-layout"]` 只占第一行,第二行就是截图中的整块留白;因此继续给 Workbench 内部补 `height:100%` / `flex:1` 无法解决外层分行
+
+**修复与硬约束**:
+
+1. Univer 挂载根固定使用 `.univer-host`,禁止改回 `.univer-grid`
+2. 新增第三方组件挂载类时,必须先检查其编译 CSS 中是否存在同名全局工具类
+3. 留白问题先在 Vite dev server 注入可重复 mock 数据,同时测试默认窗口与用户截图尺寸
+4. 用 `getBoundingClientRect()` + `getComputedStyle()` 从外向内记录:
+   - StarHub shell
+   - 挂载根
+   - `[data-u-comp="workbench-layout"]`
+   - `[data-range-selector]`
+   - 数据 canvas
+5. 正确状态是挂载根与 Workbench 等高、`data-range-selector` 与数据 canvas 等高;若父层已被拆行,不要先改 canvas resize
+6. 修复后必须在浏览器截图确认网格连续铺到 Sheet 标签栏,并检查控制台无新增错误
+
+**本次实测判据(v0.14.15)**:
+
+- 修复前:`.univer-grid` 挂载根 `display:grid`,`grid-template-rows: 290px 214px`,Workbench 高 290px
+- 修复后:`.univer-host` 挂载根 `display:block`,挂载根与 Workbench 均高 504px,数据 canvas 与 `[data-range-selector]` 均高 399px
+
 ---
 
 ## 11. MVP 任务优先级
@@ -671,4 +701,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-09 (v0.14.15)*
+*最后更新: 2026-07-09 (v0.15.0)*

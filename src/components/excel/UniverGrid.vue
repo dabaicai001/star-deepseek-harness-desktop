@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { FUniver, Univer } from '@/lib/univer'
-import type { CellEdit } from '@/stores/excel'
+import type { CellEdit, WorkbookSheetData } from '@/stores/excel'
 import type { ICellData, IWorkbookData, IWorksheetData } from '@univerjs/core'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { LocaleType } from '@univerjs/core'
@@ -89,6 +89,7 @@ const viewportRowCount = ref(0)
 const sheetVersion = computed(() => [
   store.connId,
   store.activeSheet,
+  store.sheetNames.join('\u001a'),
   store.columns.join('\u001f'),
   store.rowData.length,
   store.rowData.map(row => row.join('\u001e')).join('\u001d'),
@@ -102,10 +103,10 @@ function normalizeCellValue(value: unknown): string {
   return String(value)
 }
 
-function buildCellData(): NonNullable<IWorksheetData['cellData']> {
+function buildCellData(sheet: WorkbookSheetData): NonNullable<IWorksheetData['cellData']> {
   const cellData: NonNullable<IWorksheetData['cellData']> = {}
 
-  store.columns.forEach((header, col) => {
+  sheet.columns.forEach((header, col) => {
     if (!cellData[0]) cellData[0] = {}
     cellData[0][col] = {
       v: header,
@@ -117,12 +118,14 @@ function buildCellData(): NonNullable<IWorksheetData['cellData']> {
     } as ICellData
   })
 
-  store.rowData.forEach((row, rowIndex) => {
+  sheet.rows.forEach((row, rowIndex) => {
     const sheetRow = rowIndex + 1
     row.forEach((value, col) => {
       if (value === '') return
       if (!cellData[sheetRow]) cellData[sheetRow] = {}
-      cellData[sheetRow][col] = { v: value } as ICellData
+      cellData[sheetRow][col] = value.startsWith('=')
+        ? { f: value } as ICellData
+        : { v: value } as ICellData
     })
   })
 
@@ -140,10 +143,10 @@ function computeTailRows(dataRows: number): number {
   return Math.max(3, Math.min(8, Math.ceil(dataRows * 0.05)))
 }
 
-function computeRowCount(): number {
+function computeRowCount(sheet: WorkbookSheetData): number {
   // 不能按“最后一个非空单元格”裁剪渲染行数:Excel 文件里真实存在的空数据行
   // 也必须显示行号和网格线,否则会在表格中部露出一整块纯白区域。
-  const dataRows = Math.max(store.rowData.length, store.totalRows)
+  const dataRows = Math.max(sheet.rows.length, sheet.totalRows)
   const tailRows = computeTailRows(dataRows)
   return Math.max(dataRows + 1 + tailRows, VISIBLE_MIN_ROWS)
 }
@@ -290,33 +293,46 @@ function queueLayoutRender() {
 }
 
 function buildWorkbookData(): IWorkbookData {
-  const sheetId = 'starhub-active-sheet'
-  const columnCount = Math.max(store.columns.length, 10)
-  const rowCount = computeRowCount()
+  const sheetNames = store.sheetNames.length > 0
+    ? store.sheetNames
+    : [store.activeSheet || 'Sheet1']
+  const sheets: NonNullable<IWorkbookData['sheets']> = {}
+  const sheetOrder: string[] = []
+
+  sheetNames.forEach((sheetName, index) => {
+    const sheetId = `starhub-sheet-${index}`
+    const sheet = store.workbookSheets[sheetName] || {
+      sheetName,
+      columns: sheetName === store.activeSheet ? store.columns : [],
+      rows: sheetName === store.activeSheet ? store.rowData : [],
+      totalRows: sheetName === store.activeSheet ? store.totalRows : 0,
+    }
+    sheetOrder.push(sheetId)
+    sheets[sheetId] = {
+      id: sheetId,
+      name: sheetName,
+      rowCount: computeRowCount(sheet),
+      columnCount: Math.max(sheet.columns.length, 10),
+      defaultColumnWidth: 96,
+      defaultRowHeight: 22,
+      freeze: {
+        startRow: sheetName === store.activeSheet ? store.frozenRows : 0,
+        startColumn: sheetName === store.activeSheet ? store.frozenCols : 0,
+        ySplit: sheetName === store.activeSheet ? store.frozenRows : 0,
+        xSplit: sheetName === store.activeSheet ? store.frozenCols : 0,
+      },
+      cellData: buildCellData(sheet),
+    }
+  })
+
   return {
     id: `starhub-${store.connId || 'workbook'}`,
     name: store.filePath || store.activeSheet || 'StarHub Workbook',
     appVersion: '3.0.0-alpha',
     locale: LocaleType.ZH_CN,
     styles: {},
-    sheetOrder: [sheetId],
-    sheets: {
-      [sheetId]: {
-        id: sheetId,
-        name: store.activeSheet || 'Sheet1',
-        rowCount,
-        columnCount,
-        defaultColumnWidth: 96,
-        defaultRowHeight: 22,
-        freeze: {
-          startRow: store.frozenRows,
-          startColumn: store.frozenCols,
-          ySplit: store.frozenRows,
-          xSplit: store.frozenCols,
-        },
-        cellData: buildCellData(),
-      },
-    },
+    sheetOrder,
+    sheets,
   } as IWorkbookData
 }
 
@@ -406,7 +422,9 @@ async function renderWorkbook() {
 
   univerInstance = univer
   univerAPIInstance = univerAPI
-  univerAPI.createWorkbook(buildWorkbookData())
+  const workbook = univerAPI.createWorkbook(buildWorkbookData())
+  const activeSheet = workbook.getSheetByName(store.activeSheet)
+  if (activeSheet) workbook.setActiveSheet(activeSheet)
   resizeObserver = new ResizeObserver(() => {
     if (refreshViewportRowCount()) {
       queueLayoutRender()
@@ -425,7 +443,12 @@ async function renderWorkbook() {
       syncSelectionFromUniver()
       return
     }
-    if (command.id === 'sheet.command.set-range-values' || command.id.includes('set-range')) {
+    if (
+      command.id.includes('set-range')
+      || command.id === 'sheet.command.auto-fill'
+      || command.id === 'sheet.command.copy-down'
+      || command.id === 'sheet.command.copy-right'
+    ) {
       queueSnapshotSync()
     }
   })
@@ -450,8 +473,13 @@ function activeSheetSnapshot(): Partial<IWorksheetData> | null {
   const workbook = univerAPIInstance?.getActiveWorkbook()
   const snapshot = workbook?.save() as IWorkbookData | undefined
   if (!snapshot) return null
-  const sheetId = snapshot.sheetOrder?.[0]
+  const sheetId = workbook?.getActiveSheet()?.getSheetId()
   return sheetId ? snapshot.sheets?.[sheetId] ?? null : null
+}
+
+function normalizeSnapshotCell(cell: ICellData | null | undefined): string {
+  if (typeof cell?.f === 'string' && cell.f) return cell.f
+  return normalizeCellValue(cell?.v ?? '')
 }
 
 function extractGridFromSnapshot(sheet: Partial<IWorksheetData>) {
@@ -464,7 +492,7 @@ function extractGridFromSnapshot(sheet: Partial<IWorksheetData>) {
   const rows = Array.from({ length: rowCount }, (_, rowIndex) => {
     const sheetRow = rowIndex + 1
     return Array.from({ length: columnCount }, (_, col) =>
-      normalizeCellValue(cellData[sheetRow]?.[col]?.v ?? '')
+      normalizeSnapshotCell(cellData[sheetRow]?.[col])
     )
   })
 
@@ -500,6 +528,7 @@ function syncDataFromUniver() {
     store.columns = columns
     store.setDirty(true)
   }
+  store.syncActiveSheetCache()
   window.setTimeout(() => {
     updatingStoreFromUniver = false
   }, 0)

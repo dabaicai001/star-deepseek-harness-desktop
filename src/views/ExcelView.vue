@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
-import { useExcelStore, type CellEdit } from '@/stores/excel'
+import { useExcelStore, type CellEdit, type WorkbookSheetData } from '@/stores/excel'
 import { useNotifyStore } from '@/stores/notify'
 import UniverGrid from '@/components/excel/UniverGrid.vue'
 import ExcelSheetBar from '@/components/excel/ExcelSheetBar.vue'
@@ -52,7 +52,7 @@ const rightPanelTabs = [{ key: 'ai', label: 'AI助手', icon: 'mdi-robot-outline
 const showDropOverlay = ref(false)
 let unlistenDragDrop: (() => void) | null = null
 
-type SheetPayload = { sheetName: string; columns: string[]; rows: string[][]; totalRows: number }
+type SheetPayload = WorkbookSheetData
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
@@ -100,17 +100,20 @@ async function openExcel() {
       connId: string
       filePath: string
       sheetNames: string[]
-      initialData?: { sheetName: string; columns: string[]; rows: string[][]; totalRows: number }
+      initialData?: SheetPayload
+      sheetsData?: SheetPayload[]
     }>(`${rpcPrefix.value}.open`, { filePath: asset.value.config.filePath, format: fileFormat.value })
 
-    store.loadData({
+    const sheets = result.sheetsData?.length
+      ? result.sheetsData
+      : result.initialData
+        ? [result.initialData]
+        : []
+    store.loadWorkbook({
       connId: result.connId,
       filePath: result.filePath,
-      sheetNames: result.sheetNames,
-      sheetName: result.initialData?.sheetName,
-      columns: result.initialData?.columns || [],
-      rows: result.initialData?.rows || [],
-      totalRows: result.initialData?.totalRows || 0,
+      sheets,
+      activeSheet: result.initialData?.sheetName || result.sheetNames[0],
     })
 
     if (asset.value) {
@@ -217,6 +220,7 @@ async function removeSheet(sheetName: string) {
   try {
     await sidecarRpc(`${rpcPrefix.value}.removeSheet`, { connId: store.connId, sheetName })
     store.sheetNames = store.sheetNames.filter(name => name !== sheetName)
+    delete store.workbookSheets[sheetName]
     await switchSheet(store.sheetNames[0])
     store.setDirty(true)
     notify.notify({ message: `已删除 Sheet: ${sheetName}`, color: 'success', timeout: 1800 })
@@ -235,6 +239,11 @@ async function renameSheet(oldName: string, newName: string) {
   try {
     await sidecarRpc(`${rpcPrefix.value}.renameSheet`, { connId: store.connId, oldName, newName: safeName })
     store.sheetNames = store.sheetNames.map(name => name === oldName ? safeName : name)
+    const cached = store.workbookSheets[oldName]
+    if (cached) {
+      store.workbookSheets[safeName] = { ...cached, sheetName: safeName }
+      delete store.workbookSheets[oldName]
+    }
     store.activeSheet = safeName
     store.setDirty(true)
     notify.notify({ message: `Sheet 已重命名为 ${safeName}`, color: 'success', timeout: 1800 })

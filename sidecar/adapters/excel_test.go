@@ -52,6 +52,59 @@ func TestExcelReadSheetKeepsFormulaText(t *testing.T) {
 	}
 }
 
+func TestExcelReadWorkbookReturnsAllSheetsAndCrossSheetFormula(t *testing.T) {
+	adapter, err := NewExcelAdapter(&ExcelConnInfo{})
+	if err != nil {
+		t.Fatalf("NewExcelAdapter failed: %v", err)
+	}
+	defer adapter.Close()
+
+	if err := adapter.f.SetSheetName("Sheet1", "主表"); err != nil {
+		t.Fatalf("rename sheet failed: %v", err)
+	}
+	if _, err := adapter.f.NewSheet("q区县"); err != nil {
+		t.Fatalf("create lookup sheet failed: %v", err)
+	}
+	if err := adapter.f.SetCellValue("主表", "A1", "result"); err != nil {
+		t.Fatalf("set main header failed: %v", err)
+	}
+	if err := adapter.f.SetCellFormula("主表", "A2", "VLOOKUP(B2,q区县!$A$1:$B$2,2,FALSE)"); err != nil {
+		t.Fatalf("set cross-sheet formula failed: %v", err)
+	}
+	if err := adapter.f.SetCellValue("主表", "B2", "310114"); err != nil {
+		t.Fatalf("set lookup value failed: %v", err)
+	}
+	if err := adapter.f.SetCellValue("q区县", "A1", "code"); err != nil {
+		t.Fatalf("set lookup header failed: %v", err)
+	}
+	if err := adapter.f.SetCellValue("q区县", "B1", "name"); err != nil {
+		t.Fatalf("set lookup header failed: %v", err)
+	}
+	if err := adapter.f.SetCellValue("q区县", "A2", "310114"); err != nil {
+		t.Fatalf("set lookup row failed: %v", err)
+	}
+	if err := adapter.f.SetCellValue("q区县", "B2", "嘉定区"); err != nil {
+		t.Fatalf("set lookup row failed: %v", err)
+	}
+
+	sheets, err := adapter.ReadWorkbook()
+	if err != nil {
+		t.Fatalf("ReadWorkbook failed: %v", err)
+	}
+	if len(sheets) != 2 {
+		t.Fatalf("sheet count mismatch: want 2, got %d", len(sheets))
+	}
+	if sheets[0].SheetName != "主表" || sheets[1].SheetName != "q区县" {
+		t.Fatalf("sheet order mismatch: %#v", sheets)
+	}
+	if got := sheets[0].Rows[0][0]; got != "=VLOOKUP(B2,q区县!$A$1:$B$2,2,FALSE)" {
+		t.Fatalf("cross-sheet formula mismatch: got %q", got)
+	}
+	if got := sheets[1].Rows[0][1]; got != "嘉定区" {
+		t.Fatalf("lookup sheet data mismatch: got %q", got)
+	}
+}
+
 func TestExcelInsertDeleteRowsAndColumns(t *testing.T) {
 	adapter, err := NewExcelAdapter(&ExcelConnInfo{})
 	if err != nil {

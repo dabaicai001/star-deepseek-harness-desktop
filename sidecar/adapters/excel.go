@@ -99,6 +99,21 @@ func (a *ExcelAdapter) GetSheetNames() []string {
 	return a.f.GetSheetList()
 }
 
+// ReadWorkbook 读取工作簿内的全部 Sheet。
+// Univer 的跨 Sheet 公式计算要求所有被引用 Sheet 同时存在于前端工作簿中。
+func (a *ExcelAdapter) ReadWorkbook() ([]SheetData, error) {
+	sheetNames := a.GetSheetNames()
+	sheets := make([]SheetData, 0, len(sheetNames))
+	for _, sheetName := range sheetNames {
+		data, err := a.ReadSheet(sheetName, 0, 0)
+		if err != nil {
+			return nil, fmt.Errorf("read workbook sheet %q: %w", sheetName, err)
+		}
+		sheets = append(sheets, *data)
+	}
+	return sheets, nil
+}
+
 // ReadSheet 读取 Sheet 数据（分页）
 // offset/limit 为 0 表示返回全部（offset 基于数据行，不含标题行）
 //
