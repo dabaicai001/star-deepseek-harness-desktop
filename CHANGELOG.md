@@ -15,6 +15,13 @@
 
 ---
 
+## [0.14.13] - 2026-07-09
+
+### 修复
+- 🐛 fix(excel): 修复 Excel 视图下方大面积留白。Univer 0.25.1 用 Tailwind 任意值语法写的 grid 模板类(`univer-grid-cols-[auto_1fr_auto]`、`univer-grid-rows-[100%]`、`univer-grid-rows-[auto_1fr]`、`univer-grid-rows-[auto_1fr_auto]`)在 `@univerjs/design` 编译产物里被 Tailwind JIT 漏掉,导致 `Workbench` 两层 grid 退化成单行单列,`[data-range-selector]` 拿不到 `1fr` 那行的高度,只能缩到 canvas 自身的内容高度(约 10 行)。`UniverGrid.vue` 增加 `:deep()` 兜底,把缺失的 `grid-template-*` 与右侧栏 `z-index: 100` 补回去,canvas 现在能跟着窗口撑满到 Sheet 标签条上方。
+
+---
+
 ## [0.14.12] - 2026-07-09
 
 ### 优化

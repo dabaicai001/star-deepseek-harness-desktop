@@ -591,9 +591,44 @@ watch(sheetVersion, () => {
   background-color: var(--excel-grid-bg) !important;
 }
 
+/* ------------------------------------------------------------
+   Univer 0.25.1 Tailwind 任意值 grid 模板类的兜底
+   这些类在 node_modules/@univerjs/design/lib/index.css 中没有被
+   Tailwind JIT 编译(grid-cols-[auto_1fr_auto] /
+   grid-rows-[100%] / grid-rows-[auto_1fr] 等),导致整个
+   Workbench 的 grid 布局塌掉:
+   - 左右侧栏、中间区被堆在单列而不是 auto 1fr auto
+   - 列头与 data-range-selector 没有 1fr 那行,挂载点只能拿到 canvas
+     自身的内容高度(10 行 ≈ 220px),下方一大片空白
+   这里用属性选择器把缺失的 grid-template-* 补回去。
+   ------------------------------------------------------------ */
+:deep(.univer-grid-cols-\[auto_1fr_auto\]) {
+  grid-template-columns: auto 1fr auto !important;
+}
+
+:deep(.univer-grid-rows-\[100%\]) {
+  grid-template-rows: 100% !important;
+}
+
+:deep(.univer-grid-rows-\[auto_1fr\]) {
+  grid-template-rows: auto 1fr !important;
+}
+
+:deep(.univer-grid-rows-\[auto_1fr_auto\]) {
+  grid-template-rows: auto 1fr auto !important;
+}
+
+/* 右侧栏 z-index 兜底(原 Tailwind 任意值类 univer-z-[100] 也没被编译) */
+:deep([data-u-comp="right-sidebar"]) {
+  z-index: 100 !important;
+}
+
 /* 画布挂载点:网格线未覆盖的区域会显示此背景 */
 :deep([data-range-selector]) {
   background-color: var(--excel-grid-bg) !important;
+  /* 显式保证 data-range-selector 占满父 grid 的 1fr 行 */
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 画布元素本身(透明,但兜底设背景) */
