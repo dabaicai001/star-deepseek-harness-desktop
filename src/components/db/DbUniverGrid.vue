@@ -454,7 +454,7 @@ async function renderGrid() {
     // 比 --line-2 明显一档并带主青色调,既能在深色背景上识别单元格边界,
     // 又跟面板分隔线形成层次。
     worksheet.setHiddenGridlines(false)
-    worksheet.setGridLinesColor(cssVar('--gridline', 'rgba(93, 214, 214, 0.22)'))
+    worksheet.setGridLinesColor(cssVar('--gridline', 'rgba(93, 214, 214, 0.42)'))
   })
   workbook.setEditable(props.editable)
 
