@@ -44,6 +44,7 @@ const sidebarDragging = ref(false)
 const loadTokens = ref<Record<number, number>>({})
 const searchTimers = new Map<number, ReturnType<typeof setTimeout>>()
 const REDIS_SCAN_PAGE_SIZE = 120
+const REDIS_SCAN_MAX_ROUNDS = 10_000
 
 onBeforeUnmount(() => {
   searchTimers.forEach(timer => clearTimeout(timer))
@@ -235,21 +236,27 @@ function formatDbSize(db: number): string {
 }
 
 // ─── Actions ───
+function normalizeScanMatch(query: string): string {
+  const match = query.trim()
+  if (!match) return '*'
+  if (/[*?[]/.test(match)) return match
+  return `*${match}*`
+}
+
 async function loadDbKeys(db: number, append = false) {
   const state = getDbState(db)
-  if (state.loading) return
   const token = (loadTokens.value[db] ?? 0) + 1
   loadTokens.value = { ...loadTokens.value, [db]: token }
   state.loading = true
   try {
     let cursorParam = append ? state.cursor : 0
-    const matchParam = state.scanMatch || '*'
+    const matchParam = normalizeScanMatch(state.scanMatch)
     const collected: RedisKeyInfo[] = []
     let nextCursor = cursorParam
     let rounds = 0
 
-    // Redis SCAN can legally return an empty page with a non-zero cursor.
-    // Keep scanning briefly so the browser does not show a false empty state.
+    // SCAN MATCH only filters each cursor page. Continue automatically so a
+    // fuzzy search cannot miss matches that happen to live on later pages.
     do {
       const result = await dbService.redisScan(props.connId, cursorParam, matchParam, REDIS_SCAN_PAGE_SIZE)
       if (loadTokens.value[db] !== token) return
@@ -257,7 +264,7 @@ async function loadDbKeys(db: number, append = false) {
       nextCursor = result.cursor
       cursorParam = nextCursor
       rounds++
-    } while (collected.length === 0 && nextCursor !== 0 && rounds < 6)
+    } while (nextCursor !== 0 && rounds < REDIS_SCAN_MAX_ROUNDS)
 
     const existing = append ? state.keys : []
     const seen = new Set(existing.map(item => item.key))
@@ -293,8 +300,7 @@ async function onDbClick(db: number) {
 
   // Switch to new DB
   emit('switch-db', db)
-  expandedDbs.value.add(db)
-  expandedDbs.value = new Set(expandedDbs.value)
+  expandedDbs.value = new Set([db])
 }
 
 async function onDbSearch(db: number) {
@@ -344,13 +350,12 @@ async function reloadCurrentDb() {
 defineExpose({ loadKeys: reloadCurrentDb })
 
 watch(() => props.currentDb, async (db) => {
-  expandedDbs.value.add(db)
-  expandedDbs.value = new Set(expandedDbs.value)
+  expandedDbs.value = new Set([db])
   const state = getDbState(db)
   if (state.keys.length === 0) {
     await loadDbKeys(db)
   }
-})
+}, { immediate: true })
 
 // ─── Context Menus ───
 function closeCtxMenu() {
@@ -435,7 +440,7 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
               <input
                 class="cyber-input search-input"
                 v-model="getDbState(db - 1).scanMatch"
-                placeholder="Pattern..."
+                placeholder="模糊搜索..."
                 @input="scheduleDbSearch(db - 1)"
                 @keydown.enter.prevent="onDbSearch(db - 1)"
               />
