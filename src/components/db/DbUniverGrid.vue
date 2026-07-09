@@ -2,7 +2,7 @@
 import type { FUniver, Univer } from '@/lib/univer'
 import type { ColumnInfo, ColumnMeta } from '@/types/db'
 import type { ICellData, IWorkbookData, IWorksheetData } from '@univerjs/core'
-import { CellValueType, LocaleType } from '@univerjs/core'
+import { CellValueType, HorizontalAlign, LocaleType, VerticalAlign } from '@univerjs/core'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
 import UniverPresetSheetsCoreZhCN from '@univerjs/preset-sheets-core/locales/zh-CN'
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -67,10 +67,10 @@ function cellType(value: unknown): CellValueType {
 }
 
 function headerLabel(column: ColumnInfo): string {
-  const sortMark = props.sortColumn === column.name
-    ? props.sortDirection === 'DESC' ? '▼' : '▲'
-    : '↕'
-  return `${column.name}  ·  ${column.type}  ${sortMark}`
+  // 表头只展示字段名。字段类型、可空、键、默认值等元信息
+  // 都已聚合在 hover tooltip (headerTooltipText) 里,不再拼进表头。
+  // 当前排序方向通过单元格背景色 + 文字色 (buildHeaderCell) 表达。
+  return column.name
 }
 
 function columnMeta(columnIndex: number): ColumnMeta | undefined {
@@ -98,34 +98,57 @@ function headerTooltipText(columnIndex: number): string {
 
 function buildHeaderCell(column: ColumnInfo): ICellData {
   const isSorted = props.sortColumn === column.name
+  const directionMark = isSorted
+    ? props.sortDirection === 'DESC' ? '  ↓' : '  ↑'
+    : ''
   return {
-    v: headerLabel(column),
+    v: `${headerLabel(column)}${directionMark}`,
     t: CellValueType.STRING,
     s: {
-      bl: 1,
+      // bl:0 取消加粗 — 等宽字符 + 颜色对比已经够清晰,
+      // 加粗反而跟 data cell 字重失衡,观感更碎。
+      bl: 0,
       cl: {
-        rgb: cssVar(isSorted ? '--cyan' : '--text', isSorted ? '#5dd6d6' : '#dce7f3'),
+        rgb: cssVar(isSorted ? '--cyan' : '--text-2', isSorted ? '#5dd6d6' : '#9aa8ba'),
       },
       bg: {
-        rgb: cssVar(isSorted ? '--active-cyan' : '--panel-solid-2', isSorted ? 'rgba(93, 214, 214, 0.11)' : '#152032'),
+        rgb: cssVar(
+          isSorted ? '--active-cyan' : '--panel-solid-2',
+          isSorted ? 'rgba(93, 214, 214, 0.11)' : '#152032',
+        ),
       },
+      // 表头字号比数据小一档,跟数据形成清晰层级。
+      fs: 11,
+      // 等宽字体,字段名 / 数字 / 排序箭头视觉统一。
+      ff: "'JetBrains Mono', 'Fira Code', monospace",
+      // 水平居中,避免字段名 + ↑/↓ 拼起来看着偏左。
+      ht: HorizontalAlign.CENTER,
+      vt: VerticalAlign.MIDDLE,
+      // 上下多 2px 内边距,留出呼吸空间。
+      pd: { t: 4, b: 4, l: 8, r: 8 },
     },
   } as ICellData
 }
 
 function buildValueCell(value: unknown, dirty = false): ICellData {
   const isNull = value === null || value === undefined
+  const isNumber = typeof value === 'number'
   return {
     v: serializeCell(value),
     t: cellType(value),
     s: {
       cl: {
-        rgb: cssVar(isNull ? '--muted' : '--text', isNull ? '#607082' : '#dce7f3'),
+        rgb: cssVar(isNull ? '--muted' : (isNumber ? '--cyan' : '--text'), isNull ? '#607082' : (isNumber ? '#5dd6d6' : '#dce7f3')),
       },
       bg: {
         rgb: cssVar(dirty ? '--active-cyan' : '--panel-solid', dirty ? 'rgba(93, 214, 214, 0.11)' : '#101822'),
       },
       it: isNull ? 1 : 0,
+      // 数字右对齐,文本左对齐 — 数据库网格的标准做法,方便纵向看数字位数。
+      ht: isNumber ? HorizontalAlign.RIGHT : HorizontalAlign.LEFT,
+      vt: VerticalAlign.MIDDLE,
+      // 跟表头一致的横向内边距,让数据 cell 跟表头 cell 在网格线两侧对称。
+      pd: { t: 2, b: 2, l: 8, r: 8 },
     },
   } as ICellData
 }
@@ -148,10 +171,12 @@ function buildCellData(): NonNullable<IWorksheetData['cellData']> {
 function columnWidth(column: ColumnInfo, columnIndex: number): number {
   const samples = props.rows.slice(0, 40).map(row => serializeCell(row[columnIndex]))
   const longest = Math.max(
-    headerLabel(column).length,
+    // 只按字段名 + 数据样本算宽度,不再包含已被 tooltip 取代的类型/排序字符。
+    column.name.length,
     ...samples.map(value => String(value).length),
   )
-  return Math.max(88, Math.min(280, longest * 8 + 28))
+  // 下限 88 容纳 "field_name  ↑" + 留白;上限 240 防止长文本列炸开。
+  return Math.max(96, Math.min(240, longest * 8 + 32))
 }
 
 function buildWorkbookData(): IWorkbookData {
@@ -381,6 +406,11 @@ async function renderGrid() {
   props.columns.forEach((column, index) => {
     worksheet.setColumnWidth(index, columnWidth(column, index))
   })
+  // 数据库结果区需要看到行/列分割线 — Univer 默认会把它们关掉以模拟
+  // "无格线 Excel" 视图。这里强制开,颜色用 StarHub 的低饱和分隔线 token,
+  // 与 cyber.css 里 --line-2 保持一致,视觉上像控制台的数据面板而不是白表格。
+  worksheet.setHiddenGridlines(false)
+  worksheet.setGridLinesColor(cssVar('--line-2', 'rgba(122, 156, 185, 0.18)'))
 
   eventDisposables.push(
     univerAPI.addEvent(univerAPI.Event.BeforeSheetEditStart, params => {
