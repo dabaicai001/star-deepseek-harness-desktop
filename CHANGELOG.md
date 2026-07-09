@@ -15,6 +15,13 @@
 
 ---
 
+## [0.14.14] - 2026-07-09
+
+### 修复
+- 🐛 fix(excel): 继续修 Excel 视图下方留白(v0.14.13 的 grid 模板兜底只让数据多 1 行+2 列,远不够)。v0.14.14 直接放弃 grid 兜底,改用 flexbox 强制撑开 `[data-u-comp="workbench-layout"]` → 中间 section → `[data-range-selector]` 的整条高度链。`UniverGrid.vue` 给 `workbench-layout`、`.univer-grid`、中间 section、`data-range-selector` 分别加 `display: flex` / `flex-direction: column|row` / `flex: 1 1 0` / `min-height: 0`,让 canvas 的 mountPoint 直接填满到 StarHub 状态栏上方,不依赖 Tailwind 任意值 grid 模板。
+
+---
+
 ## [0.14.13] - 2026-07-09
 
 ### 修复

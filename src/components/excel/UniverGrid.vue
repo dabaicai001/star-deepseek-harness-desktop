@@ -592,43 +592,76 @@ watch(sheetVersion, () => {
 }
 
 /* ------------------------------------------------------------
-   Univer 0.25.1 Tailwind 任意值 grid 模板类的兜底
-   这些类在 node_modules/@univerjs/design/lib/index.css 中没有被
-   Tailwind JIT 编译(grid-cols-[auto_1fr_auto] /
-   grid-rows-[100%] / grid-rows-[auto_1fr] 等),导致整个
-   Workbench 的 grid 布局塌掉:
-   - 左右侧栏、中间区被堆在单列而不是 auto 1fr auto
-   - 列头与 data-range-selector 没有 1fr 那行,挂载点只能拿到 canvas
-     自身的内容高度(10 行 ≈ 220px),下方一大片空白
-   这里用属性选择器把缺失的 grid-template-* 补回去。
+   Univer 0.25.1 Workbench 布局兜底
+   v0.14.13 用了 grid 模板兜底,效果有限(canvas 还是按内容高度算,
+   下方留白依旧)。这次改用 flexbox 强制撑开,绕过 grid 模板失效的
+   问题:
+   - workbench-layout(根)→ flex column,占满父容器
+   - 里面 3 个区域(header / content / footer)→ header/footer auto,
+     content flex:1
+   - content 里的 .univer-grid → flex row,3 列
+   - 3 列中间那个 section(包含列头 + data-range-selector)
+     → flex column,header auto,data-range-selector flex:1
+   - data-range-selector → 直接 flex:1 占满父级
+   这样不依赖 Tailwind 任意值 grid 模板,直接走标准 flex 链路。
    ------------------------------------------------------------ */
-:deep(.univer-grid-cols-\[auto_1fr_auto\]) {
-  grid-template-columns: auto 1fr auto !important;
+:deep([data-u-comp="workbench-layout"]) {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  position: relative !important;
 }
 
-:deep(.univer-grid-rows-\[100%\]) {
-  grid-template-rows: 100% !important;
+/* workbench-layout 内的"content"section(直接子)需要 flex:1 */
+:deep([data-u-comp="workbench-layout"] > section) {
+  display: flex !important;
+  flex: 1 1 0 !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
 }
 
-:deep(.univer-grid-rows-\[auto_1fr\]) {
-  grid-template-rows: auto 1fr !important;
+/* content section 里的 .univer-grid:横向 flex 3 列 */
+:deep([data-u-comp="workbench-layout"] .univer-grid) {
+  display: flex !important;
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
 }
 
-:deep(.univer-grid-rows-\[auto_1fr_auto\]) {
-  grid-template-rows: auto 1fr auto !important;
+/* 左右侧栏:固定 auto 宽度,占满高度 */
+:deep([data-u-comp="left-sidebar"]),
+:deep([data-u-comp="right-sidebar"]) {
+  flex: 0 0 auto !important;
+  height: 100% !important;
 }
 
-/* 右侧栏 z-index 兜底(原 Tailwind 任意值类 univer-z-[100] 也没被编译) */
+/* 中间列(flex 1):纵向 flex,列头 auto + data-range-selector 撑满 */
+:deep([data-u-comp="workbench-layout"] .univer-grid > section) {
+  display: flex !important;
+  flex: 1 1 0 !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+}
+
+/* 列头(header):高度 auto */
+:deep([data-u-comp="workbench-layout"] .univer-grid > section > header) {
+  flex: 0 0 auto !important;
+}
+
+/* 数据区挂载点:撑满父级剩余高度 */
+:deep([data-range-selector]) {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  display: block !important;
+  position: relative !important;
+  background-color: var(--excel-grid-bg) !important;
+  overflow: hidden !important;
+}
+
+/* 右侧栏 z-index 兜底 */
 :deep([data-u-comp="right-sidebar"]) {
   z-index: 100 !important;
-}
-
-/* 画布挂载点:网格线未覆盖的区域会显示此背景 */
-:deep([data-range-selector]) {
-  background-color: var(--excel-grid-bg) !important;
-  /* 显式保证 data-range-selector 占满父 grid 的 1fr 行 */
-  min-height: 0;
-  overflow: hidden;
 }
 
 /* 画布元素本身(透明,但兜底设背景) */
