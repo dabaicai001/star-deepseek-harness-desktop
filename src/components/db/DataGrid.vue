@@ -9,17 +9,18 @@
  * - 默认 pageSize 1000,可在 toolbar 切换 [100, 500, 1000, 2000, 5000]
  * - 显示总行数(从 props.totalRows 拿,没传就显示 result.rows.length)
  * - 单击列名排序(触发 sort-change)
- * - editable=true + pkCols 非空时,行内编辑(emit cell-edit)
+ * - editable=true + pkCols 非空时,Univer 单元格编辑进入 dirty 集合并批量保存
  */
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, defineAsyncComponent, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
-import type { QueryResult, ColumnInfo } from '@/types/db'
+import type { QueryResult } from '@/types/db'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 
 const { t } = useI18n()
 const themeStore = useThemeStore()
+const DbUniverGrid = defineAsyncComponent(() => import('@/components/db/DbUniverGrid.vue'))
 
 const props = withDefaults(defineProps<{
   result: QueryResult | null
@@ -55,7 +56,6 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  cellEdit: [row: number, col: string, value: unknown]
   rowDelete: [row: number]
   export: [format: string]
   'export-excel': [columns: string[], rows: string[][]]
@@ -68,40 +68,19 @@ const emit = defineEmits<{
   saved: []
 }>()
 
-// Row selection
-const selectedRows = ref<Set<number>>(new Set())
-
 // Row context menu
 const rowCtxMenu = ref<{ x: number; y: number; rowIdx: number; items: MenuItem[] } | null>(null)
-
-function toggleRow(e: MouseEvent, rowIdx: number) {
-  let set = new Set(selectedRows.value)
-  if (e.ctrlKey || e.metaKey) {
-    if (set.has(rowIdx)) set.delete(rowIdx)
-    else set.add(rowIdx)
-  } else {
-    if (set.has(rowIdx) && set.size === 1) {
-      set.clear()
-    } else {
-      set = new Set([rowIdx])
-    }
-  }
-  selectedRows.value = set
-}
 
 function closeRowCtxMenu() {
   rowCtxMenu.value = null
 }
 
-function onRowContextMenu(e: MouseEvent, rowIdx: number) {
-  if (!selectedRows.value.has(rowIdx)) {
-    toggleRow(e, rowIdx)
-  }
+function onUniverRowContext(rowIdx: number, x: number, y: number) {
   const items: MenuItem[] = [
     { type: 'item', label: t('db.copyInsert'), icon: 'mdi-content-copy', onClick: () => copyInsert(rowIdx) },
     { type: 'item', label: t('db.deleteRow'), icon: 'mdi-delete', danger: true, onClick: () => deleteRow(rowIdx) },
   ]
-  rowCtxMenu.value = { x: e.clientX, y: e.clientY, rowIdx, items }
+  rowCtxMenu.value = { x, y, rowIdx, items }
 }
 
 function copyInsert(rowIdx: number) {
@@ -263,19 +242,6 @@ function toggleSort(col: string) {
   }
 }
 
-function formatCell(value: unknown): string {
-  if (value === null || value === undefined) return 'NULL'
-  if (typeof value === 'object') return JSON.stringify(value, null, 2)
-  return String(value)
-}
-
-function getCellClass(value: unknown): string {
-  if (value === null || value === undefined) return 'cell-null'
-  if (typeof value === 'number') return 'cell-number'
-  if (typeof value === 'boolean') return 'cell-boolean'
-  return 'cell-text'
-}
-
 function prevPage() {
   if ((props.page || 0) > 0) emit('page-change', (props.page || 0) - 1)
 }
@@ -304,6 +270,7 @@ function handleExportExcel() {
 const dirtyCells = ref<Map<string, { col: string; originalValue: unknown; newValue: unknown }>>(new Map())
 
 const hasDirty = computed(() => dirtyCells.value.size > 0)
+const selectedActionColumn = ref('')
 
 function dirtyKey(rowIdx: number, col: string) {
   return `${rowIdx}::${col}`
@@ -311,10 +278,6 @@ function dirtyKey(rowIdx: number, col: string) {
 
 function getDirtyCell(rowIdx: number, col: string) {
   return dirtyCells.value.get(dirtyKey(rowIdx, col))
-}
-
-function isDirty(rowIdx: number, col: string) {
-  return !!getDirtyCell(rowIdx, col)
 }
 
 function valuesEqual(a: unknown, b: unknown) {
@@ -336,103 +299,29 @@ function stageCellChange(rowIdx: number, col: string, originalValue: unknown, ne
   dirtyCells.value = new Map(dirtyCells.value)
 }
 
-// 内联编辑(保留给短文本直接双击编辑)
-const editing = ref<{ row: number; col: string } | null>(null)
-const editValue = ref<string>('')
+const displayedRows = computed(() => pagedRows.value.map((row, rowIdx) =>
+  row.map((cell, colIdx) =>
+    getDisplayedCellValue(rowIdx, columns.value[colIdx]?.name || '', cell)
+  )
+))
 
-// ─── 单元格编辑器弹窗 ───
-const cellPopover = ref<{
-  row: number
-  col: string
-  colIdx: number
-  value: string
-  originalValue: unknown
-  colType: string
-  readOnly: boolean
-} | null>(null)
-const cellPopoverTextarea = ref<HTMLTextAreaElement | null>(null)
+const dirtyCoordinates = computed(() => Array.from(dirtyCells.value.keys()).flatMap(key => {
+  const [rowText, column] = key.split('::')
+  const columnIndex = columns.value.findIndex(item => item.name === column)
+  return columnIndex >= 0 ? [`${Number(rowText)}:${columnIndex}`] : []
+}))
 
-function commitCellPopover() {
-  if (!cellPopover.value) return
-  const { row, col, colIdx, value, originalValue } = cellPopover.value
-  let newVal: unknown = value
-  const colDef = columns.value[colIdx]
-  if (colDef) {
-    const t = (colDef.type || '').toLowerCase()
-    if (/int|decimal|numeric|float|double|real/.test(t)) {
-      const n = Number(value)
-      if (!isNaN(n)) newVal = n
-    } else if (/bool/.test(t)) {
-      if (value === 'true' || value === '1') newVal = true
-      else if (value === 'false' || value === '0') newVal = false
-    }
+function onUniverCellChange(rowIdx: number, col: string, value: unknown) {
+  const columnIndex = columns.value.findIndex(column => column.name === col)
+  const originalValue = pagedRows.value[rowIdx]?.[columnIndex]
+  stageCellChange(rowIdx, col, originalValue, value)
+}
+
+watch(columns, currentColumns => {
+  if (!currentColumns.some(column => column.name === selectedActionColumn.value)) {
+    selectedActionColumn.value = currentColumns[0]?.name || ''
   }
-  stageCellChange(row, col, originalValue, newVal)
-  cellPopover.value = null
-}
-
-function cancelCellPopover() {
-  cellPopover.value = null
-}
-
-function copyCellContent() {
-  if (!cellPopover.value) return
-  navigator.clipboard.writeText(cellPopover.value.value).catch(() => {})
-}
-
-function onCellPopoverKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    cancelCellPopover()
-  } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-    e.preventDefault()
-    commitCellPopover()
-  }
-}
-
-function startEdit(e: MouseEvent, rowIdx: number, col: string, currentValue: unknown) {
-  const colIdx = columns.value.findIndex(c => c.name === col)
-  if (colIdx < 0) return
-  const staged = getDirtyCell(rowIdx, col)
-  const displayedValue = staged ? staged.newValue : currentValue
-  cellPopover.value = {
-    row: rowIdx, col, colIdx,
-    value: displayedValue == null ? '' : String(displayedValue),
-    originalValue: staged ? staged.originalValue : currentValue,
-    colType: columns.value[colIdx].type || '',
-    readOnly: !props.editable,
-  }
-  requestAnimationFrame(() => {
-    cellPopoverTextarea.value?.focus()
-  })
-}
-
-function commitEdit() {
-  if (!editing.value) return
-  const { row, col } = editing.value
-  let newVal: unknown = editValue.value
-  const colDef = columns.value.find(c => c.name === col)
-  if (colDef) {
-    const t = (colDef.type || '').toLowerCase()
-    if (/int|decimal|numeric|float|double|real/.test(t)) {
-      const n = Number(editValue.value)
-      if (!isNaN(n)) newVal = n
-    } else if (/bool/.test(t)) {
-      if (editValue.value === 'true' || editValue.value === '1') newVal = true
-      else if (editValue.value === 'false' || editValue.value === '0') newVal = false
-    }
-  }
-  // 获取原始值
-  const currentRow = pagedRows.value[row]
-  const colIdx = columns.value.findIndex(c => c.name === col)
-  const originalValue = currentRow ? currentRow[colIdx] : undefined
-  // 值没变则不标记 dirty
-  stageCellChange(row, col, originalValue, newVal)
-  editing.value = null
-}
-
-function cancelEdit() {
-  editing.value = null
-}
+}, { immediate: true })
 
 function saveAll() {
   if (dirtyCells.value.size === 0) return
@@ -468,6 +357,33 @@ defineExpose({ clearDirty, hasDirty })
         </span>
       </div>
       <div class="toolbar-right">
+        <div v-if="columns.length > 0" class="column-action-tools">
+          <select v-model="selectedActionColumn" class="cyber-select column-action-select" title="当前列">
+            <option v-for="column in columns" :key="column.name" :value="column.name">
+              {{ column.name }} · {{ column.type }}
+            </option>
+          </select>
+          <button
+            class="action-btn"
+            :class="{ active: sortColumn === selectedActionColumn }"
+            @click="toggleSort(selectedActionColumn)"
+            :title="t('db.sort', '排序')"
+          >
+            <v-icon size="14">
+              {{ sortColumn === selectedActionColumn && sortDir === 'DESC' ? 'mdi-sort-descending' : 'mdi-sort-ascending' }}
+            </v-icon>
+          </button>
+          <button
+            class="action-btn"
+            :class="{ active: !!columnFilters?.[selectedActionColumn] }"
+            @click="openFilterPopover($event, selectedActionColumn)"
+            :title="t('common.filter', '筛选')"
+          >
+            <v-icon size="14">
+              {{ columnFilters?.[selectedActionColumn] ? 'mdi-filter' : 'mdi-filter-outline' }}
+            </v-icon>
+          </button>
+        </div>
         <!-- 客户端过滤(自定义 SQL 模式) -->
         <input
           v-if="!isServerMode"
@@ -529,68 +445,17 @@ defineExpose({ clearDirty, hasDirty })
     </div>
 
     <template v-else>
-      <div class="grid-scroll">
-        <table class="grid-table" :style="{ fontSize: themeStore.fontSize + 'px' }">
-          <thead>
-            <tr>
-              <th class="col-index" style="cursor: pointer;">#</th>
-              <th
-                v-for="col in columns"
-                :key="col.name"
-                class="col-header"
-                :class="{ sorted: sortColumn === col.name, desc: sortDir === 'DESC' }"
-              >
-                <div class="col-header-inner" @click="toggleSort(col.name)">
-                  <span class="col-name">{{ col.name }}</span>
-                  <span class="col-type">{{ col.type }}</span>
-                  <v-icon v-if="sortColumn === col.name" size="10" class="sort-icon">
-                    {{ sortDir === 'ASC' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}
-                  </v-icon>
-                  <span v-if="editable && pkCols.includes(col.name)" class="pk-marker" :title="t('db.primaryKey')">🔑</span>
-                </div>
-                <button
-                  class="col-filter-btn"
-                  :class="{ active: columnFilters?.[col.name] }"
-                  @click.stop="openFilterPopover($event, col.name)"
-                  :title="t('common.filter', '筛选')"
-                >
-                  <v-icon size="10">{{ columnFilters?.[col.name] ? 'mdi-filter' : 'mdi-filter-outline' }}</v-icon>
-                </button>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(row, rowIdx) in pagedRows"
-              :key="rowIdx"
-              :class="{ 'row-selected': selectedRows.has(rowIdx) }"
-              @contextmenu.prevent="onRowContextMenu($event, rowIdx)"
-            >
-              <td
-                class="col-index"
-                :class="{ selected: selectedRows.has(rowIdx) }"
-                @click="toggleRow($event, rowIdx)"
-                style="cursor: pointer;"
-              >{{ (page || 0) * (pageSize || 1000) + rowIdx + 1 }}</td>
-              <td
-                v-for="(cell, colIdx) in row"
-                :key="colIdx"
-                :class="[
-                  getCellClass(getDisplayedCellValue(rowIdx, columns[colIdx].name, cell)),
-                  { editable: editable, dirty: isDirty(rowIdx, columns[colIdx].name) }
-                ]"
-                class="cell"
-                @dblclick="startEdit($event, rowIdx, columns[colIdx].name, cell)"
-              >
-                <span
-                  class="cell-value"
-                  :title="formatCell(getDisplayedCellValue(rowIdx, columns[colIdx].name, cell))"
-                >{{ formatCell(getDisplayedCellValue(rowIdx, columns[colIdx].name, cell)) }}</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <DbUniverGrid
+        :columns="columns"
+        :rows="displayedRows"
+        :page-offset="(page || 0) * (pageSize || 1000)"
+        :editable="editable"
+        :dirty-cells="dirtyCoordinates"
+        :style="{ fontSize: themeStore.fontSize + 'px' }"
+        @cell-change="onUniverCellChange"
+        @sort-change="toggleSort"
+        @row-context="onUniverRowContext"
+      />
 
       <!-- Column filter popover -->
       <teleport to="body">
@@ -631,54 +496,6 @@ defineExpose({ clearDirty, hasDirty })
         class="col-filter-backdrop"
         @click="closeFilterPopover"
       />
-
-      <!-- Cell editor popover -->
-      <teleport to="body">
-        <div
-          v-if="cellPopover"
-          class="cell-popover-backdrop"
-          @click.self="cancelCellPopover"
-        >
-          <div
-            class="cell-popover"
-            @keydown="onCellPopoverKeydown"
-          >
-            <div class="cell-popover-header">
-              <span class="cell-popover-col">{{ cellPopover.col }}</span>
-              <span class="cell-popover-type">{{ cellPopover.colType }}</span>
-              <span v-if="cellPopover.readOnly" class="cell-popover-readonly">只读</span>
-              <div class="cell-popover-header-actions">
-                <button class="cell-popover-copy" @click="copyCellContent" title="复制">
-                  <v-icon size="14">mdi-content-copy</v-icon>
-                </button>
-              </div>
-            </div>
-            <div class="cell-popover-body">
-              <textarea
-                ref="cellPopoverTextarea"
-                v-model="cellPopover.value"
-                class="cell-popover-textarea"
-                :readonly="cellPopover.readOnly"
-                :placeholder="cellPopover.readOnly ? '' : '输入值... (NULL 表示空值)'"
-                spellcheck="false"
-              />
-            </div>
-            <div class="cell-popover-footer">
-              <span class="cell-popover-hint">
-                <kbd>Ctrl</kbd>+<kbd>Enter</kbd> 保存 · <kbd>Esc</kbd> 取消
-              </span>
-              <div class="cell-popover-actions">
-                <button class="cyber-btn-secondary cell-popover-btn" @click="cancelCellPopover">取消</button>
-                <button
-                  v-if="!cellPopover.readOnly"
-                  class="cyber-btn cell-popover-btn"
-                  @click="commitCellPopover"
-                >保存</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </teleport>
 
       <!-- Pagination -->
       <div class="grid-pagination" v-if="totalForPaging > 0">

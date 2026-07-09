@@ -855,41 +855,6 @@ function patchTableDataRows(tab: TableSubTab, changes: Array<{ rowIndex: number;
   tab.data = { ...tab.data, rows }
 }
 
-async function onCellEdit(rowIdx: number, col: string, value: unknown) {
-  const tab = activeTableTab.value
-  if (!tab || !connId.value || tablePrimaryKeys.value.length === 0) {
-    void dlg.alert({ message: t('db.needPrimaryKey'), color: 'warning' })
-    return
-  }
-  const result = tab.data
-  if (!result) return
-  const row = result.rows[rowIdx]
-  const where = tablePrimaryKeys.value
-    .map(pk => {
-      const pkIdx = result.columns.findIndex(c => c.name === pk)
-      if (pkIdx < 0) return null
-      const v = row[pkIdx]
-      return `\`${pk}\` = ${formatSqlValue(v)}`
-    })
-    .filter(Boolean)
-    .join(' AND ')
-    if (!where) return
-  try {
-    if (isClickhouse.value) {
-      await dbService.clickhouseUpdateRows(connId.value, tab.table, { [col]: value }, where, tab.db)
-    } else {
-      await dbService.mysqlUpdateRows(connId.value, tab.table, { [col]: value }, where, tab.db)
-    }
-    patchTableDataRows(tab, [{ rowIndex: rowIdx, column: col, newValue: value }])
-    notify.notify({ message: t('db.saved'), color: 'success', timeout: 1500 })
-    await loadTableDataFor(tab, true)
-  } catch (err: unknown) {
-    const msg = errMsg(err)
-    notify.notify({ message: t('db.updateFailed', { msg }), color: 'error', timeout: 5000 })
-    void dlg.alert({ message: t('db.updateFailed', { msg }), color: 'error' })
-  }
-}
-
 async function onSaveBatch(changes: Array<{ rowIndex: number; column: string; originalValue: unknown; newValue: unknown }>) {
   const tab = activeTableTab.value
   if (!tab || !connId.value || tablePrimaryKeys.value.length === 0) {
@@ -1840,7 +1805,6 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               @page-change="onTableDataPageChange"
               @page-size-change="onTableDataPageSizeChange"
               @sort-change="onTableDataSortChange"
-              @cell-edit="onCellEdit"
               @column-filter="setColumnFilter"
               @refresh="refreshCurrentTable"
               @save-batch="onSaveBatch"

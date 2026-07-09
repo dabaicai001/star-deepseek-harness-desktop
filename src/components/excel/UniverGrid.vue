@@ -24,8 +24,7 @@ import { UniverSheetsSortPreset } from '@univerjs/preset-sheets-sort'
 import UniverPresetSheetsSortZhCN from '@univerjs/preset-sheets-sort/locales/zh-CN'
 import { UniverSheetsTablePreset } from '@univerjs/preset-sheets-table'
 import UniverPresetSheetsTableZhCN from '@univerjs/preset-sheets-table/locales/zh-CN'
-import { defaultTheme } from '@univerjs/themes'
-import { createUniver, mergeLocales } from '@/lib/univer'
+import { buildStarhubTheme, createUniver, mergeLocales } from '@/lib/univer'
 import { useExcelStore } from '@/stores/excel'
 
 import '@univerjs/preset-sheets-conditional-formatting/lib/index.css'
@@ -50,30 +49,6 @@ function cssVar(name: string, fallback: string): string {
   if (typeof window === 'undefined') return fallback
   const value = window.getComputedStyle(document.documentElement).getPropertyValue(name).trim()
   return value || fallback
-}
-
-// Univer canvas 不能直接继承 CSS 变量,需要在创建实例时把 token 映射进主题。
-function buildStarhubTheme() {
-  const gridBg = cssVar('--excel-grid-bg', '#ffffff')
-  const ribbonBg = cssVar('--excel-ribbon-bg', '#f3f2f1')
-  const line = cssVar('--excel-grid-line', '#e1dfdd')
-  const text = cssVar('--excel-text', '#201f1e')
-  const muted = cssVar('--excel-muted', '#605e5c')
-  const green = cssVar('--excel-green', '#107c41')
-
-  return {
-    ...defaultTheme,
-    primaryColor: green,
-    gray: {
-      ...defaultTheme.gray,
-      50: gridBg,
-      100: ribbonBg,
-      200: line,
-      700: muted,
-      800: text,
-      900: text,
-    },
-  }
 }
 
 let univerInstance: Univer | null = null

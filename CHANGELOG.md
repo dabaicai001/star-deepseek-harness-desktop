@@ -15,6 +15,22 @@
 
 ---
 
+## [0.16.0] - 2026-07-09
+
+### 新增
+- ✨ feat(db): MySQL / ClickHouse 表数据、SQL 编辑器结果和独立查询结果统一切换为 Univer Canvas 网格。支持冻结字段名/类型首行、自适应列宽、数字/布尔/JSON/NULL 语义渲染、滚动选择与列头排序。
+- ✨ feat(db): 有主键的数据表可直接编辑、粘贴和填充单元格,改动沿用 dirty 集合与 `Ctrl/Cmd+S` 批量保存;保留服务端分页、WHERE/字段筛选、刷新、CSV/Excel 导出和右键行操作。
+
+### 优化
+- ⚡ perf(db): 数据库 Univer 网格按需异步加载,非数据库页面不创建实例;共享 `src/lib/univer.ts` 的 StarHub canvas 主题映射。
+- 🎨 style(design-system): 新增数据库 Univer 容器与列操作工具类,复用 `.univer-host` 高度链和 Excel 留白修复约束。
+
+### 测试
+- ✅ test(db): Vite mock 注入 80 行混合类型数据,实测容器 1222×590、有效 canvas 1222×589,无下方留白;验证直接编辑、dirty 计数、批量保存事件、列头排序与筛选弹层。
+- ✅ test(build): TypeScript strict 检查与 Vite 生产构建通过。
+
+---
+
 ## [0.15.1] - 2026-07-09
 
 ### 修复

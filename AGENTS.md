@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.15.1(Redis 服务端模糊检索,选中 DB 自动连续扫描) |
+| 当前版本 | v0.16.0(MySQL / ClickHouse 数据展示统一使用 Univer 网格) |
 
 ---
 
@@ -111,7 +111,7 @@ starhub/
 | 差异比对 | monaco-diff / diff-match-patch | |
 | 虚拟列表 | vue-virtual-scroller | 百万行表格 |
 | 图表 | ECharts 5+ | 监控趋势图 |
-| Excel | Univer Sheets 0.25.1 | `src/lib/univer.ts` 本地封装入口,上游源码固定在 `vendor/` |
+| 表格网格 | Univer Sheets 0.25.1 | Excel / CSV 工作簿及 MySQL / ClickHouse 查询结果共用 `src/lib/univer.ts` 集成层,上游源码固定在 `vendor/` |
 | 国际化 | vue-i18n | 中/英 |
 | 验证 | VeeValidate + Zod | 表单 + IPC |
 | Markdown | marked + DOMPurify | AI 回复渲染 |
@@ -255,6 +255,8 @@ starhub/
 | `.cyber-stagger` / `.cyber-stagger.run` | 子元素交错入场(配合子元素 `--i` CSS 变量,`run` 触发) |
 | `.cyber-count-pop` | 数字 pop 动画(计数变化时弹跳放大 + 青色高亮) |
 | `.cyber-skeleton` | 骨架屏 shimmer(loading 占位,`::after` 光带扫过) |
+| `.db-univer-shell` / `.db-univer-host` | 数据库结果 Univer 画布外壳 / 挂载根,维持完整 flex 高度链 |
+| `.column-action-tools` / `.column-action-select` | 数据网格列选择、排序、服务端筛选工具 |
 
 #### 4.4.6 状态色语义
 
@@ -641,7 +643,7 @@ cargo tauri build
 
 **修复与硬约束**:
 
-1. Univer 挂载根固定使用 `.univer-host`,禁止改回 `.univer-grid`
+1. Univer 挂载根必须包含 `.univer-host`(数据库结果可同时带 `.db-univer-host`),禁止改回 `.univer-grid`
 2. 新增第三方组件挂载类时,必须先检查其编译 CSS 中是否存在同名全局工具类
 3. 留白问题先在 Vite dev server 注入可重复 mock 数据,同时测试默认窗口与用户截图尺寸
 4. 用 `getBoundingClientRect()` + `getComputedStyle()` 从外向内记录:
@@ -701,4 +703,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-09 (v0.15.1)*
+*最后更新: 2026-07-09 (v0.16.0)*
