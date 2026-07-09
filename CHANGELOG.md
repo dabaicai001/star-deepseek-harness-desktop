@@ -14,6 +14,22 @@
 
 ---
 
+## [0.17.3] - 2026-07-09
+
+### 修复
+- 🐛 fix(db): VARCHAR/TEXT 列里长得像数字的字符串(例如 `'1111'`)被 Univer 识别为 FORCE_STRING 候选,显示绿色警告角 + hover 弹"此数字以文本形式存储"。通过 preset 配置 `sheets.disableForceStringAlert: true` + `disableForceStringMark: true` 关闭,数据库语义下不再需要 Excel 式的强类型警告。
+
+### 新增
+- ✨ feat(db): Excel 导出支持全量数据 + WHERE 联动 + 分批拉取 + 进度条 + 通知中心:
+  * 表浏览:按 offset 分批拉 `db_mysql_get_table_data`,自动联动 WHERE / columnFilters / ORDER BY;
+  * SQL 编辑器:复用 `lastSql` 去掉末尾 LIMIT 重新执行;
+  * SQL 结果 tab:已在内存,直接灌入;
+  * > 5000 行弹确认 dialog 显示条数;
+  * Teleport 进度遮罩显示 current/total + 百分比 + 目标文件;
+  * 通知中心带数据源、行数、SQL、目标路径、耗时。
+
+---
+
 ## [0.17.2] - 2026-07-09
 
 ### 修复

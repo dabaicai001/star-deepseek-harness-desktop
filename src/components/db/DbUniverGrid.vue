@@ -425,6 +425,14 @@ async function renderGrid() {
         contextMenu: false,
         footer: false,
         statusBarStatistic: false,
+        sheets: {
+          // 数据库结果里 VARCHAR/TEXT 列经常装 '1111' / '2025-01-01' 这种
+          // 长得像数字的字符串 — Univer 默认会把它们识别成 FORCE_STRING 候选,
+          // 画绿色警告角 + hover 弹"此数字以文本形式存储"。
+          // 数据库语义下这就是普通字符串,不需要 Excel 式的强类型警告。
+          disableForceStringAlert: true,
+          disableForceStringMark: true,
+        },
       }),
     ],
   })

@@ -166,6 +166,35 @@ const activeSqlEditorTab = computed(() => {
   return t && t.kind === 'sql-editor' ? t : null
 })
 
+/**
+ * Excel 全量导出进度。
+ * - active: 正在导出(用于显示遮罩进度条)
+ * - current / total: 已完成行数 / 总行数
+ * - filePath: 选定的目标 xlsx 文件路径
+ * - sql: 关联的 SQL 摘要(展示给用户)
+ * - stage: 当前阶段 — batching(分批拉数据) / writing(写文件) / done
+ */
+const exportProgress = ref<{
+  active: boolean
+  current: number
+  total: number
+  filePath: string
+  sql: string
+  stage: 'batching' | 'writing' | 'done'
+}>({
+  active: false,
+  current: 0,
+  total: 0,
+  filePath: '',
+  sql: '',
+  stage: 'batching',
+})
+
+const exportProgressPercent = computed(() => {
+  if (exportProgress.value.total <= 0) return 0
+  return Math.min(100, Math.round((exportProgress.value.current / exportProgress.value.total) * 100))
+})
+
 // 行的主键(从当前激活的表 tab 的 columns 拿)
 const tablePrimaryKeys = computed(() =>
   activeTableTab.value ? activeTableTab.value.columns.filter(c => c.key === 'PRI').map(c => c.name) : []
@@ -1389,35 +1418,214 @@ function queryResultToCsv(result: QueryResult | undefined): string {
   return [header, ...rows].join('\n')
 }
 
+/**
+ * 导出当前激活 tab 的**全量数据**到 Excel。
+ *
+ * 三种数据源:
+ * 1. 表浏览 (TableSubTab): 按 offset 分批拉 db_mysql_get_table_data,
+ *    自动联动 WHERE / columnFilters / ORDER BY。
+ * 2. SQL 编辑器 (SqlEditorSubTab): 复用 lastSql 去掉末尾 LIMIT,
+ *    重新执行一次拿全量(避免分页状态污染导出)。
+ * 3. SQL 结果 tab (SqlSubTab): 已经在内存里,直接灌入。
+ *
+ * 行为:
+ * - 数据量 > 5000 行弹确认 dialog,展示条数 + SQL 摘要
+ * - 进度条 + 阶段提示覆盖在 DataGrid 上方
+ * - 通知中心带条数、SQL、耗时
+ * - 不修改现有 props.result(rows 只是 DataGrid 视图当前可见行,这里全部重拉)
+ */
 async function handleExportExcel(columns: string[], rows: string[][]) {
   if (!connId.value) return
-  try {
-    const { save } = await import('@tauri-apps/plugin-dialog')
-    const filePath = await save({
-      defaultPath: `导出_${new Date().toISOString().slice(0, 10)}.xlsx`,
-      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
-    })
-    if (!filePath) return
+  const tableTab = activeTableTab.value
+  const sqlEditorTab = activeSqlEditorTab.value
+  const sqlTab = activeSqlTab.value
+  if (!tableTab && !sqlEditorTab && !sqlTab) return
 
+  // ─── 1. 决定数据源 + 总行数 + SQL 摘要 + 分批拉取器 ───
+  let totalRows = 0
+  let sourceLabel = ''
+  let sqlSummary = ''
+  /**
+   * 分批拉取一行数组。null 表示数据已在内存(rows 参数),不需要走网络。
+   * 返回 string[][] 而不是 QueryResult,直接对应 file.excel.createFromData.rows。
+   */
+  let fetchBatch: ((offset: number, limit: number) => Promise<string[][]>) | null = null
+
+  if (tableTab) {
+    totalRows = tableTab.dataTotal
+    sourceLabel = `${tableTab.db}.${tableTab.table}`
+    const where = tableTab.whereClause || ''
+    const filters = Object.keys(tableTab.columnFilters).length > 0 ? tableTab.columnFilters : undefined
+    const orderBy = tableTab.dataOrderBy
+    const orderDir = tableTab.dataOrderDir
+    sqlSummary = `SELECT * FROM \`${tableTab.db}\`.\`${tableTab.table}\``
+      + (where ? ` WHERE ${where}` : '')
+      + (filters ? ` [列筛选: ${Object.keys(filters).join(', ')}]` : '')
+      + (orderBy ? ` ORDER BY ${orderBy} ${orderDir}` : '')
+      + ` LIMIT ${totalRows}`
+    fetchBatch = async (offset, limit) => {
+      const data = await dbService.mysqlGetTableData(
+        connId.value!, tableTab.table, limit, offset,
+        orderBy || undefined, orderDir, tableTab.db,
+        where || undefined, filters,
+      )
+      return data.rows.map(row => row.map(v => v == null ? '' : String(v)))
+    }
+  } else if (sqlEditorTab) {
+    totalRows = sqlEditorTab.dataTotal
+    sourceLabel = 'SQL 编辑器'
+    // 去掉 lastSql 末尾可能存在的 LIMIT / OFFSET 子句,重新跑全量。
+    // 直接调用 mysqlExecute 拿完整结果 — SQL 编辑器场景下用户已经在前端看,
+    // 再分批会让进度条跳动不连续,一次性更直观;真要分批再迭代。
+    const cleaned = stripTrailingLimit(sqlEditorTab.lastSql)
+    sqlSummary = cleaned
+    fetchBatch = async () => {
+      const data = await dbService.mysqlExecute(
+        connId.value!, cleaned, sqlEditorTab.selectedDb || undefined,
+      )
+      return data.rows.map(row => row.map(v => v == null ? '' : String(v)))
+    }
+  } else if (sqlTab) {
+    totalRows = sqlTab.result?.rows.length ?? 0
+    sourceLabel = 'SQL 结果'
+    sqlSummary = sqlTab.sql
+    // 已在内存,fetchBatch 置 null,后面会直接用 props 传入的 rows
+    fetchBatch = null
+  }
+
+  if (totalRows === 0) {
+    notify.notify({ message: '当前结果集为空,无可导出数据', color: 'warning', timeout: 3000 })
+    return
+  }
+
+  // ─── 2. 大数据量确认 ───
+  const EXPORT_CONFIRM_THRESHOLD = 5000
+  if (totalRows >= EXPORT_CONFIRM_THRESHOLD) {
+    const ok = window.confirm(
+      `即将导出 ${totalRows.toLocaleString()} 行 (${sourceLabel}) 到 Excel。\n\n`
+      + '大数据量导出可能需要几秒到几分钟,期间会显示进度。是否继续?',
+    )
+    if (!ok) return
+  }
+
+  // ─── 3. 选择保存路径 ───
+  const { save } = await import('@tauri-apps/plugin-dialog')
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')
+  const safeSource = sourceLabel.replace(/[^\w.]/g, '_').slice(0, 40) || 'export'
+  const defaultName = `export_${safeSource}_${stamp}.xlsx`
+  const filePath = await save({
+    defaultPath: defaultName,
+    filters: [{ name: 'Excel', extensions: ['xlsx'] }],
+  })
+  if (!filePath) return
+
+  // ─── 4. 启动进度 + 开始通知 ───
+  const startTime = Date.now()
+  exportProgress.value = {
+    active: true,
+    current: 0,
+    total: totalRows,
+    filePath,
+    sql: sqlSummary,
+    stage: 'batching',
+  }
+  notify.notify({
+    title: '导出 Excel',
+    message: `开始导出 ${totalRows.toLocaleString()} 行 (${sourceLabel})`,
+    color: 'info',
+    timeout: 3000,
+    details: [
+      `数据源: ${sourceLabel}`,
+      `行数: ${totalRows.toLocaleString()}`,
+      `SQL: ${sqlSummary}`,
+      `目标: ${filePath}`,
+    ],
+  })
+
+  // ─── 5. 分批拉取 → 累积到 allRows ───
+  try {
+    let allRows: string[][] = []
+    if (fetchBatch) {
+      // 表浏览 + SQL 编辑器都走分批。表浏览按 offset/limit,
+      // SQL 编辑器因为已经去掉 LIMIT,整批一次性回来 — 也走这条路便于统一进度。
+      const BATCH = 1000
+      for (let offset = 0; offset < totalRows; offset += BATCH) {
+        const limit = Math.min(BATCH, totalRows - offset)
+        const batch = await fetchBatch(offset, limit)
+        allRows.push(...batch)
+        exportProgress.value = {
+          ...exportProgress.value,
+          current: Math.min(offset + limit, totalRows),
+          stage: 'batching',
+        }
+      }
+    } else {
+      // SQL 结果 tab:rows 已在内存,直接用
+      allRows = rows.map(row => row.map(v => v == null ? '' : String(v)))
+      exportProgress.value = { ...exportProgress.value, current: totalRows, stage: 'writing' }
+    }
+
+    // ─── 6. 写文件 ───
+    exportProgress.value = { ...exportProgress.value, stage: 'writing' }
     const { invoke } = await import('@tauri-apps/api/core')
     const result = await invoke<{ connId: string; filePath: string }>('sidecar_rpc', {
       method: 'file.excel.createFromData',
-      params: { filePath, columns, rows }
+      params: { filePath, columns, rows: allRows },
     })
 
+    // ─── 7. 注册资产 + 打开新 tab ───
     const asset = await assetStore.createAsset({
       type: 'excel',
-      name: filePath.split(/[/\\]/).pop() || `导出_${new Date().toLocaleDateString()}`,
-      config: { filePath: result.filePath, format: 'xlsx' }
+      name: result.filePath.split(/[/\\]/).pop() || defaultName,
+      config: { filePath: result.filePath, format: 'xlsx' },
     })
-
     const instanceId = generateInstanceId(asset.id)
     appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: 'excel' })
     router.push({ name: 'excel', params: { id: instanceId } })
-    notify.notify({ message: `Excel 已导出: ${result.filePath}`, color: 'success', timeout: 5000 })
+
+    const duration = Date.now() - startTime
+    exportProgress.value = { ...exportProgress.value, active: false, stage: 'done' }
+    notify.notify({
+      title: '导出 Excel 完成',
+      message: `${totalRows.toLocaleString()} 行 → ${result.filePath}`,
+      color: 'success',
+      timeout: 5000,
+      details: [
+        `数据源: ${sourceLabel}`,
+        `行数: ${totalRows.toLocaleString()}`,
+        `SQL: ${sqlSummary}`,
+        `目标: ${result.filePath}`,
+        `耗时: ${(duration / 1000).toFixed(2)}s`,
+      ],
+    })
   } catch (e) {
-    notify.notify({ message: `Excel 导出失败: ${e}`, color: 'error', timeout: 5000 })
+    exportProgress.value = { ...exportProgress.value, active: false, stage: 'done' }
+    const msg = e instanceof Error ? e.message : String(e)
+    notify.notify({
+      title: '导出 Excel 失败',
+      message: msg,
+      color: 'error',
+      timeout: 8000,
+      details: [
+        `数据源: ${sourceLabel}`,
+        `SQL: ${sqlSummary}`,
+        `目标: ${filePath}`,
+      ],
+    })
   }
+}
+
+/**
+ * 去掉 SQL 末尾的 LIMIT/OFFSET 子句,用于全量导出。
+ * 简单正则处理 — 适用于 db_mysql_get_table_data 风格的末尾 LIMIT。
+ * 与 buildCountSql 的正则保持一致。
+ */
+function stripTrailingLimit(sql: string): string {
+  let s = sql.trim()
+  if (s.endsWith(';')) s = s.slice(0, -1).trim()
+  s = s.replace(/\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?\s*$/i, '')
+  s = s.replace(/\s+OFFSET\s+\d+\s*$/i, '')
+  return s
 }
 
 function closeSubTab(id: string) {
@@ -2091,6 +2299,32 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
       </div>
     </div>
     </div>
+
+    <!-- 全量导出进度遮罩 — 用 Teleport 挂到 body,不参与 db-view 的 flex 布局 -->
+    <Teleport to="body">
+      <Transition name="export-progress-fade">
+        <div v-if="exportProgress.active" class="export-progress-overlay" role="status" aria-live="polite">
+          <div class="export-progress-card">
+            <div class="export-progress-header">
+              <v-icon size="18" class="spin export-progress-icon">mdi-loading</v-icon>
+              <span class="export-progress-title">
+                {{ exportProgress.stage === 'batching' ? '正在拉取数据' : '正在写入 Excel' }}
+              </span>
+            </div>
+            <div class="export-progress-meta">
+              <span class="export-progress-counts">
+                {{ exportProgress.current.toLocaleString() }} / {{ exportProgress.total.toLocaleString() }} 行
+              </span>
+              <span class="export-progress-pct">{{ exportProgressPercent }}%</span>
+            </div>
+            <div class="export-progress-bar">
+              <div class="export-progress-bar-fill" :style="{ width: `${exportProgressPercent}%` }" />
+            </div>
+            <div class="export-progress-file" :title="exportProgress.filePath">{{ exportProgress.filePath }}</div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <RightPanel
       v-model="rightPanelOpen"
@@ -3049,6 +3283,98 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* ─── Excel 全量导出进度遮罩 ─── */
+.export-progress-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 13, 20, 0.5);
+  backdrop-filter: blur(4px);
+  cursor: wait;
+}
+
+.export-progress-card {
+  min-width: 380px;
+  max-width: 540px;
+  padding: 18px 22px;
+  background: var(--panel-solid-2);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  box-shadow: var(--shadow), var(--glow-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.export-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.export-progress-icon {
+  color: var(--cyan);
+}
+
+.export-progress-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+.export-progress-counts {
+  color: var(--text);
+}
+
+.export-progress-pct {
+  color: var(--cyan);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.export-progress-bar {
+  position: relative;
+  height: 6px;
+  background: var(--panel-solid);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.export-progress-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--grad-primary);
+  box-shadow: var(--glow-cyan);
+  transition: width 0.18s var(--ease-standard);
+  border-radius: 999px;
+}
+
+.export-progress-file {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.export-progress-fade-enter-active,
+.export-progress-fade-leave-active {
+  transition: opacity 0.18s var(--ease-standard);
+}
+.export-progress-fade-enter-from,
+.export-progress-fade-leave-to {
+  opacity: 0;
 }
 
 /* 重命名表对话框样式 */
