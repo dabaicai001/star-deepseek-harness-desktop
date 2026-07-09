@@ -711,6 +711,7 @@ onMounted(() => {
     openExcel()
   }
   window.addEventListener('keydown', handleGlobalKeydown)
+  if (!('__TAURI_INTERNALS__' in window)) return
   getCurrentWebview().onDragDropEvent((event) => {
     if (event.payload.type === 'over') {
       showDropOverlay.value = true

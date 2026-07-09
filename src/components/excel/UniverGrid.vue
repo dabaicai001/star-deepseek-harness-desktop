@@ -553,7 +553,8 @@ watch(sheetVersion, () => {
 
 <template>
   <div class="univer-grid-shell">
-    <div ref="containerRef" class="univer-grid" />
+    <!-- 避免使用 .univer-grid:它是 Univer 的全局 display:grid 工具类,会把挂载根拆成两行。 -->
+    <div ref="containerRef" class="univer-host" />
   </div>
 </template>
 
@@ -565,7 +566,7 @@ watch(sheetVersion, () => {
   background: var(--excel-grid-bg);
 }
 
-.univer-grid {
+.univer-host {
   width: 100%;
   height: 100%;
   min-height: 0;

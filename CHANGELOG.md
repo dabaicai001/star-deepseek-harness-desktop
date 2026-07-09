@@ -15,6 +15,14 @@
 
 ---
 
+## [0.14.15] - 2026-07-09
+
+### 修复
+- 🐛 fix(excel): 彻底修复 Excel 数据区下方留白。Vite 实测确认 StarHub 的 Univer 挂载容器 `.univer-grid` 与 Univer 0.25.1 全局 `display: grid` 工具类同名,导致 504px 容器被自动拆成 290px + 214px 两行,Workbench 只占第一行。挂载容器改名为 `.univer-host`,避开全局类污染,数据画布现在会完整铺到 Sheet 标签栏。
+- 🐛 fix(excel): 纯 Vite 开发环境不再调用 Tauri Webview 拖放 API,便于使用浏览器 mock 数据排查 Excel 布局。
+
+---
+
 ## [0.14.14] - 2026-07-09
 
 ### 修复
