@@ -13,6 +13,13 @@
 
 ---
 
+## [0.19.1] - 2026-07-10
+
+### 修复
+- 🐛 fix(docker): 关闭 Docker / 数据库 tab 时通知中心误报「Docker 连接失败」。根因是 `<transition mode="out-in">` 的 leave 动画 (~200ms) 期间,DockerView 尚未真正 unmount,但 Docker daemon 不存在会让 `dockerService.dockerConnect` 立即返回错误 → catch 块里旧的 `viewDisposed` 还是 false → 误以为是新 view 的失败并弹通知。改用 `connectStale` 标志,在路由变化 (`watch(assetId)`) 时立即标记 in-flight 连接为 stale,不再等 leave 动画结束后的 `onBeforeUnmount`。同时统一修复 RedisView / DbView 同样的模式。
+
+---
+
 ## [0.19.0] - 2026-07-10
 
 ### 新增

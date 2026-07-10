@@ -53,8 +53,22 @@ const trustSessionId = ref('')
 const hostKeyDialogRef = ref<InstanceType<typeof HostKeyConfirmDialog>>()
 const kbDialogRef = ref<InstanceType<typeof KbInteractiveDialog>>()
 let connectAttemptId = 0
-let viewDisposed = false
+// 路由切换或 view 卸载时,把当前正在跑的连接尝试标为 stale,
+// 避免 <transition mode="out-in"> leave 动画 (200ms) 期间
+// Docker daemon 立即返回错误 → catch 里误以为"新 view 还在连" → 弹通知。
+// 之前叫 viewDisposed,但 watch(assetId) 触发时 view 还没真正销毁,
+// 名称易误导,这里改名 connectStale 更准确。
+let connectStale = false
 const ownedConnIds = new Set<string>()
+
+function markStale() {
+  if (connectStale) return
+  connectStale = true
+  connectAttemptId++
+  connected.value = false
+  connectError.value = null
+  void disconnectOwnedSessions()
+}
 
 const dockerSshAsset = computed(() => {
   const sshAssetId = asset.value?.config.dockerSshAssetId
@@ -92,7 +106,7 @@ function normalizeDockerError(message: string): string {
 }
 
 function isStaleConnect(attemptId: number): boolean {
-  return viewDisposed || attemptId !== connectAttemptId
+  return connectStale || attemptId !== connectAttemptId
 }
 
 async function disconnectOwnedSessions() {
@@ -170,6 +184,8 @@ async function repairDockerSshTrust() {
 
 async function connect() {
   if (!asset.value || connected.value) return
+  // 重新开始一轮连接,清除上一次 markStale 的状态
+  connectStale = false
   const attemptId = ++connectAttemptId
   connecting.value = true
   connectError.value = null
@@ -337,7 +353,7 @@ async function doRemove(id: string) {
 }
 
 onMounted(() => {
-  viewDisposed = false
+  connectStale = false
   if (asset.value && asset.value.type === 'docker') {
     connect()
   } else if (!asset.value) {
@@ -348,10 +364,8 @@ onMounted(() => {
 })
 
 watch(() => assetId.value, () => {
-  connectAttemptId++
-  void disconnectOwnedSessions()
-  connected.value = false
-  connectError.value = null
+  // 路由变了(切资产 / 关 tab)→ 立即标 stale,不等 leave 动画结束
+  markStale()
   if (asset.value && !connected.value) connect()
   else if (!asset.value) {
     if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
@@ -360,12 +374,8 @@ watch(() => assetId.value, () => {
 })
 
 onBeforeUnmount(() => {
-  viewDisposed = true
-  connectAttemptId++
+  markStale()
   connecting.value = false
-  connected.value = false
-  connectError.value = null
-  void disconnectOwnedSessions()
 })
 
 // ====== 右侧 Panel(仪表盘 / AI 切换) ======

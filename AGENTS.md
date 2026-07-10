@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.19.0(SSH 长私钥 Keyring 分片、独立 AI 工作区、多 Agent 与 @/# 编排) |
+| 当前版本 | v0.19.1(关闭 Docker / DB tab 不再误报连接失败;修 transition leave 动画期间 race condition) |
 
 ---
 

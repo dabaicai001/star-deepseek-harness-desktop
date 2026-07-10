@@ -49,8 +49,20 @@ const dbSizes = ref<Record<number, number>>({})
 const keyBrowserRef = ref<InstanceType<typeof KeyBrowser> | null>(null)
 const valueEditorRef = ref<InstanceType<typeof RedisValueEditor> | null>(null)
 let connectAttemptId = 0
-let viewDisposed = false
+// 路由切换或 view 卸载时,把当前正在跑的连接尝试标为 stale,
+// 避免 <transition mode="out-in"> leave 动画 (200ms) 期间
+// 后端立即返回错误 → catch 里误以为"新 view 还在连" → 弹通知。
+let connectStale = false
 const ownedConnIds = new Set<string>()
+
+function markStale() {
+  if (connectStale) return
+  connectStale = true
+  connectAttemptId++
+  connected.value = false
+  connectError.value = null
+  void disconnectOwnedSessions()
+}
 
 const showNewKey = ref(false)
 const newKeyDb = ref(0)
@@ -157,7 +169,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 }
 
 function isStaleConnect(attemptId: number): boolean {
-  return viewDisposed || attemptId !== connectAttemptId
+  return connectStale || attemptId !== connectAttemptId
 }
 
 async function disconnectOwnedSessions() {
@@ -169,6 +181,8 @@ async function disconnectOwnedSessions() {
 
 async function connect() {
   if (!asset.value || connected.value) return
+  // 重新开始一轮连接,清除上一次 markStale 的状态
+  connectStale = false
   const attemptId = ++connectAttemptId
   connecting.value = true
   connectError.value = null
@@ -334,28 +348,22 @@ async function doRenameKey() {
 }
 
 onMounted(() => {
-  viewDisposed = false
+  connectStale = false
   if (asset.value && asset.value.type === 'db' && asset.value.config.dbType === 'redis') {
     connect()
   }
 })
 
 watch(() => assetId.value, () => {
-  connectAttemptId++
-  void disconnectOwnedSessions()
+  // 路由变了 → 立即标 stale,不等 leave 动画结束
+  markStale()
   connId.value = null
-  connected.value = false
-  connectError.value = null
   if (asset.value && !connected.value) connect()
 })
 
 onBeforeUnmount(() => {
-  viewDisposed = true
-  connectAttemptId++
+  markStale()
   connecting.value = false
-  connected.value = false
-  connectError.value = null
-  void disconnectOwnedSessions()
 })
 </script>
 
