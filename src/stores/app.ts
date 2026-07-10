@@ -27,9 +27,12 @@ export const SIDEBAR_WIDTH_DEFAULT = 260
 export const SIDEBAR_COLLAPSED_WIDTH = 60
 
 // 右侧面板宽度可调范围
-export const RIGHT_PANEL_WIDTH_MIN = 300
-export const RIGHT_PANEL_WIDTH_MAX = 500
-export const RIGHT_PANEL_WIDTH_DEFAULT = 380
+// AI 助手面板里常显示 `cat /path/.../config.toml | head -50` 这类长命令 +
+// 多行输出,默认 380 在 1280 宽窗口里被截掉 200+ px,导致工具卡片只能
+// 看到截断的命令名。把默认提到 480、min 320 给 AI 场景留够横向空间。
+export const RIGHT_PANEL_WIDTH_MIN = 320
+export const RIGHT_PANEL_WIDTH_MAX = 600
+export const RIGHT_PANEL_WIDTH_DEFAULT = 480
 
 export const useAppStore = defineStore('app', () => {
   const sidebarOpen = ref(true)

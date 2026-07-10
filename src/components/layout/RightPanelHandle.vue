@@ -85,10 +85,10 @@ function onCollapsedClick() {
   emit('expand')
 }
 
-// 双击 handle = 重置宽度到默认
+  // 双击 handle = 重置宽度到默认
 function onHandleDblClick() {
   if (appStore.rightPanelOpen) {
-    appStore.setRightPanelWidth(380)
+    appStore.setRightPanelWidth(480)
   }
 }
 

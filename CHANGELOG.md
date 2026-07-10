@@ -13,6 +13,16 @@
 
 ---
 
+## [0.19.7] - 2026-07-10
+
+### 修复
+- 🐛 fix(ai): 修复「AI 工具卡片里长命令/路径看不清」。根因:之前用 `word-break: break-all` 让字符在窄 panel 里 wrap 成 5-7 行,既不美观也不便于阅读;`tool-result` 的 `max-height: 160px` 也太矮,大文件输出得来回翻。修复:`.tool-summary` 命令/路径改成**单行 + 横向 scroll**,`.tool-result` 输出同时支持竖向 + 横向 scroll 并把 max-height 提到 280px,`.msg-content.tool-content pre` 加横向 scroll 兜底长行,配 thin scrollbar 视觉。
+
+### 优化
+- 🎨 style(layout): 右侧面板默认宽度 380→480px,min 300→320px,max 500→600px。AI 助手场景下 `cat /path/.../config.toml | head -50` 这类长命令 + 多行输出需要更多横向空间,1280 宽窗口里默认 380 会被截掉 200+ px。`RightPanelHandle` 双击重置宽度同步到 480。
+
+---
+
 ## [0.19.6] - 2026-07-10
 
 ### 修复

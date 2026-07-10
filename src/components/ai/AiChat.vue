@@ -507,6 +507,19 @@ function shortResult(s: string, max = 240): string {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: normal;
+  /* 长行兜底横滑 */
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+.msg-content.tool-content pre::-webkit-scrollbar {
+  height: 4px;
+}
+
+.msg-content.tool-content pre::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 2px;
 }
 
 .tool-call {
@@ -560,10 +573,25 @@ function shortResult(s: string, max = 240): string {
   font-family: 'JetBrains Mono', monospace;
   color: var(--text-2);
   font-size: 10px;
-  word-break: break-all;
-  overflow-wrap: anywhere;
   flex: 1;
   min-width: 0;
+  /* 命令/路径:单行横向 scroll,比竖向 wrap 5-7 行更直观。
+   * 之前用 word-break: break-all 让字符在任意位置断行,在 70px 宽 panel 里
+   * 50 字符的命令要 wrap 5 行,既不美观也不便于一目了然。 */
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+.tool-summary::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tool-summary::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 2px;
 }
 
 .tool-result {
@@ -577,8 +605,22 @@ function shortResult(s: string, max = 240): string {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: normal;
-  max-height: 160px;
-  overflow-y: auto;
+  /* 输出结果:同时支持竖向 + 横向 scroll,
+   * 短行自动 wrap、长行可横滑,比单一 wrap 或单一 scroll 都友好 */
+  max-height: 280px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+.tool-result::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.tool-result::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 3px;
 }
 
 .tool-error {
