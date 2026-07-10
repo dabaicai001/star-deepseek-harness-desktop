@@ -69,14 +69,17 @@ async function connect() {
   try {
     ownsSession = !props.sessionId
     if (ownsSession) {
+      const effectivePassword = a.config.mfaEnabled ? a.config.mfaPassword : a.config.password
       const config = {
         host: a.config.host,
         port: a.config.port || 22,
         username: a.config.username,
-        auth: a.config.password
-          ? { Password: a.config.password }
-          : a.config.privateKey
-          ? { PrivateKey: { key: a.config.privateKey, passphrase: a.config.passphrase } }
+        auth: a.config.useKeyAuth && a.config.usePasswordAuth !== false && effectivePassword && a.config.privateKey
+          ? { PasswordAndKey: { password: effectivePassword, key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
+          : effectivePassword
+          ? { Password: effectivePassword }
+          : a.config.privateKey && a.config.useKeyAuth !== false
+          ? { PrivateKey: { key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
           : { Password: '' },
       }
 
@@ -116,9 +119,12 @@ async function connect() {
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     lastError.value = msg
-    try {
-      await invoke('ssh_disconnect', { id: sessionId })
-    } catch { /* 静默 */ }
+    // 只在 SFTP 自己创建的 session 才断开,禁止误杀终端复用的 SSH session
+    if (ownsSession) {
+      try {
+        await invoke('ssh_disconnect', { id: sessionId })
+      } catch { /* 静默 */ }
+    }
     notify.notify({ message: `${t('sftp.connectFailed')}: ${msg}`, color: 'error', timeout: 5000 })
   } finally {
     if (connectCallId === currentConnectId) {

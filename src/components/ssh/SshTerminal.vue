@@ -288,6 +288,8 @@ onMounted(async () => {
  }
  window.addEventListener('beforeunload', beforeUnloadHandler)
 
+ initQuickCommands()
+
  if (asset.value) {
    await connect()
    } else {
@@ -841,20 +843,115 @@ function cleanPromptCapturedOutput(raw: string, command: string): string {
 }
 
 // ======快速命令栏(连接后顶部一条小横条) ======
-const quickCommands = [
- { label: 'ls', cmd: 'ls -la', icon: 'mdi-format-list-bulleted' },
- { label: 'pwd', cmd: 'pwd', icon: 'mdi-map-marker-outline' },
- { label: 'df', cmd: 'df -h', icon: 'mdi-harddisk' },
- { label: 'top', cmd: 'top -b -n1 | head -20', icon: 'mdi-chip' },
- { label: 'whoami', cmd: 'whoami', icon: 'mdi-account-outline' },
- { label: 'uptime', cmd: 'uptime', icon: 'mdi-clock-outline' }
+interface QuickCommand {
+  label: string
+  cmd: string
+  icon: string
+  isDefault?: boolean
+}
+
+const DEFAULT_QUICK_COMMANDS: QuickCommand[] = [
+  { label: 'ls', cmd: 'ls -la', icon: 'mdi-format-list-bulleted', isDefault: true },
+  { label: 'pwd', cmd: 'pwd', icon: 'mdi-map-marker-outline', isDefault: true },
+  { label: 'df', cmd: 'df -h', icon: 'mdi-harddisk', isDefault: true },
+  { label: 'top', cmd: 'top -b -n1 | head -20', icon: 'mdi-chip', isDefault: true },
+  { label: 'whoami', cmd: 'whoami', icon: 'mdi-account-outline', isDefault: true },
+  { label: 'uptime', cmd: 'uptime', icon: 'mdi-clock-outline', isDefault: true },
 ]
+
+const QC_STORAGE_PREFIX = 'starhub.quickCmds.'
+function loadQuickCommands(assetId: string): QuickCommand[] {
+  try {
+    const raw = localStorage.getItem(QC_STORAGE_PREFIX + assetId)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((q: QuickCommand) => ({ ...q, isDefault: false }))
+      }
+    }
+  } catch { /* corrupt storage — fall through */ }
+  return []
+}
+function saveQuickCommands(assetId: string, cmds: QuickCommand[]) {
+  const custom = cmds.filter(c => !c.isDefault)
+  localStorage.setItem(QC_STORAGE_PREFIX + assetId, JSON.stringify(custom))
+}
+
+const quickCommands = ref<QuickCommand[]>([...DEFAULT_QUICK_COMMANDS])
+const showQuickCmdEditor = ref(false)
+const quickCmdDragIdx = ref<number | null>(null)
+const quickCmdDragOverIdx = ref<number | null>(null)
+let quickCmdBackup: QuickCommand[] | null = null
+
+function openQuickCmdEditor() {
+  quickCmdBackup = quickCommands.value.map(q => ({ ...q }))
+  showQuickCmdEditor.value = true
+}
+function cancelQuickCmdEditor() {
+  if (quickCmdBackup) {
+    quickCommands.value = quickCmdBackup
+    quickCmdBackup = null
+  }
+  showQuickCmdEditor.value = false
+}
+
+function initQuickCommands() {
+  const a = asset.value
+  if (!a) { quickCommands.value = [...DEFAULT_QUICK_COMMANDS]; return }
+  const custom = loadQuickCommands(a.id)
+  quickCommands.value = [...DEFAULT_QUICK_COMMANDS, ...custom]
+}
+
+function onQuickCmdAdd() {
+  quickCommands.value.push({ label: '', cmd: '', icon: 'mdi-console', isDefault: false })
+}
+function onQuickCmdRemove(idx: number) {
+  if (quickCommands.value[idx]?.isDefault) return
+  quickCommands.value.splice(idx, 1)
+}
+function onQuickCmdSave() {
+  const a = asset.value
+  if (!a) return
+  saveQuickCommands(a.id, quickCommands.value)
+  quickCmdBackup = null
+  showQuickCmdEditor.value = false
+}
+
+// ====== 拖拽排序 ======
+function onQuickCmdDragStart(e: DragEvent, idx: number) {
+  quickCmdDragIdx.value = idx
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(idx))
+  }
+}
+function onQuickCmdDragOver(e: DragEvent, idx: number) {
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  quickCmdDragOverIdx.value = idx
+}
+function onQuickCmdDrop(e: DragEvent, idx: number) {
+  e.preventDefault()
+  const from = quickCmdDragIdx.value
+  if (from === null || from === idx) { quickCmdDragIdx.value = null; quickCmdDragOverIdx.value = null; return }
+  const items = [...quickCommands.value]
+  const [moved] = items.splice(from, 1)
+  items.splice(idx, 0, moved)
+  quickCommands.value = items
+  quickCmdDragIdx.value = null
+  quickCmdDragOverIdx.value = null
+}
+function onQuickCmdDragEnd() {
+  quickCmdDragIdx.value = null
+  quickCmdDragOverIdx.value = null
+}
+
 async function runQuickCommand(cmd: string) {
- try {
- await writeCommand(cmd)
- } catch (e) {
- terminalRef.value?.writeln(`\x1b[31m✗ ${e instanceof Error ? e.message : String(e)}\x1b[0m`)
- }
+  try {
+    await writeCommand(cmd)
+  } catch (e) {
+    terminalRef.value?.writeln(`\x1b[31m✗ ${e instanceof Error ? e.message : String(e)}\x1b[0m`)
+  }
 }
 
 /**
@@ -1147,7 +1244,7 @@ function handleKbCancelled() {
  <span class="qc-label">QUICK</span>
  <button
  v-for="qc in quickCommands"
- :key="qc.cmd"
+ :key="qc.cmd + qc.label"
  class="qc-btn"
  :disabled="!connected || connecting"
  @click="runQuickCommand(qc.cmd)"
@@ -1155,7 +1252,99 @@ function handleKbCancelled() {
  <v-icon size="11">{{ qc.icon }}</v-icon>
  <span>{{ qc.label }}</span>
  </button>
+ <button class="qc-btn qc-settings-btn" title="自定义快速命令" @click="openQuickCmdEditor">
+ <v-icon size="12">mdi-tune</v-icon>
+ </button>
  </div>
+
+ <!-- 快速命令编辑弹窗 -->
+ <v-dialog v-model="showQuickCmdEditor" max-width="560" transition="cyber-dialog">
+ <div class="cyber-panel" style="padding: 24px;">
+ <div class="section-header">
+ <span class="section-number">⚙</span>
+ <h3>自定义快速命令</h3>
+ </div>
+ <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px;">
+ 拖拽调整顺序，点击命令可直接运行。默认命令不可删除。
+ </p>
+ <div class="qc-editor-list">
+ <div
+ v-for="(qc, idx) in quickCommands"
+ :key="'edit-' + idx"
+ class="qc-editor-row"
+ :class="{
+ 'qc-dragging': quickCmdDragIdx === idx,
+ 'qc-drag-over': quickCmdDragOverIdx === idx,
+ 'qc-default': qc.isDefault
+ }"
+ :draggable="true"
+ @dragstart="onQuickCmdDragStart($event, idx)"
+ @dragover="onQuickCmdDragOver($event, idx)"
+ @drop="onQuickCmdDrop($event, idx)"
+ @dragend="onQuickCmdDragEnd"
+ >
+ <v-icon size="16" class="qc-drag-handle">mdi-drag-vertical</v-icon>
+ <v-text-field
+ v-model="qc.label"
+ label="标签"
+ variant="outlined"
+ density="compact"
+ hide-details
+ :readonly="qc.isDefault"
+ :disabled="qc.isDefault"
+ class="qc-edit-field"
+ style="max-width: 100px;"
+ />
+ <v-text-field
+ v-model="qc.cmd"
+ label="命令"
+ variant="outlined"
+ density="compact"
+ hide-details
+ :readonly="qc.isDefault"
+ :disabled="qc.isDefault"
+ class="qc-edit-field"
+ style="flex:1;"
+ />
+ <v-text-field
+ v-model="qc.icon"
+ label="图标"
+ variant="outlined"
+ density="compact"
+ hide-details
+ :readonly="qc.isDefault"
+ :disabled="qc.isDefault"
+ class="qc-edit-field"
+ style="max-width: 180px;"
+ />
+ <v-icon v-if="qc.isDefault" size="14" color="var(--muted)" title="默认命令">mdi-shield-check-outline</v-icon>
+ <button
+ v-else
+ class="action-btn"
+ title="删除此命令"
+ style="color: var(--red);"
+ @click="onQuickCmdRemove(idx)"
+ >
+ <v-icon size="14">mdi-delete-outline</v-icon>
+ </button>
+ </div>
+ </div>
+ <div class="qc-editor-actions">
+ <button class="cyber-btn-secondary" style="font-size:12px; padding: 6px 14px;" @click="onQuickCmdAdd">
+ <v-icon size="14" style="margin-right:4px;">mdi-plus</v-icon>
+ 添加命令
+ </button>
+ <div style="flex:1" />
+ <button class="cyber-btn-secondary" style="font-size:12px; padding: 6px 14px; margin-right:8px;" @click="cancelQuickCmdEditor">
+ 取消
+ </button>
+ <button class="cyber-btn" style="font-size:12px; padding: 6px 18px;" @click="onQuickCmdSave">
+ 保存
+ </button>
+ </div>
+ </div>
+ </v-dialog>
+
  <TerminalPane
  ref="terminalRef"
  :session-id="id"
@@ -1375,6 +1564,62 @@ function handleKbCancelled() {
 .qc-btn:disabled {
  opacity:0.4;
  cursor: not-allowed;
+}
+.qc-settings-btn {
+ padding: 4px 8px;
+ opacity: 0.6;
+}
+.qc-settings-btn:hover {
+ opacity: 1;
+}
+
+/* 快速命令编辑弹窗 */
+.qc-editor-list {
+ display: flex;
+ flex-direction: column;
+ gap: 6px;
+ max-height: 50vh;
+ overflow-y: auto;
+ padding-right: 4px;
+ margin-bottom: 16px;
+}
+.qc-editor-row {
+ display: flex;
+ align-items: center;
+ gap: 8px;
+ padding: 8px;
+ background: var(--hover-cyan-faint);
+ border: 1px solid var(--line-2);
+ border-radius: 8px;
+ transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.qc-editor-row.qc-dragging {
+ opacity: 0.4;
+}
+.qc-editor-row.qc-drag-over {
+ border-color: var(--cyan);
+ box-shadow: 0 0 0 1px var(--cyan), 0 4px 12px var(--glow-soft);
+}
+.qc-editor-row.qc-default {
+ background: var(--panel-solid);
+ border-color: var(--line);
+}
+.qc-drag-handle {
+ cursor: grab;
+ color: var(--muted);
+ flex-shrink: 0;
+}
+.qc-drag-handle:active {
+ cursor: grabbing;
+ color: var(--cyan);
+}
+.qc-edit-field {
+ min-width: 0;
+}
+.qc-editor-actions {
+ display: flex;
+ align-items: center;
+ gap: 8px;
 }
 
 .action-btn.active {
