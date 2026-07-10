@@ -51,6 +51,7 @@ export interface AssetConfig {
   // 数据库配置
   dbType?: DatabaseType
   address?: string
+  addresses?: string[]  // ES multi-node
   database?: string
   ssl?: boolean
   redisDb?: number

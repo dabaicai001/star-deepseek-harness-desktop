@@ -20,6 +20,7 @@ export interface DbFormInitialValues {
   name?: string
   dbType?: DatabaseType
   address?: string
+  addresses?: string[]
   host?: string
   port?: number
   username?: string
@@ -42,7 +43,7 @@ const dbType = ref<DatabaseType>(props.initialValues?.dbType ?? 'mysql')
 const name = ref(props.initialValues?.name ?? '')
 const esConnectMode = ref<'host' | 'address' | 'multi'>(props.initialValues?.address ? 'address' : props.initialValues?.addresses?.length ? 'multi' : 'host')
 const esAddress = ref(props.initialValues?.address ?? '')
-const esNodes = ref(props.initialValues?.addresses?.join('\n') ?? '')
+const esNodes = ref<string>(props.initialValues?.addresses?.join('\n') ?? '')
 const host = ref(props.initialValues?.host ?? '')
 const port = ref<number>(props.initialValues?.port ?? 3306)
 const username = ref(props.initialValues?.username ?? '')

@@ -1536,7 +1536,6 @@ function handleKbCancelled() {
         <input
           ref="aiInputField"
           v-model="aiInputFieldValue"
-          type="text"
           class="cyber-input"
           style="margin-top: 12px; width: 100%;"
           :type="aiInputDialogPrompt.toLowerCase().includes('password') ? 'password' : 'text'"
