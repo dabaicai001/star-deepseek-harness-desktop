@@ -14,6 +14,13 @@
 
 ---
 
+## [0.18.1] - 2026-07-10
+
+### 修复
+- 🐛 fix(db): MySQL / PostgreSQL / ClickHouse 数据结果 Univer 单元格写入真实细边框,并在 workbook snapshot 中显式开启 `showGridlines` / `gridlinesColor`;浅色主题网格线对比度提高,避免白底数据区看不到纵横网格线。
+
+---
+
 ## [0.18.0] - 2026-07-09
 
 ### 新增

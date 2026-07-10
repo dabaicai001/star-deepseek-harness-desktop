@@ -2,7 +2,7 @@
 import type { FUniver, Univer } from '@/lib/univer'
 import type { ColumnInfo, ColumnMeta } from '@/types/db'
 import type { ICellData, IWorkbookData, IWorksheetData } from '@univerjs/core'
-import { CellValueType, HorizontalAlign, LocaleType, VerticalAlign } from '@univerjs/core'
+import { BooleanNumber, BorderStyleTypes, CellValueType, HorizontalAlign, LocaleType, VerticalAlign } from '@univerjs/core'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
 import UniverPresetSheetsCoreZhCN from '@univerjs/preset-sheets-core/locales/zh-CN'
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -50,6 +50,20 @@ let renderToken = 0
 function cssVar(name: string, fallback: string): string {
   if (typeof window === 'undefined') return fallback
   return window.getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+}
+
+function gridlineColor(): string {
+  return cssVar('--gridline', 'rgba(93, 214, 214, 0.5)')
+}
+
+function gridCellBorder() {
+  const line = { s: BorderStyleTypes.THIN, cl: { rgb: gridlineColor() } }
+  return {
+    t: line,
+    r: line,
+    b: line,
+    l: line,
+  }
 }
 
 function serializeCell(value: unknown): string | number | boolean {
@@ -117,6 +131,7 @@ function buildHeaderCell(column: ColumnInfo): ICellData {
           isSorted ? 'rgba(93, 214, 214, 0.11)' : '#152032',
         ),
       },
+      bd: gridCellBorder(),
       // 表头字号比数据小一档,跟数据形成清晰层级。
       fs: 11,
       // 等宽字体,字段名 / 数字 / 排序箭头视觉统一。
@@ -143,6 +158,7 @@ function buildValueCell(value: unknown, dirty = false): ICellData {
       bg: {
         rgb: cssVar(dirty ? '--active-cyan' : '--panel-solid', dirty ? 'rgba(93, 214, 214, 0.11)' : '#101822'),
       },
+      bd: gridCellBorder(),
       it: isNull ? 1 : 0,
       // 数字右对齐,文本左对齐 — 数据库网格的标准做法,方便纵向看数字位数。
       ht: isNumber ? HorizontalAlign.RIGHT : HorizontalAlign.LEFT,
@@ -195,6 +211,14 @@ function buildWorkbookData(): IWorkbookData {
         columnCount: Math.max(props.columns.length, 1),
         defaultColumnWidth: 120,
         defaultRowHeight: 24,
+        showGridlines: BooleanNumber.TRUE,
+        gridlinesColor: gridlineColor(),
+        defaultStyle: {
+          bg: {
+            rgb: cssVar('--panel-solid', '#101822'),
+          },
+          bd: gridCellBorder(),
+        },
         freeze: {
           startRow: 1,
           startColumn: 0,
@@ -466,7 +490,7 @@ async function renderGrid() {
     // 比 --line-2 明显一档并带主青色调,既能在深色背景上识别单元格边界,
     // 又跟面板分隔线形成层次。
     worksheet.setHiddenGridlines(false)
-    worksheet.setGridLinesColor(cssVar('--gridline', 'rgba(93, 214, 214, 0.42)'))
+    worksheet.setGridLinesColor(gridlineColor())
   })
   // 不调用 workbook.setEditable(false):它会安装全局权限点并误伤刷新。
   // 只读由下面的 BeforeSheetEditStart / BeforeCommandExecute 精确实现。

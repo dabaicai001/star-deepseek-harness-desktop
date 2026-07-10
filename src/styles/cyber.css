@@ -40,9 +40,8 @@ html.v-theme--darkTheme {
   --panel-solid-2: #152032;
   --line: rgba(122, 156, 185, 0.1);
   --line-2: rgba(122, 156, 185, 0.18);
-  /* 数据库结果网格的格线 — 主青色提高一档透明度,让 #101822 背景上的
-     单元格边界清晰可辨(0.22 太浅,几乎跟背景同色)。*/
-  --gridline: rgba(93, 214, 214, 0.42);
+  /* 数据库结果网格的格线 — 比面板分割线更明确,并作为 Univer cell border 颜色。 */
+  --gridline: rgba(93, 214, 214, 0.5);
   --text: #dce7f3;
   --text-2: #9aa8ba;
   --muted: #607082;
@@ -170,8 +169,8 @@ html.v-theme--lightTheme {
   --panel-solid-2: #f8fafc;
   --line: rgba(30, 45, 62, 0.08);
   --line-2: rgba(30, 45, 62, 0.13);
-  /* 浅色主题数据库网格线 — 深灰 0.28 透明度,白底可见且不抢眼。*/
-  --gridline: rgba(30, 45, 62, 0.28);
+  /* 浅色主题数据库网格线 — 白底数据区需要更高对比度。*/
+  --gridline: rgba(30, 45, 62, 0.38);
   --text: #0f172a;
   --text-2: #475569;
   --muted: #94a3b8;
