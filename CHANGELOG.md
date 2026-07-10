@@ -13,6 +13,38 @@
 
 ---
 
+## [0.19.5] - 2026-07-10
+
+### 修复
+- 🐛 fix(ai): 修复「用户连续点发送」导致的三个连锁问题 ——
+  1. AI 助手对话框错位:重复点击让 message 数组被并发 push,布局混乱;
+  2. 工具调用报 `[Error] Superseded by a newer AI command`:第二次 send 的 `pwd` 抢占第一次 send 还没收口的 `promptCapture`;
+  3. LLM API 报 `HTTP 400 invalid params, tool call result does not follow tool call (2013)`:两个 `runAgent` 并发跑,旧轮还在 background push tool 消息,新轮又 push user + assistant(tool_calls),messages 顺序错乱,LLM 校验失败。
+  
+  修复:`ai` store 新增 `instanceId` 级 `in-flight` promise map,新一轮 `runAgent` 进入时先 `await` 旧轮 abort + finally 收尾;同时 6 个 view(`SshTerminal` / `DbView` / `RedisView` / `DockerView` / `ElasticsearchView` / `ExcelView`)的 `onAiSend` 入口立刻设 `session.loading = true` + `if (loading) return` 守卫,UI 立刻切到停止按钮挡住重复点击;`SshTerminal.onAiRetry` 同样加守卫。
+
+- 🐛 fix(ssh): AI 工具执行报「等待 shell prompt 返回超时」但实际命令已结束。根因:当命令输出很大 / shell prompt 不在 `isShellPromptLine` 正则覆盖的格式里时,`hasReturnedPrompt` 永远 false,只能等 10 分钟 safetyTimer。修复:`AI_PROMPT_CAPTURE_SAFETY_MS` 从 10 分钟降到 60 秒;新增 idle 兜底 — 如果 hasReturnedPrompt 持续 false 但数据流已停 2s,直接 fallback resolve 已收到的内容。
+
+### 优化
+- 🎨 style(ai): `AiChat` 消息布局 —
+  - `.msg.user` 由 `flex-direction: row-reverse` 改为 `row + align-self: flex-end + max-width: 86%`,用户消息整体靠右、限宽,头像在左、内容在右;
+  - 全部消息内容用标准 `overflow-wrap: anywhere` 替代非标准 `word-break: break-word`,在窄 panel / 长 URL / 长单词下也能正常断行;
+  - `.tool-call` / `.tool-summary` / `.tool-result` / `.think-body pre` 同步加固 wrap 行为。
+
+---
+
+## [0.19.4] - 2026-07-10
+
+### 修复
+- 🐛 fix(ai): 「停止」按钮真正生效,`stopAgent` 立即设 `loading=false` + `error='已停止'`,不再卡在"思考中"。
+- 🐛 fix(ai): `runAgent` 加 300 秒全局超时,防止 SSE hang 住整个会话。
+- 🐛 fix(ai): `<think>...</think>` 标签块可点击折叠/展开,默认收起。
+- 🐛 fix(ai): 工具栏新增「重试最后一条消息」按钮,顶部错误条的重试按钮保留。
+- 🐛 fix(ai): `AiChat` 内容区扩宽,移除冗余缩进。
+- 🐛 fix(layout): 右侧面板最小宽度从 200px 提到 300px,防止窄 panel 下 AI 消息气泡被压成竖线。
+
+---
+
 ## [0.19.3] - 2026-07-10
 
 ### 新增

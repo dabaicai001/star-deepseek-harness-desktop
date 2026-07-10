@@ -162,6 +162,10 @@ const esPendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map(
 
 async function onAiSend(text: string) {
   if (!aiSession.value) return
+  // 防并发 send:loading 在 runAgent 之前立刻设,挡住重复点击,
+  // 否则两个 runAgent 并发跑会污染 messages(LLM 报 400 tool call 错位)
+  if (aiSession.value.loading) return
+  aiSession.value.loading = true
   aiSession.value.messages.push({ role: 'user', content: text })
 
   const confirmFn: import('@/utils/aiTools').ToolConfirmFn = async (ctx) => {

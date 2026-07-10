@@ -777,6 +777,10 @@ async function executeExcelTool(call: LlmToolCall): Promise<string> {
 
 async function onAiSend(text: string) {
   if (!aiSession.value) return
+  // 防并发 send:loading 在 runAgent 之前立刻设,挡住重复点击,
+  // 否则两个 runAgent 并发跑会污染 messages(LLM 报 400 tool call 错位)
+  if (aiSession.value.loading) return
+  aiSession.value.loading = true
   aiSession.value.messages.push({ role: 'user', content: text })
   const sysPrompt = aiStore.buildSystemPrompt(EXCEL_SYSTEM_PROMPT, 'excel')
   await aiStore.runAgent(instanceId.value, excelTools, executeExcelTool, sysPrompt)

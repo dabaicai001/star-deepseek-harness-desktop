@@ -177,6 +177,10 @@ export const useAiStore = defineStore('ai', () => {
   // ====== Agent 中断控制 ======
   // key = instanceId, value = AbortController
   const _abortControllers = new Map<string, AbortController>()
+  // key = instanceId, value = 当前轮 runAgent 的 promise
+  // 用于:1) 新一轮进入时等旧一轮 abort+finally 收尾,避免 messages 数组被并发 push 污染;
+  //      2) 同一个 instanceId 上的并发 runAgent 串行化,防止 tool_call/tool 消息错位触发 LLM 400。
+  const _inflightPromises = new Map<string, Promise<void>>()
 
   async function _ensureUnlocked() {
     if (_unlockedApiKey.value) return
@@ -507,6 +511,20 @@ export const useAiStore = defineStore('ai', () => {
     const session = getSession(instanceId)
     if (!session) throw new Error(`AI session not found: ${instanceId}`)
 
+    // 等上一轮 in-flight 收尾(应该已经被 abort,正在跑 finally)
+    // 这是 in-flight 锁:即使 onAiSend 守卫被绕过,runAgent 也不会并发跑
+    // 不这么做的话,旧的还在 background push tool 消息,新的又 push user + assistant(tool_calls),
+    // messages 顺序乱,LLM 报 400 "tool call result does not follow tool call"
+    const prev = _inflightPromises.get(instanceId)
+    if (prev) {
+      try { await prev } catch { /* 上轮异常,本轮正常启动 */ }
+    }
+
+    // 注册本轮 in-flight
+    let resolveRun!: () => void
+    const myRun = new Promise<void>((res) => { resolveRun = res })
+    _inflightPromises.set(instanceId, myRun)
+
     // 创建中断控制器
     const ac = new AbortController()
     _abortControllers.set(instanceId, ac)
@@ -645,6 +663,9 @@ export const useAiStore = defineStore('ai', () => {
       if (timeoutId) clearTimeout(timeoutId)
       _abortControllers.delete(instanceId)
       session.loading = false
+      _inflightPromises.delete(instanceId)
+      // 唤醒下一个等本轮的 runAgent
+      resolveRun()
     }
   }
 

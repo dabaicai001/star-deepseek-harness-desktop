@@ -124,7 +124,12 @@ interface PromptCapture {
   settleTimer: number | null
 }
 let promptCapture: PromptCapture | null = null
-const AI_PROMPT_CAPTURE_SAFETY_MS = 10 * 60 * 1000
+const AI_PROMPT_CAPTURE_SAFETY_MS = 60 * 1000
+// 数据流空闲兜底:如果 prompt 模式没匹配上但数据流已停 2s,
+// 视为命令已完成(可能是大输出 / 不带典型 prompt 字符的 shell),
+// 直接把已收到的内容 resolve 出去,不再卡到 safetyTimer
+const AI_PROMPT_CAPTURE_IDLE_MS = 2000
+let _lastDataAt = 0
 
 const kbDialogRef = ref<InstanceType<typeof KbInteractiveDialog>>()
 
@@ -174,6 +179,13 @@ const aiSession = computed(() => {
 
 async function onAiSend(text: string) {
  if (!aiSession.value) return
+ // 防并发:loading 在 runAgent 之前就设 true,这样:
+ // 1) UI 立刻切到"停止"按钮,textarea 立刻 disable
+ // 2) 即使用户在 pwd/agent 启动间隙连点 send 也会被守卫拦掉
+ // 不这么做会触发 pwd 抢占 promptCapture(Superseded)、
+ // messages 数组被并发 push 污染(LLM 400 tool call 错位)
+ if (aiSession.value.loading) return
+ aiSession.value.loading = true
  aiSession.value.messages.push({ role: 'user', content: text })
  // 先获取当前工作目录
  try {
@@ -182,10 +194,12 @@ async function onAiSend(text: string) {
    if (pwdMatch) sshCwd.value = pwdMatch[0]
  } catch { /* ignore */ }
  await runSshAgent()
+ // runAgent 内部 finally 会把 loading 还原
 }
 
 async function onAiRetry() {
  if (!aiSession.value) return
+ if (aiSession.value.loading) return
  //删最后一条 assistant + user 对,重发最后一条 user
  const msgs = aiSession.value.messages
  while (msgs.length && msgs[msgs.length -1].role !== 'user') {
@@ -536,6 +550,8 @@ function handleTerminalOctets(octets: number[]) {
   if (!chunk) return
   terminalRef.value?.write(chunk)
   markSftpReady()
+  // 记录最近一次收到数据的时间,用于 prompt capture 的 idle 兜底
+  _lastDataAt = Date.now()
   //收集到 buffer(AI助手用)
   dataBuffer.value.push(chunk)
   //检测 pwd 输出,更新当前工作目录
@@ -775,22 +791,38 @@ function clearPromptCapture(error?: Error) {
 }
 
 function maybeResolvePromptCapture() {
- const current = promptCapture
- if (!current) return
- const raw = dataBuffer.value.slice(current.baseline).join('')
- if (!hasReturnedPrompt(raw)) return
- if (current.settleTimer) window.clearTimeout(current.settleTimer)
- current.settleTimer = window.setTimeout(() => {
- const latest = promptCapture
- if (!latest) return
- const output = dataBuffer.value.slice(latest.baseline).join('')
- if (!hasReturnedPrompt(output)) return
- const cleaned = cleanPromptCapturedOutput(output, latest.command)
- if (latest.safetyTimer) window.clearTimeout(latest.safetyTimer)
- if (latest.settleTimer) window.clearTimeout(latest.settleTimer)
- promptCapture = null
- latest.resolve(cleaned || '(无输出)')
- }, 80)
+  const current = promptCapture
+  if (!current) return
+  const raw = dataBuffer.value.slice(current.baseline).join('')
+  if (hasReturnedPrompt(raw)) {
+    if (current.settleTimer) window.clearTimeout(current.settleTimer)
+    current.settleTimer = window.setTimeout(() => {
+      const latest = promptCapture
+      if (!latest) return
+      const output = dataBuffer.value.slice(latest.baseline).join('')
+      if (!hasReturnedPrompt(output)) return
+      const cleaned = cleanPromptCapturedOutput(output, latest.command)
+      if (latest.safetyTimer) window.clearTimeout(latest.safetyTimer)
+      if (latest.settleTimer) window.clearTimeout(latest.settleTimer)
+      promptCapture = null
+      latest.resolve(cleaned || '(无输出)')
+    }, 80)
+    return
+  }
+  // 没匹配到 prompt 模式,但数据流已停顿 2s — 兜底直接 resolve
+  // 场景:大文件输出末尾不带典型 prompt 字符(自定义 PS1 / fish / 多行 shell),
+  // 旧的 10 分钟 safetyTimer 太长,卡住 AI 工作流
+  if (
+    _lastDataAt > 0 &&
+    Date.now() - _lastDataAt > AI_PROMPT_CAPTURE_IDLE_MS &&
+    raw.length > 0
+  ) {
+    const cleaned = cleanPromptCapturedOutput(raw, current.command)
+    if (current.safetyTimer) window.clearTimeout(current.safetyTimer)
+    if (current.settleTimer) window.clearTimeout(current.settleTimer)
+    promptCapture = null
+    current.resolve(cleaned || '(无输出)')
+  }
 }
 
 function stripTerminalControl(input: string): string {

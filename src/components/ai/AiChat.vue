@@ -408,8 +408,17 @@ function shortResult(s: string, max = 240): string {
   min-width: 0;
 }
 
+.msg.assistant,
+.msg.tool {
+  /* 默认:AI / 工具消息铺满左侧,内容自然左对齐 */
+}
+
+/* 用户消息靠右,头像在左、内容在右;限宽避免在窄 panel 下挤爆 */
 .msg.user {
-  flex-direction: row-reverse;
+  flex-direction: row;
+  align-self: flex-end;
+  max-width: 86%;
+  width: auto;
 }
 
 .msg-avatar {
@@ -449,10 +458,11 @@ function shortResult(s: string, max = 240): string {
   max-width: 100%;
 }
 
+/* 用户消息内部仍纵向堆叠,内容左对齐(因为 .msg.user 整条靠右) */
 .msg.user .msg-body {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
 }
 
 .msg-meta {
@@ -472,7 +482,11 @@ function shortResult(s: string, max = 240): string {
   border-radius: 8px;
   padding: 8px 10px;
   white-space: pre-wrap;
-  word-break: break-word;
+  /* word-break: break-word 是非标准别名,统一用标准属性:
+     overflow-wrap: anywhere 强制长单词/URL 在任何位置断行,避免在窄 panel 下溢出 */
+  overflow-wrap: anywhere;
+  word-break: normal;
+  min-width: 0;
 }
 
 .msg.user .msg-content {
@@ -491,7 +505,8 @@ function shortResult(s: string, max = 240): string {
   font-size: 10px;
   color: var(--muted);
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .tool-call {
@@ -507,6 +522,8 @@ function shortResult(s: string, max = 240): string {
   align-self: flex-start;
   max-width: 100%;
   min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   overflow: hidden;
 }
 
@@ -544,6 +561,7 @@ function shortResult(s: string, max = 240): string {
   color: var(--text-2);
   font-size: 10px;
   word-break: break-all;
+  overflow-wrap: anywhere;
   flex: 1;
   min-width: 0;
 }
@@ -557,8 +575,8 @@ function shortResult(s: string, max = 240): string {
   padding: 6px 8px;
   border-radius: 4px;
   white-space: pre-wrap;
-  word-break: break-word;
   overflow-wrap: anywhere;
+  word-break: normal;
   max-height: 160px;
   overflow-y: auto;
 }
@@ -796,7 +814,8 @@ function shortResult(s: string, max = 240): string {
   line-height: 1.5;
   color: var(--muted);
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  word-break: normal;
   border-top: 1px solid var(--line-2);
 }
 
