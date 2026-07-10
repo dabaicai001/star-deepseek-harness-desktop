@@ -8,6 +8,7 @@ import { decrypt as decryptLegacyKey } from '@/utils/crypto'
 const KEYRING_MARKER = 'keyring:v1'
 
 export type AiAssetType = 'ssh' | 'db' | 'docker' | 'excel'
+export type AiContextType = AiAssetType | 'ai'
 
 export interface AiSkillDefinition {
   id: string
@@ -23,6 +24,23 @@ export interface AiCustomSkill {
   description: string
   assetTypes: AiAssetType[]
   prompt: string
+}
+
+export interface AiAgent {
+  id: string
+  name: string
+  description: string
+  systemPrompt: string
+  skillIds: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface AiAgentDraft {
+  name: string
+  description: string
+  systemPrompt: string
+  skillIds: string[]
 }
 
 export const BUILTIN_AI_SKILLS: AiSkillDefinition[] = [
@@ -64,6 +82,19 @@ export const BUILTIN_AI_SKILLS: AiSkillDefinition[] = [
 ]
 
 const DEFAULT_ENABLED_SKILL_IDS = ['ops-triage', 'safe-change']
+
+function createDefaultAgent(): AiAgent {
+  const now = Date.now()
+  return {
+    id: 'starhub-assistant',
+    name: 'StarHub AI',
+    description: '通用 DevOps 助手,负责跨工作区分析、规划与任务分派。',
+    systemPrompt: '你是 StarHub 的主 AI 助手。先理解目标和上下文,优先使用只读信息形成判断;需要进入具体工作区时明确指出目标资产和下一步。',
+    skillIds: [...DEFAULT_ENABLED_SKILL_IDS],
+    createdAt: now,
+    updatedAt: now
+  }
+}
 
 const DEFAULT_COMMAND_WHITELIST = [
   'ls', 'cat', 'head', 'tail', 'less', 'more', 'grep', 'find', 'pwd',
@@ -115,7 +146,7 @@ export interface AiSettings {
 export interface AiSession {
   instanceId: string
   assetId: string
-  assetType: AiAssetType
+  assetType: AiContextType
   messages: ChatMessage[]
   loading: boolean
   error: string | null
@@ -192,6 +223,9 @@ export const useAiStore = defineStore('ai', () => {
     commandWhitelist: [...DEFAULT_COMMAND_WHITELIST]
   })
 
+  // Agent 只保存角色与技能绑定;Provider / API Key / 模型始终复用 settings。
+  const agents = ref<AiAgent[]>([createDefaultAgent()])
+
   function ensureSettingsShape() {
     const s = settings.value
     if (!Array.isArray(s.commandWhitelist)) {
@@ -217,6 +251,28 @@ export const useAiStore = defineStore('ai', () => {
     }
   }
 
+  function ensureAgentsShape() {
+    if (!Array.isArray(agents.value) || agents.value.length === 0) {
+      agents.value = [createDefaultAgent()]
+      return
+    }
+    const now = Date.now()
+    agents.value = agents.value
+      .filter(agent => agent && typeof agent.id === 'string' && typeof agent.name === 'string')
+      .map(agent => ({
+        id: agent.id,
+        name: agent.name.trim() || 'AI Agent',
+        description: typeof agent.description === 'string' ? agent.description : '',
+        systemPrompt: typeof agent.systemPrompt === 'string' ? agent.systemPrompt : '',
+        skillIds: Array.isArray(agent.skillIds)
+          ? agent.skillIds.filter(id => typeof id === 'string')
+          : [...DEFAULT_ENABLED_SKILL_IDS],
+        createdAt: Number.isFinite(agent.createdAt) ? agent.createdAt : now,
+        updatedAt: Number.isFinite(agent.updatedAt) ? agent.updatedAt : now
+      }))
+    if (agents.value.length === 0) agents.value = [createDefaultAgent()]
+  }
+
   // ====== 每个 tab 独立的 AI 会话 ======
   // key = tab instanceId,value = AiSession
   const sessions = ref<Map<string, AiSession>>(new Map())
@@ -224,7 +280,7 @@ export const useAiStore = defineStore('ai', () => {
   /**
    * 获取或创建某个 tab 的 AI 会话
    */
-  function getOrCreateSession(instanceId: string, assetId: string, assetType: AiAssetType): AiSession {
+  function getOrCreateSession(instanceId: string, assetId: string, assetType: AiContextType): AiSession {
     let s = sessions.value.get(instanceId)
     if (!s) {
       s = {
@@ -284,6 +340,66 @@ export const useAiStore = defineStore('ai', () => {
     sessions.value.clear()
   }
 
+  function getAgent(id: string): AiAgent | undefined {
+    return agents.value.find(agent => agent.id === id)
+  }
+
+  function createAgent(draft: AiAgentDraft): AiAgent {
+    ensureAgentsShape()
+    const now = Date.now()
+    const agent: AiAgent = {
+      id: `agent-${now}-${Math.random().toString(36).slice(2, 8)}`,
+      name: draft.name.trim() || 'AI Agent',
+      description: draft.description.trim(),
+      systemPrompt: draft.systemPrompt.trim(),
+      skillIds: Array.from(new Set(draft.skillIds)),
+      createdAt: now,
+      updatedAt: now
+    }
+    agents.value.push(agent)
+    return agent
+  }
+
+  function updateAgent(id: string, draft: AiAgentDraft): AiAgent | undefined {
+    ensureAgentsShape()
+    const index = agents.value.findIndex(agent => agent.id === id)
+    if (index < 0) return undefined
+    const current = agents.value[index]
+    const updated: AiAgent = {
+      ...current,
+      name: draft.name.trim() || current.name,
+      description: draft.description.trim(),
+      systemPrompt: draft.systemPrompt.trim(),
+      skillIds: Array.from(new Set(draft.skillIds)),
+      updatedAt: Date.now()
+    }
+    agents.value[index] = updated
+    return updated
+  }
+
+  function duplicateAgent(id: string): AiAgent | undefined {
+    const source = getAgent(id)
+    if (!source) return undefined
+    return createAgent({
+      name: `${source.name} Copy`,
+      description: source.description,
+      systemPrompt: source.systemPrompt,
+      skillIds: [...source.skillIds]
+    })
+  }
+
+  function deleteAgent(id: string): boolean {
+    ensureAgentsShape()
+    if (agents.value.length <= 1) return false
+    const index = agents.value.findIndex(agent => agent.id === id)
+    if (index < 0) return false
+    agents.value.splice(index, 1)
+    for (const [instanceId, session] of sessions.value.entries()) {
+      if (session.assetId === id) clearSession(instanceId)
+    }
+    return true
+  }
+
   function updateSettings(partial: Partial<AiSettings>) {
     ensureSettingsShape()
     // apiKey 不允许通过 updateSettings 直接赋值(必须用 setApiKey 加密)
@@ -323,7 +439,6 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   function getSkillsForAsset(assetType: AiAssetType): Array<AiSkillDefinition | AiCustomSkill> {
-    ensureSettingsShape()
     return [
       ...BUILTIN_AI_SKILLS,
       ...settings.value.customSkills
@@ -334,6 +449,29 @@ export const useAiStore = defineStore('ai', () => {
     ensureSettingsShape()
     const enabled = new Set(settings.value.enabledSkillIds)
     return getSkillsForAsset(assetType).filter(skill => enabled.has(skill.id))
+  }
+
+  function getSkillsForAgent(agent: AiAgent): Array<AiSkillDefinition | AiCustomSkill> {
+    const selected = new Set(agent.skillIds)
+    return [...BUILTIN_AI_SKILLS, ...settings.value.customSkills]
+      .filter(skill => selected.has(skill.id))
+  }
+
+  function buildAgentPrompt(agent: AiAgent, collaborators: AiAgent[] = []): string {
+    const roles = [agent, ...collaborators.filter(item => item.id !== agent.id)]
+    const roleBlock = roles
+      .map(item => {
+        const skills = getSkillsForAgent(item)
+          .map(skill => `    - ${skill.name}: ${skill.prompt}`)
+          .join('\n')
+        return [
+          `- @${item.name}: ${item.description || 'AI Agent'}`,
+          item.systemPrompt ? `  角色约束: ${item.systemPrompt}` : '',
+          skills ? `  绑定技能:\n${skills}` : ''
+        ].filter(Boolean).join('\n')
+      })
+      .join('\n')
+    return `${DEFAULT_SYSTEM_PROMPT}\n\n当前 AI Agent 团队:\n${roleBlock}`
   }
 
   function buildSystemPrompt(basePrompt: string, assetType: AiAssetType): string {
@@ -547,8 +685,15 @@ export const useAiStore = defineStore('ai', () => {
 
   return {
     settings,
+    agents,
     sessions,
     ensureSettingsShape,
+    ensureAgentsShape,
+    getAgent,
+    createAgent,
+    updateAgent,
+    duplicateAgent,
+    deleteAgent,
     getOrCreateSession,
     getSession,
     clearSession,
@@ -559,7 +704,9 @@ export const useAiStore = defineStore('ai', () => {
     setSkillEnabled,
     getSkillsForAsset,
     getEnabledSkills,
+    getSkillsForAgent,
     buildSystemPrompt,
+    buildAgentPrompt,
     runAgent,
     stopAgent,
     resetSession,
@@ -570,8 +717,8 @@ export const useAiStore = defineStore('ai', () => {
   }
 }, {
   persist: {
-    // 只持久化 settings(配置);sessions 是 tab 运行时状态,关 app 清理
-    paths: ['settings'],
+    // 配置与 Agent 持久化;sessions 是 tab 运行时状态,关 app 清理。
+    paths: ['settings', 'agents'],
     // 跟随 app store 一起升 key
     key: 'ai-v2'
   }

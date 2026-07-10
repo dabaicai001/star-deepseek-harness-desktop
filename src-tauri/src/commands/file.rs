@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[tauri::command]
@@ -21,7 +21,7 @@ pub fn open_file_external(path: String) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn open_with_default_app(path: &PathBuf) -> std::io::Result<std::process::ExitStatus> {
+fn open_with_default_app(path: &Path) -> std::io::Result<std::process::ExitStatus> {
     // explorer.exe is a GUI app that returns exit code 1 even on success.
     // Use `cmd /c start` instead which returns 0 on success.
     Command::new("cmd")
@@ -30,11 +30,11 @@ fn open_with_default_app(path: &PathBuf) -> std::io::Result<std::process::ExitSt
 }
 
 #[cfg(target_os = "macos")]
-fn open_with_default_app(path: &PathBuf) -> std::io::Result<std::process::ExitStatus> {
+fn open_with_default_app(path: &Path) -> std::io::Result<std::process::ExitStatus> {
     Command::new("open").arg(path).status()
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn open_with_default_app(path: &PathBuf) -> std::io::Result<std::process::ExitStatus> {
+fn open_with_default_app(path: &Path) -> std::io::Result<std::process::ExitStatus> {
     Command::new("xdg-open").arg(path).status()
 }

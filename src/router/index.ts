@@ -73,9 +73,10 @@ const router = createRouter({
           props: true,
         },
         {
-          path: 'ai',
+          path: 'ai/:id?',
           name: 'ai',
           component: () => import('@/views/AiView.vue'),
+          props: true,
         },
       ],
     },

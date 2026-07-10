@@ -1,397 +1,475 @@
 <script setup lang="ts">
-import { ref, nextTick, watch, computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useAiStore } from '@/stores/ai'
-import { chat as oldChat } from '@/services/ai'
-import { listModels } from '@/services/ai'
-import type { ModelInfo } from '@/services/ai'
-import type { ChatMessage } from '@/services/ai'
+import { useRouter } from 'vue-router'
+import { useAiStore, type AiAgent, type AiAgentDraft, type AiAssetType } from '@/stores/ai'
+import { useAppStore } from '@/stores/app'
+import { useAssetStore } from '@/stores/asset'
+import AiAgentDialog from '@/components/ai/AiAgentDialog.vue'
+import type { Asset } from '@/types/asset'
+import type { LlmTool, LlmToolCall } from '@/services/ai'
+import { generateInstanceId } from '@/utils/tabId'
 
+const props = defineProps<{ id?: string }>()
 const { t } = useI18n()
+const router = useRouter()
 const aiStore = useAiStore()
+const appStore = useAppStore()
+const assetStore = useAssetStore()
+aiStore.ensureAgentsShape()
 
 const inputText = ref('')
+const lastUserText = ref('')
 const messagesRef = ref<HTMLElement | null>(null)
-const showSettings = ref(false)
-const models = ref<ModelInfo[]>([])
+const mentionIndex = ref(0)
+const showAgentDialog = ref(false)
 
-// AiView 用一个固定的 "global" instanceId 当独立会话
-// 这样它和 tab 内的 AI 助手互不干扰
-const GLOBAL_INSTANCE_ID = 'global-ai-view'
-const globalSession = computed(() => aiStore.getOrCreateSession(GLOBAL_INSTANCE_ID, '', 'ssh'))
+const instanceId = computed(() => props.id || appStore.activeTab || 'global-ai-view')
+const activeTab = computed(() => appStore.tabs.find(tab => tab.id === instanceId.value))
+const activeAgent = computed(() =>
+  aiStore.getAgent(activeTab.value?.assetId || '') || aiStore.agents[0]
+)
+const session = computed(() =>
+  aiStore.getOrCreateSession(instanceId.value, activeAgent.value.id, 'ai')
+)
+const boundSkills = computed(() => aiStore.getSkillsForAgent(activeAgent.value))
 
-async function loadModels() {
-  try {
-    models.value = await listModels()
-  } catch (e) {
-    console.warn('[AiView] Failed to load models:', e)
-  }
+const capabilityOptions: Array<{
+  type: AiAssetType
+  token: string
+  label: string
+  icon: string
+  description: string
+}> = [
+  { type: 'ssh', token: '#SSH', label: 'SSH', icon: 'mdi-console', description: '终端、主机与 SFTP 资产' },
+  { type: 'db', token: '#DB', label: 'DB', icon: 'mdi-database-outline', description: '数据库与消息队列资产' },
+  { type: 'docker', token: '#Docker', label: 'Docker', icon: 'mdi-docker', description: '容器与镜像工作区' },
+  { type: 'excel', token: '#Excel', label: 'Excel', icon: 'mdi-file-excel-outline', description: '工作簿与数据分析' }
+]
+
+function agentHandle(agent: AiAgent) {
+  return agent.name.trim().replace(/\s+/g, '-')
 }
 
-loadModels()
+type MentionSuggestion = {
+  id: string
+  label: string
+  detail: string
+  icon: string
+  insert: string
+}
 
-watch(() => globalSession.value.messages.length, () => {
-  nextTick(() => {
-    if (messagesRef.value) {
-      messagesRef.value.scrollTop = messagesRef.value.scrollHeight
-    }
-  })
+const mentionMatch = computed(() => inputText.value.match(/(^|\s)([@#])([^\s@#]*)$/))
+const mentionSuggestions = computed<MentionSuggestion[]>(() => {
+  const match = mentionMatch.value
+  if (!match) return []
+  const query = match[3].toLowerCase()
+  if (match[2] === '@') {
+    return aiStore.agents
+      .filter(agent => agentHandle(agent).toLowerCase().includes(query))
+      .map(agent => ({
+        id: agent.id,
+        label: `@${agentHandle(agent)}`,
+        detail: agent.description || t('ai.agent'),
+        icon: 'mdi-robot-outline',
+        insert: `@${agentHandle(agent)}`
+      }))
+  }
+  return capabilityOptions
+    .filter(item => item.label.toLowerCase().includes(query))
+    .map(item => ({
+      id: item.type,
+      label: item.token,
+      detail: item.description,
+      icon: item.icon,
+      insert: item.token
+    }))
 })
 
-async function onSend() {
+const selectedScopes = computed(() => extractScopes(inputText.value))
+const selectedAgents = computed(() => extractAgents(inputText.value))
+
+watch(mentionSuggestions, () => { mentionIndex.value = 0 })
+watch(
+  () => session.value.messages.map(message => message.content).join('\n'),
+  () => scrollToBottom()
+)
+watch(() => session.value.toolCalls.length, () => scrollToBottom())
+
+function scrollToBottom() {
+  nextTick(() => {
+    if (messagesRef.value) messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+  })
+}
+
+function selectMention(suggestion: MentionSuggestion) {
+  const match = mentionMatch.value
+  if (!match || match.index === undefined) return
+  const leading = match[1]
+  inputText.value = `${inputText.value.slice(0, match.index)}${leading}${suggestion.insert} `
+}
+
+function appendToken(token: string) {
+  const spacer = inputText.value && !inputText.value.endsWith(' ') ? ' ' : ''
+  inputText.value += `${spacer}${token} `
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if (mentionSuggestions.value.length > 0) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      mentionIndex.value = (mentionIndex.value + 1) % mentionSuggestions.value.length
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      mentionIndex.value = (mentionIndex.value - 1 + mentionSuggestions.value.length) % mentionSuggestions.value.length
+      return
+    }
+    if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
+      event.preventDefault()
+      selectMention(mentionSuggestions.value[mentionIndex.value])
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      inputText.value += ' '
+      return
+    }
+  }
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    void send()
+  }
+}
+
+function extractAgents(text: string): AiAgent[] {
+  const handles = Array.from(text.matchAll(/@([^\s@#]+)/g), match => match[1].toLowerCase())
+  const unique = new Set(handles)
+  return aiStore.agents.filter(agent => unique.has(agentHandle(agent).toLowerCase()))
+}
+
+function extractScopes(text: string): AiAssetType[] {
+  const matches = Array.from(text.matchAll(/#(ssh|db|docker|excel)\b/gi), match => match[1].toLowerCase())
+  return Array.from(new Set(matches)) as AiAssetType[]
+}
+
+function assetSummary(asset: Asset) {
+  if (asset.type === 'ssh') return `${asset.config.host || '-'}:${asset.config.port || 22}`
+  if (asset.type === 'db') return `${asset.config.dbType || 'mysql'} · ${asset.config.address || asset.config.host || '-'}`
+  if (asset.type === 'docker') return asset.config.dockerTransport || asset.config.remoteHost || 'local'
+  return asset.config.format || 'xlsx'
+}
+
+function scopedAssets(scopes: AiAssetType[]) {
+  const allowed = new Set(scopes)
+  return assetStore.assets.filter(asset => allowed.has(asset.type))
+}
+
+const workspaceTools: LlmTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'starhub_list_assets',
+      description: '列出本轮通过 # 授权的 StarHub 工作区资产。',
+      parameters: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', description: '可选: ssh、db、docker 或 excel', enum: ['ssh', 'db', 'docker', 'excel'] }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'starhub_open_asset',
+      description: '按 id 或名称打开一个已通过 # 授权的 StarHub 工作区。打开后可在该工作区使用上下文 AI 的完整工具。',
+      parameters: {
+        type: 'object',
+        properties: {
+          asset: { type: 'string', description: '资产 id 或完整名称' }
+        },
+        required: ['asset']
+      }
+    }
+  }
+]
+
+function routeNameForAsset(asset: Asset) {
+  if (asset.type === 'ssh') return 'ssh-terminal'
+  if (asset.type === 'docker') return 'docker'
+  if (asset.type === 'excel') return 'excel'
+  const dbType = asset.config.dbType || 'mysql'
+  if (dbType === 'redis') return 'db-redis'
+  if (dbType === 'elasticsearch') return 'db-elasticsearch'
+  if (dbType === 'clickhouse') return 'db-clickhouse'
+  if (dbType === 'postgresql') return 'db-postgresql'
+  if (dbType === 'kafka' || dbType === 'nsq') return 'db-broker'
+  return 'db-mysql'
+}
+
+function openAsset(asset: Asset) {
+  const existing = appStore.tabs.find(tab => tab.assetId === asset.id && tab.type === asset.type)
+  if (existing) {
+    appStore.setActiveTab(existing.id)
+    router.push({ name: routeNameForAsset(asset), params: { id: existing.id } })
+    return
+  }
+  const id = generateInstanceId(asset.id)
+  appStore.addTab({ id, assetId: asset.id, title: asset.name, type: asset.type })
+  router.push({ name: routeNameForAsset(asset), params: { id } })
+}
+
+async function executeWorkspaceTool(call: LlmToolCall, scopes: AiAssetType[]) {
+  let args: Record<string, unknown> = {}
+  try { args = JSON.parse(call.function.arguments) as Record<string, unknown> } catch {}
+  const assets = scopedAssets(scopes)
+  if (call.function.name === 'starhub_list_assets') {
+    const type = String(args.type || '').toLowerCase()
+    const result = type ? assets.filter(asset => asset.type === type) : assets
+    return JSON.stringify(result.map(asset => ({
+      id: asset.id,
+      name: asset.name,
+      type: asset.type,
+      context: assetSummary(asset)
+    })))
+  }
+  if (call.function.name === 'starhub_open_asset') {
+    const target = String(args.asset || '').trim().toLowerCase()
+    const asset = assets.find(item => item.id.toLowerCase() === target || item.name.toLowerCase() === target)
+    if (!asset) throw new Error(t('ai.assetNotAuthorized'))
+    openAsset(asset)
+    return t('ai.assetOpened', { name: asset.name })
+  }
+  throw new Error(`Unsupported AI workspace tool: ${call.function.name}`)
+}
+
+function buildPrompt(text: string) {
+  const mentions = extractAgents(text)
+  const primary = mentions[0] || activeAgent.value
+  const collaborators = mentions.slice(1)
+  let prompt = aiStore.buildAgentPrompt(primary, collaborators)
+  const scopes = extractScopes(text)
+  if (scopes.length > 0) {
+    const inventory = scopedAssets(scopes)
+      .map(asset => `- ${asset.id} | ${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`)
+      .join('\n') || '- 当前没有匹配资产'
+    prompt += `\n\n本轮 # 能力授权: ${scopes.map(scope => `#${scope}`).join(', ')}\n可见资产:\n${inventory}\n\n你可以调用 starhub_list_assets 和 starhub_open_asset。打开具体工作区后,真实 SSH / DB / Docker / Excel 操作必须交给该工作区的上下文 AI,继续遵守确认、白名单和高危操作拦截规则。未通过 # 提及的模块不得访问。`
+  } else {
+    prompt += '\n\n本轮没有 # 模块授权。不要读取或打开任何 StarHub 资产;如果任务需要工作区上下文,请提示用户输入 #SSH、#DB、#Docker 或 #Excel。'
+  }
+  return { prompt, scopes }
+}
+
+async function runCurrentTurn(text: string) {
+  const { prompt, scopes } = buildPrompt(text)
+  await aiStore.runAgent(
+    instanceId.value,
+    scopes.length > 0 ? workspaceTools : [],
+    call => executeWorkspaceTool(call, scopes),
+    prompt
+  )
+}
+
+async function send() {
   const text = inputText.value.trim()
-  if (!text || globalSession.value.loading) return
+  if (!text || session.value.loading) return
   inputText.value = ''
-  // 走老通道(无 function calling,纯聊天)
-  globalSession.value.messages.push({ role: 'user', content: text })
-  globalSession.value.loading = true
-  globalSession.value.error = null
-  try {
-    const s = aiStore.settings
-    const res = await oldChat({
-      provider: s.provider,
-      api_key: s.apiKey,
-      model: s.model,
-      messages: globalSession.value.messages.filter(m => m.role === 'user' || m.role === 'assistant') as { role: 'user' | 'assistant'; content: string }[],
-      temperature: s.temperature,
-      max_tokens: s.maxTokens,
-      system: aiStore.buildSystemPrompt('你是一个专业的 DevOps 助手，帮助用户解答数据库、SSH、Docker 等运维相关问题。请用中文回答。', 'ssh')
-    })
-    globalSession.value.messages.push({ role: 'assistant', content: res.content })
-  } catch (e) {
-    globalSession.value.error = e instanceof Error ? e.message : String(e)
-  } finally {
-    globalSession.value.loading = false
+  lastUserText.value = text
+  session.value.messages.push({ role: 'user', content: text })
+  await runCurrentTurn(text)
+}
+
+async function retry() {
+  if (session.value.loading) return
+  const text = lastUserText.value || [...session.value.messages].reverse().find(message => message.role === 'user')?.content
+  if (!text) return
+  session.value.error = null
+  await runCurrentTurn(text)
+}
+
+function resetConversation() {
+  aiStore.resetSession(instanceId.value)
+  inputText.value = ''
+  lastUserText.value = ''
+}
+
+function saveAgent(draft: AiAgentDraft) {
+  const updated = aiStore.updateAgent(activeAgent.value.id, draft)
+  if (!updated) return
+  for (const tab of appStore.tabs) {
+    if (tab.type === 'ai' && tab.assetId === updated.id) tab.title = updated.name
   }
 }
 
-function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
-    onSend()
-  }
+function openGlobalAiSettings() {
+  window.dispatchEvent(new CustomEvent('starhub:open-ai-settings'))
 }
 
-function clearMessages() {
-  aiStore.clearSession(GLOBAL_INSTANCE_ID)
+function toolRecordsFor(messageIndex: number) {
+  const message = session.value.messages[messageIndex]
+  if (message?.role !== 'assistant' || !message.tool_calls) return []
+  return message.tool_calls
+    .map(call => session.value.toolCalls.find(record => record.id === call.id))
+    .filter(record => record !== undefined)
+}
+
+function shortResult(value: string, max = 600) {
+  return value.length > max ? `${value.slice(0, max)}\n… (+${value.length - max} chars)` : value
 }
 </script>
 
 <template>
-  <div class="ai-view">
-    <!-- Header -->
-    <div class="ai-header">
-      <div class="header-left">
-        <v-icon size="18" color="cyan">mdi-robot-outline</v-icon>
-        <span class="header-title">{{ t('ai.title') }}</span>
-        <span class="model-badge">{{ aiStore.settings.model }}</span>
+  <div class="ai-workspace grid-bg">
+    <header class="ai-workspace-header">
+      <div class="ai-workspace-title">
+        <span class="ai-agent-avatar"><v-icon size="18">mdi-robot-outline</v-icon></span>
+        <div>
+          <strong>{{ activeAgent.name }}</strong>
+          <span>{{ activeAgent.description }}</span>
+        </div>
+        <span class="cyber-badge">{{ aiStore.settings.model }}</span>
       </div>
-      <div class="header-right">
-        <button class="action-btn" :title="t('ai.newChat')" @click="clearMessages">
-          <v-icon size="14">mdi-plus-circle-outline</v-icon>
+      <div class="ai-workspace-actions">
+        <button class="action-btn" :data-tooltip="t('ai.editAgent')" :aria-label="t('ai.editAgent')" @click="showAgentDialog = true">
+          <v-icon size="15">mdi-account-edit-outline</v-icon>
+        </button>
+        <button class="action-btn" :data-tooltip="t('ai.settings')" :aria-label="t('ai.settings')" @click="openGlobalAiSettings">
+          <v-icon size="15">mdi-cog-outline</v-icon>
+        </button>
+        <button class="action-btn" :data-tooltip="t('ai.newChat')" :aria-label="t('ai.newChat')" @click="resetConversation">
+          <v-icon size="15">mdi-plus-circle-outline</v-icon>
         </button>
       </div>
-    </div>
+    </header>
 
-    <!-- Messages -->
-    <div ref="messagesRef" class="ai-messages">
-      <div v-if="globalSession.messages.length === 0" class="empty-state">
-        <v-icon size="48" color="muted">mdi-robot-happy-outline</v-icon>
-        <p>{{ t('ai.title') }}</p>
-        <p class="empty-hint">全局 AI 适合问答和排障思路;需要操作 DB / Docker / Excel 时,请进入对应工作区使用右侧上下文 AI。</p>
-      </div>
+    <div class="ai-workspace-body">
+      <aside class="ai-agent-profile cyber-panel">
+        <div class="ai-profile-section">
+          <span class="ai-profile-label">{{ t('ai.boundSkills') }}</span>
+          <div v-if="boundSkills.length" class="ai-profile-chips">
+            <span v-for="skill in boundSkills" :key="skill.id" class="cyber-badge">{{ skill.name }}</span>
+          </div>
+          <span v-else class="ai-profile-empty">{{ t('ai.noBoundSkills') }}</span>
+        </div>
+        <div class="ai-profile-section">
+          <span class="ai-profile-label">{{ t('ai.callAgent') }}</span>
+          <button
+            v-for="agent in aiStore.agents"
+            :key="agent.id"
+            class="ai-token-button"
+            @click="appendToken(`@${agentHandle(agent)}`)"
+          >
+            <v-icon size="13">mdi-at</v-icon>
+            <span>{{ agent.name }}</span>
+          </button>
+        </div>
+        <div class="ai-profile-section">
+          <span class="ai-profile-label">{{ t('ai.referenceWorkspace') }}</span>
+          <button
+            v-for="option in capabilityOptions"
+            :key="option.type"
+            class="ai-token-button"
+            @click="appendToken(option.token)"
+          >
+            <v-icon size="13">{{ option.icon }}</v-icon>
+            <span>{{ option.token }}</span>
+          </button>
+        </div>
+        <div class="ai-safety-note">
+          <v-icon size="14">mdi-shield-check-outline</v-icon>
+          <span>{{ t('ai.safetyHint') }}</span>
+        </div>
+      </aside>
 
-      <div v-for="(msg, i) in globalSession.messages" :key="msg.id || i" class="message" :class="msg.role">
-        <div class="message-avatar">
-          <v-icon v-if="msg.role === 'user'" size="16">mdi-account-outline</v-icon>
-          <v-icon v-else size="16">mdi-robot-outline</v-icon>
-        </div>
-        <div class="message-body">
-          <div class="message-content">{{ msg.content }}</div>
-        </div>
-      </div>
+      <main class="ai-conversation">
+        <div ref="messagesRef" class="ai-conversation-messages">
+          <div v-if="session.messages.length === 0" class="ai-workspace-empty">
+            <span class="ai-empty-orbit"><v-icon size="36">mdi-robot-happy-outline</v-icon></span>
+            <h2>{{ t('ai.workspaceTitle') }}</h2>
+            <p>{{ t('ai.workspaceHint') }}</p>
+            <div class="ai-starter-grid">
+              <button @click="inputText = '#SSH 检查主机健康状态并告诉我先看哪些指标'">#SSH {{ t('ai.starterHealth') }}</button>
+              <button @click="inputText = '#DB 分析数据库性能问题的排查路径'">#DB {{ t('ai.starterDatabase') }}</button>
+              <button @click="inputText = '#Docker 找出需要优先关注的容器'">#Docker {{ t('ai.starterDocker') }}</button>
+              <button @click="inputText = '#Excel 给我一个数据清洗和汇总方案'">#Excel {{ t('ai.starterExcel') }}</button>
+            </div>
+          </div>
 
-      <div v-if="globalSession.loading" class="message assistant">
-        <div class="message-avatar">
-          <v-icon size="16">mdi-robot-outline</v-icon>
-        </div>
-        <div class="message-body">
-          <div class="message-content typing">
-            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <template v-for="(message, index) in session.messages" :key="message.id || index">
+            <div v-if="message.role !== 'tool'" class="ai-workspace-message" :class="message.role">
+              <span class="ai-message-avatar">
+                <v-icon size="14">{{ message.role === 'user' ? 'mdi-account-outline' : 'mdi-robot-outline' }}</v-icon>
+              </span>
+              <div class="ai-message-body">
+                <span class="ai-message-role">{{ message.role === 'user' ? t('ai.you') : activeAgent.name }}</span>
+                <div class="ai-message-content">{{ message.content }}</div>
+              </div>
+            </div>
+            <div
+              v-for="record in toolRecordsFor(index)"
+              :key="record.id"
+              class="ai-workspace-tool"
+              :class="`status-${record.status}`"
+            >
+              <v-icon size="13">{{ record.status === 'running' ? 'mdi-loading mdi-spin' : record.status === 'success' ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline' }}</v-icon>
+              <div>
+                <strong>{{ record.name }}</strong>
+                <pre v-if="record.result">{{ shortResult(record.result) }}</pre>
+                <pre v-if="record.errorMessage">{{ record.errorMessage }}</pre>
+              </div>
+            </div>
+          </template>
+
+          <div v-if="session.loading" class="ai-workspace-thinking">
+            <v-icon size="14">mdi-loading mdi-spin</v-icon>
+            <span>{{ t('ai.thinking') }}</span>
+          </div>
+          <div v-if="session.error" class="ai-workspace-error">
+            <v-icon size="14">mdi-alert-circle-outline</v-icon>
+            <span>{{ session.error }}</span>
+            <button @click="retry"><v-icon size="12">mdi-refresh</v-icon>{{ t('ai.retry') }}</button>
           </div>
         </div>
-      </div>
+
+        <div class="ai-composer">
+          <div v-if="selectedAgents.length || selectedScopes.length" class="ai-composer-context">
+            <span v-for="agent in selectedAgents" :key="agent.id" class="cyber-badge">@{{ agentHandle(agent) }}</span>
+            <span v-for="scope in selectedScopes" :key="scope" class="cyber-badge">#{{ scope }}</span>
+          </div>
+          <div class="ai-composer-input">
+            <textarea
+              v-model="inputText"
+              class="cyber-input"
+              rows="3"
+              :placeholder="t('ai.composerPlaceholder')"
+              :disabled="session.loading"
+              @keydown="onKeydown"
+            />
+            <div v-if="mentionSuggestions.length" class="ai-mention-menu cyber-panel">
+              <button
+                v-for="(suggestion, index) in mentionSuggestions"
+                :key="suggestion.id"
+                :class="{ active: index === mentionIndex }"
+                @mousedown.prevent="selectMention(suggestion)"
+              >
+                <v-icon size="14">{{ suggestion.icon }}</v-icon>
+                <span><strong>{{ suggestion.label }}</strong><small>{{ suggestion.detail }}</small></span>
+              </button>
+            </div>
+            <button v-if="session.loading" class="cyber-btn-secondary" @click="aiStore.stopAgent(instanceId)">
+              <v-icon size="14">mdi-stop</v-icon>{{ t('ai.stop') }}
+            </button>
+            <button v-else class="cyber-btn" :disabled="!inputText.trim()" @click="send">
+              <v-icon size="14">mdi-send-outline</v-icon>{{ t('ai.send') }}
+            </button>
+          </div>
+          <span class="ai-composer-hint">{{ t('ai.composerHint') }}</span>
+        </div>
+      </main>
     </div>
 
-    <!-- Error -->
-    <div v-if="globalSession.error" class="ai-error">
-      <v-icon size="14">mdi-alert-circle</v-icon>
-      {{ globalSession.error }}
-    </div>
-
-    <!-- Input -->
-    <div class="ai-input-area">
-      <textarea
-        v-model="inputText"
-        class="cyber-input ai-textarea"
-        :placeholder="'输入运维问题或排障思路... (Shift+Enter 换行)'"
-        rows="2"
-        @keydown="onKeydown"
-      />
-      <button
-        class="cyber-btn send-btn"
-        :disabled="!inputText.trim() || globalSession.loading"
-        @click="onSend"
-      >
-        <v-icon size="16">mdi-send-outline</v-icon>
-        {{ t('ai.send') }}
-      </button>
-    </div>
+    <AiAgentDialog v-model="showAgentDialog" :agent="activeAgent" @save="saveAgent" />
   </div>
 </template>
-
-<style scoped>
-.ai-view {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--bg);
-}
-
-.ai-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.header-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.model-badge {
-  font-size: 10px;
-  font-family: 'JetBrains Mono', monospace;
-  color: var(--cyan);
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.2);
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.token-count {
-  font-size: 10px;
-  font-family: 'JetBrains Mono', monospace;
-  color: var(--muted);
-}
-
-.ai-settings {
-  margin: 12px 20px;
-  padding: 16px;
-  flex-shrink: 0;
-}
-
-.settings-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.setting-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.setting-field .field-label {
-  font-size: 11px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.range-input {
-  width: 100%;
-  accent-color: var(--cyan);
-}
-
-.ai-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 12px;
-  color: var(--muted);
-  font-size: 14px;
-}
-
-.empty-hint {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.message {
-  display: flex;
-  gap: 12px;
-  max-width: 80%;
-}
-
-.message.user {
-  align-self: flex-end;
-  flex-direction: row-reverse;
-}
-
-.message-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.message.user .message-avatar {
-  background: rgba(0, 240, 255, 0.1);
-  color: var(--cyan);
-}
-
-.message.assistant .message-avatar {
-  background: rgba(181, 107, 255, 0.1);
-  color: var(--purple);
-}
-
-.message-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.message-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 10px;
-}
-
-.message-role {
-  font-weight: 600;
-  color: var(--text-2);
-}
-
-.message-time {
-  color: var(--muted);
-}
-
-.message-content {
-  padding: 10px 14px;
-  border-radius: 12px;
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.message.user .message-content {
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.15);
-  color: var(--text);
-  border-top-right-radius: 4px;
-}
-
-.message.assistant .message-content {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  color: var(--text);
-  border-top-left-radius: 4px;
-}
-
-.typing {
-  display: flex;
-  gap: 4px;
-  padding: 14px 18px;
-}
-
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--muted);
-  animation: dotPulse 1.4s infinite;
-}
-
-.dot:nth-child(2) { animation-delay: 0.2s; }
-.dot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes dotPulse {
-  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-  40% { opacity: 1; transform: scale(1); }
-}
-
-.ai-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 20px;
-  font-size: 12px;
-  color: var(--red);
-  background: rgba(255, 77, 109, 0.06);
-  border-top: 1px solid rgba(255, 77, 109, 0.15);
-  flex-shrink: 0;
-}
-
-.ai-input-area {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  padding: 16px 20px;
-  border-top: 1px solid var(--line);
-  flex-shrink: 0;
-}
-
-.ai-textarea {
-  flex: 1;
-  resize: none;
-  min-height: 42px;
-  max-height: 120px;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.send-btn {
-  height: 42px;
-  padding: 0 16px;
-  flex-shrink: 0;
-}
-
-.send-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-</style>

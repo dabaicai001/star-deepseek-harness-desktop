@@ -850,10 +850,11 @@ graph LR
         </div>
         <div class="module-name">AI 助手</div>
       </div>
-      <p>自然语言驱动运维、Function Calling、多 LLM 切换、危险操作可追溯</p>
+      <p>多 AI Agent、@ 角色协作、# 工作区授权、Function Calling 与危险操作追溯</p>
       <div class="tag-row">
         <span class="tag">Claude / GPT</span>
         <span class="tag">Function Call</span>
+        <span class="tag">Agent + Skills</span>
         <span class="tag">Ollama 本地</span>
         <span class="tag">MCP 协议</span>
       </div>
@@ -1024,8 +1025,8 @@ graph LR
     </div>
     <div class="card">
       <div class="label">AI 助手</div>
-      <div class="value">22 <small>项</small></div>
-      <p>对话、Function Call、多 LLM、MCP</p>
+      <div class="value">24 <small>项</small></div>
+      <p>多 Agent、Skills、@/# 编排、Function Call</p>
     </div>
     <div class="card">
       <div class="label">协作</div>
@@ -1126,7 +1127,7 @@ graph TB
     <li><strong>Tauri 权限最小化</strong>:只 expose 必要 command</li>
     <li><strong>CSP</strong>:<code>default-src 'self'</code> 禁止 inline script</li>
     <li><strong>输入校验</strong>:所有 IPC 参数 zod schema 校验</li>
-    <li><strong>密钥保护</strong>:密码、私钥和 AI API Key 不落盘明文,只存系统 Keyring 引用</li>
+    <li><strong>密钥保护</strong>:密码、私钥和 AI API Key 不落盘明文;Windows 长私钥使用带版本清单的 Keyring 分片</li>
     <li><strong>危险拦截</strong>:检测 <code>rm -rf /</code>、<code>dd if=</code>、<code>mkfs</code> 等</li>
     <li><strong>审计日志</strong>:所有"写"操作带时间戳/用户/目标,可追溯</li>
     <li><strong>更新安全</strong>:Tauri Updater 验证签名</li>

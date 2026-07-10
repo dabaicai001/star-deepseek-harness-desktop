@@ -11,6 +11,7 @@
  */
 import { ref, nextTick, watch, computed } from 'vue'
 import type { AiSession, AiToolCallRecord } from '@/stores/ai'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
   session: AiSession
@@ -26,8 +27,27 @@ const emit = defineEmits<{
   stop: []
 }>()
 
+const { t } = useI18n()
+
 const inputText = ref('')
 const messagesRef = ref<HTMLElement | null>(null)
+
+const emptyDescription = computed(() => {
+  switch (props.session.assetType) {
+    case 'ssh':
+      return t('ai.emptySsh')
+    case 'db':
+      return t('ai.emptyDb')
+    case 'docker':
+      return t('ai.emptyDocker')
+    case 'excel':
+      return t('ai.emptyExcel')
+    case 'ai':
+      return t('ai.emptyAgent')
+    default:
+      return t('ai.emptyGeneric')
+  }
+})
 
 watch(() => props.session.messages.length, () => scrollToBottom())
 watch(() => props.session.toolCalls.length, () => scrollToBottom())
@@ -155,7 +175,7 @@ function shortResult(s: string, max = 240): string {
       <div v-if="session.messages.length === 0" class="empty-state">
         <v-icon size="36" color="muted">mdi-robot-outline</v-icon>
         <div class="empty-title">AI 助手</div>
-        <div class="empty-desc">问我关于这台 {{ session.assetType.toUpperCase() }} 的任何事,例如"查一下磁盘使用情况"</div>
+        <div class="empty-desc">{{ emptyDescription }}</div>
       </div>
 
       <!-- 消息循环 -->

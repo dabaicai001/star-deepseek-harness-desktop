@@ -9,8 +9,30 @@
 
 ### 计划中
 - SQLite 数据库适配器
-- AI 助手流式输出
 - Settings 补「代理」「安全」2 个 tab
+
+---
+
+## [0.19.0] - 2026-07-10
+
+### 新增
+- ✨ feat(ai): 左侧资产树新增 AI 一级类型和独立 AI Command Workspace,支持多个 AI Agent 的新建、编辑、复制、删除与独立标签会话。
+- ✨ feat(ai): AI Agent 支持绑定内置 / 自定义 Skills,通过 `@Agent` 路由角色与协作提示,通过 `#SSH` / `#DB` / `#Docker` / `#Excel` 逐轮授权资产上下文并列出或打开对应工作区。
+- ✨ feat(ai): Agent 编辑器新增 Ops、Data、Change Guard 预设;Provider、API Key、模型、全局 Skills 与命令白名单统一复用「设置 → AI 助手」。
+
+### 修复
+- 🐛 fix(ssh): Windows Credential Manager 按 UTF-16 编码后限制单条 credential blob,导致 OpenSSH RSA 私钥保存时报 2560 上限;长凭据改用带版本清单的分代 Keyring 分片,兼容旧格式读取并在更新 / 删除时清理旧分片。
+- 🐛 fix(ai): SSH、数据库、Docker、Excel 与独立 Agent 的 AI 空状态按连接类型显示正确示例,不再统一误提示“查磁盘使用情况”。
+- 🐛 fix(ai): 修复 Agent getter 写回响应式数组造成的递归更新;纯浏览器预览无法调用 Tauri Keyring 时设置页降级为空 API Key,避免 ErrorBoundary 接管。
+
+### 优化
+- 🎨 style(ai): 新增 Agent 工作区、角色侧栏、@/# 补全、工具调用状态与 Agent 配置弹窗的 Cyber Command Center 组件样式,并补充键盘与 `aria-label` 可访问性。
+- 🔒 security(ai): 全局 AI 仅能访问本轮通过 `#` 显式授权的模块资产;真实命令、SQL、容器和表格写操作仍交给具体工作区的确认、白名单与高危拦截流程。
+- 🔧 chore(rust): 清理 AI 响应错误构造与外部文件打开函数的既有 clippy 告警,恢复 `cargo clippy --all-targets -- -D warnings` 质量闸门。
+
+### 测试
+- ✅ test(ssh): 用户提供的 OpenSSH 私钥通过 `russh` 解码验证;Windows 原生 Keyring 完成超限占位凭据写入、分片读回和删除实测。
+- ✅ test(ui): 1280×800 真实 `CyberLayout` 浏览器回归覆盖 AI 分组、右键设置、新增 Agent、Agent 预设、独立对话页和 @/# 自动补全;将真实布局回归流程写入 `AGENTS.md` 强制执行。
 
 ---
 

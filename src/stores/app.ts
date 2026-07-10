@@ -5,7 +5,7 @@ import type { AssetType } from '@/types/asset'
 /**
  * Tab 的 type:
  *  - 'ssh' | 'db' | 'docker':真实资产 tab
- *  - 'ai':全局 AI 助手(预留)
+ *  - 'ai':独立 AI Agent 工作区
  *
  * 注:settings 已改为独立 dialog,不再是 tab 类型
  */
@@ -13,7 +13,7 @@ export type TabType = AssetType | 'ai'
 
 export interface Tab {
   id: string
-  /** 对应资产 tab 是 asset.id;对 ai 是占位标识(本类型 tab 不关联具体资产) */
+  /** 对应资产 tab 是 asset.id;AI tab 是 agent.id。 */
   assetId: string
   title: string
   type: TabType

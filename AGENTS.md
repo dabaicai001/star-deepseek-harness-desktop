@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.18.2(ES Address 连接、Docker SSH Host Key、AI SKILLS 与 prompt 监听修复) |
+| 当前版本 | v0.19.0(SSH 长私钥 Keyring 分片、独立 AI 工作区、多 Agent 与 @/# 编排) |
 
 ---
 
@@ -264,6 +264,7 @@ starhub/
 | `.product-icon` / `.product-icon-mask` | 数据库与消息产品品牌图标容器 / 单色 SVG mask |
 | `.dashboard-chart-*` / `.dashboard-detail-table-*` | 指标折线/环图与可钻取明细表 |
 | `.broker-*` / `.docker-transport-switch` | Kafka/NSQ 状态页与 Docker 连接协议切换 |
+| `.ai-workspace-*` / `.ai-agent-*` / `.ai-mention-menu` | 独立 AI Agent 工作区、Agent 配置、@/# 补全与工具调用状态 |
 
 #### 4.4.5.1 数据库与消息产品图标(强制)
 
@@ -298,7 +299,7 @@ starhub/
 │  (260px)     │  (router-view: HomeView / SshTerminal / ...)  │
 │              │                                               │
 ├──────────────┴───────────────────────────────────────────────┤
-│ statusbar:  v0.1.0  N SSH  N DB  N Docker  ⏰ time           │  30px
+│ statusbar:  version  N SSH  N DB  N Docker  N Agent  time    │  30px
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -512,7 +513,28 @@ cargo tauri build
 - `build.yml`: 三平台 Tauri 打包(macOS / Windows / Linux runner)
 - `release.yml`: tag 触发,自动发 GitHub Release + 签名 + 更新元数据
 
-### 7.3 性能目标
+### 7.3 真实布局浏览器回归(UI 改动强制)
+
+任何涉及 Vue 组件、路由、弹窗、侧边栏、标签栏、响应式状态或 `cyber.css` 的改动,在 `npm run build` 通过后必须继续做真实布局回归;禁止只凭 `vue-tsc`、单元测试或孤立组件预览判定 UI 完成。
+
+**标准流程**:
+
+1. 启动真实 Vite 页面:`npm run dev -- --host 127.0.0.1`,必须挂载完整 `CyberLayout`、资产树、标签栏、工作区和全局弹层。
+2. 使用应用内 Browser / Playwright(或等价真实浏览器自动化)打开 `http://127.0.0.1:1420/`;默认至少覆盖 Tauri 主窗口尺寸 **1280×800**,用户截图有明确尺寸时再补对应视口。
+3. 先检查 DOM/可访问名称和浏览器 console,再实际点击关键路径。至少覆盖本次改动涉及的:
+   - 左键 / 右键菜单、菜单项动作;
+   - Dialog 打开、关闭、保存、取消;
+   - Tab 新建、切换、关闭与路由恢复;
+   - Sidebar 展开 / 折叠及窄窗口断点;
+   - 空状态、loading、error、disabled 状态;
+   - 键盘操作与 `aria-label` 可定位性。
+4. 对重要页面截取真实视口截图,检查溢出、遮挡、留白、滚动区域、高度链、字体和深浅主题对比;涉及第三方 Canvas 时继续按 10.7 节记录真实 DOM 尺寸。
+5. 每次交互后读取新的局部 DOM 状态或明确结果,并检查新增 console error;发现错误必须修复后从页面 reload 重新走一遍,不能只依赖 HMR 后的旧状态。
+6. 纯浏览器预览缺少 Tauri `invoke` 属正常环境差异,组件必须捕获并做只读/空值降级,不能让全局 ErrorBoundary 接管;涉及 Keyring、文件选择或原生窗口的最终行为再用 Tauri dev / EXE 验证。
+
+**为什么强制**:v0.19.0 AI Agent 工作区在首次真实点击回归中发现了两类编译期无法捕获的问题——只读计算链写回响应式数组造成 `Maximum recursive updates exceeded`,以及设置弹窗在纯浏览器直接调用 Tauri Keyring 导致 ErrorBoundary。今后出现“构建成功但实际一点击就崩”应视为漏做本节回归。
+
+### 7.4 性能目标
 
 | 指标 | 目标 |
 |---|---|
@@ -723,4 +745,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-10 (v0.18.2)*
+*最后更新: 2026-07-10 (v0.19.0)*

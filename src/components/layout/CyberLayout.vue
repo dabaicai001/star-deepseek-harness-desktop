@@ -6,6 +6,7 @@ import { useAssetStore } from '@/stores/asset'
 import { useAppStore, SIDEBAR_COLLAPSED_WIDTH } from '@/stores/app'
 import { useThemeStore } from '@/stores/theme'
 import { useDialogStore } from '@/stores/dialog'
+import { useAiStore, type AiAgent } from '@/stores/ai'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import AssetTree from '@/components/asset/AssetTree.vue'
 import SidebarHandle from '@/components/layout/SidebarHandle.vue'
@@ -31,6 +32,8 @@ const assetStore = useAssetStore()
 const appStore = useAppStore()
 const themeStore = useThemeStore()
 const dlg = useDialogStore()
+const aiStore = useAiStore()
+aiStore.ensureAgentsShape()
 
 // menubar 水平 padding(.menubar 上写的 0 12px),
 // tab-strip 的左边距要减去这个,才能正好对齐到 workspace 左边缘
@@ -53,6 +56,13 @@ function onSearchShortcut(e: KeyboardEvent) {
 }
 const showNewConnection = ref(false)
 const showSettings = ref(false)
+type SettingsTabKey = 'general' | 'appearance' | 'ai' | 'about'
+const settingsInitialTab = ref<SettingsTabKey>('general')
+
+function openSettings(tab: SettingsTabKey = 'general') {
+  settingsInitialTab.value = tab
+  showSettings.value = true
+}
 // 从顶栏菜单"快速新建"入口传入,弹 dialog 时直接跳过 type 选择
 const newConnectionInitialType = ref<'ssh' | 'db' | 'docker' | 'excel' | undefined>(undefined)
 
@@ -81,7 +91,7 @@ function onKeydown(e: KeyboardEvent) {
   } else if ((e.metaKey || e.ctrlKey) && e.key === ',') {
     e.preventDefault()
     closeFloatingSurfaces()
-    showSettings.value = true
+    openSettings()
   } else if (e.key === 'Escape') {
     closeFloatingSurfaces()
   }
@@ -304,7 +314,7 @@ const workspaceCtxItems = computed<MenuItem[]>(() => {
       icon: 'mdi-cog-outline',
       label: t('settings.title'),
       shortcut: `${modKey.value},`,
-      onClick: () => { showSettings.value = true }
+      onClick: () => openSettings()
     }
   )
   return items
@@ -380,6 +390,28 @@ function openNewConnectionWithType(type: 'ssh' | 'db' | 'docker' | 'excel') {
 function openNewTabFromCurrent(e: MouseEvent) {
   // 推断当前 tab 类型
   const active = appStore.tabs.find(t => t.id === appStore.activeTab)
+  if (active?.type === 'ai') {
+    const items: MenuItem[] = [
+      { type: 'header', icon: 'mdi-robot-outline', label: t('ai.agents') },
+      ...aiStore.agents.map(agent => ({
+        type: 'item' as const,
+        icon: 'mdi-robot-outline',
+        label: agent.name,
+        onClick: () => openAiAgentTab(agent, false)
+      })),
+      { type: 'divider' },
+      {
+        type: 'item',
+        icon: 'mdi-plus',
+        label: t('ai.newAgent'),
+        onClick: () => window.dispatchEvent(new CustomEvent('starhub:new-ai-agent'))
+      }
+    ]
+    const target = e.currentTarget as HTMLElement
+    const rect = target.getBoundingClientRect()
+    newTabPicker.value = { x: rect.left, y: rect.bottom + 4, items }
+    return
+  }
   let assetType: 'ssh' | 'db' | 'docker' | 'excel' = 'ssh'
   if (active?.type === 'db') assetType = 'db'
   else if (active?.type === 'docker') assetType = 'docker'
@@ -429,7 +461,7 @@ function onUserMenuAction(action: 'settings' | 'theme' | 'lang' | 'about' | 'qui
   closeUserMenu()
   switch (action) {
     case 'settings':
-      showSettings.value = true
+      openSettings()
       break
     case 'theme':
       themeStore.setTheme(themeStore.theme === 'darkTheme' ? 'lightTheme' : 'darkTheme')
@@ -481,10 +513,16 @@ onBeforeUnmount(() => window.removeEventListener('starhub:new-connection', onNew
 
 // 监听来自 CommandPalette 的"打开设置"事件
 function onOpenSettingsEvent() {
-  showSettings.value = true
+  openSettings()
 }
 onMounted(() => window.addEventListener('starhub:open-settings', onOpenSettingsEvent))
 onBeforeUnmount(() => window.removeEventListener('starhub:open-settings', onOpenSettingsEvent))
+
+function onOpenAiSettingsEvent() {
+  openSettings('ai')
+}
+onMounted(() => window.addEventListener('starhub:open-ai-settings', onOpenAiSettingsEvent))
+onBeforeUnmount(() => window.removeEventListener('starhub:open-ai-settings', onOpenAiSettingsEvent))
 
 const filteredAssets = computed(() => {
   if (!searchQuery.value) return assetStore.assets
@@ -614,6 +652,7 @@ function getIcon(type: string) {
     case 'db': return 'mdi-database'
     case 'docker': return 'mdi-docker'
     case 'excel': return 'mdi-file-excel-outline'
+    case 'ai': return 'mdi-robot-outline'
     case 'settings': return 'mdi-cog-outline'
     default: return 'mdi-file'
   }
@@ -653,12 +692,27 @@ function routeNameForAsset(asset: Asset): string {
 }
 
 function routeNameForTab(tab: { assetId?: string; type: string }): string {
+  if (tab.type === 'ai') return 'ai'
   const asset = tab.assetId ? assetStore.assets.find(a => a.id === tab.assetId) : null
   if (asset) return routeNameForAsset(asset)
   if (tab.type === 'ssh') return 'ssh-terminal'
   if (tab.type === 'docker') return 'docker'
   if (tab.type === 'excel') return 'excel'
   return 'db-mysql'
+}
+
+function openAiAgentTab(agent: AiAgent, reuseExisting = true) {
+  if (reuseExisting) {
+    const existing = appStore.tabs.find(tab => tab.type === 'ai' && tab.assetId === agent.id)
+    if (existing) {
+      appStore.setActiveTab(existing.id)
+      router.push({ name: 'ai', params: { id: existing.id } })
+      return
+    }
+  }
+  const instanceId = generateInstanceId(`ai-${agent.id}`)
+  appStore.addTab({ id: instanceId, assetId: agent.id, title: agent.name, type: 'ai' })
+  router.push({ name: 'ai', params: { id: instanceId } })
 }
 
 function openAssetTab(asset: Asset, reuseExisting = true) {
@@ -1022,7 +1076,7 @@ vueWatch(() => appStore.tabs.length, () => {
 
       <div class="top-actions">
         <div class="top-action-group">
-          <button class="action-btn" @click="showSettings = true" :data-tooltip="t('settings.title')">
+          <button class="action-btn" @click="openSettings()" :data-tooltip="t('settings.title')">
             <v-icon size="16">mdi-cog</v-icon>
           </button>
           <NotificationCenter />
@@ -1204,7 +1258,10 @@ vueWatch(() => appStore.tabs.length, () => {
             : SIDEBAR_COLLAPSED_WIDTH + 'px'
         }"
       >
-        <AssetTree @new-connection="openNewConnection" @new-connection-type="openNewConnectionWithType" />
+        <AssetTree
+          @new-connection="openNewConnection"
+          @new-connection-type="openNewConnectionWithType"
+        />
         <SidebarHandle />
       </div>
 
@@ -1355,6 +1412,10 @@ vueWatch(() => appStore.tabs.length, () => {
         <v-icon size="10">mdi-file-excel-outline</v-icon>
         <span>{{ excelAssets.length }} Excel</span>
       </div>
+      <div class="sb-item">
+        <v-icon size="10">mdi-robot-outline</v-icon>
+        <span>{{ aiStore.agents.length }} Agent</span>
+      </div>
       <div class="sb-right">
       <div class="sb-item">
         <v-icon size="10">mdi-clock</v-icon>
@@ -1387,7 +1448,7 @@ vueWatch(() => appStore.tabs.length, () => {
           </button>
         </div>
         <div class="settings-dialog-body">
-          <SettingsView />
+          <SettingsView :initial-tab="settingsInitialTab" />
         </div>
       </div>
     </v-dialog>

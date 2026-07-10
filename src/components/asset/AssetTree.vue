@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useNotifyStore } from '@/stores/notify'
+import { useAiStore, type AiAgent, type AiAgentDraft } from '@/stores/ai'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import AiAgentDialog from '@/components/ai/AiAgentDialog.vue'
 import ProductIcon from '@/components/common/ProductIcon.vue'
 import { generateInstanceId } from '@/utils/tabId'
 import type { Asset, CreateAssetDto } from '@/types/asset'
@@ -17,6 +19,8 @@ const router = useRouter()
 const assetStore = useAssetStore()
 const appStore = useAppStore()
 const notifyStore = useNotifyStore()
+const aiStore = useAiStore()
+aiStore.ensureAgentsShape()
 const isCollapsed = computed(() => !appStore.sidebarOpen)
 
 /**
@@ -46,6 +50,7 @@ const dockerAssets = computed(() =>
 const excelAssets = computed(() =>
   assetStore.filteredAssets.filter(a => a.type === 'excel' && !a.favorite)
 )
+const aiAgents = computed(() => aiStore.agents)
 
 function getIcon(type: string, dbType?: string) {
   // DB 类型下根据 dbType 区分图标;MDI 没有 mdi-redis,用 mdi-key-variant(KV 语义)代替
@@ -102,6 +107,11 @@ function isActive(asset: Asset) {
   return activeTab?.assetId === asset.id
 }
 
+function isAiAgentActive(agent: AiAgent) {
+  const activeTab = appStore.tabs.find(tab => tab.id === appStore.activeTab)
+  return activeTab?.type === 'ai' && activeTab.assetId === agent.id
+}
+
 const selectedAssetId = ref<string | null>(null)
 function isSelected(asset: Asset) {
   return selectedAssetId.value === asset.id
@@ -153,6 +163,31 @@ function handleAssetClick(asset: Asset) {
 // "在新标签页中打开"——每次创建新 tab，支持同一资产多实例
 function openInNewTab(asset: Asset) {
   openAssetTab(asset, false)
+}
+
+function openAiAgent(agent: AiAgent, reuseExisting = true) {
+  if (isCollapsed.value) appStore.sidebarOpen = true
+  if (reuseExisting) {
+    const existing = appStore.tabs.find(tab => tab.type === 'ai' && tab.assetId === agent.id)
+    if (existing) {
+      appStore.setActiveTab(existing.id)
+      router.push({ name: 'ai', params: { id: existing.id } })
+      return
+    }
+  }
+  const instanceId = generateInstanceId(`ai-${agent.id}`)
+  appStore.addTab({
+    id: instanceId,
+    assetId: agent.id,
+    title: agent.name,
+    type: 'ai'
+  })
+  router.push({ name: 'ai', params: { id: instanceId } })
+}
+
+function openDefaultAiAgent() {
+  const agent = aiAgents.value[0]
+  if (agent) openAiAgent(agent)
 }
 
 function reconnectToAsset(asset: Asset) {
@@ -235,12 +270,40 @@ function closeContextMenu() {
   ctxMenu.value = null
 }
 
-// ====== 分组标题右键菜单(SSH / DB / Docker / Excel) ======
-const groupCtxMenu = ref<{ x: number; y: number; type: 'ssh' | 'db' | 'docker' | 'excel' } | null>(null)
+// ====== 分组标题右键菜单(SSH / DB / Docker / Excel / AI) ======
+type TreeGroupType = 'ssh' | 'db' | 'docker' | 'excel' | 'ai'
+const groupCtxMenu = ref<{ x: number; y: number; type: TreeGroupType } | null>(null)
 
 const groupCtxItems = computed<MenuItem[]>(() => {
   if (!groupCtxMenu.value) return []
   const gt = groupCtxMenu.value.type
+  if (gt === 'ai') {
+    return [
+      { type: 'header', icon: 'mdi-robot-outline', label: 'AI' },
+      {
+        type: 'item',
+        icon: 'mdi-message-processing-outline',
+        label: t('ai.openWorkspace'),
+        onClick: openDefaultAiAgent
+      },
+      {
+        type: 'item',
+        icon: 'mdi-cog-outline',
+        label: t('ai.settings'),
+        onClick: () => window.setTimeout(
+          () => window.dispatchEvent(new CustomEvent('starhub:open-ai-settings')),
+          0
+        )
+      },
+      { type: 'divider' },
+      {
+        type: 'item',
+        icon: 'mdi-robot-outline',
+        label: t('ai.newAgent'),
+        onClick: openNewAgentDialog
+      }
+    ]
+  }
   const label = gt === 'ssh' ? 'SSH' : gt === 'db' ? t('db.title') : gt === 'docker' ? 'Docker' : 'Excel'
   const icon = gt === 'ssh' ? 'mdi-console' : gt === 'db' ? 'mdi-database-outline' : gt === 'docker' ? 'mdi-docker' : 'mdi-file-excel-outline'
   return [
@@ -254,11 +317,116 @@ const groupCtxItems = computed<MenuItem[]>(() => {
   ]
 })
 
-function openGroupContextMenu(e: MouseEvent, type: 'ssh' | 'db' | 'docker' | 'excel') {
+function openGroupContextMenu(e: MouseEvent, type: TreeGroupType) {
   e.preventDefault()
   e.stopPropagation()
   if (isCollapsed.value) appStore.sidebarOpen = true
   groupCtxMenu.value = { x: e.clientX, y: e.clientY, type }
+}
+
+// ====== AI Agent 管理 ======
+const agentCtxMenu = ref<{ x: number; y: number; agent: AiAgent } | null>(null)
+const showAgentDialog = ref(false)
+const editingAgent = ref<AiAgent | null>(null)
+const showAgentDeleteConfirm = ref(false)
+const deletingAgent = ref<AiAgent | null>(null)
+
+function openNewAgentDialog() {
+  editingAgent.value = null
+  showAgentDialog.value = true
+}
+
+function onNewAgentEvent() {
+  openNewAgentDialog()
+}
+
+onMounted(() => window.addEventListener('starhub:new-ai-agent', onNewAgentEvent))
+onBeforeUnmount(() => window.removeEventListener('starhub:new-ai-agent', onNewAgentEvent))
+
+function openEditAgentDialog(agent: AiAgent) {
+  editingAgent.value = agent
+  showAgentDialog.value = true
+}
+
+function saveAgent(draft: AiAgentDraft) {
+  const agent = editingAgent.value
+    ? aiStore.updateAgent(editingAgent.value.id, draft)
+    : aiStore.createAgent(draft)
+  if (agent) openAiAgent(agent)
+  editingAgent.value = null
+}
+
+function openAgentContextMenu(e: MouseEvent, agent: AiAgent) {
+  e.preventDefault()
+  e.stopPropagation()
+  if (isCollapsed.value) appStore.sidebarOpen = true
+  agentCtxMenu.value = { x: e.clientX, y: e.clientY, agent }
+}
+
+function closeAgentContextMenu() {
+  agentCtxMenu.value = null
+}
+
+const agentCtxItems = computed<MenuItem[]>(() => {
+  if (!agentCtxMenu.value) return []
+  const agent = agentCtxMenu.value.agent
+  return [
+    { type: 'header', icon: 'mdi-robot-outline', label: agent.name },
+    {
+      type: 'item',
+      icon: 'mdi-message-processing-outline',
+      label: t('ai.openWorkspace'),
+      onClick: () => openAiAgent(agent)
+    },
+    {
+      type: 'item',
+      icon: 'mdi-tab-plus',
+      label: t('asset.openInNewTab'),
+      onClick: () => openAiAgent(agent, false)
+    },
+    { type: 'divider' },
+    {
+      type: 'item',
+      icon: 'mdi-pencil-outline',
+      label: t('ai.editAgent'),
+      onClick: () => openEditAgentDialog(agent)
+    },
+    {
+      type: 'item',
+      icon: 'mdi-content-duplicate',
+      label: t('asset.duplicate'),
+      onClick: () => {
+        const copy = aiStore.duplicateAgent(agent.id)
+        if (copy) openAiAgent(copy)
+      }
+    },
+    {
+      type: 'item',
+      icon: 'mdi-delete-outline',
+      label: t('common.delete'),
+      danger: true,
+      disabled: aiAgents.value.length <= 1,
+      onClick: () => {
+        deletingAgent.value = agent
+        showAgentDeleteConfirm.value = true
+      }
+    }
+  ]
+})
+
+function deleteAgent() {
+  const agent = deletingAgent.value
+  if (!agent) return
+  const tabs = appStore.tabs.filter(tab => tab.type === 'ai' && tab.assetId === agent.id)
+  const removingCurrent = tabs.some(tab => tab.id === router.currentRoute.value.params.id)
+  for (const tab of tabs) appStore.removeTab(tab.id)
+  aiStore.deleteAgent(agent.id)
+  deletingAgent.value = null
+  if (removingCurrent) {
+    const next = appStore.tabs.find(tab => tab.id === appStore.activeTab)
+    if (next?.type === 'ai') router.push({ name: 'ai', params: { id: next.id } })
+    else if (!next) router.push('/')
+  }
 }
 
 function closeGroupContextMenu() {
@@ -370,7 +538,8 @@ const GROUP_DEFAULTS: Record<string, boolean> = {
   ssh: true,
   db: true,
   docker: true,
-  excel: true
+  excel: true,
+  ai: true
 }
 
 function loadExpanded(): Record<string, boolean> {
@@ -641,9 +810,55 @@ function isGroupExpanded(id: string) {
       </div>
     </div>
 
+    <!-- AI 分组:点击标题打开主 Agent,右键管理全局设置与多个 Agent -->
+    <div class="tree-group ai">
+      <div
+        class="tree-group-head ai-group-head"
+        role="button"
+        tabindex="0"
+        :aria-label="t('ai.openWorkspace')"
+        @click="openDefaultAiAgent"
+        @keydown.enter.prevent="openDefaultAiAgent"
+        @contextmenu="openGroupContextMenu($event, 'ai')"
+      >
+        <button
+          class="tree-group-toggle"
+          :aria-label="isGroupExpanded('ai') ? t('sidebar.collapse') : t('sidebar.expand')"
+          @click.stop="toggleGroup('ai')"
+        >
+          <v-icon class="chevron" size="12" :class="{ collapsed: !isGroupExpanded('ai') }">mdi-chevron-down</v-icon>
+        </button>
+        <v-icon class="type-icon" size="11">mdi-robot-outline</v-icon>
+        <span class="label">AI</span>
+        <span class="count">{{ aiAgents.length }}</span>
+        <button class="action-btn" :data-tooltip="t('ai.newAgent')" :aria-label="t('ai.newAgent')" @click.stop="openNewAgentDialog">
+          <v-icon size="12">mdi-plus</v-icon>
+        </button>
+      </div>
+      <div v-show="isGroupExpanded('ai')" class="tree-group-body">
+        <TransitionGroup name="cyber-list">
+          <div
+            v-for="agent in aiAgents"
+            :key="agent.id"
+            class="tree-item ai-agent-tree-item"
+            :class="{ active: isAiAgentActive(agent) }"
+            :data-tooltip="agent.description || agent.name"
+            tabindex="0"
+            @click="openAiAgent(agent)"
+            @keydown.enter.prevent="openAiAgent(agent)"
+            @contextmenu="openAgentContextMenu($event, agent)"
+          >
+            <v-icon size="13">mdi-robot-outline</v-icon>
+            <span class="name">{{ agent.name }}</span>
+            <span class="cyber-badge">{{ agent.skillIds.length }}</span>
+          </div>
+        </TransitionGroup>
+      </div>
+    </div>
+
     <!-- 总空状态 -->
     <div
-      v-if="assetStore.filteredAssets.length === 0"
+      v-if="assetStore.filteredAssets.length === 0 && appStore.tabs.length === 0"
       class="empty-state"
       style="padding: 24px 12px;"
     >
@@ -673,6 +888,30 @@ function isGroupExpanded(id: string) {
     :y="groupCtxMenu.y"
     :items="groupCtxItems"
     @close="closeGroupContextMenu"
+  />
+
+  <ContextMenu
+    v-if="agentCtxMenu"
+    :x="agentCtxMenu.x"
+    :y="agentCtxMenu.y"
+    :items="agentCtxItems"
+    @close="closeAgentContextMenu"
+  />
+
+  <AiAgentDialog
+    v-model="showAgentDialog"
+    :agent="editingAgent"
+    @save="saveAgent"
+  />
+
+  <ConfirmDialog
+    v-model="showAgentDeleteConfirm"
+    :title="t('ai.deleteAgent')"
+    :message="t('ai.confirmDeleteAgent', { name: deletingAgent?.name })"
+    :confirm-text="t('common.delete')"
+    :cancel-text="t('common.cancel')"
+    danger
+    @confirm="deleteAgent"
   />
 
   <!-- 编辑 dialog -->

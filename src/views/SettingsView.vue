@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { BUILTIN_AI_SKILLS, useAiStore } from '@/stores/ai'
@@ -13,7 +13,11 @@ aiStore.ensureSettingsShape()
 
 // 选中的 tab
 type TabKey = 'general' | 'appearance' | 'ai' | 'about'
-const activeTab = ref<TabKey>('general')
+const props = withDefaults(defineProps<{ initialTab?: TabKey }>(), {
+  initialTab: 'general'
+})
+const activeTab = ref<TabKey>(props.initialTab)
+watch(() => props.initialTab, tab => { activeTab.value = tab })
 
 /** 通用设置(用 localStorage 持久化,P2 阶段先不上 store) */
 const startPage = ref<'welcome' | 'restore'>('welcome')
@@ -50,7 +54,13 @@ onMounted(async () => {
   loadGeneral()
   aiStore.ensureSettingsShape()
   aiLocal.value = cloneAiSettings(aiStore.settings)
-  aiLocal.value.apiKey = await aiStore.getApiKey()
+  try {
+    aiLocal.value.apiKey = await aiStore.getApiKey()
+  } catch (error) {
+    // 纯浏览器预览没有 Tauri invoke;保留空值即可,桌面端仍从系统 Keyring 解锁。
+    console.warn('[settings] AI API key is unavailable outside Tauri:', error)
+    aiLocal.value.apiKey = ''
+  }
 })
 
 // AI 配置本地副本(用于表单展示,保存时再写回 store)
