@@ -40,8 +40,9 @@ const emit = defineEmits<{
 
 const dbType = ref<DatabaseType>(props.initialValues?.dbType ?? 'mysql')
 const name = ref(props.initialValues?.name ?? '')
-const esConnectMode = ref<'host' | 'address'>(props.initialValues?.address ? 'address' : 'host')
+const esConnectMode = ref<'host' | 'address' | 'multi'>(props.initialValues?.address ? 'address' : props.initialValues?.addresses?.length ? 'multi' : 'host')
 const esAddress = ref(props.initialValues?.address ?? '')
+const esNodes = ref(props.initialValues?.addresses?.join('\n') ?? '')
 const host = ref(props.initialValues?.host ?? '')
 const port = ref<number>(props.initialValues?.port ?? 3306)
 const username = ref(props.initialValues?.username ?? '')
@@ -82,7 +83,8 @@ watch(
     dbType.value = next.dbType ?? 'mysql'
     name.value = next.name ?? ''
     esAddress.value = next.address ?? ''
-    esConnectMode.value = next.address ? 'address' : 'host'
+    esNodes.value = next.addresses?.join('\n') ?? ''
+    esConnectMode.value = next.addresses?.length ? 'multi' : next.address ? 'address' : 'host'
     host.value = next.host ?? ''
     const defaults: Partial<Record<DatabaseType, number>> = {
       mysql: 3306,
@@ -104,6 +106,10 @@ watch(
 
 const canSubmit = computed(() => {
   if (!name.value) return false
+  if (dbType.value === 'elasticsearch' && esConnectMode.value === 'multi') {
+    const nodes = esNodes.value.split('\n').map(s => s.trim()).filter(Boolean)
+    if (nodes.length === 0) return false
+  }
   if (dbType.value === 'elasticsearch' && esConnectMode.value === 'address') {
     if (!esAddress.value.trim()) return false
   } else if (!host.value) {
@@ -117,7 +123,10 @@ const canSubmit = computed(() => {
 })
 
 const canTest = computed(() => {
-  if (dbType.value === 'elasticsearch' && esConnectMode.value === 'address') {
+  if (dbType.value === 'elasticsearch' && esConnectMode.value === 'multi') {
+    const nodes = esNodes.value.split('\n').map(s => s.trim()).filter(Boolean)
+    if (nodes.length === 0) return false
+  } else if (dbType.value === 'elasticsearch' && esConnectMode.value === 'address') {
     if (!esAddress.value.trim()) return false
   } else if (!host.value) {
     return false
@@ -138,6 +147,9 @@ const databaseHint = computed(() =>
 
 function buildEsParams() {
   return {
+    addresses: esConnectMode.value === 'multi'
+      ? esNodes.value.split('\n').map(s => s.trim()).filter(Boolean)
+      : undefined,
     address: esConnectMode.value === 'address' ? esAddress.value.trim() : undefined,
     host: host.value,
     port: port.value,
@@ -225,6 +237,9 @@ function onSubmit() {
     name: name.value,
     config: {
       dbType: dbType.value,
+      addresses: dbType.value === 'elasticsearch' && esConnectMode.value === 'multi'
+        ? esNodes.value.split('\n').map(s => s.trim()).filter(Boolean)
+        : undefined,
       address: dbType.value === 'elasticsearch' && esConnectMode.value === 'address'
         ? esAddress.value.trim()
         : undefined,
@@ -362,7 +377,32 @@ function onKeydown(e: KeyboardEvent) {
             >
               Address URL
             </button>
+            <button
+              type="button"
+              class="auth-mode-btn"
+              :class="{ active: esConnectMode === 'multi' }"
+              @click="esConnectMode = 'multi'"
+            >
+              Multi Nodes
+            </button>
           </div>
+        </div>
+
+        <!-- Elasticsearch Multi Nodes -->
+        <div v-if="dbType === 'elasticsearch' && esConnectMode === 'multi'" class="form-field">
+          <label class="field-label">
+            <v-icon size="12">mdi-server-network</v-icon>
+            Node Addresses
+            <span class="required">*</span>
+          </label>
+          <textarea
+            v-model="esNodes"
+            class="cyber-input"
+            rows="3"
+            placeholder="http://39.105.22.67:9201&#10;http://39.105.22.67:9202&#10;http://39.105.22.67:9203"
+            required
+          />
+          <span class="field-hint">每行一个地址,支持轮询与故障转移</span>
         </div>
 
         <!-- Elasticsearch Address -->

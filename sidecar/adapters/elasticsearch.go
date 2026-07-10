@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -15,13 +17,14 @@ import (
 
 // ElasticsearchConnInfo holds connection parameters
 type ElasticsearchConnInfo struct {
-	Address  string `json:"address"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	UseSSL   bool   `json:"useSSL"`
-	APIKey   string `json:"apiKey"`
+	Addresses []string `json:"addresses"` // multiple node addresses for failover
+	Address   string   `json:"address"`   // legacy single address
+	Host      string   `json:"host"`
+	Port      int      `json:"port"`
+	Username  string   `json:"username"`
+	Password  string   `json:"password"`
+	UseSSL    bool     `json:"useSSL"`
+	APIKey    string   `json:"apiKey"`
 }
 
 // ElasticsearchAdapter wraps the ES client
@@ -32,18 +35,154 @@ type ElasticsearchAdapter struct {
 	version     string
 }
 
-// NewElasticsearchAdapter creates a new ES adapter
-func NewElasticsearchAdapter(info *ElasticsearchConnInfo) (*ElasticsearchAdapter, error) {
-	addr, err := buildElasticsearchAddress(info)
+// esProductCompatTransport injects X-Elastic-Product header for v7.x nodes
+type esProductCompatTransport struct {
+	inner http.RoundTripper
+}
+
+func (t *esProductCompatTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	res, err := t.inner.RoundTrip(req)
 	if err != nil {
-		return nil, err
+		return res, err
+	}
+	if res.Header.Get("X-Elastic-Product") == "" {
+		res.Header.Set("X-Elastic-Product", "Elasticsearch")
+	}
+	return res, nil
+}
+
+// probeElasticsearchNode tries a raw HTTP GET to verify the node is Elasticsearch.
+// Returns true if this node needs the product header compatibility shim (v7.x).
+func probeElasticsearchNode(addr string, username, password, apiKey string) (isES bool, needCompat bool, clusterName string, version string, err error) {
+	u := strings.TrimRight(addr, "/") + "/"
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	req, reqErr := http.NewRequest("GET", u, nil)
+	if reqErr != nil {
+		return false, false, "", "", fmt.Errorf("bad address %s: %w", addr, reqErr)
+	}
+	req.Header.Set("Accept", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "ApiKey "+apiKey)
+	} else if username != "" {
+		req.SetBasicAuth(username, password)
+	}
+
+	res, doErr := client.Do(req)
+	if doErr != nil {
+		return false, false, "", "", doErr
+	}
+	defer res.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 8192))
+
+	var info struct {
+		ClusterName string `json:"cluster_name"`
+		Tagline     string `json:"tagline"`
+		Version     struct {
+			Number string `json:"number"`
+		} `json:"version"`
+	}
+	if jsonErr := json.Unmarshal(body, &info); jsonErr != nil || info.Version.Number == "" {
+		return false, false, "", "", fmt.Errorf("not an Elasticsearch node (HTTP %d): %s", res.StatusCode, string(body[:min(len(body), 200)]))
+	}
+
+	isES = true
+	clusterName = info.ClusterName
+	version = info.Version.Number
+	needCompat = res.Header.Get("X-Elastic-Product") != "Elasticsearch"
+	return
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// buildVerifiedAddresses resolves all candidate addresses, probes each one,
+// and returns verified addresses plus whether compat transport is needed.
+func buildVerifiedAddresses(info *ElasticsearchConnInfo) ([]string, bool, string, string, error) {
+	var candidates []string
+
+	// collect from addresses array (new multi-node mode)
+	for _, a := range info.Addresses {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		if !strings.Contains(a, "://") {
+			a = "http://" + a
+		}
+		candidates = append(candidates, strings.TrimRight(a, "/"))
+	}
+
+	// collect from legacy single address / host+port
+	if len(candidates) == 0 {
+		addr, err := buildElasticsearchAddress(info)
+		if err != nil {
+			return nil, false, "", "", err
+		}
+		candidates = append(candidates, addr)
+	}
+
+	// probe each candidate
+	var verified []string
+	var needCompat bool
+	var clusterName, version string
+	var lastErr error
+
+	for _, c := range candidates {
+		isES, compat, cn, ver, err := probeElasticsearchNode(c, info.Username, info.Password, info.APIKey)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if !isES {
+			continue
+		}
+		verified = append(verified, c)
+		if compat {
+			needCompat = true
+		}
+		if clusterName == "" {
+			clusterName = cn
+		}
+		if version == "" {
+			version = ver
+		}
+	}
+
+	if len(verified) == 0 {
+		if lastErr != nil {
+			return nil, false, "", "", fmt.Errorf("all %d node(s) failed: %w", len(candidates), lastErr)
+		}
+		return nil, false, "", "", fmt.Errorf("no Elasticsearch nodes found among %d candidate(s)", len(candidates))
+	}
+
+	return verified, needCompat, clusterName, version, nil
+}
+
+// NewElasticsearchAdapter creates a new ES adapter.
+// Supports multiple node addresses for failover and v7.x compatibility.
+func NewElasticsearchAdapter(info *ElasticsearchConnInfo) (*ElasticsearchAdapter, error) {
+	addresses, needCompat, clusterName, version, err := buildVerifiedAddresses(info)
+	if err != nil {
+		return nil, fmt.Errorf("ES probe failed: %w", err)
 	}
 
 	cfg := elasticsearch.Config{
-		Addresses: []string{addr},
+		Addresses: addresses,
 		Username:  info.Username,
 		Password:  info.Password,
 		APIKey:    info.APIKey,
+	}
+
+	// For v7.x nodes, wrap transport to inject X-Elastic-Product header
+	if needCompat {
+		baseTransport := http.DefaultTransport
+		cfg.Transport = &esProductCompatTransport{inner: baseTransport}
 	}
 
 	client, err := elasticsearch.NewClient(cfg)
@@ -52,32 +191,36 @@ func NewElasticsearchAdapter(info *ElasticsearchConnInfo) (*ElasticsearchAdapter
 	}
 
 	adapter := &ElasticsearchAdapter{
-		client:   client,
-		connInfo: *info,
+		client:      client,
+		connInfo:    *info,
+		clusterName: clusterName,
+		version:     version,
 	}
 
-	// Fetch cluster info on connect
-	res, err := client.Info()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get ES info: %w", err)
-	}
-	defer res.Body.Close()
+	// If we didn't get cluster info from probes, fetch it
+	if adapter.clusterName == "" || adapter.version == "" {
+		res, infoErr := client.Info()
+		if infoErr != nil {
+			return nil, fmt.Errorf("failed to get ES info: %w", infoErr)
+		}
+		defer res.Body.Close()
 
-	if res.IsError() {
-		return nil, fmt.Errorf("ES info error: %s", res.String())
-	}
+		if res.IsError() {
+			return nil, fmt.Errorf("ES info error: %s", res.String())
+		}
 
-	var infoResp struct {
-		ClusterName string `json:"cluster_name"`
-		Version     struct {
-			Number string `json:"number"`
-		} `json:"version"`
+		var infoResp struct {
+			ClusterName string `json:"cluster_name"`
+			Version     struct {
+				Number string `json:"number"`
+			} `json:"version"`
+		}
+		if jsonErr := json.NewDecoder(res.Body).Decode(&infoResp); jsonErr != nil {
+			return nil, fmt.Errorf("failed to parse ES info: %w", jsonErr)
+		}
+		adapter.clusterName = infoResp.ClusterName
+		adapter.version = infoResp.Version.Number
 	}
-	if err := json.NewDecoder(res.Body).Decode(&infoResp); err != nil {
-		return nil, fmt.Errorf("failed to parse ES info: %w", err)
-	}
-	adapter.clusterName = infoResp.ClusterName
-	adapter.version = infoResp.Version.Number
 
 	return adapter, nil
 }

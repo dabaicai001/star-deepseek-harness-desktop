@@ -197,6 +197,7 @@ export interface DbSession {
 
 // Elasticsearch types
 export interface EsConnectParams {
+  addresses?: string[]  // multiple node addresses for failover
   address?: string
   host: string
   port: number

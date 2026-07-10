@@ -118,25 +118,32 @@ let captureTimer: number | null = null
 interface PromptCapture {
   baseline: number
   command: string
+  /** 命令发送前终端最后一行的 prompt,用于识别自定义 PS1 / fish / zsh prompt */
+  expectedPrompt: string | null
   resolve: (s: string) => void
   reject: (e: Error) => void
   safetyTimer: number | null
   settleTimer: number | null
-  /**
-   * idleTimer:每个 chunk 进来时重置,2s 内没新数据就主动调
-   * maybeResolvePromptCapture 一次,让 idle fallback 真正能跑。
-   * 不这么做的话,命令输出完 + prompt 已返回 + 之后无新数据时,
-   * maybeResolvePromptCapture 永远不再被调用,AI 会一直"思考中"。
-   */
-  idleTimer: number | null
 }
 let promptCapture: PromptCapture | null = null
 const AI_PROMPT_CAPTURE_SAFETY_MS = 60 * 1000
-// 数据流空闲兜底:如果 prompt 模式没匹配上但数据流已停 2s,
-// 视为命令已完成(可能是大输出 / 不带典型 prompt 字符的 shell),
-// 直接把已收到的内容 resolve 出去,不再卡到 safetyTimer
-const AI_PROMPT_CAPTURE_IDLE_MS = 2000
-let _lastDataAt = 0
+
+// SSH AI interactive input dialog
+const aiInputDialogVisible = ref(false)
+const aiInputDialogPrompt = ref('')
+const aiInputFieldValue = ref('')
+let aiInputResolve: ((value: string) => void) | null = null
+// 检测命令是否需要交互输入的模式
+const INTERACTIVE_PROMPT_PATTERNS = [
+  /\[sudo\]\s/i,
+  /password\s*(?:for\s+\S+)?\s*:\s*$/im,
+  /enter\s+(?:your\s+)?password\s*:\s*$/im,
+  /\[(?:Y|y)\/(?:N|n)\]\s*$/m,
+  /\(\s*(?:yes|no)\s*\)\s*$/im,
+  /continue\s*\?\s*$/im,
+  /proceed\s*\?\s*$/im,
+  /confirm\s*(?:\S+\s+)?\?\s*$/im,
+]
 
 const kbDialogRef = ref<InstanceType<typeof KbInteractiveDialog>>()
 
@@ -216,11 +223,13 @@ async function onAiRetry() {
 }
 
 function onAiNewChat() {
+ interruptAiCommand(new Error('已开始新会话,当前 SSH AI 命令已停止'))
  aiStore.resetSession(props.id)
 }
 
 function onAiStop() {
  aiStore.stopAgent(props.id)
+ interruptAiCommand(new Error('SSH AI 命令已由用户停止'))
 }
 
 function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {
@@ -270,6 +279,7 @@ async function runSshAgent() {
  if (running) {
  running.status = 'awaiting-confirm'
  running.result = ctx.message
+ running.confirmReason = ctx.reason
  } else {
  session.toolCalls.push({
  id: recordId,
@@ -277,6 +287,7 @@ async function runSshAgent() {
  args: ctx.args,
  status: 'awaiting-confirm',
  result: ctx.message,
+ confirmReason: ctx.reason,
  startedAt: Date.now()
  })
  }
@@ -557,20 +568,6 @@ function handleTerminalOctets(octets: number[]) {
   if (!chunk) return
   terminalRef.value?.write(chunk)
   markSftpReady()
-  // 记录最近一次收到数据的时间,用于 prompt capture 的 idle 兜底
-  _lastDataAt = Date.now()
-  // 每个 chunk 进来时重置 idleTimer:2 秒内没新数据就主动触发
-  // maybeResolvePromptCapture,让 idle fallback 真正能跑。
-  // 不这么做的话:命令输出完 + prompt 返回后无新数据,
-  // maybeResolvePromptCapture 永远不被调用 → 一直卡在"思考中"
-  if (promptCapture) {
-    if (promptCapture.idleTimer != null) {
-      window.clearTimeout(promptCapture.idleTimer)
-    }
-    promptCapture.idleTimer = window.setTimeout(() => {
-      maybeResolvePromptCapture()
-    }, AI_PROMPT_CAPTURE_IDLE_MS)
-  }
   //收集到 buffer(AI助手用)
   dataBuffer.value.push(chunk)
   //检测 pwd 输出,更新当前工作目录
@@ -769,24 +766,25 @@ function runAiCommandWithPrompt(command: string): Promise<string> {
  throw new Error('SSH not connected')
  }
 
- clearPromptCapture(new Error('Superseded by a newer AI command'))
+ if (promptCapture) {
+  return Promise.reject(new Error('上一条 SSH AI 命令仍在执行,已拒绝并发发送新命令'))
+ }
  return new Promise((resolve, reject) => {
   promptCapture = {
   baseline: dataBuffer.value.length,
   command,
+  expectedPrompt: getCurrentPromptLine(),
   resolve,
   reject,
   safetyTimer: null,
-  settleTimer: null,
-  idleTimer: null
+  settleTimer: null
   }
  promptCapture.safetyTimer = window.setTimeout(() => {
  const current = promptCapture
  if (!current) return
  const raw = dataBuffer.value.slice(current.baseline).join('')
  const partial = cleanPromptCapturedOutput(raw, current.command)
- clearPromptCapture()
- reject(new Error(`等待 shell prompt 返回超时,已收到输出:\n${partial || '(无输出)'}`))
+ interruptAiCommand(new Error(`等待 shell prompt 返回超时,已发送 Ctrl+C 恢复终端。已收到输出:\n${partial || '(无输出)'}`))
  }, AI_PROMPT_CAPTURE_SAFETY_MS)
 
  writeCommand(command).catch(error => {
@@ -806,46 +804,107 @@ function clearPromptCapture(error?: Error) {
  if (!current) return
  if (current.safetyTimer) window.clearTimeout(current.safetyTimer)
  if (current.settleTimer) window.clearTimeout(current.settleTimer)
- if (current.idleTimer != null) window.clearTimeout(current.idleTimer)
  promptCapture = null
  if (error) current.reject(error)
+}
+
+/** 终止仍占用 PTY 的 AI 命令,并用 Ctrl+C 把共享终端恢复到 shell prompt。 */
+function interruptAiCommand(error: Error): boolean {
+ const hadCapture = Boolean(promptCapture)
+ if (!hadCapture) return false
+ clearPromptCapture(error)
+ if (connected.value) {
+  void invoke('ssh_write_binary', { id: props.id, data: [3] }).catch(invokeError => {
+   console.error('Failed to interrupt SSH AI command:', invokeError)
+  })
+ }
+ return true
 }
 
 function maybeResolvePromptCapture() {
   const current = promptCapture
   if (!current) return
   const raw = dataBuffer.value.slice(current.baseline).join('')
-  if (hasReturnedPrompt(raw)) {
+  
+  // 先检测是否需要交互输入
+  if (detectInteractivePrompt(raw)) return
+  
+  if (hasReturnedPrompt(raw, current.expectedPrompt)) {
     if (current.settleTimer) window.clearTimeout(current.settleTimer)
     current.settleTimer = window.setTimeout(() => {
       const latest = promptCapture
       if (!latest) return
       const output = dataBuffer.value.slice(latest.baseline).join('')
-      if (!hasReturnedPrompt(output)) return
+      if (!hasReturnedPrompt(output, latest.expectedPrompt)) return
       const cleaned = cleanPromptCapturedOutput(output, latest.command)
       if (latest.safetyTimer) window.clearTimeout(latest.safetyTimer)
       if (latest.settleTimer) window.clearTimeout(latest.settleTimer)
-      if (latest.idleTimer != null) window.clearTimeout(latest.idleTimer)
       promptCapture = null
       latest.resolve(cleaned || '(无输出)')
     }, 80)
-    return
   }
-  // 没匹配到 prompt 模式,但数据流已停顿 2s — 兜底直接 resolve
-  // 场景:大文件输出末尾不带典型 prompt 字符(自定义 PS1 / fish / 多行 shell / 管道命令 head 主动断开),
-  // 旧的 10 分钟 safetyTimer 太长,卡住 AI 工作流
-  if (
-    _lastDataAt > 0 &&
-    Date.now() - _lastDataAt > AI_PROMPT_CAPTURE_IDLE_MS &&
-    raw.length > 0
-  ) {
-    const cleaned = cleanPromptCapturedOutput(raw, current.command)
-    if (current.safetyTimer) window.clearTimeout(current.safetyTimer)
-    if (current.settleTimer) window.clearTimeout(current.settleTimer)
-    if (current.idleTimer != null) window.clearTimeout(current.idleTimer)
-    promptCapture = null
-    current.resolve(cleaned || '(无输出)')
+}
+
+/**
+ * 检测终端输出中是否有交互式输入提示(如 sudo 密码、[Y/n] 确认等)。
+ * 如果检测到,弹出输入对话框让用户输入,然后发送输入继续执行。
+ */
+function detectInteractivePrompt(raw: string): boolean {
+  // 只检查最近 2000 字符
+  const recent = normalizeTerminalText(raw).slice(-2000)
+  
+  for (const pattern of INTERACTIVE_PROMPT_PATTERNS) {
+    if (pattern.test(recent)) {
+      // 提取最后几行作为提示上下文
+      const lines = recent.split('\n').filter(l => l.trim())
+      const context = lines.slice(-4).join('\n')
+      
+      // 暂停安全定时器(用户可能要看一会儿)
+      const current = promptCapture
+      if (!current) return false
+      if (current.safetyTimer) {
+        window.clearTimeout(current.safetyTimer)
+        current.safetyTimer = null
+      }
+      
+      showAiInputDialog(context)
+      return true
+    }
   }
+  return false
+}
+
+function showAiInputDialog(promptHint: string) {
+  aiInputDialogPrompt.value = promptHint
+  aiInputDialogVisible.value = true
+}
+
+function onAiInputSubmit(input: string) {
+  aiInputDialogVisible.value = false
+  const current = promptCapture
+  if (!current) return
+  
+  // 发送用户输入
+  void invoke('ssh_write', { id: props.id, data: input + '\n' }).catch(err => {
+    console.error('Failed to write AI input:', err)
+  })
+  
+  // 重新启动安全定时器
+  current.safetyTimer = window.setTimeout(() => {
+    const pc = promptCapture
+    if (!pc) return
+    const raw2 = dataBuffer.value.slice(pc.baseline).join('')
+    const partial = cleanPromptCapturedOutput(raw2, pc.command)
+    interruptAiCommand(new Error(`等待 shell prompt 返回超时,已发送 Ctrl+C 恢复终端。已收到输出:\n${partial || '(无输出)'}`))
+  }, AI_PROMPT_CAPTURE_SAFETY_MS)
+}
+
+function onAiInputCancel() {
+  aiInputDialogVisible.value = false
+  const current = promptCapture
+  if (!current) return
+  // 取消:发送 Ctrl+C 中断命令
+  interruptAiCommand(new Error('用户取消了交互输入'))
 }
 
 function stripTerminalControl(input: string): string {
@@ -860,10 +919,20 @@ function normalizeTerminalText(input: string): string {
    .replace(/\r/g, '\n')
 }
 
-function hasReturnedPrompt(raw: string): boolean {
+function getCurrentPromptLine(): string | null {
+ const text = normalizeTerminalText(dataBuffer.value.slice(-200).join('')).slice(-1200)
+ const lines = text.split('\n').map(line => line.trimEnd()).filter(line => line.trim().length > 0)
+ const last = lines[lines.length - 1] || ''
+ if (!last || last.length > 180) return null
+ if (isShellPromptLine(last) || /(?:[$#%>]|❯|➜)\s*$/.test(last)) return last
+ return null
+}
+
+function hasReturnedPrompt(raw: string, expectedPrompt: string | null): boolean {
  const text = normalizeTerminalText(raw).slice(-1200)
  const lines = text.split('\n').map(line => line.trimEnd()).filter(line => line.trim().length > 0)
  const last = lines[lines.length - 1] || ''
+ if (expectedPrompt && last === expectedPrompt) return true
  return isShellPromptLine(last)
 }
 
@@ -1450,6 +1519,40 @@ function handleKbCancelled() {
     <HostKeyConfirmDialog ref="hostKeyDialogRef" />
 
     <BroadcastDialog ref="broadcastDialogRef" />
+
+    <!-- SSH AI 交互输入对话框 -->
+    <v-dialog v-model="aiInputDialogVisible" max-width="420" transition="cyber-dialog" persistent>
+      <div class="cyber-panel" style="padding: 24px;">
+        <div class="section-header">
+          <span class="section-number">?</span>
+          <h3>命令需要输入</h3>
+        </div>
+        <p style="color: var(--muted); font-size: 11px; margin-bottom: 8px;">
+          AI 执行的命令正在等待交互输入:
+        </p>
+        <pre style="background: var(--bg-2); padding: 10px; border-radius: 6px; font-size: 11px;
+          color: var(--text-2); max-height: 140px; overflow-y: auto; font-family: 'JetBrains Mono', monospace;
+          white-space: pre-wrap; word-break: break-all;">{{ aiInputDialogPrompt }}</pre>
+        <input
+          ref="aiInputField"
+          v-model="aiInputFieldValue"
+          type="text"
+          class="cyber-input"
+          style="margin-top: 12px; width: 100%;"
+          :type="aiInputDialogPrompt.toLowerCase().includes('password') ? 'password' : 'text'"
+          placeholder="输入要发送的内容…"
+          @keydown.enter="onAiInputSubmit(aiInputFieldValue); aiInputFieldValue = ''"
+        />
+        <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
+          <button class="cyber-btn-secondary" style="font-size: 12px; padding: 6px 14px;" @click="onAiInputCancel()">
+            取消 (Ctrl+C)
+          </button>
+          <button class="cyber-btn" style="font-size: 12px; padding: 6px 18px;" @click="onAiInputSubmit(aiInputFieldValue); aiInputFieldValue = ''">
+            发送
+          </button>
+        </div>
+      </div>
+    </v-dialog>
   </div>
 </template>
 
