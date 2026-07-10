@@ -122,6 +122,13 @@ interface PromptCapture {
   reject: (e: Error) => void
   safetyTimer: number | null
   settleTimer: number | null
+  /**
+   * idleTimer:每个 chunk 进来时重置,2s 内没新数据就主动调
+   * maybeResolvePromptCapture 一次,让 idle fallback 真正能跑。
+   * 不这么做的话,命令输出完 + prompt 已返回 + 之后无新数据时,
+   * maybeResolvePromptCapture 永远不再被调用,AI 会一直"思考中"。
+   */
+  idleTimer: number | null
 }
 let promptCapture: PromptCapture | null = null
 const AI_PROMPT_CAPTURE_SAFETY_MS = 60 * 1000
@@ -552,6 +559,18 @@ function handleTerminalOctets(octets: number[]) {
   markSftpReady()
   // 记录最近一次收到数据的时间,用于 prompt capture 的 idle 兜底
   _lastDataAt = Date.now()
+  // 每个 chunk 进来时重置 idleTimer:2 秒内没新数据就主动触发
+  // maybeResolvePromptCapture,让 idle fallback 真正能跑。
+  // 不这么做的话:命令输出完 + prompt 返回后无新数据,
+  // maybeResolvePromptCapture 永远不被调用 → 一直卡在"思考中"
+  if (promptCapture) {
+    if (promptCapture.idleTimer != null) {
+      window.clearTimeout(promptCapture.idleTimer)
+    }
+    promptCapture.idleTimer = window.setTimeout(() => {
+      maybeResolvePromptCapture()
+    }, AI_PROMPT_CAPTURE_IDLE_MS)
+  }
   //收集到 buffer(AI助手用)
   dataBuffer.value.push(chunk)
   //检测 pwd 输出,更新当前工作目录
@@ -752,14 +771,15 @@ function runAiCommandWithPrompt(command: string): Promise<string> {
 
  clearPromptCapture(new Error('Superseded by a newer AI command'))
  return new Promise((resolve, reject) => {
- promptCapture = {
- baseline: dataBuffer.value.length,
- command,
- resolve,
- reject,
- safetyTimer: null,
- settleTimer: null
- }
+  promptCapture = {
+  baseline: dataBuffer.value.length,
+  command,
+  resolve,
+  reject,
+  safetyTimer: null,
+  settleTimer: null,
+  idleTimer: null
+  }
  promptCapture.safetyTimer = window.setTimeout(() => {
  const current = promptCapture
  if (!current) return
@@ -786,6 +806,7 @@ function clearPromptCapture(error?: Error) {
  if (!current) return
  if (current.safetyTimer) window.clearTimeout(current.safetyTimer)
  if (current.settleTimer) window.clearTimeout(current.settleTimer)
+ if (current.idleTimer != null) window.clearTimeout(current.idleTimer)
  promptCapture = null
  if (error) current.reject(error)
 }
@@ -804,13 +825,14 @@ function maybeResolvePromptCapture() {
       const cleaned = cleanPromptCapturedOutput(output, latest.command)
       if (latest.safetyTimer) window.clearTimeout(latest.safetyTimer)
       if (latest.settleTimer) window.clearTimeout(latest.settleTimer)
+      if (latest.idleTimer != null) window.clearTimeout(latest.idleTimer)
       promptCapture = null
       latest.resolve(cleaned || '(无输出)')
     }, 80)
     return
   }
   // 没匹配到 prompt 模式,但数据流已停顿 2s — 兜底直接 resolve
-  // 场景:大文件输出末尾不带典型 prompt 字符(自定义 PS1 / fish / 多行 shell),
+  // 场景:大文件输出末尾不带典型 prompt 字符(自定义 PS1 / fish / 多行 shell / 管道命令 head 主动断开),
   // 旧的 10 分钟 safetyTimer 太长,卡住 AI 工作流
   if (
     _lastDataAt > 0 &&
@@ -820,6 +842,7 @@ function maybeResolvePromptCapture() {
     const cleaned = cleanPromptCapturedOutput(raw, current.command)
     if (current.safetyTimer) window.clearTimeout(current.safetyTimer)
     if (current.settleTimer) window.clearTimeout(current.settleTimer)
+    if (current.idleTimer != null) window.clearTimeout(current.idleTimer)
     promptCapture = null
     current.resolve(cleaned || '(无输出)')
   }

@@ -13,6 +13,13 @@
 
 ---
 
+## [0.19.6] - 2026-07-10
+
+### 修复
+- 🐛 fix(ssh): v0.19.5 引入的 idle fallback 没真正生效 —— `maybeResolvePromptCapture` 只在 `handleTerminalOctets` 收到新 chunk 时被调用,**命令输出完 + prompt 返回 + 之后无新数据时永远不会再被触发**,AI 一直"思考中"。修复:`PromptCapture` 加 `idleTimer`,每个 chunk 进来时重置 2s 计时器,2s 内没新数据就主动调一次 `maybeResolvePromptCapture`,让 idle fallback 真正能跑。覆盖管道命令(`cat | head -50`)、自定义 PS1、fish 等 `isShellPromptLine` 漏掉的场景。
+
+---
+
 ## [0.19.5] - 2026-07-10
 
 ### 修复
