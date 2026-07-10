@@ -146,10 +146,11 @@ func buildSSHClientConfig(
 		return nil, fmt.Errorf("password or private key is required")
 	}
 	return &ssh.ClientConfig{
-		User:            username,
-		Auth:            authMethods,
-		HostKeyCallback: ssh.FixedHostKey(hostKey),
-		Timeout:         15 * time.Second,
+		User:              username,
+		Auth:              authMethods,
+		HostKeyCallback:   ssh.FixedHostKey(hostKey),
+		HostKeyAlgorithms: []string{hostKey.Type()},
+		Timeout:           15 * time.Second,
 	}, nil
 }
 

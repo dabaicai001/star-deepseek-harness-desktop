@@ -102,6 +102,7 @@ export const useDbStore = defineStore('db', () => {
   }
 
   async function connectElasticsearch(assetId: string, name: string, params: {
+    address?: string
     host: string
     port: number
     username?: string

@@ -389,6 +389,7 @@ onBeforeUnmount(cleanupExcelDropListener)
             :initial-values="mode === 'edit' && asset ? {
               name: asset.name,
               dbType: asset.config.dbType || 'mysql',
+              address: asset.config.address || '',
               host: asset.config.host || '',
               port: asset.config.port || 3306,
               username: asset.config.username || '',

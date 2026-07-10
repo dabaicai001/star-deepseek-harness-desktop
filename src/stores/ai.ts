@@ -7,6 +7,81 @@ import { decrypt as decryptLegacyKey } from '@/utils/crypto'
 
 const KEYRING_MARKER = 'keyring:v1'
 
+export type AiAssetType = 'ssh' | 'db' | 'docker' | 'excel'
+
+export interface AiSkillDefinition {
+  id: string
+  name: string
+  description: string
+  assetTypes: AiAssetType[]
+  prompt: string
+}
+
+export interface AiCustomSkill {
+  id: string
+  name: string
+  description: string
+  assetTypes: AiAssetType[]
+  prompt: string
+}
+
+export const BUILTIN_AI_SKILLS: AiSkillDefinition[] = [
+  {
+    id: 'ops-triage',
+    name: '运维排障',
+    description: '先定位影响面、证据和根因,再给出最小修复动作。',
+    assetTypes: ['ssh', 'db', 'docker'],
+    prompt: '处理故障时按 现象 -> 证据 -> 可能原因 -> 下一步验证 -> 建议动作 的顺序推进;不要一次性执行大量命令,每一步都解释为什么需要这条证据。'
+  },
+  {
+    id: 'performance',
+    name: '性能分析',
+    description: '面向 CPU、内存、磁盘、慢查询和容器资源瓶颈。',
+    assetTypes: ['ssh', 'db', 'docker', 'excel'],
+    prompt: '做性能分析时优先比较当前值、趋势和阈值;输出结论要区分确定事实与推测,并标出最值得继续验证的瓶颈。'
+  },
+  {
+    id: 'log-analysis',
+    name: '日志分析',
+    description: '聚焦错误模式、时间窗口、上下文和复现线索。',
+    assetTypes: ['ssh', 'docker'],
+    prompt: '分析日志时先缩小时间窗口和关键词,避免全量拉取大日志;总结时给出错误签名、出现频率、关联服务和可执行的下一步。'
+  },
+  {
+    id: 'safe-change',
+    name: '安全变更',
+    description: '写操作前强调影响范围、回滚点和人工确认。',
+    assetTypes: ['ssh', 'db', 'docker', 'excel'],
+    prompt: '任何修改状态、删除、重启、写文件、写数据库、清理资源的动作都必须先说明影响范围和回滚方式;能用只读命令验证时先验证,再请求确认。'
+  },
+  {
+    id: 'data-insight',
+    name: '数据洞察',
+    description: '适合 SQL 结果、索引数据和表格数据的结构化分析。',
+    assetTypes: ['db', 'excel'],
+    prompt: '分析数据时先确认字段含义、样本范围和过滤条件;输出统计结论时保留关键数值,避免把样本结论说成全量事实。'
+  }
+]
+
+const DEFAULT_ENABLED_SKILL_IDS = ['ops-triage', 'safe-change']
+
+const DEFAULT_COMMAND_WHITELIST = [
+  'ls', 'cat', 'head', 'tail', 'less', 'more', 'grep', 'find', 'pwd',
+  'echo', 'df', 'du', 'free', 'top', 'ps', 'uptime', 'uname', 'whoami',
+  'date', 'wc', 'sort', 'uniq', 'awk', 'cut', 'tr', 'stat', 'file',
+  'which', 'whereis', 'type', 'id', 'env', 'printenv', 'hostname',
+  'netstat', 'ss', 'ip', 'ifconfig', 'route', 'ping', 'traceroute',
+  'curl', 'wget', 'nslookup', 'dig', 'host',
+  'systemctl status', 'systemctl is-active', 'systemctl is-enabled',
+  'journalctl', 'dmesg', 'lsof',
+  'docker ps', 'docker logs', 'docker inspect', 'docker images',
+  'docker network ls', 'docker volume ls',
+  'git status', 'git log', 'git diff', 'git show', 'git branch',
+  'mysql -e "SELECT', 'mysql -e "SHOW', 'mysql -e "DESCRIBE',
+  'redis-cli GET', 'redis-cli HGET', 'redis-cli HGETALL', 'redis-cli LRANGE',
+  'redis-cli SMEMBERS', 'redis-cli ZRANGE', 'redis-cli KEYS',
+]
+
 /**
  * AI 全局配置(持久化到 localStorage)
  *  - provider: 'openai-compatible'(当前只支持 OpenAI 兼容协议,Anthropic 原生协议暂走 ai_chat 后端)
@@ -22,10 +97,14 @@ export interface AiSettings {
   temperature: number
   maxTokens: number
   /**
-   * 命令执行后等待输出的超时(秒)。
-   * 简单粗暴,够 MVP 用;后续可改成 prompt 监听。
+   * 旧版命令超时配置,保留用于兼容历史持久化数据。
+   * SSH AI 命令现在通过 shell prompt 监听收口。
    */
   commandTimeoutSec: number
+  /** 启用的 SKILLS id。 */
+  enabledSkillIds: string[]
+  /** 用户自定义 SKILLS。 */
+  customSkills: AiCustomSkill[]
   /**
    * 白名单:匹配的命令前缀不需要再弹确认对话框。
    * 风险词命中的命令即使加进白名单也会被强制拦截。
@@ -36,7 +115,7 @@ export interface AiSettings {
 export interface AiSession {
   instanceId: string
   assetId: string
-  assetType: 'ssh' | 'db' | 'docker' | 'excel'
+  assetType: AiAssetType
   messages: ChatMessage[]
   loading: boolean
   error: string | null
@@ -108,23 +187,35 @@ export const useAiStore = defineStore('ai', () => {
     temperature: 0.3,
     maxTokens: 4096,
     commandTimeoutSec: 3,
-    commandWhitelist: [
-      'ls', 'cat', 'head', 'tail', 'less', 'more', 'grep', 'find', 'pwd',
-      'echo', 'df', 'du', 'free', 'top', 'ps', 'uptime', 'uname', 'whoami',
-      'date', 'wc', 'sort', 'uniq', 'awk', 'cut', 'tr', 'stat', 'file',
-      'which', 'whereis', 'type', 'id', 'env', 'printenv', 'hostname',
-      'netstat', 'ss', 'ip', 'ifconfig', 'route', 'ping', 'traceroute',
-      'curl', 'wget', 'nslookup', 'dig', 'host',
-      'systemctl status', 'systemctl is-active', 'systemctl is-enabled',
-      'journalctl', 'dmesg', 'lsof',
-      'docker ps', 'docker logs', 'docker inspect', 'docker images',
-      'docker network ls', 'docker volume ls',
-      'git status', 'git log', 'git diff', 'git show', 'git branch',
-      'mysql -e "SELECT', 'mysql -e "SHOW', 'mysql -e "DESCRIBE',
-      'redis-cli GET', 'redis-cli HGET', 'redis-cli HGETALL', 'redis-cli LRANGE',
-      'redis-cli SMEMBERS', 'redis-cli ZRANGE', 'redis-cli KEYS',
-    ]
+    enabledSkillIds: [...DEFAULT_ENABLED_SKILL_IDS],
+    customSkills: [],
+    commandWhitelist: [...DEFAULT_COMMAND_WHITELIST]
   })
+
+  function ensureSettingsShape() {
+    const s = settings.value
+    if (!Array.isArray(s.commandWhitelist)) {
+      s.commandWhitelist = [...DEFAULT_COMMAND_WHITELIST]
+    }
+    if (!Array.isArray(s.enabledSkillIds)) {
+      s.enabledSkillIds = [...DEFAULT_ENABLED_SKILL_IDS]
+    }
+    if (!Array.isArray(s.customSkills)) {
+      s.customSkills = []
+    }
+    s.customSkills = s.customSkills
+      .filter(skill => skill && typeof skill.id === 'string' && typeof skill.name === 'string' && typeof skill.prompt === 'string')
+      .map(skill => ({
+        ...skill,
+        description: skill.description || '',
+        assetTypes: Array.isArray(skill.assetTypes) && skill.assetTypes.length > 0
+          ? skill.assetTypes.filter(type => ['ssh', 'db', 'docker', 'excel'].includes(type))
+          : ['ssh', 'db', 'docker', 'excel']
+      }))
+    if (!Number.isFinite(s.commandTimeoutSec)) {
+      s.commandTimeoutSec = 3
+    }
+  }
 
   // ====== 每个 tab 独立的 AI 会话 ======
   // key = tab instanceId,value = AiSession
@@ -133,7 +224,7 @@ export const useAiStore = defineStore('ai', () => {
   /**
    * 获取或创建某个 tab 的 AI 会话
    */
-  function getOrCreateSession(instanceId: string, assetId: string, assetType: 'ssh' | 'db' | 'docker' | 'excel'): AiSession {
+  function getOrCreateSession(instanceId: string, assetId: string, assetType: AiAssetType): AiSession {
     let s = sessions.value.get(instanceId)
     if (!s) {
       s = {
@@ -194,6 +285,7 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   function updateSettings(partial: Partial<AiSettings>) {
+    ensureSettingsShape()
     // apiKey 不允许通过 updateSettings 直接赋值(必须用 setApiKey 加密)
     if ('apiKey' in partial) {
       const { apiKey: _, ...rest } = partial
@@ -207,16 +299,50 @@ export const useAiStore = defineStore('ai', () => {
     } else {
       Object.assign(settings.value, partial)
     }
+    ensureSettingsShape()
   }
 
   function addToWhitelist(command: string) {
+    ensureSettingsShape()
     if (!settings.value.commandWhitelist.includes(command)) {
       settings.value.commandWhitelist.push(command)
     }
   }
 
   function removeFromWhitelist(command: string) {
+    ensureSettingsShape()
     settings.value.commandWhitelist = settings.value.commandWhitelist.filter(c => c !== command)
+  }
+
+  function setSkillEnabled(skillId: string, enabled: boolean) {
+    ensureSettingsShape()
+    const ids = new Set(settings.value.enabledSkillIds)
+    if (enabled) ids.add(skillId)
+    else ids.delete(skillId)
+    settings.value.enabledSkillIds = Array.from(ids)
+  }
+
+  function getSkillsForAsset(assetType: AiAssetType): Array<AiSkillDefinition | AiCustomSkill> {
+    ensureSettingsShape()
+    return [
+      ...BUILTIN_AI_SKILLS,
+      ...settings.value.customSkills
+    ].filter(skill => skill.assetTypes.includes(assetType))
+  }
+
+  function getEnabledSkills(assetType: AiAssetType): Array<AiSkillDefinition | AiCustomSkill> {
+    ensureSettingsShape()
+    const enabled = new Set(settings.value.enabledSkillIds)
+    return getSkillsForAsset(assetType).filter(skill => enabled.has(skill.id))
+  }
+
+  function buildSystemPrompt(basePrompt: string, assetType: AiAssetType): string {
+    const enabledSkills = getEnabledSkills(assetType)
+    if (enabledSkills.length === 0) return basePrompt
+    const skillBlock = enabledSkills
+      .map(skill => `- ${skill.name}: ${skill.prompt}`)
+      .join('\n')
+    return `${basePrompt}\n\n启用的 SKILLS:\n${skillBlock}`
   }
 
   /**
@@ -422,6 +548,7 @@ export const useAiStore = defineStore('ai', () => {
   return {
     settings,
     sessions,
+    ensureSettingsShape,
     getOrCreateSession,
     getSession,
     clearSession,
@@ -429,6 +556,10 @@ export const useAiStore = defineStore('ai', () => {
     updateSettings,
     addToWhitelist,
     removeFromWhitelist,
+    setSkillEnabled,
+    getSkillsForAsset,
+    getEnabledSkills,
+    buildSystemPrompt,
     runAgent,
     stopAgent,
     resetSession,

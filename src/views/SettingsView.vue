@@ -2,13 +2,14 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
-import { useAiStore } from '@/stores/ai'
-import type { AiSettings } from '@/stores/ai'
+import { BUILTIN_AI_SKILLS, useAiStore } from '@/stores/ai'
+import type { AiAssetType, AiSettings } from '@/stores/ai'
 import { version as appVersion } from '~package.json'
 
 const { t, locale } = useI18n()
 const themeStore = useThemeStore()
 const aiStore = useAiStore()
+aiStore.ensureSettingsShape()
 
 // 选中的 tab
 type TabKey = 'general' | 'appearance' | 'ai' | 'about'
@@ -47,15 +48,41 @@ function saveGeneral() {
 }
 onMounted(async () => {
   loadGeneral()
+  aiStore.ensureSettingsShape()
+  aiLocal.value = cloneAiSettings(aiStore.settings)
   aiLocal.value.apiKey = await aiStore.getApiKey()
 })
 
 // AI 配置本地副本(用于表单展示,保存时再写回 store)
-const aiLocal = ref<AiSettings>({ ...aiStore.settings })
+function cloneAiSettings(settings: AiSettings): AiSettings {
+  return {
+    ...settings,
+    commandWhitelist: [...settings.commandWhitelist],
+    enabledSkillIds: [...settings.enabledSkillIds],
+    customSkills: settings.customSkills.map(skill => ({
+      ...skill,
+      assetTypes: [...skill.assetTypes]
+    }))
+  }
+}
+
+const aiLocal = ref<AiSettings>(cloneAiSettings(aiStore.settings))
 const newWhitelistItem = ref('')
 const saved = ref(false)
 const testing = ref(false)
 const testResult = ref<string | null>(null)
+
+const AI_ASSET_TYPES: Array<{ value: AiAssetType; label: string }> = [
+  { value: 'ssh', label: 'SSH' },
+  { value: 'db', label: 'DB' },
+  { value: 'docker', label: 'Docker' },
+  { value: 'excel', label: 'Excel' }
+]
+
+const customSkillName = ref('')
+const customSkillDescription = ref('')
+const customSkillPrompt = ref('')
+const customSkillAssetTypes = ref<AiAssetType[]>(['ssh', 'db', 'docker', 'excel'])
 
 const accentOptions = [
   { value: 'cyan' as const,   label: '青色 (Cyberpunk)',   color: '#00f0ff' },
@@ -118,6 +145,55 @@ function addWhitelist() {
 
 function removeWhitelist(cmd: string) {
   aiLocal.value.commandWhitelist = aiLocal.value.commandWhitelist.filter(c => c !== cmd)
+}
+
+function isSkillEnabled(id: string) {
+  return aiLocal.value.enabledSkillIds.includes(id)
+}
+
+function toggleSkill(id: string, enabled: boolean) {
+  const ids = new Set(aiLocal.value.enabledSkillIds)
+  if (enabled) ids.add(id)
+  else ids.delete(id)
+  aiLocal.value.enabledSkillIds = Array.from(ids)
+}
+
+function toggleCustomSkillAssetType(type: AiAssetType, enabled: boolean) {
+  const types = new Set(customSkillAssetTypes.value)
+  if (enabled) types.add(type)
+  else types.delete(type)
+  customSkillAssetTypes.value = Array.from(types)
+}
+
+function addCustomSkill() {
+  const name = customSkillName.value.trim()
+  const prompt = customSkillPrompt.value.trim()
+  if (!name || !prompt) return
+  const assetTypes = customSkillAssetTypes.value.length > 0
+    ? [...customSkillAssetTypes.value]
+    : ['ssh', 'db', 'docker', 'excel'] as AiAssetType[]
+  const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  aiLocal.value.customSkills.push({
+    id,
+    name,
+    description: customSkillDescription.value.trim(),
+    prompt,
+    assetTypes
+  })
+  toggleSkill(id, true)
+  customSkillName.value = ''
+  customSkillDescription.value = ''
+  customSkillPrompt.value = ''
+  customSkillAssetTypes.value = ['ssh', 'db', 'docker', 'excel']
+}
+
+function removeCustomSkill(id: string) {
+  aiLocal.value.customSkills = aiLocal.value.customSkills.filter(skill => skill.id !== id)
+  aiLocal.value.enabledSkillIds = aiLocal.value.enabledSkillIds.filter(skillId => skillId !== id)
+}
+
+function formatSkillScopes(types: AiAssetType[]) {
+  return types.map(type => AI_ASSET_TYPES.find(item => item.value === type)?.label || type).join(' / ')
 }
 
 const PRESET_MODELS = [
@@ -343,9 +419,14 @@ const PRESET_MODELS = [
           </div>
 
           <div class="form-field">
-            <label class="field-label">命令执行超时(秒)</label>
-            <input v-model.number="aiLocal.commandTimeoutSec" class="cyber-input" type="number" min="1" max="30" />
-            <div class="field-hint">AI 发命令后等多久收集输出,简单 MVP,后续可改 prompt 监听</div>
+            <label class="field-label">命令完成检测</label>
+            <div class="prompt-listener-card">
+              <v-icon size="15">mdi-console-line</v-icon>
+              <div>
+                <strong>Prompt 监听</strong>
+                <span>SSH 命令输出会等 shell prompt 返回后收集完成</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -366,6 +447,94 @@ const PRESET_MODELS = [
       <div class="section">
         <div class="section-header">
           <span class="section-number">02</span>
+          <span class="section-title">SKILLS</span>
+        </div>
+        <p class="section-desc">
+          启用的技能会注入到对应工作区 AI 的系统提示中;自定义技能可限定到 SSH、DB、Docker 或 Excel。
+        </p>
+
+        <div class="skills-grid">
+          <label
+            v-for="skill in BUILTIN_AI_SKILLS"
+            :key="skill.id"
+            class="skill-card"
+            :class="{ active: isSkillEnabled(skill.id) }"
+          >
+            <input
+              type="checkbox"
+              :checked="isSkillEnabled(skill.id)"
+              @change="toggleSkill(skill.id, ($event.target as HTMLInputElement).checked)"
+            />
+            <span class="skill-toggle" />
+            <span class="skill-body">
+              <span class="skill-title">{{ skill.name }}</span>
+              <span class="skill-desc">{{ skill.description }}</span>
+              <span class="skill-scope">{{ formatSkillScopes(skill.assetTypes) }}</span>
+            </span>
+          </label>
+        </div>
+
+        <div class="custom-skill-form">
+          <div class="form-grid">
+            <div class="form-field">
+              <label class="field-label">自定义 Skill 名称</label>
+              <input v-model="customSkillName" class="cyber-input" placeholder="例如: Nginx 排障" />
+            </div>
+            <div class="form-field">
+              <label class="field-label">说明</label>
+              <input v-model="customSkillDescription" class="cyber-input" placeholder="一句话说明用途" />
+            </div>
+          </div>
+          <div class="asset-type-row">
+            <label
+              v-for="type in AI_ASSET_TYPES"
+              :key="type.value"
+              class="asset-toggle"
+              :class="{ active: customSkillAssetTypes.includes(type.value) }"
+            >
+              <input
+                type="checkbox"
+                :checked="customSkillAssetTypes.includes(type.value)"
+                @change="toggleCustomSkillAssetType(type.value, ($event.target as HTMLInputElement).checked)"
+              />
+              <span>{{ type.label }}</span>
+            </label>
+          </div>
+          <textarea
+            v-model="customSkillPrompt"
+            class="cyber-input skill-textarea"
+            rows="4"
+            placeholder="写入希望 AI 遵循的步骤、约束或领域经验..."
+          />
+          <div class="action-row compact">
+            <button class="cyber-btn-secondary" :disabled="!customSkillName.trim() || !customSkillPrompt.trim()" @click="addCustomSkill">
+              <v-icon size="14">mdi-plus</v-icon>
+              添加 Skill
+            </button>
+          </div>
+        </div>
+
+        <div v-if="aiLocal.customSkills.length" class="custom-skill-list">
+          <div v-for="skill in aiLocal.customSkills" :key="skill.id" class="custom-skill-item">
+            <label class="checkbox-row">
+              <input
+                type="checkbox"
+                :checked="isSkillEnabled(skill.id)"
+                @change="toggleSkill(skill.id, ($event.target as HTMLInputElement).checked)"
+              />
+              <span>{{ skill.name }}</span>
+              <code>{{ formatSkillScopes(skill.assetTypes) }}</code>
+            </label>
+            <button class="chip-remove" @click="removeCustomSkill(skill.id)">
+              <v-icon size="12">mdi-delete-outline</v-icon>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">03</span>
           <span class="section-title">命令白名单</span>
         </div>
         <p class="section-desc">
@@ -658,6 +827,35 @@ const PRESET_MODELS = [
   gap: 4px;
 }
 
+.prompt-listener-card {
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--panel-solid);
+  color: var(--text-2);
+}
+
+.prompt-listener-card strong,
+.prompt-listener-card span {
+  display: block;
+}
+
+.prompt-listener-card strong {
+  color: var(--cyan);
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.prompt-listener-card span {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
 .field-label {
   font-size: 11px;
   color: var(--text-2);
@@ -709,6 +907,12 @@ const PRESET_MODELS = [
   margin-top: 16px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
+}
+
+.action-row.compact {
+  margin-top: 10px;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .test-result {
@@ -773,6 +977,146 @@ const PRESET_MODELS = [
 .chip-remove:hover {
   color: var(--red);
   background: rgba(255, 77, 109, 0.12);
+}
+
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.skill-card {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--panel-solid);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.skill-card:hover,
+.skill-card.active {
+  border-color: var(--cyan);
+  background: rgba(0, 240, 255, 0.06);
+}
+
+.skill-card input,
+.asset-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.skill-toggle {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 4px;
+  border: 1px solid var(--line-2);
+  background: var(--panel-solid-2);
+  flex-shrink: 0;
+}
+
+.skill-card.active .skill-toggle {
+  border-color: var(--cyan);
+  background: var(--cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.skill-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.skill-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.skill-desc {
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.skill-scope {
+  align-self: flex-start;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line-2);
+  color: var(--cyan);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.custom-skill-form {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.asset-type-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.asset-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--panel-solid);
+  color: var(--text-2);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.asset-toggle.active {
+  color: var(--cyan);
+  border-color: var(--cyan);
+  background: rgba(0, 240, 255, 0.06);
+}
+
+.skill-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 94px;
+  line-height: 1.6;
+}
+
+.custom-skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.custom-skill-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.custom-skill-item .checkbox-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.custom-skill-item code {
+  margin-left: auto;
+  color: var(--cyan);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 /* ====== Radio / Checkbox(单/复选) ====== */

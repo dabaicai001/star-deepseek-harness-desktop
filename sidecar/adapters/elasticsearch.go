@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 
 // ElasticsearchConnInfo holds connection parameters
 type ElasticsearchConnInfo struct {
+	Address  string `json:"address"`
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	Username string `json:"username"`
@@ -31,18 +34,10 @@ type ElasticsearchAdapter struct {
 
 // NewElasticsearchAdapter creates a new ES adapter
 func NewElasticsearchAdapter(info *ElasticsearchConnInfo) (*ElasticsearchAdapter, error) {
-	if info.Host == "" {
-		info.Host = "localhost"
+	addr, err := buildElasticsearchAddress(info)
+	if err != nil {
+		return nil, err
 	}
-	if info.Port == 0 {
-		info.Port = 9200
-	}
-
-	scheme := "http"
-	if info.UseSSL {
-		scheme = "https"
-	}
-	addr := fmt.Sprintf("%s://%s:%d", scheme, info.Host, info.Port)
 
 	cfg := elasticsearch.Config{
 		Addresses: []string{addr},
@@ -85,6 +80,53 @@ func NewElasticsearchAdapter(info *ElasticsearchConnInfo) (*ElasticsearchAdapter
 	adapter.version = infoResp.Version.Number
 
 	return adapter, nil
+}
+
+func buildElasticsearchAddress(info *ElasticsearchConnInfo) (string, error) {
+	address := strings.TrimSpace(info.Address)
+	if address == "" && strings.Contains(info.Host, "://") {
+		address = strings.TrimSpace(info.Host)
+	}
+	if address != "" {
+		if !strings.Contains(address, "://") {
+			address = "http://" + address
+		}
+		u, err := url.Parse(address)
+		if err != nil || u.Host == "" {
+			return "", fmt.Errorf("invalid ES address: %s", info.Address)
+		}
+		info.Host = u.Hostname()
+		if portText := u.Port(); portText != "" {
+			port, err := strconv.Atoi(portText)
+			if err != nil {
+				return "", fmt.Errorf("invalid ES address port: %s", portText)
+			}
+			info.Port = port
+		} else if info.Port == 0 {
+			if u.Scheme == "https" {
+				info.Port = 443
+			} else {
+				info.Port = 9200
+			}
+		}
+		info.UseSSL = u.Scheme == "https"
+		info.Address = strings.TrimRight(address, "/")
+		return info.Address, nil
+	}
+
+	if info.Host == "" {
+		info.Host = "localhost"
+	}
+	if info.Port == 0 {
+		info.Port = 9200
+	}
+
+	scheme := "http"
+	if info.UseSSL {
+		scheme = "https"
+	}
+	info.Address = fmt.Sprintf("%s://%s:%d", scheme, info.Host, info.Port)
+	return info.Address, nil
 }
 
 func (a *ElasticsearchAdapter) Close() error {

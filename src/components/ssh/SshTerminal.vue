@@ -109,11 +109,22 @@ const broadcastDialogRef = ref<InstanceType<typeof BroadcastDialog>>()
 const hostKeyDialogRef = ref<InstanceType<typeof HostKeyConfirmDialog>>()
 
 // ====== AI助手用:收集 SSH 输出 ======
-//每次 SSH收到数据,都 push 到这里;captureOutput(timeout) 等固定时间后返回这段输出
+//每次 SSH收到数据,都 push 到这里;内部 captureOutput 仍可做短探测,
+//AI 工具执行则通过 promptCapture 等 shell prompt 返回后收口。
 const dataBuffer = ref<string[]>([])
 let captureBaseline =0 // captureOutput 调用前的 buffer长度
 let captureResolve: ((s: string) => void) | null = null
 let captureTimer: number | null = null
+interface PromptCapture {
+  baseline: number
+  command: string
+  resolve: (s: string) => void
+  reject: (e: Error) => void
+  safetyTimer: number | null
+  settleTimer: number | null
+}
+let promptCapture: PromptCapture | null = null
+const AI_PROMPT_CAPTURE_SAFETY_MS = 10 * 60 * 1000
 
 const kbDialogRef = ref<InstanceType<typeof KbInteractiveDialog>>()
 
@@ -166,8 +177,7 @@ async function onAiSend(text: string) {
  aiSession.value.messages.push({ role: 'user', content: text })
  // 先获取当前工作目录
  try {
-   await writeCommand('pwd')
-   const cwdOutput = await captureOutput(1000)
+   const cwdOutput = await runAiCommandWithPrompt('pwd')
    const pwdMatch = cwdOutput.match(/\/[\w\-./]+/)
    if (pwdMatch) sshCwd.value = pwdMatch[0]
  } catch { /* ignore */ }
@@ -226,7 +236,6 @@ const pendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
 
 async function runSshAgent() {
  if (!aiSession.value) return
- const timeoutSec = aiStore.settings.commandTimeoutSec
 
  /**
  * 等用户确认(通过 AiChat弹按钮,emit confirm-tool事件)
@@ -256,17 +265,17 @@ async function runSshAgent() {
  }
 
  const caller = makeSshToolCaller(
- async (cmd) => { await writeCommand(cmd) },
- async (ms) => { return await captureOutput(ms || timeoutSec *1000) },
+ runAiCommandWithPrompt,
  () => aiStore.settings.commandWhitelist,
  confirmFn
  )
  const toolExec = async (call: LlmToolCall) => {
  return await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
  }
- const sysPrompt = sshCwd.value
+ const basePrompt = sshCwd.value
    ? SSH_SYSTEM_PROMPT.replace('当前已连接到远程服务器', `当前已连接到远程服务器,当前工作目录: ${sshCwd.value}`)
    : SSH_SYSTEM_PROMPT
+ const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'ssh')
  await aiStore.runAgent(props.id, sshTools, toolExec, sysPrompt)
 }
 
@@ -289,6 +298,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(async () => {
+  currentConnectId++
   if (beforeUnloadHandler) {
     window.removeEventListener('beforeunload', beforeUnloadHandler)
     beforeUnloadHandler = null
@@ -306,6 +316,7 @@ onBeforeUnmount(async () => {
     captureTimer = null
   }
   captureResolve = null
+  clearPromptCapture(new Error('SSH terminal closed'))
   stopTimer()
   await disconnect()
 })
@@ -472,6 +483,7 @@ async function connect() {
 
   unlistenClose = await listen(`ssh:close:${sessionId}`, () => {
   connected.value = false
+  clearPromptCapture(new Error('SSH connection closed before prompt returned'))
   resetZmodem()
   resetSftpReady()
   stopTimer()
@@ -487,6 +499,9 @@ async function connect() {
 
  } catch (error) {
   const msg = error instanceof Error ? error.message : String(error)
+  if (connectCallId !== currentConnectId) {
+    return
+  }
   lastError.value = msg
   terminalRef.value?.writeln(`\x1b[31m✗ Connection failed: ${msg}\x1b[0m`)
   //通知后端清掉可能半初始化的 session(防止 Rust端残留)
@@ -528,6 +543,7 @@ function handleTerminalOctets(octets: number[]) {
   }
   //唤醒正在等待的 captureOutput
   maybeResolveCapture()
+  maybeResolvePromptCapture()
 }
 
 function setupZmodemSentry() {
@@ -622,6 +638,7 @@ function resetZmodem() {
 async function disconnect() {
    resetZmodem()
    resetSftpReady()
+   clearPromptCapture(new Error('SSH disconnected before prompt returned'))
    if (unlisten) {
      unlisten()
      unlisten = null
@@ -708,6 +725,119 @@ async function writeCommand(command: string): Promise<void> {
  throw new Error('SSH not connected')
  }
  await invoke('ssh_write', { id: props.id, data: command + '\n' })
+}
+
+function runAiCommandWithPrompt(command: string): Promise<string> {
+ if (!connected.value) {
+ throw new Error('SSH not connected')
+ }
+
+ clearPromptCapture(new Error('Superseded by a newer AI command'))
+ return new Promise((resolve, reject) => {
+ promptCapture = {
+ baseline: dataBuffer.value.length,
+ command,
+ resolve,
+ reject,
+ safetyTimer: null,
+ settleTimer: null
+ }
+ promptCapture.safetyTimer = window.setTimeout(() => {
+ const current = promptCapture
+ if (!current) return
+ const raw = dataBuffer.value.slice(current.baseline).join('')
+ const partial = cleanPromptCapturedOutput(raw, current.command)
+ clearPromptCapture()
+ reject(new Error(`等待 shell prompt 返回超时,已收到输出:\n${partial || '(无输出)'}`))
+ }, AI_PROMPT_CAPTURE_SAFETY_MS)
+
+ writeCommand(command).catch(error => {
+ const current = promptCapture
+ if (!current) {
+ reject(error instanceof Error ? error : new Error(String(error)))
+ return
+ }
+ clearPromptCapture()
+ current.reject(error instanceof Error ? error : new Error(String(error)))
+ })
+ })
+}
+
+function clearPromptCapture(error?: Error) {
+ const current = promptCapture
+ if (!current) return
+ if (current.safetyTimer) window.clearTimeout(current.safetyTimer)
+ if (current.settleTimer) window.clearTimeout(current.settleTimer)
+ promptCapture = null
+ if (error) current.reject(error)
+}
+
+function maybeResolvePromptCapture() {
+ const current = promptCapture
+ if (!current) return
+ const raw = dataBuffer.value.slice(current.baseline).join('')
+ if (!hasReturnedPrompt(raw)) return
+ if (current.settleTimer) window.clearTimeout(current.settleTimer)
+ current.settleTimer = window.setTimeout(() => {
+ const latest = promptCapture
+ if (!latest) return
+ const output = dataBuffer.value.slice(latest.baseline).join('')
+ if (!hasReturnedPrompt(output)) return
+ const cleaned = cleanPromptCapturedOutput(output, latest.command)
+ if (latest.safetyTimer) window.clearTimeout(latest.safetyTimer)
+ if (latest.settleTimer) window.clearTimeout(latest.settleTimer)
+ promptCapture = null
+ latest.resolve(cleaned || '(无输出)')
+ }, 80)
+}
+
+function stripTerminalControl(input: string): string {
+ return input
+   .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, '')
+   .replace(/\x07/g, '')
+}
+
+function normalizeTerminalText(input: string): string {
+ return stripTerminalControl(input)
+   .replace(/\r\n/g, '\n')
+   .replace(/\r/g, '\n')
+}
+
+function hasReturnedPrompt(raw: string): boolean {
+ const text = normalizeTerminalText(raw).slice(-1200)
+ const lines = text.split('\n').map(line => line.trimEnd()).filter(line => line.trim().length > 0)
+ const last = lines[lines.length - 1] || ''
+ return isShellPromptLine(last)
+}
+
+function isShellPromptLine(line: string): boolean {
+ const trimmed = line.trimEnd()
+ if (!trimmed || trimmed.length > 180) return false
+ if (/^[#$]\s*$/.test(trimmed)) return true
+ if (/^\[[^\]\n]{1,140}\]\s*[#$]\s*$/.test(trimmed)) return true
+ if (/^[\w.-]+@[\w.-]+(?::[^\n]{0,120})?\s*[#$]\s*$/.test(trimmed)) return true
+ if (/^(?:~|\/[\w./-]*|\.\.?)(?:\s+[^\n]{0,80})?\s*[#$]\s*$/.test(trimmed)) return true
+ return false
+}
+
+function cleanPromptCapturedOutput(raw: string, command: string): string {
+ const commandText = command.trim()
+ const lines = normalizeTerminalText(raw)
+   .split('\n')
+   .map(line => line.trimEnd())
+
+ while (lines.length && !lines[0].trim()) lines.shift()
+ if (lines.length && commandText) {
+   const first = lines[0].trim()
+   if (first === commandText || first.endsWith(commandText)) {
+     lines.shift()
+   }
+ }
+ while (lines.length && !lines[lines.length - 1].trim()) lines.pop()
+ if (lines.length && isShellPromptLine(lines[lines.length - 1])) {
+   lines.pop()
+ }
+ return lines.join('\n').trim()
 }
 
 // ======快速命令栏(连接后顶部一条小横条) ======

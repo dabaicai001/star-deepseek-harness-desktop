@@ -2,7 +2,7 @@
  * AI 工具定义
  *
  * 每个连接类型有独立的工具集。AI 调工具时,执行器会:
- *  - SSH: 写命令到 terminal(用户能看到),等固定超时后读取输出
+ *  - SSH: 写命令到 terminal(用户能看到),监听 shell prompt 返回后读取输出
  *  - DB:  执行 SQL,返回结果
  *  - Docker: 调 docker 命令,返回结果
  *
@@ -82,7 +82,7 @@ export const sshTools: LlmTool[] = [
 
 /**
  * SSH 工具的执行器
- *  - 调用方传入:write(写命令到 terminal)、captureOutput(等输出,返回 string)、whitelist
+ *  - 调用方传入:runCommand(写命令并等 prompt 返回)、whitelist
  */
 export type SshToolExecutor = (
   command: string,
@@ -90,8 +90,7 @@ export type SshToolExecutor = (
 ) => Promise<string>
 
 export function makeSshToolCaller(
-  write: (cmd: string) => Promise<void>,
-  captureOutput: (timeoutMs: number) => Promise<string>,
+  runCommand: (cmd: string) => Promise<string>,
   getWhitelist: () => string[],
   confirmFn: ToolConfirmFn,
   printStatus?: StatusPrinter
@@ -124,11 +123,8 @@ export function makeSshToolCaller(
       if (!approved) throw new Error('[Rejected by user]')
     }
 
-    // 写命令到 terminal(用户能看到)
-    // 注意:write 回调内部(writeCommand)已自带 \n,此处不再追加
-    await write(command)
-    // 等固定超时收集输出
-    const output = await captureOutput(3000)
+    // 写命令到 terminal(用户能看到),并等 shell prompt 返回后收集输出
+    const output = await runCommand(command)
     // 打印执行状态到终端
     if (printStatus) {
       const err = !output || looksLikeSshError(output)

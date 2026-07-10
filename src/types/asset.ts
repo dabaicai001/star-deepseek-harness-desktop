@@ -50,6 +50,7 @@ export interface AssetConfig {
 
   // 数据库配置
   dbType?: DatabaseType
+  address?: string
   database?: string
   ssl?: boolean
   redisDb?: number

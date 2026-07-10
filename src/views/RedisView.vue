@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
@@ -48,6 +48,9 @@ const dbSizes = ref<Record<number, number>>({})
 
 const keyBrowserRef = ref<InstanceType<typeof KeyBrowser> | null>(null)
 const valueEditorRef = ref<InstanceType<typeof RedisValueEditor> | null>(null)
+let connectAttemptId = 0
+let viewDisposed = false
+const ownedConnIds = new Set<string>()
 
 const showNewKey = ref(false)
 const newKeyDb = ref(0)
@@ -106,7 +109,8 @@ async function onAiSend(text: string) {
   )
   const toolExec = async (call: LlmToolCall) =>
     await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
-  const sysPrompt = REDIS_SYSTEM_PROMPT.replace('db0', `db${currentDb.value}`)
+  const basePrompt = REDIS_SYSTEM_PROMPT.replace('db0', `db${currentDb.value}`)
+  const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'db')
   await aiStore.runAgent(instanceId.value, redisTools, toolExec, sysPrompt)
 }
 
@@ -152,8 +156,20 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   }
 }
 
+function isStaleConnect(attemptId: number): boolean {
+  return viewDisposed || attemptId !== connectAttemptId
+}
+
+async function disconnectOwnedSessions() {
+  for (const id of [...ownedConnIds]) {
+    await dbStore.disconnect(id)
+    ownedConnIds.delete(id)
+  }
+}
+
 async function connect() {
   if (!asset.value || connected.value) return
+  const attemptId = ++connectAttemptId
   connecting.value = true
   connectError.value = null
   try {
@@ -165,16 +181,25 @@ async function connect() {
       db: 0,
       ssl: config.ssl
     })
+    if (isStaleConnect(attemptId)) {
+      await dbStore.disconnect(session.connId)
+      return
+    }
+    ownedConnIds.add(session.connId)
     connId.value = session.connId
     connected.value = true
     await refreshDBSize()
+    if (isStaleConnect(attemptId)) return
     await refreshAllDBSizes()
   } catch (err) {
+    if (isStaleConnect(attemptId)) return
     const msg = err instanceof Error ? err.message : String(err)
     connectError.value = msg
     notify.notify({ title: 'Redis 连接失败', message: msg, color: 'error', timeout: 5000 })
   } finally {
-    connecting.value = false
+    if (!isStaleConnect(attemptId)) {
+      connecting.value = false
+    }
   }
 }
 
@@ -309,13 +334,28 @@ async function doRenameKey() {
 }
 
 onMounted(() => {
+  viewDisposed = false
   if (asset.value && asset.value.type === 'db' && asset.value.config.dbType === 'redis') {
     connect()
   }
 })
 
 watch(() => assetId.value, () => {
+  connectAttemptId++
+  void disconnectOwnedSessions()
+  connId.value = null
+  connected.value = false
+  connectError.value = null
   if (asset.value && !connected.value) connect()
+})
+
+onBeforeUnmount(() => {
+  viewDisposed = true
+  connectAttemptId++
+  connecting.value = false
+  connected.value = false
+  connectError.value = null
+  void disconnectOwnedSessions()
 })
 </script>
 

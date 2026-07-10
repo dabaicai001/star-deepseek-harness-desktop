@@ -218,7 +218,7 @@ function shortResult(s: string, max = 240): string {
               </button>
             </div>
             <div v-if="rec.status === 'awaiting-confirm'" class="whitelist-hint">
-              💡 加入白名单后，该命令将不再询问
+              加入白名单后,该命令将不再询问
             </div>
           </div>
         </template>
@@ -271,8 +271,11 @@ function shortResult(s: string, max = 240): string {
 .ai-chat {
   display: flex;
   flex-direction: column;
+  width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .chat-messages {
@@ -282,6 +285,7 @@ function shortResult(s: string, max = 240): string {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -313,6 +317,8 @@ function shortResult(s: string, max = 240): string {
   display: flex;
   gap: 8px;
   align-items: flex-start;
+  width: 100%;
+  min-width: 0;
 }
 
 .msg.user {
@@ -412,6 +418,9 @@ function shortResult(s: string, max = 240): string {
   flex-direction: column;
   gap: 4px;
   margin-left: 32px;
+  max-width: calc(100% - 32px);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .tool-call.status-awaiting-confirm {
@@ -433,12 +442,14 @@ function shortResult(s: string, max = 240): string {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .tool-name {
   font-family: 'JetBrains Mono', monospace;
   font-weight: 600;
   color: var(--cyan);
+  flex-shrink: 0;
 }
 
 .tool-summary {
@@ -460,6 +471,7 @@ function shortResult(s: string, max = 240): string {
   border-radius: 4px;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
   max-height: 160px;
   overflow-y: auto;
 }
@@ -474,6 +486,7 @@ function shortResult(s: string, max = 240): string {
   border-radius: 4px;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .tool-confirm {
@@ -494,6 +507,9 @@ function shortResult(s: string, max = 240): string {
 .confirm-btn {
   padding: 4px 8px !important;
   font-size: 11px !important;
+  flex: 1 1 72px;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 .confirm-btn.reject {
@@ -559,10 +575,13 @@ function shortResult(s: string, max = 240): string {
   border-top: 1px solid var(--line-2);
   background: var(--panel-solid);
   align-items: flex-end;
+  min-width: 0;
+  flex-shrink: 0;
 }
 
 .chat-input textarea {
   flex: 1;
+  min-width: 0;
   resize: none;
   min-height: 36px;
   max-height: 120px;
@@ -586,12 +605,14 @@ function shortResult(s: string, max = 240): string {
   padding: 6px 12px !important;
   font-size: 12px !important;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .stop-btn {
   padding: 6px 12px !important;
   font-size: 12px !important;
   white-space: nowrap;
+  flex-shrink: 0;
   color: var(--red) !important;
   border-color: var(--status-error-border) !important;
 }
@@ -603,6 +624,8 @@ function shortResult(s: string, max = 240): string {
 .chat-toolbar {
   display: flex;
   align-items: center;
+  min-width: 0;
+  flex-shrink: 0;
   padding: 4px 8px;
   border-bottom: 1px solid var(--line-2);
   background: var(--panel-solid);
@@ -627,5 +650,17 @@ function shortResult(s: string, max = 240): string {
   border-color: var(--cyan);
   color: var(--cyan);
   background: var(--hover-cyan-soft);
+}
+
+@media (max-width: 360px) {
+  .chat-input {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .send-btn,
+  .stop-btn {
+    justify-content: center;
+  }
 }
 </style>

@@ -68,6 +68,20 @@ const sidebarCollapsed = ref(false)
 const sidebarWidth = ref(260)
 const sidebarDragging = ref(false)
 const selectedDb = ref<string>('')
+let connectAttemptId = 0
+let viewDisposed = false
+const ownedConnIds = new Set<string>()
+
+function isStaleConnect(attemptId: number): boolean {
+  return viewDisposed || attemptId !== connectAttemptId
+}
+
+async function disconnectOwnedSessions() {
+  for (const id of [...ownedConnIds]) {
+    await dbStore.disconnect(id)
+    ownedConnIds.delete(id)
+  }
+}
 
 // tableDataCache: key = "db.table", caches columns + rowCount + data to avoid refetch on tab switch
 
@@ -312,8 +326,19 @@ const isSystemDb = (db: string) => SYSTEM_DATABASES.includes(db.toLowerCase())
 
 async function connect() {
   if (!asset.value || connected.value) return
+  const attemptId = ++connectAttemptId
   connecting.value = true
   connectError.value = null
+  const attachSession = async (session: { connId: string }) => {
+    if (isStaleConnect(attemptId)) {
+      await dbStore.disconnect(session.connId)
+      return false
+    }
+    ownedConnIds.add(session.connId)
+    connId.value = session.connId
+    connected.value = true
+    return true
+  }
   try {
     const config = asset.value.config
     const dbType = config.dbType || 'mysql'
@@ -327,14 +352,16 @@ async function connect() {
         database: config.database,
         ssl: config.ssl
       })
-      connId.value = session.connId
-      connected.value = true
+      if (!(await attachSession(session))) return
 
       // Load databases list (不预加载表 — 用户点哪个库再拉哪个库的表)
       try {
-        databases.value = await dbService.mysqlListDatabases(session.connId)
-        restoreDatabaseSelection(databases.value, config.database)
+        const list = await dbService.mysqlListDatabases(session.connId)
+        if (isStaleConnect(attemptId)) return
+        databases.value = list
+        restoreDatabaseSelection(list, config.database)
       } catch (err) {
+        if (isStaleConnect(attemptId)) return
         const msg = errMsg(err)
         console.warn('[db] list databases failed:', err)
         notify.notify({ message: t('db.listDbFailed', { msg }), color: 'warning' })
@@ -349,13 +376,15 @@ async function connect() {
         database: config.database || 'postgres',
         ssl: config.ssl,
       })
-      connId.value = session.connId
-      connected.value = true
+      if (!(await attachSession(session))) return
       try {
         // PostgreSQL 左树展示当前数据库内的 schema。
-        databases.value = await dbService.mysqlListDatabases(session.connId)
-        restoreDatabaseSelection(databases.value, 'public')
+        const list = await dbService.mysqlListDatabases(session.connId)
+        if (isStaleConnect(attemptId)) return
+        databases.value = list
+        restoreDatabaseSelection(list, 'public')
       } catch (err) {
+        if (isStaleConnect(attemptId)) return
         const msg = errMsg(err)
         console.warn('[db] list postgres schemas failed:', err)
         notify.notify({ message: t('db.listDbFailed', { msg }), color: 'warning' })
@@ -369,13 +398,15 @@ async function connect() {
         database: config.database,
         ssl: config.ssl
       })
-      connId.value = session.connId
-      connected.value = true
+      if (!(await attachSession(session))) return
 
       try {
-        databases.value = await dbService.clickhouseListDatabases(session.connId)
-        restoreDatabaseSelection(databases.value, config.database)
+        const list = await dbService.clickhouseListDatabases(session.connId)
+        if (isStaleConnect(attemptId)) return
+        databases.value = list
+        restoreDatabaseSelection(list, config.database)
       } catch (err) {
+        if (isStaleConnect(attemptId)) return
         const msg = errMsg(err)
         console.warn('[db] list databases failed:', err)
         notify.notify({ message: t('db.listDbFailed', { msg }), color: 'warning' })
@@ -388,16 +419,18 @@ async function connect() {
         db: 0,
         ssl: config.ssl
       })
-      connId.value = session.connId
-      connected.value = true
+      if (!(await attachSession(session))) return
     }
   } catch (err: unknown) {
+    if (isStaleConnect(attemptId)) return
     const msg = errMsg(err)
     connectError.value = msg
     console.error('Connect failed:', err)
     notify.notify({ message: t('db.connectFailed', { msg }), color: 'error', timeout: 6000 })
   } finally {
-    connecting.value = false
+    if (!isStaleConnect(attemptId)) {
+      connecting.value = false
+    }
   }
 }
 
@@ -1717,6 +1750,7 @@ function insertTableName(name: string) {
 }
 
 onMounted(() => {
+  viewDisposed = false
   // 检测平台(Mac ⌘, Win/Linux Ctrl)
   const ua = navigator.userAgent.toLowerCase()
   isMac.value = /mac|iphone|ipad|ipod/.test(ua)
@@ -1731,12 +1765,26 @@ onMounted(() => {
 })
 
 watch(() => assetId.value, () => {
+  connectAttemptId++
+  void disconnectOwnedSessions()
+  connId.value = null
+  connected.value = false
+  connectError.value = null
   if (asset.value && asset.value.type === 'db' && !connected.value) {
     connect()
   } else if (!asset.value) {
     if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
     router.push('/')
   }
+})
+
+onBeforeUnmount(() => {
+  viewDisposed = true
+  connectAttemptId++
+  connecting.value = false
+  connected.value = false
+  connectError.value = null
+  void disconnectOwnedSessions()
 })
 
 // ====== 右侧 Panel(仪表盘 / AI 切换) ======
@@ -1813,9 +1861,10 @@ async function onAiSend(text: string) {
   )
   const toolExec = async (call: LlmToolCall) =>
     await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
-  const sysPrompt = selectedDb.value
+  const basePrompt = selectedDb.value
     ? DB_SYSTEM_PROMPT.replace('当前已连接到数据库', `当前已连接到数据库,当前数据库: ${selectedDb.value}`)
     : DB_SYSTEM_PROMPT
+  const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'db')
   await aiStore.runAgent(instanceId.value, dbTools, toolExec, sysPrompt)
 }
 

@@ -19,6 +19,7 @@ onMounted(() => {
 export interface DbFormInitialValues {
   name?: string
   dbType?: DatabaseType
+  address?: string
   host?: string
   port?: number
   username?: string
@@ -39,6 +40,8 @@ const emit = defineEmits<{
 
 const dbType = ref<DatabaseType>(props.initialValues?.dbType ?? 'mysql')
 const name = ref(props.initialValues?.name ?? '')
+const esConnectMode = ref<'host' | 'address'>(props.initialValues?.address ? 'address' : 'host')
+const esAddress = ref(props.initialValues?.address ?? '')
 const host = ref(props.initialValues?.host ?? '')
 const port = ref<number>(props.initialValues?.port ?? 3306)
 const username = ref(props.initialValues?.username ?? '')
@@ -60,6 +63,7 @@ watch(dbType, (type) => {
     port.value = 6379
   } else if (type === 'elasticsearch') {
     port.value = 9200
+    if (esAddress.value) esConnectMode.value = 'address'
   } else if (type === 'clickhouse') {
     port.value = 9000
   } else if (type === 'postgresql') {
@@ -77,6 +81,8 @@ watch(
     if (!next) return
     dbType.value = next.dbType ?? 'mysql'
     name.value = next.name ?? ''
+    esAddress.value = next.address ?? ''
+    esConnectMode.value = next.address ? 'address' : 'host'
     host.value = next.host ?? ''
     const defaults: Partial<Record<DatabaseType, number>> = {
       mysql: 3306,
@@ -97,7 +103,12 @@ watch(
 )
 
 const canSubmit = computed(() => {
-  if (!name.value || !host.value) return false
+  if (!name.value) return false
+  if (dbType.value === 'elasticsearch' && esConnectMode.value === 'address') {
+    if (!esAddress.value.trim()) return false
+  } else if (!host.value) {
+    return false
+  }
   if (dbType.value === 'mysql') return !!username.value
   if (dbType.value === 'postgresql') return !!username.value
   if (dbType.value === 'clickhouse') return !!username.value
@@ -106,7 +117,11 @@ const canSubmit = computed(() => {
 })
 
 const canTest = computed(() => {
-  if (!host.value) return false
+  if (dbType.value === 'elasticsearch' && esConnectMode.value === 'address') {
+    if (!esAddress.value.trim()) return false
+  } else if (!host.value) {
+    return false
+  }
   if (dbType.value === 'mysql') return !!username.value
   if (dbType.value === 'postgresql') return !!username.value
   if (dbType.value === 'clickhouse') return !!username.value
@@ -120,6 +135,18 @@ const hostPlaceholder = computed(() => {
 })
 const databaseHint = computed(() =>
   dbType.value === 'postgresql' ? t('db.postgresDatabaseHint') : t('db.initialDbHint'))
+
+function buildEsParams() {
+  return {
+    address: esConnectMode.value === 'address' ? esAddress.value.trim() : undefined,
+    host: host.value,
+    port: port.value,
+    username: esAuthMode.value === 'password' ? username.value : undefined,
+    password: esAuthMode.value === 'password' ? password.value : undefined,
+    useSSL: ssl.value,
+    apiKey: esAuthMode.value === 'apikey' ? esApiKey.value : undefined
+  }
+}
 
 async function onTestConnection() {
   if (!canTest.value) return
@@ -148,14 +175,7 @@ async function onTestConnection() {
       testStatus.value = result.ok ? 'success' : 'fail'
       testMessage.value = result.message
     } else if (dbType.value === 'elasticsearch') {
-      const result = await dbService.esTest({
-        host: host.value,
-        port: port.value,
-        username: esAuthMode.value === 'password' ? username.value : undefined,
-        password: esAuthMode.value === 'password' ? password.value : undefined,
-        useSSL: ssl.value,
-        apiKey: esAuthMode.value === 'apikey' ? esApiKey.value : undefined
-      })
+      const result = await dbService.esTest(buildEsParams())
       testStatus.value = result.ok ? 'success' : 'fail'
       testMessage.value = result.message
     } else if (dbType.value === 'clickhouse') {
@@ -205,6 +225,9 @@ function onSubmit() {
     name: name.value,
     config: {
       dbType: dbType.value,
+      address: dbType.value === 'elasticsearch' && esConnectMode.value === 'address'
+        ? esAddress.value.trim()
+        : undefined,
       host: host.value,
       port: port.value,
       username: username.value,
@@ -317,8 +340,49 @@ function onKeydown(e: KeyboardEvent) {
           />
         </div>
 
+        <div v-if="dbType === 'elasticsearch'" class="form-field">
+          <label class="field-label">
+            <v-icon size="12">mdi-connection</v-icon>
+            Elasticsearch Endpoint
+          </label>
+          <div class="auth-mode-switch">
+            <button
+              type="button"
+              class="auth-mode-btn"
+              :class="{ active: esConnectMode === 'host' }"
+              @click="esConnectMode = 'host'"
+            >
+              Host / Port
+            </button>
+            <button
+              type="button"
+              class="auth-mode-btn"
+              :class="{ active: esConnectMode === 'address' }"
+              @click="esConnectMode = 'address'"
+            >
+              Address URL
+            </button>
+          </div>
+        </div>
+
+        <!-- Elasticsearch Address -->
+        <div v-if="dbType === 'elasticsearch' && esConnectMode === 'address'" class="form-field">
+          <label class="field-label">
+            <v-icon size="12">mdi-link-variant</v-icon>
+            Address
+            <span class="required">*</span>
+          </label>
+          <input
+            v-model="esAddress"
+            type="text"
+            class="cyber-input"
+            placeholder="http://127.0.0.1:9200"
+            required
+          />
+        </div>
+
         <!-- 主机:端口 -->
-        <div class="form-field">
+        <div v-if="dbType !== 'elasticsearch' || esConnectMode === 'host'" class="form-field">
           <label class="field-label">
             <v-icon size="12">mdi-server-network</v-icon>
             {{ t('asset.host') }} : {{ t('asset.port') }}

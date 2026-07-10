@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useDockerStore } from '@/stores/docker'
@@ -12,10 +14,13 @@ import RightPanel from '@/components/layout/RightPanel.vue'
 import ResizableSidebarHandle from '@/components/layout/ResizableSidebarHandle.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import DockerDashboard from '@/components/dashboard/DockerDashboard.vue'
+import HostKeyConfirmDialog, { type HostKeyInfo } from '@/components/ssh/HostKeyConfirmDialog.vue'
+import KbInteractiveDialog from '@/components/ssh/KbInteractiveDialog.vue'
 import { parseInstanceId } from '@/utils/tabId'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller } from '@/utils/aiTools'
 import * as dockerService from '@/services/docker'
+import { assetConfigToSshConfig, type KbInteractiveEvent } from '@/services/ssh'
 import type { LlmToolCall } from '@/services/ai'
 import type { ContainerInfo, DockerConnectParams } from '@/types/docker'
 
@@ -43,9 +48,129 @@ const selectedTab = ref<'logs' | 'stats'>('logs')
 const sidebarCollapsed = ref(false)
 const sidebarWidth = ref(260)
 const sidebarDragging = ref(false)
+const repairingHostKey = ref(false)
+const trustSessionId = ref('')
+const hostKeyDialogRef = ref<InstanceType<typeof HostKeyConfirmDialog>>()
+const kbDialogRef = ref<InstanceType<typeof KbInteractiveDialog>>()
+let connectAttemptId = 0
+let viewDisposed = false
+const ownedConnIds = new Set<string>()
+
+const dockerSshAsset = computed(() => {
+  const sshAssetId = asset.value?.config.dockerSshAssetId
+  if (!sshAssetId) return null
+  return assetStore.assets.find(item => item.id === sshAssetId && item.type === 'ssh') ?? null
+})
+
+const dockerSshHostLabel = computed(() => {
+  const sshAsset = dockerSshAsset.value
+  if (!sshAsset?.config.host) return ''
+  return `${sshAsset.config.host}:${sshAsset.config.port || 22}`
+})
+
+const canRepairDockerSshTrust = computed(() =>
+  Boolean(dockerSshAsset.value && connectError.value && isSshTrustError(connectError.value))
+)
+
+function isSshTrustError(message: string | null | undefined): boolean {
+  if (!message) return false
+  const lower = message.toLowerCase()
+  return lower.includes('host key mismatch')
+    || lower.includes('trusted host key')
+    || message.includes('主机密钥')
+    || message.includes('尚未信任')
+}
+
+function normalizeDockerError(message: string): string {
+  if (message.toLowerCase().includes('host key mismatch')) {
+    return `${message}\n已保存的 SSH 主机密钥与远端当前密钥不一致。可能是服务器重装、IP 复用,也可能是 SSH 库协商到了另一种 Host Key 类型;请重新校验并信任该 SSH 主机密钥后再连接 Docker。`
+  }
+  if (message.includes('尚未信任') || message.toLowerCase().includes('trusted host key')) {
+    return `${message}\nDocker SSH 隧道会严格复用已信任的 SSH 主机密钥。请先完成主机密钥校验。`
+  }
+  return message
+}
+
+function isStaleConnect(attemptId: number): boolean {
+  return viewDisposed || attemptId !== connectAttemptId
+}
+
+async function disconnectOwnedSessions() {
+  for (const connId of [...ownedConnIds]) {
+    await dockerStore.disconnect(connId)
+    ownedConnIds.delete(connId)
+  }
+}
+
+async function repairDockerSshTrust() {
+  const sshAsset = dockerSshAsset.value
+  if (!sshAsset) return
+
+  repairingHostKey.value = true
+  const sessionId = `docker-trust-${Date.now()}`
+  trustSessionId.value = sessionId
+  let unlistenHostKey: UnlistenFn | null = null
+  let unlistenKb: UnlistenFn | null = null
+
+  try {
+    unlistenHostKey = await listen<HostKeyInfo>(
+      `ssh:hostkey-confirm:${sessionId}`,
+      (event) => {
+        const dialog = hostKeyDialogRef.value
+        if (!dialog) {
+          void invoke('ssh_hostkey_response', {
+            id: sessionId,
+            allowed: false,
+            persist: false,
+          })
+          return
+        }
+        dialog.open(event.payload).then((result) => {
+          void invoke('ssh_hostkey_response', {
+            id: sessionId,
+            allowed: result !== 'reject',
+            // Docker 隧道只能使用持久化的可信 host key;本修复入口中 Allow 也会更新记录。
+            persist: result !== 'reject',
+          })
+        })
+      }
+    )
+    unlistenKb = await listen<KbInteractiveEvent>(
+      `ssh:kb-interactive:${sessionId}`,
+      (event) => kbDialogRef.value?.open(event.payload)
+    )
+
+    const result = await invoke<{ ok: boolean; message?: string; elapsed_ms?: number }>(
+      'test_ssh_connection',
+      {
+        config: assetConfigToSshConfig(sshAsset.config),
+        testSessionId: sessionId,
+      }
+    )
+    if (!result.ok) {
+      throw new Error(result.message || 'SSH 主机密钥校验失败')
+    }
+
+    notify.notify({ title: 'SSH 主机密钥已更新', message: '正在重新连接 Docker...', color: 'success' })
+    connectError.value = null
+    connected.value = false
+    await connect()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    connectError.value = normalizeDockerError(msg)
+    notify.notify({ title: 'SSH 主机密钥校验失败', message: msg, color: 'error', timeout: 5000 })
+  } finally {
+    unlistenHostKey?.()
+    unlistenKb?.()
+    kbDialogRef.value?.close()
+    trustSessionId.value = ''
+    repairingHostKey.value = false
+  }
+}
 
 async function connect() {
   if (!asset.value || connected.value) return
+  const attemptId = ++connectAttemptId
   connecting.value = true
   connectError.value = null
   try {
@@ -53,12 +178,10 @@ async function connect() {
     const transport = config.dockerTransport || (config.remoteHost ? 'tcp' : 'socket')
     let params: DockerConnectParams
     if (transport === 'ssh') {
-      const sshAsset = assetStore.assets.find(item =>
-        item.id === config.dockerSshAssetId && item.type === 'ssh')
+      const sshAsset = dockerSshAsset.value
       if (!sshAsset?.config.host || !sshAsset.config.username) {
         throw new Error('所选 SSH 资产不存在或配置不完整')
       }
-      const { invoke } = await import('@tauri-apps/api/core')
       const sshPort = sshAsset.config.port || 22
       const knownHostKey = await invoke<string | null>('ssh_get_trusted_host_key', {
         host: sshAsset.config.host,
@@ -108,15 +231,24 @@ async function connect() {
       }
     }
     const session = await dockerStore.connect(assetId.value, asset.value.name, params)
+    if (isStaleConnect(attemptId)) {
+      await dockerStore.disconnect(session.connId)
+      return
+    }
+    ownedConnIds.add(session.connId)
     connected.value = true
     await dockerStore.loadContainers()
+    if (isStaleConnect(attemptId)) return
     await dockerStore.loadImages()
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
+    if (isStaleConnect(attemptId)) return
+    const msg = normalizeDockerError(err instanceof Error ? err.message : String(err))
     connectError.value = msg
     notify.notify({ title: 'Docker 连接失败', message: msg, color: 'error', timeout: 5000 })
   } finally {
-    connecting.value = false
+    if (!isStaleConnect(attemptId)) {
+      connecting.value = false
+    }
   }
 }
 
@@ -205,6 +337,7 @@ async function doRemove(id: string) {
 }
 
 onMounted(() => {
+  viewDisposed = false
   if (asset.value && asset.value.type === 'docker') {
     connect()
   } else if (!asset.value) {
@@ -215,6 +348,10 @@ onMounted(() => {
 })
 
 watch(() => assetId.value, () => {
+  connectAttemptId++
+  void disconnectOwnedSessions()
+  connected.value = false
+  connectError.value = null
   if (asset.value && !connected.value) connect()
   else if (!asset.value) {
     if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
@@ -223,9 +360,12 @@ watch(() => assetId.value, () => {
 })
 
 onBeforeUnmount(() => {
-  if (connected.value && dockerStore.currentConnId) {
-    dockerStore.disconnect(dockerStore.currentConnId)
-  }
+  viewDisposed = true
+  connectAttemptId++
+  connecting.value = false
+  connected.value = false
+  connectError.value = null
+  void disconnectOwnedSessions()
 })
 
 // ====== 右侧 Panel(仪表盘 / AI 切换) ======
@@ -314,7 +454,8 @@ async function onAiSend(text: string) {
   )
   const toolExec = async (call: LlmToolCall) =>
     await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
-  await aiStore.runAgent(instanceId.value, dockerTools, toolExec, DOCKER_SYSTEM_PROMPT)
+  const sysPrompt = aiStore.buildSystemPrompt(DOCKER_SYSTEM_PROMPT, 'docker')
+  await aiStore.runAgent(instanceId.value, dockerTools, toolExec, sysPrompt)
 }
 
 async function onAiRetry() {
@@ -485,10 +626,21 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           <strong>Docker 连接失败</strong>
           <span>{{ connectError }}</span>
         </div>
-        <button class="cyber-btn-secondary" :disabled="connecting" @click="connect">
-          <v-icon size="14">mdi-refresh</v-icon>
-          重试
-        </button>
+        <div class="error-actions">
+          <button
+            v-if="canRepairDockerSshTrust"
+            class="cyber-btn-secondary"
+            :disabled="repairingHostKey || connecting"
+            @click="repairDockerSshTrust"
+          >
+            <v-icon size="14">{{ repairingHostKey ? 'mdi-loading mdi-spin' : 'mdi-shield-refresh-outline' }}</v-icon>
+            {{ repairingHostKey ? '校验中' : '校验并更新 SSH 主机密钥' }}
+          </button>
+          <button class="cyber-btn-secondary" :disabled="connecting || repairingHostKey" @click="connect">
+            <v-icon size="14">mdi-refresh</v-icon>
+            重试
+          </button>
+        </div>
       </div>
 
       <!-- Containers tab -->
@@ -711,12 +863,30 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         />
       </template>
     </RightPanel>
+    <HostKeyConfirmDialog ref="hostKeyDialogRef" />
+    <KbInteractiveDialog
+      ref="kbDialogRef"
+      :session-id="trustSessionId"
+      :host="dockerSshHostLabel"
+    />
   </div>
 </template>
 
 <style scoped>
+.docker-view-with-panel {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .docker-view {
   display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   height: 100%;
   overflow: hidden;
 }
@@ -894,6 +1064,53 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 .toolbar-actions {
   display: flex;
   gap: 8px;
+}
+
+.connection-error-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--status-error-border);
+  border-radius: 8px;
+  background: var(--status-error-bg);
+  color: var(--red);
+  flex-shrink: 0;
+}
+
+.connection-error-card > .v-icon {
+  flex-shrink: 0;
+}
+
+.error-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.error-copy strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.error-copy span {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.error-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .content-area {
@@ -1318,6 +1535,15 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 .status-dot.connecting {
   background: var(--cyan);
   animation: pulse 1s infinite;
+}
+
+:deep(.mdi-spin) {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 @keyframes pulse {

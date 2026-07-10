@@ -197,6 +197,7 @@ export interface DbSession {
 
 // Elasticsearch types
 export interface EsConnectParams {
+  address?: string
   host: string
   port: number
   username?: string

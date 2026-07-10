@@ -55,7 +55,7 @@ async function onSend() {
       messages: globalSession.value.messages.filter(m => m.role === 'user' || m.role === 'assistant') as { role: 'user' | 'assistant'; content: string }[],
       temperature: s.temperature,
       max_tokens: s.maxTokens,
-      system: '你是一个专业的 DevOps 助手，帮助用户解答数据库、SSH、Docker 等运维相关问题。请用中文回答。'
+      system: aiStore.buildSystemPrompt('你是一个专业的 DevOps 助手，帮助用户解答数据库、SSH、Docker 等运维相关问题。请用中文回答。', 'ssh')
     })
     globalSession.value.messages.push({ role: 'assistant', content: res.content })
   } catch (e) {

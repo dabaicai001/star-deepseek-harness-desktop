@@ -8,7 +8,7 @@
  * - 子组件通过 slot 注入每个 tab 的内容
  * - 支持拖拽调整宽度
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import RightPanelHandle from './RightPanelHandle.vue'
 
@@ -22,6 +22,7 @@ const props = withDefaults(defineProps<{
   modelValue: boolean
   tabs: RightPanelTab[]
   defaultTab?: string
+  activeTab?: string
 }>(), {})
 
 const emit = defineEmits<{
@@ -30,7 +31,7 @@ const emit = defineEmits<{
 }>()
 
 const appStore = useAppStore()
-const activeTab = ref<string>(props.defaultTab ?? props.tabs[0]?.key ?? '')
+const activeTab = ref<string>(props.activeTab ?? props.defaultTab ?? props.tabs[0]?.key ?? '')
 
 function setActive(key: string) {
   activeTab.value = key
@@ -38,6 +39,24 @@ function setActive(key: string) {
 }
 
 const currentTab = computed(() => props.tabs.find(t => t.key === activeTab.value))
+
+watch(
+  () => props.activeTab,
+  (next) => {
+    if (next && next !== activeTab.value) {
+      activeTab.value = next
+    }
+  }
+)
+
+watch(
+  () => props.tabs,
+  (tabs) => {
+    if (!tabs.some(tab => tab.key === activeTab.value)) {
+      activeTab.value = props.activeTab ?? props.defaultTab ?? tabs[0]?.key ?? ''
+    }
+  }
+)
 </script>
 
 <template>
@@ -81,6 +100,7 @@ const currentTab = computed(() => props.tabs.find(t => t.key === activeTab.value
 .right-panel {
   display: flex;
   flex-shrink: 0;
+  min-width: 0;
   border-left: 1px solid var(--line);
   background: var(--panel);
   height: 100%;

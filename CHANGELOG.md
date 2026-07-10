@@ -14,6 +14,22 @@
 
 ---
 
+## [0.18.2] - 2026-07-10
+
+### 新增
+- ✨ feat(db): Elasticsearch 新增 Address URL 连接方式,支持直接填写 `http://host:9200` / `https://host:9243`,同时兼容 Host / Port 模式。
+- ✨ feat(ai): AI 助手新增 SKILLS 配置,内置运维排障、性能分析、日志分析、安全变更、数据洞察技能包,支持自定义 Skill 并按 SSH / DB / Docker / Excel 注入系统提示。
+
+### 优化
+- ⚡ perf(ai): SSH AI 命令执行从固定秒数等待改为监听 shell prompt 返回后收集输出,避免长命令提前截断或短命令输出漏采。
+
+### 修复
+- 🐛 fix(docker): Docker SSH 隧道复用已信任 Host Key 时锁定对应 Host Key 算法,避免终端与 sidecar 因协商到不同公钥类型而误报 `host key mismatch`;连接失败卡片新增重新校验并更新 SSH 主机密钥入口,确认后自动重连 Docker;关闭 Docker 页面后丢弃迟到的连接失败并清理本页 session。
+- 🐛 fix(connection): SSH、数据库、Redis 与 Docker 页面关闭或切换资产时立即废弃进行中的连接尝试,迟到的成功会主动断开,迟到的失败不再弹通知。
+- 🎨 style(ai): 修复 Docker 右侧 AI 助手面板宽高约束与长工具调用内容换行,避免聊天区、输入区或右栏挤压溢出。
+
+---
+
 ## [0.18.1] - 2026-07-10
 
 ### 修复

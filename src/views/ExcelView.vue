@@ -778,7 +778,8 @@ async function executeExcelTool(call: LlmToolCall): Promise<string> {
 async function onAiSend(text: string) {
   if (!aiSession.value) return
   aiSession.value.messages.push({ role: 'user', content: text })
-  await aiStore.runAgent(instanceId.value, excelTools, executeExcelTool, EXCEL_SYSTEM_PROMPT)
+  const sysPrompt = aiStore.buildSystemPrompt(EXCEL_SYSTEM_PROMPT, 'excel')
+  await aiStore.runAgent(instanceId.value, excelTools, executeExcelTool, sysPrompt)
 }
 
 async function onAiRetry() {
@@ -787,7 +788,10 @@ async function onAiRetry() {
   while (msgs.length && msgs[msgs.length - 1].role !== 'user') {
     msgs.pop()
   }
-  if (msgs.length) await aiStore.runAgent(instanceId.value, excelTools, executeExcelTool, EXCEL_SYSTEM_PROMPT)
+  if (msgs.length) {
+    const sysPrompt = aiStore.buildSystemPrompt(EXCEL_SYSTEM_PROMPT, 'excel')
+    await aiStore.runAgent(instanceId.value, excelTools, executeExcelTool, sysPrompt)
+  }
 }
 
 function onAiNewChat() {

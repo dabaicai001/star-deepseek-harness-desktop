@@ -189,9 +189,10 @@ async function onAiSend(text: string) {
   )
   const toolExec = async (call: LlmToolCall) =>
     await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
-  const sysPrompt = selectedIndex.value
+  const basePrompt = selectedIndex.value
     ? ES_SYSTEM_PROMPT.replace('Elasticsearch 集群', `Elasticsearch 集群,当前选中的索引是 "${selectedIndex.value}"`)
     : ES_SYSTEM_PROMPT
+  const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'db')
   await aiStore.runAgent(instanceId.value, esTools, toolExec, sysPrompt)
 }
 
@@ -254,6 +255,7 @@ async function initConnection() {
       if (!asset) throw new Error('Asset not found')
       const config = asset.config
       const params = {
+        address: config.address,
         host: config.host || 'localhost',
         port: config.port || 9200,
         username: config.username,
