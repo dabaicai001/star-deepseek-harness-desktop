@@ -31,6 +31,50 @@ const { t } = useI18n()
 
 const inputText = ref('')
 const messagesRef = ref<HTMLElement | null>(null)
+const expandedThinks = ref<Set<number>>(new Set())
+
+/**
+ * 解析消息内容,将 <think>...</think> 标签提取为独立的 think 块
+ * 返回 { parts: Array<{ kind: 'text'|'think', content: string }>, hasThink: boolean }
+ */
+function parseThinkContent(content: string): { kind: 'text' | 'think'; content: string }[] {
+  const parts: { kind: 'text' | 'think'; content: string }[] = []
+  const thinkRegex = /<think>([\s\S]*?)<\/think>/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = thinkRegex.exec(content)) !== null) {
+    // 前面的普通文本
+    if (match.index > lastIndex) {
+      const text = content.slice(lastIndex, match.index)
+      if (text.trim()) parts.push({ kind: 'text', content: text })
+    }
+    // think 块
+    const thinkContent = match[1].trim()
+    if (thinkContent) parts.push({ kind: 'think', content: thinkContent })
+    lastIndex = match.index + match[0].length
+  }
+  // 最后剩余的文本
+  if (lastIndex < content.length) {
+    const text = content.slice(lastIndex)
+    if (text.trim()) parts.push({ kind: 'text', content: text })
+  }
+  // 如果没有 think 标签,整段都是文本
+  if (parts.length === 0) {
+    parts.push({ kind: 'text', content })
+  }
+  return parts
+}
+
+function toggleThink(msgIdx: number) {
+  const key = msgIdx
+  if (expandedThinks.value.has(key)) {
+    expandedThinks.value.delete(key)
+  } else {
+    expandedThinks.value.add(key)
+  }
+  // 触发响应式
+  expandedThinks.value = new Set(expandedThinks.value)
+}
 
 const emptyDescription = computed(() => {
   switch (props.session.assetType) {
@@ -167,6 +211,16 @@ function shortResult(s: string, max = 240): string {
         <v-icon size="14">mdi-plus</v-icon>
         <span>新会话</span>
       </button>
+      <div class="toolbar-spacer" />
+      <button
+        class="toolbar-btn retry-toolbar-btn"
+        title="重试最后一条消息"
+        :disabled="sending || session.messages.length === 0"
+        @click="emit('retry')"
+      >
+        <v-icon size="14">mdi-refresh</v-icon>
+        <span>重试</span>
+      </button>
     </div>
 
     <!-- 消息流 -->
@@ -196,7 +250,20 @@ function shortResult(s: string, max = 240): string {
             <div v-if="msg.role === 'tool'" class="msg-content tool-content">
               <pre>{{ shortResult(msg.content ?? '') }}</pre>
             </div>
-            <div v-else class="msg-content">{{ msg.content }}</div>
+            <div v-else class="msg-body-content">
+              <template v-for="(part, pi) in parseThinkContent(msg.content ?? '')" :key="pi">
+                <div v-if="part.kind === 'think'" class="think-block" :class="{ expanded: expandedThinks.has(idx) }">
+                  <div class="think-toggle" @click="toggleThink(idx)">
+                    <v-icon size="12">{{ expandedThinks.has(idx) ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
+                    <span>思考过程</span>
+                  </div>
+                  <div class="think-body">
+                    <pre>{{ part.content }}</pre>
+                  </div>
+                </div>
+                <div v-else class="msg-content">{{ part.content }}</div>
+              </template>
+            </div>
           </div>
         </div>
 
@@ -335,7 +402,7 @@ function shortResult(s: string, max = 240): string {
 
 .msg {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: flex-start;
   width: 100%;
   min-width: 0;
@@ -346,8 +413,8 @@ function shortResult(s: string, max = 240): string {
 }
 
 .msg-avatar {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -379,7 +446,7 @@ function shortResult(s: string, max = 240): string {
 .msg-body {
   flex: 1;
   min-width: 0;
-  max-width: calc(100% - 32px);
+  max-width: 100%;
 }
 
 .msg.user .msg-body {
@@ -437,8 +504,8 @@ function shortResult(s: string, max = 240): string {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-left: 32px;
-  max-width: calc(100% - 32px);
+  align-self: flex-start;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
 }
@@ -670,6 +737,74 @@ function shortResult(s: string, max = 240): string {
   border-color: var(--cyan);
   color: var(--cyan);
   background: var(--hover-cyan-soft);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.retry-toolbar-btn {
+  color: var(--text-2);
+}
+
+.retry-toolbar-btn:not(:disabled):hover {
+  color: var(--cyan);
+}
+
+/* Think 思考过程块 */
+.think-block {
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--purple);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  background: var(--panel-solid);
+  overflow: hidden;
+}
+
+.think-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--purple);
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.think-toggle:hover {
+  background: var(--hover-cyan-faint);
+}
+
+.think-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.think-block.expanded .think-body {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.think-body pre {
+  margin: 0;
+  padding: 8px 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-top: 1px solid var(--line-2);
+}
+
+.msg-body-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 
 @media (max-width: 360px) {

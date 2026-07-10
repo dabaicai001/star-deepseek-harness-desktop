@@ -27,7 +27,7 @@ export const SIDEBAR_WIDTH_DEFAULT = 260
 export const SIDEBAR_COLLAPSED_WIDTH = 60
 
 // 右侧面板宽度可调范围
-export const RIGHT_PANEL_WIDTH_MIN = 200
+export const RIGHT_PANEL_WIDTH_MIN = 300
 export const RIGHT_PANEL_WIDTH_MAX = 500
 export const RIGHT_PANEL_WIDTH_DEFAULT = 380
 

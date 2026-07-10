@@ -319,6 +319,12 @@ export const useAiStore = defineStore('ai', () => {
     if (ac) {
       ac.abort()
     }
+    // 立即更新 session 状态,避免 UI 一直显示"思考中"
+    const session = sessions.value.get(instanceId)
+    if (session) {
+      session.loading = false
+      session.error = '已停止'
+    }
   }
 
   /**
@@ -505,6 +511,21 @@ export const useAiStore = defineStore('ai', () => {
     const ac = new AbortController()
     _abortControllers.set(instanceId, ac)
 
+    // 300 秒全局超时,防止请求hang住
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    if (typeof AbortSignal.timeout === 'function') {
+      // 现代浏览器支持 AbortSignal.timeout
+      const timeoutSignal = AbortSignal.timeout(300_000)
+      timeoutSignal.addEventListener('abort', () => {
+        if (!ac.signal.aborted) ac.abort()
+      })
+    } else {
+      // 兜底:手动超时
+      timeoutId = setTimeout(() => {
+        if (!ac.signal.aborted) ac.abort()
+      }, 300_000)
+    }
+
     session.loading = true
     session.error = null
 
@@ -616,11 +637,12 @@ export const useAiStore = defineStore('ai', () => {
       session.error = `AI agent exceeded max steps (${maxSteps})`
     } catch (e) {
       if (ac.signal.aborted) {
-        session.error = '已停止'
+        session.error = session.error || '已停止'
       } else {
         session.error = e instanceof Error ? e.message : String(e)
       }
     } finally {
+      if (timeoutId) clearTimeout(timeoutId)
       _abortControllers.delete(instanceId)
       session.loading = false
     }
