@@ -162,6 +162,10 @@ function addToWhitelist(recordId: string) {
   emit('confirmTool', recordId, 'whitelist')
 }
 
+function canAddToWhitelist(rec: AiToolCallRecord): boolean {
+  return rec.confirmReason === 'whitelist-miss'
+}
+
 function toolCallSummary(rec: AiToolCallRecord): string {
   if (rec.name === 'ssh_exec' || rec.name === 'ssh_exec_confirmed') {
     return String(rec.args.command ?? '')
@@ -272,10 +276,10 @@ function shortResult(s: string, max = 240): string {
           <div
             v-for="rec in getToolCallsAfterMessage(idx)"
             :key="rec.id"
-            class="tool-call"
+            class="ai-tool-call"
             :class="`status-${rec.status}`"
           >
-            <div class="tool-head">
+            <div class="ai-tool-call-head">
               <v-icon size="13" :class="rec.status">
                 <template v-if="rec.status === 'running'">mdi-loading mdi-spin</template>
                 <template v-else-if="rec.status === 'success'">mdi-check-circle</template>
@@ -284,8 +288,8 @@ function shortResult(s: string, max = 240): string {
                 <template v-else-if="rec.status === 'rejected'">mdi-cancel</template>
                 <template v-else>mdi-tools</template>
               </v-icon>
-              <span class="tool-name">{{ rec.name }}</span>
-              <span class="tool-summary">{{ toolCallSummary(rec) }}</span>
+              <span class="ai-tool-call-name">{{ rec.name }}</span>
+              <pre class="ai-tool-call-summary">{{ toolCallSummary(rec) }}</pre>
             </div>
             <pre v-if="rec.result" class="tool-result">{{ shortResult(rec.result, 600) }}</pre>
             <pre v-if="rec.errorMessage" class="tool-error">{{ rec.errorMessage }}</pre>
@@ -299,12 +303,16 @@ function shortResult(s: string, max = 240): string {
                 <v-icon size="12">mdi-check</v-icon>
                 批准
               </button>
-              <button class="cyber-btn-secondary confirm-btn whitelist" @click="addToWhitelist(rec.id)">
+              <button
+                v-if="canAddToWhitelist(rec)"
+                class="cyber-btn-secondary confirm-btn whitelist"
+                @click="addToWhitelist(rec.id)"
+              >
                 <v-icon size="12">mdi-shield-check-outline</v-icon>
                 加入白名单
               </button>
             </div>
-            <div v-if="rec.status === 'awaiting-confirm'" class="whitelist-hint">
+            <div v-if="rec.status === 'awaiting-confirm' && canAddToWhitelist(rec)" class="whitelist-hint">
               加入白名单后,该命令将不再询问
             </div>
           </div>
@@ -518,78 +526,6 @@ function shortResult(s: string, max = 240): string {
 }
 
 .msg-content.tool-content pre::-webkit-scrollbar-thumb {
-  background: var(--line-2);
-  border-radius: 2px;
-}
-
-.tool-call {
-  background: var(--panel-solid);
-  border: 1px solid var(--line-2);
-  border-left: 2px solid var(--cyan);
-  border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 11px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-self: flex-start;
-  max-width: 100%;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  overflow: hidden;
-}
-
-.tool-call.status-awaiting-confirm {
-  border-left-color: var(--yellow);
-  background: var(--hover-cyan-faint);
-}
-
-.tool-call.status-error {
-  border-left-color: var(--red);
-  background: var(--status-error-bg);
-}
-
-.tool-call.status-success {
-  border-left-color: var(--green);
-}
-
-.tool-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.tool-name {
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: 600;
-  color: var(--cyan);
-  flex-shrink: 0;
-}
-
-.tool-summary {
-  font-family: 'JetBrains Mono', monospace;
-  color: var(--text-2);
-  font-size: 10px;
-  flex: 1;
-  min-width: 0;
-  /* 命令/路径:单行横向 scroll,比竖向 wrap 5-7 行更直观。
-   * 之前用 word-break: break-all 让字符在任意位置断行,在 70px 宽 panel 里
-   * 50 字符的命令要 wrap 5 行,既不美观也不便于一目了然。 */
-  white-space: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-2) transparent;
-}
-
-.tool-summary::-webkit-scrollbar {
-  height: 4px;
-}
-
-.tool-summary::-webkit-scrollbar-thumb {
   background: var(--line-2);
   border-radius: 2px;
 }

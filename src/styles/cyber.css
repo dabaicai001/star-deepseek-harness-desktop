@@ -2748,6 +2748,20 @@ html.v-theme--lightTheme {
   white-space: nowrap;
 }
 
+.ai-current-agent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 8px;
+  color: var(--green);
+  border: 1px solid var(--status-online-border);
+  border-radius: 4px;
+  background: var(--status-online-bg);
+  font: 10px 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+
 .ai-workspace-body {
   position: relative;
   z-index: 1;
@@ -2858,6 +2872,166 @@ html.v-theme--lightTheme {
   gap: 16px;
   padding: 20px;
   overflow-y: auto;
+}
+
+.ai-execution-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border-left: 2px solid var(--purple);
+}
+
+.ai-execution-plan.status-executing,
+.ai-execution-plan.status-planning {
+  border-left-color: var(--cyan);
+}
+
+.ai-execution-plan.status-awaiting-choice {
+  border-left-color: var(--yellow);
+}
+
+.ai-execution-plan.status-completed {
+  border-left-color: var(--green);
+}
+
+.ai-execution-plan.status-failed,
+.ai-execution-plan.status-stopped {
+  border-left-color: var(--red);
+}
+
+.ai-plan-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-plan-header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-plan-header strong {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-plan-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--purple);
+  font: 10px 'JetBrains Mono', monospace;
+}
+
+.ai-plan-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-plan-step {
+  display: grid;
+  grid-template-columns: 16px 24px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 8px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-solid);
+}
+
+.ai-plan-step.status-running {
+  color: var(--cyan);
+  border-color: var(--focus-cyan);
+  background: var(--hover-cyan-soft);
+}
+
+.ai-plan-step.status-completed {
+  color: var(--green);
+}
+
+.ai-plan-step.status-failed {
+  color: var(--red);
+  border-color: var(--status-error-border);
+}
+
+.ai-plan-step-index {
+  font: 10px 'Orbitron', sans-serif;
+}
+
+.ai-plan-step-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ai-plan-step-body strong {
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.ai-plan-step-body small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.ai-plan-agent {
+  padding: 2px 6px;
+  color: currentColor;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font: 9px 'JetBrains Mono', monospace;
+  opacity: 0.86;
+  white-space: nowrap;
+}
+
+.ai-plan-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--yellow) 35%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--yellow) 7%, var(--panel-solid));
+}
+
+.ai-plan-issue > strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--yellow);
+  font-size: 11px;
+}
+
+.ai-plan-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 6px;
+}
+
+.ai-plan-options button {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 48px;
+  text-align: left;
+}
+
+.ai-plan-options button small {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .ai-workspace-empty {
@@ -2971,6 +3145,86 @@ html.v-theme--lightTheme {
   border-color: var(--line-2);
   border-radius: 12px 4px 12px 12px;
   background: var(--hover-cyan-soft);
+}
+
+/* 连接工作区右栏的 AI 工具调用卡片 */
+.ai-tool-call {
+  display: flex;
+  align-self: stretch;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--cyan);
+  border-radius: 6px;
+  background: var(--panel-solid);
+  font-size: 11px;
+}
+
+.ai-tool-call.status-awaiting-confirm {
+  border-left-color: var(--yellow);
+  background: var(--hover-cyan-faint);
+}
+
+.ai-tool-call.status-error {
+  border-left-color: var(--red);
+  background: var(--status-error-bg);
+}
+
+.ai-tool-call.status-success {
+  border-left-color: var(--green);
+}
+
+.ai-tool-call-head {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+.ai-tool-call-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cyan);
+  font: 600 11px 'JetBrains Mono', monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-tool-call-summary {
+  grid-column: 1 / -1;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 32px;
+  max-height: 120px;
+  margin: 2px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  color: var(--text-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg-2);
+  font: 10px/1.6 'JetBrains Mono', monospace;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: normal;
+  scrollbar-color: var(--line-2) transparent;
+  scrollbar-width: thin;
+}
+
+.ai-tool-call-summary::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.ai-tool-call-summary::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--line-2);
 }
 
 .ai-workspace-tool,

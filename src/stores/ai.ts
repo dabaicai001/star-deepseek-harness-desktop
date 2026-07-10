@@ -143,6 +143,44 @@ export interface AiSettings {
   commandWhitelist: string[]
 }
 
+export type AiPlanStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
+export type AiExecutionPlanStatus = 'planning' | 'awaiting-choice' | 'planned' | 'executing' | 'completed' | 'failed' | 'stopped'
+
+export interface AiPlanOption {
+  id: string
+  label: string
+  description: string
+}
+
+export interface AiPlanIssue {
+  id: string
+  question: string
+  options: AiPlanOption[]
+  selectedOptionId?: string
+}
+
+export interface AiPlanStep {
+  id: string
+  title: string
+  detail: string
+  agentId: string
+  agentName: string
+  status: AiPlanStepStatus
+  result?: string
+}
+
+export interface AiExecutionPlan {
+  id: string
+  request: string
+  summary: string
+  status: AiExecutionPlanStatus
+  steps: AiPlanStep[]
+  issues: AiPlanIssue[]
+  currentStepId?: string
+  currentAgentName?: string
+  createdAt: number
+}
+
 export interface AiSession {
   instanceId: string
   assetId: string
@@ -152,6 +190,8 @@ export interface AiSession {
   error: string | null
   /** 工具调用流水(用于 UI 展示 + 审计) */
   toolCalls: AiToolCallRecord[]
+  /** 全局 AI 的 Planner → Executor 编排状态。 */
+  executionPlan?: AiExecutionPlan
 }
 
 export interface AiToolCallRecord {
@@ -160,6 +200,8 @@ export interface AiToolCallRecord {
   args: Record<string, unknown>
   /** 等待用户确认时记录,用户确认/拒绝后填充 result */
   status: 'pending' | 'awaiting-confirm' | 'running' | 'success' | 'rejected' | 'error'
+  /** 区分高风险、白名单未命中和强制确认,避免展示无效的“加入白名单”操作 */
+  confirmReason?: 'risk' | 'whitelist-miss' | 'always-confirm'
   result?: string
   errorMessage?: string
   startedAt: number
@@ -184,6 +226,12 @@ export const useAiStore = defineStore('ai', () => {
 
   async function _ensureUnlocked() {
     if (_unlockedApiKey.value) return
+    // 纯浏览器布局回归没有 Tauri runtime;按“未配置 Key”降级,
+    // 避免把 invoke undefined 暴露给全局错误边界。
+    if (typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)) {
+      settings.value.apiKey = ''
+      return
+    }
     if (settings.value.apiKey && settings.value.apiKey !== KEYRING_MARKER) {
       const legacyKey = await decryptLegacyKey(settings.value.apiKey)
       if (legacyKey) {
@@ -343,6 +391,7 @@ export const useAiStore = defineStore('ai', () => {
       session.toolCalls = []
       session.error = null
       session.loading = false
+      session.executionPlan = undefined
     }
   }
 
@@ -465,6 +514,152 @@ export const useAiStore = defineStore('ai', () => {
     const selected = new Set(agent.skillIds)
     return [...BUILTIN_AI_SKILLS, ...settings.value.customSkills]
       .filter(skill => selected.has(skill.id))
+  }
+
+  async function createExecutionPlan(input: {
+    request: string
+    context: string
+    defaultAgentId: string
+    decision?: string
+  }): Promise<AiExecutionPlan> {
+    ensureAgentsShape()
+    await _ensureUnlocked()
+    const availableAgents = agents.value.map(agent => ({
+      id: agent.id,
+      name: agent.name,
+      description: agent.description,
+      skills: getSkillsForAgent(agent).map(skill => skill.name)
+    }))
+    const plannerTool: LlmTool = {
+      type: 'function',
+      function: {
+        name: 'starhub_submit_plan',
+        description: '提交可执行计划;信息不足时必须在 issues 中给出 2-4 个互斥选项。',
+        parameters: {
+          type: 'object',
+          properties: {
+            summary: { type: 'string', description: '一句话计划摘要' },
+            steps: {
+              type: 'array',
+              description: '1-6 个按顺序执行的步骤',
+              items: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string', description: '简短步骤标题' },
+                  detail: { type: 'string', description: '具体工作和验收条件' },
+                  agentId: { type: 'string', description: '负责执行的 Agent id' }
+                },
+                required: ['title', 'detail', 'agentId']
+              }
+            },
+            issues: {
+              type: 'array',
+              description: '只有无法安全确定下一步时才填写',
+              items: {
+                type: 'object',
+                properties: {
+                  question: { type: 'string', description: '需要用户决定的问题' },
+                  options: {
+                    type: 'array',
+                    description: '2-4 个互斥选项',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        label: { type: 'string', description: '选项名称' },
+                        description: { type: 'string', description: '选择后的影响' }
+                      },
+                      required: ['label', 'description']
+                    }
+                  }
+                },
+                required: ['question', 'options']
+              }
+            }
+          },
+          required: ['summary', 'steps', 'issues']
+        }
+      }
+    }
+    const response = await chatWithTools({
+      baseUrl: settings.value.baseUrl,
+      apiKey: _unlockedApiKey.value,
+      model: settings.value.model,
+      temperature: Math.min(settings.value.temperature, 0.3),
+      maxTokens: Math.min(settings.value.maxTokens, 2400),
+      tools: [plannerTool],
+      toolChoice: { type: 'function', function: { name: 'starhub_submit_plan' } },
+      system: `你是 StarHub Planner Agent。你只负责把用户目标拆成短小、可验证、可按顺序执行的计划,不直接执行任务。
+必须从提供的 Agent 列表中选择 agentId。涉及写操作时先安排只读验证,再安排变更和验证。缺少目标资产、范围、危险变更策略等关键条件时,不要猜测,在 issues 中给出 2-4 个清晰互斥的选择。若信息充分,issues 必须为空数组。`,
+      messages: [{
+        role: 'user',
+        content: `用户请求:\n${input.request}\n\n当前工作区上下文:\n${input.context || '(无授权工作区)'}\n\n可用 Agents:\n${JSON.stringify(availableAgents)}${input.decision ? `\n\n用户对上一轮问题的选择:\n${input.decision}` : ''}`
+      }]
+    })
+
+    const toolCall = response.message.tool_calls?.find(call => call.function.name === 'starhub_submit_plan')
+    let raw: Record<string, unknown> = {}
+    if (toolCall) {
+      try { raw = JSON.parse(toolCall.function.arguments) as Record<string, unknown> } catch { raw = {} }
+    }
+    const fallbackAgent = agents.value.find(agent => agent.id === input.defaultAgentId) || agents.value[0]
+    const rawSteps = Array.isArray(raw.steps) ? raw.steps.slice(0, 6) : []
+    const steps: AiPlanStep[] = rawSteps
+      .map((value, index) => {
+        const item = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+        const requestedAgentId = String(item.agentId || '')
+        const agent = agents.value.find(candidate => candidate.id === requestedAgentId) || fallbackAgent
+        return {
+          id: `step-${index + 1}`,
+          title: String(item.title || `步骤 ${index + 1}`).trim(),
+          detail: String(item.detail || item.title || input.request).trim(),
+          agentId: agent.id,
+          agentName: agent.name,
+          status: 'pending' as const
+        }
+      })
+      .filter(step => step.title && step.detail)
+    if (steps.length === 0) {
+      steps.push({
+        id: 'step-1',
+        title: '分析并执行请求',
+        detail: input.request,
+        agentId: fallbackAgent.id,
+        agentName: fallbackAgent.name,
+        status: 'pending'
+      })
+    }
+
+    const rawIssues = Array.isArray(raw.issues) ? raw.issues.slice(0, 3) : []
+    const issues: AiPlanIssue[] = rawIssues
+      .map((value, issueIndex) => {
+        const item = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+        const rawOptions = Array.isArray(item.options) ? item.options.slice(0, 4) : []
+        const options = rawOptions.map((option, optionIndex) => {
+          const parsed = option && typeof option === 'object' ? option as Record<string, unknown> : {}
+          return {
+            id: `issue-${issueIndex + 1}-option-${optionIndex + 1}`,
+            label: String(parsed.label || `选项 ${optionIndex + 1}`).trim(),
+            description: String(parsed.description || '').trim()
+          }
+        }).filter(option => option.label)
+        return {
+          id: `issue-${issueIndex + 1}`,
+          question: String(item.question || '').trim(),
+          options
+        }
+      })
+      .filter(issue => issue.question && issue.options.length >= 2)
+
+    return {
+      id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      request: input.request,
+      summary: String(raw.summary || '按计划分析并执行用户请求').trim(),
+      status: issues.length > 0 ? 'awaiting-choice' : 'planned',
+      steps,
+      issues,
+      currentAgentName: 'Planner Agent',
+      createdAt: Date.now()
+    }
   }
 
   function buildAgentPrompt(agent: AiAgent, collaborators: AiAgent[] = []): string {
@@ -748,6 +943,7 @@ export const useAiStore = defineStore('ai', () => {
     getSkillsForAsset,
     getEnabledSkills,
     getSkillsForAgent,
+    createExecutionPlan,
     buildSystemPrompt,
     buildAgentPrompt,
     runAgent,

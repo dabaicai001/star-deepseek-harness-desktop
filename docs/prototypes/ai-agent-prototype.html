@@ -1,0 +1,2850 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>StarHub · AI Agent 原型 v0.1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Orbitron:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080d14;
+    --bg-2: #0d1420;
+    --bg-3: #060a10;
+    --panel: rgba(14, 22, 32, 0.76);
+    --panel-2: rgba(18, 27, 40, 0.92);
+    --panel-solid: #101822;
+    --panel-solid-2: #152032;
+    --line: rgba(122, 156, 185, 0.10);
+    --line-2: rgba(122, 156, 185, 0.22);
+    --line-3: rgba(122, 156, 185, 0.35);
+    --text: #dce7f3;
+    --text-2: #9aa8ba;
+    --muted: #607082;
+    --cyan: #5dd6d6;
+    --cyan-2: #84e4e4;
+    --cyan-dim: rgba(93, 214, 214, 0.12);
+    --cyan-glow: rgba(93, 214, 214, 0.4);
+    --purple: #8f7bd8;
+    --purple-dim: rgba(143, 123, 216, 0.12);
+    --purple-glow: rgba(143, 123, 216, 0.4);
+    --pink: #f472b6;
+    --green: #4ade80;
+    --green-dim: rgba(74, 222, 128, 0.12);
+    --yellow: #fbbf24;
+    --yellow-dim: rgba(251, 191, 36, 0.12);
+    --red: #ff6b8a;
+    --red-dim: rgba(255, 107, 138, 0.12);
+    --grad-primary: linear-gradient(135deg, #5dd6d6 0%, #8f7bd8 100%);
+    --grad-cool: linear-gradient(135deg, #5dd6d6 0%, #4ade80 100%);
+    --grad-pink: linear-gradient(135deg, #f472b6 0%, #8f7bd8 100%);
+    --shadow: 0 18px 48px -18px rgba(0, 0, 0, 0.72);
+    --shadow-soft: 0 8px 32px -12px rgba(0, 0, 0, 0.5);
+    --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --sans: 'Outfit', -apple-system, 'PingFang SC', sans-serif;
+    --display: 'Orbitron', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    mask-image: radial-gradient(ellipse 70% 50% at 50% 20%, black 0%, transparent 80%);
+    z-index: 0;
+  }
+  /* ====== Page Header (文档级别,不是产品内) ====== */
+  .doc-header {
+    position: relative;
+    z-index: 1;
+    max-width: 1840px;
+    margin: 0 auto;
+    padding: 56px 32px 32px;
+  }
+  .doc-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px;
+    background: var(--cyan-dim);
+    border: 1px solid rgba(93, 214, 214, 0.3);
+    border-radius: 20px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--cyan);
+    letter-spacing: 0.05em;
+  }
+  .doc-meta .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--cyan);
+    box-shadow: 0 0 8px var(--cyan);
+    animation: pulse 2s infinite;
+  }
+  .doc-title {
+    font-family: var(--display);
+    font-size: 42px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 18px 0 10px;
+    background: var(--grad-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .doc-subtitle {
+    font-size: 15px;
+    color: var(--text-2);
+    max-width: 720px;
+    line-height: 1.6;
+  }
+  .doc-tags {
+    display: flex;
+    gap: 8px;
+    margin-top: 18px;
+    flex-wrap: wrap;
+  }
+  .doc-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-2);
+  }
+  .doc-tag .arrow { color: var(--cyan); }
+  /* ====== 3 Screens wrapper ====== */
+  .screens {
+    position: relative;
+    z-index: 1;
+    max-width: 1840px;
+    margin: 24px auto 0;
+    padding: 0 32px 56px;
+  }
+  .flow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    padding: 0 0;
+    max-width: 1800px;
+  }
+  .step {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .step-num {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--line-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--cyan);
+  }
+  .step.active .step-num {
+    background: var(--grad-primary);
+    color: var(--bg);
+    border-color: transparent;
+    box-shadow: 0 0 24px var(--cyan-glow);
+  }
+  .step-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .step-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.02em;
+  }
+  .step-desc {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--mono);
+  }
+  .flow-arrow {
+    flex: 0 0 auto;
+    color: var(--line-3);
+    margin: 0 -8px;
+  }
+  /* ====== Screen Cards ====== */
+  .screens-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+  .screen {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+  }
+  .screen-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(8, 13, 20, 0.6);
+  }
+  .screen-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .screen-title-num {
+    font-family: var(--display);
+    font-size: 11px;
+    color: var(--cyan);
+    background: var(--cyan-dim);
+    border: 1px solid rgba(93, 214, 214, 0.3);
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+  .screen-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+  /* ====== Mock Window (浏览器风格) ====== */
+  .mock {
+    background: var(--bg-3);
+    margin: 0;
+    padding: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    min-height: 880px;
+  }
+  .mock::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 32px 32px;
+    pointer-events: none;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 0%, transparent 80%);
+    opacity: 0.6;
+  }
+  /* ====== Titlebar ====== */
+  .titlebar {
+    height: 38px;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 12px;
+    backdrop-filter: blur(20px);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 2;
+  }
+  .titlebar::after {
+    content: "";
+    position: absolute;
+    bottom: -1px;
+    left: 20%;
+    right: 20%;
+    height: 1px;
+    background: var(--grad-primary);
+    opacity: 0.4;
+  }
+  .logo-mark {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: var(--grad-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--bg);
+    flex-shrink: 0;
+  }
+  .logo-text {
+    font-family: var(--display);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.05em;
+  }
+  .top-search {
+    flex: 1;
+    max-width: 320px;
+    height: 26px;
+    background: var(--bg-input);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .top-search kbd {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 10px;
+    background: rgba(122, 156, 185, 0.08);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--muted);
+  }
+  .top-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .action-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .action-btn.primary {
+    background: var(--grad-primary);
+    color: var(--bg);
+    box-shadow: 0 0 16px var(--cyan-glow);
+  }
+  .win-ctrls {
+    display: flex;
+    gap: 2px;
+    margin-left: 8px;
+  }
+  .win-btn {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .win-btn.close:hover { background: var(--red); color: white; }
+  /* ====== Menubar + Tabs ====== */
+  .menubar {
+    height: 30px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    gap: 4px;
+    background: rgba(8, 13, 20, 0.4);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 2;
+  }
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 22px;
+    padding: 0 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--text-2);
+    background: rgba(122, 156, 185, 0.06);
+    cursor: pointer;
+    position: relative;
+  }
+  .tab.active {
+    background: var(--cyan-dim);
+    color: var(--cyan);
+  }
+  .tab .x {
+    margin-left: 2px;
+    color: var(--muted);
+  }
+  /* ====== Main content grid ====== */
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    overflow: hidden;
+    min-height: 0;
+  }
+  /* ====== Sidebar ====== */
+  .sidebar {
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    backdrop-filter: blur(8px);
+  }
+  .side-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    padding: 8px 8px 0;
+    gap: 4px;
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .side-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 7px 4px;
+    border-radius: 6px 6px 0 0;
+    font-size: 9px;
+    color: var(--muted);
+    cursor: pointer;
+    position: relative;
+    transition: 0.2s;
+  }
+  .side-tab:hover { color: var(--text-2); }
+  .side-tab.active {
+    color: var(--cyan);
+    background: var(--bg-2);
+  }
+  .side-tab.active::after {
+    content: "";
+    position: absolute;
+    bottom: -1px;
+    left: 12%;
+    right: 12%;
+    height: 2px;
+    background: var(--cyan);
+    border-radius: 2px 2px 0 0;
+  }
+  .side-tab svg { display: block; }
+  .side-tab-badge {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    font-family: var(--mono);
+    font-size: 8px;
+    background: var(--cyan);
+    color: var(--bg);
+    padding: 1px 4px;
+    border-radius: 8px;
+    font-weight: 600;
+  }
+  .side-section {
+    padding: 14px 12px 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .side-section-label {
+    font-family: var(--display);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+  .side-section-label .num {
+    color: var(--cyan);
+    margin-right: 4px;
+  }
+  .side-section-count {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    background: var(--bg-2);
+    padding: 1px 6px;
+    border-radius: 8px;
+  }
+  .agent-list {
+    padding: 4px 8px 12px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  .agent-list::-webkit-scrollbar { width: 4px; }
+  .agent-list::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 2px; }
+  .agent-card {
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    margin-bottom: 4px;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  .agent-card:hover {
+    background: var(--bg-2);
+    border-color: var(--line);
+  }
+  .agent-card.active {
+    background: var(--cyan-dim);
+    border-color: rgba(93, 214, 214, 0.3);
+    box-shadow: inset 2px 0 0 var(--cyan);
+  }
+  .agent-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .agent-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .agent-icon.blue { background: var(--cyan-dim); color: var(--cyan); }
+  .agent-icon.purple { background: var(--purple-dim); color: var(--purple); }
+  .agent-icon.pink { background: rgba(244, 114, 182, 0.15); color: var(--pink); }
+  .agent-icon.green { background: var(--green-dim); color: var(--green); }
+  .agent-icon.yellow { background: var(--yellow-dim); color: var(--yellow); }
+  .agent-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .agent-tag {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--bg-2);
+    color: var(--muted);
+    border: 1px solid var(--line);
+  }
+  .agent-tag.built {
+    background: var(--purple-dim);
+    color: var(--purple);
+    border-color: rgba(143, 123, 216, 0.2);
+  }
+  .agent-desc {
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.4;
+    margin-bottom: 6px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .agent-meta {
+    display: flex;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+  }
+  .agent-meta span { display: flex; align-items: center; gap: 3px; }
+  .side-footer {
+    padding: 10px 12px;
+    border-top: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .new-btn {
+    width: 100%;
+    height: 30px;
+    border-radius: 6px;
+    background: var(--grad-primary);
+    border: none;
+    color: var(--bg);
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    box-shadow: 0 0 12px var(--cyan-glow);
+  }
+  .new-btn.outline {
+    background: transparent;
+    border: 1px dashed var(--line-3);
+    color: var(--text-2);
+    box-shadow: none;
+  }
+  /* ====== Workspace ====== */
+  .workspace {
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+    position: relative;
+  }
+  /* ---- Screen 2: Agent index ---- */
+  .idx-head {
+    padding: 20px 24px 12px;
+    flex-shrink: 0;
+  }
+  .idx-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--cyan);
+    background: var(--cyan-dim);
+    border: 1px solid rgba(93, 214, 214, 0.2);
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+  }
+  .idx-h1 {
+    font-family: var(--display);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.01em;
+    margin-bottom: 4px;
+  }
+  .idx-h1 .grad {
+    background: var(--grad-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .idx-sub {
+    font-size: 12px;
+    color: var(--text-2);
+    max-width: 560px;
+    line-height: 1.5;
+  }
+  .idx-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    font-size: 10px;
+    color: var(--text-2);
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    cursor: pointer;
+  }
+  .chip.active {
+    color: var(--cyan);
+    background: var(--cyan-dim);
+    border-color: rgba(93, 214, 214, 0.3);
+  }
+  .chip .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--cyan);
+  }
+  .idx-search {
+    margin-left: auto;
+    height: 24px;
+    background: var(--bg-input);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0 8px;
+    font-size: 10px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 160px;
+  }
+  .idx-grid {
+    flex: 1;
+    padding: 16px 24px 24px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    overflow-y: auto;
+    align-content: start;
+  }
+  /* 工具链 3 段流水线 */
+  .ag-pipeline {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    margin: 10px 0 10px;
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+  .ag-pipe-stage {
+    padding: 8px 10px;
+    border-right: 1px solid var(--line);
+    position: relative;
+  }
+  .ag-pipe-stage:last-child { border-right: none; }
+  .ag-pipe-stage::after {
+    content: "›";
+    position: absolute;
+    right: -7px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    color: var(--cyan);
+    background: var(--bg-3);
+    width: 14px;
+    text-align: center;
+    z-index: 1;
+    text-shadow: 0 0 6px var(--cyan-glow);
+  }
+  .ag-pipe-stage:last-child::after { display: none; }
+  .ag-pipe-label {
+    font-family: var(--display);
+    font-size: 8px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    font-weight: 700;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .ag-pipe-label.read { color: var(--cyan); }
+  .ag-pipe-label.ana { color: var(--purple); }
+  .ag-pipe-label.act { color: var(--pink); }
+  .ag-pipe-label .dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+  .ag-pipe-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ag-pipe-tool {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-2);
+    background: var(--bg-2);
+    padding: 1px 4px;
+    border-radius: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* meta 行 */
+  .ag-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    background: var(--bg-2);
+    border-radius: 5px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+  }
+  .ag-card-meta .sep {
+    width: 1px;
+    height: 10px;
+    background: var(--line);
+  }
+  .ag-card-meta .v { color: var(--text); font-weight: 600; }
+  .ag-card-meta .ok { color: var(--green); }
+  .ag-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+  .ag-tags-mini {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    font-size: 10px;
+    color: var(--text-2);
+    align-items: center;
+  }
+  .ag-tags-mini .tag {
+    padding: 1px 5px;
+    font-family: var(--mono);
+    font-size: 9px;
+    border-radius: 3px;
+    background: var(--bg-2);
+    color: var(--muted);
+    border: 1px solid var(--line);
+  }
+  .ag-tags-mini .tag.scene { color: var(--cyan); border-color: rgba(93, 214, 214, 0.2); }
+  .ag-launch {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 5px;
+    background: var(--grad-primary);
+    color: var(--bg);
+    border: none;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 600;
+    box-shadow: 0 0 8px var(--cyan-glow);
+  }
+  /* 自定义 Agent 创建卡 */
+  .ag-add {
+    background: transparent;
+    border: 1.5px dashed var(--line-3);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    min-height: 200px;
+    transition: 0.2s;
+  }
+  .ag-add:hover {
+    border-color: var(--cyan);
+    color: var(--cyan);
+    background: var(--cyan-dim);
+  }
+  .ag-add-big {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    background: var(--cyan-dim);
+    border: 1px solid rgba(93, 214, 214, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .idx-grid::-webkit-scrollbar { width: 4px; }
+  .idx-grid::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 2px; }
+  .ag-card {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+    cursor: pointer;
+    transition: 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .ag-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--grad-primary);
+    opacity: 0;
+    transition: 0.3s;
+  }
+  .ag-card:hover {
+    border-color: var(--line-2);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-soft);
+  }
+  .ag-card:hover::before { opacity: 1; }
+  .ag-card-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .ag-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .ag-icon.blue { background: linear-gradient(135deg, var(--cyan-dim), rgba(93, 214, 214, 0.04)); color: var(--cyan); border: 1px solid rgba(93, 214, 214, 0.3); }
+  .ag-icon.purple { background: linear-gradient(135deg, var(--purple-dim), rgba(143, 123, 216, 0.04)); color: var(--purple); border: 1px solid rgba(143, 123, 216, 0.3); }
+  .ag-icon.pink { background: linear-gradient(135deg, rgba(244, 114, 182, 0.15), transparent); color: var(--pink); border: 1px solid rgba(244, 114, 182, 0.3); }
+  .ag-icon.green { background: linear-gradient(135deg, var(--green-dim), transparent); color: var(--green); border: 1px solid rgba(74, 222, 128, 0.3); }
+  .ag-title-block { flex: 1; min-width: 0; }
+  .ag-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 1px;
+  }
+  .ag-role {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .ag-desc {
+    font-size: 11px;
+    color: var(--text-2);
+    line-height: 1.55;
+    margin-bottom: 12px;
+    min-height: 50px;
+  }
+  .ag-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-bottom: 12px;
+  }
+  .tool-pill {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--bg-2);
+    color: var(--text-2);
+    border: 1px solid var(--line);
+  }
+  .tool-pill.more {
+    color: var(--cyan);
+    border-color: rgba(93, 214, 214, 0.2);
+  }
+  .ag-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+  .ag-stats {
+    display: flex;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .ag-stat strong { color: var(--text); font-weight: 600; margin-right: 3px; }
+  .ag-cta {
+    font-size: 11px;
+    color: var(--cyan);
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  /* ---- Screen 3: Agent Workspace (3 cols) ---- */
+  .agent-shell {
+    display: grid;
+    grid-template-columns: 220px 1fr 220px;
+    height: 100%;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .agent-detail {
+    border-right: 1px solid var(--line);
+    background: var(--panel);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .agent-detail::-webkit-scrollbar { width: 4px; }
+  .agent-detail::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 2px; }
+  .ad-head {
+    padding: 16px 14px;
+    border-bottom: 1px solid var(--line);
+    text-align: center;
+  }
+  .ad-avatar {
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 8px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ad-avatar.purple {
+    background: linear-gradient(135deg, rgba(143, 123, 216, 0.25), rgba(93, 214, 214, 0.1));
+    border: 1px solid rgba(143, 123, 216, 0.4);
+    color: var(--purple);
+    box-shadow: 0 0 24px var(--purple-glow);
+  }
+  .ad-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .ad-role {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .ad-block {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .ad-block-title {
+    font-family: var(--display);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ad-block-title .num { color: var(--cyan); }
+  .ad-block-title .count {
+    margin-left: auto;
+    background: var(--bg-2);
+    border-radius: 8px;
+    padding: 1px 6px;
+    font-family: var(--mono);
+    color: var(--cyan);
+  }
+  .model-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--text);
+  }
+  .model-pill .m-icon {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    background: var(--grad-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--bg);
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 8px;
+  }
+  .model-pill .m-meta {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+  }
+  .tool-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 7px;
+    border-radius: 5px;
+    font-size: 11px;
+    color: var(--text-2);
+    margin-bottom: 2px;
+  }
+  .tool-row:hover { background: var(--bg-2); color: var(--text); }
+  .tool-row .t-on {
+    margin-left: auto;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+  }
+  .policy-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    margin-top: 8px;
+    background: var(--cyan-dim);
+    border: 1px solid rgba(93, 214, 214, 0.2);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--cyan);
+  }
+  .policy-strip .lbl {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  /* ====== Chat / Messages ====== */
+  .chat {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .chat-head {
+    height: 40px;
+    border-bottom: 1px solid var(--line);
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+    background: var(--panel);
+  }
+  .chat-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .chat-run {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-family: var(--mono);
+    background: var(--cyan-dim);
+    color: var(--cyan);
+    border: 1px solid rgba(93, 214, 214, 0.25);
+  }
+  .chat-run .run-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--cyan);
+    box-shadow: 0 0 6px var(--cyan);
+    animation: pulse 1.2s infinite;
+  }
+  .msgs {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+  }
+  .msgs::-webkit-scrollbar { width: 4px; }
+  .msgs::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 2px; }
+  .msg {
+    display: flex;
+    gap: 10px;
+    max-width: 92%;
+  }
+  .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+  .msg-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .msg.user .msg-avatar {
+    background: var(--cyan-dim);
+    color: var(--cyan);
+  }
+  .msg.assistant .msg-avatar {
+    background: linear-gradient(135deg, rgba(143, 123, 216, 0.3), rgba(93, 214, 214, 0.1));
+    border: 1px solid rgba(143, 123, 216, 0.3);
+    color: var(--purple);
+  }
+  .msg-body { flex: 1; min-width: 0; }
+  .msg-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--muted);
+    margin-bottom: 4px;
+    font-family: var(--mono);
+  }
+  .msg-meta .role { color: var(--text-2); font-weight: 600; font-family: var(--sans); }
+  .msg-bubble {
+    padding: 10px 14px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text);
+    border-radius: 10px;
+  }
+  .msg.user .msg-bubble {
+    background: var(--cyan-dim);
+    border: 1px solid rgba(93, 214, 214, 0.15);
+    border-top-right-radius: 3px;
+  }
+  .msg.assistant .msg-bubble {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-top-left-radius: 3px;
+  }
+  .msg-bubble code {
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--bg-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  /* ====== Plan / Tool-call strip ====== */
+  .plan {
+    background: linear-gradient(135deg, rgba(143, 123, 216, 0.08), rgba(93, 214, 214, 0.04));
+    border: 1px solid rgba(143, 123, 216, 0.3);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-top: 8px;
+  }
+  .plan-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .plan-title {
+    font-family: var(--display);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--purple);
+    letter-spacing: 0.1em;
+  }
+  .plan-time {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+  }
+  .plan-step {
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    position: relative;
+  }
+  .plan-step:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    left: 11px;
+    top: 26px;
+    bottom: -7px;
+    width: 1px;
+    background: linear-gradient(to bottom, var(--line-2), transparent);
+  }
+  .plan-num {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    border: 1px solid var(--line);
+    background: var(--bg-2);
+    color: var(--muted);
+    z-index: 1;
+  }
+  .plan-step.done .plan-num {
+    background: var(--green-dim);
+    border-color: var(--green);
+    color: var(--green);
+  }
+  .plan-step.active .plan-num {
+    background: var(--cyan-dim);
+    border-color: var(--cyan);
+    color: var(--cyan);
+    box-shadow: 0 0 12px var(--cyan-glow);
+    animation: pulse 1.2s infinite;
+  }
+  .plan-step.pending .plan-num {
+    opacity: 0.4;
+  }
+  .plan-body { font-size: 11px; color: var(--text); }
+  .plan-body .tool-name {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--purple);
+    background: var(--purple-dim);
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-right: 6px;
+  }
+  .plan-body .target { color: var(--cyan); font-family: var(--mono); font-size: 10px; }
+  .plan-body .desc { color: var(--text-2); font-size: 11px; }
+  .plan-state {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  .plan-state.ok { background: var(--green-dim); color: var(--green); }
+  .plan-state.run { background: var(--cyan-dim); color: var(--cyan); }
+  .plan-state.wait { background: var(--yellow-dim); color: var(--yellow); }
+  .plan-result {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--text-2);
+    overflow-x: auto;
+  }
+  .plan-result .kw { color: var(--purple); }
+  .plan-result .str { color: var(--green); }
+  .plan-result .num { color: var(--cyan); }
+  .plan-result .comment { color: var(--muted); }
+  /* ====== Input area ====== */
+  .input-area {
+    border-top: 1px solid var(--line);
+    padding: 12px 16px;
+    background: var(--panel);
+    flex-shrink: 0;
+  }
+  .input-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 10px;
+  }
+  .ctx-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    color: var(--text-2);
+    font-family: var(--mono);
+  }
+  .ctx-tag .db-icon {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    background: var(--cyan);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--bg);
+    font-size: 8px;
+    font-weight: 700;
+  }
+  .ctx-tag .x {
+    color: var(--muted);
+    margin-left: 2px;
+    cursor: pointer;
+  }
+  .input-mode {
+    margin-left: auto;
+    display: flex;
+    border-radius: 5px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .input-mode button {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 3px 8px;
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .input-mode button.active { background: var(--cyan-dim); color: var(--cyan); }
+  .input-box {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    transition: 0.2s;
+  }
+  .input-box:focus-within { border-color: var(--cyan); box-shadow: 0 0 0 3px var(--cyan-dim); }
+  .input-area textarea {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 12px;
+    line-height: 1.5;
+    resize: none;
+    outline: none;
+    min-height: 32px;
+    max-height: 100px;
+  }
+  .send-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: var(--grad-primary);
+    border: none;
+    color: var(--bg);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 12px var(--cyan-glow);
+    flex-shrink: 0;
+  }
+  /* ====== Right panel: Tool log ====== */
+  .tool-log {
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 12px;
+  }
+  .tool-log::-webkit-scrollbar { width: 4px; }
+  .tool-log::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 2px; }
+  .tl-title {
+    font-family: var(--display);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tl-title .num { color: var(--cyan); }
+  .tl-row {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+  .tl-row-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .tl-row-head .t-name {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--purple);
+  }
+  .tl-row-head .t-time {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+  }
+  .tl-row-head .t-state {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  .tl-row-head .t-state.ok { background: var(--green-dim); color: var(--green); }
+  .tl-row-head .t-state.err { background: var(--red-dim); color: var(--red); }
+  .tl-row-meta {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .metric-box {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .metric-box .lbl {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .metric-box .val {
+    font-family: var(--display);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    margin-top: 2px;
+  }
+  .metric-box .val.cyan { color: var(--cyan); }
+  /* ====== Asset-tree style 顶级 group (复刻 sidebar) ====== */
+  .at-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px 8px;
+    font-family: var(--display);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .at-head .plus {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: var(--grad-primary);
+    color: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .at-filter {
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-input);
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .at-filter input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 11px;
+    outline: none;
+  }
+  .at-filter input::placeholder { color: var(--muted); }
+  .at-filter kbd {
+    font-family: var(--mono);
+    font-size: 9px;
+    background: rgba(122, 156, 185, 0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--muted);
+  }
+  .tree-group { margin-bottom: 2px; padding: 0 8px; }
+  .tree-group-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 6px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  .tree-group-head:hover { background: var(--bg-2); color: var(--text); }
+  .tree-group-head .chevron {
+    transition: 0.2s;
+    color: var(--muted);
+  }
+  .tree-group-head.expanded .chevron { color: var(--cyan); transform: rotate(0deg); }
+  .tree-group-head.collapsed .chevron { transform: rotate(-90deg); }
+  .tree-group-head .type-icon { flex-shrink: 0; }
+  .tree-group.ssh .type-icon { color: var(--cyan); }
+  .tree-group.db .type-icon { color: var(--purple); }
+  .tree-group.docker .type-icon { color: var(--green); }
+  .tree-group.excel .type-icon { color: var(--green); }
+  .tree-group.agent .type-icon {
+    background: var(--grad-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .tree-group-head .label { flex: 1; }
+  .tree-group-head .count {
+    font-family: var(--mono);
+    font-size: 9px;
+    background: var(--bg-2);
+    padding: 1px 6px;
+    border-radius: 8px;
+    color: var(--muted);
+  }
+  .tree-group-body { padding-left: 6px; }
+  .tree-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 6px 5px 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--text-2);
+    cursor: pointer;
+    margin-bottom: 1px;
+    position: relative;
+  }
+  .tree-item:hover { background: var(--bg-2); color: var(--text); }
+  .tree-item.active {
+    background: var(--cyan-dim);
+    color: var(--cyan);
+    box-shadow: inset 2px 0 0 var(--cyan);
+  }
+  .tree-item.active.alt {
+    background: linear-gradient(135deg, rgba(244, 114, 182, 0.12), rgba(143, 123, 216, 0.08));
+    color: var(--pink);
+    box-shadow: inset 2px 0 0 var(--pink);
+  }
+  .tree-item .name {
+    flex: 1; min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tree-item .status-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+  .tree-item .status-dot.recent {
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    animation: pulse 2s infinite;
+  }
+  .tree-item .status-dot.stale { background: var(--green); }
+  .tree-item .badge-mini {
+    font-family: var(--mono);
+    font-size: 8px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    letter-spacing: 0.03em;
+    flex-shrink: 0;
+  }
+  .badge-mini.preset {
+    background: var(--cyan-dim);
+    color: var(--cyan);
+  }
+  .badge-mini.custom {
+    background: rgba(244, 114, 182, 0.12);
+    color: var(--pink);
+  }
+  .badge-mini.db-mysql { background: rgba(99, 152, 199, 0.15); color: #88b8d8; }
+  .badge-mini.db-pg { background: rgba(99, 152, 199, 0.15); color: #6398c7; }
+  .badge-mini.db-redis { background: rgba(244, 107, 138, 0.15); color: #f48aa3; }
+  .tree-empty {
+    padding: 6px 14px;
+    font-size: 10px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  /* highlight 标记 AI Agents 是新增(给原型观众看的角标) */
+  .tree-group.agent .tree-group-head { position: relative; }
+  .tree-group.agent .tree-group-head::after {
+    content: "NEW";
+    position: absolute;
+    top: 4px; right: 4px;
+    font-family: var(--mono);
+    font-size: 8px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: var(--grad-primary);
+    color: var(--bg);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    box-shadow: 0 0 8px var(--cyan-glow);
+  }
+  .tree-group.agent.expanded .tree-group-head::after { display: none; }
+  /* ====== Statusbar ====== */
+  .statusbar {
+    height: 22px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    background: var(--panel);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 2;
+  }
+  .sb-item { display: flex; align-items: center; gap: 4px; }
+  .sb-item.cyan { color: var(--cyan); }
+  .sb-item .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--cyan);
+    box-shadow: 0 0 6px var(--cyan);
+  }
+  .sb-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  /* ====== Animations ====== */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.95); }
+  }
+  /* ====== Note Block (Bottom) ====== */
+  .notes {
+    position: relative;
+    z-index: 1;
+    max-width: 1840px;
+    margin: 0 auto 56px;
+    padding: 0 32px;
+  }
+  .notes-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  .note-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .note-label {
+    font-family: var(--display);
+    font-size: 10px;
+    color: var(--cyan);
+    margin-bottom: 6px;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+  }
+  .note-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .note-body {
+    font-size: 11px;
+    color: var(--text-2);
+    line-height: 1.55;
+  }
+  .legend {
+    margin-top: 36px;
+    padding: 18px 22px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .legend-title {
+    font-family: var(--display);
+    font-size: 11px;
+    color: var(--cyan);
+    margin-bottom: 10px;
+    letter-spacing: 0.1em;
+  }
+  .legend-row {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    color: var(--text-2);
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-key {
+    font-family: var(--mono);
+    background: var(--bg-2);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--cyan);
+    border: 1px solid var(--line);
+  }
+</style>
+</head>
+<body>
+  <!-- =========== Page Header =========== -->
+  <header class="doc-header">
+    <span class="doc-meta"><span class="dot"></span>v0.18.2 · DESIGN PREVIEW · 2026-07-10</span>
+    <h1 class="doc-title">StarHub · AI Agent 原型</h1>
+    <p class="doc-subtitle">AI Agent 作为 sidebar 第五大类资产,跟 SSH / DB / Docker / Excel 并列,沿用同一套 tree-group 视觉。流程:从 sidebar 顶级 group → Agent 全屏浏览 → Agent 会话工作台(支持工具调用、步骤可视化、上下文注入)。</p>
+    <div class="doc-tags">
+      <span class="doc-tag">scope <span class="arrow">→</span> sidebar 5th group + workspace</span>
+      <span class="doc-tag">style <span class="arrow">→</span> cyber tree-group · consistent</span>
+      <span class="doc-tag">type <span class="arrow">→</span> agent (preset · custom)</span>
+      <span class="doc-tag">capability <span class="arrow">→</span> function-calling</span>
+    </div>
+  </header>
+
+  <!-- =========== Flow Steps =========== -->
+  <section class="screens">
+    <div class="flow">
+      <div class="step active">
+        <div class="step-num">01</div>
+        <div class="step-copy">
+          <div class="step-title">入口 · sidebar 第五大类型</div>
+          <div class="step-desc">SSH · DB · Docker · Excel · AI Agents</div>
+        </div>
+      </div>
+      <div class="flow-arrow">
+        <svg width="48" height="20" viewBox="0 0 48 20" fill="none"><path d="M0 10 H44 M40 5 L44 10 L40 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <div class="step-copy">
+          <div class="step-title">浏览 · 全屏网格视图</div>
+          <div class="step-desc">从 sidebar 跳过去看全部</div>
+        </div>
+      </div>
+      <div class="flow-arrow">
+        <svg width="48" height="20" viewBox="0 0 48 20" fill="none"><path d="M0 10 H44 M40 5 L44 10 L40 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <div class="step-copy">
+          <div class="step-title">执行 · Agent 工作台</div>
+          <div class="step-desc">点 sidebar Agent 后开 tab</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =========== 3 Screens =========== -->
+    <div class="screens-grid">
+      <!-- ========== Screen 1: 入口 ========== -->
+      <div class="screen">
+        <div class="screen-head">
+          <div class="screen-title"><span class="screen-title-num">01</span>入口 · Sidebar 第 5 类</div>
+          <span class="screen-meta">240 × 880</span>
+        </div>
+        <div class="mock">
+          <!-- Titlebar -->
+          <div class="titlebar">
+            <div class="logo-mark">S</div>
+            <div class="logo-text">STARHUB</div>
+            <div class="top-search">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              全局搜索...
+              <kbd>⌘K</kbd>
+            </div>
+            <div class="top-actions">
+              <button class="action-btn primary"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <div class="win-ctrls">
+                <button class="win-btn">─</button>
+                <button class="win-btn">▢</button>
+                <button class="win-btn close">✕</button>
+              </div>
+            </div>
+          </div>
+          <!-- Menubar -->
+          <div class="menubar">
+            <div class="tab active">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              DevOps Helper <span class="x">×</span>
+            </div>
+            <div class="tab">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/></svg>
+              pg-prod-01 <span class="x">×</span>
+            </div>
+          </div>
+          <!-- Main: Sidebar only (focus on the new entry) -->
+          <div class="main">
+            <div class="sidebar">
+              <!-- ASSETS 头部 -->
+              <div class="at-head">
+                <span><span style="color: var(--cyan);">01</span> ASSETS</span>
+                <span class="plus" title="新建连接…">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                </span>
+              </div>
+              <div class="at-filter">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input placeholder="搜索资产 / Agent…" />
+                <kbd>⌘K</kbd>
+              </div>
+
+              <!-- SSH 顶级组 -->
+              <div class="tree-group ssh">
+                <div class="tree-group-head collapsed" style="font-family: var(--display); font-size: 10px; letter-spacing: 0.08em;">
+                  <svg class="chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                  <svg class="type-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                  <span class="label">SSH</span>
+                  <span class="count">3</span>
+                </div>
+                <div class="tree-group-body" style="display: none;">
+                  <div class="tree-item"><span class="name">pg-prod-01</span><span class="status-dot recent"></span></div>
+                  <div class="tree-item"><span class="name">dev-test-02</span><span class="status-dot stale"></span></div>
+                  <div class="tree-item"><span class="name">staging-03</span><span class="status-dot"></span></div>
+                </div>
+              </div>
+
+              <!-- DB 顶级组 -->
+              <div class="tree-group db">
+                <div class="tree-group-head collapsed" style="font-family: var(--display); font-size: 10px; letter-spacing: 0.08em;">
+                  <svg class="chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                  <svg class="type-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/></svg>
+                  <span class="label">数据库</span>
+                  <span class="count">5</span>
+                </div>
+                <div class="tree-group-body" style="display: none;">
+                  <div class="tree-item"><span class="badge-mini db-mysql">MYSQL</span><span class="name">mysql-prod</span><span class="status-dot recent"></span></div>
+                  <div class="tree-item"><span class="badge-mini db-pg">PG</span><span class="name">pg-prod</span><span class="status-dot recent"></span></div>
+                  <div class="tree-item"><span class="badge-mini db-redis">REDIS</span><span class="name">cache-01</span><span class="status-dot"></span></div>
+                  <div class="tree-empty">+ 2 项未展开</div>
+                </div>
+              </div>
+
+              <!-- Docker 顶级组 -->
+              <div class="tree-group docker">
+                <div class="tree-group-head collapsed" style="font-family: var(--display); font-size: 10px; letter-spacing: 0.08em;">
+                  <svg class="chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                  <svg class="type-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 9h-1V5a3 3 0 0 1 6 0v4h-1"/><rect width="13" height="11" x="4" y="9" rx="2"/></svg>
+                  <span class="label">Docker</span>
+                  <span class="count">2</span>
+                </div>
+                <div class="tree-group-body" style="display: none;">
+                  <div class="tree-item"><span class="name">local</span><span class="status-dot"></span></div>
+                  <div class="tree-item"><span class="name">edge-01</span><span class="status-dot stale"></span></div>
+                </div>
+              </div>
+
+              <!-- Excel 顶级组 -->
+              <div class="tree-group excel">
+                <div class="tree-group-head collapsed" style="font-family: var(--display); font-size: 10px; letter-spacing: 0.08em;">
+                  <svg class="chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                  <svg class="type-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                  <span class="label">Excel</span>
+                  <span class="count">1</span>
+                </div>
+                <div class="tree-group-body" style="display: none;">
+                  <div class="tree-item"><span class="name">操作记录-2026Q2</span><span class="status-dot stale"></span></div>
+                </div>
+              </div>
+
+              <!-- ⭐️ AI Agents — 第五大类型(新增) -->
+              <div class="tree-group agent expanded">
+                <div class="tree-group-head expanded" style="font-family: var(--display); font-size: 10px; letter-spacing: 0.08em;">
+                  <svg class="chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                  <svg class="type-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>
+                  <span class="label">AI Agents</span>
+                  <span class="count" style="background: var(--cyan-dim); color: var(--cyan);">6</span>
+                </div>
+                <div class="tree-group-body">
+                  <div class="tree-item">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/></svg>
+                    <span class="name">DevOps Helper</span>
+                    <span class="badge-mini preset">PRESET</span>
+                    <span class="status-dot stale"></span>
+                  </div>
+                  <div class="tree-item active alt">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/></svg>
+                    <span class="name">SQL Tuner</span>
+                    <span class="badge-mini preset">PRESET</span>
+                    <span class="status-dot recent"></span>
+                  </div>
+                  <div class="tree-item">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/></svg>
+                    <span class="name">Docker Inspector</span>
+                    <span class="badge-mini preset">PRESET</span>
+                    <span class="status-dot stale"></span>
+                  </div>
+                  <div class="tree-item">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/></svg>
+                    <span class="name">Log Forensics</span>
+                    <span class="badge-mini preset">PRESET</span>
+                    <span class="status-dot"></span>
+                  </div>
+                  <div class="tree-item">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/></svg>
+                    <span class="name">团队值班手册</span>
+                    <span class="badge-mini custom">CUSTOM</span>
+                    <span class="status-dot stale"></span>
+                  </div>
+                  <div class="tree-item">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/></svg>
+                    <span class="name">我的周报机器人</span>
+                    <span class="badge-mini custom">CUSTOM</span>
+                    <span class="status-dot"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- sidebar footer -->
+              <div class="side-footer">
+                <button class="new-btn">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                  新建 Agent
+                </button>
+              </div>
+            </div>
+            <!-- Workspace intentionally blank/dim for screen 1 -->
+            <div class="workspace" style="background: var(--bg-3); display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px;">
+              <div style="text-align: center; max-width: 240px; line-height: 1.6;">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.5" style="margin: 0 auto 12px; opacity: 0.5;"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>
+                <div style="color: var(--text-2); margin-bottom: 4px;">双击或右键 Agent 以打开工作台</div>
+                <div style="font-family: var(--mono); font-size: 10px;">点 <kbd style="font-family: var(--mono); background: var(--bg-2); padding: 1px 5px; border-radius: 3px; color: var(--cyan);">新建 Agent</kbd> 起步更快</div>
+              </div>
+            </div>
+          </div>
+          <!-- Status bar -->
+          <div class="statusbar">
+            <span class="sb-item cyan"><span class="dot"></span>v0.18.2</span>
+            <span class="sb-item">3 SSH</span>
+            <span class="sb-item">5 DB</span>
+            <span class="sb-item">2 Docker</span>
+            <div class="sb-right">
+              <span class="sb-item cyan">● 6 Agents</span>
+              <span class="sb-item">10:53</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== Screen 2: Agent 索引 ========== -->
+      <div class="screen">
+        <div class="screen-head">
+          <div class="screen-title"><span class="screen-title-num">02</span>浏览 · Agent 全屏网格</div>
+          <span class="screen-meta">workspace · 6 cards</span>
+        </div>
+        <div class="mock" style="min-height: 1080px;">
+          <!-- Titlebar -->
+          <div class="titlebar">
+            <div class="logo-mark">S</div>
+            <div class="logo-text">STARHUB</div>
+            <div class="top-search">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              全局搜索...
+              <kbd>⌘K</kbd>
+            </div>
+            <div class="top-actions">
+              <button class="action-btn primary"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <div class="win-ctrls">
+                <button class="win-btn">─</button>
+                <button class="win-btn">▢</button>
+                <button class="win-btn close">✕</button>
+              </div>
+            </div>
+          </div>
+          <!-- Menubar: a tab for "AI Agents" -->
+          <div class="menubar">
+            <div class="tab active">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>
+              AI Agents ✦ <span class="x">×</span>
+            </div>
+          </div>
+
+          <div class="main" style="grid-template-columns: 1fr;">
+            <div class="workspace">
+              <div class="idx-head">
+                <div class="idx-kicker">✦ AI AGENTS · 6 个 persona</div>
+                <h1 class="idx-h1">不是 <span class="grad" style="opacity:0.4; text-decoration: line-through;">问答 Chat</span> · 是 <span class="grad">干活 Agent</span></h1>
+                <p class="idx-sub">每个 Agent = 一个 persona + 模型 + 系统提示词 + 工具调用链。工具按"读 → 分析 → 行动"三段式编排,自动规划多步执行,而不是只回一段文字。</p>
+              </div>
+
+              <!-- Toolbar -->
+              <div class="idx-toolbar">
+                <span class="chip active"><span class="dot"></span>全部 · 6</span>
+                <span class="chip">▣ 预设 4</span>
+                <span class="chip">▢ 自定义 2</span>
+                <span class="chip">⊕ 最近 3 天</span>
+                <span class="chip">⚙ 带 Function Calling</span>
+                <span class="chip">⚡ 节省过时间的</span>
+                <div style="flex: 1;"></div>
+                <span style="font-family: var(--mono); font-size: 10px; color: var(--muted); margin-right: 8px;">VIEW</span>
+                <span class="chip active">网格</span>
+                <span class="chip">列表</span>
+                <div class="idx-search">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                  搜索 Agent…
+                </div>
+              </div>
+
+              <!-- Grid -->
+              <div class="idx-grid">
+                <!-- ===== Card 1: DevOps Helper ===== -->
+                <div class="ag-card">
+                  <div class="ag-card-head">
+                    <div class="ag-icon blue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+                    <div class="ag-title-block">
+                      <div class="ag-name">DevOps Helper</div>
+                      <div class="ag-role">preset · runbook · oncall</div>
+                    </div>
+                  </div>
+                  <div class="ag-desc">通用运维问答:SSH 跑命令、Docker 查容器、抓日志、读监控。回答前会主动核对目标主机在侧栏已连接。</div>
+
+                  <!-- 工具链 3 段 -->
+                  <div class="ag-pipeline">
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label read"><span class="dot"></span>READ</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">ssh_run</div>
+                        <div class="ag-pipe-tool">sysinfo</div>
+                        <div class="ag-pipe-tool">docker_logs</div>
+                      </div>
+                    </div>
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label ana"><span class="dot"></span>ANALYZE</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">regex_match</div>
+                        <div class="ag-pipe-tool">op_history</div>
+                      </div>
+                    </div>
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label act"><span class="dot"></span>ACT</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">feishu_send</div>
+                        <div class="ag-pipe-tool">alert_create</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="ag-card-meta">
+                    <span><span class="ok">● 87%</span> success</span>
+                    <span class="sep"></span>
+                    <span><span class="v">5.1</span> avg steps</span>
+                    <span class="sep"></span>
+                    <span><span class="v">2.4k</span> tok/run</span>
+                    <span class="sep"></span>
+                    <span><span class="v">128</span> runs</span>
+                  </div>
+                  <div class="ag-actions">
+                    <div class="ag-tags-mini">
+                      <span class="tag scene">排障思路</span>
+                      <span class="tag scene">oncall</span>
+                      <span class="tag">sonnet-4.5</span>
+                    </div>
+                    <button class="ag-launch">▶ 启动</button>
+                  </div>
+                </div>
+
+                <!-- ===== Card 2: SQL Tuner ===== -->
+                <div class="ag-card">
+                  <div class="ag-card-head">
+                    <div class="ag-icon purple"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12c0 5.523 4.477 10 10 10s10-4.477 10-10S17.523 2 12 2 2 6.477 2 12"/><path d="M12 6v6l4 2"/></svg></div>
+                    <div class="ag-title-block">
+                      <div class="ag-name">SQL Tuner</div>
+                      <div class="ag-role">preset · schema · explain</div>
+                    </div>
+                  </div>
+                  <div class="ag-desc">拿到慢查询后自动读 schema、跑 EXPLAIN、对比索引基数,提索引 / 重写建议,可一键生成 ALTER DDL 预览。</div>
+
+                  <div class="ag-pipeline">
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label read"><span class="dot"></span>READ</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">mysql_schema</div>
+                        <div class="ag-pipe-tool">pg_schema</div>
+                        <div class="ag-pipe-tool">explain</div>
+                      </div>
+                    </div>
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label ana"><span class="dot"></span>ANALYZE</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">index_advisor</div>
+                        <div class="ag-pipe-tool">query_rewrite</div>
+                      </div>
+                    </div>
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label act"><span class="dot"></span>ACT</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">ddl_render</div>
+                        <div class="ag-pipe-tool">mysql_exec</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="ag-card-meta">
+                    <span><span class="ok">● 94%</span> success</span>
+                    <span class="sep"></span>
+                    <span><span class="v">4.2</span> avg steps</span>
+                    <span class="sep"></span>
+                    <span><span class="v">3.1k</span> tok/run</span>
+                    <span class="sep"></span>
+                    <span><span class="v">340</span> runs</span>
+                  </div>
+                  <div class="ag-actions">
+                    <div class="ag-tags-mini">
+                      <span class="tag scene">慢查询</span>
+                      <span class="tag scene">索引</span>
+                      <span class="tag">sonnet-4.5</span>
+                    </div>
+                    <button class="ag-launch">▶ 启动</button>
+                  </div>
+                </div>
+
+                <!-- ===== Card 3: Docker Inspector ===== -->
+                <div class="ag-card">
+                  <div class="ag-card-head">
+                    <div class="ag-icon green"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 9h-1V5a3 3 0 0 1 6 0v4h-1"/><rect width="13" height="11" x="4" y="9" rx="2"/></svg></div>
+                    <div class="ag-title-block">
+                      <div class="ag-name">Docker Inspector</div>
+                      <div class="ag-role">preset · container · metric</div>
+                    </div>
+                  </div>
+                  <div class="ag-desc">对一组容器跑状态巡检,聚合异常日志、按时间线定位 OOM / 重启 / 资源抢占,出可直接贴群里的诊断报告。</div>
+
+                  <div class="ag-pipeline">
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label read"><span class="dot"></span>READ</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">docker_ps</div>
+                        <div class="ag-pipe-tool">docker_stats</div>
+                        <div class="ag-pipe-tool">docker_logs</div>
+                      </div>
+                    </div>
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label ana"><span class="dot"></span>ANALYZE</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">container_health</div>
+                        <div class="ag-pipe-tool">log_aggregate</div>
+                      </div>
+                    </div>
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label act"><span class="dot"></span>ACT</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">container_restart</div>
+                        <div class="ag-pipe-tool">report_send</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="ag-card-meta">
+                    <span><span class="ok">● 91%</span> success</span>
+                    <span class="sep"></span>
+                    <span><span class="v">3.4</span> avg steps</span>
+                    <span class="sep"></span>
+                    <span><span class="v">1.8k</span> tok/run</span>
+                    <span class="sep"></span>
+                    <span><span class="v">76</span> runs</span>
+                  </div>
+                  <div class="ag-actions">
+                    <div class="ag-tags-mini">
+                      <span class="tag scene">OOM</span>
+                      <span class="tag scene">重启</span>
+                      <span class="tag">haiku-4</span>
+                    </div>
+                    <button class="ag-launch">▶ 启动</button>
+                  </div>
+                </div>
+
+                <!-- ===== Card 4: Log Forensics ===== -->
+                <div class="ag-card">
+                  <div class="ag-card-head">
+                    <div class="ag-icon yellow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M11 11h.01"/></svg></div>
+                    <div class="ag-title-block">
+                      <div class="ag-name">Log Forensics</div>
+                      <div class="ag-role">preset · ssh tail · diff</div>
+                    </div>
+                  </div>
+                  <div class="ag-desc">从指定窗口拉日志,正则采样异常、对比相邻版本差异,锁定首次出现错误的 commit / 时间点。</div>
+
+                  <div class="ag-pipeline">
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label read"><span class="dot"></span>READ</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">ssh_run</div>
+                        <div class="ag-pipe-tool">log_tail</div>
+                        <div class="ag-pipe-tool">file_read</div>
+                      </div>
+                    </div>
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label ana"><span class="dot"></span>ANALYZE</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">regex_match</div>
+                        <div class="ag-pipe-tool">time_diff</div>
+                        <div class="ag-pipe-tool">log_cluster</div>
+                      </div>
+                    </div>
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label act"><span class="dot"></span>ACT</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">forensic_report</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="ag-card-meta">
+                    <span><span class="ok">● 86%</span> success</span>
+                    <span class="sep"></span>
+                    <span><span class="v">6.7</span> avg steps</span>
+                    <span class="sep"></span>
+                    <span><span class="v">5.2k</span> tok/run</span>
+                    <span class="sep"></span>
+                    <span><span class="v">42</span> runs</span>
+                  </div>
+                  <div class="ag-actions">
+                    <div class="ag-tags-mini">
+                      <span class="tag scene">异常时间线</span>
+                      <span class="tag scene">错误定位</span>
+                      <span class="tag">sonnet-4.5</span>
+                    </div>
+                    <button class="ag-launch">▶ 启动</button>
+                  </div>
+                </div>
+
+                <!-- ===== Card 5: 团队值班手册 (custom) ===== -->
+                <div class="ag-card">
+                  <div class="ag-card-head">
+                    <div class="ag-icon pink"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+                    <div class="ag-title-block">
+                      <div class="ag-name">团队值班手册 <span class="badge-mini custom">CUSTOM</span></div>
+                      <div class="ag-role">oncall · runbook · kb:runbook.md</div>
+                    </div>
+                  </div>
+                  <div class="ag-desc">按公司 runbook 走排障流程,自动拉 oncall 联系人,完成后贴飞书卡片。知识库挂 runbook.md。</div>
+
+                  <div class="ag-pipeline">
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label read"><span class="dot"></span>READ</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">kb_query</div>
+                        <div class="ag-pipe-tool">ssh_run</div>
+                        <div class="ag-pipe-tool">oncall_lookup</div>
+                      </div>
+                    </div>
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label ana"><span class="dot"></span>ANALYZE</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">runbook_match</div>
+                      </div>
+                    </div>
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label act"><span class="dot"></span>ACT</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">feishu_send</div>
+                        <div class="ag-pipe-tool">page_create</div>
+                        <div class="ag-pipe-tool">summary_md</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="ag-card-meta">
+                    <span><span class="ok">● 100%</span> success</span>
+                    <span class="sep"></span>
+                    <span><span class="v">4.8</span> avg steps</span>
+                    <span class="sep"></span>
+                    <span><span class="v">4.6k</span> tok/run</span>
+                    <span class="sep"></span>
+                    <span><span class="v">12</span> runs</span>
+                  </div>
+                  <div class="ag-actions">
+                    <div class="ag-tags-mini">
+                      <span class="tag scene">值班</span>
+                      <span class="tag scene">runbook</span>
+                      <span class="tag">sonnet-4.5</span>
+                    </div>
+                    <button class="ag-launch">▶ 启动</button>
+                  </div>
+                </div>
+
+                <!-- ===== Card 6: 我的周报机器人 (custom) ===== -->
+                <div class="ag-card">
+                  <div class="ag-card-head">
+                    <div class="ag-icon purple"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg></div>
+                    <div class="ag-title-block">
+                      <div class="ag-name">我的周报机器人 <span class="badge-mini custom">CUSTOM</span></div>
+                      <div class="ag-role">automation · weekly · cron 周五 17:00</div>
+                    </div>
+                  </div>
+                  <div class="ag-desc">汇总本周 SSH / SQL 操作历史,生成可粘到飞书的 Markdown 周报,带操作列表和异常 highlight。</div>
+
+                  <div class="ag-pipeline">
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label read"><span class="dot"></span>READ</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">op_history</div>
+                        <div class="ag-pipe-tool">ssh_history</div>
+                        <div class="ag-pipe-tool">sql_history</div>
+                      </div>
+                    </div>
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label ana"><span class="dot"></span>ANALYZE</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">activity_cluster</div>
+                      </div>
+                    </div>
+                    <div class="ag-pipe-stage">
+                      <div class="ag-pipe-label act"><span class="dot"></span>ACT</div>
+                      <div class="ag-pipe-tools">
+                        <div class="ag-pipe-tool">template_md</div>
+                        <div class="ag-pipe-tool">feishu_send</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="ag-card-meta">
+                    <span><span class="ok">● 100%</span> success</span>
+                    <span class="sep"></span>
+                    <span><span class="v">2.3</span> avg steps</span>
+                    <span class="sep"></span>
+                    <span><span class="v">2.0k</span> tok/run</span>
+                    <span class="sep"></span>
+                    <span><span class="v">8</span> runs</span>
+                  </div>
+                  <div class="ag-actions">
+                    <div class="ag-tags-mini">
+                      <span class="tag scene">周报</span>
+                      <span class="tag scene">自动化</span>
+                      <span class="tag">haiku-4</span>
+                    </div>
+                    <button class="ag-launch">▶ 启动</button>
+                  </div>
+                </div>
+
+                <!-- ===== 自定义 Agent 创建卡 ===== -->
+                <div class="ag-card ag-add" style="grid-column: span 2;">
+                  <div class="ag-add-big">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                  </div>
+                  <div style="font-size: 13px; color: var(--text); font-weight: 600;">从你的工具集拼一个 Agent</div>
+                  <div style="font-size: 11px; color: var(--text-2); line-height: 1.5; max-width: 320px;">
+                    选 model · 写 system prompt · 勾工具 · 拖入上下文策略 · 测试运行 · 一键保存
+                  </div>
+                  <button class="ag-launch" style="margin-top: 4px;">✚ 新建自定义 Agent</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="statusbar">
+            <span class="sb-item cyan"><span class="dot"></span>v0.18.2</span>
+            <span class="sb-item cyan">● 6 / 6 Agents</span>
+            <div class="sb-right">
+              <span class="sb-item">10:53</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== Screen 3: Agent 工作台 ========== -->
+      <div class="screen">
+        <div class="screen-head">
+          <div class="screen-title"><span class="screen-title-num">03</span>执行 · Agent 工作台</div>
+          <span class="screen-meta">3-panel · live</span>
+        </div>
+        <div class="mock">
+          <!-- Titlebar -->
+          <div class="titlebar">
+            <div class="logo-mark">S</div>
+            <div class="logo-text">STARHUB</div>
+            <div class="top-search">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              全局搜索...
+              <kbd>⌘K</kbd>
+            </div>
+            <div class="top-actions">
+              <button class="action-btn primary"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+              <div class="win-ctrls">
+                <button class="win-btn">─</button>
+                <button class="win-btn">▢</button>
+                <button class="win-btn close">✕</button>
+              </div>
+            </div>
+          </div>
+          <!-- Menubar -->
+          <div class="menubar">
+            <div class="tab">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/></svg>
+              pg-prod-01 <span class="x">×</span>
+            </div>
+            <div class="tab active">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>
+              Agent · SQL Tuner <span class="x">×</span>
+            </div>
+          </div>
+
+          <div class="main" style="grid-template-columns: 1fr;">
+            <div class="workspace agent-shell">
+              <!-- ===== Left: Agent Detail ===== -->
+              <div class="agent-detail">
+                <div class="ad-head">
+                  <div class="ad-avatar purple">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                  </div>
+                  <div class="ad-name">SQL Tuner</div>
+                  <div class="ad-role">preset · v2.1</div>
+                </div>
+
+                <div class="ad-block">
+                  <div class="ad-block-title"><span class="num">01</span>MODEL</div>
+                  <div class="model-pill">
+                    <span class="m-icon">C</span>
+                    <span>claude-sonnet-4.5</span>
+                    <span class="m-meta">30s</span>
+                  </div>
+                </div>
+
+                <div class="ad-block">
+                  <div class="ad-block-title"><span class="num">02</span>TOOLS<span class="count">9</span></div>
+                  <div class="tool-row">mysql_schema<span class="t-on"></span></div>
+                  <div class="tool-row">mysql_explain<span class="t-on"></span></div>
+                  <div class="tool-row">mysql_execute<span class="t-on"></span></div>
+                  <div class="tool-row">pg_schema<span class="t-on"></span></div>
+                  <div class="tool-row">pg_explain<span class="t-on"></span></div>
+                  <div class="tool-row">sqlite_query<span class="t-on"></span></div>
+                  <div class="tool-row">index_advisor<span class="t-on"></span></div>
+                  <div class="tool-row">ddl_render<span class="t-on"></span></div>
+                  <div class="tool-row">op_history<span class="t-on"></span></div>
+                  <div class="policy-strip">
+                    <span class="lbl">policy</span>
+                    <span>ask before write</span>
+                  </div>
+                </div>
+
+                <div class="ad-block">
+                  <div class="ad-block-title"><span class="num">03</span>STATS</div>
+                  <div class="metrics">
+                    <div class="metric-box">
+                      <div class="lbl">runs</div>
+                      <div class="val cyan">340</div>
+                    </div>
+                    <div class="metric-box">
+                      <div class="lbl">avg steps</div>
+                      <div class="val">4.2</div>
+                    </div>
+                    <div class="metric-box">
+                      <div class="lbl">success</div>
+                      <div class="val">94%</div>
+                    </div>
+                    <div class="metric-box">
+                      <div class="lbl">tokens/run</div>
+                      <div class="val">3.1k</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ===== Middle: Chat + Plan ===== -->
+              <div class="chat">
+                <div class="chat-head">
+                  <div class="chat-title">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/></svg>
+                    SQL Tuner · pg-prod-01 · <span style="color: var(--muted); font-size: 10px; font-family: var(--mono); margin-left: 4px;">run #341</span>
+                  </div>
+                  <div class="chat-run">
+                    <span class="run-dot"></span>
+                    executing · step 3 / 5
+                  </div>
+                </div>
+
+                <div class="msgs">
+                  <!-- User msg -->
+                  <div class="msg user">
+                    <div class="msg-avatar">U</div>
+                    <div class="msg-body">
+                      <div class="msg-meta">
+                        <span class="role">you</span>
+                        <span>10:51:24</span>
+                      </div>
+                      <div class="msg-bubble">
+                        这条 SQL 跑 12 秒,帮我看看为什么慢:<br/>
+                        <code>SELECT * FROM orders o JOIN users u ON u.id = o.user_id WHERE o.created_at > '2026-06-01' ORDER BY o.id DESC LIMIT 50;</code>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Agent thinking + plan -->
+                  <div class="msg assistant">
+                    <div class="msg-avatar">S</div>
+                    <div class="msg-body">
+                      <div class="msg-meta">
+                        <span class="role">SQL Tuner</span>
+                        <span>planner · 7s</span>
+                      </div>
+                      <div class="msg-bubble">
+                        我先把这条查询的 EXPLAIN 拉出来看,顺便翻一下 <code>orders</code> 的索引基数。
+                      </div>
+
+                      <!-- ⭐️ Plan / Tool-call strip -->
+                      <div class="plan">
+                        <div class="plan-head">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                          <div class="plan-title">AGENT PLAN</div>
+                          <div class="plan-time">5 steps · 7s elapsed</div>
+                        </div>
+
+                        <div class="plan-step done">
+                          <div class="plan-num">1</div>
+                          <div class="plan-body">
+                            <span class="tool-name">mysql_explain</span>
+                            <span class="target">pg-prod-01 · orders+users</span>
+                            <div class="desc">拿到执行计划,定位顺序扫描</div>
+                          </div>
+                          <span class="plan-state ok">done · 1.2s</span>
+                        </div>
+
+                        <div class="plan-step done">
+                          <div class="plan-num">2</div>
+                          <div class="plan-body">
+                            <span class="tool-name">pg_schema</span>
+                            <span class="target">orders</span>
+                            <div class="desc">读索引基数,确认缺 (created_at, id)</div>
+                          </div>
+                          <span class="plan-state ok">done · 0.4s</span>
+                        </div>
+
+                        <div class="plan-step active">
+                          <div class="plan-num">3</div>
+                          <div class="plan-body">
+                            <span class="tool-name">index_advisor</span>
+                            <span class="target">orders</span>
+                            <div class="desc">生成复合索引 + 重写建议</div>
+                          </div>
+                          <span class="plan-state run">running…</span>
+                        </div>
+
+                        <div class="plan-step pending">
+                          <div class="plan-num">4</div>
+                          <div class="plan-body">
+                            <span class="tool-name">ddl_render</span>
+                            <span class="target">preview ALTER</span>
+                            <div class="desc">渲染可一键复制的 DDL</div>
+                          </div>
+                          <span class="plan-state wait">pending</span>
+                        </div>
+
+                        <div class="plan-step pending">
+                          <div class="plan-num">5</div>
+                          <div class="plan-body">
+                            <span class="tool-name">recap</span>
+                            <span class="target">summary</span>
+                            <div class="desc">给用户写可复制的诊断说明</div>
+                          </div>
+                          <span class="plan-state wait">pending</span>
+                        </div>
+
+                        <div class="plan-result">
+<span class="comment">-- EXPLAIN ANALYZE</span><br/>
+<span class="kw">Limit</span>  (cost=28420.33..28420.34 rows=50) <span class="str">"actual time=12038.211..12038.215"</span><br/>
+&nbsp;&nbsp;→  <span class="kw">Nested Loop</span>  (cost=... rows=12480) <span class="str">"actual time=12038.020..12038.137"</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→  <span class="kw">Seq Scan</span> on <span class="kw">orders</span> o  <span class="str">"actual time=11201.113..11235.880 rows=2410202"</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→  <span class="kw">Index Scan</span> on <span class="kw">users</span> u  <span class="str">"actual time=0.001..0.002 rows=1"</span><br/>
+<br/>
+<span class="comment">-- 根因:orders.created_at 上无索引,导致 240 万行顺序扫描</span><br/>
+<span class="comment">-- 建议:CREATE INDEX ON orders (created_at DESC, id DESC);</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- User followup -->
+                  <div class="msg user">
+                    <div class="msg-avatar">U</div>
+                    <div class="msg-body">
+                      <div class="msg-meta">
+                        <span class="role">you</span>
+                        <span>10:51:38</span>
+                      </div>
+                      <div class="msg-bubble">
+                        索引名按 <code>idx_orders_created</code> 命名,确认后执行
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Input area -->
+                <div class="input-area">
+                  <div class="input-toolbar">
+                    <span class="ctx-tag">
+                      <span class="db-icon">P</span>
+                      pg-prod-01 · public
+                      <span class="x">×</span>
+                    </span>
+                    <span class="ctx-tag">
+                      <span style="color: var(--purple)">✓</span>
+                      auto-confirm read
+                    </span>
+                    <span class="ctx-tag">
+                      <span style="color: var(--yellow)">!</span>
+                      ask on write
+                    </span>
+                    <div class="input-mode">
+                      <button class="active">Chat</button>
+                      <button>Plan</button>
+                    </div>
+                  </div>
+                  <div class="input-box">
+                    <textarea placeholder="让 SQL Tuner 继续…… (Shift+Enter 换行)"></textarea>
+                    <button class="send-btn">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ===== Right: Tool log ===== -->
+              <div class="tool-log">
+                <div class="tl-title"><span class="num">04</span>TOOL LOG</div>
+
+                <div class="metrics">
+                  <div class="metric-box">
+                    <div class="lbl">elapsed</div>
+                    <div class="val cyan">7.3s</div>
+                  </div>
+                  <div class="metric-box">
+                    <div class="lbl">cost</div>
+                    <div class="val">$0.04</div>
+                  </div>
+                </div>
+
+                <div class="tl-row">
+                  <div class="tl-row-head">
+                    <span class="t-name">mysql_explain</span>
+                    <span class="t-state ok">200</span>
+                    <span class="t-time">1.2s</span>
+                  </div>
+                  <div class="tl-row-meta">
+                    pg-prod-01 · orders+users<br/>
+                    rows=2410202 · cost=28420
+                  </div>
+                </div>
+
+                <div class="tl-row">
+                  <div class="tl-row-head">
+                    <span class="t-name">pg_schema</span>
+                    <span class="t-state ok">200</span>
+                    <span class="t-time">0.4s</span>
+                  </div>
+                  <div class="tl-row-meta">
+                    orders · 4 index(es)<br/>
+                    created_at ✗ no index · 2.41M rows
+                  </div>
+                </div>
+
+                <div class="tl-row">
+                  <div class="tl-row-head">
+                    <span class="t-name">index_advisor</span>
+                    <span class="t-state">···</span>
+                    <span class="t-time">5.7s</span>
+                  </div>
+                  <div class="tl-row-meta">
+                    working…<br/>
+                    candidates: 3 · best: (created_at DESC, id DESC)
+                  </div>
+                </div>
+
+                <div class="tl-title" style="margin-top: 14px;"><span class="num">05</span>CONTEXT</div>
+                <div class="tl-row">
+                  <div class="tl-row-head">
+                    <span class="t-name" style="color: var(--cyan);">connection</span>
+                  </div>
+                  <div class="tl-row-meta">
+                    pg-prod-01 (PostgreSQL 16.2)<br/>
+                    user: ops_readonly<br/>
+                    since: 10:48:11
+                  </div>
+                </div>
+                <div class="tl-row">
+                  <div class="tl-row-head">
+                    <span class="t-name" style="color: var(--cyan);">sql snippet</span>
+                  </div>
+                  <div class="tl-row-meta" style="color: var(--text-2);">
+                    SELECT * FROM orders o JOIN...<br/>
+                    <span style="color: var(--muted);">3 lines · 218 chars</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="statusbar">
+            <span class="sb-item cyan"><span class="dot"></span>v0.18.2</span>
+            <span class="sb-item cyan">● Agent SQL Tuner · running</span>
+            <div class="sb-right">
+              <span class="sb-item">step 3/5</span>
+              <span class="sb-item">10:53</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =========== Bottom notes =========== -->
+    <div class="notes">
+      <div class="notes-grid">
+        <div class="note-card">
+          <div class="note-label">HIERARCHY</div>
+          <div class="note-title">5th type · 5 大类并列</div>
+          <div class="note-body">Agent 走和 SSH 一样的 tree-group 视觉:chevron + type-icon(用 cyan→purple 渐变标识"AI") + label + count。子项 .tree-item = 一个 Agent,带 preset/custom 徽章 + status-dot(最近 30 分钟 used)。右键"新建 Agent"沿用 NewConnectionDialog 模式。</div>
+        </div>
+        <div class="note-card">
+          <div class="note-label">SAFETY</div>
+          <div class="note-title">默认 ask before write</div>
+          <div class="note-body">所有 destructive / write 类工具默认 ask,read 类自动通过,可在 Agent 编辑里改 policy。EXEC 后用户必须看到 DDL 预览。</div>
+        </div>
+        <div class="note-card">
+          <div class="note-label">CONTEXT</div>
+          <div class="note-title">继承工作区</div>
+          <div class="note-body">开 Agent tab 时自动带入 sidebar 已连接的 SSH / DB / Docker 作为可用工具;支持手动添加/移除 ctx-tag,像 Notion 标签。</div>
+        </div>
+        <div class="note-card">
+          <div class="note-label">ROADMAP</div>
+          <div class="note-title">从 v0.19 起步</div>
+          <div class="note-body">v0.19 sidebar tabs + Agent 索引 + 内置 4 个 preset;v0.20 自定义 Agent(编辑器 + 工具多选);v0.21 Runs / MCP 接入。</div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <div class="legend-title">DESIGN TOKENS · 与 cyber-design-system 对齐</div>
+        <div class="legend-row">
+          <span class="legend-item"><span class="legend-key">--cyan</span> #5dd6d6</span>
+          <span class="legend-item"><span class="legend-key">--purple</span> #8f7bd8</span>
+          <span class="legend-item"><span class="legend-key">--bg</span> #080d14</span>
+          <span class="legend-item"><span class="legend-key">--panel</span> rgba(14,22,32,.76)</span>
+          <span class="legend-item"><span class="legend-key">grad-primary</span> 135deg cyan → purple</span>
+          <span class="legend-item">字体 <span class="legend-key">Outfit</span> + <span class="legend-key">JetBrains Mono</span> + <span class="legend-key">Orbitron</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

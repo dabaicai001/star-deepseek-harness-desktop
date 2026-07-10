@@ -17,6 +17,8 @@ export interface ChatMessage {
   content: string
   /** 消息唯一标识(用于 v-for key) */
   id?: string
+  /** Planner 编排时标记这条回复由哪个执行 Agent 产生。 */
+  agentName?: string
   /** OpenAI tool message 字段 */
   tool_call_id?: string
   /** OpenAI tool message 字段 */
@@ -70,10 +72,19 @@ export interface LlmTool {
     description: string
     parameters: {
       type: 'object'
-      properties: Record<string, { type: string; description: string; enum?: string[] }>
+      properties: Record<string, LlmJsonSchemaProperty>
       required?: string[]
     }
   }
+}
+
+export interface LlmJsonSchemaProperty {
+  type: string
+  description?: string
+  enum?: string[]
+  properties?: Record<string, LlmJsonSchemaProperty>
+  items?: LlmJsonSchemaProperty
+  required?: string[]
 }
 
 export interface LlmToolCall {
@@ -100,6 +111,8 @@ export interface NewChatRequest {
   maxTokens?: number
   system?: string
   tools?: LlmTool[]
+  /** 规划等结构化阶段可要求模型必须调用工具。 */
+  toolChoice?: 'auto' | 'required' | { type: 'function'; function: { name: string } }
   /** 外部传入的中断信号 */
   signal?: AbortSignal
 }
@@ -172,8 +185,7 @@ export async function chatWithTools(req: NewChatRequest): Promise<NewChatRespons
   }
   if (req.tools && req.tools.length > 0) {
     body.tools = req.tools
-    // 让模型自己决定是否调用工具
-    body.tool_choice = 'auto'
+    body.tool_choice = req.toolChoice ?? 'auto'
   }
 
   let res: Response
@@ -261,7 +273,7 @@ export async function* chatStream(req: NewChatRequest): AsyncGenerator<StreamChu
   }
   if (req.tools && req.tools.length > 0) {
     body.tools = req.tools
-    body.tool_choice = 'auto'
+    body.tool_choice = req.toolChoice ?? 'auto'
   }
 
   let res: Response

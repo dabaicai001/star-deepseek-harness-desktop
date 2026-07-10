@@ -93,6 +93,8 @@ const customSkillName = ref('')
 const customSkillDescription = ref('')
 const customSkillPrompt = ref('')
 const customSkillAssetTypes = ref<AiAssetType[]>(['ssh', 'db', 'docker', 'excel'])
+const skillImportInput = ref<HTMLInputElement | null>(null)
+const skillImportResult = ref<string | null>(null)
 
 const accentOptions = [
   { value: 'cyan' as const,   label: '青色 (Cyberpunk)',   color: '#00f0ff' },
@@ -200,6 +202,93 @@ function addCustomSkill() {
 function removeCustomSkill(id: string) {
   aiLocal.value.customSkills = aiLocal.value.customSkills.filter(skill => skill.id !== id)
   aiLocal.value.enabledSkillIds = aiLocal.value.enabledSkillIds.filter(skillId => skillId !== id)
+}
+
+function normalizeImportedAssetTypes(value: unknown): AiAssetType[] {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/[,/\s]+/)
+      : []
+  const allowed = new Set<AiAssetType>(['ssh', 'db', 'docker', 'excel'])
+  const parsed = raw.map(item => String(item).toLowerCase()).filter((item): item is AiAssetType => allowed.has(item as AiAssetType))
+  return parsed.length > 0 ? Array.from(new Set(parsed)) : ['ssh', 'db', 'docker', 'excel']
+}
+
+function parseSkillMarkdown(content: string, fileName: string): Record<string, unknown> {
+  const frontmatter = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?/)
+  const metadata: Record<string, string> = {}
+  if (frontmatter) {
+    for (const line of frontmatter[1].split(/\r?\n/)) {
+      const separator = line.indexOf(':')
+      if (separator <= 0) continue
+      metadata[line.slice(0, separator).trim()] = line.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '')
+    }
+  }
+  const body = (frontmatter ? content.slice(frontmatter[0].length) : content).trim()
+  return {
+    name: metadata.name || fileName.replace(/\.(md|markdown)$/i, ''),
+    description: metadata.description || '',
+    assetTypes: metadata.assetTypes || metadata.scopes || '',
+    prompt: body
+  }
+}
+
+async function importSkills(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  skillImportResult.value = null
+  if (file.size > 256 * 1024) {
+    skillImportResult.value = '导入失败:Skill 文件不能超过 256 KB'
+    return
+  }
+  try {
+    const content = await file.text()
+    let payload: unknown
+    if (/\.json$/i.test(file.name)) {
+      payload = JSON.parse(content)
+    } else {
+      payload = parseSkillMarkdown(content, file.name)
+    }
+    const records = Array.isArray(payload)
+      ? payload
+      : payload && typeof payload === 'object' && Array.isArray((payload as { skills?: unknown }).skills)
+        ? (payload as { skills: unknown[] }).skills
+        : [payload]
+    let imported = 0
+    let skipped = 0
+    for (const record of records) {
+      const item = record && typeof record === 'object' ? record as Record<string, unknown> : {}
+      const name = String(item.name || '').trim()
+      const prompt = String(item.prompt || item.instructions || item.content || '').trim()
+      if (!name || !prompt) {
+        skipped++
+        continue
+      }
+      const duplicate = aiLocal.value.customSkills.some(skill => skill.name === name && skill.prompt === prompt)
+      if (duplicate) {
+        skipped++
+        continue
+      }
+      const id = `imported-${Date.now()}-${imported}-${Math.random().toString(36).slice(2, 6)}`
+      aiLocal.value.customSkills.push({
+        id,
+        name,
+        description: String(item.description || '').trim(),
+        prompt,
+        assetTypes: normalizeImportedAssetTypes(item.assetTypes ?? item.scopes)
+      })
+      toggleSkill(id, true)
+      imported++
+    }
+    skillImportResult.value = imported > 0
+      ? `已导入 ${imported} 个 Skill${skipped ? `,跳过 ${skipped} 个无效或重复项` : ''};点击“保存”后生效`
+      : '没有可导入的 Skill:请检查 name 与 prompt/instructions 字段'
+  } catch (error) {
+    skillImportResult.value = `导入失败:${error instanceof Error ? error.message : String(error)}`
+  }
 }
 
 function formatSkillScopes(types: AiAssetType[]) {
@@ -521,6 +610,18 @@ const PRESET_MODELS = [
               <v-icon size="14">mdi-plus</v-icon>
               添加 Skill
             </button>
+            <button class="cyber-btn-secondary" @click="skillImportInput?.click()">
+              <v-icon size="14">mdi-import</v-icon>
+              外部导入
+            </button>
+            <input
+              ref="skillImportInput"
+              hidden
+              type="file"
+              accept=".json,.md,.markdown,application/json,text/markdown,text/plain"
+              @change="importSkills"
+            />
+            <span v-if="skillImportResult" class="field-hint">{{ skillImportResult }}</span>
           </div>
         </div>
 

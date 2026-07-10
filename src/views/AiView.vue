@@ -2,7 +2,15 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { useAiStore, type AiAgent, type AiAgentDraft, type AiAssetType } from '@/stores/ai'
+import {
+  useAiStore,
+  type AiAgent,
+  type AiAgentDraft,
+  type AiAssetType,
+  type AiExecutionPlan,
+  type AiPlanIssue,
+  type AiPlanOption
+} from '@/stores/ai'
 import { useAppStore } from '@/stores/app'
 import { useAssetStore } from '@/stores/asset'
 import AiAgentDialog from '@/components/ai/AiAgentDialog.vue'
@@ -23,6 +31,10 @@ const lastUserText = ref('')
 const messagesRef = ref<HTMLElement | null>(null)
 const mentionIndex = ref(0)
 const showAgentDialog = ref(false)
+const planning = ref(false)
+const executing = ref(false)
+const stopRequested = ref(false)
+const currentExecutionSessionId = ref<string | null>(null)
 
 const instanceId = computed(() => props.id || appStore.activeTab || 'global-ai-view')
 const activeTab = computed(() => appStore.tabs.find(tab => tab.id === instanceId.value))
@@ -33,6 +45,11 @@ const session = computed(() =>
   aiStore.getOrCreateSession(instanceId.value, activeAgent.value.id, 'ai')
 )
 const boundSkills = computed(() => aiStore.getSkillsForAgent(activeAgent.value))
+const executionPlan = computed(() => session.value.executionPlan)
+const orchestrationBusy = computed(() => planning.value || executing.value || session.value.loading)
+const currentAgentName = computed(() =>
+  executionPlan.value?.currentAgentName || (planning.value ? 'Planner Agent' : activeAgent.value.name)
+)
 
 const capabilityOptions: Array<{
   type: AiAssetType
@@ -46,6 +63,39 @@ const capabilityOptions: Array<{
   { type: 'docker', token: '#Docker', label: 'Docker', icon: 'mdi-docker', description: '容器与镜像工作区' },
   { type: 'excel', token: '#Excel', label: 'Excel', icon: 'mdi-file-excel-outline', description: '工作簿与数据分析' }
 ]
+
+interface WorkspaceReference {
+  id: string
+  type: AiAssetType
+  token: string
+  label: string
+  detail: string
+  icon: string
+  asset: Asset
+}
+
+function workspacePrefix(type: AiAssetType) {
+  if (type === 'ssh') return 'SSH'
+  if (type === 'db') return 'DB'
+  if (type === 'docker') return 'Docker'
+  return 'Excel'
+}
+
+function tokenSafeName(value: string) {
+  return value.trim().replace(/[\s@#]+/g, '-').replace(/-+/g, '-')
+}
+
+const workspaceReferences = computed<WorkspaceReference[]>(() =>
+  assetStore.assets.map(asset => ({
+    id: `${asset.type}:${asset.id}`,
+    type: asset.type,
+    token: `#${workspacePrefix(asset.type)}-${tokenSafeName(asset.name)}`,
+    label: `${workspacePrefix(asset.type)}-${asset.name}`,
+    detail: assetSummary(asset),
+    icon: capabilityOptions.find(item => item.type === asset.type)?.icon || 'mdi-tab',
+    asset
+  }))
+)
 
 function agentHandle(agent: AiAgent) {
   return agent.name.trim().replace(/\s+/g, '-')
@@ -75,18 +125,26 @@ const mentionSuggestions = computed<MentionSuggestion[]>(() => {
         insert: `@${agentHandle(agent)}`
       }))
   }
-  return capabilityOptions
-    .filter(item => item.label.toLowerCase().includes(query))
-    .map(item => ({
-      id: item.type,
-      label: item.token,
-      detail: item.description,
-      icon: item.icon,
-      insert: item.token
-    }))
+  const moduleSuggestions = capabilityOptions.map(item => ({
+    id: `module:${item.type}`,
+    label: item.token,
+    detail: item.description,
+    icon: item.icon,
+    insert: item.token
+  }))
+  const assetSuggestions = workspaceReferences.value.map(item => ({
+    id: item.id,
+    label: item.token,
+    detail: item.detail,
+    icon: item.icon,
+    insert: item.token
+  }))
+  return [...assetSuggestions, ...moduleSuggestions]
+    .filter(item => `${item.label} ${item.detail}`.toLowerCase().includes(query))
 })
 
 const selectedScopes = computed(() => extractScopes(inputText.value))
+const selectedWorkspaceReferences = computed(() => extractWorkspaceReferences(inputText.value))
 const selectedAgents = computed(() => extractAgents(inputText.value))
 
 watch(mentionSuggestions, () => { mentionIndex.value = 0 })
@@ -150,8 +208,13 @@ function extractAgents(text: string): AiAgent[] {
 }
 
 function extractScopes(text: string): AiAssetType[] {
-  const matches = Array.from(text.matchAll(/#(ssh|db|docker|excel)\b/gi), match => match[1].toLowerCase())
+  const matches = Array.from(text.matchAll(/#(ssh|db|docker|excel)(?=\s|$)/gi), match => match[1].toLowerCase())
   return Array.from(new Set(matches)) as AiAssetType[]
+}
+
+function extractWorkspaceReferences(text: string): WorkspaceReference[] {
+  const tokens = new Set(Array.from(text.matchAll(/#([^\s@#]+)/g), match => `#${match[1]}`.toLowerCase()))
+  return workspaceReferences.value.filter(reference => tokens.has(reference.token.toLowerCase()))
 }
 
 function assetSummary(asset: Asset) {
@@ -161,12 +224,21 @@ function assetSummary(asset: Asset) {
   return asset.config.format || 'xlsx'
 }
 
-function scopedAssets(scopes: AiAssetType[]) {
+function scopedAssets(scopes: AiAssetType[], references: WorkspaceReference[] = []) {
   const allowed = new Set(scopes)
-  return assetStore.assets.filter(asset => allowed.has(asset.type))
+  const explicitIds = new Set(references.map(reference => reference.asset.id))
+  return assetStore.assets.filter(asset => allowed.has(asset.type) || explicitIds.has(asset.id))
 }
 
 const workspaceTools: LlmTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'starhub_list_capabilities',
+      description: '列出 StarHub 可以进入的模块和功能,用于规划跨模块任务。',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
   {
     type: 'function',
     function: {
@@ -192,6 +264,45 @@ const workspaceTools: LlmTool[] = [
         },
         required: ['asset']
       }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'starhub_list_tabs',
+      description: '列出当前已经打开的工作区标签。',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'starhub_activate_tab',
+      description: '切换到一个已经打开的工作区标签。',
+      parameters: {
+        type: 'object',
+        properties: { tabId: { type: 'string', description: '标签 id' } },
+        required: ['tabId']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'starhub_open_settings',
+      description: '打开 StarHub 设置,可选直接进入 AI 设置。',
+      parameters: {
+        type: 'object',
+        properties: { section: { type: 'string', description: '设置页', enum: ['general', 'appearance', 'ai', 'about'] } }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'starhub_new_connection',
+      description: '打开新建连接/工作区弹窗。',
+      parameters: { type: 'object', properties: {} }
     }
   }
 ]
@@ -221,10 +332,19 @@ function openAsset(asset: Asset) {
   router.push({ name: routeNameForAsset(asset), params: { id } })
 }
 
-async function executeWorkspaceTool(call: LlmToolCall, scopes: AiAssetType[]) {
+async function executeWorkspaceTool(call: LlmToolCall, assets: Asset[]) {
   let args: Record<string, unknown> = {}
   try { args = JSON.parse(call.function.arguments) as Record<string, unknown> } catch {}
-  const assets = scopedAssets(scopes)
+  if (call.function.name === 'starhub_list_capabilities') {
+    return JSON.stringify({
+      ssh: ['终端', '主机仪表盘', 'SFTP', '快速命令', '广播命令', 'AI 运维工具'],
+      db: ['MySQL/PostgreSQL/ClickHouse/Redis/Elasticsearch', 'SQL 查询', '数据编辑', '结构与监控'],
+      broker: ['Kafka', 'NSQ', 'Topic/Channel 状态'],
+      docker: ['容器', '镜像', '日志', 'Inspect', 'SSH/TCP/Socket 连接'],
+      excel: ['工作簿', 'CSV', '编辑', '筛选', '排序', '公式', '导入导出'],
+      application: ['资产与标签导航', '新建连接', '设置', 'AI Agents', 'Skills']
+    })
+  }
   if (call.function.name === 'starhub_list_assets') {
     const type = String(args.type || '').toLowerCase()
     const result = type ? assets.filter(asset => asset.type === type) : assets
@@ -242,54 +362,214 @@ async function executeWorkspaceTool(call: LlmToolCall, scopes: AiAssetType[]) {
     openAsset(asset)
     return t('ai.assetOpened', { name: asset.name })
   }
+  if (call.function.name === 'starhub_list_tabs') {
+    return JSON.stringify(appStore.tabs.map(tab => ({ id: tab.id, title: tab.title, type: tab.type, assetId: tab.assetId })))
+  }
+  if (call.function.name === 'starhub_activate_tab') {
+    const tabId = String(args.tabId || '')
+    const tab = appStore.tabs.find(item => item.id === tabId)
+    if (!tab) throw new Error(`Tab not found: ${tabId}`)
+    appStore.setActiveTab(tab.id)
+    if (tab.type === 'ai') {
+      await router.push({ name: 'ai', params: { id: tab.id } })
+    } else {
+      const asset = assetStore.assets.find(item => item.id === tab.assetId)
+      if (!asset) throw new Error(`Asset not found: ${tab.assetId}`)
+      await router.push({ name: routeNameForAsset(asset), params: { id: tab.id } })
+    }
+    return `已切换到 ${tab.title}`
+  }
+  if (call.function.name === 'starhub_open_settings') {
+    const section = String(args.section || 'general')
+    window.dispatchEvent(new CustomEvent(section === 'ai' ? 'starhub:open-ai-settings' : 'starhub:open-settings'))
+    return `已打开 ${section} 设置`
+  }
+  if (call.function.name === 'starhub_new_connection') {
+    window.dispatchEvent(new CustomEvent('starhub:new-connection'))
+    return '已打开新建连接弹窗'
+  }
   throw new Error(`Unsupported AI workspace tool: ${call.function.name}`)
 }
 
-function buildPrompt(text: string) {
+function buildPrompt(text: string, primaryAgent: AiAgent = activeAgent.value) {
   const mentions = extractAgents(text)
-  const primary = mentions[0] || activeAgent.value
-  const collaborators = mentions.slice(1)
-  let prompt = aiStore.buildAgentPrompt(primary, collaborators)
+  const collaborators = mentions.filter(agent => agent.id !== primaryAgent.id)
+  let prompt = aiStore.buildAgentPrompt(primaryAgent, collaborators)
   const scopes = extractScopes(text)
-  if (scopes.length > 0) {
-    const inventory = scopedAssets(scopes)
+  const references = extractWorkspaceReferences(text)
+  const assets = scopedAssets(scopes, references)
+  const contextTokens = [
+    ...scopes.map(scope => `#${workspacePrefix(scope)}`),
+    ...references.map(reference => reference.token)
+  ]
+  if (assets.length > 0) {
+    const inventory = assets
       .map(asset => `- ${asset.id} | ${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`)
       .join('\n') || '- 当前没有匹配资产'
-    prompt += `\n\n本轮 # 能力授权: ${scopes.map(scope => `#${scope}`).join(', ')}\n可见资产:\n${inventory}\n\n你可以调用 starhub_list_assets 和 starhub_open_asset。打开具体工作区后,真实 SSH / DB / Docker / Excel 操作必须交给该工作区的上下文 AI,继续遵守确认、白名单和高危操作拦截规则。未通过 # 提及的模块不得访问。`
+    prompt += `\n\n本轮 # 工作区授权: ${contextTokens.join(', ')}\n可见资产:\n${inventory}\n\n你可以使用 StarHub 应用工具注册表查询能力、列出/打开授权资产、管理标签和打开设置。真实 SSH / DB / Docker / Excel 操作进入对应工作区后仍必须遵守确认、白名单和高危操作拦截规则。未通过 # 提及的资产不得访问。`
   } else {
-    prompt += '\n\n本轮没有 # 模块授权。不要读取或打开任何 StarHub 资产;如果任务需要工作区上下文,请提示用户输入 #SSH、#DB、#Docker 或 #Excel。'
+    prompt += '\n\n本轮没有 # 工作区授权。可以使用应用级导航、设置和能力发现工具,但不得列出或打开任何资产;需要资产时请明确要求用户引用具体工作区,例如 #SSH-测试服务器。'
   }
-  return { prompt, scopes }
+  return {
+    prompt,
+    assets,
+    context: assets.map(asset => `${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`).join('\n')
+  }
 }
 
-async function runCurrentTurn(text: string) {
-  const { prompt, scopes } = buildPrompt(text)
-  await aiStore.runAgent(
-    instanceId.value,
-    scopes.length > 0 ? workspaceTools : [],
-    call => executeWorkspaceTool(call, scopes),
-    prompt
-  )
+function planStatusLabel(plan: AiExecutionPlan) {
+  if (plan.status === 'planning') return '规划中'
+  if (plan.status === 'awaiting-choice') return '等待选择'
+  if (plan.status === 'executing') return '执行中'
+  if (plan.status === 'completed') return '已完成'
+  if (plan.status === 'failed') return '失败'
+  if (plan.status === 'stopped') return '已停止'
+  return '已规划'
+}
+
+function stepStatusIcon(status: string) {
+  if (status === 'running') return 'mdi-loading mdi-spin'
+  if (status === 'completed') return 'mdi-check-circle-outline'
+  if (status === 'failed') return 'mdi-alert-circle-outline'
+  if (status === 'skipped') return 'mdi-minus-circle-outline'
+  return 'mdi-circle-outline'
+}
+
+async function executePlan(plan: AiExecutionPlan) {
+  executing.value = true
+  stopRequested.value = false
+  plan.status = 'executing'
+  try {
+    for (const step of plan.steps) {
+      if (stopRequested.value) break
+      const agent = aiStore.getAgent(step.agentId) || activeAgent.value
+      step.status = 'running'
+      plan.currentStepId = step.id
+      plan.currentAgentName = agent.name
+      const { prompt, assets } = buildPrompt(plan.request, agent)
+      const tempId = `${instanceId.value}:execution:${plan.id}:${step.id}`
+      currentExecutionSessionId.value = tempId
+      const tempSession = aiStore.getOrCreateSession(tempId, agent.id, 'ai')
+      tempSession.messages = [{
+        role: 'user',
+        content: `原始目标:\n${plan.request}\n\n当前执行步骤:\n${step.title}\n${step.detail}\n\n只完成当前步骤,给出证据、结果和下一步所需信息。`
+      }]
+      tempSession.toolCalls = []
+      tempSession.error = null
+      await aiStore.runAgent(
+        tempId,
+        workspaceTools,
+        call => executeWorkspaceTool(call, assets),
+        `${prompt}\n\n你当前是执行 Agent「${agent.name}」。严格只执行计划中的当前步骤: ${step.title}。`
+      )
+
+      const assistantMessages = tempSession.messages.filter(message => message.role === 'assistant')
+      for (const message of tempSession.messages.slice(1)) {
+        session.value.messages.push(message.role === 'assistant' ? { ...message, agentName: agent.name } : { ...message })
+      }
+      session.value.toolCalls.push(...tempSession.toolCalls.map(record => ({ ...record })))
+      const lastAssistant = assistantMessages[assistantMessages.length - 1]
+      step.result = lastAssistant?.content || tempSession.error || '(无结果)'
+      if (tempSession.error) {
+        step.status = stopRequested.value || tempSession.error === '已停止' ? 'skipped' : 'failed'
+        plan.status = stopRequested.value ? 'stopped' : 'failed'
+        session.value.error = stopRequested.value ? '已停止' : `${step.agentName}: ${tempSession.error}`
+        aiStore.clearSession(tempId)
+        break
+      }
+      step.status = 'completed'
+      aiStore.clearSession(tempId)
+      currentExecutionSessionId.value = null
+    }
+    if (stopRequested.value) {
+      plan.status = 'stopped'
+      for (const step of plan.steps) {
+        if (step.status === 'pending') step.status = 'skipped'
+      }
+    } else if (plan.steps.every(step => step.status === 'completed')) {
+      plan.status = 'completed'
+      plan.currentStepId = undefined
+      plan.currentAgentName = undefined
+    }
+  } finally {
+    currentExecutionSessionId.value = null
+    executing.value = false
+  }
+}
+
+async function planAndExecute(text: string, decision?: string) {
+  planning.value = true
+  stopRequested.value = false
+  session.value.error = null
+  session.value.executionPlan = {
+    id: `planning-${Date.now()}`,
+    request: text,
+    summary: 'Planner Agent 正在分析目标、授权范围与执行顺序…',
+    status: 'planning',
+    steps: [],
+    issues: [],
+    currentAgentName: 'Planner Agent',
+    createdAt: Date.now()
+  }
+  const { context } = buildPrompt(text)
+  try {
+    const plan = await aiStore.createExecutionPlan({
+      request: text,
+      context,
+      defaultAgentId: activeAgent.value.id,
+      decision
+    })
+    if (stopRequested.value) {
+      plan.status = 'stopped'
+      session.value.executionPlan = plan
+      return
+    }
+    session.value.executionPlan = plan
+    planning.value = false
+    if (plan.status !== 'awaiting-choice') await executePlan(plan)
+  } catch (error) {
+    const plan = session.value.executionPlan
+    if (plan) plan.status = 'failed'
+    session.value.error = error instanceof Error ? error.message : String(error)
+  } finally {
+    planning.value = false
+  }
+}
+
+async function choosePlanOption(issue: AiPlanIssue, option: AiPlanOption) {
+  if (orchestrationBusy.value) return
+  issue.selectedOptionId = option.id
+  const plan = session.value.executionPlan
+  if (!plan) return
+  await planAndExecute(plan.request, `${issue.question}\n用户选择: ${option.label}\n${option.description}`)
+}
+
+function stopOrchestration() {
+  stopRequested.value = true
+  if (currentExecutionSessionId.value) aiStore.stopAgent(currentExecutionSessionId.value)
+  if (session.value.executionPlan) session.value.executionPlan.status = 'stopped'
+  session.value.error = '已停止'
 }
 
 async function send() {
   const text = inputText.value.trim()
-  if (!text || session.value.loading) return
+  if (!text || orchestrationBusy.value) return
   inputText.value = ''
   lastUserText.value = text
   session.value.messages.push({ role: 'user', content: text })
-  await runCurrentTurn(text)
+  await planAndExecute(text)
 }
 
 async function retry() {
-  if (session.value.loading) return
+  if (orchestrationBusy.value) return
   const text = lastUserText.value || [...session.value.messages].reverse().find(message => message.role === 'user')?.content
   if (!text) return
   session.value.error = null
-  await runCurrentTurn(text)
+  await planAndExecute(text)
 }
 
 function resetConversation() {
+  stopOrchestration()
   aiStore.resetSession(instanceId.value)
   inputText.value = ''
   lastUserText.value = ''
@@ -330,6 +610,10 @@ function shortResult(value: string, max = 600) {
           <span>{{ activeAgent.description }}</span>
         </div>
         <span class="cyber-badge">{{ aiStore.settings.model }}</span>
+        <span v-if="executionPlan" class="ai-current-agent-badge">
+          <v-icon size="12">mdi-robot-industrial-outline</v-icon>
+          {{ currentAgentName }}
+        </span>
       </div>
       <div class="ai-workspace-actions">
         <button class="action-btn" :data-tooltip="t('ai.editAgent')" :aria-label="t('ai.editAgent')" @click="showAgentDialog = true">
@@ -376,6 +660,15 @@ function shortResult(value: string, max = 600) {
             <v-icon size="13">{{ option.icon }}</v-icon>
             <span>{{ option.token }}</span>
           </button>
+          <button
+            v-for="reference in workspaceReferences"
+            :key="reference.id"
+            class="ai-token-button"
+            @click="appendToken(reference.token)"
+          >
+            <v-icon size="13">{{ reference.icon }}</v-icon>
+            <span>{{ reference.token }}</span>
+          </button>
         </div>
         <div class="ai-safety-note">
           <v-icon size="14">mdi-shield-check-outline</v-icon>
@@ -385,6 +678,47 @@ function shortResult(value: string, max = 600) {
 
       <main class="ai-conversation">
         <div ref="messagesRef" class="ai-conversation-messages">
+          <section v-if="executionPlan" class="ai-execution-plan cyber-panel" :class="`status-${executionPlan.status}`">
+            <div class="ai-plan-header">
+              <div>
+                <span class="ai-plan-kicker"><v-icon size="13">mdi-clipboard-text-outline</v-icon> Planner Agent</span>
+                <strong>{{ executionPlan.summary }}</strong>
+              </div>
+              <span class="cyber-badge">{{ planStatusLabel(executionPlan) }}</span>
+            </div>
+            <div v-if="executionPlan.steps.length" class="ai-plan-steps">
+              <div
+                v-for="(step, stepIndex) in executionPlan.steps"
+                :key="step.id"
+                class="ai-plan-step"
+                :class="`status-${step.status}`"
+              >
+                <v-icon size="14">{{ stepStatusIcon(step.status) }}</v-icon>
+                <span class="ai-plan-step-index">{{ String(stepIndex + 1).padStart(2, '0') }}</span>
+                <span class="ai-plan-step-body">
+                  <strong>{{ step.title }}</strong>
+                  <small>{{ step.detail }}</small>
+                </span>
+                <span class="ai-plan-agent">{{ step.agentName }}</span>
+              </div>
+            </div>
+            <div v-for="issue in executionPlan.issues" :key="issue.id" class="ai-plan-issue">
+              <strong><v-icon size="14">mdi-help-circle-outline</v-icon>{{ issue.question }}</strong>
+              <div class="ai-plan-options">
+                <button
+                  v-for="option in issue.options"
+                  :key="option.id"
+                  class="cyber-btn-secondary"
+                  :disabled="orchestrationBusy"
+                  @click="choosePlanOption(issue, option)"
+                >
+                  <span>{{ option.label }}</span>
+                  <small>{{ option.description }}</small>
+                </button>
+              </div>
+            </div>
+          </section>
+
           <div v-if="session.messages.length === 0" class="ai-workspace-empty">
             <span class="ai-empty-orbit"><v-icon size="36">mdi-robot-happy-outline</v-icon></span>
             <h2>{{ t('ai.workspaceTitle') }}</h2>
@@ -403,7 +737,7 @@ function shortResult(value: string, max = 600) {
                 <v-icon size="14">{{ message.role === 'user' ? 'mdi-account-outline' : 'mdi-robot-outline' }}</v-icon>
               </span>
               <div class="ai-message-body">
-                <span class="ai-message-role">{{ message.role === 'user' ? t('ai.you') : activeAgent.name }}</span>
+                <span class="ai-message-role">{{ message.role === 'user' ? t('ai.you') : (message.agentName || activeAgent.name) }}</span>
                 <div class="ai-message-content">{{ message.content }}</div>
               </div>
             </div>
@@ -422,9 +756,9 @@ function shortResult(value: string, max = 600) {
             </div>
           </template>
 
-          <div v-if="session.loading" class="ai-workspace-thinking">
+          <div v-if="orchestrationBusy" class="ai-workspace-thinking">
             <v-icon size="14">mdi-loading mdi-spin</v-icon>
-            <span>{{ t('ai.thinking') }}</span>
+            <span>{{ currentAgentName }} · {{ planning ? '正在规划' : '正在执行' }}</span>
           </div>
           <div v-if="session.error" class="ai-workspace-error">
             <v-icon size="14">mdi-alert-circle-outline</v-icon>
@@ -434,9 +768,10 @@ function shortResult(value: string, max = 600) {
         </div>
 
         <div class="ai-composer">
-          <div v-if="selectedAgents.length || selectedScopes.length" class="ai-composer-context">
+          <div v-if="selectedAgents.length || selectedScopes.length || selectedWorkspaceReferences.length" class="ai-composer-context">
             <span v-for="agent in selectedAgents" :key="agent.id" class="cyber-badge">@{{ agentHandle(agent) }}</span>
             <span v-for="scope in selectedScopes" :key="scope" class="cyber-badge">#{{ scope }}</span>
+            <span v-for="reference in selectedWorkspaceReferences" :key="reference.id" class="cyber-badge">{{ reference.token }}</span>
           </div>
           <div class="ai-composer-input">
             <textarea
@@ -444,7 +779,7 @@ function shortResult(value: string, max = 600) {
               class="cyber-input"
               rows="3"
               :placeholder="t('ai.composerPlaceholder')"
-              :disabled="session.loading"
+              :disabled="orchestrationBusy"
               @keydown="onKeydown"
             />
             <div v-if="mentionSuggestions.length" class="ai-mention-menu cyber-panel">
@@ -458,7 +793,7 @@ function shortResult(value: string, max = 600) {
                 <span><strong>{{ suggestion.label }}</strong><small>{{ suggestion.detail }}</small></span>
               </button>
             </div>
-            <button v-if="session.loading" class="cyber-btn-secondary" @click="aiStore.stopAgent(instanceId)">
+            <button v-if="orchestrationBusy" class="cyber-btn-secondary" @click="stopOrchestration">
               <v-icon size="14">mdi-stop</v-icon>{{ t('ai.stop') }}
             </button>
             <button v-else class="cyber-btn" :disabled="!inputText.trim()" @click="send">
