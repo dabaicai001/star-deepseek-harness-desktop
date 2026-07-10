@@ -7,9 +7,34 @@
 
 ## [未发布]
 
+### 修复
+- 🐛 fix(ai): 修复 AI SSH/DB/Docker 确认对话框不弹出的响应式更新问题 — confirmFn 状态变更后强制替换 toolCalls 数组引用并 await nextTick,确保 Vue 正确渲染批准/拒绝按钮
+
 ### 计划中
 - SQLite 数据库适配器
 - Settings 补「代理」「安全」2 个 tab
+
+---
+
+## [0.20.0] - 2026-07-10
+
+### 新增
+- ✨ feat(ai): 全局 AI 改为 **Planner Agent → Execution Agent** 两阶段编排。Planner 先提交结构化计划,每个步骤绑定负责 Agent;信息不足或存在关键分支时暂停执行并给出 2–4 个互斥选项,用户选择后重新规划并继续。
+- ✨ feat(ai): AI 工作区新增计划卡片、步骤状态、当前 Agent 徽章和逐 Agent 回复署名;支持停止当前执行步骤,计划状态完整覆盖规划中、等待选择、执行中、完成、失败和停止。
+- ✨ feat(ai): 全局 AI 增加 StarHub 应用工具注册表,覆盖能力发现、授权资产列表/打开、已打开标签查询/切换、设置与新建连接入口;真实 SSH / DB / Docker / Excel 操作继续由对应工作区 AI 和原有安全闸门执行。
+- ✨ feat(ai): `#` 工作区引用细化到具体资产,自动生成 `#SSH-测试服务器`、`#DB-测试环境`、`#Docker-生产集群` 等候选;模块级 `#SSH` / `#DB` 等引用继续保留。
+- ✨ feat(ai): Skills 在原有本地创建基础上支持外部导入 `.json` / `.md` / `.markdown` / `SKILL.md`,兼容单条、数组和 `{ skills: [] }` 包格式,校验 256 KB 上限、必填字段、作用域与重复项。
+
+### 修复
+- 🐛 fix(ssh-ai): `ssh_exec_confirmed` 执行 `cat > /home/work/update_domain` 会等待 stdin 直到 60 秒超时。现于确认和下发前拒绝无输入的 `cat` 重定向、不完整 heredoc、编辑器/分页器、持续日志和其他交互命令,并提示使用完整 heredoc 或 `printf`;合法 heredoc、管道和普通 `cat` 不受影响。
+- 🐛 fix(ssh-ai): 移除“输出静默 2 秒即判定成功”的危险兜底,避免 `sleep`、服务重启和包安装停顿时 AI 提前发送下一条命令;改为记录执行前真实 prompt + 通用 prompt 识别。超时、停止、新会话会发送 Ctrl+C 恢复共享 PTY,并拒绝并发命令覆盖未完成捕获。
+- 🐛 fix(ai): 强制确认和高风险工具调用不再显示无效的“加入白名单”按钮;只有 `whitelist-miss` 才允许加入。
+- 🐛 fix(ai): 工具卡片从 shrink-to-fit 改为整栏宽度,命令使用独立的可换行/滚动代码区,修复截图中命令卡片被压成窄条看不清的问题。
+- 🐛 fix(ai): 纯浏览器布局回归没有 Tauri runtime 时,AI Keyring 读取降级为“未配置 API Key”,不再暴露 `invoke undefined` 错误。
+
+### 测试
+- ✅ test(ai): 前端类型检查与生产构建通过;SSH 交互命令预检覆盖 5 个关键用例并验证在确认/执行前拒绝。
+- ✅ test(ui): 应用内 Browser 以 1280×800 回归完整 `CyberLayout`、AI Planner 状态卡、当前 Agent、Skills 自建/导入入口和错误降级;关键容器无横向溢出,浏览器 console 无 error。
 
 ---
 

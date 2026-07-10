@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useDbStore } from '@/stores/db'
 import { useAppStore } from '@/stores/app'
@@ -175,12 +175,16 @@ async function onAiSend(text: string) {
     if (running) {
       running.status = 'awaiting-confirm'
       running.result = ctx.message
+      running.confirmReason = ctx.reason
     } else {
       session.toolCalls.push({
         id: recordId, name: ctx.toolName, args: ctx.args,
-        status: 'awaiting-confirm', result: ctx.message, startedAt: Date.now()
+        status: 'awaiting-confirm', result: ctx.message, confirmReason: ctx.reason, startedAt: Date.now()
       })
     }
+    // 强制触发 Vue 响应式:替换 toolCalls 数组引用 + 等 nextTick 刷新 DOM
+    session.toolCalls = [...session.toolCalls]
+    await nextTick()
     return new Promise<boolean>((resolve) => {
       esPendingConfirms.value.set(recordId, resolve)
     })

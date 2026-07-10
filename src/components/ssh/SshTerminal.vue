@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import KbInteractiveDialog from './KbInteractiveDialog.vue'
@@ -291,6 +291,9 @@ async function runSshAgent() {
  startedAt: Date.now()
  })
  }
+ // 强制触发 Vue 响应式:替换 toolCalls 数组引用 + 等 nextTick 刷新 DOM
+ session.toolCalls = [...session.toolCalls]
+ await nextTick()
  return new Promise<boolean>((resolve) => {
  pendingConfirms.value.set(recordId, resolve)
  })
