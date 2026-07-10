@@ -906,7 +906,6 @@ function onQuickCmdAdd() {
   quickCommands.value.push({ label: '', cmd: '', icon: 'mdi-console', isDefault: false })
 }
 function onQuickCmdRemove(idx: number) {
-  if (quickCommands.value[idx]?.isDefault) return
   quickCommands.value.splice(idx, 1)
 }
 function onQuickCmdSave() {
@@ -1265,7 +1264,7 @@ function handleKbCancelled() {
  <h3>自定义快速命令</h3>
  </div>
  <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px;">
- 拖拽调整顺序，点击命令可直接运行。默认命令不可删除。
+ 拖拽调整顺序，所有命令均可删除。保存后生效。
  </p>
  <div class="qc-editor-list">
  <div
@@ -1319,7 +1318,6 @@ function handleKbCancelled() {
  />
  <v-icon v-if="qc.isDefault" size="14" color="var(--muted)" title="默认命令">mdi-shield-check-outline</v-icon>
  <button
- v-else
  class="action-btn"
  title="删除此命令"
  style="color: var(--red);"
