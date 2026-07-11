@@ -395,6 +395,13 @@ function shortResult(s: string, max = 240): string {
   min-height: 0;
 }
 
+/* 消息流自身负责滚动，子项必须保持内容高度。
+ * 工具卡片带 overflow: hidden；若仍使用 flex 默认的 shrink: 1，
+ * 历史消息较多时卡片会被压到只剩标题，命令与确认按钮随之被裁掉。 */
+.chat-messages > * {
+  flex-shrink: 0;
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;
