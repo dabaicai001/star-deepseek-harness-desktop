@@ -208,15 +208,23 @@ async function onAiRetry() {
   if (!aiSession.value) return
   const msgs = aiSession.value.messages
   while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
-  if (msgs.length) await onAiSend('')
+  const lastUserText = msgs.pop()?.content
+  if (lastUserText) await onAiSend(lastUserText)
 }
 
 function onAiNewChat() {
+  resolveEsPendingConfirms()
   aiStore.resetSession(instanceId.value)
 }
 
 function onAiStop() {
+  resolveEsPendingConfirms()
   aiStore.stopAgent(instanceId.value)
+}
+
+function resolveEsPendingConfirms() {
+  for (const resolve of esPendingConfirms.value.values()) resolve(false)
+  esPendingConfirms.value.clear()
 }
 
 function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {

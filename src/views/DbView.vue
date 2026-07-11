@@ -1888,15 +1888,23 @@ async function onAiRetry() {
   if (!aiSession.value) return
   const msgs = aiSession.value.messages
   while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
-  if (msgs.length) await onAiSend('')  // 跑 agent 不再加 user
+  const lastUserText = msgs.pop()?.content
+  if (lastUserText) await onAiSend(lastUserText)
 }
 
 function onAiNewChat() {
+  resolveDbPendingConfirms()
   aiStore.resetSession(instanceId.value)
 }
 
 function onAiStop() {
+  resolveDbPendingConfirms()
   aiStore.stopAgent(instanceId.value)
+}
+
+function resolveDbPendingConfirms() {
+  for (const resolve of dbPendingConfirms.value.values()) resolve(false)
+  dbPendingConfirms.value.clear()
 }
 
 function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {

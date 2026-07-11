@@ -7,12 +7,25 @@
 
 ## [未发布]
 
-### 修复
-- 🐛 fix(ai): 修复 AI SSH/DB/Docker 确认对话框不弹出的响应式更新问题 — confirmFn 状态变更后强制替换 toolCalls 数组引用并 await nextTick,确保 Vue 正确渲染批准/拒绝按钮
-
 ### 计划中
 - SQLite 数据库适配器
 - Settings 补「代理」「安全」2 个 tab
+
+---
+
+## [0.21.0] - 2026-07-11
+
+### 新增
+- ✨ feat(ssh-ai): AI 命令等待命令行交互时扩展中英文密码、确认和安装器提示识别;确认类提示提供“是/否”快捷按钮,密码输入自动聚焦、保持遮罩且从工具输出中脱敏,不会进入 AI 上下文。
+
+### 修复
+- 🐛 fix(ai): 修复 AI SSH/DB/Docker 确认对话框不弹出的响应式更新问题 — confirmFn 状态变更后强制替换 toolCalls 数组引用并 await nextTick,确保 Vue 正确渲染批准/拒绝按钮。
+- 🐛 fix(ai): 修复 `ssh_exec_confirmed` 等确认卡片展开后未重新滚动、批准/拒绝按钮被输入区遮挡的问题;同时补齐流式回复、工具结果和错误内容增长时的跟随滚动,用户向上阅读时不会被普通内容更新强制拉回底部。
+- 🐛 fix(ai): 修复 DB / Redis / Elasticsearch / Docker 重试时追加空用户消息的问题,现在会准确重发最后一条用户请求。
+- 🐛 fix(ai): 停止或新建会话时主动拒绝并清理待确认 Promise,避免 SSH / DB / Redis / Elasticsearch / Docker 的旧 AI 任务永久悬挂。
+
+### 测试
+- ✅ test(ai): 前端类型检查与生产构建通过;静态回归确认卡片状态监听、重试消息重建、待确认任务释放和 SSH 交互输入分支。
 
 ---
 

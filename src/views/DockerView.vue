@@ -480,15 +480,23 @@ async function onAiRetry() {
   if (!aiSession.value) return
   const msgs = aiSession.value.messages
   while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
-  if (msgs.length) await onAiSend('')
+  const lastUserText = msgs.pop()?.content
+  if (lastUserText) await onAiSend(lastUserText)
 }
 
 function onAiNewChat() {
+  resolveDockerPendingConfirms()
   aiStore.resetSession(instanceId.value)
 }
 
 function onAiStop() {
+  resolveDockerPendingConfirms()
   aiStore.stopAgent(instanceId.value)
+}
+
+function resolveDockerPendingConfirms() {
+  for (const resolve of dockerPendingConfirms.value.values()) resolve(false)
+  dockerPendingConfirms.value.clear()
 }
 
 function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {

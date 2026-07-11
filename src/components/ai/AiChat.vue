@@ -93,13 +93,24 @@ const emptyDescription = computed(() => {
   }
 })
 
-watch(() => props.session.messages.length, () => scrollToBottom())
-watch(() => props.session.toolCalls.length, () => scrollToBottom())
-watch(() => props.sending, () => scrollToBottom())
+watch(() => props.session.messages.length, () => scrollToBottom(true))
+watch(
+  () => props.session.messages.map(message => message.content?.length ?? 0).join(','),
+  () => scrollToBottom(),
+  { flush: 'post' }
+)
+watch(
+  () => props.session.toolCalls.map(call => `${call.id}:${call.status}:${call.result?.length ?? 0}:${call.errorMessage?.length ?? 0}`).join('|'),
+  (current, previous) => scrollToBottom(current.includes(':awaiting-confirm:') && !previous?.includes(':awaiting-confirm:')),
+  { flush: 'post' }
+)
+watch(() => props.sending, () => scrollToBottom(true))
 
-function scrollToBottom() {
+function scrollToBottom(force = false) {
+  const container = messagesRef.value
+  const wasNearBottom = !container || container.scrollHeight - container.scrollTop - container.clientHeight <= 48
   nextTick(() => {
-    if (messagesRef.value) {
+    if (messagesRef.value && (force || wasNearBottom)) {
       messagesRef.value.scrollTop = messagesRef.value.scrollHeight
     }
   })

@@ -132,7 +132,10 @@ const AI_PROMPT_CAPTURE_SAFETY_MS = 60 * 1000
 const aiInputDialogVisible = ref(false)
 const aiInputDialogPrompt = ref('')
 const aiInputFieldValue = ref('')
-let aiInputResolve: ((value: string) => void) | null = null
+const aiInputField = ref<HTMLInputElement>()
+const aiSensitiveInputs = new Set<string>()
+const aiInputIsPassword = computed(() => /password|passphrase|口令|密码/i.test(aiInputDialogPrompt.value))
+const aiInputIsConfirmation = computed(() => /\[(?:Y|y)\/(?:N|n)\]|\[(?:N|n)\/(?:Y|y)\]|yes\s*\/\s*no|确认|继续/i.test(aiInputDialogPrompt.value))
 // 检测命令是否需要交互输入的模式
 const INTERACTIVE_PROMPT_PATTERNS = [
   /\[sudo\]\s/i,
@@ -141,8 +144,12 @@ const INTERACTIVE_PROMPT_PATTERNS = [
   /\[(?:Y|y)\/(?:N|n)\]\s*$/m,
   /\(\s*(?:yes|no)\s*\)\s*$/im,
   /continue\s*\?\s*$/im,
+  /do you want to continue\??\s*$/im,
+  /are you sure\??\s*$/im,
   /proceed\s*\?\s*$/im,
   /confirm\s*(?:\S+\s+)?\?\s*$/im,
+  /(?:请输入|输入).*(?:密码|口令)\s*[：:]?\s*$/m,
+  /(?:是否|确认).*(?:继续|执行|安装|删除)\s*[？?]?\s*$/m,
 ]
 
 const kbDialogRef = ref<InstanceType<typeof KbInteractiveDialog>>()
@@ -223,11 +230,13 @@ async function onAiRetry() {
 }
 
 function onAiNewChat() {
+ resolvePendingAiConfirms()
  interruptAiCommand(new Error('已开始新会话,当前 SSH AI 命令已停止'))
  aiStore.resetSession(props.id)
 }
 
 function onAiStop() {
+ resolvePendingAiConfirms()
  aiStore.stopAgent(props.id)
  interruptAiCommand(new Error('SSH AI 命令已由用户停止'))
 }
@@ -263,6 +272,11 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 
 /**等待用户确认的 tool call记录 ID → resolve回调 */
 const pendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
+
+function resolvePendingAiConfirms() {
+ for (const resolve of pendingConfirms.value.values()) resolve(false)
+ pendingConfirms.value.clear()
+}
 
 async function runSshAgent() {
  if (!aiSession.value) return
@@ -853,6 +867,7 @@ function maybeResolvePromptCapture() {
  * 如果检测到,弹出输入对话框让用户输入,然后发送输入继续执行。
  */
 function detectInteractivePrompt(raw: string): boolean {
+  if (aiInputDialogVisible.value) return true
   // 只检查最近 2000 字符
   const recent = normalizeTerminalText(raw).slice(-2000)
   
@@ -879,16 +894,21 @@ function detectInteractivePrompt(raw: string): boolean {
 
 function showAiInputDialog(promptHint: string) {
   aiInputDialogPrompt.value = promptHint
+  aiInputFieldValue.value = ''
   aiInputDialogVisible.value = true
+  void nextTick(() => aiInputField.value?.focus())
 }
 
 function onAiInputSubmit(input: string) {
+  const value = input
+  if (aiInputIsPassword.value && value) aiSensitiveInputs.add(value)
+  aiInputFieldValue.value = ''
   aiInputDialogVisible.value = false
   const current = promptCapture
   if (!current) return
   
   // 发送用户输入
-  void invoke('ssh_write', { id: props.id, data: input + '\n' }).catch(err => {
+  void invoke('ssh_write', { id: props.id, data: value + '\n' }).catch(err => {
     console.error('Failed to write AI input:', err)
   })
   
@@ -903,6 +923,7 @@ function onAiInputSubmit(input: string) {
 }
 
 function onAiInputCancel() {
+  aiInputFieldValue.value = ''
   aiInputDialogVisible.value = false
   const current = promptCapture
   if (!current) return
@@ -966,7 +987,12 @@ function cleanPromptCapturedOutput(raw: string, command: string): string {
  if (lines.length && isShellPromptLine(lines[lines.length - 1])) {
    lines.pop()
  }
- return lines.join('\n').trim()
+ let output = lines.join('\n').trim()
+ for (const secret of aiSensitiveInputs) {
+   if (secret) output = output.split(secret).join('[REDACTED]')
+ }
+ aiSensitiveInputs.clear()
+ return output
 }
 
 // ======快速命令栏(连接后顶部一条小横条) ======
@@ -1541,15 +1567,22 @@ function handleKbCancelled() {
           v-model="aiInputFieldValue"
           class="cyber-input"
           style="margin-top: 12px; width: 100%;"
-          :type="aiInputDialogPrompt.toLowerCase().includes('password') ? 'password' : 'text'"
-          placeholder="输入要发送的内容…"
-          @keydown.enter="onAiInputSubmit(aiInputFieldValue); aiInputFieldValue = ''"
+          :type="aiInputIsPassword ? 'password' : 'text'"
+          :autocomplete="aiInputIsPassword ? 'current-password' : 'off'"
+          :placeholder="aiInputIsPassword ? '输入密码（不会发送给 AI）' : '输入要发送的内容…'"
+          @keydown.enter="onAiInputSubmit(aiInputFieldValue)"
         />
         <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
           <button class="cyber-btn-secondary" style="font-size: 12px; padding: 6px 14px;" @click="onAiInputCancel()">
             取消 (Ctrl+C)
           </button>
-          <button class="cyber-btn" style="font-size: 12px; padding: 6px 18px;" @click="onAiInputSubmit(aiInputFieldValue); aiInputFieldValue = ''">
+          <button v-if="aiInputIsConfirmation" class="cyber-btn-secondary" style="font-size: 12px; padding: 6px 14px;" @click="onAiInputSubmit('n')">
+            否 (n)
+          </button>
+          <button v-if="aiInputIsConfirmation" class="cyber-btn" style="font-size: 12px; padding: 6px 18px;" @click="onAiInputSubmit('y')">
+            是 (y)
+          </button>
+          <button v-else class="cyber-btn" style="font-size: 12px; padding: 6px 18px;" @click="onAiInputSubmit(aiInputFieldValue)">
             发送
           </button>
         </div>
