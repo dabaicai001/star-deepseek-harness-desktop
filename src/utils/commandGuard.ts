@@ -35,10 +35,17 @@ const RISKY_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\bdd\s+if=/i, reason: 'dd 命令会覆写磁盘' },
   { pattern: /\bmkfs\./i, reason: 'mkfs 格式化文件系统' },
   { pattern: /\b(format|fdisk)\b/i, reason: '磁盘格式化/分区工具' },
+  { pattern: /\b(remove-item|ri)\b[^\n]*(-recurse|-force)/i, reason: 'PowerShell 递归/强制删除' },
+  { pattern: /\b(del|erase)\b[^\n]*\/(s|q)\b/i, reason: 'Windows 批量/静默删除' },
+  { pattern: /\b(rmdir|rd)\b[^\n]*\/s\b/i, reason: 'Windows 递归删除目录' },
+  { pattern: /\b(format-volume|clear-disk|initialize-disk|diskpart)\b/i, reason: 'Windows 磁盘格式化/分区工具' },
+  { pattern: /\bdiskutil\s+(erase|partition|apfs\s+delete)/i, reason: 'macOS 磁盘抹除/分区工具' },
   { pattern: /\bshutdown\b/i, reason: '关机命令' },
   { pattern: /\breboot\b/i, reason: '重启命令' },
   { pattern: /\bhalt\b/i, reason: '关机命令' },
   { pattern: /\bpoweroff\b/i, reason: '关机命令' },
+  { pattern: /\b(stop-computer|restart-computer)\b/i, reason: 'Windows 关机/重启命令' },
+  { pattern: /\bshutdown(?:\.exe)?\b[^\n]*\/(s|r|p)\b/i, reason: 'Windows 关机/重启命令' },
   { pattern: /\binit\s+[0-6]\b/i, reason: '切换运行级别' },
   { pattern: /\bkill\s+-9\s+1\b/i, reason: 'kill init 进程' },
   { pattern: /\bpkill\s+-9\s+-f\s+(bash|init|sshd)/i, reason: '杀死关键系统进程' },
@@ -122,12 +129,13 @@ export function checkCommand(
  * 白名单前缀匹配:支持简单的开头匹配,自动 trim 空白
  */
 function matchesWhitelist(command: string, prefix: string): boolean {
-  const p = prefix.trim()
+  const p = prefix.trim().toLowerCase()
   if (!p) return false
+  const normalized = command.toLowerCase()
   // 完整命令以 p 开头(允许前导空格)
-  if (command.startsWith(p)) return true
+  if (normalized === p) return true
   // 允许 "ls" 匹配 "ls -la"(任意 ls 开头的命令)
-  if (command.startsWith(p + ' ')) return true
+  if (normalized.startsWith(p + ' ')) return true
   return false
 }
 

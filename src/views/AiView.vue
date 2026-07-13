@@ -18,6 +18,7 @@ import AiAgentDialog from '@/components/ai/AiAgentDialog.vue'
 import type { Asset } from '@/types/asset'
 import type { LlmTool, LlmToolCall } from '@/services/ai'
 import { createDirectWorkspaceRuntime } from '@/services/aiWorkspace'
+import { createLocalAiRuntime } from '@/services/aiLocal'
 import type { ToolConfirmCtx } from '@/utils/aiTools'
 import { extractWhitelistPrefix } from '@/utils/commandGuard'
 
@@ -71,7 +72,8 @@ const capabilityOptions: Array<{
   { type: 'ssh', token: '#SSH', label: 'SSH', icon: 'mdi-console', description: '终端、主机与 SFTP 资产' },
   { type: 'db', token: '#DB', label: 'DB', icon: 'mdi-database-outline', description: '数据库与消息队列资产' },
   { type: 'docker', token: '#Docker', label: 'Docker', icon: 'mdi-docker', description: '容器与镜像工作区' },
-  { type: 'excel', token: '#Excel', label: 'Excel', icon: 'mdi-file-excel-outline', description: '工作簿与数据分析' }
+  { type: 'excel', token: '#Excel', label: 'Excel', icon: 'mdi-file-excel-outline', description: '工作簿与数据分析' },
+  { type: 'local', token: '#LOCAL', label: 'LOCAL', icon: 'mdi-laptop', description: '本机文件系统与跨平台 Shell' }
 ]
 
 interface WorkspaceReference {
@@ -88,7 +90,8 @@ function workspacePrefix(type: AiAssetType) {
   if (type === 'ssh') return 'SSH'
   if (type === 'db') return 'DB'
   if (type === 'docker') return 'Docker'
-  return 'Excel'
+  if (type === 'excel') return 'Excel'
+  return 'LOCAL'
 }
 
 function tokenSafeName(value: string) {
@@ -218,7 +221,10 @@ function extractAgents(text: string): AiAgent[] {
 }
 
 function extractScopes(text: string): AiAssetType[] {
-  const matches = Array.from(text.matchAll(/#(ssh|db|docker|excel)(?=\s|$)/gi), match => match[1].toLowerCase())
+  const matches = Array.from(text.matchAll(/#(ssh|db|docker|excel|local|本机)(?=\s|$)/gi), match => {
+    const scope = match[1].toLowerCase()
+    return scope === '本机' ? 'local' : scope
+  })
   return Array.from(new Set(matches)) as AiAssetType[]
 }
 
@@ -293,6 +299,7 @@ async function executeWorkspaceTool(call: LlmToolCall, assets: Asset[]) {
       broker: ['Kafka', 'NSQ', 'Topic/Channel 状态'],
       docker: ['容器', '镜像', '日志', 'Inspect', 'SSH/TCP/Socket 连接'],
       excel: ['工作簿', 'CSV', '编辑', '筛选', '排序', '公式', '导入导出'],
+      local: ['Windows PowerShell', 'macOS/Linux /bin/sh', '目录与路径元数据', '文本文件读写', '复制/移动/删除'],
       application: ['资产与标签导航', '新建连接', '设置', 'AI Agents', 'Skills']
     })
   }
@@ -325,22 +332,28 @@ function buildPrompt(text: string, primaryAgent: AiAgent = activeAgent.value) {
   const scopes = extractScopes(text)
   const references = extractWorkspaceReferences(text)
   const assets = scopedAssets(scopes, references)
+  const localAuthorized = scopes.includes('local')
   const contextTokens = [
     ...scopes.map(scope => `#${workspacePrefix(scope)}`),
     ...references.map(reference => reference.token)
   ]
-  if (assets.length > 0) {
-    const inventory = assets
-      .map(asset => `- ${asset.id} | ${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`)
-      .join('\n') || '- 当前没有匹配资产'
-    prompt += `\n\n本轮 # 工作区授权: ${contextTokens.join(', ')}\n可见资产:\n${inventory}\n\n你可以直接调用 SSH / DB / Redis / Elasticsearch / Docker / Excel 工具操作这些授权工作区。直接操作不会打开、切换或新建任何标签页。工具参数 workspace 使用上方资产 id 或完整名称；同类只有一个授权资产时可省略。所有命令仍受白名单、写操作确认和高危规则约束。未通过 # 提及的资产不得访问。需要用户做选择时不得要求输入 A/B/C 或序号,必须交回 Planner 的结构化点击选项。`
+  if (assets.length > 0 || localAuthorized) {
+    const inventory = [
+      ...assets.map(asset => `- ${asset.id} | ${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`),
+      ...(localAuthorized ? ['- LOCAL | 本机 | 当前运行 StarHub 的 Windows / macOS / Linux 设备'] : [])
+    ].join('\n')
+    prompt += `\n\n本轮 # 工作区授权: ${contextTokens.join(', ')}\n可见目标:\n${inventory}\n\n你可以直接调用授权目标对应的 SSH / DB / Redis / Elasticsearch / Docker / Excel / LOCAL 工具,不会打开、切换或新建标签页。LOCAL 工具仅在 #LOCAL 或 #本机 明确出现时可用；Windows 命令使用 PowerShell 语法,macOS/Linux 使用 POSIX /bin/sh 语法,应先调用 local_system_info 判断平台。文件正文读取会发送给当前 AI Provider,必须经人工确认；本机写操作、移动、复制和删除始终确认；Shell 命令继续受白名单与系统级高危规则约束。未通过 # 提及的资产和本机能力不得访问。需要用户做选择时不得要求输入 A/B/C 或序号,必须交回 Planner 的结构化点击选项。`
   } else {
-    prompt += '\n\n本轮没有 # 工作区授权。可以使用应用级设置和能力发现工具,但不得访问任何资产;需要资产时请明确要求用户引用具体工作区,例如 #SSH-测试服务器。'
+    prompt += '\n\n本轮没有 # 工作区授权。可以使用应用级设置和能力发现工具,但不得访问任何资产或本机;需要本机能力时请要求用户引用 #LOCAL,需要远程资产时引用具体工作区,例如 #SSH-测试服务器。'
   }
   return {
     prompt,
     assets,
-    context: assets.map(asset => `${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`).join('\n')
+    localAuthorized,
+    context: [
+      ...assets.map(asset => `${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`),
+      ...(localAuthorized ? ['LOCAL | 当前运行 StarHub 的本机（文件系统 + Shell）'] : [])
+    ].join('\n')
   }
 }
 
@@ -452,7 +465,7 @@ async function runPlanStep(plan: AiExecutionPlan, step: AiPlanStep): Promise<boo
   runningAgentNames.value.add(agent.name)
   runningAgentNames.value = new Set(runningAgentNames.value)
   syncRunningAgents(plan)
-  const { prompt, assets } = buildPrompt(plan.request, agent)
+  const { prompt, assets, localAuthorized } = buildPrompt(plan.request, agent)
   const tempId = `${instanceId.value}:execution:${plan.id}:${step.id}`
   currentExecutionSessionIds.value.add(tempId)
   currentExecutionSessionIds.value = new Set(currentExecutionSessionIds.value)
@@ -470,14 +483,22 @@ async function runPlanStep(plan: AiExecutionPlan, step: AiPlanStep): Promise<boo
     getWhitelist: () => aiStore.settings.commandWhitelist,
     confirm: context => requestToolConfirmation(tempId, context)
   })
+  const localRuntime = createLocalAiRuntime({
+    getWhitelist: () => aiStore.settings.commandWhitelist,
+    confirm: context => requestToolConfirmation(tempId, context)
+  })
 
   try {
-    const allTools = [...workspaceTools, ...runtime.tools]
+    const allTools = [...workspaceTools, ...runtime.tools, ...(localAuthorized ? localRuntime.tools : [])]
     await aiStore.runAgent(
       tempId,
       allTools,
       call => call.function.name.startsWith('starhub_')
         ? executeWorkspaceTool(call, assets)
+        : call.function.name.startsWith('local_')
+          ? localAuthorized
+            ? localRuntime.execute(call)
+            : Promise.reject(new Error('本轮未通过 #LOCAL / #本机 授权本机操作'))
         : runtime.execute(call),
       `${prompt}\n\n你当前是执行 Agent「${agent.name}」。严格只执行计划中的当前步骤: ${step.title}。${step.agentMode === 'temporary' ? '\n你是只在本计划中存在的一次性专职 Agent,完成后立即结束。' : ''}`
     )
@@ -657,16 +678,16 @@ function onQuickAnalyze(e: Event) {
 
 function applyDevMockState() {
   if (!devMockWorkspace.value) return
-  session.value.messages = [{ role: 'user', content: '#SSH-生产主机 检查服务状态,必要时并行分析日志和容器' }]
+  session.value.messages = [{ role: 'user', content: '#LOCAL #SSH-生产主机 检查本机与服务状态,必要时并行分析日志和容器' }]
   session.value.error = null
   session.value.executionPlan = {
     id: 'mock-direct-plan',
     request: session.value.messages[0].content || '',
-    summary: '无标签直连生产主机,并行收集日志与容器证据',
+    summary: '直接检查本机与生产主机,并行收集日志和容器证据',
     status: 'awaiting-choice',
     steps: [
       {
-        id: 'mock-step-1', title: '读取主机状态', detail: '通过 # 授权直接执行只读 SSH 命令',
+        id: 'mock-step-1', title: '识别本机环境', detail: '通过 #LOCAL 判断 Windows、macOS 或 Linux 并选择 Shell',
         agentId: activeAgent.value.id, agentName: activeAgent.value.name,
         agentMode: 'configured', executionMode: 'sequential', status: 'completed'
       },
@@ -699,11 +720,11 @@ function applyDevMockState() {
   }
   session.value.toolCalls = [{
     id: 'mock-confirm',
-    name: 'ssh_exec_confirmed',
-    args: { workspace: '生产主机', command: 'sudo systemctl restart payment-api' },
+    name: 'local_shell_exec_confirmed',
+    args: { command: 'Restart-Service payment-api', workingDir: 'C:\\ops' },
     status: 'awaiting-confirm',
     confirmReason: 'whitelist-miss',
-    result: '目标工作区: 生产主机\n\n即将执行命令:\n\nsudo systemctl restart payment-api\n\n请确认是否执行。',
+    result: '目标: 本机 (Windows)\n\n即将执行命令:\n\nRestart-Service payment-api\n\n请确认是否执行。',
     startedAt: Date.now()
   }]
 }
@@ -896,6 +917,7 @@ function shortResult(value: string, max = 600) {
             <h2>{{ t('ai.workspaceTitle') }}</h2>
             <p>{{ t('ai.workspaceHint') }}</p>
             <div class="ai-starter-grid">
+              <button @click="inputText = '#LOCAL 检查本机系统、进程和磁盘状态'">#LOCAL {{ t('ai.starterLocal') }}</button>
               <button @click="inputText = '#SSH 检查主机健康状态并告诉我先看哪些指标'">#SSH {{ t('ai.starterHealth') }}</button>
               <button @click="inputText = '#DB 分析数据库性能问题的排查路径'">#DB {{ t('ai.starterDatabase') }}</button>
               <button @click="inputText = '#Docker 找出需要优先关注的容器'">#Docker {{ t('ai.starterDocker') }}</button>

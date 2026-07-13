@@ -930,8 +930,9 @@ function isGroupExpanded(id: string) {
       <div v-show="isGroupExpanded('ai')" class="tree-group-body">
         <!-- 未配置时的引导 -->
         <div v-if="!aiConfigured" class="ai-unconfigured-guide">
-          <p>连接 LLM 即可用 AI 自然语言操作 SSH / 数据库 / Docker / Excel</p>
+          <p>连接 LLM 即可用 AI 自然语言操作本机、SSH、数据库、Docker 与 Excel</p>
           <div class="quick-hints">
+            <span>#LOCAL</span>
             <span>#SSH</span>
             <span>#DB</span>
             <span>#Docker</span>

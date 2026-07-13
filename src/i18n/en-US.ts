@@ -453,10 +453,11 @@ export default {
     noBoundSkills: 'No skills bound',
     sharedSettingsHint: 'Provider, API key, model, and safety allowlist are shared with Settings → AI Assistant.',
     callAgent: "Call an agent with {'@'}",
-    referenceWorkspace: 'Reference a workspace with #',
-    safetyHint: '# authorizes StarHub AI to operate the referenced workspace directly for this turn without opening tabs; confirmations, allowlists, and risk checks always apply.',
+    referenceWorkspace: 'Authorize a target with #',
+    safetyHint: '#LOCAL authorizes local files and Shell; other # references authorize their workspaces. Content reads, writes, allowlists, and risk checks remain enforced.',
     workspaceTitle: 'AI Command Workspace',
-    workspaceHint: "Use {'@'} to choose roles and # to authorize direct workspace operations. Modules not explicitly referenced remain hidden from the model.",
+    workspaceHint: "Use {'@'} to choose roles and # to authorize local or workspace operations. Capabilities not explicitly referenced remain hidden from the model.",
+    starterLocal: 'Local health check',
     starterHealth: 'Host health check',
     starterDatabase: 'Database performance',
     starterDocker: 'Container diagnostics',
@@ -465,7 +466,7 @@ export default {
     thinking: 'Agent is analyzing...',
     retry: 'Retry',
     stop: 'Stop',
-    composerPlaceholder: "Ask a question; use {'@'}Agent to collaborate and #SSH / #DB / #Docker / #Excel for workspace context...",
+    composerPlaceholder: "Ask a question; use {'@'}Agent to collaborate and #LOCAL / #SSH / #DB / #Docker / #Excel to authorize targets...",
     composerHint: "Enter to send · Shift+Enter for newline · {'@'} Agent · # Workspace",
     parallelAgent: 'Parallel',
     temporaryAgent: 'Temporary',
@@ -479,7 +480,7 @@ export default {
     emptyDb: 'Ask about this database, e.g. “analyze slow queries and suggest indexes”',
     emptyDocker: 'Ask about this Docker host, e.g. “find unhealthy containers and analyze recent logs”',
     emptyExcel: 'Ask about this workbook, e.g. “summarize the data and highlight anomalies”',
-    emptyAgent: "Use {'@'} to call AI Agents and # to reference SSH, DB, Docker, or Excel workspaces",
+    emptyAgent: "Use {'@'} to call AI Agents, #LOCAL for this computer, or # to reference SSH, DB, Docker, and Excel workspaces",
     emptyGeneric: 'Ask about the current workspace status, data, or next action'
   }
 }

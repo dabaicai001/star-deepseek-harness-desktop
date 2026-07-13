@@ -86,13 +86,14 @@ const AI_ASSET_TYPES: Array<{ value: AiAssetType; label: string }> = [
   { value: 'ssh', label: 'SSH' },
   { value: 'db', label: 'DB' },
   { value: 'docker', label: 'Docker' },
-  { value: 'excel', label: 'Excel' }
+  { value: 'excel', label: 'Excel' },
+  { value: 'local', label: 'LOCAL' }
 ]
 
 const customSkillName = ref('')
 const customSkillDescription = ref('')
 const customSkillPrompt = ref('')
-const customSkillAssetTypes = ref<AiAssetType[]>(['ssh', 'db', 'docker', 'excel'])
+const customSkillAssetTypes = ref<AiAssetType[]>(['ssh', 'db', 'docker', 'excel', 'local'])
 const skillImportInput = ref<HTMLInputElement | null>(null)
 const skillImportResult = ref<string | null>(null)
 
@@ -183,7 +184,7 @@ function addCustomSkill() {
   if (!name || !prompt) return
   const assetTypes = customSkillAssetTypes.value.length > 0
     ? [...customSkillAssetTypes.value]
-    : ['ssh', 'db', 'docker', 'excel'] as AiAssetType[]
+    : ['ssh', 'db', 'docker', 'excel', 'local'] as AiAssetType[]
   const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
   aiLocal.value.customSkills.push({
     id,
@@ -210,9 +211,9 @@ function normalizeImportedAssetTypes(value: unknown): AiAssetType[] {
     : typeof value === 'string'
       ? value.split(/[,/\s]+/)
       : []
-  const allowed = new Set<AiAssetType>(['ssh', 'db', 'docker', 'excel'])
+  const allowed = new Set<AiAssetType>(['ssh', 'db', 'docker', 'excel', 'local'])
   const parsed = raw.map(item => String(item).toLowerCase()).filter((item): item is AiAssetType => allowed.has(item as AiAssetType))
-  return parsed.length > 0 ? Array.from(new Set(parsed)) : ['ssh', 'db', 'docker', 'excel']
+  return parsed.length > 0 ? Array.from(new Set(parsed)) : ['ssh', 'db', 'docker', 'excel', 'local']
 }
 
 function parseSkillMarkdown(content: string, fileName: string): Record<string, unknown> {
@@ -549,7 +550,7 @@ const PRESET_MODELS = [
           <span class="section-title">SKILLS</span>
         </div>
         <p class="section-desc">
-          启用的技能会注入到对应工作区 AI 的系统提示中;自定义技能可限定到 SSH、DB、Docker 或 Excel。
+          启用的技能会注入到对应目标 AI 的系统提示中;自定义技能可限定到 LOCAL、SSH、DB、Docker 或 Excel。
         </p>
 
         <div class="skills-grid">

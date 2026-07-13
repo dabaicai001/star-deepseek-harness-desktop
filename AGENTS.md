@@ -13,7 +13,7 @@
 - 🖥️ SSH 终端(跳板机、隧道、命令广播、批量执行)
 - 📁 SFTP 文件传输(三栏布局、ZMODEM/SCP、断点续传)
 - 🐳 Docker 面板(容器/镜像、SSH 通道连远程 Docker、镜像加速)
-- 🤖 AI 助手(自然语言驱动运维,Function Calling)
+- 🤖 AI 助手(自然语言驱动本机与远程运维,Function Calling)
 
 详细功能矩阵见 [`docs/技术方案.md`](./docs/技术方案.md) 第 3 章(280+ 子功能,P0/P1/P2/P3 标注)。
 
@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.25.0(StarHub AI 无标签直连与多 Agent 编排)
+| 当前版本 | v0.26.0(StarHub AI 跨平台本机操作)
 
 ---
 
@@ -57,6 +57,7 @@ starhub/
 ├── src-tauri/                # 桌面壳与主进程 - Rust
 │   ├── src/
 │   │   ├── main.rs            # 入口
+│   │   ├── commands/local.rs  # #LOCAL 本机 Shell / 文件系统 IPC
 │   │   ├── ssh/               # SSH 模块(russh)
 │   │   ├── sftp/              # SFTP 模块
 │   │   ├── docker/            # Docker 模块(bollard)
@@ -749,4 +750,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-13 (v0.25.0)*
+*最后更新: 2026-07-13 (v0.26.0)*

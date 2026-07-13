@@ -182,6 +182,17 @@ fn main() {
             commands::broker::broker_overview,
             // File
             commands::file::open_file_external,
+            // Local machine (AI #LOCAL workspace)
+            commands::local::local_system_info,
+            commands::local::local_shell_exec,
+            commands::local::local_list_directory,
+            commands::local::local_stat_path,
+            commands::local::local_read_text_file,
+            commands::local::local_write_text_file,
+            commands::local::local_create_directory,
+            commands::local::local_copy_file,
+            commands::local::local_move_path,
+            commands::local::local_remove_path,
             // AI
             commands::ai::ai_chat,
             commands::ai::ai_list_models,

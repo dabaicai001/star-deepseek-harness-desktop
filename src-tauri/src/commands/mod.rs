@@ -4,6 +4,7 @@ pub mod broker;
 pub mod db;
 pub mod docker;
 pub mod file;
+pub mod local;
 pub mod secret;
 pub mod sftp;
 pub mod sidecar;

@@ -7,7 +7,7 @@ import { decrypt as decryptLegacyKey } from '@/utils/crypto'
 
 const KEYRING_MARKER = 'keyring:v1'
 
-export type AiAssetType = 'ssh' | 'db' | 'docker' | 'excel'
+export type AiAssetType = 'ssh' | 'db' | 'docker' | 'excel' | 'local'
 export type AiContextType = AiAssetType | 'ai'
 
 export interface AiSkillDefinition {
@@ -61,28 +61,28 @@ export const BUILTIN_AI_SKILLS: AiSkillDefinition[] = [
     id: 'ops-triage',
     name: '运维排障',
     description: '先定位影响面、证据和根因,再给出最小修复动作。',
-    assetTypes: ['ssh', 'db', 'docker'],
+    assetTypes: ['ssh', 'db', 'docker', 'local'],
     prompt: '处理故障时按 现象 -> 证据 -> 可能原因 -> 下一步验证 -> 建议动作 的顺序推进;不要一次性执行大量命令,每一步都解释为什么需要这条证据。'
   },
   {
     id: 'performance',
     name: '性能分析',
     description: '面向 CPU、内存、磁盘、慢查询和容器资源瓶颈。',
-    assetTypes: ['ssh', 'db', 'docker', 'excel'],
+    assetTypes: ['ssh', 'db', 'docker', 'excel', 'local'],
     prompt: '做性能分析时优先比较当前值、趋势和阈值;输出结论要区分确定事实与推测,并标出最值得继续验证的瓶颈。'
   },
   {
     id: 'log-analysis',
     name: '日志分析',
     description: '聚焦错误模式、时间窗口、上下文和复现线索。',
-    assetTypes: ['ssh', 'docker'],
+    assetTypes: ['ssh', 'docker', 'local'],
     prompt: '分析日志时先缩小时间窗口和关键词,避免全量拉取大日志;总结时给出错误签名、出现频率、关联服务和可执行的下一步。'
   },
   {
     id: 'safe-change',
     name: '安全变更',
     description: '写操作前强调影响范围、回滚点和人工确认。',
-    assetTypes: ['ssh', 'db', 'docker', 'excel'],
+    assetTypes: ['ssh', 'db', 'docker', 'excel', 'local'],
     prompt: '任何修改状态、删除、重启、写文件、写数据库、清理资源的动作都必须先说明影响范围和回滚方式;能用只读命令验证时先验证,再请求确认。'
   },
   {
@@ -101,14 +101,21 @@ function createDefaultAgent(): AiAgent {
   return {
     id: 'starhub-assistant',
     name: 'StarHub AI',
-    description: '通用 DevOps 助手,负责跨工作区分析、规划与任务分派。',
-    systemPrompt: '你是 StarHub 的主 AI 助手。先理解目标和上下文,优先使用只读信息形成判断;需要进入具体工作区时明确指出目标资产和下一步。',
+    description: '通用 DevOps 助手,负责本机与跨工作区分析、规划和任务分派。',
+    systemPrompt: '你是 StarHub 的主 AI 助手。先理解目标和上下文,优先使用只读信息形成判断;操作本机或具体工作区前必须确认本轮 # 授权范围。',
     skillIds: [...DEFAULT_ENABLED_SKILL_IDS],
     favorited: true,
     createdAt: now,
     updatedAt: now
   }
 }
+
+const LOCAL_COMMAND_WHITELIST_V3 = [
+  'Get-ChildItem', 'Get-Content', 'Select-String', 'Get-Item', 'Get-Location',
+  'Get-Process', 'Get-Service', 'Get-CimInstance', 'Get-ComputerInfo',
+  'Test-Path', 'Resolve-Path', 'Measure-Object', 'Compare-Object',
+  'Get-NetTCPConnection', 'Get-NetIPAddress', 'Get-DnsClientCache'
+]
 
 const DEFAULT_COMMAND_WHITELIST = [
   'ls', 'cat', 'head', 'tail', 'less', 'more', 'grep', 'find', 'pwd',
@@ -125,6 +132,8 @@ const DEFAULT_COMMAND_WHITELIST = [
   'mysql -e "SELECT', 'mysql -e "SHOW', 'mysql -e "DESCRIBE',
   'redis-cli GET', 'redis-cli HGET', 'redis-cli HGETALL', 'redis-cli LRANGE',
   'redis-cli SMEMBERS', 'redis-cli ZRANGE', 'redis-cli KEYS',
+  // Windows PowerShell 只读命令（匹配不区分大小写）
+  ...LOCAL_COMMAND_WHITELIST_V3,
 ]
 
 /**
@@ -155,6 +164,8 @@ export interface AiSettings {
    * 风险词命中的命令即使加进白名单也会被强制拦截。
    */
   commandWhitelist: string[]
+  /** 命令白名单预设迁移版本；用户删除预设后不会在每次启动时被重新加入。 */
+  commandWhitelistVersion: number
 }
 
 export type AiPlanStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
@@ -231,7 +242,7 @@ export interface AiToolCallRecord {
   finishedAt?: number
 }
 
-const DEFAULT_SYSTEM_PROMPT = '你是一个专业的运维助手,帮助用户通过 SSH、数据库、Docker 完成运维任务。请用中文回答,简洁准确。'
+const DEFAULT_SYSTEM_PROMPT = '你是一个专业的运维助手,帮助用户操作本机、SSH、数据库、Docker 和工作簿。请用中文回答,简洁准确。'
 
 export const useAiStore = defineStore('ai', () => {
   // ====== 全局配置 ======
@@ -295,7 +306,9 @@ export const useAiStore = defineStore('ai', () => {
     commandTimeoutSec: 3,
     enabledSkillIds: [...DEFAULT_ENABLED_SKILL_IDS],
     customSkills: [],
-    commandWhitelist: [...DEFAULT_COMMAND_WHITELIST]
+    commandWhitelist: [...DEFAULT_COMMAND_WHITELIST],
+    // 初始值保留在上一版,确保首次创建和旧持久化状态都执行一次 v3 跨平台预设迁移。
+    commandWhitelistVersion: 2
   })
 
   // Agent 只保存角色与技能绑定;Provider / API Key / 模型始终复用 settings。
@@ -321,6 +334,10 @@ export const useAiStore = defineStore('ai', () => {
     const s = settings.value
     if (!Array.isArray(s.commandWhitelist)) {
       s.commandWhitelist = [...DEFAULT_COMMAND_WHITELIST]
+    }
+    if (!Number.isFinite(s.commandWhitelistVersion) || s.commandWhitelistVersion < 3) {
+      s.commandWhitelist = Array.from(new Set([...s.commandWhitelist, ...LOCAL_COMMAND_WHITELIST_V3]))
+      s.commandWhitelistVersion = 3
     }
     if (!Array.isArray(s.enabledSkillIds)) {
       s.enabledSkillIds = [...DEFAULT_ENABLED_SKILL_IDS]

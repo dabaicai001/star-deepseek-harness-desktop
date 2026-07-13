@@ -454,10 +454,11 @@ export default {
     noBoundSkills: '尚未绑定技能',
     sharedSettingsHint: 'Provider、API Key、模型与安全白名单复用“设置 → AI 助手”的全局配置。',
     callAgent: "通过 {'@'} 调用 Agent",
-    referenceWorkspace: '通过 # 引用工作区',
-    safetyHint: '# 授权 StarHub AI 在本轮直接操作对应工作区,不会打开标签;确认、白名单与高危拦截始终生效。',
+    referenceWorkspace: '通过 # 授权目标',
+    safetyHint: '#LOCAL 授权本机文件与 Shell,其他 # 引用授权对应工作区;文件正文、写操作、白名单与高危拦截规则始终生效。',
     workspaceTitle: 'AI Command Workspace',
-    workspaceHint: "输入 {'@'} 选择角色,输入 # 授权 StarHub AI 直接操作工作区。未显式引用的模块不会暴露给模型。",
+    workspaceHint: "输入 {'@'} 选择角色,输入 # 授权 StarHub AI 操作本机或工作区。未显式引用的能力不会暴露给模型。",
+    starterLocal: '本机健康检查',
     starterHealth: '主机健康检查',
     starterDatabase: '数据库性能分析',
     starterDocker: '容器异常排查',
@@ -466,7 +467,7 @@ export default {
     thinking: 'Agent 正在分析...',
     retry: '重试',
     stop: '停止',
-    composerPlaceholder: "输入问题;使用 {'@'}Agent 协作,使用 #SSH / #DB / #Docker / #Excel 引用工作区...",
+    composerPlaceholder: "输入问题;使用 {'@'}Agent 协作,使用 #LOCAL / #SSH / #DB / #Docker / #Excel 授权目标...",
     composerHint: "Enter 发送 · Shift+Enter 换行 · {'@'} Agent · # 工作区",
     parallelAgent: '并行',
     temporaryAgent: '临时',
@@ -480,7 +481,7 @@ export default {
     emptyDb: '询问当前数据库,例如“分析慢查询并给出索引建议”',
     emptyDocker: '询问当前 Docker 主机,例如“找出异常容器并分析最近日志”',
     emptyExcel: '询问当前工作簿,例如“汇总本表数据并标出异常值”',
-    emptyAgent: "使用 {'@'} 调用 AI Agent,使用 # 引用 SSH、DB、Docker 或 Excel 工作区",
+    emptyAgent: "使用 {'@'} 调用 AI Agent,使用 #LOCAL 操作本机或 # 引用 SSH、DB、Docker、Excel 工作区",
     emptyGeneric: '询问当前工作区的状态、数据或下一步操作'
   }
 }

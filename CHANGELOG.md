@@ -13,6 +13,23 @@
 
 ---
 
+## [0.26.0] - 2026-07-13
+
+### 新增
+- ✨ feat(ai): 新增显式 `#LOCAL` / `#本机` 本轮授权,StarHub AI 可直接获取本机系统信息、列出目录、读取路径元数据与经确认的文本正文,并执行文本写入、目录创建、文件复制、路径移动和删除。
+- ✨ feat(ai): 新增跨平台本机 Shell 工具,Windows 使用非交互 PowerShell,macOS / Linux 使用 POSIX `/bin/sh`;支持工作目录、1–120 秒超时、退出码、stdout / stderr 与 512 KiB 输出截断。
+- ✨ feat(ai): AI Agent 与自定义 Skill 作用域新增 `LOCAL`,全局 # 补全、快捷授权和 Planner 上下文同步识别本机能力。
+
+### 安全
+- 🔧 chore(security): 本机能力仅在当前请求显式包含 `#LOCAL` / `#本机` 时注册给模型;文件正文读取会提示内容将交给 AI Provider,所有文件系统写操作均强制人工确认。
+- 🔧 chore(security): 本机 Shell 复用命令白名单和系统级危险规则,补充 PowerShell 只读命令预设及一次性旧配置迁移,增加 PowerShell、CMD 与 macOS 磁盘/关机/递归删除检测;白名单匹配改为跨平台大小写不敏感,高危命令无法用白名单绕过。
+
+### 文档与测试
+- 📝 docs(ai): 技术方案、架构图与 Agent 指引同步 `#LOCAL` 的跨平台 IPC、安全边界和工具矩阵。
+- ✅ test(ai): Rust 本机模块测试覆盖系统信息、非交互 Shell 和临时文本文件写入/读取/删除闭环;`cargo clippy -D warnings`、前端 TypeScript 与生产构建通过;应用内 Browser 以 1280px 真实视口回归 #LOCAL 快捷授权、输入补全、本机确认卡、Skill 作用域与 PowerShell 白名单迁移,console 无 error。
+
+---
+
 ## [0.25.0] - 2026-07-13
 
 ### 新增
