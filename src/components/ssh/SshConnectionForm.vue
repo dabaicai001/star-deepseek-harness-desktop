@@ -408,9 +408,97 @@ function onKeydown(e: KeyboardEvent) {
 // ====== 私钥文件选择(web input + FileReader) ======
 // 2MB 私钥文件足够大了(常见 PEM/OPENSSH 都是 1-3KB)
 const MAX_KEY_SIZE = 2 * 1024 * 1024
+const LAST_KEY_DIRECTORY = 'starhub:ssh-key-directory'
 
-function pickKeyFile() {
-  fileInputRef.value?.click()
+interface LoadedPrivateKey {
+  name: string
+  content: string
+}
+
+function isTauriRuntime(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+function looksLikePrivateKey(content: string): boolean {
+  const value = content.trimStart()
+  return value.startsWith('PuTTY-User-Key-File-') || [
+    '-----BEGIN OPENSSH PRIVATE KEY-----',
+    '-----BEGIN RSA PRIVATE KEY-----',
+    '-----BEGIN EC PRIVATE KEY-----',
+    '-----BEGIN PRIVATE KEY-----',
+    '-----BEGIN ENCRYPTED PRIVATE KEY-----',
+  ].some((header) => value.startsWith(header))
+}
+
+async function readBrowserPrivateKey(file: File): Promise<string> {
+  if (file.size > MAX_KEY_SIZE) {
+    throw new Error(t('ssh.keyTooLarge'))
+  }
+
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let content: string
+  try {
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+      content = new TextDecoder('utf-16le', { fatal: true }).decode(bytes.subarray(2))
+    } else if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+      content = new TextDecoder('utf-16be', { fatal: true }).decode(bytes.subarray(2))
+    } else {
+      content = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    }
+  } catch {
+    throw new Error(t('ssh.keyInvalidEncoding'))
+  }
+
+  if (!looksLikePrivateKey(content)) {
+    throw new Error(t('ssh.keyInvalidFormat'))
+  }
+  return content
+}
+
+/**
+ * 使用 Tauri 原生对话框直接打开 ~/.ssh 或本次会话上次选择的目录。
+ * 返回 null 表示用户取消；浏览器预览由隐藏的 file input 降级处理。
+ */
+async function pickNativePrivateKey(): Promise<LoadedPrivateKey | null> {
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const { dirname, homeDir, join } = await import('@tauri-apps/api/path')
+  const { invoke } = await import('@tauri-apps/api/core')
+
+  let defaultPath = sessionStorage.getItem(LAST_KEY_DIRECTORY) ?? undefined
+  if (!defaultPath) {
+    defaultPath = await join(await homeDir(), '.ssh')
+  }
+  const selected = await open({
+    title: t('ssh.selectKey'),
+    multiple: false,
+    directory: false,
+    defaultPath,
+  })
+  if (!selected) return null
+
+  const path = selected as string
+  const content = await invoke<string>('read_ssh_private_key_file', { path })
+  sessionStorage.setItem(LAST_KEY_DIRECTORY, await dirname(path))
+  return {
+    name: path.split(/[/\\]/).pop() || path,
+    content,
+  }
+}
+
+async function pickKeyFile() {
+  if (!isTauriRuntime()) {
+    fileInputRef.value?.click()
+    return
+  }
+  try {
+    const loaded = await pickNativePrivateKey()
+    if (!loaded) return
+    privateKey.value = loaded.content
+    privateKeyName.value = loaded.name
+  } catch (err) {
+    testStatus.value = 'fail'
+    testMessage.value = err instanceof Error ? err.message : String(err)
+  }
 }
 
 async function onKeyFilePicked(e: Event) {
@@ -418,16 +506,8 @@ async function onKeyFilePicked(e: Event) {
   const file = input.files?.[0]
   if (!file) return
 
-  if (file.size > MAX_KEY_SIZE) {
-    testStatus.value = 'fail'
-    testMessage.value = t('ssh.keyTooLarge')
-    input.value = ''
-    return
-  }
-
   try {
-    const text = await file.text()
-    privateKey.value = text
+    privateKey.value = await readBrowserPrivateKey(file)
     privateKeyName.value = file.name
   } catch (err) {
     testStatus.value = 'fail'
@@ -457,8 +537,20 @@ async function pasteKeyFromClipboard() {
 }
 
 // 跳板机密钥文件选择
-function pickJumpKeyFile() {
-  jumpFileInputRef.value?.click()
+async function pickJumpKeyFile() {
+  if (!isTauriRuntime()) {
+    jumpFileInputRef.value?.click()
+    return
+  }
+  try {
+    const loaded = await pickNativePrivateKey()
+    if (!loaded) return
+    jumpPrivateKey.value = loaded.content
+    jumpPrivateKeyName.value = loaded.name
+  } catch (err) {
+    testStatus.value = 'fail'
+    testMessage.value = err instanceof Error ? err.message : String(err)
+  }
 }
 
 async function onJumpKeyFilePicked(e: Event) {
@@ -466,16 +558,8 @@ async function onJumpKeyFilePicked(e: Event) {
   const file = input.files?.[0]
   if (!file) return
 
-  if (file.size > MAX_KEY_SIZE) {
-    testStatus.value = 'fail'
-    testMessage.value = t('ssh.keyTooLarge')
-    input.value = ''
-    return
-  }
-
   try {
-    const text = await file.text()
-    jumpPrivateKey.value = text
+    jumpPrivateKey.value = await readBrowserPrivateKey(file)
     jumpPrivateKeyName.value = file.name
   } catch (err) {
     testStatus.value = 'fail'
@@ -681,17 +765,17 @@ async function pasteJumpKeyFromClipboard() {
               ref="fileInputRef"
               type="file"
               class="hidden-file-input"
-              accept=".pem,.key,id_rsa,id_ed25519,id_ecdsa,id_dsa,application/x-pem-file,application/x-ssh-key,text/plain"
+              accept=".pem,.key,.ppk,id_rsa,id_ed25519,id_ecdsa,id_dsa"
               @change="onKeyFilePicked"
             />
             <div class="key-file-row">
               <button type="button" class="cyber-btn-secondary key-file-btn" @click="pickKeyFile">
                 <v-icon size="13">mdi-file-key-outline</v-icon>
-                Select Key
+                {{ t('ssh.selectKey') }}
               </button>
               <button type="button" class="cyber-btn-secondary key-file-btn" @click="pasteKeyFromClipboard">
                 <v-icon size="13">mdi-clipboard-text-outline</v-icon>
-                Paste
+                {{ t('ssh.pasteFromClipboard') }}
               </button>
               <span v-if="privateKeyName" class="key-file-chip">
                 <v-icon size="11">mdi-file-document-outline</v-icon>
@@ -832,7 +916,7 @@ async function pasteJumpKeyFromClipboard() {
                   <v-icon size="12">mdi-code-tags</v-icon>
                   {{ t('asset.privateKey') }}
                 </label>
-                <input ref="jumpFileInputRef" type="file" class="hidden-file-input" accept=".pem,.key,id_rsa,id_ed25519,id_ecdsa,id_dsa,text/plain" @change="onJumpKeyFilePicked" />
+                <input ref="jumpFileInputRef" type="file" class="hidden-file-input" accept=".pem,.key,.ppk,id_rsa,id_ed25519,id_ecdsa,id_dsa" @change="onJumpKeyFilePicked" />
                 <div class="key-file-row">
                   <button type="button" class="cyber-btn-secondary key-file-btn" @click="pickJumpKeyFile">
                     <v-icon size="13">mdi-file-key-outline</v-icon>

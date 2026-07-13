@@ -461,7 +461,9 @@ async fn authenticate_primary(
                 Ok(MethodSet::empty())
             } else {
                 let remaining = match &result {
-                    client::AuthResult::Failure { remaining_methods } => remaining_methods.clone(),
+                    client::AuthResult::Failure {
+                        remaining_methods, ..
+                    } => remaining_methods.clone(),
                     _ => MethodSet::empty(),
                 };
                 debug!("Password auth rejected, remaining methods: {:?}", remaining);
@@ -469,8 +471,7 @@ async fn authenticate_primary(
             }
         }
         SshAuth::PrivateKey { key, passphrase } => {
-            let key_pair = russh::keys::decode_secret_key(key, passphrase.as_deref())
-                .map_err(|e| format!("[KEY_PARSE] Failed to parse private key: {}", e))?;
+            let key_pair = decode_private_key(key, passphrase.as_deref())?;
             let key_with_hash =
                 russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key_pair), None);
             let result = handle
@@ -481,7 +482,9 @@ async fn authenticate_primary(
                 Ok(MethodSet::empty())
             } else {
                 let remaining = match &result {
-                    client::AuthResult::Failure { remaining_methods } => remaining_methods.clone(),
+                    client::AuthResult::Failure {
+                        remaining_methods, ..
+                    } => remaining_methods.clone(),
                     _ => MethodSet::empty(),
                 };
                 debug!(
@@ -496,8 +499,7 @@ async fn authenticate_primary(
             key,
             passphrase,
         } => {
-            let key_pair = russh::keys::decode_secret_key(key, passphrase.as_deref())
-                .map_err(|e| format!("[KEY_PARSE] Failed to parse private key: {}", e))?;
+            let key_pair = decode_private_key(key, passphrase.as_deref())?;
             let key_with_hash =
                 russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(key_pair), None);
             let pk_result = handle
@@ -514,9 +516,9 @@ async fn authenticate_primary(
                     Ok(MethodSet::empty())
                 } else {
                     let remaining = match &result {
-                        client::AuthResult::Failure { remaining_methods } => {
-                            remaining_methods.clone()
-                        }
+                        client::AuthResult::Failure {
+                            remaining_methods, ..
+                        } => remaining_methods.clone(),
                         _ => MethodSet::empty(),
                     };
                     debug!(
@@ -527,7 +529,9 @@ async fn authenticate_primary(
                 }
             } else {
                 let remaining = match &pk_result {
-                    client::AuthResult::Failure { remaining_methods } => remaining_methods.clone(),
+                    client::AuthResult::Failure {
+                        remaining_methods, ..
+                    } => remaining_methods.clone(),
                     _ => MethodSet::empty(),
                 };
                 debug!("Password+Key key step rejected, remaining: {:?}", remaining);
@@ -535,6 +539,20 @@ async fn authenticate_primary(
             }
         }
     }
+}
+
+/// 解析用户输入的 SSH 私钥。
+///
+/// UTF-8 BOM 常见于 Windows 文本编辑器导出的 PEM；去掉 BOM 不会改变密钥正文。
+/// OpenSSH 私钥内部的 comment 按 RFC 4251 可以是任意字节，russh 0.61+ 会保留
+/// 原始 comment，而不是把它强制解释为 UTF-8。
+fn decode_private_key(
+    key: &str,
+    passphrase: Option<&str>,
+) -> Result<russh::keys::PrivateKey, String> {
+    let normalized = key.trim_start_matches('\u{feff}');
+    russh::keys::decode_secret_key(normalized, passphrase)
+        .map_err(|error| format!("[KEY_PARSE] Failed to parse private key: {error}"))
 }
 
 /// 执行 keyboard-interactive MFA（驱动 russh 的 start/respond API）
@@ -655,6 +673,33 @@ fn is_totp_prompt(prompt: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const OPENSSH_ED25519_KEY: &str = r#"-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACCzPq7zfqLffKoBDe/eo04kH2XxtSmk9D7RQyf1xUqrYgAAAJgAIAxdACAM
+XQAAAAtzc2gtZWQyNTUxOQAAACCzPq7zfqLffKoBDe/eo04kH2XxtSmk9D7RQyf1xUqrYg
+AAAEC2BsIi0QwW2uFscKTUUXNHLsYX4FxlaSDSblbAj7WR7bM+rvN+ot98qgEN796jTiQf
+ZfG1KaT0PtFDJ/XFSqtiAAAAEHVzZXJAZXhhbXBsZS5jb20BAgMEBQ==
+-----END OPENSSH PRIVATE KEY-----"#;
+
+    #[test]
+    fn private_key_parser_accepts_binary_openssh_comments() {
+        let mut key = decode_private_key(OPENSSH_ED25519_KEY, None).unwrap();
+        let binary_comment = vec![0x47, 0x42, 0x4b, 0xff, 0xfe];
+        key.set_comment(binary_comment.clone());
+        let pem = key
+            .to_openssh(russh::keys::ssh_key::LineEnding::LF)
+            .unwrap();
+
+        let reparsed = decode_private_key(&pem, None).unwrap();
+        assert_eq!(reparsed.comment().as_bytes(), binary_comment);
+    }
+
+    #[test]
+    fn private_key_parser_ignores_utf8_bom() {
+        let key_with_bom = format!("\u{feff}{OPENSSH_ED25519_KEY}");
+        assert!(decode_private_key(&key_with_bom, None).is_ok());
+    }
 
     #[test]
     fn test_is_totp_prompt_english() {

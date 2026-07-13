@@ -50,6 +50,7 @@ fn main() {
             commands::ssh::ssh_get_sessions,
             commands::ssh::ssh_exec,
             commands::ssh::test_ssh_connection,
+            commands::ssh::read_ssh_private_key_file,
             commands::ssh::ssh_kb_response,
             commands::ssh::ssh_hostkey_response,
             commands::ssh::ssh_get_trusted_host_key,

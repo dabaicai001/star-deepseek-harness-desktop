@@ -136,6 +136,8 @@ export default {
     keyLoaded: '已加载',
     clearKey: '清除私钥',
     keyTooLarge: '私钥文件超过 2MB,请检查文件是否正确',
+    keyInvalidEncoding: '私钥文件必须使用 UTF-8 或带 BOM 的 UTF-16 编码',
+    keyInvalidFormat: '选择的文件不是受支持的 SSH 私钥',
     pasteFromClipboard: '从剪贴板粘贴',
     pastedFromClipboard: '已粘贴',
     clipboardReadFailed: '无法读取剪贴板',

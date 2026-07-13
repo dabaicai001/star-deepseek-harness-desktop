@@ -5,7 +5,61 @@ use crate::ssh::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::State;
+use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
+
+const MAX_PRIVATE_KEY_FILE_SIZE: u64 = 2 * 1024 * 1024;
+
+fn looks_like_supported_private_key(text: &str) -> bool {
+    let text = text.trim_start();
+    text.starts_with("PuTTY-User-Key-File-")
+        || [
+            "-----BEGIN OPENSSH PRIVATE KEY-----",
+            "-----BEGIN RSA PRIVATE KEY-----",
+            "-----BEGIN EC PRIVATE KEY-----",
+            "-----BEGIN PRIVATE KEY-----",
+            "-----BEGIN ENCRYPTED PRIVATE KEY-----",
+        ]
+        .iter()
+        .any(|header| text.starts_with(header))
+}
+
+fn decode_private_key_file(bytes: &[u8]) -> Result<String, String> {
+    let text = if let Some(content) = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]) {
+        String::from_utf8(content.to_vec())
+            .map_err(|_| "[KEY_FILE_ENCODING] Private key is not valid UTF-8".to_string())?
+    } else if let Some(content) = bytes.strip_prefix(&[0xff, 0xfe]) {
+        if content.len() % 2 != 0 {
+            return Err("[KEY_FILE_ENCODING] Invalid UTF-16 LE private key".to_string());
+        }
+        let units = content
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect::<Vec<_>>();
+        String::from_utf16(&units)
+            .map_err(|_| "[KEY_FILE_ENCODING] Invalid UTF-16 LE private key".to_string())?
+    } else if let Some(content) = bytes.strip_prefix(&[0xfe, 0xff]) {
+        if content.len() % 2 != 0 {
+            return Err("[KEY_FILE_ENCODING] Invalid UTF-16 BE private key".to_string());
+        }
+        let units = content
+            .chunks_exact(2)
+            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+            .collect::<Vec<_>>();
+        String::from_utf16(&units)
+            .map_err(|_| "[KEY_FILE_ENCODING] Invalid UTF-16 BE private key".to_string())?
+    } else {
+        String::from_utf8(bytes.to_vec())
+            .map_err(|_| "[KEY_FILE_ENCODING] Private key is not valid UTF-8".to_string())?
+    };
+
+    if !looks_like_supported_private_key(&text) {
+        return Err(
+            "[KEY_FILE_FORMAT] Selected file is not a supported SSH private key".to_string(),
+        );
+    }
+    Ok(text)
+}
 
 pub struct SshManager {
     pub sessions: Arc<Mutex<HashMap<String, Arc<Mutex<SshSession>>>>>,
@@ -60,6 +114,35 @@ impl SshManager {
 #[tauri::command]
 pub async fn ssh_get_trusted_host_key(host: String, port: u16) -> Result<Option<String>, String> {
     crate::ssh::known_hosts::get_trusted_public_key(&host, port).await
+}
+
+/// 读取用户通过原生文件对话框选择的 SSH 私钥。
+///
+/// 限制文件大小和格式，避免把通用任意文件读取能力暴露给连接表单。
+#[tauri::command]
+pub async fn read_ssh_private_key_file(path: String) -> Result<String, String> {
+    let metadata = tokio::fs::metadata(&path)
+        .await
+        .map_err(|error| format!("[KEY_FILE_READ] Failed to inspect private key: {error}"))?;
+    if !metadata.is_file() {
+        return Err("[KEY_FILE_READ] Selected path is not a file".to_string());
+    }
+    if metadata.len() > MAX_PRIVATE_KEY_FILE_SIZE {
+        return Err("[KEY_FILE_SIZE] Private key file exceeds 2MB".to_string());
+    }
+
+    let file = tokio::fs::File::open(&path)
+        .await
+        .map_err(|error| format!("[KEY_FILE_READ] Failed to read private key: {error}"))?;
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(MAX_PRIVATE_KEY_FILE_SIZE + 1)
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|error| format!("[KEY_FILE_READ] Failed to read private key: {error}"))?;
+    if bytes.len() as u64 > MAX_PRIVATE_KEY_FILE_SIZE {
+        return Err("[KEY_FILE_SIZE] Private key file exceeds 2MB".to_string());
+    }
+    decode_private_key_file(&bytes)
 }
 
 #[tauri::command]
@@ -339,6 +422,32 @@ pub async fn ssh_hostkey_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TEST_PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n";
+
+    #[test]
+    fn private_key_file_decoder_accepts_utf8_bom() {
+        let mut bytes = vec![0xef, 0xbb, 0xbf];
+        bytes.extend_from_slice(TEST_PRIVATE_KEY.as_bytes());
+        assert_eq!(decode_private_key_file(&bytes).unwrap(), TEST_PRIVATE_KEY);
+    }
+
+    #[test]
+    fn private_key_file_decoder_accepts_utf16_le() {
+        let mut bytes = vec![0xff, 0xfe];
+        for unit in TEST_PRIVATE_KEY.encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        assert_eq!(decode_private_key_file(&bytes).unwrap(), TEST_PRIVATE_KEY);
+    }
+
+    #[test]
+    fn private_key_file_decoder_rejects_public_keys() {
+        let public_key = b"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA== user@example.com";
+        assert!(decode_private_key_file(public_key)
+            .unwrap_err()
+            .starts_with("[KEY_FILE_FORMAT]"));
+    }
 
     #[tokio::test]
     async fn reconnect_uses_a_fresh_attempt_generation() {

@@ -13,6 +13,23 @@
 
 ---
 
+## [0.26.4] - 2026-07-13
+
+### 修复
+- 🐛 fix(ssh): OpenSSH 私钥内部 comment 按 RFC 4251 保留任意字节，不再因 Windows 工具生成的非 UTF-8 注释触发 `[KEY_PARSE] character encoding invalid`；同时兼容 UTF-8 BOM 与带 BOM 的 UTF-16 私钥文件，并在导入时拒绝误选的公钥或未知格式。
+
+### 性能
+- ⚡ perf(ssh): Select Key 改用 Tauri 原生文件对话框，首次直接打开 `~/.ssh`、同一会话复用上次目录，并通过受限异步命令读取不超过 2MB 的私钥；浏览器预览继续保留隐藏 file input 降级路径。
+
+### 依赖
+- ⬆️ upgrade(ssh): `russh` 升级到 0.62.2，使用 `ring` 加密后端并接入支持二进制 OpenSSH comment 的新版 key 实现。
+
+### 测试
+- ✅ test(ssh): 私钥回归覆盖非 UTF-8 OpenSSH comment、UTF-8 BOM、UTF-16 LE 和误选公钥；前端类型检查与生产构建通过。
+- ✅ test(ui): 应用内 Browser 以 1280×800 回归 SSH 私钥认证切换、按钮文案、文件 input 降级属性、弹窗关闭/重开和 console，布局无横向溢出且无新增 error。
+
+---
+
 ## [0.26.3] - 2026-07-13
 
 ### 新增

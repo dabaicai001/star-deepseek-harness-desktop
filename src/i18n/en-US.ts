@@ -136,6 +136,8 @@ export default {
     keyLoaded: 'Loaded',
     clearKey: 'Clear key',
     keyTooLarge: 'Key file exceeds 2MB, please check the file',
+    keyInvalidEncoding: 'Private key must use UTF-8 or BOM-marked UTF-16 encoding',
+    keyInvalidFormat: 'The selected file is not a supported SSH private key',
     pasteFromClipboard: 'Paste from clipboard',
     pastedFromClipboard: 'Pasted',
     clipboardReadFailed: 'Cannot read clipboard',
