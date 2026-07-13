@@ -13,6 +13,18 @@
 
 ---
 
+## [0.22.0] - 2026-07-13
+
+### 新增
+- ✨ feat(docker): 新增容器 Exec 功能 — 在容器详情面板中增加 Exec 标签页，支持在运行中的容器内执行任意 shell 命令，提供终端风格的命令输入与输出历史展示
+- ✨ feat(docker): Go sidecar 实现 `docker.exec` RPC handler，通过 Docker Engine API 的 ContainerExecCreate + ContainerExecAttach 正确解析多路复用协议输出
+
+### 修复
+- 🐛 fix(docker): 修复打开 Docker 标签页后切换到其他页面时连接失败的错误通知仍然残留的问题；移除 connect() 错误处理中冗余的 notify 弹窗，UI 错误卡片已充分呈现；同时将 disconnect 流程改为显式 await 以消除竞态
+- 🐛 fix(es): Elasticsearch 查询结果默认展示格式从 Table 改为 JSON，更符合 ES REST API 使用习惯
+
+---
+
 ## [0.21.1] - 2026-07-11
 
 ### 修复

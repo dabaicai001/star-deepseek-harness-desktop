@@ -44,7 +44,7 @@ const connected = ref(false)
 const connecting = ref(false)
 const connectError = ref<string | null>(null)
 const activeTab = ref<'containers' | 'images'>('containers')
-const selectedTab = ref<'logs' | 'stats'>('logs')
+const selectedTab = ref<'logs' | 'stats' | 'exec'>('logs')
 const sidebarCollapsed = ref(false)
 const sidebarWidth = ref(260)
 const sidebarDragging = ref(false)
@@ -61,13 +61,13 @@ let connectAttemptId = 0
 let connectStale = false
 const ownedConnIds = new Set<string>()
 
-function markStale() {
+async function markStale() {
   if (connectStale) return
   connectStale = true
   connectAttemptId++
   connected.value = false
   connectError.value = null
-  void disconnectOwnedSessions()
+  await disconnectOwnedSessions()
 }
 
 const dockerSshAsset = computed(() => {
@@ -260,7 +260,6 @@ async function connect() {
     if (isStaleConnect(attemptId)) return
     const msg = normalizeDockerError(err instanceof Error ? err.message : String(err))
     connectError.value = msg
-    notify.notify({ title: 'Docker 连接失败', message: msg, color: 'error', timeout: 5000 })
   } finally {
     if (!isStaleConnect(attemptId)) {
       connecting.value = false
@@ -271,6 +270,9 @@ async function connect() {
 async function selectContainer(container: ContainerInfo) {
   dockerStore.selectContainer(container.id)
   selectedTab.value = 'logs'
+  execHistory.value = []
+  execCommand.value = ''
+  execWorkdir.value = ''
   await dockerStore.loadContainerLogs(container.id, '200')
 }
 
@@ -312,6 +314,55 @@ function formatPorts(ports: ContainerInfo['ports']): string {
     .filter(p => p.public != null && p.public > 0)
     .map(p => `${p.public}->${p.private}/${p.type}`)
     .join(', ')
+}
+
+// ====== Container Exec ======
+const execCommand = ref('')
+const execWorkdir = ref('')
+const execLoading = ref(false)
+interface ExecEntry {
+  command: string
+  workdir?: string
+  stdout?: string
+  stderr?: string
+  exitCode?: number
+  error?: string
+  timestamp: number
+}
+const execHistory = ref<ExecEntry[]>([])
+
+async function doExec() {
+  const cmd = execCommand.value.trim()
+  if (!cmd || !dockerStore.selectedContainer || !dockerStore.currentConnId) return
+
+  execLoading.value = true
+  const entry: ExecEntry = {
+    command: cmd,
+    workdir: execWorkdir.value || undefined,
+    timestamp: Date.now(),
+  }
+  try {
+    const result = await dockerService.dockerExec(
+      dockerStore.currentConnId,
+      dockerStore.selectedContainer.id,
+      ['sh', '-c', cmd],
+      { workdir: execWorkdir.value || undefined, timeoutSec: 30 }
+    )
+    entry.stdout = result.stdout
+    entry.stderr = result.stderr
+    entry.exitCode = result.exitCode
+  } catch (err: any) {
+    entry.error = err?.message || String(err)
+  } finally {
+    execLoading.value = false
+    execHistory.value.push(entry)
+    execCommand.value = ''
+    await nextTick()
+  }
+}
+
+function clearExecHistory() {
+  execHistory.value = []
 }
 
 async function doStart(id: string) {
@@ -363,9 +414,9 @@ onMounted(() => {
   }
 })
 
-watch(() => assetId.value, () => {
+watch(() => assetId.value, async () => {
   // 路由变了(切资产 / 关 tab)→ 立即标 stale,不等 leave 动画结束
-  markStale()
+  await markStale()
   if (asset.value && !connected.value) connect()
   else if (!asset.value) {
     if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
@@ -373,8 +424,8 @@ watch(() => assetId.value, () => {
   }
 })
 
-onBeforeUnmount(() => {
-  markStale()
+onBeforeUnmount(async () => {
+  await markStale()
   connecting.value = false
 })
 
@@ -602,6 +653,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
             <span class="item-meta">{{ c.image.split(':').pop() }}</span>
           </div>
         </div>
+
       </template>
       <ResizableSidebarHandle
         :open="!sidebarCollapsed"
@@ -707,6 +759,9 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
             <div class="detail-tab" :class="{ active: selectedTab === 'stats' }" @click="selectedTab = 'stats'">
               <v-icon size="12">mdi-chart-line</v-icon> Stats
             </div>
+            <div class="detail-tab" :class="{ active: selectedTab === 'exec' }" @click="selectedTab = 'exec'">
+              <v-icon size="12">mdi-console</v-icon> Exec
+            </div>
           </div>
 
           <!-- Logs -->
@@ -776,6 +831,60 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               <button class="cyber-btn-secondary" @click="dockerStore.loadContainerStats(dockerStore.selectedContainer!.id)">
                 <v-icon size="14">mdi-chart-line</v-icon> Load Stats
               </button>
+            </div>
+          </div>
+
+          <!-- Exec -->
+          <div v-if="selectedTab === 'exec'" class="exec-panel">
+            <div v-if="dockerStore.selectedContainer.state === 'running'" class="exec-content">
+              <div class="exec-output">
+                <div v-if="execHistory.length === 0" class="exec-empty">
+                  <v-icon size="24">mdi-console</v-icon>
+                  <span>在下方输入命令,回车执行</span>
+                  <span class="exec-hint">容器内 Shell 为 <code>/bin/sh</code>,支持管道、变量等</span>
+                </div>
+                <div v-for="(entry, idx) in execHistory" :key="idx" class="exec-entry">
+                  <div class="exec-cmd-line">
+                    <span class="exec-prompt">{{ dockerStore.selectedContainer.name }}:{{ entry.workdir || '/' }}$ </span>
+                    <span class="exec-cmd">{{ entry.command }}</span>
+                    <span v-if="entry.exitCode !== undefined" class="exec-exit" :class="{ error: entry.exitCode !== 0 }">
+                      [exit {{ entry.exitCode }}]
+                    </span>
+                  </div>
+                  <div v-if="entry.stdout" class="exec-stdout">
+                    <pre>{{ entry.stdout }}</pre>
+                  </div>
+                  <div v-if="entry.stderr" class="exec-stderr">
+                    <pre>{{ entry.stderr }}</pre>
+                  </div>
+                  <div v-if="entry.error" class="exec-error">
+                    <v-icon size="12">mdi-alert-circle</v-icon>
+                    <span>{{ entry.error }}</span>
+                  </div>
+                </div>
+                <div v-if="execLoading" class="exec-loading">
+                  <v-icon size="14" class="mdi-spin">mdi-loading</v-icon>
+                  <span>正在执行...</span>
+                </div>
+              </div>
+              <div class="exec-input-row">
+                <span class="exec-prompt">{{ dockerStore.selectedContainer.name }}:{{ execWorkdir || '/' }}$ </span>
+                <input
+                  v-model="execCommand"
+                  type="text"
+                  class="exec-input"
+                  placeholder="输入命令,回车执行..."
+                  :disabled="execLoading"
+                  @keydown.enter.prevent="doExec"
+                />
+                <button class="action-btn-sm" @click="clearExecHistory" title="清空输出">
+                  <v-icon size="12">mdi-broom</v-icon>
+                </button>
+              </div>
+            </div>
+            <div v-else class="exec-stopped">
+              <v-icon size="24">mdi-pause-octagon</v-icon>
+              <span>容器未运行,无法执行命令</span>
             </div>
           </div>
         </div>
@@ -1575,5 +1684,166 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* Container Exec */
+.exec-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.exec-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.exec-output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--panel-solid-2);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.exec-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px;
+  color: var(--muted);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.exec-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.exec-hint code {
+  background: rgba(0, 240, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--cyan);
+}
+
+.exec-entry {
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+}
+
+.exec-cmd-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.exec-prompt {
+  color: var(--green);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.exec-cmd {
+  color: var(--text);
+}
+
+.exec-exit {
+  font-size: 10px;
+  color: var(--green);
+  margin-left: auto;
+}
+
+.exec-exit.error {
+  color: var(--red);
+}
+
+.exec-stdout pre,
+.exec-stderr pre {
+  margin: 4px 0 0 0;
+  padding: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.exec-stderr pre {
+  color: var(--red);
+}
+
+.exec-error {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--red);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.exec-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  color: var(--cyan);
+  font-size: 12px;
+}
+
+.exec-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-solid);
+  flex-shrink: 0;
+}
+
+.exec-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.exec-input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.15);
+}
+
+.exec-input:disabled {
+  opacity: 0.5;
+}
+
+.exec-stopped {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px;
+  color: var(--muted);
+  font-size: 13px;
 }
 </style>

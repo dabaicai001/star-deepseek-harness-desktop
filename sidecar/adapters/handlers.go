@@ -1548,6 +1548,7 @@ func RegisterDockerHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("docker.pullImage", handleDockerPullImage(mgr))
 	server.Register("docker.removeImage", handleDockerRemoveImage(mgr))
 	server.Register("docker.pruneImages", handleDockerPruneImages(mgr))
+	server.Register("docker.exec", handleDockerExec(mgr))
 }
 
 func getDockerAdapter(mgr *pool.Manager, connID string) (*DockerAdapter, error) {
@@ -1832,6 +1833,29 @@ func handleDockerPruneImages(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		return adapter.PruneImages()
+	}
+}
+
+func handleDockerExec(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID      string   `json:"connId"`
+			ContainerID string   `json:"containerId"`
+			Command     []string `json:"command"`
+			Workdir     string   `json:"workdir,omitempty"`
+			TimeoutSec  int      `json:"timeoutSec,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if p.ContainerID == "" || len(p.Command) == 0 {
+			return nil, fmt.Errorf("containerId and command are required")
+		}
+		adapter, err := getDockerAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.Exec(p.ContainerID, p.Command, p.Workdir, p.TimeoutSec)
 	}
 }
 

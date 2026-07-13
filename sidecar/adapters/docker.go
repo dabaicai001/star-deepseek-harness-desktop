@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -415,4 +416,80 @@ func (a *DockerAdapter) PruneImages() (image.PruneReport, error) {
 // PruneContainers 清理已停止的容器
 func (a *DockerAdapter) PruneContainers() (container.PruneReport, error) {
 	return a.cli.ContainersPrune(a.ctx, filters.NewArgs())
+}
+
+// ExecResult 容器内 exec 结果
+type ExecResult struct {
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+	ExitCode int    `json:"exitCode"`
+}
+
+// Exec 在容器内执行命令
+func (a *DockerAdapter) Exec(containerID string, command []string, workdir string, timeoutSec int) (*ExecResult, error) {
+	if timeoutSec <= 0 {
+		timeoutSec = 30
+	}
+
+	ctx, cancel := context.WithTimeout(a.ctx, time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	execConfig := container.ExecOptions{
+		Cmd:          command,
+		AttachStdout: true,
+		AttachStderr: true,
+		WorkingDir:   workdir,
+	}
+
+	execID, err := a.cli.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		return nil, fmt.Errorf("docker exec create: %w", err)
+	}
+
+	resp, err := a.cli.ContainerExecAttach(ctx, execID.ID, container.ExecStartOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("docker exec attach: %w", err)
+	}
+	defer resp.Close()
+
+	// 读取输出(Docker 多路复用协议: 8 字节头 + payload)
+	stdoutBuf := new(strings.Builder)
+	stderrBuf := new(strings.Builder)
+
+	header := make([]byte, 8)
+	for {
+		_, err := io.ReadFull(resp.Reader, header)
+		if err != nil {
+			break
+		}
+		// header[0]: stream type (1=stdout, 2=stderr)
+		// header[4:8]: payload size (big-endian uint32)
+		size := int(header[4])<<24 | int(header[5])<<16 | int(header[6])<<8 | int(header[7])
+		if size <= 0 {
+			continue
+		}
+		buf := make([]byte, size)
+		if _, err := io.ReadFull(resp.Reader, buf); err != nil {
+			break
+		}
+		switch header[0] {
+		case 1:
+			stdoutBuf.Write(buf)
+		case 2:
+			stderrBuf.Write(buf)
+		}
+	}
+
+	// 获取退出码
+	inspect, err := a.cli.ContainerExecInspect(ctx, execID.ID)
+	exitCode := 0
+	if err == nil {
+		exitCode = inspect.ExitCode
+	}
+
+	return &ExecResult{
+		Stdout:   stdoutBuf.String(),
+		Stderr:   stderrBuf.String(),
+		ExitCode: exitCode,
+	}, nil
 }
