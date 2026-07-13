@@ -13,6 +13,14 @@
 
 ---
 
+## [0.28.3] - 2026-07-13
+
+### 修复
+- 🐛 fix(ssh): 私钥导入前增加 `sanitize_key` 预处理,自动剥离 UTF-8 BOM 并将 CRLF 统一为 LF,修复 Windows Notepad 等编辑器保存的私钥文件因编码问题导致 `[KEY_PARSE] character encoding invalid` 的报错。
+- 🎨 fix(ssh): 私钥文件选择对话框精简 `accept` 属性,移除 `text/plain` 等 MIME 类型和裸文件名匹配,改为仅 `.pem,.key,.ppk` 扩展名,加快 Windows 通用文件对话框冷启动。
+
+---
+
 ## [0.28.2] - 2026-07-13
 
 ### 修复

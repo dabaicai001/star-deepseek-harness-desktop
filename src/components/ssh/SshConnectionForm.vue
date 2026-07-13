@@ -821,7 +821,7 @@ async function pasteJumpKeyFromClipboard() {
               ref="fileInputRef"
               type="file"
               class="hidden-file-input"
-              accept=".pem,.key,.ppk,id_rsa,id_ed25519,id_ecdsa,id_dsa"
+              accept=".pem,.key,.ppk"
               @change="onKeyFilePicked"
             />
             <div class="key-file-row">
@@ -972,7 +972,7 @@ async function pasteJumpKeyFromClipboard() {
                   <v-icon size="12">mdi-code-tags</v-icon>
                   {{ t('asset.privateKey') }}
                 </label>
-                <input ref="jumpFileInputRef" type="file" class="hidden-file-input" accept=".pem,.key,.ppk,id_rsa,id_ed25519,id_ecdsa,id_dsa" @change="onJumpKeyFilePicked" />
+                <input ref="jumpFileInputRef" type="file" class="hidden-file-input" accept=".pem,.key,.ppk" @change="onJumpKeyFilePicked" />
                 <div class="key-file-row">
                   <button type="button" class="cyber-btn-secondary key-file-btn" @click="pickJumpKeyFile">
                     <v-icon size="13">mdi-file-key-outline</v-icon>

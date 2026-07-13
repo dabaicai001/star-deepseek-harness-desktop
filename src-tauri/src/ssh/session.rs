@@ -1126,7 +1126,9 @@ fn decode_private_key(
     passphrase: Option<&str>,
 ) -> Result<russh::keys::PrivateKey, String> {
     let normalized = key.trim_start_matches('\u{feff}');
-    russh::keys::decode_secret_key(normalized, passphrase)
+    // Normalize CRLF -> LF (Windows line endings from Notepad etc.)
+    let normalized = normalized.replace("\r\n", "\n");
+    russh::keys::decode_secret_key(&normalized, passphrase)
         .map_err(|error| format!("[KEY_PARSE] Failed to parse private key: {error}"))
 }
 
@@ -1274,6 +1276,12 @@ ZfG1KaT0PtFDJ/XFSqtiAAAAEHVzZXJAZXhhbXBsZS5jb20BAgMEBQ==
     fn private_key_parser_ignores_utf8_bom() {
         let key_with_bom = format!("\u{feff}{OPENSSH_ED25519_KEY}");
         assert!(decode_private_key(&key_with_bom, None).is_ok());
+    }
+
+    #[test]
+    fn private_key_parser_normalizes_crlf() {
+        let key_with_crlf = OPENSSH_ED25519_KEY.replace('\n', "\r\n");
+        assert!(decode_private_key(&key_with_crlf, None).is_ok());
     }
 
     #[test]
