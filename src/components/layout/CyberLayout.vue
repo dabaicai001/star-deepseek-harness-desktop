@@ -1053,7 +1053,7 @@ vueWatch(() => appStore.tabs.length, () => {
 <template>
   <div class="app-layout">
     <!-- Title Bar (自画 chrome · 替代系统标题栏) -->
-    <div class="titlebar" @dblclick="onTitlebarDblclick">
+    <div class="titlebar" data-tauri-drag-region @dblclick="onTitlebarDblclick">
       <div class="logo" aria-label="StarHub">
         <img :src="logoUrl" alt="StarHub" class="logo-img" />
       </div>

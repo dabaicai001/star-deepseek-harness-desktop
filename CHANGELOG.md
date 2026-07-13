@@ -13,6 +13,13 @@
 
 ---
 
+## [0.28.2] - 2026-07-13
+
+### 修复
+- 🐛 fix(layout): 自定义标题栏添加 `data-tauri-drag-region` 属性，修复 Linux (WebKit2GTK) 窗口无法拖动的问题；Windows 端 `-webkit-app-region: drag` 保留兼容。
+
+---
+
 ## [0.28.1] - 2026-07-13
 
 ### 修复
