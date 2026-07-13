@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.23.0(AI 侧边栏全面升级)
+| 当前版本 | v0.24.0(Docker Exec 终端体验对齐 SSH)
 
 ---
 
@@ -246,6 +246,8 @@ starhub/
 | `.cyber-tab` / `.cyber-tab.active` | 标签(底部 2px 激活条) |
 | `.section-header` / `.section-number` | 节标题(编号 + 标题 + 渐变分割线) |
 | `.terminal-container` / `.terminal-header` / `.terminal-dots` | 终端外壳(红黄绿三点) |
+| `.terminal-font-size-indicator` / `.terminal-action-divider` / `.terminal-search-*` / `.terminal-quick-*` | SSH / Docker Exec 共用的终端工具栏、搜索与快捷命令视觉 |
+| `.docker-exec-terminal` / `.docker-exec-pane` | Docker Exec 的 xterm 工作区与完整 flex 高度链 |
 | `.empty-state` | 空状态(图标 + 标题 + 描述 + CTA) |
 | `.glow-cyan` / `.glow-purple` / `.glow-pink` | 静态光晕 |
 | `.text-gradient` | 文字主渐变 |
@@ -747,4 +749,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-13 (v0.23.0)*
+*最后更新: 2026-07-13 (v0.24.0)*

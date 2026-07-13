@@ -16,12 +16,14 @@ import AiChat from '@/components/ai/AiChat.vue'
 import DockerDashboard from '@/components/dashboard/DockerDashboard.vue'
 import HostKeyConfirmDialog, { type HostKeyInfo } from '@/components/ssh/HostKeyConfirmDialog.vue'
 import KbInteractiveDialog from '@/components/ssh/KbInteractiveDialog.vue'
+import DockerExecTerminal from '@/components/docker/DockerExecTerminal.vue'
 import { parseInstanceId } from '@/utils/tabId'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller } from '@/utils/aiTools'
 import * as dockerService from '@/services/docker'
 import { assetConfigToSshConfig, type KbInteractiveEvent } from '@/services/ssh'
 import type { LlmToolCall } from '@/services/ai'
+import type { Asset } from '@/types/asset'
 import type { ContainerInfo, DockerConnectParams } from '@/types/docker'
 
 const { t } = useI18n()
@@ -38,7 +40,22 @@ const dlg = useDialogStore()
 // 路由 :id 是 tab instanceId,需要解析出 assetId 找资产配置
 const instanceId = computed(() => route.params.id as string)
 const assetId = computed(() => parseInstanceId(instanceId.value).assetId)
-const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value))
+const devMockWorkspace = computed(() => import.meta.env.DEV && route.query.mock === '1')
+const devMockTimestamp = Date.now()
+const devMockAsset = computed<Asset | undefined>(() => devMockWorkspace.value ? {
+  id: assetId.value,
+  type: 'docker',
+  name: 'Docker Lab',
+  groupId: null,
+  config: { dockerTransport: 'socket', socketPath: '/var/run/docker.sock' },
+  keyId: null,
+  tags: ['mock'],
+  favorite: false,
+  lastUsedAt: devMockTimestamp,
+  createdAt: devMockTimestamp,
+  updatedAt: devMockTimestamp,
+} : undefined)
+const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value) ?? devMockAsset.value)
 
 const connected = ref(false)
 const connecting = ref(false)
@@ -60,6 +77,10 @@ let connectAttemptId = 0
 // 名称易误导,这里改名 connectStale 更准确。
 let connectStale = false
 const ownedConnIds = new Set<string>()
+
+watch(selectedTab, (tab) => {
+  if (tab === 'exec') sidebarCollapsed.value = true
+})
 
 async function markStale() {
   if (connectStale) return
@@ -190,6 +211,57 @@ async function connect() {
   connecting.value = true
   connectError.value = null
   try {
+    if (devMockWorkspace.value) {
+      const connId = 'mock-docker-conn'
+      const container: ContainerInfo = {
+        id: 'mock-api-container',
+        name: 'starhub-api',
+        image: 'ghcr.io/starhub/api:latest',
+        state: 'running',
+        status: 'Up 3 hours (healthy)',
+        created: Math.floor(Date.now() / 1000) - 10800,
+        ports: [{ private: 8080, public: 8080, type: 'tcp' }],
+        labels: { 'com.docker.compose.service': 'api' },
+      }
+      dockerStore.sessions.set(connId, {
+        connId,
+        host: 'local',
+        connected: true,
+        name: asset.value.name,
+        assetId: assetId.value,
+      })
+      dockerStore.currentConnId = connId
+      dockerStore.containers = [
+        container,
+        {
+          id: 'mock-worker-container',
+          name: 'starhub-worker',
+          image: 'ghcr.io/starhub/worker:latest',
+          state: 'running',
+          status: 'Up 3 hours',
+          created: Math.floor(Date.now() / 1000) - 10600,
+          ports: [],
+          labels: { 'com.docker.compose.service': 'worker' },
+        },
+        {
+          id: 'mock-old-container',
+          name: 'starhub-migrate',
+          image: 'ghcr.io/starhub/api:latest',
+          state: 'exited',
+          status: 'Exited (0) 3 hours ago',
+          created: Math.floor(Date.now() / 1000) - 11200,
+          ports: [],
+          labels: {},
+        },
+      ]
+      dockerStore.images = []
+      dockerStore.selectContainer(container.id)
+      selectedTab.value = 'exec'
+      ownedConnIds.add(connId)
+      connected.value = true
+      return
+    }
+
     const config = asset.value.config
     const transport = config.dockerTransport || (config.remoteHost ? 'tcp' : 'socket')
     let params: DockerConnectParams
@@ -270,9 +342,6 @@ async function connect() {
 async function selectContainer(container: ContainerInfo) {
   dockerStore.selectContainer(container.id)
   selectedTab.value = 'logs'
-  execHistory.value = []
-  execCommand.value = ''
-  execWorkdir.value = ''
   await dockerStore.loadContainerLogs(container.id, '200')
 }
 
@@ -314,55 +383,6 @@ function formatPorts(ports: ContainerInfo['ports']): string {
     .filter(p => p.public != null && p.public > 0)
     .map(p => `${p.public}->${p.private}/${p.type}`)
     .join(', ')
-}
-
-// ====== Container Exec ======
-const execCommand = ref('')
-const execWorkdir = ref('')
-const execLoading = ref(false)
-interface ExecEntry {
-  command: string
-  workdir?: string
-  stdout?: string
-  stderr?: string
-  exitCode?: number
-  error?: string
-  timestamp: number
-}
-const execHistory = ref<ExecEntry[]>([])
-
-async function doExec() {
-  const cmd = execCommand.value.trim()
-  if (!cmd || !dockerStore.selectedContainer || !dockerStore.currentConnId) return
-
-  execLoading.value = true
-  const entry: ExecEntry = {
-    command: cmd,
-    workdir: execWorkdir.value || undefined,
-    timestamp: Date.now(),
-  }
-  try {
-    const result = await dockerService.dockerExec(
-      dockerStore.currentConnId,
-      dockerStore.selectedContainer.id,
-      ['sh', '-c', cmd],
-      { workdir: execWorkdir.value || undefined, timeoutSec: 30 }
-    )
-    entry.stdout = result.stdout
-    entry.stderr = result.stderr
-    entry.exitCode = result.exitCode
-  } catch (err: any) {
-    entry.error = err?.message || String(err)
-  } finally {
-    execLoading.value = false
-    execHistory.value.push(entry)
-    execCommand.value = ''
-    await nextTick()
-  }
-}
-
-function clearExecHistory() {
-  execHistory.value = []
 }
 
 async function doStart(id: string) {
@@ -593,11 +613,22 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
       <div class="sidebar-header">
         <template v-if="!sidebarCollapsed">
           <span class="sidebar-title">Docker</span>
-          <button class="action-btn" @click="sidebarCollapsed = true">
+          <button
+            class="action-btn"
+            :aria-label="t('docker.sidebarCollapse')"
+            :title="t('docker.sidebarCollapse')"
+            @click="sidebarCollapsed = true"
+          >
             <v-icon size="14">mdi-chevron-left</v-icon>
           </button>
         </template>
-        <button v-else class="action-btn expand-btn" @click="sidebarCollapsed = false">
+        <button
+          v-else
+          class="action-btn expand-btn"
+          :aria-label="t('docker.sidebarExpand')"
+          :title="t('docker.sidebarExpand')"
+          @click="sidebarCollapsed = false"
+        >
           <v-icon size="14">mdi-chevron-right</v-icon>
         </button>
       </div>
@@ -725,7 +756,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
       <div v-if="activeTab === 'containers' && !connectError" class="content-area">
         <!-- Container detail panel -->
         <div v-if="dockerStore.selectedContainer" class="detail-panel">
-          <div class="detail-header">
+          <div v-if="selectedTab !== 'exec'" class="detail-header">
             <v-icon size="16" :color="getStateColor(dockerStore.selectedContainer.state)">
               {{ getStateIcon(dockerStore.selectedContainer.state) }}
             </v-icon>
@@ -836,55 +867,14 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 
           <!-- Exec -->
           <div v-if="selectedTab === 'exec'" class="exec-panel">
-            <div v-if="dockerStore.selectedContainer.state === 'running'" class="exec-content">
-              <div class="exec-output">
-                <div v-if="execHistory.length === 0" class="exec-empty">
-                  <v-icon size="24">mdi-console</v-icon>
-                  <span>在下方输入命令,回车执行</span>
-                  <span class="exec-hint">容器内 Shell 为 <code>/bin/sh</code>,支持管道、变量等</span>
-                </div>
-                <div v-for="(entry, idx) in execHistory" :key="idx" class="exec-entry">
-                  <div class="exec-cmd-line">
-                    <span class="exec-prompt">{{ dockerStore.selectedContainer.name }}:{{ entry.workdir || '/' }}$ </span>
-                    <span class="exec-cmd">{{ entry.command }}</span>
-                    <span v-if="entry.exitCode !== undefined" class="exec-exit" :class="{ error: entry.exitCode !== 0 }">
-                      [exit {{ entry.exitCode }}]
-                    </span>
-                  </div>
-                  <div v-if="entry.stdout" class="exec-stdout">
-                    <pre>{{ entry.stdout }}</pre>
-                  </div>
-                  <div v-if="entry.stderr" class="exec-stderr">
-                    <pre>{{ entry.stderr }}</pre>
-                  </div>
-                  <div v-if="entry.error" class="exec-error">
-                    <v-icon size="12">mdi-alert-circle</v-icon>
-                    <span>{{ entry.error }}</span>
-                  </div>
-                </div>
-                <div v-if="execLoading" class="exec-loading">
-                  <v-icon size="14" class="mdi-spin">mdi-loading</v-icon>
-                  <span>正在执行...</span>
-                </div>
-              </div>
-              <div class="exec-input-row">
-                <span class="exec-prompt">{{ dockerStore.selectedContainer.name }}:{{ execWorkdir || '/' }}$ </span>
-                <input
-                  v-model="execCommand"
-                  type="text"
-                  class="exec-input"
-                  placeholder="输入命令,回车执行..."
-                  :disabled="execLoading"
-                  @keydown.enter.prevent="doExec"
-                />
-                <button class="action-btn-sm" @click="clearExecHistory" title="清空输出">
-                  <v-icon size="12">mdi-broom</v-icon>
-                </button>
-              </div>
-            </div>
+            <DockerExecTerminal
+              v-if="dockerStore.selectedContainer.state === 'running' && dockerStore.currentConnId"
+              :conn-id="dockerStore.currentConnId"
+              :container="dockerStore.selectedContainer"
+            />
             <div v-else class="exec-stopped">
               <v-icon size="24">mdi-pause-octagon</v-icon>
-              <span>容器未运行,无法执行命令</span>
+              <span>{{ t('docker.execStopped') }}</span>
             </div>
           </div>
         </div>
@@ -1686,154 +1676,12 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   50% { opacity: 0.4; }
 }
 
-/* Container Exec */
 .exec-panel {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-}
-
-.exec-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.exec-output {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-  background: var(--panel-solid-2);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-}
-
-.exec-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 40px;
-  color: var(--muted);
-  font-size: 13px;
-  font-family: inherit;
-}
-
-.exec-hint {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.exec-hint code {
-  background: rgba(0, 240, 255, 0.08);
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-family: 'JetBrains Mono', monospace;
-  color: var(--cyan);
-}
-
-.exec-entry {
-  margin-bottom: 8px;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 6px;
-}
-
-.exec-cmd-line {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.exec-prompt {
-  color: var(--green);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.exec-cmd {
-  color: var(--text);
-}
-
-.exec-exit {
-  font-size: 10px;
-  color: var(--green);
-  margin-left: auto;
-}
-
-.exec-exit.error {
-  color: var(--red);
-}
-
-.exec-stdout pre,
-.exec-stderr pre {
-  margin: 4px 0 0 0;
-  padding: 0;
-  white-space: pre-wrap;
-  word-break: break-all;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--text);
-}
-
-.exec-stderr pre {
-  color: var(--red);
-}
-
-.exec-error {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--red);
-  font-size: 11px;
-  margin-top: 4px;
-}
-
-.exec-loading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  color: var(--cyan);
-  font-size: 12px;
-}
-
-.exec-input-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--line);
-  background: var(--panel-solid);
-  flex-shrink: 0;
-}
-
-.exec-input {
-  flex: 1;
-  background: var(--bg);
-  border: 1px solid var(--line-2);
-  border-radius: 4px;
-  color: var(--text);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  padding: 6px 10px;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.exec-input:focus {
-  border-color: var(--green);
-  box-shadow: 0 0 6px rgba(74, 222, 128, 0.15);
-}
-
-.exec-input:disabled {
-  opacity: 0.5;
 }
 
 .exec-stopped {

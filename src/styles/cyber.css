@@ -1216,6 +1216,136 @@ html.v-theme--lightTheme {
   border: 1px solid var(--status-error-border);
 }
 
+/* Shared SSH / Docker Exec terminal chrome */
+.terminal-font-size-indicator {
+  min-width: 32px;
+  color: var(--muted);
+  font: 10px/1 'JetBrains Mono', monospace;
+  text-align: center;
+}
+
+.terminal-action-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--line-2);
+}
+
+.terminal-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.terminal-search-input {
+  width: 160px;
+  padding: 4px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  outline: none;
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 11px;
+  transition: width 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.terminal-search-input:focus {
+  width: 200px;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px var(--focus-cyan);
+}
+
+.terminal-search-input::placeholder {
+  color: var(--muted);
+}
+
+.terminal-quick-commands {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--hover-cyan-faint);
+  box-shadow: inset 2px 0 0 var(--cyan);
+}
+
+.terminal-quick-label {
+  margin-right: 4px;
+  padding-right: 10px;
+  border-right: 1px solid var(--line-2);
+  color: var(--cyan);
+  font: 700 9px/1 'Orbitron', sans-serif;
+  letter-spacing: 0.12em;
+  text-shadow: 0 0 6px var(--glow-soft);
+}
+
+.terminal-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 4px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--hover-cyan-soft);
+  color: var(--text-2);
+  font: 11px/1.2 'JetBrains Mono', monospace;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.terminal-quick-btn:hover:not(:disabled) {
+  border-color: var(--focus-cyan);
+  background: var(--active-cyan);
+  color: var(--cyan);
+  box-shadow: 0 4px 12px var(--glow-soft);
+  transform: translateY(-1px);
+}
+
+.terminal-quick-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.docker-exec-terminal {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.docker-exec-terminal > .terminal-toolbar {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+.docker-exec-terminal > .terminal-toolbar .actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.docker-exec-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.docker-exec-pane > .terminal-container {
+  flex: 1;
+  min-height: 0;
+}
+
 /* Modal header(与 terminal-toolbar 类似的横向布局) */
 .modal-header {
   display: flex;

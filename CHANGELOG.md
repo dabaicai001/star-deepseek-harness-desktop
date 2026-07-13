@@ -13,6 +13,24 @@
 
 ---
 
+## [0.24.0] - 2026-07-13
+
+### 新增
+- ✨ feat(docker): Docker Exec 改用与 SSH 工作区一致的 xterm 终端,支持终端内直接输入、上下键命令历史、`cd` 工作目录保持、快捷命令、搜索、清屏、复制粘贴与全局字号设置。
+- ✅ test(docker): 增加仅开发态生效的 Docker 工作区 mock 路径,覆盖容器、镜像、仪表盘和 Exec 命令输出,用于无 Docker/Tauri 环境下的真实布局回归。
+
+### 更改
+- 🎨 style(docker): Exec 复用 SSH 终端工具栏与设计 token;进入 Exec 时自动收起 Docker 容器侧栏并移除重复详情标题,为终端释放有效宽度,侧栏仍可一键展开。
+- 🎨 style(design-system): 新增 `.terminal-font-size-indicator`、`.terminal-action-divider`、`.terminal-search-*`、`.terminal-quick-*`、`.docker-exec-*` 共用组件类。
+
+### 修复
+- 🐛 fix(docker): 清屏改用 ANSI 擦屏并重置当前输入,避免 xterm `clear()` 保留当前行后出现重复提示符。
+
+### 测试
+- ✅ test(ui): 前端类型检查与生产构建通过;应用内 Browser 以 1280×800 回归 Docker Exec 快捷命令、手动输入、`cd`、搜索、清屏、左右侧栏和右侧面板,终端工具栏无溢出、页面无横向滚动且 console 无新增 error。
+
+---
+
 ## [0.23.0] - 2026-07-13
 
 ### 新增
