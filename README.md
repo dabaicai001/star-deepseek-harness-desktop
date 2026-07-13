@@ -9,9 +9,10 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.17.3-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.28.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
+[![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
 
 </div>
 
@@ -22,6 +23,21 @@
 **StarHub** 是一款跨平台桌面应用 (Tauri 2 + Rust 主进程 + Vue 3 前端 + Go Sidecar),把开发运维日常高频工具整合到同一个窗口。目标是减少在 Navicat、Xshell、Portainer、文件管理器和 AI 对话窗口之间来回切换的成本。
 
 **当前版本聚焦**:本地优先、单人高效、跨平台一致体验。
+
+---
+
+## 下载安装
+
+前往 [GitHub Releases](https://github.com/dabaicai001/starhub/releases) 下载最新版本:
+
+| 平台 | 文件格式 | 安装方式 |
+|---|---|---|
+| **Windows** | `.msi` | 双击安装 |
+| **Linux** (Debian/Ubuntu) | `.deb` | `sudo dpkg -i StarHub_0.28.2_amd64.deb` |
+| **Linux** (Fedora/RHEL) | `.rpm` | `sudo rpm -i StarHub-0.28.2-1.x86_64.rpm` |
+| **Linux** (通用) | `.AppImage` | `chmod +x StarHub_0.28.2_amd64.AppImage && ./StarHub_0.28.2_amd64.AppImage` |
+
+> Linux 包在 Ubuntu 22.04 环境中编译,兼容 Ubuntu 22.04+ / Debian 12+ / Fedora 38+ 等主流发行版。
 
 ---
 
@@ -49,12 +65,14 @@
 
 ### SFTP 文件传输
 - 三栏浏览、路径面包屑、隐藏文件、新建文件夹、重命名、删除
+- SFTP 启动策略:自动诊断标准 subsystem,异常时探测 `sftp-server` 路径并受控降级;支持「仅标准 subsystem」和「指定远端程序」模式
 - 拖拽上传 / 下载 (规划中)
 - 断点续传 (规划中)
 
 ### Docker 面板
 - 容器 / 镜像列表
 - 本地 Docker 主机
+- **Docker Exec 交互式 TTY**:可持续读写的终端会话,支持窗口尺寸同步、命令历史、Tab 补全、Ctrl 组合键
 - SSH 通道连远程 Docker (规划中)
 - 镜像加速 (规划中)
 
@@ -86,41 +104,31 @@
 
 ## 当前版本
 
-### v0.17.3 (2026-07-09)
-- 🐛 修复 VARCHAR/TEXT 列数字形字符串(`'1111'`)被 Univer 标记为 FORCE_STRING 候选,显示绿色警告角 + hover 弹错误。preset 配置关闭
-- ✨ Excel 导出支持全量数据 + WHERE 联动 + 分批拉取(1000 行/批) + >5000 行弹确认 + Teleport 进度遮罩 + 通知中心带条数/SQL/耗时
+### v0.28.2 (2026-07-13)
+- 🐛 修复 Linux (WebKit2GTK) 自定义标题栏无法拖动窗口的问题,添加 `data-tauri-drag-region` 属性
+- 🔧 Linux 包改为 Ubuntu 22.04 环境编译,兼容 Ubuntu 22.04+ (glibc 2.35)
 
-### v0.17.2 (2026-07-09)
-- 🐛 修复 MySQL 数据网格刷新时 `setValues`/`setColumnWidth` 触发 Workbook Edit permission 拦截并弹权限警告 (新增 `withEditableBypass`)
-- 🐛 网格线颜色改用专门的 `--gridline` token,深色背景可见
+### v0.28.1 (2026-07-13)
+- 🐛 修复 MySQL 表格 Shift 多选批量删除与复制 INSERT 语句
 
-### v0.17.1 (2026-07-09)
-- 🎨 数据库结果表头精简,只显示字段名,字段类型 / 排序符号聚合到 hover tooltip
-- ⚡ 列宽按纯字段名 + 数据样本计算
+### v0.28.0 (2026-07-13)
+- ✨ SFTP 启动策略:自动诊断 subsystem,异常时探测 `sftp-server` 并受控降级
+- 🐛 SFTP 建链错误完整展示远端 stderr / exit status,不再误报 Timeout
 
-### v0.17.0 (2026-07-09)
-- ✨ SSH PTY 输出改为原始字节事件,`zmodem.js` 集成支持 `rz` / `sz`
-- ✨ DB / SSH / Docker 指标卡支持点击钻取
-- ✨ 数据库字段首行悬停显示类型/可空/键/默认值/备注
-- 🐛 Sheet 切换复用同一 Workbench 实例
-- 🐛 MySQL 仪表盘按当前数据库统计表数量与数据/索引容量
+### v0.27.0 (2026-07-13)
+- ✨ Docker Exec 改为可持续读写的交互式 TTY 会话
+- 🎨 资产树数据库类型徽章统一 64px 宽度对齐
 
-### v0.16.x (历史)
-- MySQL 表结构管理、DDL 生成
-- Redis 模糊检索 + 自动扫描选中 DB
-- Elasticsearch 索引浏览
+### v0.26.4 (2026-07-13)
+- 🐛 SSH 私钥兼容非 UTF-8 OpenSSH comment、UTF-8 BOM、UTF-16 编码
+- ⬆️ `russh` 升级到 0.62.2
 
-### v0.15.x (历史)
-- 数据库结果 Univer 化(替代自绘表格)
-- Excel 视图 Ribbon 集成
+### v0.26.x ~ v0.18.x (历史)
+- SFTP 三栏文件传输、AI Agent 工作区、Kafka/NSQ 状态页
+- PostgreSQL 适配器、Redis 键浏览增强
+- Univer 0.25.1 深度集成、Excel 工具完善
 
-### v0.14.x (历史)
-- Univer 0.25.1 集成层,封装 `src/lib/univer.ts`
-- 解决 `.univer-grid` 类名冲突导致的画布留白
-
-### v0.13.x (历史)
-- 全新几何轨道 Logo
-- Windows 应用图标 + 安装包元数据更新
+### v0.17.x (历史)
 
 ---
 
@@ -188,14 +196,30 @@ npm run sidecar:build:release # release 模式
 npm run tauri:build
 ```
 
-Windows 构建产物:
+### Windows 产物
 
 | 文件 | 路径 | 用途 |
 |---|---|---|
-| NSIS 安装包 | `src-tauri/target/release/bundle/nsis/StarHub_<version>_x64-setup.exe` | **双击安装,推荐** |
 | MSI 安装包 | `src-tauri/target/release/bundle/msi/StarHub_<version>_x64_en-US.msi` | 企业部署 |
 | 单文件可执行 | `src-tauri/target/release/starhub.exe` | 绿色版,免安装 |
 | Go Sidecar | `sidecar/bin/starhub-sidecar.exe` | 数据库代理进程 |
+
+### Linux 产物 (Ubuntu 22.04 兼容)
+
+| 文件 | 路径 | 用途 |
+|---|---|---|
+| DEB 安装包 | `src-tauri/target/release/bundle/deb/StarHub_<version>_amd64.deb` | Debian/Ubuntu |
+| RPM 安装包 | `src-tauri/target/release/bundle/rpm/StarHub-<version>.x86_64.rpm` | Fedora/RHEL |
+| AppImage | `src-tauri/target/release/bundle/appimage/StarHub_<version>_amd64.AppImage` | 免安装通用版 |
+
+> Linux 包需在 Ubuntu 22.04 环境(或 Docker 容器)中编译,确保 glibc 2.35 兼容性。WSL 中可用 Docker 构建:
+> ```bash
+> docker run --rm --network host \
+>   -v ~/.cargo:/root/.cargo -v ~/.rustup:/root/.rustup \
+>   -v <go-path>:/usr/local/go \
+>   -v $(pwd):/workspace -w /workspace ubuntu:22.04 \
+>   bash -c "apt-get update && apt-get install -y libwebkit2gtk-4.1-dev ... && npx tauri build"
+> ```
 
 打包前置流程 (Tauri 自动完成):
 
@@ -239,9 +263,11 @@ UI 改动必须先读 `AGENTS.md` 第 4.4 节,**token 优先 + 组件类集中**
 
 | 阶段 | 状态 | 重点 |
 |---|---|---|
-| v0.17.x | ✅ 完成 | Univer 化、SSH ZMODEM、可钻取仪表盘、数据库结果优化 |
-| v0.18.x | 🚧 进行中 | PostgreSQL / SQLite、AI 流式输出、Settings 完善 |
-| v0.19.x | 📋 计划中 | Docker 远程连接、Compose、批量操作 |
+| v0.28.x | ✅ 完成 | SFTP 启动策略、Linux 跨发行版兼容、窗口拖动修复 |
+| v0.27.x | ✅ 完成 | Docker Exec 交互式 TTY、资产树徽章统一 |
+| v0.26.x | ✅ 完成 | SSH 私钥兼容性增强、SFTP 三栏传输、AI Agent 工作区 |
+| v0.18.x ~ v0.25.x | ✅ 完成 | PostgreSQL、Kafka/NSQ、Univer 深度集成、Excel 工具 |
+| v0.29.x+ | 📋 计划中 | SQLite 适配器、Settings 完善、Docker 远程连接、Compose |
 | v1.0 | 🎯 目标 | 稳定版 GA、团队协作与企业能力 |
 
 ---
