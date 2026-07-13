@@ -17,6 +17,7 @@ import { useThemeStore } from '@/stores/theme'
 import type { ColumnMeta, QueryResult } from '@/types/db'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
+import { normalizeDataRowIndices } from '@/utils/dbRowSelection'
 
 const { t } = useI18n()
 const themeStore = useThemeStore()
@@ -65,7 +66,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  rowDelete: [row: number]
+  rowDelete: [rows: number[]]
   export: [format: string]
   'export-excel': [columns: string[], rows: string[][]]
   'page-change': [page: number]
@@ -78,38 +79,58 @@ const emit = defineEmits<{
 }>()
 
 // Row context menu
-const rowCtxMenu = ref<{ x: number; y: number; rowIdx: number; items: MenuItem[] } | null>(null)
+const rowCtxMenu = ref<{ x: number; y: number; rows: number[]; items: MenuItem[] } | null>(null)
 
 function closeRowCtxMenu() {
   rowCtxMenu.value = null
 }
 
-function onUniverRowContext(rowIdx: number, x: number, y: number) {
+function onUniverRowContext(rowIndices: number[], x: number, y: number) {
+  const rows = normalizeDataRowIndices(rowIndices, pagedRows.value.length)
+  if (rows.length === 0) return
+  const multiple = rows.length > 1
   const items: MenuItem[] = [
-    { type: 'item', label: t('db.copyInsert'), icon: 'mdi-content-copy', onClick: () => copyInsert(rowIdx) },
+    {
+      type: 'item',
+      label: multiple ? t('db.copyInsertRows', { count: rows.length }) : t('db.copyInsert'),
+      icon: 'mdi-content-copy',
+      onClick: () => copyInsert(rows),
+    },
   ]
   if (props.editable) {
-    items.push({ type: 'item', label: t('db.deleteRow'), icon: 'mdi-delete', danger: true, onClick: () => deleteRow(rowIdx) })
+    items.push({
+      type: 'item',
+      label: multiple ? t('db.deleteRows', { count: rows.length }) : t('db.deleteRow'),
+      icon: 'mdi-delete',
+      danger: true,
+      onClick: () => deleteRows(rows),
+    })
   }
-  rowCtxMenu.value = { x, y, rowIdx, items }
+  rowCtxMenu.value = { x, y, rows, items }
 }
 
-function copyInsert(rowIdx: number) {
-  const row = pagedRows.value[rowIdx]
-  if (!row) return
+function copyInsert(rowIndices: number[]) {
+  const rows = normalizeDataRowIndices(rowIndices, pagedRows.value.length)
+  if (rows.length === 0) return
   const cols = columns.value.map(c => `\`${c.name}\``).join(', ')
-  const vals = columns.value.map((col, colIdx) => {
-    const cell = getDisplayedCellValue(rowIdx, col.name, row[colIdx])
-    if (cell === null || cell === undefined) return 'NULL'
-    if (typeof cell === 'number') return String(cell)
-    return `'${String(cell).replace(/'/g, "''")}'`
-  }).join(', ')
-  const sql = `INSERT INTO \`${props.tableName || 'table'}\` (${cols}) VALUES (${vals});`
+  const valueGroups = rows.map(rowIdx => {
+    const row = pagedRows.value[rowIdx]
+    const values = columns.value.map((col, colIdx) => {
+      const cell = getDisplayedCellValue(rowIdx, col.name, row[colIdx])
+      if (cell === null || cell === undefined) return 'NULL'
+      if (typeof cell === 'number') return String(cell)
+      return `'${String(cell).replace(/'/g, "''")}'`
+    }).join(', ')
+    return `(${values})`
+  })
+  const separator = valueGroups.length > 1 ? '\n  ' : ' '
+  const sql = `INSERT INTO \`${props.tableName || 'table'}\` (${cols}) VALUES${separator}${valueGroups.join(',\n  ')};`
   navigator.clipboard.writeText(sql).catch(() => {})
 }
 
-function deleteRow(rowIdx: number) {
-  emit('rowDelete', rowIdx)
+function deleteRows(rowIndices: number[]) {
+  const rows = normalizeDataRowIndices(rowIndices, pagedRows.value.length)
+  if (rows.length > 0) emit('rowDelete', rows)
 }
 
 // ─── 列筛选 popover ───

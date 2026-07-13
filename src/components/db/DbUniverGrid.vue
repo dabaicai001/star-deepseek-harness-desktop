@@ -7,6 +7,7 @@ import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
 import UniverPresetSheetsCoreZhCN from '@univerjs/preset-sheets-core/locales/zh-CN'
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { buildStarhubTheme, createUniver, mergeLocales } from '@/lib/univer'
+import { dataRowIndicesFromSheetRange } from '@/utils/dbRowSelection'
 
 import '@univerjs/preset-sheets-core/lib/index.css'
 
@@ -32,7 +33,7 @@ const emit = defineEmits<{
   'cell-change': [row: number, column: string, value: unknown]
   'sort-change': [column: string]
   'column-selected': [column: string]
-  'row-context': [row: number, x: number, y: number]
+  'row-context': [rows: number[], x: number, y: number]
 }>()
 
 const containerRef = ref<HTMLElement | null>(null)
@@ -563,9 +564,8 @@ function onContextMenu(event: MouseEvent) {
     ?.getSelection()
     ?.getActiveRange()
     ?.getRange()
-  const sheetRow = range?.startRow ?? -1
-  const row = sheetRow - 1
-  if (row >= 0 && row < props.rows.length) emit('row-context', row, event.clientX, event.clientY)
+  const rows = dataRowIndicesFromSheetRange(range, props.rows.length)
+  if (rows.length > 0) emit('row-context', rows, event.clientX, event.clientY)
 }
 
 function onPointerMove(event: PointerEvent) {

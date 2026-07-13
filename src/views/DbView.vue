@@ -1074,30 +1074,43 @@ async function onSaveBatch(changes: Array<{ rowIndex: number; column: string; or
   await loadTableDataFor(tab, true)
 }
 
-async function onDeleteRow(rowIndex: number) {
+async function onDeleteRows(rowIndices: number[]) {
   const tab = activeTableTab.value
-  const result = tab?.data
-  if (!tab || !result || !connId.value || tablePrimaryKeys.value.length === 0) {
+  const queryResult = tab?.data
+  if (!tab || !queryResult || !connId.value || tablePrimaryKeys.value.length === 0) {
     void dlg.alert({ message: t('db.needPrimaryKey'), color: 'warning' })
     return
   }
-  const row = result.rows[rowIndex]
-  if (!row) return
-  const where = tablePrimaryKeys.value
-    .map(pk => {
-      const pkIndex = result.columns.findIndex(column => column.name === pk)
-      return pkIndex < 0 ? null : `${quoteSqlIdentifier(pk)} = ${formatSqlValue(row[pkIndex])}`
-    })
-    .filter(Boolean)
-    .join(' AND ')
-  if (!where) return
+
+  const targets: Array<{ rowIndex: number; row: unknown[]; where: string }> = []
+  for (const rowIndex of [...new Set(rowIndices)].sort((left, right) => left - right)) {
+    const row = queryResult.rows[rowIndex]
+    if (!row) continue
+    const where = tablePrimaryKeys.value
+      .map(pk => {
+        const pkIndex = queryResult.columns.findIndex(column => column.name === pk)
+        return pkIndex < 0 ? null : `${quoteSqlIdentifier(pk)} = ${formatSqlValue(row[pkIndex])}`
+      })
+      .filter((condition): condition is string => Boolean(condition))
+      .join(' AND ')
+    if (where) targets.push({ rowIndex, row, where })
+  }
+  if (targets.length === 0) return
+
+  const where = targets.length === 1
+    ? targets[0].where
+    : targets.map(target => `(${target.where})`).join(' OR ')
 
   const sql = isClickhouse.value
     ? `ALTER TABLE ${qualifiedTableSql(tab.db, tab.table)} DELETE WHERE ${where};`
     : `DELETE FROM ${qualifiedTableSql(tab.db, tab.table)} WHERE ${where};`
   const confirmed = await dlg.confirm({
-    title: '删除数据行',
-    message: `确定删除 ${tab.db}.${tab.table} 中 ${where} 对应的数据吗？`,
+    title: t('db.deleteDataRowsTitle'),
+    message: t('db.deleteDataRowsConfirm', {
+      database: tab.db,
+      table: tab.table,
+      count: targets.length,
+    }),
     confirmText: t('common.delete'),
     cancelText: t('common.cancel'),
     danger: true,
@@ -1111,13 +1124,20 @@ async function onDeleteRow(rowIndex: number) {
       await dbService.mysqlDeleteRows(connId.value, tab.table, where, tab.db)
     }
     notify.notify({
-      title: '数据删除',
-      message: `已删除 1 行 · ${tab.db}.${tab.table}`,
+      title: t('db.deleteDataRowsSuccessTitle'),
+      message: t('db.deleteDataRowsSuccess', {
+        database: tab.db,
+        table: tab.table,
+        count: targets.length,
+      }),
       details: [
         `数据库: ${tab.db}`,
         `表: ${tab.table}`,
         `定位条件: ${where}`,
-        `删除内容:\n${result.columns.map((column, index) => `  ${column.name}: ${formatAuditValue(row[index])}`).join('\n')}`,
+        `删除内容:\n${targets.map(target => {
+          const absoluteRow = tab.dataPage * tab.dataPageSize + target.rowIndex + 1
+          return `行 ${absoluteRow} (${target.where}):\n${queryResult.columns.map((column, index) => `  ${column.name}: ${formatAuditValue(target.row[index])}`).join('\n')}`
+        }).join('\n')}`,
         `SQL:\n${sql}`,
       ],
       color: 'success',
@@ -2268,7 +2288,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               @column-filter="setColumnFilter"
               @refresh="refreshCurrentTable"
               @save-batch="onSaveBatch"
-              @row-delete="onDeleteRow"
+              @row-delete="onDeleteRows"
               @export="handleExport"
               @export-excel="handleExportExcel"
             />
