@@ -159,6 +159,8 @@ export interface AiSettings {
 
 export type AiPlanStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
 export type AiExecutionPlanStatus = 'planning' | 'awaiting-choice' | 'planned' | 'executing' | 'completed' | 'failed' | 'stopped'
+export type AiPlanExecutionMode = 'sequential' | 'parallel'
+export type AiPlanAgentMode = 'configured' | 'temporary'
 
 export interface AiPlanOption {
   id: string
@@ -179,6 +181,13 @@ export interface AiPlanStep {
   detail: string
   agentId: string
   agentName: string
+  agentMode: AiPlanAgentMode
+  executionMode: AiPlanExecutionMode
+  temporaryAgent?: {
+    description: string
+    systemPrompt: string
+    skillIds: string[]
+  }
   status: AiPlanStepStatus
   result?: string
 }
@@ -603,15 +612,21 @@ export const useAiStore = defineStore('ai', () => {
             summary: { type: 'string', description: '一句话计划摘要' },
             steps: {
               type: 'array',
-              description: '1-6 个按顺序执行的步骤',
+              description: '1-6 个步骤；彼此独立的连续步骤可标记 parallel 并行执行',
               items: {
                 type: 'object',
                 properties: {
                   title: { type: 'string', description: '简短步骤标题' },
                   detail: { type: 'string', description: '具体工作和验收条件' },
-                  agentId: { type: 'string', description: '负责执行的 Agent id' }
+                  agentMode: { type: 'string', description: '使用已配置 Agent 或为本步骤创建一次性临时 Agent', enum: ['configured', 'temporary'] },
+                  agentId: { type: 'string', description: 'configured 时填写负责执行的 Agent id' },
+                  agentName: { type: 'string', description: 'temporary 时填写临时专职 Agent 名称' },
+                  agentDescription: { type: 'string', description: 'temporary 时填写专职范围' },
+                  agentPrompt: { type: 'string', description: 'temporary 时填写专职约束和交付要求' },
+                  skillIds: { type: 'array', description: 'temporary 时可绑定的内置 Skill id', items: { type: 'string' } },
+                  executionMode: { type: 'string', description: 'sequential 顺序执行；parallel 与相邻 parallel 步骤并行执行', enum: ['sequential', 'parallel'] }
                 },
-                required: ['title', 'detail', 'agentId']
+                required: ['title', 'detail', 'agentMode', 'executionMode']
               }
             },
             issues: {
@@ -650,8 +665,9 @@ export const useAiStore = defineStore('ai', () => {
       maxTokens: Math.min(settings.value.maxTokens, 2400),
       tools: [plannerTool],
       toolChoice: { type: 'function', function: { name: 'starhub_submit_plan' } },
-      system: `你是 StarHub Planner Agent。你只负责把用户目标拆成短小、可验证、可按顺序执行的计划,不直接执行任务。
-必须从提供的 Agent 列表中选择 agentId。涉及写操作时先安排只读验证,再安排变更和验证。缺少目标资产、范围、危险变更策略等关键条件时,不要猜测,在 issues 中给出 2-4 个清晰互斥的选择。若信息充分,issues 必须为空数组。`,
+      system: `你是 StarHub Planner Agent。你只负责把用户目标拆成短小、可验证的计划,不直接执行任务。
+你可以自行决定复用已配置 Agent,或为某个专职步骤创建不持久化的 temporary Agent。只有步骤互相独立、不会读写同一状态时才可把连续步骤标记为 parallel；写操作、存在依赖或共享目标时必须 sequential。涉及写操作时先安排只读验证,再安排变更和验证。
+缺少目标资产、范围、危险变更策略等关键条件时,不要猜测,必须在 issues 中给出 2-4 个清晰互斥的结构化选择。禁止在 summary、步骤或问题中要求用户输入 A/B/C、序号或自由文本来选择；所有选项都由界面按钮承载。若信息充分,issues 必须为空数组。`,
       messages: [{
         role: 'user',
         content: `用户请求:\n${input.request}\n\n当前工作区上下文:\n${input.context || '(无授权工作区)'}\n\n可用 Agents:\n${JSON.stringify(availableAgents)}${input.decision ? `\n\n用户对上一轮问题的选择:\n${input.decision}` : ''}`
@@ -668,14 +684,30 @@ export const useAiStore = defineStore('ai', () => {
     const steps: AiPlanStep[] = rawSteps
       .map((value, index) => {
         const item = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+        const agentMode: AiPlanAgentMode = item.agentMode === 'temporary' ? 'temporary' : 'configured'
         const requestedAgentId = String(item.agentId || '')
-        const agent = agents.value.find(candidate => candidate.id === requestedAgentId) || fallbackAgent
+        const configuredAgent = agents.value.find(candidate => candidate.id === requestedAgentId) || fallbackAgent
+        const temporaryName = String(item.agentName || `临时 Agent ${index + 1}`).trim()
+        const agentId = agentMode === 'temporary' ? `temporary-${index + 1}` : configuredAgent.id
+        const agentName = agentMode === 'temporary' ? temporaryName : configuredAgent.name
+        const skillIds = Array.isArray(item.skillIds)
+          ? item.skillIds.map(value => String(value)).filter(id => BUILTIN_AI_SKILLS.some(skill => skill.id === id))
+          : []
         return {
           id: `step-${index + 1}`,
           title: String(item.title || `步骤 ${index + 1}`).trim(),
           detail: String(item.detail || item.title || input.request).trim(),
-          agentId: agent.id,
-          agentName: agent.name,
+          agentId,
+          agentName,
+          agentMode,
+          executionMode: item.executionMode === 'parallel' ? 'parallel' as const : 'sequential' as const,
+          temporaryAgent: agentMode === 'temporary'
+            ? {
+                description: String(item.agentDescription || '本次计划的一次性专职执行 Agent').trim(),
+                systemPrompt: String(item.agentPrompt || `只负责完成步骤「${String(item.title || `步骤 ${index + 1}`)}」并给出可验证证据。`).trim(),
+                skillIds
+              }
+            : undefined,
           status: 'pending' as const
         }
       })
@@ -687,6 +719,8 @@ export const useAiStore = defineStore('ai', () => {
         detail: input.request,
         agentId: fallbackAgent.id,
         agentName: fallbackAgent.name,
+        agentMode: 'configured',
+        executionMode: 'sequential',
         status: 'pending'
       })
     }
@@ -897,14 +931,20 @@ export const useAiStore = defineStore('ai', () => {
               content: result
             })
           } catch (err) {
-            record.status = 'error'
-            record.errorMessage = err instanceof Error ? err.message : String(err)
+            const errorMessage = err instanceof Error ? err.message : String(err)
+            if (record.status === 'rejected' || errorMessage.includes('[Rejected by user]')) {
+              record.status = 'rejected'
+              record.result = record.result || '✗ 已拒绝'
+            } else {
+              record.status = 'error'
+              record.errorMessage = errorMessage
+            }
             record.finishedAt = Date.now()
             session.messages.push({
               role: 'tool',
               tool_call_id: call.id,
               name: call.function.name,
-              content: `[Error] ${record.errorMessage}`
+              content: record.status === 'rejected' ? '[Rejected by user]' : `[Error] ${record.errorMessage}`
             })
           }
         }

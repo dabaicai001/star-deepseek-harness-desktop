@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
 import {
   useAiStore,
   type AiAgent,
@@ -9,18 +8,21 @@ import {
   type AiAssetType,
   type AiExecutionPlan,
   type AiPlanIssue,
-  type AiPlanOption
+  type AiPlanOption,
+  type AiPlanStep,
+  type AiToolCallRecord
 } from '@/stores/ai'
 import { useAppStore } from '@/stores/app'
 import { useAssetStore } from '@/stores/asset'
 import AiAgentDialog from '@/components/ai/AiAgentDialog.vue'
 import type { Asset } from '@/types/asset'
 import type { LlmTool, LlmToolCall } from '@/services/ai'
-import { generateInstanceId } from '@/utils/tabId'
+import { createDirectWorkspaceRuntime } from '@/services/aiWorkspace'
+import type { ToolConfirmCtx } from '@/utils/aiTools'
+import { extractWhitelistPrefix } from '@/utils/commandGuard'
 
 const props = defineProps<{ id?: string }>()
 const { t } = useI18n()
-const router = useRouter()
 const aiStore = useAiStore()
 const appStore = useAppStore()
 const assetStore = useAssetStore()
@@ -34,7 +36,9 @@ const showAgentDialog = ref(false)
 const planning = ref(false)
 const executing = ref(false)
 const stopRequested = ref(false)
-const currentExecutionSessionId = ref<string | null>(null)
+const currentExecutionSessionIds = ref<Set<string>>(new Set())
+const pendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
+const runningAgentNames = ref<Set<string>>(new Set())
 
 const instanceId = computed(() => props.id || appStore.activeTab || 'global-ai-view')
 const activeTab = computed(() => appStore.tabs.find(tab => tab.id === instanceId.value))
@@ -49,6 +53,12 @@ const executionPlan = computed(() => session.value.executionPlan)
 const orchestrationBusy = computed(() => planning.value || executing.value || session.value.loading)
 const currentAgentName = computed(() =>
   executionPlan.value?.currentAgentName || (planning.value ? 'Planner Agent' : activeAgent.value.name)
+)
+const pendingConfirmRecords = computed(() =>
+  session.value.toolCalls.filter(record => record.status === 'awaiting-confirm')
+)
+const devMockWorkspace = computed(() =>
+  import.meta.env.DEV && new URL(window.location.href).searchParams.get('mock') === '1'
 )
 
 const capabilityOptions: Array<{
@@ -255,40 +265,6 @@ const workspaceTools: LlmTool[] = [
   {
     type: 'function',
     function: {
-      name: 'starhub_open_asset',
-      description: '按 id 或名称打开一个已通过 # 授权的 StarHub 工作区。打开后可在该工作区使用上下文 AI 的完整工具。',
-      parameters: {
-        type: 'object',
-        properties: {
-          asset: { type: 'string', description: '资产 id 或完整名称' }
-        },
-        required: ['asset']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'starhub_list_tabs',
-      description: '列出当前已经打开的工作区标签。',
-      parameters: { type: 'object', properties: {} }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'starhub_activate_tab',
-      description: '切换到一个已经打开的工作区标签。',
-      parameters: {
-        type: 'object',
-        properties: { tabId: { type: 'string', description: '标签 id' } },
-        required: ['tabId']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
       name: 'starhub_open_settings',
       description: '打开 StarHub 设置,可选直接进入 AI 设置。',
       parameters: {
@@ -306,31 +282,6 @@ const workspaceTools: LlmTool[] = [
     }
   }
 ]
-
-function routeNameForAsset(asset: Asset) {
-  if (asset.type === 'ssh') return 'ssh-terminal'
-  if (asset.type === 'docker') return 'docker'
-  if (asset.type === 'excel') return 'excel'
-  const dbType = asset.config.dbType || 'mysql'
-  if (dbType === 'redis') return 'db-redis'
-  if (dbType === 'elasticsearch') return 'db-elasticsearch'
-  if (dbType === 'clickhouse') return 'db-clickhouse'
-  if (dbType === 'postgresql') return 'db-postgresql'
-  if (dbType === 'kafka' || dbType === 'nsq') return 'db-broker'
-  return 'db-mysql'
-}
-
-function openAsset(asset: Asset) {
-  const existing = appStore.tabs.find(tab => tab.assetId === asset.id && tab.type === asset.type)
-  if (existing) {
-    appStore.setActiveTab(existing.id)
-    router.push({ name: routeNameForAsset(asset), params: { id: existing.id } })
-    return
-  }
-  const id = generateInstanceId(asset.id)
-  appStore.addTab({ id, assetId: asset.id, title: asset.name, type: asset.type })
-  router.push({ name: routeNameForAsset(asset), params: { id } })
-}
 
 async function executeWorkspaceTool(call: LlmToolCall, assets: Asset[]) {
   let args: Record<string, unknown> = {}
@@ -354,30 +305,6 @@ async function executeWorkspaceTool(call: LlmToolCall, assets: Asset[]) {
       type: asset.type,
       context: assetSummary(asset)
     })))
-  }
-  if (call.function.name === 'starhub_open_asset') {
-    const target = String(args.asset || '').trim().toLowerCase()
-    const asset = assets.find(item => item.id.toLowerCase() === target || item.name.toLowerCase() === target)
-    if (!asset) throw new Error(t('ai.assetNotAuthorized'))
-    openAsset(asset)
-    return t('ai.assetOpened', { name: asset.name })
-  }
-  if (call.function.name === 'starhub_list_tabs') {
-    return JSON.stringify(appStore.tabs.map(tab => ({ id: tab.id, title: tab.title, type: tab.type, assetId: tab.assetId })))
-  }
-  if (call.function.name === 'starhub_activate_tab') {
-    const tabId = String(args.tabId || '')
-    const tab = appStore.tabs.find(item => item.id === tabId)
-    if (!tab) throw new Error(`Tab not found: ${tabId}`)
-    appStore.setActiveTab(tab.id)
-    if (tab.type === 'ai') {
-      await router.push({ name: 'ai', params: { id: tab.id } })
-    } else {
-      const asset = assetStore.assets.find(item => item.id === tab.assetId)
-      if (!asset) throw new Error(`Asset not found: ${tab.assetId}`)
-      await router.push({ name: routeNameForAsset(asset), params: { id: tab.id } })
-    }
-    return `已切换到 ${tab.title}`
   }
   if (call.function.name === 'starhub_open_settings') {
     const section = String(args.section || 'general')
@@ -406,9 +333,9 @@ function buildPrompt(text: string, primaryAgent: AiAgent = activeAgent.value) {
     const inventory = assets
       .map(asset => `- ${asset.id} | ${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`)
       .join('\n') || '- 当前没有匹配资产'
-    prompt += `\n\n本轮 # 工作区授权: ${contextTokens.join(', ')}\n可见资产:\n${inventory}\n\n你可以使用 StarHub 应用工具注册表查询能力、列出/打开授权资产、管理标签和打开设置。真实 SSH / DB / Docker / Excel 操作进入对应工作区后仍必须遵守确认、白名单和高危操作拦截规则。未通过 # 提及的资产不得访问。`
+    prompt += `\n\n本轮 # 工作区授权: ${contextTokens.join(', ')}\n可见资产:\n${inventory}\n\n你可以直接调用 SSH / DB / Redis / Elasticsearch / Docker / Excel 工具操作这些授权工作区。直接操作不会打开、切换或新建任何标签页。工具参数 workspace 使用上方资产 id 或完整名称；同类只有一个授权资产时可省略。所有命令仍受白名单、写操作确认和高危规则约束。未通过 # 提及的资产不得访问。需要用户做选择时不得要求输入 A/B/C 或序号,必须交回 Planner 的结构化点击选项。`
   } else {
-    prompt += '\n\n本轮没有 # 工作区授权。可以使用应用级导航、设置和能力发现工具,但不得列出或打开任何资产;需要资产时请明确要求用户引用具体工作区,例如 #SSH-测试服务器。'
+    prompt += '\n\n本轮没有 # 工作区授权。可以使用应用级设置和能力发现工具,但不得访问任何资产;需要资产时请明确要求用户引用具体工作区,例如 #SSH-测试服务器。'
   }
   return {
     prompt,
@@ -435,51 +362,176 @@ function stepStatusIcon(status: string) {
   return 'mdi-circle-outline'
 }
 
+function agentForStep(plan: AiExecutionPlan, step: AiPlanStep): AiAgent {
+  if (step.agentMode !== 'temporary') return aiStore.getAgent(step.agentId) || activeAgent.value
+  const now = Date.now()
+  return {
+    id: `${plan.id}:${step.agentId}`,
+    name: step.agentName,
+    description: step.temporaryAgent?.description || '本次计划的一次性专职 Agent',
+    systemPrompt: step.temporaryAgent?.systemPrompt || `只负责完成步骤「${step.title}」。`,
+    skillIds: step.temporaryAgent?.skillIds || [],
+    favorited: false,
+    createdAt: now,
+    updatedAt: now
+  }
+}
+
+function syncRunningAgents(plan: AiExecutionPlan) {
+  const names = [...runningAgentNames.value]
+  plan.currentAgentName = names.length > 0 ? names.join(' + ') : undefined
+}
+
+function resolvePendingConfirms() {
+  for (const resolve of pendingConfirms.value.values()) resolve(false)
+  pendingConfirms.value.clear()
+}
+
+async function requestToolConfirmation(tempId: string, context: ToolConfirmCtx): Promise<boolean> {
+  const tempSession = aiStore.getSession(tempId)
+  if (!tempSession) throw new Error(`AI execution session not found: ${tempId}`)
+  let record = [...tempSession.toolCalls].reverse().find(item => item.status === 'running' || item.status === 'awaiting-confirm')
+  if (!record) {
+    record = {
+      id: `confirm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: context.toolName,
+      args: context.args,
+      status: 'awaiting-confirm',
+      startedAt: Date.now()
+    }
+    tempSession.toolCalls.push(record)
+  }
+  record.name = context.toolName
+  record.args = context.args
+  record.status = 'awaiting-confirm'
+  record.result = context.message
+  record.confirmReason = context.reason
+  if (!session.value.toolCalls.some(item => item.id === record!.id)) session.value.toolCalls.push(record)
+  session.value.toolCalls = [...session.value.toolCalls]
+  await nextTick()
+  return new Promise<boolean>(resolve => pendingConfirms.value.set(record!.id, resolve))
+}
+
+function confirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {
+  const record = session.value.toolCalls.find(item => item.id === recordId)
+  if (!record) return
+  const approved = decision !== 'reject'
+  if (decision === 'whitelist' && record.confirmReason === 'whitelist-miss') {
+    const command = String(record.args.command ?? record.args.sql ?? '')
+    const prefix = extractWhitelistPrefix(command)
+    if (prefix) aiStore.addToWhitelist(prefix)
+    record.status = 'running'
+    record.result = `✓ 已加入白名单${prefix ? ` (${prefix})` : ''},正在执行…`
+  } else if (approved) {
+    record.status = 'running'
+    record.result = '✓ 已批准,正在执行…'
+  } else {
+    record.status = 'rejected'
+    record.result = '✗ 已拒绝'
+    record.finishedAt = Date.now()
+  }
+  const resolve = pendingConfirms.value.get(recordId)
+  if (resolve) {
+    resolve(approved)
+    pendingConfirms.value.delete(recordId)
+  }
+}
+
+function toolCallSummary(record: AiToolCallRecord): string {
+  const workspace = record.args.workspace ? `[${String(record.args.workspace)}] ` : ''
+  if (record.args.command) return `${workspace}${String(record.args.command)}`
+  if (record.args.sql) return `${workspace}${String(record.args.sql)}`
+  return `${workspace}${JSON.stringify(record.args, null, 2)}`
+}
+
+async function runPlanStep(plan: AiExecutionPlan, step: AiPlanStep): Promise<boolean> {
+  if (stopRequested.value) return false
+  const agent = agentForStep(plan, step)
+  step.status = 'running'
+  plan.currentStepId = step.id
+  runningAgentNames.value.add(agent.name)
+  runningAgentNames.value = new Set(runningAgentNames.value)
+  syncRunningAgents(plan)
+  const { prompt, assets } = buildPrompt(plan.request, agent)
+  const tempId = `${instanceId.value}:execution:${plan.id}:${step.id}`
+  currentExecutionSessionIds.value.add(tempId)
+  currentExecutionSessionIds.value = new Set(currentExecutionSessionIds.value)
+  const tempSession = aiStore.getOrCreateSession(tempId, agent.id, 'ai')
+  tempSession.messages = [{
+    role: 'user',
+    content: `原始目标:\n${plan.request}\n\n当前执行步骤:\n${step.title}\n${step.detail}\n\n只完成当前步骤,给出证据、结果和下一步所需信息。`
+  }]
+  tempSession.toolCalls = []
+  tempSession.error = null
+  const runtime = createDirectWorkspaceRuntime({
+    runtimeId: tempId,
+    assets,
+    dependencyAssets: assetStore.assets,
+    getWhitelist: () => aiStore.settings.commandWhitelist,
+    confirm: context => requestToolConfirmation(tempId, context)
+  })
+
+  try {
+    const allTools = [...workspaceTools, ...runtime.tools]
+    await aiStore.runAgent(
+      tempId,
+      allTools,
+      call => call.function.name.startsWith('starhub_')
+        ? executeWorkspaceTool(call, assets)
+        : runtime.execute(call),
+      `${prompt}\n\n你当前是执行 Agent「${agent.name}」。严格只执行计划中的当前步骤: ${step.title}。${step.agentMode === 'temporary' ? '\n你是只在本计划中存在的一次性专职 Agent,完成后立即结束。' : ''}`
+    )
+
+    const assistantMessages = tempSession.messages.filter(message => message.role === 'assistant')
+    for (const message of tempSession.messages.slice(1)) {
+      session.value.messages.push(message.role === 'assistant' ? { ...message, agentName: agent.name } : { ...message })
+    }
+    for (const record of tempSession.toolCalls) {
+      if (!session.value.toolCalls.some(item => item.id === record.id)) session.value.toolCalls.push(record)
+    }
+    const lastAssistant = assistantMessages[assistantMessages.length - 1]
+    step.result = lastAssistant?.content || tempSession.error || '(无结果)'
+    if (tempSession.error) {
+      step.status = stopRequested.value || tempSession.error === '已停止' ? 'skipped' : 'failed'
+      return false
+    }
+    step.status = 'completed'
+    return true
+  } finally {
+    await runtime.close()
+    aiStore.clearSession(tempId)
+    currentExecutionSessionIds.value.delete(tempId)
+    currentExecutionSessionIds.value = new Set(currentExecutionSessionIds.value)
+    runningAgentNames.value.delete(agent.name)
+    runningAgentNames.value = new Set(runningAgentNames.value)
+    syncRunningAgents(plan)
+  }
+}
+
 async function executePlan(plan: AiExecutionPlan) {
   executing.value = true
   stopRequested.value = false
   plan.status = 'executing'
   try {
-    for (const step of plan.steps) {
-      if (stopRequested.value) break
-      const agent = aiStore.getAgent(step.agentId) || activeAgent.value
-      step.status = 'running'
-      plan.currentStepId = step.id
-      plan.currentAgentName = agent.name
-      const { prompt, assets } = buildPrompt(plan.request, agent)
-      const tempId = `${instanceId.value}:execution:${plan.id}:${step.id}`
-      currentExecutionSessionId.value = tempId
-      const tempSession = aiStore.getOrCreateSession(tempId, agent.id, 'ai')
-      tempSession.messages = [{
-        role: 'user',
-        content: `原始目标:\n${plan.request}\n\n当前执行步骤:\n${step.title}\n${step.detail}\n\n只完成当前步骤,给出证据、结果和下一步所需信息。`
-      }]
-      tempSession.toolCalls = []
-      tempSession.error = null
-      await aiStore.runAgent(
-        tempId,
-        workspaceTools,
-        call => executeWorkspaceTool(call, assets),
-        `${prompt}\n\n你当前是执行 Agent「${agent.name}」。严格只执行计划中的当前步骤: ${step.title}。`
-      )
-
-      const assistantMessages = tempSession.messages.filter(message => message.role === 'assistant')
-      for (const message of tempSession.messages.slice(1)) {
-        session.value.messages.push(message.role === 'assistant' ? { ...message, agentName: agent.name } : { ...message })
+    let index = 0
+    while (index < plan.steps.length && !stopRequested.value) {
+      const step = plan.steps[index]
+      const batch = [step]
+      if (step.executionMode === 'parallel') {
+        let cursor = index + 1
+        while (plan.steps[cursor]?.executionMode === 'parallel') {
+          batch.push(plan.steps[cursor])
+          cursor++
+        }
       }
-      session.value.toolCalls.push(...tempSession.toolCalls.map(record => ({ ...record })))
-      const lastAssistant = assistantMessages[assistantMessages.length - 1]
-      step.result = lastAssistant?.content || tempSession.error || '(无结果)'
-      if (tempSession.error) {
-        step.status = stopRequested.value || tempSession.error === '已停止' ? 'skipped' : 'failed'
-        plan.status = stopRequested.value ? 'stopped' : 'failed'
-        session.value.error = stopRequested.value ? '已停止' : `${step.agentName}: ${tempSession.error}`
-        aiStore.clearSession(tempId)
+      const results = await Promise.all(batch.map(item => runPlanStep(plan, item)))
+      index += batch.length
+      if (results.some(result => !result) && !stopRequested.value) {
+        plan.status = 'failed'
+        const failed = batch.find(item => item.status === 'failed')
+        session.value.error = failed ? `${failed.agentName}: ${failed.result || '执行失败'}` : '计划执行失败'
         break
       }
-      step.status = 'completed'
-      aiStore.clearSession(tempId)
-      currentExecutionSessionId.value = null
     }
     if (stopRequested.value) {
       plan.status = 'stopped'
@@ -492,7 +544,11 @@ async function executePlan(plan: AiExecutionPlan) {
       plan.currentAgentName = undefined
     }
   } finally {
-    currentExecutionSessionId.value = null
+    resolvePendingConfirms()
+    currentExecutionSessionIds.value.clear()
+    currentExecutionSessionIds.value = new Set()
+    runningAgentNames.value.clear()
+    runningAgentNames.value = new Set()
     executing.value = false
   }
 }
@@ -541,12 +597,17 @@ async function choosePlanOption(issue: AiPlanIssue, option: AiPlanOption) {
   issue.selectedOptionId = option.id
   const plan = session.value.executionPlan
   if (!plan) return
+  if (devMockWorkspace.value) {
+    plan.status = 'planned'
+    return
+  }
   await planAndExecute(plan.request, `${issue.question}\n用户选择: ${option.label}\n${option.description}`)
 }
 
 function stopOrchestration() {
   stopRequested.value = true
-  if (currentExecutionSessionId.value) aiStore.stopAgent(currentExecutionSessionId.value)
+  resolvePendingConfirms()
+  for (const executionSessionId of currentExecutionSessionIds.value) aiStore.stopAgent(executionSessionId)
   if (session.value.executionPlan) session.value.executionPlan.status = 'stopped'
   session.value.error = '已停止'
 }
@@ -594,11 +655,67 @@ function onQuickAnalyze(e: Event) {
   inputText.value = `${typeToken} 帮我分析当前工作区的状态和关键指标`
 }
 
+function applyDevMockState() {
+  if (!devMockWorkspace.value) return
+  session.value.messages = [{ role: 'user', content: '#SSH-生产主机 检查服务状态,必要时并行分析日志和容器' }]
+  session.value.error = null
+  session.value.executionPlan = {
+    id: 'mock-direct-plan',
+    request: session.value.messages[0].content || '',
+    summary: '无标签直连生产主机,并行收集日志与容器证据',
+    status: 'awaiting-choice',
+    steps: [
+      {
+        id: 'mock-step-1', title: '读取主机状态', detail: '通过 # 授权直接执行只读 SSH 命令',
+        agentId: activeAgent.value.id, agentName: activeAgent.value.name,
+        agentMode: 'configured', executionMode: 'sequential', status: 'completed'
+      },
+      {
+        id: 'mock-step-2', title: '分析错误日志', detail: '独立读取最近错误并聚类',
+        agentId: 'temporary-log-agent', agentName: '日志专职 Agent',
+        agentMode: 'temporary', executionMode: 'parallel',
+        temporaryAgent: { description: '一次性日志分析', systemPrompt: '只分析日志证据', skillIds: ['log-analysis'] },
+        status: 'running'
+      },
+      {
+        id: 'mock-step-3', title: '核对容器状态', detail: '与日志分析并行检查容器健康',
+        agentId: 'temporary-docker-agent', agentName: '容器专职 Agent',
+        agentMode: 'temporary', executionMode: 'parallel',
+        temporaryAgent: { description: '一次性容器诊断', systemPrompt: '只核对容器健康', skillIds: ['ops-triage'] },
+        status: 'running'
+      }
+    ],
+    issues: [{
+      id: 'mock-issue',
+      question: '发现服务需要重启时采用哪种策略?',
+      options: [
+        { id: 'mock-option-readonly', label: '仅给建议', description: '保持只读,输出命令与影响范围' },
+        { id: 'mock-option-confirm', label: '确认后执行', description: '生成确认卡,批准后再执行重启' }
+      ]
+    }],
+    currentStepId: 'mock-step-2',
+    currentAgentName: '日志专职 Agent + 容器专职 Agent',
+    createdAt: Date.now()
+  }
+  session.value.toolCalls = [{
+    id: 'mock-confirm',
+    name: 'ssh_exec_confirmed',
+    args: { workspace: '生产主机', command: 'sudo systemctl restart payment-api' },
+    status: 'awaiting-confirm',
+    confirmReason: 'whitelist-miss',
+    result: '目标工作区: 生产主机\n\n即将执行命令:\n\nsudo systemctl restart payment-api\n\n请确认是否执行。',
+    startedAt: Date.now()
+  }]
+}
+
 onMounted(() => {
   window.addEventListener('starhub:ai-quick-analyze', onQuickAnalyze)
+  applyDevMockState()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('starhub:ai-quick-analyze', onQuickAnalyze)
+  if (orchestrationBusy.value) stopOrchestration()
+  else resolvePendingConfirms()
 })
 
 function toolRecordsFor(messageIndex: number) {
@@ -713,7 +830,15 @@ function shortResult(value: string, max = 600) {
                   <strong>{{ step.title }}</strong>
                   <small>{{ step.detail }}</small>
                 </span>
-                <span class="ai-plan-agent">{{ step.agentName }}</span>
+                <span class="ai-plan-step-meta">
+                  <span v-if="step.executionMode === 'parallel'" class="ai-plan-mode is-parallel">
+                    <v-icon size="10">mdi-call-split</v-icon>{{ t('ai.parallelAgent') }}
+                  </span>
+                  <span v-if="step.agentMode === 'temporary'" class="ai-plan-mode is-temporary">
+                    <v-icon size="10">mdi-robot-industrial-outline</v-icon>{{ t('ai.temporaryAgent') }}
+                  </span>
+                  <span class="ai-plan-agent">{{ step.agentName }}</span>
+                </span>
               </div>
             </div>
             <div v-for="issue in executionPlan.issues" :key="issue.id" class="ai-plan-issue">
@@ -723,12 +848,45 @@ function shortResult(value: string, max = 600) {
                   v-for="option in issue.options"
                   :key="option.id"
                   class="cyber-btn-secondary"
-                  :disabled="orchestrationBusy"
+                  :class="{ selected: issue.selectedOptionId === option.id }"
+                  :disabled="orchestrationBusy || Boolean(issue.selectedOptionId)"
+                  :aria-label="`${issue.question}: ${option.label}`"
                   @click="choosePlanOption(issue, option)"
                 >
+                  <v-icon size="12">{{ issue.selectedOptionId === option.id ? 'mdi-check-circle' : 'mdi-radiobox-blank' }}</v-icon>
                   <span>{{ option.label }}</span>
                   <small>{{ option.description }}</small>
                 </button>
+              </div>
+            </div>
+            <div v-if="pendingConfirmRecords.length" class="ai-plan-confirms">
+              <div
+                v-for="record in pendingConfirmRecords"
+                :key="record.id"
+                class="ai-tool-call ai-plan-confirm status-awaiting-confirm"
+              >
+                <div class="ai-tool-call-head">
+                  <v-icon size="13">mdi-shield-alert-outline</v-icon>
+                  <span class="ai-tool-call-name">{{ record.name }}</span>
+                  <pre class="ai-tool-call-summary">{{ toolCallSummary(record) }}</pre>
+                </div>
+                <pre v-if="record.result" class="ai-plan-confirm-message">{{ record.result }}</pre>
+                <div class="ai-plan-confirm-actions">
+                  <span><v-icon size="12">mdi-shield-check-outline</v-icon>{{ t('ai.confirmContinue') }}</span>
+                  <button class="cyber-btn-secondary" @click="confirmTool(record.id, 'reject')">
+                    <v-icon size="12">mdi-close</v-icon>{{ t('ai.rejectOperation') }}
+                  </button>
+                  <button class="cyber-btn" @click="confirmTool(record.id, 'approve')">
+                    <v-icon size="12">mdi-check</v-icon>{{ t('ai.approveOperation') }}
+                  </button>
+                  <button
+                    v-if="record.confirmReason === 'whitelist-miss'"
+                    class="cyber-btn-secondary"
+                    @click="confirmTool(record.id, 'whitelist')"
+                  >
+                    <v-icon size="12">mdi-shield-plus-outline</v-icon>{{ t('ai.approveAndWhitelist') }}
+                  </button>
+                </div>
               </div>
             </div>
           </section>

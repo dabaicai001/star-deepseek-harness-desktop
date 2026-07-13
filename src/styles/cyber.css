@@ -3299,10 +3299,12 @@ html.v-theme--lightTheme {
 
 .ai-execution-plan {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 12px;
   width: 100%;
   padding: 12px;
+  overflow: visible;
   border-left: 2px solid var(--purple);
 }
 
@@ -3417,6 +3419,32 @@ html.v-theme--lightTheme {
   white-space: nowrap;
 }
 
+.ai-plan-step-meta {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-plan-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font: 9px 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+
+.ai-plan-mode.is-parallel {
+  color: var(--cyan);
+}
+
+.ai-plan-mode.is-temporary {
+  color: var(--purple);
+}
+
 .ai-plan-issue {
   display: flex;
   flex-direction: column;
@@ -3442,12 +3470,22 @@ html.v-theme--lightTheme {
 }
 
 .ai-plan-options button {
-  display: flex;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: flex-start;
-  flex-direction: column;
   gap: 2px;
   min-height: 48px;
   text-align: left;
+}
+
+.ai-plan-options button > small {
+  grid-column: 2;
+}
+
+.ai-plan-options button.selected {
+  color: var(--cyan);
+  border-color: var(--focus-cyan);
+  background: var(--hover-cyan-soft);
 }
 
 .ai-plan-options button small {
@@ -3455,6 +3493,48 @@ html.v-theme--lightTheme {
   font-size: 9px;
   line-height: 1.4;
   white-space: normal;
+}
+
+.ai-plan-confirms {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-plan-confirm-message {
+  max-height: 160px;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  color: var(--text-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg-2);
+  font: 10px/1.6 'JetBrains Mono', monospace;
+  white-space: pre-wrap;
+}
+
+.ai-plan-confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-plan-confirm-actions > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: auto;
+  color: var(--yellow);
+  font-size: 10px;
+}
+
+.ai-plan-confirm-actions button {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 10px;
 }
 
 .ai-workspace-empty {
