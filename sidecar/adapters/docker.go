@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,10 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
 )
@@ -425,6 +428,118 @@ type ExecResult struct {
 	ExitCode int    `json:"exitCode"`
 }
 
+const (
+	dockerExecInspectInterval = 100 * time.Millisecond
+	dockerExecDrainTimeout    = 250 * time.Millisecond
+)
+
+type dockerExecCopyResult struct {
+	stdout string
+	stderr string
+	err    error
+}
+
+type dockerExecInspectFunc func(context.Context) (container.ExecInspect, error)
+
+func copyDockerExecOutput(resp types.HijackedResponse) <-chan dockerExecCopyResult {
+	result := make(chan dockerExecCopyResult, 1)
+	go func() {
+		var stdoutBuf bytes.Buffer
+		var stderrBuf bytes.Buffer
+		var err error
+
+		mediaType, known := resp.MediaType()
+		if known && mediaType == types.MediaTypeRawStream {
+			_, err = io.Copy(&stdoutBuf, resp.Reader)
+		} else {
+			_, err = stdcopy.StdCopy(&stdoutBuf, &stderrBuf, resp.Reader)
+		}
+		result <- dockerExecCopyResult{
+			stdout: stdoutBuf.String(),
+			stderr: stderrBuf.String(),
+			err:    err,
+		}
+	}()
+	return result
+}
+
+func collectDockerExecResult(
+	ctx context.Context,
+	resp types.HijackedResponse,
+	inspect dockerExecInspectFunc,
+	inspectInterval time.Duration,
+	drainTimeout time.Duration,
+) (*ExecResult, error) {
+	defer resp.Close()
+	// StarHub 的 Exec 是逐条命令模式,不向容器写 stdin。显式半关闭写端,
+	// 避免部分 Docker 传输持续等待输入而不结束 attach 流。
+	_ = resp.CloseWrite()
+
+	copyDone := copyDockerExecOutput(resp)
+	ticker := time.NewTicker(inspectInterval)
+	defer ticker.Stop()
+
+	finish := func(copyResult dockerExecCopyResult, exitCode int, ignoreCopyError bool) (*ExecResult, error) {
+		if copyResult.err != nil && !ignoreCopyError {
+			return nil, fmt.Errorf("docker exec read output: %w", copyResult.err)
+		}
+		return &ExecResult{
+			Stdout:   copyResult.stdout,
+			Stderr:   copyResult.stderr,
+			ExitCode: exitCode,
+		}, nil
+	}
+
+	for {
+		select {
+		case copyResult := <-copyDone:
+			status, err := inspect(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("docker exec inspect: %w", err)
+			}
+			return finish(copyResult, status.ExitCode, false)
+
+		case <-ticker.C:
+			status, err := inspect(ctx)
+			if err != nil {
+				resp.Close()
+				<-copyDone
+				return nil, fmt.Errorf("docker exec inspect: %w", err)
+			}
+			// Pid > 0 区分“命令已经运行并退出”和 attach 刚建立、进程尚未启动。
+			if status.Running || status.Pid <= 0 {
+				continue
+			}
+
+			drainTimer := time.NewTimer(drainTimeout)
+			select {
+			case copyResult := <-copyDone:
+				if !drainTimer.Stop() {
+					<-drainTimer.C
+				}
+				return finish(copyResult, status.ExitCode, false)
+			case <-drainTimer.C:
+				// 某些 Docker/SSH 传输在 exec 已退出后仍不发送 EOF。关闭连接会
+				// 解锁 stdcopy;此时关闭产生的读错误不代表命令执行失败。
+				resp.Close()
+				return finish(<-copyDone, status.ExitCode, true)
+			case <-ctx.Done():
+				if !drainTimer.Stop() {
+					<-drainTimer.C
+				}
+				resp.Close()
+				<-copyDone
+				return nil, fmt.Errorf("docker exec: %w", ctx.Err())
+			}
+
+		case <-ctx.Done():
+			resp.Close()
+			<-copyDone
+			return nil, fmt.Errorf("docker exec: %w", ctx.Err())
+		}
+	}
+}
+
 // Exec 在容器内执行命令
 func (a *DockerAdapter) Exec(containerID string, command []string, workdir string, timeoutSec int) (*ExecResult, error) {
 	if timeoutSec <= 0 {
@@ -450,46 +565,14 @@ func (a *DockerAdapter) Exec(containerID string, command []string, workdir strin
 	if err != nil {
 		return nil, fmt.Errorf("docker exec attach: %w", err)
 	}
-	defer resp.Close()
 
-	// 读取输出(Docker 多路复用协议: 8 字节头 + payload)
-	stdoutBuf := new(strings.Builder)
-	stderrBuf := new(strings.Builder)
-
-	header := make([]byte, 8)
-	for {
-		_, err := io.ReadFull(resp.Reader, header)
-		if err != nil {
-			break
-		}
-		// header[0]: stream type (1=stdout, 2=stderr)
-		// header[4:8]: payload size (big-endian uint32)
-		size := int(header[4])<<24 | int(header[5])<<16 | int(header[6])<<8 | int(header[7])
-		if size <= 0 {
-			continue
-		}
-		buf := make([]byte, size)
-		if _, err := io.ReadFull(resp.Reader, buf); err != nil {
-			break
-		}
-		switch header[0] {
-		case 1:
-			stdoutBuf.Write(buf)
-		case 2:
-			stderrBuf.Write(buf)
-		}
-	}
-
-	// 获取退出码
-	inspect, err := a.cli.ContainerExecInspect(ctx, execID.ID)
-	exitCode := 0
-	if err == nil {
-		exitCode = inspect.ExitCode
-	}
-
-	return &ExecResult{
-		Stdout:   stdoutBuf.String(),
-		Stderr:   stderrBuf.String(),
-		ExitCode: exitCode,
-	}, nil
+	return collectDockerExecResult(
+		ctx,
+		resp,
+		func(inspectCtx context.Context) (container.ExecInspect, error) {
+			return a.cli.ContainerExecInspect(inspectCtx, execID.ID)
+		},
+		dockerExecInspectInterval,
+		dockerExecDrainTimeout,
+	)
 }
