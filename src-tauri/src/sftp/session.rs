@@ -1,5 +1,5 @@
 use anyhow::Result;
-use russh_sftp::client::{Config, SftpSession};
+use russh_sftp::client::SftpSession;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -12,16 +12,10 @@ pub struct SftpSessionWrapper {
 
 impl SftpSessionWrapper {
     pub async fn connect(ssh_session: &mut SshSession, session_id: String) -> Result<Self> {
-        let channel = ssh_session.open_sftp_channel().await?;
-        let stream = channel.into_stream();
-        let sftp = SftpSession::new_with_config(
-            stream,
-            Config {
-                request_timeout_secs: ssh_session.sftp_timeout_sec(),
-                ..Default::default()
-            },
-        )
-        .await?;
+        let sftp = ssh_session
+            .open_sftp()
+            .await
+            .map_err(anyhow::Error::msg)?;
         Ok(Self {
             session_id,
             sftp: Arc::new(Mutex::new(sftp)),

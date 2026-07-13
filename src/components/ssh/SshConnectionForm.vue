@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { CreateAssetDto } from '@/types/asset'
+import type { CreateAssetDto, SftpLaunchMode } from '@/types/asset'
 import type { KbInteractiveEvent } from '@/services/ssh'
 import KbInteractiveDialog from './KbInteractiveDialog.vue'
 
@@ -38,6 +38,8 @@ export interface SshFormInitialValues {
   mfaEnabled?: boolean
   mfaPassword?: string
   sftpTimeoutSec?: number
+  sftpLaunchMode?: SftpLaunchMode
+  sftpServerPath?: string
 }
 
 const props = defineProps<{
@@ -61,6 +63,8 @@ const host = ref(props.initialValues?.host ?? '')
 const port = ref<number>(props.initialValues?.port ?? 22)
 const username = ref(props.initialValues?.username ?? '')
 const sftpTimeoutSec = ref<number>(props.initialValues?.sftpTimeoutSec ?? 30)
+const sftpLaunchMode = ref<SftpLaunchMode>(props.initialValues?.sftpLaunchMode ?? 'auto')
+const sftpServerPath = ref(props.initialValues?.sftpServerPath ?? '')
 const password = ref(props.initialValues?.password ?? '')
 const privateKey = ref(props.initialValues?.privateKey ?? '')
 const privateKeyName = ref('')
@@ -122,6 +126,8 @@ watch(
     port.value = next.port ?? 22
     username.value = next.username ?? ''
     sftpTimeoutSec.value = next.sftpTimeoutSec ?? 30
+    sftpLaunchMode.value = next.sftpLaunchMode ?? 'auto'
+    sftpServerPath.value = next.sftpServerPath ?? ''
     password.value = next.password ?? ''
     privateKey.value = next.privateKey ?? ''
     privateKeyName.value = next.privateKey ? 'Loaded' : ''
@@ -166,6 +172,8 @@ watch(
     port,
     username,
     sftpTimeoutSec,
+    sftpLaunchMode,
+    sftpServerPath,
     password,
     privateKey,
     passphrase,
@@ -192,15 +200,20 @@ watch(
 const needPassword = computed(() => authMode.value === 'password' || authMode.value === 'both')
 const needKey = computed(() => authMode.value === 'key' || authMode.value === 'both')
 const needMfa = computed(() => authMode.value === 'mfa')
+const validSftpServerPath = computed(() =>
+  sftpLaunchMode.value !== 'custom' || sftpServerPath.value.trim().startsWith('/')
+)
 
 const canSubmit = computed(() =>
   Boolean(name.value && host.value && username.value) &&
+  validSftpServerPath.value &&
   (!needKey.value || privateKey.value.length > 0) &&
   (!showJumpHost.value || !jumpHost.value || (jumpAuthType.value === 'password' ? true : jumpPrivateKey.value.length > 0))
 )
 
 const canTest = computed(() =>
   Boolean(host.value && username.value) &&
+  validSftpServerPath.value &&
   (!needKey.value || privateKey.value.length > 0) &&
   (!showJumpHost.value || !jumpHost.value || (jumpAuthType.value === 'password' ? true : jumpPrivateKey.value.length > 0))
 )
@@ -292,6 +305,8 @@ async function onTestConnection() {
       port: port.value,
       username: username.value,
       sftp_timeout_sec: sftpTimeoutSec.value,
+      sftp_launch_mode: sftpLaunchMode.value,
+      sftp_server_path: sftpLaunchMode.value === 'custom' ? sftpServerPath.value.trim() : null,
       auth
     }
 
@@ -359,6 +374,8 @@ function onSubmit() {
     usePasswordAuth: needPassword.value,
     useKeyAuth: needKey.value,
     sftpTimeoutSec: sftpTimeoutSec.value,
+    sftpLaunchMode: sftpLaunchMode.value,
+    sftpServerPath: sftpLaunchMode.value === 'custom' ? sftpServerPath.value.trim() : undefined,
   }
   if (needPassword.value) {
     config.password = isEditing.value && !changedPassword.value ? undefined : (password.value || undefined)
@@ -672,6 +689,45 @@ async function pasteJumpKeyFromClipboard() {
             @blur="normalizeSftpTimeout"
           />
           <span class="field-hint">{{ t('ssh.sftpTimeoutHint') }}</span>
+        </div>
+
+        <div class="form-field">
+          <label class="field-label" for="ssh-sftp-launch-mode">
+            <v-icon size="12">mdi-cog-transfer-outline</v-icon>
+            {{ t('ssh.sftpLaunchMode') }}
+          </label>
+          <select
+            id="ssh-sftp-launch-mode"
+            v-model="sftpLaunchMode"
+            class="cyber-select"
+            :aria-label="t('ssh.sftpLaunchMode')"
+          >
+            <option value="auto">{{ t('ssh.sftpLaunchAuto') }}</option>
+            <option value="subsystem">{{ t('ssh.sftpLaunchSubsystem') }}</option>
+            <option value="custom">{{ t('ssh.sftpLaunchCustom') }}</option>
+          </select>
+          <span class="field-hint">{{ t(`ssh.sftpLaunchHint.${sftpLaunchMode}`) }}</span>
+        </div>
+
+        <div v-if="sftpLaunchMode === 'custom'" class="form-field">
+          <label class="field-label" for="ssh-sftp-server-path">
+            <v-icon size="12">mdi-file-code-outline</v-icon>
+            {{ t('ssh.sftpServerPath') }}
+            <span class="required">*</span>
+          </label>
+          <input
+            id="ssh-sftp-server-path"
+            v-model="sftpServerPath"
+            type="text"
+            class="cyber-input mono"
+            placeholder="/usr/libexec/openssh/sftp-server"
+            :aria-label="t('ssh.sftpServerPath')"
+            :aria-invalid="!validSftpServerPath"
+            required
+          />
+          <span class="field-hint" :class="{ error: !validSftpServerPath }">
+            {{ validSftpServerPath ? t('ssh.sftpServerPathHint') : t('ssh.sftpServerPathInvalid') }}
+          </span>
         </div>
       </div>
 

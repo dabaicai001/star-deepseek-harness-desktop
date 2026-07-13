@@ -1,6 +1,7 @@
 use crate::commands::ssh::SshManager;
 use crate::sftp::transfer::TransferManager;
 use crate::sftp::TransferTask;
+use crate::ssh::session::SftpLaunchInfo;
 use crate::ssh::sftp::SftpEntry;
 use std::sync::Arc;
 use tauri::State;
@@ -208,11 +209,11 @@ pub async fn sftp_ensure_session(
     manager: State<'_, SshManager>,
     transfer_manager: State<'_, TransferManager>,
     id: String,
-) -> Result<(), String> {
+) -> Result<Option<SftpLaunchInfo>, String> {
     // 已注册过就直接返回
     if transfer_manager.has_session(&id).await {
         tracing::info!("[sftp_ensure_session] session {} already registered", id);
-        return Ok(());
+        return Ok(None);
     }
     tracing::info!(
         "[sftp_ensure_session] opening SFTP channel for session {}",
@@ -220,7 +221,7 @@ pub async fn sftp_ensure_session(
     );
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let sftp = session.open_sftp().await.map_err(map_err)?;
+    let (sftp, launch_info) = session.open_sftp_with_info().await.map_err(map_err)?;
     tracing::info!("[sftp_ensure_session] SFTP channel opened, registering to TransferManager");
     transfer_manager
         .register_sftp(id.clone(), Arc::new(Mutex::new(sftp)))
@@ -229,7 +230,7 @@ pub async fn sftp_ensure_session(
         "[sftp_ensure_session] session {} registered successfully",
         id
     );
-    Ok(())
+    Ok(Some(launch_info))
 }
 
 /// 启动流式上传(分块 + progress 事件)

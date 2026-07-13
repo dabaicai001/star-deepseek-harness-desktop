@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AssetConfig } from '@/types/asset'
+import type { AssetConfig, SftpLaunchMode } from '@/types/asset'
 
 export interface SshSessionInfo {
   id: string
@@ -34,6 +34,8 @@ export interface SshConfig {
   username: string
   auth: SshAuthConfig
   sftp_timeout_sec?: number
+  sftp_launch_mode?: SftpLaunchMode
+  sftp_server_path?: string | null
   kb_interactive?: KeyboardInteractiveConfig | null
   jump_host?: string | null
   jump_port?: number | null
@@ -100,6 +102,8 @@ export function assetConfigToSshConfig(config: AssetConfig): SshConfig {
     username: config.username || '',
     auth: buildAuth(config),
     sftp_timeout_sec: config.sftpTimeoutSec ?? 30,
+    sftp_launch_mode: config.sftpLaunchMode ?? 'auto',
+    sftp_server_path: config.sftpServerPath || null,
     kb_interactive: config.mfaEnabled
       ? {
           enabled: true,

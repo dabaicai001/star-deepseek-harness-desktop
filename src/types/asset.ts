@@ -1,6 +1,7 @@
 export type AssetType = 'ssh' | 'db' | 'docker' | 'excel'
 
 export type DatabaseType = 'mysql' | 'postgresql' | 'sqlite' | 'redis' | 'elasticsearch' | 'clickhouse' | 'kafka' | 'nsq'
+export type SftpLaunchMode = 'auto' | 'subsystem' | 'custom'
 
 export interface AssetGroup {
   id: number
@@ -36,6 +37,10 @@ export interface AssetConfig {
   authMode?: 'password' | 'key' | 'both' | 'mfa'
   /** SFTP 子系统初始化与单次请求超时，单位秒。 */
   sftpTimeoutSec?: number
+  /** SFTP 服务端启动策略：自动诊断降级、仅标准子系统或指定远端程序。 */
+  sftpLaunchMode?: SftpLaunchMode
+  /** custom 模式使用的远端 Unix sftp-server 绝对路径。 */
+  sftpServerPath?: string
 
   // 跳板机配置
   jumpHost?: string

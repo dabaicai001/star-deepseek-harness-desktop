@@ -366,6 +366,8 @@ onBeforeUnmount(cleanupExcelDropListener)
               mfaEnabled: asset.config.mfaEnabled,
               mfaPassword: asset.config.mfaPassword || '',
               sftpTimeoutSec: asset.config.sftpTimeoutSec ?? 30,
+              sftpLaunchMode: asset.config.sftpLaunchMode ?? 'auto',
+              sftpServerPath: asset.config.sftpServerPath || '',
               jumpHost: asset.config.jumpHost || '',
               jumpPort: asset.config.jumpPort || 22,
               jumpUsername: asset.config.jumpUsername || '',
@@ -611,10 +613,21 @@ onBeforeUnmount(cleanupExcelDropListener)
   border-radius: 16px;
   overflow: hidden;
   position: relative;
-  max-height: 80vh;
+  max-height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;
   box-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.7);
+}
+
+.new-conn-dialog > .modal-header {
+  flex: 0 0 auto;
+}
+
+.new-conn-dialog > .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .new-conn-dialog::before {

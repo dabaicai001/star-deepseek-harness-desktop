@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.27.0(Docker 交互式容器 Shell 与 UI 对比度优化) |
+| 当前版本 | v0.28.0(SFTP 真实诊断、自动探测与可控降级) |
 
 ---
 
@@ -252,6 +252,7 @@ starhub/
 | `.terminal-font-size-indicator` / `.terminal-action-divider` / `.terminal-search-*` / `.terminal-quick-*` | SSH / Docker Exec 共用的终端工具栏、搜索与快捷命令视觉 |
 | `.docker-exec-terminal` / `.docker-exec-pane` | Docker 持久交互式 TTY 的 xterm 工作区与完整 flex 高度链 |
 | `.quick-command-editor` / `.qc-editor-*` | SSH 自定义快捷命令弹窗、字段、拖拽列表与浅色主题高对比度覆盖 |
+| `.sftp-error-details` | SFTP 建链失败的完整远端诊断信息滚动区 |
 | `.empty-state` | 空状态(图标 + 标题 + 描述 + CTA) |
 | `.app-startup` / `.app-startup-*` | 原生首屏与 Vue 路由加载阶段共用的深色启动状态页 |
 | `.glow-cyan` / `.glow-purple` / `.glow-pink` | 静态光晕 |
@@ -713,6 +714,14 @@ v0.17.0 使用 `zmodem.js` 在 Webview 侧实现 `rz` / `sz` 协议:
 - 修复前:`.univer-grid` 挂载根 `display:grid`,`grid-template-rows: 290px 214px`,Workbench 高 290px
 - 修复后:`.univer-host` 挂载根 `display:block`,挂载根与 Workbench 均高 504px,数据 canvas 与 `[data-range-selector]` 均高 399px
 
+### 10.8 SFTP Subsystem 路径错误与受控降级
+
+- `russh` 的 `request_subsystem(true, "sftp")` / `exec(true, ...)` 只负责发送 channel request；必须继续读取 channel 的 `Success` / `Failure`，否则服务端拒绝会被后续 `russh-sftp` 初始化误判成 Timeout。
+- 建链期间必须区分 stdout 的 SFTP 二进制协议与 `ExtendedData` stderr，并完整保留 exit status、exit signal、request failure 和提前关闭状态。面向用户的错误不得只显示 `[SFTP_FAILED]` 或 Timeout。
+- 默认 `sftpLaunchMode=auto`：先使用标准 subsystem，确认是可恢复的服务端启动失败后才执行固定探测脚本；找到可执行 `sftp-server` 才用 SSH exec 降级。真实网络超时、SSH 通道打开失败等错误不自动重试为 exec。
+- `subsystem` 模式用于严格禁止降级；`custom` 模式只接受远端 Unix 绝对路径，后端必须再次做长度、控制字符校验和 POSIX 安全引用，禁止接收任意命令文本。
+- 自动探测失败时要同时展示 subsystem 原始错误与探测结果，并建议服务端优先改为 `Subsystem sftp internal-sftp`、执行 `sshd -t` 校验后 reload sshd。
+
 ---
 
 ## 11. MVP 任务优先级
@@ -756,4 +765,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-13 (v0.27.0)*
+*最后更新: 2026-07-13 (v0.28.0)*

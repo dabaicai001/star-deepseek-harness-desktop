@@ -6,7 +6,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useAssetStore } from '@/stores/asset'
 import { useNotifyStore } from '@/stores/notify'
 import { useDialogStore } from '@/stores/dialog'
-import { sftpList, sftpEnsureSession, sftpStartUpload, sftpStartDownload, joinPath, parentPath, formatSize, type SftpEntry } from '@/services/sftp'
+import { sftpList, sftpEnsureSession, sftpStartUpload, sftpStartDownload, joinPath, parentPath, formatSize, type SftpEntry, type SftpLaunchInfo } from '@/services/sftp'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import SftpTransferQueue from './SftpTransferQueue.vue'
@@ -65,6 +65,7 @@ async function connect() {
   lastError.value = null
 
   const connectCallId = ++currentConnectId
+  let launchInfo: SftpLaunchInfo | null = null
 
   try {
     ownsSession = !props.sessionId
@@ -75,6 +76,8 @@ async function connect() {
         port: a.config.port || 22,
         username: a.config.username,
         sftp_timeout_sec: a.config.sftpTimeoutSec ?? 30,
+        sftp_launch_mode: a.config.sftpLaunchMode ?? 'auto',
+        sftp_server_path: a.config.sftpServerPath || null,
         auth: a.config.useKeyAuth && a.config.usePasswordAuth !== false && effectivePassword && a.config.privateKey
           ? { PasswordAndKey: { password: effectivePassword, key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
           : effectivePassword
@@ -107,7 +110,7 @@ async function connect() {
     if (connectCallId !== currentConnectId) return
 
     // 确保 SFTP 子系统通道已开启
-    await sftpEnsureSession(sessionId)
+    launchInfo = await sftpEnsureSession(sessionId)
 
     connected.value = true
 
@@ -117,6 +120,14 @@ async function connect() {
 
     // 连接成功后加载根目录
     await loadDir('/')
+    if (launchInfo?.mode === 'fallback_exec' && launchInfo.server_path) {
+      notify.notify({
+        message: t('sftp.autoFallbackUsed', { path: launchInfo.server_path }),
+        color: 'info',
+        timeout: 6000,
+        details: launchInfo.diagnostic || undefined,
+      })
+    }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     lastError.value = msg
@@ -126,7 +137,12 @@ async function connect() {
         await invoke('ssh_disconnect', { id: sessionId })
       } catch { /* 静默 */ }
     }
-    notify.notify({ message: `${t('sftp.connectFailed')}: ${msg}`, color: 'error', timeout: 5000 })
+    notify.notify({
+      message: `${t('sftp.connectFailed')}: ${msg}`,
+      color: 'error',
+      timeout: 8000,
+      details: msg,
+    })
   } finally {
     if (connectCallId === currentConnectId) {
       connecting.value = false
@@ -463,7 +479,7 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
     </div>
     <div v-else-if="lastError && !connected" class="state-overlay error">
       <v-icon size="24">mdi-alert-circle-outline</v-icon>
-      <span class="state-text">{{ lastError }}</span>
+      <pre class="sftp-error-details" role="alert">{{ lastError }}</pre>
       <button class="cyber-btn-sm" @click="connect">
         <v-icon size="12">mdi-refresh</v-icon> RETRY
       </button>

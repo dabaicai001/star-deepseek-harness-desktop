@@ -1,12 +1,95 @@
-use super::{SshAuth, SshConfig};
+use super::sftp_transport::{SftpChannelDiagnostics, SftpChannelStream};
+use super::{SftpLaunchMode, SshAuth, SshConfig};
 use russh::client::{self, Handle, Msg};
 use russh::{Channel, ChannelMsg, MethodKind, MethodSet};
+use serde::Serialize;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::timeout;
 use tracing::debug;
+
+const SFTP_PROBE_MARKER: &str = "__STARHUB_SFTP_PATH__";
+const SFTP_PROBE_NONE_MARKER: &str = "__STARHUB_SFTP_NONE__";
+const SFTP_SERVER_CANDIDATES: &[&str] = &[
+    "/usr/lib/openssh/sftp-server",
+    "/usr/libexec/openssh/sftp-server",
+    "/usr/lib/ssh/sftp-server",
+    "/usr/lib64/ssh/sftp-server",
+    "/usr/libexec/ssh/sftp-server",
+    "/usr/libexec/sftp-server",
+    "/usr/local/libexec/openssh/sftp-server",
+    "/usr/local/libexec/sftp-server",
+    "/opt/local/libexec/sftp-server",
+];
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SftpLaunchInfo {
+    pub mode: String,
+    pub server_path: Option<String>,
+    pub diagnostic: Option<String>,
+}
+
+#[derive(Debug)]
+struct SftpAttemptError {
+    code: &'static str,
+    message: String,
+    recoverable: bool,
+}
+
+impl SftpAttemptError {
+    fn new(code: &'static str, message: impl Into<String>, recoverable: bool) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            recoverable,
+        }
+    }
+}
+
+impl std::fmt::Display for SftpAttemptError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {}", self.code, self.message)
+    }
+}
+
+#[derive(Debug)]
+enum SftpRequest {
+    Subsystem,
+    Exec { path: String, command: String },
+}
+
+impl SftpRequest {
+    fn description(&self) -> String {
+        match self {
+            Self::Subsystem => "SSH subsystem \"sftp\"".to_string(),
+            Self::Exec { path, .. } => format!("remote sftp-server executable {path}"),
+        }
+    }
+
+    fn rejection_code(&self) -> &'static str {
+        match self {
+            Self::Subsystem => "SFTP_SUBSYSTEM_REJECTED",
+            Self::Exec { .. } => "SFTP_EXEC_REJECTED",
+        }
+    }
+}
+
+#[derive(Debug)]
+enum SftpProbeResult {
+    Found { path: String, diagnostic: String },
+    NotFound { diagnostic: String },
+    Failed { diagnostic: String },
+}
+
+#[derive(Debug, Default)]
+struct RemoteProbeOutput {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    exit_status: Option<u32>,
+    exit_signal: Option<String>,
+}
 
 pub struct SshSession {
     config: SshConfig,
@@ -342,26 +425,346 @@ impl SshSession {
         result
     }
 
-    pub async fn open_sftp_channel(
+    async fn start_sftp_attempt(
         &mut self,
-    ) -> anyhow::Result<russh::Channel<russh::client::Msg>> {
-        let sftp_open_timeout = Duration::from_secs(self.sftp_timeout_sec());
-        let handle = self
-            .handle
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
-        timeout(sftp_open_timeout, async {
-            let channel = handle.channel_open_session().await?;
-            channel.request_subsystem(true, "sftp").await?;
-            Ok(channel)
+        request: SftpRequest,
+    ) -> Result<russh_sftp::client::SftpSession, SftpAttemptError> {
+        let sftp_timeout = Duration::from_secs(self.sftp_timeout_sec());
+        let description = request.description();
+        let handle = self.handle.as_mut().ok_or_else(|| {
+            SftpAttemptError::new("SFTP_NOT_CONNECTED", "SSH session is not connected", false)
+        })?;
+
+        let mut channel = timeout(sftp_timeout, handle.channel_open_session())
+            .await
+            .map_err(|_| {
+                SftpAttemptError::new(
+                    "SFTP_CHANNEL_TIMEOUT",
+                    format!(
+                        "opening an SSH session channel timed out after {}s",
+                        sftp_timeout.as_secs()
+                    ),
+                    false,
+                )
+            })?
+            .map_err(|error| {
+                SftpAttemptError::new(
+                    "SFTP_CHANNEL_OPEN_FAILED",
+                    format!("failed to open an SSH session channel: {error}"),
+                    false,
+                )
+            })?;
+
+        let send_result = match &request {
+            SftpRequest::Subsystem => {
+                timeout(sftp_timeout, channel.request_subsystem(true, "sftp")).await
+            }
+            SftpRequest::Exec { command, .. } => {
+                timeout(sftp_timeout, channel.exec(true, command.as_bytes())).await
+            }
+        };
+        send_result
+            .map_err(|_| {
+                SftpAttemptError::new(
+                    "SFTP_REQUEST_TIMEOUT",
+                    format!(
+                        "sending the request for {description} timed out after {}s",
+                        sftp_timeout.as_secs()
+                    ),
+                    false,
+                )
+            })?
+            .map_err(|error| {
+                SftpAttemptError::new(
+                    "SFTP_REQUEST_SEND_FAILED",
+                    format!("failed to send the request for {description}: {error}"),
+                    false,
+                )
+            })?;
+
+        let diagnostics = SftpChannelDiagnostics::default();
+        let reply = timeout(sftp_timeout, async {
+            loop {
+                match channel.wait().await {
+                    Some(ChannelMsg::Success) => return Ok::<(), SftpAttemptError>(()),
+                    Some(ChannelMsg::Failure) => {
+                        diagnostics.record_request_failure();
+                        let detail = diagnostics
+                            .summary()
+                            .unwrap_or_else(|| "remote server rejected the request".to_string());
+                        return Err(SftpAttemptError::new(
+                            request.rejection_code(),
+                            format!("{description} was rejected: {detail}"),
+                            true,
+                        ));
+                    }
+                    Some(ChannelMsg::ExtendedData { data, .. }) => {
+                        diagnostics.record_extended_data(&data);
+                    }
+                    Some(ChannelMsg::ExitStatus { exit_status }) => {
+                        diagnostics.record_exit_status(exit_status);
+                    }
+                    Some(ChannelMsg::ExitSignal {
+                        signal_name,
+                        error_message,
+                        ..
+                    }) => {
+                        diagnostics.record_exit_signal(
+                            format!("{signal_name:?}"),
+                            &error_message,
+                        );
+                        let detail = diagnostics.summary().unwrap_or_else(|| {
+                            "remote process exited before accepting the request".to_string()
+                        });
+                        return Err(SftpAttemptError::new(
+                            "SFTP_REMOTE_PROCESS_FAILED",
+                            format!("{description} failed before startup: {detail}"),
+                            true,
+                        ));
+                    }
+                    Some(ChannelMsg::Eof | ChannelMsg::Close) | None => {
+                        diagnostics.record_terminated();
+                        let detail = diagnostics.summary().unwrap_or_else(|| {
+                            "remote channel closed before accepting the request".to_string()
+                        });
+                        return Err(SftpAttemptError::new(
+                            "SFTP_REMOTE_PROCESS_FAILED",
+                            format!("{description} failed before startup: {detail}"),
+                            true,
+                        ));
+                    }
+                    Some(ChannelMsg::Data { .. }) => {
+                        return Err(SftpAttemptError::new(
+                            "SFTP_PROTOCOL_ERROR",
+                            format!(
+                                "{description} sent protocol data before acknowledging the SSH channel request"
+                            ),
+                            true,
+                        ));
+                    }
+                    Some(_) => {}
+                }
+            }
         })
         .await
         .map_err(|_| {
-            anyhow::anyhow!(
-                "SFTP channel open timed out ({}s)",
-                sftp_open_timeout.as_secs()
+            SftpAttemptError::new(
+                "SFTP_REQUEST_TIMEOUT",
+                format!(
+                    "remote server did not acknowledge {description} within {}s{}",
+                    sftp_timeout.as_secs(),
+                    diagnostics
+                        .summary()
+                        .map(|detail| format!("; {detail}"))
+                        .unwrap_or_default()
+                ),
+                false,
             )
-        })?
+        })?;
+
+        if let Err(error) = reply {
+            let _ = channel.close().await;
+            return Err(error);
+        }
+
+        let stream = SftpChannelStream::new(channel, diagnostics.clone());
+        let config = russh_sftp::client::Config {
+            request_timeout_secs: self.sftp_timeout_sec(),
+            ..Default::default()
+        };
+        let initialize = russh_sftp::client::SftpSession::new_with_config(stream, config);
+        let termination = diagnostics.clone();
+        tokio::pin!(initialize);
+
+        tokio::select! {
+            biased;
+            result = &mut initialize => {
+                match result {
+                    Ok(session) => Ok(session),
+                    Err(error) => {
+                        let detail = diagnostics
+                            .summary()
+                            .map(|detail| format!("; {detail}"))
+                            .unwrap_or_default();
+                        let is_timeout = matches!(
+                            error,
+                            russh_sftp::client::error::Error::Timeout
+                        );
+                        Err(SftpAttemptError::new(
+                            if is_timeout { "SFTP_INIT_TIMEOUT" } else { "SFTP_INIT_FAILED" },
+                            format!(
+                                "{description} failed during the SFTP protocol handshake: {error}{detail}"
+                            ),
+                            diagnostics.has_remote_failure() || !is_timeout,
+                        ))
+                    }
+                }
+            }
+            _ = termination.wait_terminated() => {
+                let detail = diagnostics.summary().unwrap_or_else(|| {
+                    "remote channel closed before the SFTP handshake completed".to_string()
+                });
+                Err(SftpAttemptError::new(
+                    "SFTP_REMOTE_PROCESS_FAILED",
+                    format!("{description} terminated during the SFTP protocol handshake: {detail}"),
+                    true,
+                ))
+            }
+        }
+    }
+
+    async fn probe_sftp_server(&mut self) -> SftpProbeResult {
+        let probe_timeout = Duration::from_secs(self.sftp_timeout_sec().min(10));
+        let handle = match self.handle.as_mut() {
+            Some(handle) => handle,
+            None => {
+                return SftpProbeResult::Failed {
+                    diagnostic: "SSH session is not connected".to_string(),
+                };
+            }
+        };
+        let mut channel = match timeout(probe_timeout, handle.channel_open_session()).await {
+            Ok(Ok(channel)) => channel,
+            Ok(Err(error)) => {
+                return SftpProbeResult::Failed {
+                    diagnostic: format!(
+                        "could not open an SSH exec channel for automatic diagnosis: {error}"
+                    ),
+                };
+            }
+            Err(_) => {
+                return SftpProbeResult::Failed {
+                    diagnostic: format!(
+                        "opening the automatic-diagnosis channel timed out after {}s",
+                        probe_timeout.as_secs()
+                    ),
+                };
+            }
+        };
+
+        let probe_command = build_sftp_probe_command();
+        if let Err(error) = timeout(probe_timeout, channel.exec(true, probe_command.as_bytes()))
+            .await
+            .map_err(|_| "sending the automatic-diagnosis command timed out".to_string())
+            .and_then(|result| result.map_err(|error| error.to_string()))
+        {
+            let _ = channel.close().await;
+            return SftpProbeResult::Failed { diagnostic: error };
+        }
+
+        let mut accepted = false;
+        let mut output = RemoteProbeOutput::default();
+        let collect = timeout(probe_timeout, async {
+            loop {
+                match channel.wait().await {
+                    Some(ChannelMsg::Success) => accepted = true,
+                    Some(ChannelMsg::Failure) => {
+                        return Err("remote server rejected the SSH exec request used for automatic diagnosis".to_string());
+                    }
+                    Some(ChannelMsg::Data { data }) => {
+                        extend_limited(&mut output.stdout, &data);
+                    }
+                    Some(ChannelMsg::ExtendedData { data, .. }) => {
+                        extend_limited(&mut output.stderr, &data);
+                    }
+                    Some(ChannelMsg::ExitStatus { exit_status }) => {
+                        output.exit_status = Some(exit_status);
+                    }
+                    Some(ChannelMsg::ExitSignal {
+                        signal_name,
+                        error_message,
+                        ..
+                    }) => {
+                        output.exit_signal = Some(if error_message.trim().is_empty() {
+                            format!("{signal_name:?}")
+                        } else {
+                            format!(
+                                "{signal_name:?}: {}",
+                                normalize_error_text(&error_message)
+                            )
+                        });
+                        break;
+                    }
+                    Some(ChannelMsg::Eof | ChannelMsg::Close) | None => break,
+                    Some(_) => {}
+                }
+            }
+            if accepted {
+                Ok(())
+            } else {
+                Err("remote channel closed without accepting the automatic-diagnosis exec request".to_string())
+            }
+        })
+        .await;
+        let _ = channel.close().await;
+
+        match collect {
+            Err(_) => {
+                return SftpProbeResult::Failed {
+                    diagnostic: format!(
+                        "automatic diagnosis timed out after {}s{}",
+                        probe_timeout.as_secs(),
+                        format_probe_details(&output)
+                            .map(|detail| format!("; {detail}"))
+                            .unwrap_or_default()
+                    ),
+                };
+            }
+            Ok(Err(error)) => {
+                return SftpProbeResult::Failed {
+                    diagnostic: format!(
+                        "{error}{}",
+                        format_probe_details(&output)
+                            .map(|detail| format!("; {detail}"))
+                            .unwrap_or_default()
+                    ),
+                };
+            }
+            Ok(Ok(())) => {}
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some(path) = stdout
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(SFTP_PROBE_MARKER))
+        {
+            let path = path.trim();
+            return match validate_sftp_server_path(path) {
+                Ok(path) => SftpProbeResult::Found {
+                    diagnostic: format!("found executable remote sftp-server at {path}"),
+                    path,
+                },
+                Err(error) => SftpProbeResult::Failed {
+                    diagnostic: format!(
+                        "automatic diagnosis returned an unsafe or invalid path: {error}"
+                    ),
+                },
+            };
+        }
+
+        if stdout
+            .lines()
+            .any(|line| line.trim() == SFTP_PROBE_NONE_MARKER)
+        {
+            return SftpProbeResult::NotFound {
+                diagnostic: format!(
+                    "remote shell is available, but no executable sftp-server was found in the supported locations: {}{}",
+                    SFTP_SERVER_CANDIDATES.join(", "),
+                    format_probe_details(&output)
+                        .map(|detail| format!("; {detail}"))
+                        .unwrap_or_default()
+                ),
+            };
+        }
+
+        SftpProbeResult::Failed {
+            diagnostic: format!(
+                "automatic diagnosis returned no recognizable result{}",
+                format_probe_details(&output)
+                    .map(|detail| format!("; {detail}"))
+                    .unwrap_or_default()
+            ),
+        }
     }
 
     pub async fn exec(&mut self, command: &str, timeout_sec: u64) -> Result<String, String> {
@@ -417,18 +820,115 @@ impl SshSession {
         }
     }
 
+    pub async fn open_sftp_with_info(
+        &mut self,
+    ) -> Result<(russh_sftp::client::SftpSession, SftpLaunchInfo), String> {
+        match self.config.sftp_launch_mode {
+            SftpLaunchMode::Subsystem => self
+                .start_sftp_attempt(SftpRequest::Subsystem)
+                .await
+                .map(|session| {
+                    (
+                        session,
+                        SftpLaunchInfo {
+                            mode: "subsystem".to_string(),
+                            server_path: None,
+                            diagnostic: None,
+                        },
+                    )
+                })
+                .map_err(|error| error.to_string()),
+            SftpLaunchMode::Custom => {
+                let configured_path = self
+                    .config
+                    .sftp_server_path
+                    .as_deref()
+                    .ok_or_else(|| {
+                        "[SFTP_CONFIG_INVALID] Custom SFTP startup requires an absolute remote sftp-server path"
+                            .to_string()
+                    })?;
+                let path = validate_sftp_server_path(configured_path)
+                    .map_err(|error| format!("[SFTP_CONFIG_INVALID] {error}"))?;
+                let command = quote_posix_path(&path);
+                self.start_sftp_attempt(SftpRequest::Exec {
+                    path: path.clone(),
+                    command,
+                })
+                .await
+                .map(|session| {
+                    (
+                        session,
+                        SftpLaunchInfo {
+                            mode: "custom_exec".to_string(),
+                            server_path: Some(path),
+                            diagnostic: None,
+                        },
+                    )
+                })
+                .map_err(|error| error.to_string())
+            }
+            SftpLaunchMode::Auto => {
+                let subsystem_error = match self.start_sftp_attempt(SftpRequest::Subsystem).await {
+                    Ok(session) => {
+                        return Ok((
+                            session,
+                            SftpLaunchInfo {
+                                mode: "subsystem".to_string(),
+                                server_path: None,
+                                diagnostic: None,
+                            },
+                        ));
+                    }
+                    Err(error) if !error.recoverable => return Err(error.to_string()),
+                    Err(error) => error,
+                };
+
+                match self.probe_sftp_server().await {
+                    SftpProbeResult::Found { path, diagnostic } => {
+                        let command = quote_posix_path(&path);
+                        match self
+                            .start_sftp_attempt(SftpRequest::Exec {
+                                path: path.clone(),
+                                command,
+                            })
+                            .await
+                        {
+                            Ok(session) => {
+                                let fallback_diagnostic = format!(
+                                    "standard subsystem failed: {subsystem_error}; automatic diagnosis: {diagnostic}"
+                                );
+                                tracing::warn!(
+                                    "SFTP subsystem failed; using direct executable fallback {}: {}",
+                                    path,
+                                    subsystem_error
+                                );
+                                Ok((
+                                    session,
+                                    SftpLaunchInfo {
+                                        mode: "fallback_exec".to_string(),
+                                        server_path: Some(path),
+                                        diagnostic: Some(fallback_diagnostic),
+                                    },
+                                ))
+                            }
+                            Err(fallback_error) => Err(format!(
+                                "[SFTP_AUTO_FALLBACK_FAILED] Standard subsystem failed: {subsystem_error}; automatic diagnosis: {diagnostic}; direct fallback failed: {fallback_error}. Recommended server fix: set `Subsystem sftp internal-sftp` in sshd_config, validate with `sshd -t`, then reload sshd."
+                            )),
+                        }
+                    }
+                    SftpProbeResult::NotFound { diagnostic } => Err(format!(
+                        "[SFTP_AUTO_DIAGNOSIS_FAILED] Standard subsystem failed: {subsystem_error}; automatic diagnosis: {diagnostic}. The client cannot provide a missing server-side SFTP implementation. Install OpenSSH sftp-server or set `Subsystem sftp internal-sftp` in sshd_config, validate with `sshd -t`, then reload sshd."
+                    )),
+                    SftpProbeResult::Failed { diagnostic } => Err(format!(
+                        "[SFTP_AUTO_DIAGNOSIS_FAILED] Standard subsystem failed: {subsystem_error}; automatic diagnosis could not complete: {diagnostic}. Select 'Standard subsystem only' to disable fallback, or configure an explicit absolute remote sftp-server path."
+                    )),
+                }
+            }
+        }
+    }
+
     pub async fn open_sftp(&mut self) -> Result<russh_sftp::client::SftpSession, String> {
-        let channel = self
-            .open_sftp_channel()
-            .await
-            .map_err(|e| format!("[SFTP_FAILED] Failed to open SFTP channel: {}", e))?;
-        let sftp_config = russh_sftp::client::Config {
-            request_timeout_secs: self.sftp_timeout_sec(),
-            ..Default::default()
-        };
-        russh_sftp::client::SftpSession::new_with_config(channel.into_stream(), sftp_config)
-            .await
-            .map_err(|e| format!("[SFTP_FAILED] Failed to init SFTP session: {}", e))
+        self.open_sftp_with_info().await.map(|(session, _)| session)
     }
 
     pub fn disconnect(&mut self) {
@@ -440,6 +940,81 @@ impl SshSession {
             });
         }
     }
+}
+
+fn build_sftp_probe_command() -> String {
+    let candidates = SFTP_SERVER_CANDIDATES.join(" ");
+    format!(
+        "for p in {candidates}; do if [ -x \"$p\" ]; then printf '{SFTP_PROBE_MARKER}%s\\n' \"$p\"; exit 0; fi; done; p=$(command -v sftp-server 2>/dev/null || true); case \"$p\" in /*) if [ -x \"$p\" ]; then printf '{SFTP_PROBE_MARKER}%s\\n' \"$p\"; exit 0; fi ;; esac; printf '{SFTP_PROBE_NONE_MARKER}\\n'"
+    )
+}
+
+fn validate_sftp_server_path(path: &str) -> Result<String, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("remote sftp-server path is empty".to_string());
+    }
+    if path.len() > 4096 {
+        return Err("remote sftp-server path exceeds 4096 bytes".to_string());
+    }
+    if !path.starts_with('/') {
+        return Err(format!(
+            "remote sftp-server path must be an absolute Unix path, got: {path}"
+        ));
+    }
+    if path.chars().any(char::is_control) {
+        return Err("remote sftp-server path contains control characters".to_string());
+    }
+    Ok(path.to_string())
+}
+
+fn quote_posix_path(path: &str) -> String {
+    format!("'{}'", path.replace('\'', "'\"'\"'"))
+}
+
+fn extend_limited(target: &mut Vec<u8>, data: &[u8]) {
+    const MAX_PROBE_OUTPUT_BYTES: usize = 64 * 1024;
+    let remaining = MAX_PROBE_OUTPUT_BYTES.saturating_sub(target.len());
+    target.extend_from_slice(&data[..data.len().min(remaining)]);
+}
+
+fn normalize_error_text(text: &str) -> String {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+fn format_probe_details(output: &RemoteProbeOutput) -> Option<String> {
+    let mut details = Vec::new();
+    let stderr = normalize_error_text(&String::from_utf8_lossy(&output.stderr));
+    if !stderr.is_empty() {
+        details.push(format!("remote stderr: {stderr}"));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let relevant_stdout = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            !line.is_empty()
+                && !line.starts_with(SFTP_PROBE_MARKER)
+                && *line != SFTP_PROBE_NONE_MARKER
+        })
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if !relevant_stdout.is_empty() {
+        details.push(format!("remote stdout: {relevant_stdout}"));
+    }
+    if let Some(exit_status) = output.exit_status {
+        details.push(format!("remote exit status: {exit_status}"));
+    }
+    if let Some(exit_signal) = &output.exit_signal {
+        details.push(format!("remote exit signal: {exit_signal}"));
+    }
+
+    (!details.is_empty()).then(|| details.join("; "))
 }
 
 // ====== Free functions ======
@@ -722,5 +1297,47 @@ ZfG1KaT0PtFDJ/XFSqtiAAAAEHVzZXJAZXhhbXBsZS5jb20BAgMEBQ==
         assert!(!is_totp_prompt("Enter your password"));
         assert!(!is_totp_prompt("Username"));
         assert!(!is_totp_prompt(""));
+    }
+
+    #[test]
+    fn sftp_server_path_requires_an_absolute_unix_path() {
+        assert_eq!(
+            validate_sftp_server_path(" /usr/libexec/openssh/sftp-server ").unwrap(),
+            "/usr/libexec/openssh/sftp-server"
+        );
+        assert!(validate_sftp_server_path("usr/lib/openssh/sftp-server").is_err());
+        assert!(validate_sftp_server_path("/usr/lib/openssh/sftp-server\nmalicious").is_err());
+    }
+
+    #[test]
+    fn sftp_server_path_is_shell_quoted_as_data() {
+        assert_eq!(
+            quote_posix_path("/opt/vendor's ssh/sftp-server"),
+            "'/opt/vendor'\"'\"'s ssh/sftp-server'"
+        );
+    }
+
+    #[test]
+    fn sftp_probe_command_covers_common_server_layouts() {
+        let command = build_sftp_probe_command();
+        for candidate in SFTP_SERVER_CANDIDATES {
+            assert!(command.contains(candidate));
+        }
+        assert!(command.contains(SFTP_PROBE_MARKER));
+        assert!(command.contains(SFTP_PROBE_NONE_MARKER));
+        assert!(command.contains("command -v sftp-server"));
+    }
+
+    #[test]
+    fn sftp_probe_details_preserve_real_remote_errors() {
+        let output = RemoteProbeOutput {
+            stderr: b"/bin/sh: sftp-server: not found\n".to_vec(),
+            exit_status: Some(127),
+            ..Default::default()
+        };
+        assert_eq!(
+            format_probe_details(&output).as_deref(),
+            Some("remote stderr: /bin/sh: sftp-server: not found; remote exit status: 127")
+        );
     }
 }

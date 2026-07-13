@@ -85,8 +85,14 @@ export interface TransferStatusEvent {
   error?: string | null
 }
 
+export interface SftpLaunchInfo {
+  mode: 'subsystem' | 'fallback_exec' | 'custom_exec'
+  server_path?: string | null
+  diagnostic?: string | null
+}
+
 /** 先确保 SFTP 通道已开启并注册到 TransferManager(后续传输复用同一通道) */
-export async function sftpEnsureSession(id: string): Promise<void> {
+export async function sftpEnsureSession(id: string): Promise<SftpLaunchInfo | null> {
   return invoke('sftp_ensure_session', { id })
 }
 

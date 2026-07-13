@@ -2,6 +2,7 @@ pub mod auth;
 pub mod known_hosts;
 pub mod session;
 pub mod sftp;
+mod sftp_transport;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -21,6 +22,15 @@ const fn default_sftp_timeout_sec() -> u64 {
     DEFAULT_SFTP_TIMEOUT_SEC
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SftpLaunchMode {
+    #[default]
+    Auto,
+    Subsystem,
+    Custom,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SshConfig {
     pub host: String,
@@ -29,6 +39,10 @@ pub struct SshConfig {
     pub auth: SshAuth,
     #[serde(default = "default_sftp_timeout_sec")]
     pub sftp_timeout_sec: u64,
+    #[serde(default)]
+    pub sftp_launch_mode: SftpLaunchMode,
+    #[serde(default)]
+    pub sftp_server_path: Option<String>,
     #[serde(default)]
     pub kb_interactive: Option<KeyboardInteractiveConfig>,
     #[serde(default)]
@@ -132,6 +146,8 @@ mod tests {
         assert_eq!(config.port, 22);
         assert!(config.jump_host.is_none());
         assert_eq!(config.sftp_timeout_sec, DEFAULT_SFTP_TIMEOUT_SEC);
+        assert_eq!(config.sftp_launch_mode, SftpLaunchMode::Auto);
+        assert!(config.sftp_server_path.is_none());
     }
 
     #[test]
@@ -154,5 +170,19 @@ mod tests {
 
         config.sftp_timeout_sec = 600;
         assert_eq!(config.effective_sftp_timeout_sec(), MAX_SFTP_TIMEOUT_SEC);
+    }
+
+    #[test]
+    fn test_sftp_launch_mode_serde() {
+        let config: SshConfig = serde_json::from_str(
+            r#"{"host":"localhost","port":22,"username":"root","auth":{"Password":""},"sftp_launch_mode":"custom","sftp_server_path":"/usr/libexec/openssh/sftp-server"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.sftp_launch_mode, SftpLaunchMode::Custom);
+        assert_eq!(
+            config.sftp_server_path.as_deref(),
+            Some("/usr/libexec/openssh/sftp-server")
+        );
     }
 }

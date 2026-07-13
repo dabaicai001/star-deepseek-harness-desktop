@@ -13,6 +13,24 @@
 
 ---
 
+## [0.28.0] - 2026-07-13
+
+### 新增
+- ✨ feat(sftp): SSH 连接新增 SFTP 启动策略：默认自动诊断并在标准 subsystem 异常时探测常见 `sftp-server` 可执行路径后受控降级，同时提供“仅标准 subsystem”和“指定远端程序”模式。
+- ✨ feat(sftp): 自定义启动模式支持配置远端 Unix 绝对路径；客户端对路径做长度、控制字符和绝对路径校验，并使用 POSIX 安全引用执行，避免把配置值拼成任意 shell 命令。
+
+### 修复
+- 🐛 fix(sftp): 建链阶段读取 SSH channel request 的真实 `Success/Failure`，持续收集远端 stderr、exit status、exit signal 和提前关闭状态，不再把 `/usr/lib/openssh/sftp-server` 不存在等服务端错误误报成协议初始化 Timeout。
+- 🐛 fix(sftp): SFTP 建链错误在工作区和通知详情中完整展示；自动诊断或直接执行降级失败时，同时返回标准 subsystem、探测与降级三段原始诊断。
+
+### 样式
+- 🎨 style(sftp): 完整诊断使用可换行滚动的等宽错误区；SSH 连接弹窗增加高内容量滚动链，避免自定义 SFTP 路径字段把标题顶出视口。
+
+### 测试
+- ✅ test(sftp): 新增远端 stderr/exit status 保留、路径安全校验、POSIX 引用和自动探测命令回归；Rust 全量测试、Clippy、前端生产构建及 1280×800/800×600 真实浏览器回归通过。
+
+---
+
 ## [0.27.0] - 2026-07-13
 
 ### 新增
