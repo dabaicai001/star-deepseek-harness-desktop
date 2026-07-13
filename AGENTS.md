@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.22.0(Docker 容器 Exec + ES JSON 默认 + 连接错误修复)
+| 当前版本 | v0.22.1(AI agent maxSteps 修复)
 
 ---
 

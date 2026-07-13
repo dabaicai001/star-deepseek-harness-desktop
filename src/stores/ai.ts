@@ -701,7 +701,7 @@ export const useAiStore = defineStore('ai', () => {
     tools: LlmTool[],
     executeTool: (call: LlmToolCall) => Promise<string>,
     systemPrompt: string,
-    maxSteps = 8
+    maxSteps = 20
   ): Promise<void> {
     const session = getSession(instanceId)
     if (!session) throw new Error(`AI session not found: ${instanceId}`)
