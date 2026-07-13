@@ -1,15 +1,12 @@
 use super::{SshAuth, SshConfig};
 use russh::client::{self, Handle, Msg};
 use russh::{Channel, ChannelMsg, MethodKind, MethodSet};
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::timeout;
 use tracing::debug;
-
-const SFTP_OPEN_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct SshSession {
     config: SshConfig,
@@ -24,6 +21,10 @@ impl SshSession {
             handle: None,
             shell_channel: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub fn sftp_timeout_sec(&self) -> u64 {
+        self.config.effective_sftp_timeout_sec()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -233,8 +234,9 @@ impl SshSession {
     pub async fn open_shell(
         &mut self,
         session_id: &str,
+        attempt_generation: u64,
         app_handle: tauri::AppHandle,
-        channels: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<Vec<u8>>>>>,
+        channels: super::SshWriteChannels,
     ) -> Result<(), String> {
         let handle = self.handle.as_mut().ok_or("Not connected")?;
         let channel = handle
@@ -261,7 +263,7 @@ impl SshSession {
         let (write_tx, mut write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         {
             let mut ch = channels.lock().await;
-            ch.insert(session_id.to_string(), write_tx);
+            ch.insert(session_id.to_string(), (attempt_generation, write_tx));
         }
         let id_for_read = session_id.to_string();
         let channels_clone = channels.clone();
@@ -307,8 +309,16 @@ impl SshSession {
                 }
             }
             let mut ch = channels_clone.lock().await;
-            ch.remove(&id_for_read);
-            let _ = app_handle.emit(&format!("ssh:close:{}", id_for_read), ());
+            let was_current = ch
+                .get(&id_for_read)
+                .is_some_and(|(generation, _)| *generation == attempt_generation);
+            if was_current {
+                ch.remove(&id_for_read);
+            }
+            drop(ch);
+            if was_current {
+                let _ = app_handle.emit(&format!("ssh:close:{}", id_for_read), ());
+            }
         });
         Ok(())
     }
@@ -335,11 +345,12 @@ impl SshSession {
     pub async fn open_sftp_channel(
         &mut self,
     ) -> anyhow::Result<russh::Channel<russh::client::Msg>> {
+        let sftp_open_timeout = Duration::from_secs(self.sftp_timeout_sec());
         let handle = self
             .handle
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
-        timeout(SFTP_OPEN_TIMEOUT, async {
+        timeout(sftp_open_timeout, async {
             let channel = handle.channel_open_session().await?;
             channel.request_subsystem(true, "sftp").await?;
             Ok(channel)
@@ -348,7 +359,7 @@ impl SshSession {
         .map_err(|_| {
             anyhow::anyhow!(
                 "SFTP channel open timed out ({}s)",
-                SFTP_OPEN_TIMEOUT.as_secs()
+                sftp_open_timeout.as_secs()
             )
         })?
     }
@@ -411,7 +422,11 @@ impl SshSession {
             .open_sftp_channel()
             .await
             .map_err(|e| format!("[SFTP_FAILED] Failed to open SFTP channel: {}", e))?;
-        russh_sftp::client::SftpSession::new(channel.into_stream())
+        let sftp_config = russh_sftp::client::Config {
+            request_timeout_secs: self.sftp_timeout_sec(),
+            ..Default::default()
+        };
+        russh_sftp::client::SftpSession::new_with_config(channel.into_stream(), sftp_config)
             .await
             .map_err(|e| format!("[SFTP_FAILED] Failed to init SFTP session: {}", e))
     }

@@ -31,6 +31,7 @@ const excelName = ref('')
 const excelFilePath = ref('')
 const excelFormat = ref<'xlsx' | 'csv'>('xlsx')
 const excelDropActive = ref(false)
+const sshFormGeneration = ref(0)
 let unlistenExcelDrop: (() => void) | null = null
 
 const mode = computed<'create' | 'edit'>(() => (props.asset ? 'edit' : 'create'))
@@ -128,8 +129,12 @@ async function ensureExcelDropListener() {
 // 编辑模式打开 dialog 时,直接跳到对应 step 并回填 docker 字段
 watch(
   () => [props.modelValue, props.asset] as const,
-  ([open, asset]) => {
+  ([open, asset], previous) => {
     if (!open) return
+    const [wasOpen, previousAsset] = previous ?? [false, undefined]
+    if (!wasOpen || asset?.id !== previousAsset?.id) {
+      sshFormGeneration.value += 1
+    }
     if (asset && asset.type === 'ssh') {
       step.value = 'ssh'
     } else if (asset && asset.type === 'db') {
@@ -346,6 +351,7 @@ onBeforeUnmount(cleanupExcelDropListener)
         </div>
         <div class="modal-body">
           <SshConnectionForm
+            :key="`${asset?.id || 'new'}-${sshFormGeneration}`"
             :initial-values="mode === 'edit' && asset ? {
               name: asset.name,
               host: asset.config.host || '',
@@ -354,6 +360,12 @@ onBeforeUnmount(cleanupExcelDropListener)
               password: asset.config.password || '',
               privateKey: asset.config.privateKey || '',
               passphrase: asset.config.passphrase || '',
+              authMode: asset.config.authMode,
+              usePasswordAuth: asset.config.usePasswordAuth,
+              useKeyAuth: asset.config.useKeyAuth,
+              mfaEnabled: asset.config.mfaEnabled,
+              mfaPassword: asset.config.mfaPassword || '',
+              sftpTimeoutSec: asset.config.sftpTimeoutSec ?? 30,
               jumpHost: asset.config.jumpHost || '',
               jumpPort: asset.config.jumpPort || 22,
               jumpUsername: asset.config.jumpUsername || '',

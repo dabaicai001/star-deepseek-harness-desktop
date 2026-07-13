@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.26.2(Docker Exec 命令卡住修复)
+| 当前版本 | v0.26.3(SSH 重试、SFTP 超时与启动白屏优化)
 
 ---
 
@@ -187,6 +187,7 @@ starhub/
 | 变量 | 用途 | 默认值 |
 |---|---|---|
 | `--bg` / `--bg-2` | 页面底色 / 二级底色 | `#080d14` / `#0d1420` |
+| `--startup-*` | 启动首屏固定深色底、文字、网格、描边与光晕（不随浅色主题切换） | 见 `cyber.css` |
 | `--panel` / `--panel-2` | 玻璃面板(半透明 + blur) | `rgba(14,22,32,.76)` / `rgba(18,27,40,.9)` |
 | `--panel-solid` / `--panel-solid-2` | 不透明面板(嵌套用) | `#101822` / `#152032` |
 | `--line` / `--line-2` | 分割线(2 档透明度) | `rgba(122,156,185,.1)` / `.18` |
@@ -240,6 +241,7 @@ starhub/
 | `.cyber-btn` / `.cyber-btn-secondary` | 主按钮(渐变 + 光带扫过) / 次按钮(描边) |
 | `.action-btn` / `.action-btn.primary` | 工具栏图标按钮 |
 | `.cyber-input` | 输入框(深底 + 聚焦青色光环) |
+| `.cyber-number-input` | 数字输入框的等宽数字变体，不继承代码文本域最小高度 |
 | `.connection-card` / `.connection-icon(.ssh/.db/.docker/.add)` | 资产卡片 + 类型色块 |
 | `.tree-item` / `.tree-item.active` | 树节点(带左侧 2px 激活条 + 文字发光) |
 | `.status-dot(.online/.offline/.connecting)` | 状态点(绿/灰/青脉冲) |
@@ -250,6 +252,7 @@ starhub/
 | `.terminal-font-size-indicator` / `.terminal-action-divider` / `.terminal-search-*` / `.terminal-quick-*` | SSH / Docker Exec 共用的终端工具栏、搜索与快捷命令视觉 |
 | `.docker-exec-terminal` / `.docker-exec-pane` | Docker Exec 的 xterm 工作区与完整 flex 高度链 |
 | `.empty-state` | 空状态(图标 + 标题 + 描述 + CTA) |
+| `.app-startup` / `.app-startup-*` | 原生首屏与 Vue 路由加载阶段共用的深色启动状态页 |
 | `.glow-cyan` / `.glow-purple` / `.glow-pink` | 静态光晕 |
 | `.text-gradient` | 文字主渐变 |
 | `.grid-bg::before` | 栅格背景(cyan 1px,40px 间距,径向遮罩) |
@@ -751,4 +754,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-13 (v0.26.2)*
+*最后更新: 2026-07-13 (v0.26.3)*

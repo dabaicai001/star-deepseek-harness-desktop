@@ -12,6 +12,14 @@
 html.v-theme--darkTheme {
   --bg: #080d14;
   --bg-2: #0d1420;
+  --startup-bg: #080d14;
+  --startup-panel: #101822;
+  --startup-line: rgba(122, 156, 185, 0.18);
+  --startup-grid: rgba(93, 214, 214, 0.018);
+  --startup-text: #dce7f3;
+  --startup-muted: #607082;
+  --startup-accent: #5dd6d6;
+  --startup-glow: 0 0 16px rgba(93, 214, 214, 0.28), 0 0 32px rgba(93, 214, 214, 0.1);
   --bg-input: rgba(18, 26, 38, 0.72);
   --bg-input-solid: #121a26;
   --bg-modal-footer: rgba(8, 13, 20, 0.52);
@@ -141,6 +149,14 @@ html.v-theme--darkTheme {
 html.v-theme--lightTheme {
   --bg: #f4f7fa;
   --bg-2: #e9eef4;
+  --startup-bg: #080d14;
+  --startup-panel: #101822;
+  --startup-line: rgba(122, 156, 185, 0.18);
+  --startup-grid: rgba(93, 214, 214, 0.018);
+  --startup-text: #dce7f3;
+  --startup-muted: #607082;
+  --startup-accent: #5dd6d6;
+  --startup-glow: 0 0 16px rgba(93, 214, 214, 0.28), 0 0 32px rgba(93, 214, 214, 0.1);
   --bg-input: rgba(239, 244, 248, 0.9);
   --bg-input-solid: #ffffff;
   --bg-modal-footer: rgba(233, 238, 244, 0.68);
@@ -265,6 +281,103 @@ html.v-theme--lightTheme {
 }
 
 /* Global styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Outfit', -apple-system, 'PingFang SC', sans-serif;
+  background: var(--startup-bg);
+  color: var(--startup-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-startup {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  overflow: hidden;
+  background: var(--startup-bg);
+  color: var(--startup-text);
+}
+
+.app-startup::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--startup-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--startup-grid) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(circle at center, black 0%, transparent 72%);
+}
+
+.app-startup-mark {
+  position: relative;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid var(--startup-line);
+  border-radius: 12px;
+  background: var(--startup-panel);
+  box-shadow: var(--startup-glow);
+  color: var(--startup-accent);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 24px;
+  font-weight: 900;
+  animation: glow 1.8s ease-in-out infinite;
+}
+
+.app-startup-name {
+  position: relative;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  color: var(--startup-text);
+}
+
+.app-startup-status {
+  position: relative;
+  min-width: 96px;
+  color: var(--startup-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  text-align: center;
+}
+
+.app-startup-dots::after {
+  content: '';
+  display: inline-block;
+  width: 18px;
+  text-align: left;
+  animation: startup-dots 1.2s steps(4, end) infinite;
+}
+
+@keyframes startup-dots {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75%, 100% { content: '...'; }
+}
+
 .v-application {
   font-family: 'Outfit', -apple-system, 'PingFang SC', sans-serif !important;
   background: var(--bg) !important;
@@ -1214,6 +1327,11 @@ html.v-theme--lightTheme {
   background: var(--status-error-bg);
   color: var(--red);
   border: 1px solid var(--status-error-border);
+}
+
+.cyber-input.cyber-number-input {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Shared SSH / Docker Exec terminal chrome */

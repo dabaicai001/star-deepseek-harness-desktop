@@ -139,6 +139,8 @@ export default {
     pasteFromClipboard: 'Paste from clipboard',
     pastedFromClipboard: 'Pasted',
     clipboardReadFailed: 'Cannot read clipboard',
+    sftpTimeout: 'SFTP timeout (seconds)',
+    sftpTimeoutHint: 'Subsystem initialization and per-request timeout, from 5 to 300 seconds',
     jumpHost: 'Jump Host (ProxyJump)',
     jumpServer: 'Jump Server',
     jumpAuth: 'Jump Host Auth',

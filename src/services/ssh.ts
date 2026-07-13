@@ -33,6 +33,7 @@ export interface SshConfig {
   port: number
   username: string
   auth: SshAuthConfig
+  sftp_timeout_sec?: number
   kb_interactive?: KeyboardInteractiveConfig | null
   jump_host?: string | null
   jump_port?: number | null
@@ -98,6 +99,7 @@ export function assetConfigToSshConfig(config: AssetConfig): SshConfig {
     port: config.port || 22,
     username: config.username || '',
     auth: buildAuth(config),
+    sftp_timeout_sec: config.sftpTimeoutSec ?? 30,
     kb_interactive: config.mfaEnabled
       ? {
           enabled: true,

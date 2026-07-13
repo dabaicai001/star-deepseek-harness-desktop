@@ -37,6 +37,7 @@ export interface SshFormInitialValues {
   useKeyAuth?: boolean
   mfaEnabled?: boolean
   mfaPassword?: string
+  sftpTimeoutSec?: number
 }
 
 const props = defineProps<{
@@ -59,6 +60,7 @@ const name = ref(props.initialValues?.name ?? '')
 const host = ref(props.initialValues?.host ?? '')
 const port = ref<number>(props.initialValues?.port ?? 22)
 const username = ref(props.initialValues?.username ?? '')
+const sftpTimeoutSec = ref<number>(props.initialValues?.sftpTimeoutSec ?? 30)
 const password = ref(props.initialValues?.password ?? '')
 const privateKey = ref(props.initialValues?.privateKey ?? '')
 const privateKeyName = ref('')
@@ -119,6 +121,7 @@ watch(
     host.value = next.host ?? ''
     port.value = next.port ?? 22
     username.value = next.username ?? ''
+    sftpTimeoutSec.value = next.sftpTimeoutSec ?? 30
     password.value = next.password ?? ''
     privateKey.value = next.privateKey ?? ''
     privateKeyName.value = next.privateKey ? 'Loaded' : ''
@@ -141,6 +144,47 @@ watch(
     jumpPassphrase.value = next.jumpPassphrase ?? ''
     jumpAuthType.value = next.jumpPrivateKey ? 'key' : 'password'
     showJumpHost.value = Boolean(next.jumpHost)
+    changedPassword.value = false
+    changedMfaPassword.value = false
+    showPassword.value = false
+    showPassphrase.value = false
+    showMfaPassword.value = false
+    testStatus.value = 'idle'
+    testMessage.value = ''
+  }
+)
+
+function normalizeSftpTimeout() {
+  const parsed = Number.isFinite(sftpTimeoutSec.value) ? Math.round(sftpTimeoutSec.value) : 30
+  sftpTimeoutSec.value = Math.min(300, Math.max(5, parsed))
+}
+
+// 用户修正任一连接字段后，旧的失败结果已经失效，不应继续挂在表单上。
+watch(
+  [
+    host,
+    port,
+    username,
+    sftpTimeoutSec,
+    password,
+    privateKey,
+    passphrase,
+    authMode,
+    mfaPassword,
+    showJumpHost,
+    jumpHost,
+    jumpPort,
+    jumpUsername,
+    jumpAuthType,
+    jumpPassword,
+    jumpPrivateKey,
+    jumpPassphrase,
+  ],
+  () => {
+    if (testStatus.value !== 'testing') {
+      testStatus.value = 'idle'
+      testMessage.value = ''
+    }
   }
 )
 
@@ -187,6 +231,7 @@ function maskAuth(auth: Record<string, unknown>): Record<string, unknown> {
 
 async function onTestConnection() {
   if (!canTest.value) return
+  normalizeSftpTimeout()
   testStatus.value = 'testing'
   testMessage.value = ''
 
@@ -246,6 +291,7 @@ async function onTestConnection() {
       host: host.value,
       port: port.value,
       username: username.value,
+      sftp_timeout_sec: sftpTimeoutSec.value,
       auth
     }
 
@@ -302,6 +348,7 @@ async function onTestConnection() {
 
 function onSubmit() {
   if (!canSubmit.value) return
+  normalizeSftpTimeout()
 
   const config: Record<string, unknown> = {
     host: host.value,
@@ -311,6 +358,7 @@ function onSubmit() {
     // 旧字段继续写,保持后端 buildAuth 兼容(详见 src/services/ssh.ts)
     usePasswordAuth: needPassword.value,
     useKeyAuth: needKey.value,
+    sftpTimeoutSec: sftpTimeoutSec.value,
   }
   if (needPassword.value) {
     config.password = isEditing.value && !changedPassword.value ? undefined : (password.value || undefined)
@@ -521,6 +569,25 @@ async function pasteJumpKeyFromClipboard() {
               required
             />
           </div>
+        </div>
+
+        <div class="form-field">
+          <label class="field-label" for="ssh-sftp-timeout">
+            <v-icon size="12">mdi-timer-sand</v-icon>
+            {{ t('ssh.sftpTimeout') }}
+          </label>
+          <input
+            id="ssh-sftp-timeout"
+            v-model.number="sftpTimeoutSec"
+            type="number"
+            class="cyber-input cyber-number-input"
+            min="5"
+            max="300"
+            step="1"
+            :aria-label="t('ssh.sftpTimeout')"
+            @blur="normalizeSftpTimeout"
+          />
+          <span class="field-hint">{{ t('ssh.sftpTimeoutHint') }}</span>
         </div>
       </div>
 

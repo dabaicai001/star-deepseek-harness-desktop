@@ -139,6 +139,8 @@ export default {
     pasteFromClipboard: '从剪贴板粘贴',
     pastedFromClipboard: '已粘贴',
     clipboardReadFailed: '无法读取剪贴板',
+    sftpTimeout: 'SFTP 超时（秒）',
+    sftpTimeoutHint: '子系统初始化和单次请求超时，范围 5–300 秒',
     jumpHost: '跳板机 (ProxyJump)',
     jumpServer: '跳板服务器',
     jumpAuth: '跳板机认证',

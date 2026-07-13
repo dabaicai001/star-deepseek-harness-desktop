@@ -449,6 +449,7 @@ async function connect() {
       host: a.config.host,
       port: a.config.port || 22,
       username: a.config.username,
+      sftp_timeout_sec: a.config.sftpTimeoutSec ?? 30,
       auth: a.config.useKeyAuth && a.config.usePasswordAuth !== false && effectivePassword && a.config.privateKey
         ? { PasswordAndKey: { password: effectivePassword, key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
         : effectivePassword

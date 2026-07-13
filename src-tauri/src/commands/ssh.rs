@@ -1,16 +1,18 @@
 use crate::ssh::session::SshSession;
-use crate::ssh::{PendingHostKeyResponses, PendingKeyboardResponses, SshConfig, SshSessionInfo};
-use std::collections::{HashMap, HashSet};
+use crate::ssh::{
+    PendingHostKeyResponses, PendingKeyboardResponses, SshConfig, SshSessionInfo, SshWriteChannels,
+};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;
 
 pub struct SshManager {
     pub sessions: Arc<Mutex<HashMap<String, Arc<Mutex<SshSession>>>>>,
-    channels: Arc<Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
+    channels: SshWriteChannels,
     pub pending_kb: PendingKeyboardResponses,
     pub pending_hostkey: PendingHostKeyResponses,
-    abandoned: Arc<Mutex<HashSet<String>>>,
+    attempts: Arc<Mutex<HashMap<String, u64>>>,
 }
 
 impl SshManager {
@@ -20,7 +22,37 @@ impl SshManager {
             channels: Arc::new(Mutex::new(HashMap::new())),
             pending_kb: Arc::new(Mutex::new(HashMap::new())),
             pending_hostkey: Arc::new(Mutex::new(HashMap::new())),
-            abandoned: Arc::new(Mutex::new(HashSet::new())),
+            attempts: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    async fn begin_attempt(&self, id: &str) -> u64 {
+        let mut attempts = self.attempts.lock().await;
+        let next = attempts
+            .get(id)
+            .copied()
+            .unwrap_or_default()
+            .wrapping_add(1)
+            .max(1);
+        attempts.insert(id.to_string(), next);
+        next
+    }
+
+    async fn invalidate_attempt(&self, id: &str) -> u64 {
+        self.begin_attempt(id).await
+    }
+
+    async fn is_current_attempt(&self, id: &str, generation: u64) -> bool {
+        self.attempts.lock().await.get(id).copied() == Some(generation)
+    }
+
+    async fn remove_channel_for_attempt(&self, id: &str, generation: u64) {
+        let mut channels = self.channels.lock().await;
+        if channels
+            .get(id)
+            .is_some_and(|(current, _)| *current == generation)
+        {
+            channels.remove(id);
         }
     }
 }
@@ -37,6 +69,10 @@ pub async fn ssh_connect(
     config: SshConfig,
     app_handle: tauri::AppHandle,
 ) -> Result<SshSessionInfo, String> {
+    // 每次显式连接都有独立代次。失败后的 disconnect 只会让旧代次失效，
+    // 不会像永久 abandoned 标记那样污染同一 tab/窗口里的下一次重试。
+    let attempt_generation = manager.begin_attempt(&id).await;
+
     // 网络 I/O 在锁外执行 — 否则 connect() 期间持有 sessions 锁会阻塞
     // 所有其他 SSH 操作(resize / disconnect / 新 connect),导致第二个 tab
     // 永远卡在 "Connecting to"。
@@ -49,8 +85,18 @@ pub async fn ssh_connect(
             &manager.pending_hostkey,
         )
         .await?;
+
+    if !manager.is_current_attempt(&id, attempt_generation).await {
+        session.disconnect();
+        return Err("Connection aborted by client".to_string());
+    }
     session
-        .open_shell(&id, app_handle.clone(), manager.channels.clone())
+        .open_shell(
+            &id,
+            attempt_generation,
+            app_handle.clone(),
+            manager.channels.clone(),
+        )
         .await?;
 
     let info = SshSessionInfo {
@@ -61,26 +107,16 @@ pub async fn ssh_connect(
         connected: true,
     };
 
-    // 检查前端是否在 connect 期间已 disconnect(标记为 abandoned)
-    {
-        let mut abandoned = manager.abandoned.lock().await;
-        if abandoned.remove(&id) {
-            // 前端已放弃此连接,立即断开并返回错误
-            session.disconnect();
-            return Err("Connection aborted by client".to_string());
-        }
-    }
-
-    // 只在插入 map 时短暂持锁,同时再次检查 abandoned 以关闭竞态窗口
-    // (disconnect 可能在上面 abandoned 检查和此处 sessions 锁之间执行)
+    // 只在插入 map 时短暂持锁，并在同一锁顺序下再次校验代次，
+    // 关闭 disconnect / 新 connect 与当前尝试完成之间的竞态窗口。
     let mut sessions = manager.sessions.lock().await;
-    {
-        let mut abandoned = manager.abandoned.lock().await;
-        if abandoned.remove(&id) {
-            drop(sessions);
-            session.disconnect();
-            return Err("Connection aborted by client".to_string());
-        }
+    if !manager.is_current_attempt(&id, attempt_generation).await {
+        drop(sessions);
+        manager
+            .remove_channel_for_attempt(&id, attempt_generation)
+            .await;
+        session.disconnect();
+        return Err("Connection aborted by client".to_string());
     }
     sessions.insert(id, Arc::new(Mutex::new(session)));
 
@@ -98,16 +134,16 @@ pub async fn ssh_disconnect(manager: State<'_, SshManager>, id: String) -> Resul
     if let Some(session) = session_arc {
         let mut session = session.lock().await;
         session.disconnect();
-    } else {
-        // 如果 session 还没注册(还在 connect 阶段),标记为 abandoned,
-        // ssh_connect 完成后会检查此标记并自动清理,防止资源泄漏。
-        let mut abandoned = manager.abandoned.lock().await;
-        abandoned.insert(id.clone());
     }
 
-    // Also remove the write channel
-    let mut channels = manager.channels.lock().await;
-    channels.remove(&id);
+    // 无论 session 是否已经注册，都让正在进行的连接代次失效。
+    let invalidated_generation = manager.invalidate_attempt(&id).await;
+
+    // 只移除本次 disconnect 取消的旧写通道；如果新的 connect 已经开始，
+    // 它拥有更高代次，不能被较晚完成的旧清理误删。
+    manager
+        .remove_channel_for_attempt(&id, invalidated_generation.wrapping_sub(1))
+        .await;
 
     Ok(())
 }
@@ -120,7 +156,7 @@ pub async fn ssh_write(
 ) -> Result<(), String> {
     let channels = manager.channels.lock().await;
 
-    if let Some(tx) = channels.get(&id) {
+    if let Some((_, tx)) = channels.get(&id) {
         tx.send(data.into_bytes())
             .map_err(|_| "Failed to send data to channel".to_string())?;
     }
@@ -140,7 +176,7 @@ pub async fn ssh_write_binary(
 ) -> Result<(), String> {
     let channels = manager.channels.lock().await;
 
-    if let Some(tx) = channels.get(&id) {
+    if let Some((_, tx)) = channels.get(&id) {
         tx.send(data)
             .map_err(|_| "Failed to send binary data to channel".to_string())?;
     }
@@ -298,4 +334,21 @@ pub async fn ssh_hostkey_response(
     sender
         .send((allowed, persist))
         .map_err(|_| "Failed to send hostkey response (handler dropped)".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn reconnect_uses_a_fresh_attempt_generation() {
+        let manager = SshManager::new();
+        let first = manager.begin_attempt("same-session").await;
+        manager.invalidate_attempt("same-session").await;
+        assert!(!manager.is_current_attempt("same-session", first).await);
+
+        let retry = manager.begin_attempt("same-session").await;
+        assert!(retry > first);
+        assert!(manager.is_current_attempt("same-session", retry).await);
+    }
 }

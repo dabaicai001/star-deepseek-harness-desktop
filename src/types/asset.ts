@@ -33,6 +33,9 @@ export interface AssetConfig {
   password?: string
   privateKey?: string
   passphrase?: string
+  authMode?: 'password' | 'key' | 'both' | 'mfa'
+  /** SFTP 子系统初始化与单次请求超时，单位秒。 */
+  sftpTimeoutSec?: number
 
   // 跳板机配置
   jumpHost?: string

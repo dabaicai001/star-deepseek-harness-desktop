@@ -10,6 +10,16 @@ use tokio::sync::{oneshot, Mutex};
 
 pub type PendingKeyboardResponses = Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>;
 pub type PendingHostKeyResponses = Arc<Mutex<HashMap<String, oneshot::Sender<(bool, bool)>>>>;
+pub type SshWriteChannels =
+    Arc<Mutex<HashMap<String, (u64, tokio::sync::mpsc::UnboundedSender<Vec<u8>>)>>>;
+
+pub const DEFAULT_SFTP_TIMEOUT_SEC: u64 = 30;
+pub const MIN_SFTP_TIMEOUT_SEC: u64 = 5;
+pub const MAX_SFTP_TIMEOUT_SEC: u64 = 300;
+
+const fn default_sftp_timeout_sec() -> u64 {
+    DEFAULT_SFTP_TIMEOUT_SEC
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SshConfig {
@@ -17,6 +27,8 @@ pub struct SshConfig {
     pub port: u16,
     pub username: String,
     pub auth: SshAuth,
+    #[serde(default = "default_sftp_timeout_sec")]
+    pub sftp_timeout_sec: u64,
     #[serde(default)]
     pub kb_interactive: Option<KeyboardInteractiveConfig>,
     #[serde(default)]
@@ -27,6 +39,13 @@ pub struct SshConfig {
     pub jump_username: Option<String>,
     #[serde(default)]
     pub jump_auth: Option<SshAuth>,
+}
+
+impl SshConfig {
+    pub fn effective_sftp_timeout_sec(&self) -> u64 {
+        self.sftp_timeout_sec
+            .clamp(MIN_SFTP_TIMEOUT_SEC, MAX_SFTP_TIMEOUT_SEC)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +131,7 @@ mod tests {
         assert_eq!(config.host, "localhost");
         assert_eq!(config.port, 22);
         assert!(config.jump_host.is_none());
+        assert_eq!(config.sftp_timeout_sec, DEFAULT_SFTP_TIMEOUT_SEC);
     }
 
     #[test]
@@ -122,5 +142,17 @@ mod tests {
         assert_eq!(config.jump_port, Some(2222));
         assert_eq!(config.jump_username.as_deref(), Some("jumpuser"));
         assert!(config.jump_auth.is_some());
+    }
+
+    #[test]
+    fn test_sftp_timeout_is_clamped_to_supported_range() {
+        let mut config: SshConfig = serde_json::from_str(
+            r#"{"host":"localhost","port":22,"username":"root","auth":{"Password":""},"sftp_timeout_sec":1}"#,
+        )
+        .unwrap();
+        assert_eq!(config.effective_sftp_timeout_sec(), MIN_SFTP_TIMEOUT_SEC);
+
+        config.sftp_timeout_sec = 600;
+        assert_eq!(config.effective_sftp_timeout_sec(), MAX_SFTP_TIMEOUT_SEC);
     }
 }
