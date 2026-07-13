@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
@@ -51,6 +51,31 @@ const excelAssets = computed(() =>
   assetStore.filteredAssets.filter(a => a.type === 'excel' && !a.favorite)
 )
 const aiAgents = computed(() => aiStore.agents)
+
+/** AI 是否已配置(有 baseUrl + API Key + model) */
+const aiConfigured = computed(() => aiStore.isAiConfigured())
+
+/** AI 健康状态 */
+const aiHealth = computed(() => aiStore.aiHealthStatus())
+
+/** Agent 列表:收藏置顶 */
+const sortedAiAgents = computed(() =>
+  [...aiAgents.value].sort((a, b) => {
+    if (a.favorited !== b.favorited) return a.favorited ? -1 : 1
+    return b.updatedAt - a.updatedAt
+  })
+)
+
+/** 最近对话摘要(取前 3 条) */
+const recentSummaries = computed(() => aiStore.conversationSummaries.slice(0, 3))
+
+/** 当前激活的工作区类型 */
+const activeWorkspaceType = computed(() => {
+  const tab = appStore.tabs.find(t => t.id === appStore.activeTab)
+  if (!tab) return null
+  if (tab.type === 'ai') return null
+  return tab.type as 'ssh' | 'db' | 'docker' | 'excel'
+})
 
 function getIcon(type: string, dbType?: string) {
   // DB 类型下根据 dbType 区分图标;MDI 没有 mdi-redis,用 mdi-key-variant(KV 语义)代替
@@ -188,6 +213,58 @@ function openAiAgent(agent: AiAgent, reuseExisting = true) {
 function openDefaultAiAgent() {
   const agent = aiAgents.value[0]
   if (agent) openAiAgent(agent)
+}
+
+function quickAsk() {
+  // 聚焦到默认 Agent 工作区
+  const agent = aiAgents.value[0]
+  if (agent) openAiAgent(agent)
+}
+
+function analyzeCurrentWorkspace() {
+  const wsType = activeWorkspaceType.value
+  if (!wsType) {
+    // 没有打开的工作区,打开首个 Agent
+    quickAsk()
+    return
+  }
+  const agent = aiAgents.value[0]
+  if (!agent) return
+  // 打开默认 Agent 工作区 — inputText 会在 AiView 中设置
+  // 这里无法直接设置 AiView 内部的 inputText,
+  // 改为打开 agent 后触发自定义事件
+  openAiAgent(agent)
+  // 让 AiView 预填分析当前工作区的 prompt
+  nextTick(() => {
+    window.dispatchEvent(new CustomEvent('starhub:ai-quick-analyze', {
+      detail: { workspaceType: wsType }
+    }))
+  })
+}
+
+function toggleAgentFavorite(agent: AiAgent) {
+  if (agent.favorited) {
+    aiStore.unfavoriteAgent(agent.id)
+  } else {
+    aiStore.favoriteAgent(agent.id)
+  }
+}
+
+function openAiSettings() {
+  window.dispatchEvent(new CustomEvent('starhub:open-ai-settings'))
+}
+
+function reopenConversation(summary: { agentId: string }) {
+  const agent = aiStore.getAgent(summary.agentId)
+  if (agent) openAiAgent(agent)
+}
+
+function formatSummaryTime(ts: number): string {
+  const diff = Date.now() - ts
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3600_000)}h`
+  return `${Math.floor(diff / 86_400_000)}d`
 }
 
 function reconnectToAsset(asset: Asset) {
@@ -383,6 +460,12 @@ const agentCtxItems = computed<MenuItem[]>(() => {
       icon: 'mdi-tab-plus',
       label: t('asset.openInNewTab'),
       onClick: () => openAiAgent(agent, false)
+    },
+    {
+      type: 'item',
+      icon: agent.favorited ? 'mdi-star-off-outline' : 'mdi-star-outline',
+      label: agent.favorited ? t('asset.unfavorite') : t('asset.favorite'),
+      onClick: () => toggleAgentFavorite(agent)
     },
     { type: 'divider' },
     {
@@ -810,7 +893,9 @@ function isGroupExpanded(id: string) {
       </div>
     </div>
 
-    <!-- AI 分组:点击标题打开主 Agent,右键管理全局设置与多个 Agent -->
+    <!-- AI 分组:视觉分层(渐变分割线 + 健康状态 + 快捷入口 + 最近对话 + Agent 列表) -->
+    <div class="ai-group-divider" />
+
     <div class="tree-group ai">
       <div
         class="tree-group-head ai-group-head"
@@ -830,29 +915,100 @@ function isGroupExpanded(id: string) {
         </button>
         <v-icon class="type-icon" size="11">mdi-robot-outline</v-icon>
         <span class="label">AI</span>
+        <span class="ai-health-dot" :class="aiHealth" :data-tooltip="aiHealth === 'ready' ? 'API 就绪' : aiHealth === 'unconfigured' ? '未配置' : '连接异常'" />
         <span class="count">{{ aiAgents.length }}</span>
         <button class="action-btn" :data-tooltip="t('ai.newAgent')" :aria-label="t('ai.newAgent')" @click.stop="openNewAgentDialog">
           <v-icon size="12">mdi-plus</v-icon>
         </button>
       </div>
+
+      <!-- AI 健康状态副标题 -->
+      <div class="ai-subtitle">
+        {{ aiHealth === 'ready' ? 'API 就绪 · 跨工具智能助手' : aiHealth === 'unconfigured' ? '未配置 LLM' : '连接异常' }}
+      </div>
+
       <div v-show="isGroupExpanded('ai')" class="tree-group-body">
-        <TransitionGroup name="cyber-list">
-          <div
-            v-for="agent in aiAgents"
-            :key="agent.id"
-            class="tree-item ai-agent-tree-item"
-            :class="{ active: isAiAgentActive(agent) }"
-            :data-tooltip="agent.description || agent.name"
-            tabindex="0"
-            @click="openAiAgent(agent)"
-            @keydown.enter.prevent="openAiAgent(agent)"
-            @contextmenu="openAgentContextMenu($event, agent)"
-          >
-            <v-icon size="13">mdi-robot-outline</v-icon>
-            <span class="name">{{ agent.name }}</span>
-            <span class="cyber-badge">{{ agent.skillIds.length }}</span>
+        <!-- 未配置时的引导 -->
+        <div v-if="!aiConfigured" class="ai-unconfigured-guide">
+          <p>连接 LLM 即可用 AI 自然语言操作 SSH / 数据库 / Docker / Excel</p>
+          <div class="quick-hints">
+            <span>#SSH</span>
+            <span>#DB</span>
+            <span>#Docker</span>
+            <span>#Excel</span>
           </div>
-        </TransitionGroup>
+          <button @click.stop="openAiSettings">
+            <v-icon size="11">mdi-cog-outline</v-icon>配置 AI
+          </button>
+        </div>
+
+        <!-- 已配置时的内容 -->
+        <template v-if="aiConfigured">
+          <!-- 快捷入口 -->
+          <div class="ai-quick-actions">
+            <button class="ai-quick-action" @click.stop="quickAsk">
+              <v-icon size="13">mdi-message-text-outline</v-icon>
+              <span>快速提问...</span>
+              <kbd>Ctrl+J</kbd>
+            </button>
+            <button
+              v-if="activeWorkspaceType"
+              class="ai-quick-action"
+              @click.stop="analyzeCurrentWorkspace"
+            >
+              <v-icon size="13">mdi-magnify-scan</v-icon>
+              <span>分析当前工作区</span>
+            </button>
+          </div>
+
+          <div class="ai-section-divider" />
+
+          <!-- 最近对话 -->
+          <template v-if="recentSummaries.length > 0">
+            <div class="ai-recent-label">
+              <v-icon size="10">mdi-history</v-icon>最近对话
+            </div>
+            <button
+              v-for="summary in recentSummaries"
+              :key="summary.id"
+              class="ai-recent-item"
+              :data-tooltip="summary.preview"
+              @click.stop="reopenConversation(summary)"
+            >
+              <v-icon size="12">mdi-message-outline</v-icon>
+              <span class="ai-recent-preview">{{ summary.preview }}</span>
+              <span class="ai-recent-time">{{ formatSummaryTime(summary.timestamp) }}</span>
+            </button>
+            <div class="ai-section-divider" />
+          </template>
+
+          <!-- Agent 列表 -->
+          <TransitionGroup name="cyber-list">
+            <div
+              v-for="agent in sortedAiAgents"
+              :key="agent.id"
+              class="tree-item ai-agent-tree-item"
+              :class="{ active: isAiAgentActive(agent) }"
+              :data-tooltip="agent.description || agent.name"
+              tabindex="0"
+              @click="openAiAgent(agent)"
+              @keydown.enter.prevent="openAiAgent(agent)"
+              @contextmenu="openAgentContextMenu($event, agent)"
+            >
+              <v-icon size="13">mdi-robot-outline</v-icon>
+              <span class="name">{{ agent.name }}</span>
+              <button
+                class="favorite-star"
+                :class="{ favorited: agent.favorited }"
+                :data-tooltip="agent.favorited ? t('asset.unfavorite') : t('asset.favorite')"
+                @click.stop="toggleAgentFavorite(agent)"
+              >
+                <v-icon size="11">{{ agent.favorited ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
+              </button>
+              <span class="cyber-badge">{{ agent.skillIds.length }}</span>
+            </div>
+          </TransitionGroup>
+        </template>
       </div>
     </div>
 

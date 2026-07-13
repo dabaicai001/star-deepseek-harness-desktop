@@ -88,12 +88,32 @@ function onKeydown(e: KeyboardEvent) {
     } else {
       appStore.toggleSidebar()
     }
+  } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+    e.preventDefault()
+    focusAiQuickChat()
   } else if ((e.metaKey || e.ctrlKey) && e.key === ',') {
     e.preventDefault()
     closeFloatingSurfaces()
     openSettings()
   } else if (e.key === 'Escape') {
     closeFloatingSurfaces()
+  }
+}
+
+function focusAiQuickChat() {
+  if (!aiStore.isAiConfigured()) {
+    openSettings('ai')
+    return
+  }
+  const agent = aiStore.agents[0]
+  if (!agent) return
+  // 如果已有 AI tab,直接切过去;否则新建
+  const existingAiTab = appStore.tabs.find(tab => tab.type === 'ai')
+  if (existingAiTab) {
+    appStore.setActiveTab(existingAiTab.id)
+    router.push({ name: 'ai', params: { id: existingAiTab.id } })
+  } else {
+    openAiAgentTab(agent, true)
   }
 }
 

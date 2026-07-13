@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import {
@@ -586,6 +586,20 @@ function saveAgent(draft: AiAgentDraft) {
 function openGlobalAiSettings() {
   window.dispatchEvent(new CustomEvent('starhub:open-ai-settings'))
 }
+
+function onQuickAnalyze(e: Event) {
+  const detail = (e as CustomEvent).detail as { workspaceType: string } | undefined
+  if (!detail?.workspaceType) return
+  const typeToken = capabilityOptions.find(o => o.type === detail.workspaceType)?.token || '#' + workspacePrefix(detail.workspaceType as AiAssetType)
+  inputText.value = `${typeToken} 帮我分析当前工作区的状态和关键指标`
+}
+
+onMounted(() => {
+  window.addEventListener('starhub:ai-quick-analyze', onQuickAnalyze)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('starhub:ai-quick-analyze', onQuickAnalyze)
+})
 
 function toolRecordsFor(messageIndex: number) {
   const message = session.value.messages[messageIndex]

@@ -13,6 +13,26 @@
 
 ---
 
+## [0.23.0] - 2026-07-13
+
+### 新增
+- ✨ feat(ai): AI 侧边栏全面升级 — 视觉分层、健康状态指示器、空状态引导
+- ✨ feat(ai): 侧边栏 AI 分组添加快捷入口："快速提问"和"分析当前工作区"
+- ✨ feat(ai): 侧边栏新增最近对话摘要（最近 3 条），支持点击恢复
+- ✨ feat(ai): Agent 支持收藏/取消收藏，收藏的 Agent 置顶显示
+- ✨ feat(ai): 新增全局快捷键 `Ctrl+J`，一键聚焦 AI 工作区
+- ✨ feat(ai): 侧边栏"分析当前工作区"按钮点击后自动填入分析 prompt
+
+### 更改
+- 🎨 style(ai): AI 分组头新增渐变标题、独立分层分隔线和健康状态文字
+- 🎨 style(ai): 侧边栏 AI 区域新增 ~290 行 CSS 组件类（快捷操作、最近对话、收藏星标、空状态引导）
+- 🎨 style(css): `cyber.css` 新增 `.ai-group-divider`、`.ai-health-dot`、`.ai-quick-actions`、`.ai-recent-*`、`.ai-empty-guide` 等全套 AI 侧边栏视觉 token
+
+### 修复
+- 🐛 fix(ai): 修复 `favorited` 字段在旧数据迁移时丢失的问题
+
+---
+
 ## [0.22.1] - 2026-07-13
 
 ### 修复

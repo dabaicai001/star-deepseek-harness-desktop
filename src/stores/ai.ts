@@ -32,9 +32,22 @@ export interface AiAgent {
   description: string
   systemPrompt: string
   skillIds: string[]
+  favorited: boolean
   createdAt: number
   updatedAt: number
 }
+
+/** 会话摘要 —— 侧边栏显示最近对话用 */
+export interface AiConversationSummary {
+  id: string
+  agentId: string
+  agentName: string
+  preview: string
+  timestamp: number
+}
+
+/** AI 健康状态 */
+export type AiHealthStatus = 'ready' | 'unconfigured' | 'error'
 
 export interface AiAgentDraft {
   name: string
@@ -91,6 +104,7 @@ function createDefaultAgent(): AiAgent {
     description: '通用 DevOps 助手,负责跨工作区分析、规划与任务分派。',
     systemPrompt: '你是 StarHub 的主 AI 助手。先理解目标和上下文,优先使用只读信息形成判断;需要进入具体工作区时明确指出目标资产和下一步。',
     skillIds: [...DEFAULT_ENABLED_SKILL_IDS],
+    favorited: true,
     createdAt: now,
     updatedAt: now
   }
@@ -278,6 +292,22 @@ export const useAiStore = defineStore('ai', () => {
   // Agent 只保存角色与技能绑定;Provider / API Key / 模型始终复用 settings。
   const agents = ref<AiAgent[]>([createDefaultAgent()])
 
+  /** 最近对话摘要(侧边栏展示用,持久化到 localStorage) */
+  const conversationSummaries = ref<AiConversationSummary[]>([])
+
+  /** AI 健康状态(基于 LLM 配置完整度) */
+  function aiHealthStatus(): AiHealthStatus {
+    if (!settings.value.baseUrl) return 'unconfigured'
+    if (settings.value.apiKey !== KEYRING_MARKER && !_unlockedApiKey.value) return 'unconfigured'
+    if (!settings.value.model) return 'unconfigured'
+    return 'ready'
+  }
+
+  /** 是否为 AI 配置完整 */
+  function isAiConfigured(): boolean {
+    return aiHealthStatus() === 'ready'
+  }
+
   function ensureSettingsShape() {
     const s = settings.value
     if (!Array.isArray(s.commandWhitelist)) {
@@ -319,6 +349,7 @@ export const useAiStore = defineStore('ai', () => {
         skillIds: Array.isArray(agent.skillIds)
           ? agent.skillIds.filter(id => typeof id === 'string')
           : [...DEFAULT_ENABLED_SKILL_IDS],
+        favorited: typeof agent.favorited === 'boolean' ? agent.favorited : (agent.id === 'starhub-assistant'),
         createdAt: Number.isFinite(agent.createdAt) ? agent.createdAt : now,
         updatedAt: Number.isFinite(agent.updatedAt) ? agent.updatedAt : now
       }))
@@ -412,6 +443,7 @@ export const useAiStore = defineStore('ai', () => {
       description: draft.description.trim(),
       systemPrompt: draft.systemPrompt.trim(),
       skillIds: Array.from(new Set(draft.skillIds)),
+      favorited: false,
       createdAt: now,
       updatedAt: now
     }
@@ -457,6 +489,36 @@ export const useAiStore = defineStore('ai', () => {
       if (session.assetId === id) clearSession(instanceId)
     }
     return true
+  }
+
+  function favoriteAgent(id: string) {
+    const agent = agents.value.find(a => a.id === id)
+    if (agent) agent.favorited = true
+  }
+
+  function unfavoriteAgent(id: string) {
+    const agent = agents.value.find(a => a.id === id)
+    if (agent) agent.favorited = false
+  }
+
+  function addConversationSummary(summary: AiConversationSummary) {
+    // 去重:同 agent + 同一轮对话不重复
+    const existing = conversationSummaries.value.findIndex(
+      s => s.agentId === summary.agentId && s.preview === summary.preview
+    )
+    if (existing >= 0) {
+      conversationSummaries.value[existing] = summary
+    } else {
+      conversationSummaries.value.unshift(summary)
+    }
+    // 只保留最近 10 条
+    if (conversationSummaries.value.length > 10) {
+      conversationSummaries.value = conversationSummaries.value.slice(0, 10)
+    }
+  }
+
+  function clearConversationSummariesForAgent(agentId: string) {
+    conversationSummaries.value = conversationSummaries.value.filter(s => s.agentId !== agentId)
   }
 
   function updateSettings(partial: Partial<AiSettings>) {
@@ -925,13 +987,20 @@ export const useAiStore = defineStore('ai', () => {
     settings,
     agents,
     sessions,
+    conversationSummaries,
     ensureSettingsShape,
     ensureAgentsShape,
+    aiHealthStatus,
+    isAiConfigured,
     getAgent,
     createAgent,
     updateAgent,
     duplicateAgent,
     deleteAgent,
+    favoriteAgent,
+    unfavoriteAgent,
+    addConversationSummary,
+    clearConversationSummariesForAgent,
     getOrCreateSession,
     getSession,
     clearSession,
@@ -956,8 +1025,8 @@ export const useAiStore = defineStore('ai', () => {
   }
 }, {
   persist: {
-    // 配置与 Agent 持久化;sessions 是 tab 运行时状态,关 app 清理。
-    paths: ['settings', 'agents'],
+    // 配置、Agent 和对话摘要持久化;sessions 是 tab 运行时状态,关 app 清理。
+    paths: ['settings', 'agents', 'conversationSummaries'],
     // 跟随 app store 一起升 key
     key: 'ai-v2'
   }
