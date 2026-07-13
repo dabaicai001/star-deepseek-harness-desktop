@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.26.0(StarHub AI 跨平台本机操作)
+| 当前版本 | v0.26.1(StarHub AI 思考过程折叠修复)
 
 ---
 
@@ -268,6 +268,7 @@ starhub/
 | `.dashboard-chart-*` / `.dashboard-detail-table-*` | 指标折线/环图与可钻取明细表 |
 | `.broker-*` / `.docker-transport-switch` | Kafka/NSQ 状态页与 Docker 连接协议切换 |
 | `.ai-workspace-*` / `.ai-agent-*` / `.ai-mention-menu` | 独立 AI Agent 工作区、Agent 配置与 @/# 补全 |
+| `.ai-think-*` / `.ai-message-segmented` | AI `<think>` 思考过程折叠块与分段消息布局 |
 | `.ai-execution-plan` / `.ai-plan-*` / `.ai-current-agent-badge` | Planner → Executor 计划、点击选项、临时/并行 Agent、直连确认卡与当前 Agent 状态 |
 | `.ai-tool-call` / `.ai-tool-call-*` | 连接工作区 AI 工具卡片、完整命令代码区与状态边框 |
 
@@ -750,4 +751,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-13 (v0.26.0)*
+*最后更新: 2026-07-13 (v0.26.1)*

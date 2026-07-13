@@ -456,6 +456,7 @@ export default {
     referenceWorkspace: 'Authorize a target with #',
     safetyHint: '#LOCAL authorizes local files and Shell; other # references authorize their workspaces. Content reads, writes, allowlists, and risk checks remain enforced.',
     workspaceTitle: 'AI Command Workspace',
+    thinkingProcess: 'Thinking process',
     workspaceHint: "Use {'@'} to choose roles and # to authorize local or workspace operations. Capabilities not explicitly referenced remain hidden from the model.",
     starterLocal: 'Local health check',
     starterHealth: 'Host health check',

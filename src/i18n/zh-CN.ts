@@ -457,6 +457,7 @@ export default {
     referenceWorkspace: '通过 # 授权目标',
     safetyHint: '#LOCAL 授权本机文件与 Shell,其他 # 引用授权对应工作区;文件正文、写操作、白名单与高危拦截规则始终生效。',
     workspaceTitle: 'AI Command Workspace',
+    thinkingProcess: '思考过程',
     workspaceHint: "输入 {'@'} 选择角色,输入 # 授权 StarHub AI 操作本机或工作区。未显式引用的能力不会暴露给模型。",
     starterLocal: '本机健康检查',
     starterHealth: '主机健康检查',

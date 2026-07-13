@@ -15,6 +15,7 @@ import {
 import { useAppStore } from '@/stores/app'
 import { useAssetStore } from '@/stores/asset'
 import AiAgentDialog from '@/components/ai/AiAgentDialog.vue'
+import AiMessageContent from '@/components/ai/AiMessageContent.vue'
 import type { Asset } from '@/types/asset'
 import type { LlmTool, LlmToolCall } from '@/services/ai'
 import { createDirectWorkspaceRuntime } from '@/services/aiWorkspace'
@@ -678,7 +679,14 @@ function onQuickAnalyze(e: Event) {
 
 function applyDevMockState() {
   if (!devMockWorkspace.value) return
-  session.value.messages = [{ role: 'user', content: '#LOCAL #SSH-生产主机 检查本机与服务状态,必要时并行分析日志和容器' }]
+  session.value.messages = [
+    { role: 'user', content: '#LOCAL #SSH-生产主机 检查本机与服务状态,必要时并行分析日志和容器' },
+    {
+      role: 'assistant',
+      agentName: activeAgent.value.name,
+      content: '<think>先核对本机平台与授权边界,再把日志和容器检查拆成可并行的专职任务。</think>\n已生成执行计划,等待你选择重启策略。'
+    }
+  ]
   session.value.error = null
   session.value.executionPlan = {
     id: 'mock-direct-plan',
@@ -932,7 +940,11 @@ function shortResult(value: string, max = 600) {
               </span>
               <div class="ai-message-body">
                 <span class="ai-message-role">{{ message.role === 'user' ? t('ai.you') : (message.agentName || activeAgent.name) }}</span>
-                <div class="ai-message-content">{{ message.content }}</div>
+                <AiMessageContent
+                  :content="message.content || ''"
+                  :parse-think="message.role === 'assistant'"
+                  :think-label="t('ai.thinkingProcess')"
+                />
               </div>
             </div>
             <div

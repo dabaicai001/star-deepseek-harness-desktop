@@ -3650,6 +3650,69 @@ html.v-theme--lightTheme {
   background: var(--hover-cyan-soft);
 }
 
+.ai-message-segmented {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-message-text {
+  white-space: pre-wrap;
+}
+
+.ai-think-block {
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--purple);
+  border-radius: 8px;
+  background: var(--panel-solid-2);
+}
+
+.ai-think-summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  color: var(--purple);
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: background 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-think-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-think-summary:hover,
+.ai-think-summary:focus-visible {
+  background: var(--hover-cyan-faint);
+  outline: none;
+}
+
+.ai-think-chevron {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-think-block[open] .ai-think-chevron {
+  transform: rotate(90deg);
+}
+
+.ai-think-content {
+  max-height: 320px;
+  margin: 0;
+  padding: 8px 12px;
+  overflow: auto;
+  color: var(--muted);
+  border-top: 1px solid var(--line-2);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* 连接工作区右栏的 AI 工具调用卡片 */
 .ai-tool-call {
   display: flex;
