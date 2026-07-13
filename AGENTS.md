@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.26.4(SSH 私钥兼容与文件选择优化)
+| 当前版本 | v0.27.0(Docker 交互式容器 Shell 与 UI 对比度优化) |
 
 ---
 
@@ -250,7 +250,8 @@ starhub/
 | `.section-header` / `.section-number` | 节标题(编号 + 标题 + 渐变分割线) |
 | `.terminal-container` / `.terminal-header` / `.terminal-dots` | 终端外壳(红黄绿三点) |
 | `.terminal-font-size-indicator` / `.terminal-action-divider` / `.terminal-search-*` / `.terminal-quick-*` | SSH / Docker Exec 共用的终端工具栏、搜索与快捷命令视觉 |
-| `.docker-exec-terminal` / `.docker-exec-pane` | Docker Exec 的 xterm 工作区与完整 flex 高度链 |
+| `.docker-exec-terminal` / `.docker-exec-pane` | Docker 持久交互式 TTY 的 xterm 工作区与完整 flex 高度链 |
+| `.quick-command-editor` / `.qc-editor-*` | SSH 自定义快捷命令弹窗、字段、拖拽列表与浅色主题高对比度覆盖 |
 | `.empty-state` | 空状态(图标 + 标题 + 描述 + CTA) |
 | `.app-startup` / `.app-startup-*` | 原生首屏与 Vue 路由加载阶段共用的深色启动状态页 |
 | `.glow-cyan` / `.glow-purple` / `.glow-pink` | 静态光晕 |
@@ -268,6 +269,7 @@ starhub/
 | `.dashboard-detail-*` | 可钻取仪表盘指标详情弹层、键值明细 |
 | `.column-action-tools` / `.column-action-select` | 数据网格列选择、排序、服务端筛选工具 |
 | `.product-icon` / `.product-icon-mask` | 数据库与消息产品品牌图标容器 / 单色 SVG mask |
+| `.db-badge-wrap` / `.db-type-label` | 品牌图标与固定 64px 宽度的数据库类型徽章，确保资产名称对齐 |
 | `.dashboard-chart-*` / `.dashboard-detail-table-*` | 指标折线/环图与可钻取明细表 |
 | `.broker-*` / `.docker-transport-switch` | Kafka/NSQ 状态页与 Docker 连接协议切换 |
 | `.ai-workspace-*` / `.ai-agent-*` / `.ai-mention-menu` | 独立 AI Agent 工作区、Agent 配置与 @/# 补全 |
@@ -754,4 +756,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-13 (v0.26.4)*
+*最后更新: 2026-07-13 (v0.27.0)*

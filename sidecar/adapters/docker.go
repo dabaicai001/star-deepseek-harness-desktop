@@ -4,11 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -23,11 +28,13 @@ import (
 
 // DockerAdapter 封装 Docker 连接
 type DockerAdapter struct {
-	cli        *client.Client
-	ctx        context.Context
-	info       *DockerConnInfo
-	transport  *http.Transport
-	sshClients []*ssh.Client
+	cli          *client.Client
+	ctx          context.Context
+	info         *DockerConnInfo
+	transport    *http.Transport
+	sshClients   []*ssh.Client
+	execMu       sync.RWMutex
+	execSessions map[string]*dockerExecSession
 }
 
 // DockerConnInfo Docker 连接参数
@@ -132,16 +139,18 @@ func NewDockerAdapter(info *DockerConnInfo) (*DockerAdapter, error) {
 	log.Info().Str("host", info.Host).Msg("docker connected")
 
 	return &DockerAdapter{
-		cli:        cli,
-		ctx:        ctx,
-		info:       info,
-		transport:  httpTransport,
-		sshClients: sshClients,
+		cli:          cli,
+		ctx:          ctx,
+		info:         info,
+		transport:    httpTransport,
+		sshClients:   sshClients,
+		execSessions: make(map[string]*dockerExecSession),
 	}, nil
 }
 
 // Close 关闭连接
 func (a *DockerAdapter) Close() error {
+	a.closeExecSessions()
 	err := a.cli.Close()
 	if a.transport != nil {
 		a.transport.CloseIdleConnections()
@@ -575,4 +584,358 @@ func (a *DockerAdapter) Exec(containerID string, command []string, workdir strin
 		dockerExecInspectInterval,
 		dockerExecDrainTimeout,
 	)
+}
+
+const (
+	dockerExecSessionReadWait       = time.Second
+	dockerExecSessionResizeTimeout  = 5 * time.Second
+	dockerExecSessionMaxOutputBytes = 4 << 20
+)
+
+var dockerInteractiveShellCommand = []string{
+	"/bin/sh",
+	"-c",
+	`if command -v bash >/dev/null 2>&1; then exec bash -i; ` +
+		`elif command -v ash >/dev/null 2>&1; then exec ash -i; ` +
+		`else exec sh -i; fi`,
+}
+
+// DockerExecSessionStartResult 描述新建的交互式容器 Shell 会话。
+type DockerExecSessionStartResult struct {
+	SessionID string `json:"sessionId"`
+}
+
+// DockerExecSessionReadResult 是一次长轮询读取到的终端字节与会话状态。
+// Data 使用 []byte，让 JSON 以 base64 传输，避免无效 UTF-8 破坏 ANSI 流。
+type DockerExecSessionReadResult struct {
+	Data     []byte `json:"data"`
+	Running  bool   `json:"running"`
+	ExitCode *int   `json:"exitCode,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+type dockerExecSession struct {
+	id       string
+	execID   string
+	resp     types.HijackedResponse
+	ctx      context.Context
+	cancel   context.CancelFunc
+	inspect  dockerExecInspectFunc
+	notify   chan struct{}
+	done     chan struct{}
+	writeMu  sync.Mutex
+	outputMu sync.Mutex
+	stateMu  sync.RWMutex
+	output   bytes.Buffer
+	running  bool
+	exitCode *int
+	readErr  string
+	finish   sync.Once
+	close    sync.Once
+}
+
+func newDockerExecSession(
+	id string,
+	execID string,
+	ctx context.Context,
+	cancel context.CancelFunc,
+	resp types.HijackedResponse,
+	inspect dockerExecInspectFunc,
+) *dockerExecSession {
+	session := &dockerExecSession{
+		id:      id,
+		execID:  execID,
+		resp:    resp,
+		ctx:     ctx,
+		cancel:  cancel,
+		inspect: inspect,
+		notify:  make(chan struct{}, 1),
+		done:    make(chan struct{}),
+		running: true,
+	}
+	go session.readLoop()
+	return session
+}
+
+func (s *dockerExecSession) readLoop() {
+	defer s.closeResponse()
+	buffer := make([]byte, 32*1024)
+	for {
+		n, err := s.resp.Reader.Read(buffer)
+		if n > 0 {
+			s.appendOutput(buffer[:n])
+		}
+		if err == nil {
+			continue
+		}
+
+		var exitCode *int
+		readErr := ""
+		if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) && !errors.Is(err, context.Canceled) {
+			readErr = fmt.Sprintf("docker exec read output: %v", err)
+		}
+		if s.ctx.Err() == nil {
+			inspectCtx, cancel := context.WithTimeout(s.ctx, dockerExecSessionResizeTimeout)
+			status, inspectErr := s.inspect(inspectCtx)
+			cancel()
+			if inspectErr != nil {
+				if readErr == "" {
+					readErr = fmt.Sprintf("docker exec inspect: %v", inspectErr)
+				}
+			} else {
+				code := status.ExitCode
+				exitCode = &code
+			}
+		}
+		s.finishSession(exitCode, readErr)
+		return
+	}
+}
+
+func (s *dockerExecSession) appendOutput(data []byte) {
+	s.outputMu.Lock()
+	if len(data) >= dockerExecSessionMaxOutputBytes {
+		s.output.Reset()
+		_, _ = s.output.Write(data[len(data)-dockerExecSessionMaxOutputBytes:])
+	} else {
+		overflow := s.output.Len() + len(data) - dockerExecSessionMaxOutputBytes
+		if overflow > 0 {
+			s.output.Next(overflow)
+		}
+		_, _ = s.output.Write(data)
+	}
+	s.outputMu.Unlock()
+
+	select {
+	case s.notify <- struct{}{}:
+	default:
+	}
+}
+
+func (s *dockerExecSession) finishSession(exitCode *int, readErr string) {
+	s.finish.Do(func() {
+		s.stateMu.Lock()
+		s.running = false
+		s.exitCode = exitCode
+		s.readErr = readErr
+		s.stateMu.Unlock()
+		s.cancel()
+		close(s.done)
+	})
+}
+
+func (s *dockerExecSession) closeResponse() {
+	s.close.Do(func() {
+		s.resp.Close()
+	})
+}
+
+func (s *dockerExecSession) stop() {
+	s.cancel()
+	s.closeResponse()
+	s.finishSession(nil, "")
+}
+
+func (s *dockerExecSession) snapshot() DockerExecSessionReadResult {
+	s.outputMu.Lock()
+	data := append([]byte{}, s.output.Bytes()...)
+	s.output.Reset()
+	s.outputMu.Unlock()
+
+	s.stateMu.RLock()
+	result := DockerExecSessionReadResult{
+		Data:     data,
+		Running:  s.running,
+		ExitCode: s.exitCode,
+		Error:    s.readErr,
+	}
+	s.stateMu.RUnlock()
+	return result
+}
+
+func (s *dockerExecSession) read(wait time.Duration) DockerExecSessionReadResult {
+	result := s.snapshot()
+	if len(result.Data) > 0 || !result.Running || wait <= 0 {
+		return result
+	}
+
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-s.notify:
+	case <-s.done:
+	case <-timer.C:
+	}
+	return s.snapshot()
+}
+
+func (s *dockerExecSession) write(data string) error {
+	if data == "" {
+		return nil
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	s.stateMu.RLock()
+	running := s.running
+	s.stateMu.RUnlock()
+	if !running {
+		return fmt.Errorf("docker exec session %s is not running", s.id)
+	}
+	if _, err := io.WriteString(s.resp.Conn, data); err != nil {
+		return fmt.Errorf("docker exec write input: %w", err)
+	}
+	return nil
+}
+
+func newDockerExecSessionID() (string, error) {
+	random := make([]byte, 16)
+	if _, err := rand.Read(random); err != nil {
+		return "", fmt.Errorf("docker exec session id: %w", err)
+	}
+	return "docker-exec-" + hex.EncodeToString(random), nil
+}
+
+func normalizeDockerExecSize(cols int, rows int) (uint, uint) {
+	if cols < 1 {
+		cols = 120
+	}
+	if rows < 1 {
+		rows = 30
+	}
+	return uint(cols), uint(rows)
+}
+
+// StartExecSession 进入容器并创建一个持久的交互式 TTY Shell。
+func (a *DockerAdapter) StartExecSession(containerID string, cols int, rows int) (*DockerExecSessionStartResult, error) {
+	if containerID == "" {
+		return nil, fmt.Errorf("containerId is required")
+	}
+	width, height := normalizeDockerExecSize(cols, rows)
+	consoleSize := [2]uint{height, width}
+	ctx, cancel := context.WithCancel(a.ctx)
+
+	execConfig := container.ExecOptions{
+		Cmd:          dockerInteractiveShellCommand,
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+		Tty:          true,
+		ConsoleSize:  &consoleSize,
+		Env:          []string{"TERM=xterm-256color", "COLORTERM=truecolor"},
+	}
+	execID, err := a.cli.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("docker exec session create: %w", err)
+	}
+
+	resp, err := a.cli.ContainerExecAttach(ctx, execID.ID, container.ExecStartOptions{
+		Tty:         true,
+		ConsoleSize: &consoleSize,
+	})
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("docker exec session attach: %w", err)
+	}
+
+	sessionID, err := newDockerExecSessionID()
+	if err != nil {
+		resp.Close()
+		cancel()
+		return nil, err
+	}
+	session := newDockerExecSession(
+		sessionID,
+		execID.ID,
+		ctx,
+		cancel,
+		resp,
+		func(inspectCtx context.Context) (container.ExecInspect, error) {
+			return a.cli.ContainerExecInspect(inspectCtx, execID.ID)
+		},
+	)
+
+	a.execMu.Lock()
+	a.execSessions[sessionID] = session
+	a.execMu.Unlock()
+	return &DockerExecSessionStartResult{SessionID: sessionID}, nil
+}
+
+func (a *DockerAdapter) execSession(sessionID string) (*dockerExecSession, error) {
+	a.execMu.RLock()
+	session, ok := a.execSessions[sessionID]
+	a.execMu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("docker exec session not found: %s", sessionID)
+	}
+	return session, nil
+}
+
+// ReadExecSession 长轮询读取交互式 Shell 输出。
+func (a *DockerAdapter) ReadExecSession(sessionID string, wait time.Duration) (*DockerExecSessionReadResult, error) {
+	session, err := a.execSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if wait < 0 || wait > dockerExecSessionReadWait {
+		wait = dockerExecSessionReadWait
+	}
+	result := session.read(wait)
+	return &result, nil
+}
+
+// WriteExecSession 把 xterm 原始输入写入交互式 Shell。
+func (a *DockerAdapter) WriteExecSession(sessionID string, data string) error {
+	session, err := a.execSession(sessionID)
+	if err != nil {
+		return err
+	}
+	return session.write(data)
+}
+
+// ResizeExecSession 同步 xterm 与容器 TTY 的行列数。
+func (a *DockerAdapter) ResizeExecSession(sessionID string, cols int, rows int) error {
+	session, err := a.execSession(sessionID)
+	if err != nil {
+		return err
+	}
+	width, height := normalizeDockerExecSize(cols, rows)
+	ctx, cancel := context.WithTimeout(a.ctx, dockerExecSessionResizeTimeout)
+	defer cancel()
+	if err := a.cli.ContainerExecResize(ctx, session.execID, container.ResizeOptions{
+		Width:  width,
+		Height: height,
+	}); err != nil {
+		return fmt.Errorf("docker exec resize: %w", err)
+	}
+	return nil
+}
+
+// CloseExecSession 关闭并移除一个交互式 Shell 会话。
+func (a *DockerAdapter) CloseExecSession(sessionID string) error {
+	a.execMu.Lock()
+	session, ok := a.execSessions[sessionID]
+	if ok {
+		delete(a.execSessions, sessionID)
+	}
+	a.execMu.Unlock()
+	if !ok {
+		return nil
+	}
+	session.stop()
+	return nil
+}
+
+func (a *DockerAdapter) closeExecSessions() {
+	a.execMu.Lock()
+	sessions := make([]*dockerExecSession, 0, len(a.execSessions))
+	for sessionID, session := range a.execSessions {
+		sessions = append(sessions, session)
+		delete(a.execSessions, sessionID)
+	}
+	a.execMu.Unlock()
+	for _, session := range sessions {
+		session.stop()
+	}
 }

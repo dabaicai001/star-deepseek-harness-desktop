@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import TerminalPane from '@/components/ssh/TerminalPane.vue'
 import { useNotifyStore } from '@/stores/notify'
 import { useThemeStore } from '@/stores/theme'
-import { dockerExec } from '@/services/docker'
+import {
+  dockerExecSessionClose,
+  dockerExecSessionRead,
+  dockerExecSessionResize,
+  dockerExecSessionStart,
+  dockerExecSessionWrite,
+} from '@/services/docker'
 import type { ContainerInfo } from '@/types/docker'
 
 const props = defineProps<{
@@ -16,14 +22,16 @@ const { t } = useI18n()
 const notify = useNotifyStore()
 const themeStore = useThemeStore()
 const terminalRef = ref<InstanceType<typeof TerminalPane>>()
-const executing = ref(false)
 const showSearch = ref(false)
 const searchQuery = ref('')
-const workingDir = ref('/')
+const sessionId = ref('')
+const sessionStatus = ref<'connecting' | 'online' | 'offline' | 'error'>('connecting')
 
-let commandBuffer = ''
-let commandHistory: string[] = []
-let historyCursor = 0
+let lifecycle = 0
+let terminalCols = 120
+let terminalRows = 30
+let writeChain = Promise.resolve()
+let activeConnId = ''
 
 const quickCommands = computed(() => [
   { label: t('docker.execQuickProcess'), command: 'ps aux', icon: 'mdi-view-list-outline' },
@@ -31,16 +39,6 @@ const quickCommands = computed(() => [
   { label: t('docker.execQuickDisk'), command: 'df -h', icon: 'mdi-harddisk' },
   { label: t('docker.execQuickNetwork'), command: 'cat /etc/hosts', icon: 'mdi-lan' },
 ])
-
-function promptText(): string {
-  return `${props.container.name}:${workingDir.value}$ `
-}
-
-function writePrompt(): void {
-  terminalRef.value?.write(
-    `\x1b[32m${props.container.name}\x1b[0m:\x1b[36m${workingDir.value}\x1b[0m$ `
-  )
-}
 
 function writeOutput(text: string, color?: 'red' | 'yellow'): void {
   if (!text) return
@@ -52,171 +50,129 @@ function writeOutput(text: string, color?: 'red' | 'yellow'): void {
 }
 
 function resetTerminal(): void {
-  commandBuffer = ''
-  commandHistory = []
-  historyCursor = 0
-  workingDir.value = '/'
   terminalRef.value?.write('\x1b[2J\x1b[H')
-  terminalRef.value?.writeln(`\x1b[36mStarHub Docker Exec · ${props.container.image}\x1b[0m`)
+  terminalRef.value?.writeln(`\x1b[36m${t('docker.execTitle')} · ${props.container.image}\x1b[0m`)
   terminalRef.value?.writeln(`\x1b[90m${t('docker.execWelcome')}\x1b[0m`)
   terminalRef.value?.writeln('')
-  writePrompt()
   terminalRef.value?.focus()
 }
 
-function redrawInput(): void {
-  terminalRef.value?.write(`\r\x1b[2K${promptText()}${commandBuffer}`)
-}
-
-function historyPrevious(): void {
-  if (commandHistory.length === 0) return
-  historyCursor = Math.max(0, historyCursor - 1)
-  commandBuffer = commandHistory[historyCursor] ?? ''
-  redrawInput()
-}
-
-function historyNext(): void {
-  if (commandHistory.length === 0) return
-  historyCursor = Math.min(commandHistory.length, historyCursor + 1)
-  commandBuffer = historyCursor === commandHistory.length ? '' : commandHistory[historyCursor] ?? ''
-  redrawInput()
-}
-
-function stripOuterQuotes(value: string): string {
-  if (value.length < 2) return value
-  const first = value.at(0)
-  const last = value.at(-1)
-  return (first === last && (first === '"' || first === "'")) ? value.slice(1, -1) : value
-}
-
-async function changeDirectory(targetInput: string | undefined): Promise<void> {
-  const target = targetInput ? stripOuterQuotes(targetInput.trim()) : ''
-  const command = target
-    ? ['sh', '-c', 'cd "$1" && pwd', 'starhub-cd', target]
-    : ['sh', '-c', 'cd && pwd']
-  const result = await dockerExec(props.connId, props.container.id, command, {
-    workdir: workingDir.value,
-    timeoutSec: 30,
-  })
-
-  if (result.stderr) writeOutput(result.stderr, 'red')
-  if (result.exitCode !== 0) {
-    writeOutput(`[exit ${result.exitCode}]`, 'red')
-    return
+function decodeBase64(value: string): Uint8Array {
+  const binary = atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
   }
-  const resolved = result.stdout.trim().split(/\r?\n/).at(-1)
-  if (resolved) workingDir.value = resolved
+  return bytes
 }
 
-async function executeCommand(command: string): Promise<void> {
-  const trimmed = command.trim()
-  if (!trimmed) {
-    writePrompt()
-    return
-  }
+function sessionError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  sessionStatus.value = 'error'
+  writeOutput(`${t('docker.execFailed')}: ${message}`, 'red')
+}
 
-  commandHistory = [...commandHistory.filter(item => item !== trimmed), trimmed]
-  historyCursor = commandHistory.length
-
-  if (trimmed === 'clear') {
-    terminalRef.value?.write('\x1b[2J\x1b[H')
-    writePrompt()
-    return
-  }
-
-  executing.value = true
+async function closeCurrentSession(): Promise<void> {
+  const id = sessionId.value
+  const connId = activeConnId || props.connId
+  sessionId.value = ''
+  activeConnId = ''
+  if (!id) return
   try {
-    const cdMatch = trimmed.match(/^cd(?:\s+(.*))?$/s)
-    if (cdMatch) {
-      await changeDirectory(cdMatch[1])
-    } else {
-      const result = await dockerExec(
-        props.connId,
-        props.container.id,
-        ['sh', '-c', trimmed],
-        { workdir: workingDir.value, timeoutSec: 60 }
-      )
-      if (result.stdout) writeOutput(result.stdout)
-      if (result.stderr) writeOutput(result.stderr, 'red')
-      if (result.exitCode !== 0) writeOutput(`[exit ${result.exitCode}]`, 'red')
+    await dockerExecSessionClose(connId, id)
+  } catch (error: unknown) {
+    console.warn('Failed to close Docker exec session', error)
+  }
+}
+
+async function readSession(connId: string, id: string, generation: number): Promise<void> {
+  try {
+    while (generation === lifecycle && sessionId.value === id) {
+      const result = await dockerExecSessionRead(connId, id, 1000)
+      if (generation !== lifecycle || sessionId.value !== id) return
+      if (result.data) terminalRef.value?.write(decodeBase64(result.data))
+      if (result.running) continue
+
+      if (result.error) {
+        sessionStatus.value = 'error'
+        writeOutput(result.error, 'red')
+      } else {
+        sessionStatus.value = 'offline'
+        const exitCode = result.exitCode ?? 0
+        writeOutput(t('docker.execExited', { code: exitCode }), exitCode === 0 ? undefined : 'yellow')
+      }
+      await closeCurrentSession()
+      return
     }
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error)
-    writeOutput(`${t('docker.execFailed')}: ${message}`, 'red')
-  } finally {
-    executing.value = false
-    writePrompt()
-    terminalRef.value?.focus()
+    if (generation === lifecycle && sessionId.value === id) sessionError(error)
   }
 }
 
-function submitBuffer(): void {
-  if (executing.value) return
-  const command = commandBuffer
-  commandBuffer = ''
-  terminalRef.value?.write('\r\n')
-  void executeCommand(command)
+async function startSession(): Promise<void> {
+  const generation = ++lifecycle
+  const connId = props.connId
+  const containerId = props.container.id
+  await closeCurrentSession()
+  if (generation !== lifecycle) return
+
+  sessionStatus.value = 'connecting'
+  writeChain = Promise.resolve()
+  resetTerminal()
+  try {
+    const result = await dockerExecSessionStart(
+      connId,
+      containerId,
+      terminalCols,
+      terminalRows
+    )
+    if (generation !== lifecycle) {
+      await dockerExecSessionClose(connId, result.sessionId)
+      return
+    }
+    sessionId.value = result.sessionId
+    activeConnId = connId
+    sessionStatus.value = 'online'
+    terminalRef.value?.focus()
+    void readSession(connId, result.sessionId, generation)
+  } catch (error: unknown) {
+    if (generation === lifecycle) sessionError(error)
+  }
 }
 
 function handleData(data: string): void {
-  if (executing.value) return
-  if (data === '\x1b[A') {
-    historyPrevious()
-    return
-  }
-  if (data === '\x1b[B') {
-    historyNext()
-    return
-  }
-  // 当前 Exec 后端是逐条命令模式,不模拟行内光标移动;忽略其余 ANSI 按键序列,
-  // 避免 Left / Right / Home / End 被误写成可见的 "[D" 等字符。
-  if (data.startsWith('\x1b')) return
-  if (data === '\x03') {
-    commandBuffer = ''
-    terminalRef.value?.write('^C\r\n')
-    writePrompt()
-    return
-  }
-  if (data === '\x0c') {
-    terminalRef.value?.write('\x1b[2J\x1b[H')
-    redrawInput()
-    return
-  }
-  if (data === '\x15') {
-    commandBuffer = ''
-    redrawInput()
-    return
-  }
-  if (data === '\x7f' || data === '\b') {
-    if (commandBuffer.length > 0) {
-      commandBuffer = Array.from(commandBuffer).slice(0, -1).join('')
-      terminalRef.value?.write('\b \b')
-    }
-    return
-  }
-  if (data === '\r' || data === '\n') {
-    submitBuffer()
-    return
-  }
-
-  const printable = Array.from(data).filter(char => char >= ' ' && char !== '\x7f').join('')
-  if (!printable) return
-  commandBuffer += printable
-  terminalRef.value?.write(printable)
+  const id = sessionId.value
+  if (!id || sessionStatus.value !== 'online') return
+  writeChain = writeChain
+    .then(async () => {
+      if (sessionId.value !== id || sessionStatus.value !== 'online') return
+      await dockerExecSessionWrite(activeConnId, id, data)
+    })
+    .catch((error: unknown) => {
+      if (sessionId.value === id) sessionError(error)
+    })
 }
 
 function runQuickCommand(command: string): void {
-  if (executing.value) return
-  commandBuffer = command
-  redrawInput()
-  submitBuffer()
+  if (sessionStatus.value !== 'online') return
+  handleData(`${command}\r`)
+  terminalRef.value?.focus()
 }
 
 function handleClear(): void {
-  commandBuffer = ''
-  terminalRef.value?.write('\x1b[2J\x1b[H')
-  writePrompt()
+  if (sessionStatus.value === 'online') handleData('\x0c')
+  else terminalRef.value?.write('\x1b[2J\x1b[H')
   terminalRef.value?.focus()
+}
+
+function handleResize(cols: number, rows: number): void {
+  terminalCols = cols
+  terminalRows = rows
+  const id = sessionId.value
+  if (!id) return
+  void dockerExecSessionResize(activeConnId, id, cols, rows).catch((error: unknown) => {
+    console.warn('Failed to resize Docker exec session', error)
+  })
 }
 
 function adjustFontSize(delta: number): void {
@@ -239,12 +195,24 @@ function handlePaste(text: string): void {
 
 onMounted(async () => {
   await nextTick()
-  resetTerminal()
+  await startSession()
 })
 
-watch(() => props.container.id, async () => {
+watch(() => [props.connId, props.container.id], async () => {
   await nextTick()
-  resetTerminal()
+  await startSession()
+})
+
+onBeforeUnmount(() => {
+  lifecycle += 1
+  void closeCurrentSession()
+})
+
+const statusText = computed(() => {
+  if (sessionStatus.value === 'connecting') return t('docker.execConnecting')
+  if (sessionStatus.value === 'online') return t('docker.execReady')
+  if (sessionStatus.value === 'error') return t('docker.execError')
+  return t('docker.execDisconnected')
 })
 </script>
 
@@ -257,7 +225,7 @@ watch(() => props.container.id, async () => {
           <span>{{ container.name }}</span>
         </div>
         <div class="subtitle">
-          {{ container.image }} · /bin/sh · {{ workingDir }}
+          {{ container.image }} · {{ t('docker.execInteractive') }}
         </div>
       </div>
 
@@ -313,9 +281,19 @@ watch(() => props.container.id, async () => {
 
         <span class="terminal-action-divider" />
 
-        <span class="status" :class="executing ? 'connecting' : 'online'">
-          <span class="status-dot" :class="executing ? 'connecting' : 'online'" />
-          {{ executing ? t('docker.execRunning') : t('docker.execReady') }}
+        <button
+          v-if="sessionStatus === 'offline' || sessionStatus === 'error'"
+          class="action-btn"
+          :aria-label="t('docker.execReconnect')"
+          :title="t('docker.execReconnect')"
+          @click="startSession"
+        >
+          <v-icon size="14">mdi-refresh</v-icon>
+        </button>
+
+        <span class="status" :class="sessionStatus">
+          <span class="status-dot" :class="sessionStatus" />
+          {{ statusText }}
         </span>
       </div>
     </div>
@@ -327,7 +305,7 @@ watch(() => props.container.id, async () => {
           v-for="item in quickCommands"
           :key="item.command"
           class="terminal-quick-btn"
-          :disabled="executing"
+          :disabled="sessionStatus !== 'online'"
           @click="runQuickCommand(item.command)"
         >
           <v-icon size="11">{{ item.icon }}</v-icon>
@@ -340,6 +318,7 @@ watch(() => props.container.id, async () => {
         :session-id="`docker-exec-${container.id}`"
         :font-size="themeStore.fontSize"
         @data="handleData"
+        @resize="handleResize"
         @copy="handleCopy"
         @paste="handlePaste"
       />

@@ -591,7 +591,7 @@
   </div>
 
   <div class="note">
-    <strong>关键设计:</strong> Rust 处理系统协议(SSH/SFTP/Docker/网络)与系统集成,Go Sidecar 跑数据库驱动。Sidecar 通过 stdio JSON-RPC 按请求 ID 并发关联响应,默认超时 120 秒;启动时校验协议版本与关键 RPC 方法清单,拒绝加载历史或不完整的 Sidecar。
+    <strong>关键设计:</strong> Rust 处理系统协议(SSH/SFTP/网络)与系统集成,Go Sidecar 跑数据库驱动、Docker Engine API 与持久 TTY Exec。Sidecar 通过 stdio JSON-RPC 按请求 ID 并发关联响应,默认超时 120 秒;交互终端以长轮询传输有界原始字节流,启动时校验协议版本与关键 RPC 方法清单,拒绝加载历史或不完整的 Sidecar。
   </div>
 
   <!-- SECTION 2: Process Model -->
@@ -647,6 +647,7 @@
         <li><code>modernc.org/sqlite</code></li>
         <li><code>redis/go-redis/v9</code></li>
         <li><code>segmentio/kafka-go</code> / NSQ Stats API</li>
+        <li>Docker Engine API + 持久 TTY Exec</li>
         <li>Docker SSH: Unix-Over-Nc(-Sudo)</li>
         <li>流式查询 (goroutine + channel)</li>
         <li>Excel 全 Sheet 快照 / 公式持久化</li>

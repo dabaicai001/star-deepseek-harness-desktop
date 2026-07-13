@@ -1,8 +1,10 @@
 package adapters
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -96,5 +98,123 @@ func TestCollectDockerExecResultSupportsRawStream(t *testing.T) {
 	}
 	if result.Stdout != "plain tty output\n" || result.ExitCode != 7 {
 		t.Fatalf("unexpected raw result: %#v", result)
+	}
+}
+
+func TestDockerExecSessionStreamsTTYInputAndOutput(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	ctx, cancel := context.WithCancel(context.Background())
+	resp := types.NewHijackedResponse(clientConn, types.MediaTypeRawStream)
+	session := newDockerExecSession(
+		"session-test",
+		"exec-test",
+		ctx,
+		cancel,
+		resp,
+		func(context.Context) (container.ExecInspect, error) {
+			return container.ExecInspect{Running: false, ExitCode: 0, Pid: 42}, nil
+		},
+	)
+	t.Cleanup(func() {
+		session.stop()
+		_ = serverConn.Close()
+	})
+
+	serverErr := make(chan error, 1)
+	go func() {
+		if _, err := serverConn.Write([]byte("root@container:/# ")); err != nil {
+			serverErr <- err
+			return
+		}
+		input := make([]byte, len("pwd\r"))
+		if _, err := io.ReadFull(serverConn, input); err != nil {
+			serverErr <- err
+			return
+		}
+		if !bytes.Equal(input, []byte("pwd\r")) {
+			serverErr <- errors.New("unexpected terminal input")
+			return
+		}
+		if _, err := serverConn.Write([]byte("pwd\r\n/\r\nroot@container:/# ")); err != nil {
+			serverErr <- err
+			return
+		}
+		serverErr <- serverConn.Close()
+	}()
+
+	first := session.read(500 * time.Millisecond)
+	if string(first.Data) != "root@container:/# " || !first.Running {
+		t.Fatalf("first read = %#v", first)
+	}
+	if err := session.write("pwd\r"); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	second := session.read(500 * time.Millisecond)
+	if string(second.Data) != "pwd\r\n/\r\nroot@container:/# " {
+		t.Fatalf("second read data = %q", second.Data)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server stream: %v", err)
+	}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for second.Running && time.Now().Before(deadline) {
+		second = session.read(20 * time.Millisecond)
+	}
+	if second.Running || second.ExitCode == nil || *second.ExitCode != 0 || second.Error != "" {
+		t.Fatalf("finished session = %#v", second)
+	}
+}
+
+func TestDockerExecSessionStopUnblocksLongPoll(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	ctx, cancel := context.WithCancel(context.Background())
+	session := newDockerExecSession(
+		"session-stop",
+		"exec-stop",
+		ctx,
+		cancel,
+		types.NewHijackedResponse(clientConn, types.MediaTypeRawStream),
+		func(context.Context) (container.ExecInspect, error) {
+			return container.ExecInspect{}, nil
+		},
+	)
+	defer serverConn.Close()
+
+	resultCh := make(chan DockerExecSessionReadResult, 1)
+	go func() {
+		resultCh <- session.read(time.Second)
+	}()
+	time.Sleep(10 * time.Millisecond)
+	session.stop()
+
+	select {
+	case result := <-resultCh:
+		if result.Running {
+			t.Fatalf("session still running after stop: %#v", result)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("long poll did not unblock after session stop")
+	}
+}
+
+func TestNormalizeDockerExecSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		cols     int
+		rows     int
+		wantCols uint
+		wantRows uint
+	}{
+		{name: "uses terminal size", cols: 160, rows: 48, wantCols: 160, wantRows: 48},
+		{name: "defaults invalid size", cols: 0, rows: -1, wantCols: 120, wantRows: 30},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cols, rows := normalizeDockerExecSize(test.cols, test.rows)
+			if cols != test.wantCols || rows != test.wantRows {
+				t.Fatalf("size = %dx%d, want %dx%d", cols, rows, test.wantCols, test.wantRows)
+			}
+		})
 	}
 }

@@ -283,7 +283,7 @@ function handleResize() {
   fitAddon?.fit()
 }
 
-function write(data: string) {
+function write(data: string | Uint8Array) {
   terminal?.write(data)
 }
 

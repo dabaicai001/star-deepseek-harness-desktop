@@ -389,6 +389,7 @@ body {
   background: var(--panel);
   border: 1px solid var(--line-2);
   border-radius: 12px;
+  color: var(--text);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   box-shadow: var(--shadow);
@@ -612,6 +613,11 @@ body {
   background: var(--cyan);
   box-shadow: 0 0 8px var(--cyan);
   animation: pulse 1s infinite;
+}
+
+.status-dot.error {
+  background: var(--red);
+  box-shadow: 0 0 8px var(--red);
 }
 
 /* Badge styles */
@@ -1462,6 +1468,152 @@ body {
 .docker-exec-pane > .terminal-container {
   flex: 1;
   min-height: 0;
+}
+
+/* SSH 自定义快捷命令：显式覆盖 Vuetify field 状态，保证浅色主题对比度。 */
+.quick-command-editor {
+  padding: 24px;
+}
+
+.quick-command-editor .section-header h3 {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.quick-command-editor-icon {
+  color: var(--cyan);
+}
+
+.quick-command-editor-description {
+  margin: 0 0 16px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.qc-editor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 50vh;
+  margin-bottom: 16px;
+  padding: 0 4px 0 0;
+  overflow-y: auto;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+.qc-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--panel-solid-2);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.qc-editor-row:not(.qc-default) {
+  background: color-mix(in srgb, var(--cyan) 4%, var(--panel-solid));
+}
+
+.qc-editor-row.qc-dragging {
+  opacity: 0.55;
+}
+
+.qc-editor-row.qc-drag-over {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px var(--cyan), var(--glow-soft);
+}
+
+.qc-editor-row.qc-default {
+  border-color: var(--line-2);
+}
+
+.qc-drag-handle {
+  flex-shrink: 0;
+  color: var(--cyan);
+  cursor: grab;
+  opacity: 0.72;
+}
+
+.qc-drag-handle:active {
+  color: var(--cyan);
+  cursor: grabbing;
+  opacity: 1;
+}
+
+.qc-edit-field {
+  min-width: 0;
+  color: var(--text);
+  --v-field-border-opacity: 1;
+  --v-high-emphasis-opacity: 1;
+  --v-medium-emphasis-opacity: 1;
+}
+
+.qc-edit-field-label { max-width: 100px; }
+.qc-edit-field-command { flex: 1; }
+.qc-edit-field-icon { max-width: 180px; }
+
+.quick-command-editor .qc-edit-field .v-field {
+  color: var(--text);
+  background: var(--bg-input-solid);
+}
+
+.quick-command-editor .qc-edit-field .v-field__outline {
+  color: var(--line-2);
+  opacity: 1;
+}
+
+.quick-command-editor .qc-edit-field .v-field__input {
+  color: var(--text);
+  opacity: 1;
+  caret-color: var(--cyan);
+}
+
+.quick-command-editor .qc-edit-field .v-label {
+  color: var(--text-2);
+  opacity: 1;
+}
+
+.quick-command-editor .qc-default .qc-edit-field .v-field__input {
+  color: var(--text-2);
+}
+
+.qc-default-icon {
+  flex-shrink: 0;
+  color: var(--cyan);
+}
+
+.qc-delete-btn {
+  flex-shrink: 0;
+  color: var(--red);
+}
+
+.qc-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.qc-editor-action-spacer {
+  flex: 1;
+}
+
+.qc-editor-action-btn {
+  min-height: 32px;
+  padding: 6px 16px;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.qc-editor-action-btn.primary {
+  padding-inline: 20px;
+  color: var(--bg);
 }
 
 /* Modal header(与 terminal-toolbar 类似的横向布局) */
@@ -2500,6 +2652,46 @@ body {
   font: 700 0.48em/1 'JetBrains Mono', monospace;
   letter-spacing: -0.04em;
 }
+
+/* 品牌图标与固定宽度类型徽章，避免不同产品名称把后续内容推到不同起点。 */
+.db-badge-wrap {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.db-badge-wrap .product-icon,
+.db-badge-wrap .v-icon {
+  margin-bottom: 2px;
+}
+
+.db-type-label {
+  box-sizing: border-box;
+  inline-size: 64px;
+  padding: 1px 3px;
+  border-radius: 3px;
+  color: var(--text-2);
+  background: var(--hover-cyan-faint);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.3px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.db-type-label.db-redis { color: var(--db-redis); background: var(--db-redis-bg); }
+.db-type-label.db-mysql { color: var(--db-mysql); background: var(--db-mysql-bg); }
+.db-type-label.db-postgresql { color: var(--db-postgresql); background: var(--db-postgresql-bg); }
+.db-type-label.db-sqlite { color: var(--db-sqlite); background: var(--db-sqlite-bg); }
+.db-type-label.db-clickhouse { color: var(--db-clickhouse); background: var(--db-clickhouse-bg); }
+.db-type-label.db-elasticsearch { color: var(--db-elasticsearch); background: var(--db-elasticsearch-bg); }
+.db-type-label.db-kafka { color: var(--db-kafka); background: var(--db-kafka-bg); }
+.db-type-label.db-nsq { color: var(--db-nsq); background: var(--db-nsq-bg); }
 
 /* Kafka / NSQ 状态工作台。 */
 .broker-view {

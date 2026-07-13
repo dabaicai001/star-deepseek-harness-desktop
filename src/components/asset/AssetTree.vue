@@ -1304,37 +1304,6 @@ function isGroupExpanded(id: string) {
 .tree-item .v-icon.db-clickhouse { color: var(--db-clickhouse); }
 .tree-item .v-icon.db-elasticsearch { color: var(--db-elasticsearch); }
 
-/* DB 图标下方挂一个等宽小徽章,扫一眼就知道是 MYSQL / REDIS / PG / SQLITE */
-.db-badge-wrap {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.db-badge-wrap .v-icon { margin-bottom: 2px; }
-.db-type-label {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 8.5px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  padding: 1px 3px;
-  border-radius: 3px;
-  background: var(--hover-cyan-faint);
-  color: var(--text-2);
-  line-height: 1.2;
-  white-space: nowrap;
-}
-.db-type-label.db-redis { color: var(--db-redis); background: var(--db-redis-bg); }
-.db-type-label.db-mysql { color: var(--db-mysql); background: var(--db-mysql-bg); }
-.db-type-label.db-postgresql { color: var(--db-postgresql); background: var(--db-postgresql-bg); }
-.db-type-label.db-sqlite { color: var(--db-sqlite); background: var(--db-sqlite-bg); }
-.db-type-label.db-clickhouse { color: var(--db-clickhouse); background: var(--db-clickhouse-bg); }
-.db-type-label.db-elasticsearch { color: var(--db-elasticsearch); background: var(--db-elasticsearch-bg); }
-.db-type-label.db-kafka { color: var(--db-kafka); background: var(--db-kafka-bg); }
-.db-type-label.db-nsq { color: var(--db-nsq); background: var(--db-nsq-bg); }
-
 .tree-empty {
   padding: 4px 28px;
   display: flex;

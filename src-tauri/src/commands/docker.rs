@@ -260,3 +260,105 @@ pub async fn docker_exec(
     }
     sidecar.call("docker.exec", params).await
 }
+
+/// 进入指定容器，创建持久的交互式 TTY Shell。
+#[tauri::command]
+pub async fn docker_exec_session_start(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    container_id: String,
+    cols: Option<u64>,
+    rows: Option<u64>,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "docker.execSessionStart",
+            serde_json::json!({
+                "connId": conn_id,
+                "containerId": container_id,
+                "cols": cols.unwrap_or(120),
+                "rows": rows.unwrap_or(30),
+            }),
+        )
+        .await
+}
+
+/// 长轮询读取交互式容器 Shell 的原始终端字节。
+#[tauri::command]
+pub async fn docker_exec_session_read(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    session_id: String,
+    wait_ms: Option<u64>,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "docker.execSessionRead",
+            serde_json::json!({
+                "connId": conn_id,
+                "sessionId": session_id,
+                "waitMs": wait_ms.unwrap_or(1000),
+            }),
+        )
+        .await
+}
+
+/// 把 xterm 输入原样写入交互式容器 Shell。
+#[tauri::command]
+pub async fn docker_exec_session_write(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    session_id: String,
+    data: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "docker.execSessionWrite",
+            serde_json::json!({
+                "connId": conn_id,
+                "sessionId": session_id,
+                "data": data,
+            }),
+        )
+        .await
+}
+
+/// 同步 xterm 与容器 TTY 的行列数。
+#[tauri::command]
+pub async fn docker_exec_session_resize(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    session_id: String,
+    cols: u64,
+    rows: u64,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "docker.execSessionResize",
+            serde_json::json!({
+                "connId": conn_id,
+                "sessionId": session_id,
+                "cols": cols,
+                "rows": rows,
+            }),
+        )
+        .await
+}
+
+/// 关闭并移除交互式容器 Shell 会话。
+#[tauri::command]
+pub async fn docker_exec_session_close(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    session_id: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "docker.execSessionClose",
+            serde_json::json!({
+                "connId": conn_id,
+                "sessionId": session_id,
+            }),
+        )
+        .await
+}

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import KbInteractiveDialog from './KbInteractiveDialog.vue'
 import HostKeyConfirmDialog, { type HostKeyInfo } from './HostKeyConfirmDialog.vue'
 import BroadcastDialog, { type BroadcastSession } from './BroadcastDialog.vue'
@@ -18,6 +18,7 @@ import { useAppStore } from '@/stores/app'
 import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
 import { useThemeStore } from '@/stores/theme'
+import type { Asset } from '@/types/asset'
 import { parseInstanceId } from '@/utils/tabId'
 import { SSH_SYSTEM_PROMPT, sshTools, makeSshToolCaller } from '@/utils/aiTools'
 import { extractWhitelistPrefix } from '@/utils/commandGuard'
@@ -71,6 +72,7 @@ const appStore = useAppStore()
 const aiStore = useAiStore()
 const notify = useNotifyStore()
 const themeStore = useThemeStore()
+const route = useRoute()
 const router = useRouter()
 
 const props = defineProps<{
@@ -83,7 +85,24 @@ const props = defineProps<{
 
 /** 从 instanceId解析出资产 id,再用资产 id找资产配置 */
 const instanceInfo = computed(() => parseInstanceId(props.id))
-const asset = computed(() => assetStore.assets.find((a) => a.id === instanceInfo.value.assetId))
+const devMockWorkspace = computed(() => import.meta.env.DEV && route.query.mock === '1')
+const devMockTimestamp = Date.now()
+const devMockAsset = computed<Asset | undefined>(() => devMockWorkspace.value ? {
+  id: instanceInfo.value.assetId,
+  type: 'ssh',
+  name: 'Mock SSH Server',
+  groupId: null,
+  config: { host: 'demo.starhub.local', port: 22, username: 'root' },
+  keyId: null,
+  tags: ['mock'],
+  favorite: false,
+  lastUsedAt: devMockTimestamp,
+  createdAt: devMockTimestamp,
+  updatedAt: devMockTimestamp,
+} : undefined)
+const asset = computed(() =>
+  assetStore.assets.find((a) => a.id === instanceInfo.value.assetId) ?? devMockAsset.value
+)
 
 const terminalRef = ref<InstanceType<typeof TerminalPane>>()
 const connected = ref(false)
@@ -424,6 +443,24 @@ async function connect() {
  // 后端按 instanceId(不是 assetId)管 session,这样同资产多 tab各自独立
  const sessionId = props.id
 
+  if (devMockWorkspace.value) {
+    const connectCallId = ++currentConnectId
+    connecting.value = true
+    connected.value = false
+    resetSftpReady()
+    stopTimer()
+    await nextTick()
+    if (connectCallId !== currentConnectId) return
+    terminalRef.value?.writeln(`\x1b[36m» Connecting to ${a.config.username}@${a.config.host}:${a.config.port || 22}...\x1b[0m`)
+    terminalRef.value?.writeln('\x1b[32m✓ Connected (browser mock)\x1b[0m')
+    terminalRef.value?.write('\x1b[32mroot@starhub\x1b[0m:\x1b[34m~\x1b[0m$ ')
+    connected.value = true
+    sftpReady.value = true
+    connecting.value = false
+    startTimer()
+    return
+  }
+
   //防御性清理:重连 /重复调用时,先把旧 listener 解绑,避免双写
   if (unlisten) { unlisten(); unlisten = null }
   if (unlistenKb) { unlistenKb(); unlistenKb = null }
@@ -709,13 +746,18 @@ async function disconnect() {
   }
 
   if (connected.value) {
-  try {
-  await invoke('ssh_disconnect', { id: props.id })
-  } catch (error) {
-  console.error('Failed to disconnect:', error)
-  }
-  connected.value = false
-  stopTimer()
+    if (devMockWorkspace.value) {
+      connected.value = false
+      stopTimer()
+      return
+    }
+    try {
+      await invoke('ssh_disconnect', { id: props.id })
+    } catch (error) {
+      console.error('Failed to disconnect:', error)
+    }
+    connected.value = false
+    stopTimer()
   }
 }
 
@@ -744,6 +786,7 @@ async function tryReconnect(sessionId: string) {
 
 async function handleData(data: string) {
   if (connected.value) {
+  if (devMockWorkspace.value) return
   let finalData = data
   if (data.endsWith('\n') && data.trimStart().startsWith('cd ')) {
     finalData = data.slice(0, -1) + ' && pwd\n'
@@ -758,6 +801,7 @@ async function handleData(data: string) {
 
 async function handleResize(cols: number, rows: number) {
  if (connected.value) {
+  if (devMockWorkspace.value) return
  try {
  await invoke('ssh_resize', { id: props.id, cols, rows })
  } catch (error) {
@@ -1405,20 +1449,25 @@ function handleKbCancelled() {
  <v-icon size="11">{{ qc.icon }}</v-icon>
  <span>{{ qc.label }}</span>
  </button>
- <button class="qc-btn qc-settings-btn" title="自定义快速命令" @click="openQuickCmdEditor">
+ <button
+ class="qc-btn qc-settings-btn"
+ :title="t('ssh.quickCommandEditor.title')"
+ :aria-label="t('ssh.quickCommandEditor.title')"
+ @click="openQuickCmdEditor"
+ >
  <v-icon size="12">mdi-tune</v-icon>
  </button>
  </div>
 
  <!-- 快速命令编辑弹窗 -->
  <v-dialog v-model="showQuickCmdEditor" max-width="560" transition="cyber-dialog">
- <div class="cyber-panel" style="padding: 24px;">
+ <div class="cyber-panel quick-command-editor">
  <div class="section-header">
- <span class="section-number">⚙</span>
- <h3>自定义快速命令</h3>
+ <v-icon class="quick-command-editor-icon" size="14">mdi-tune-variant</v-icon>
+ <h3>{{ t('ssh.quickCommandEditor.title') }}</h3>
  </div>
- <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px;">
- 拖拽调整顺序，所有命令均可删除。保存后生效。
+ <p class="quick-command-editor-description">
+ {{ t('ssh.quickCommandEditor.description') }}
  </p>
  <div class="qc-editor-list">
  <div
@@ -1439,42 +1488,41 @@ function handleKbCancelled() {
  <v-icon size="16" class="qc-drag-handle">mdi-drag-vertical</v-icon>
  <v-text-field
  v-model="qc.label"
- label="标签"
+ :label="t('ssh.quickCommandEditor.label')"
  variant="outlined"
  density="compact"
  hide-details
  :readonly="qc.isDefault"
- :disabled="qc.isDefault"
- class="qc-edit-field"
- style="max-width: 100px;"
+ class="qc-edit-field qc-edit-field-label"
  />
  <v-text-field
  v-model="qc.cmd"
- label="命令"
+ :label="t('ssh.quickCommandEditor.command')"
  variant="outlined"
  density="compact"
  hide-details
  :readonly="qc.isDefault"
- :disabled="qc.isDefault"
- class="qc-edit-field"
- style="flex:1;"
+ class="qc-edit-field qc-edit-field-command"
  />
  <v-text-field
  v-model="qc.icon"
- label="图标"
+ :label="t('ssh.quickCommandEditor.icon')"
  variant="outlined"
  density="compact"
  hide-details
  :readonly="qc.isDefault"
- :disabled="qc.isDefault"
- class="qc-edit-field"
- style="max-width: 180px;"
+ class="qc-edit-field qc-edit-field-icon"
  />
- <v-icon v-if="qc.isDefault" size="14" color="var(--muted)" title="默认命令">mdi-shield-check-outline</v-icon>
+ <v-icon
+ v-if="qc.isDefault"
+ class="qc-default-icon"
+ size="14"
+ :title="t('ssh.quickCommandEditor.defaultCommand')"
+ >mdi-shield-check-outline</v-icon>
  <button
- class="action-btn"
- title="删除此命令"
- style="color: var(--red);"
+ class="action-btn qc-delete-btn"
+ :title="t('ssh.quickCommandEditor.deleteCommand')"
+ :aria-label="t('ssh.quickCommandEditor.deleteCommand')"
  @click="onQuickCmdRemove(idx)"
  >
  <v-icon size="14">mdi-delete-outline</v-icon>
@@ -1482,16 +1530,16 @@ function handleKbCancelled() {
  </div>
  </div>
  <div class="qc-editor-actions">
- <button class="cyber-btn-secondary" style="font-size:12px; padding: 6px 14px;" @click="onQuickCmdAdd">
- <v-icon size="14" style="margin-right:4px;">mdi-plus</v-icon>
- 添加命令
+ <button class="cyber-btn-secondary qc-editor-action-btn" @click="onQuickCmdAdd">
+ <v-icon size="14">mdi-plus</v-icon>
+ {{ t('ssh.quickCommandEditor.addCommand') }}
  </button>
- <div style="flex:1" />
- <button class="cyber-btn-secondary" style="font-size:12px; padding: 6px 14px; margin-right:8px;" @click="cancelQuickCmdEditor">
- 取消
+ <div class="qc-editor-action-spacer" />
+ <button class="cyber-btn-secondary qc-editor-action-btn" @click="cancelQuickCmdEditor">
+ {{ t('ssh.quickCommandEditor.cancel') }}
  </button>
- <button class="cyber-btn" style="font-size:12px; padding: 6px 18px;" @click="onQuickCmdSave">
- 保存
+ <button class="cyber-btn qc-editor-action-btn primary" @click="onQuickCmdSave">
+ {{ t('ssh.quickCommandEditor.save') }}
  </button>
  </div>
  </div>
@@ -1763,55 +1811,6 @@ function handleKbCancelled() {
 }
 .qc-settings-btn:hover {
  opacity: 1;
-}
-
-/* 快速命令编辑弹窗 */
-.qc-editor-list {
- display: flex;
- flex-direction: column;
- gap: 6px;
- max-height: 50vh;
- overflow-y: auto;
- padding-right: 4px;
- margin-bottom: 16px;
-}
-.qc-editor-row {
- display: flex;
- align-items: center;
- gap: 8px;
- padding: 8px;
- background: var(--hover-cyan-faint);
- border: 1px solid var(--line-2);
- border-radius: 8px;
- transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.qc-editor-row.qc-dragging {
- opacity: 0.4;
-}
-.qc-editor-row.qc-drag-over {
- border-color: var(--cyan);
- box-shadow: 0 0 0 1px var(--cyan), 0 4px 12px var(--glow-soft);
-}
-.qc-editor-row.qc-default {
- background: var(--panel-solid);
- border-color: var(--line);
-}
-.qc-drag-handle {
- cursor: grab;
- color: var(--muted);
- flex-shrink: 0;
-}
-.qc-drag-handle:active {
- cursor: grabbing;
- color: var(--cyan);
-}
-.qc-edit-field {
- min-width: 0;
-}
-.qc-editor-actions {
- display: flex;
- align-items: center;
- gap: 8px;
 }
 
 .action-btn.active {

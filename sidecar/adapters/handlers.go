@@ -1549,6 +1549,11 @@ func RegisterDockerHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("docker.removeImage", handleDockerRemoveImage(mgr))
 	server.Register("docker.pruneImages", handleDockerPruneImages(mgr))
 	server.Register("docker.exec", handleDockerExec(mgr))
+	server.Register("docker.execSessionStart", handleDockerExecSessionStart(mgr))
+	server.Register("docker.execSessionRead", handleDockerExecSessionRead(mgr))
+	server.Register("docker.execSessionWrite", handleDockerExecSessionWrite(mgr))
+	server.Register("docker.execSessionResize", handleDockerExecSessionResize(mgr))
+	server.Register("docker.execSessionClose", handleDockerExecSessionClose(mgr))
 }
 
 func getDockerAdapter(mgr *pool.Manager, connID string) (*DockerAdapter, error) {
@@ -1856,6 +1861,100 @@ func handleDockerExec(mgr *pool.Manager) Handler {
 			return nil, err
 		}
 		return adapter.Exec(p.ContainerID, p.Command, p.Workdir, p.TimeoutSec)
+	}
+}
+
+func handleDockerExecSessionStart(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID      string `json:"connId"`
+			ContainerID string `json:"containerId"`
+			Cols        int    `json:"cols,omitempty"`
+			Rows        int    `json:"rows,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+		adapter, err := getDockerAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return adapter.StartExecSession(p.ContainerID, p.Cols, p.Rows)
+	}
+}
+
+func handleDockerExecSessionRead(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SessionID string `json:"sessionId"`
+			WaitMs    int    `json:"waitMs,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+		adapter, err := getDockerAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		if p.WaitMs <= 0 {
+			p.WaitMs = 1000
+		}
+		return adapter.ReadExecSession(p.SessionID, time.Duration(p.WaitMs)*time.Millisecond)
+	}
+}
+
+func handleDockerExecSessionWrite(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SessionID string `json:"sessionId"`
+			Data      string `json:"data"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+		adapter, err := getDockerAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, adapter.WriteExecSession(p.SessionID, p.Data)
+	}
+}
+
+func handleDockerExecSessionResize(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SessionID string `json:"sessionId"`
+			Cols      int    `json:"cols"`
+			Rows      int    `json:"rows"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+		adapter, err := getDockerAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, adapter.ResizeExecSession(p.SessionID, p.Cols, p.Rows)
+	}
+}
+
+func handleDockerExecSessionClose(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID    string `json:"connId"`
+			SessionID string `json:"sessionId"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, fmt.Errorf("invalid params: %w", err)
+		}
+		adapter, err := getDockerAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		return nil, adapter.CloseExecSession(p.SessionID)
 	}
 }
 

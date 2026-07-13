@@ -20,6 +20,11 @@ const REQUIRED_METHODS: &[&str] = &[
     "file.csv.writeCells",
     "file.csv.save",
     "file.csv.removeDuplicates",
+    "docker.execSessionStart",
+    "docker.execSessionRead",
+    "docker.execSessionWrite",
+    "docker.execSessionResize",
+    "docker.execSessionClose",
 ];
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -179,6 +179,11 @@ fn main() {
             commands::docker::docker_remove_image,
             commands::docker::docker_prune_images,
             commands::docker::docker_exec,
+            commands::docker::docker_exec_session_start,
+            commands::docker::docker_exec_session_read,
+            commands::docker::docker_exec_session_write,
+            commands::docker::docker_exec_session_resize,
+            commands::docker::docker_exec_session_close,
             commands::broker::broker_test,
             commands::broker::broker_overview,
             // File
