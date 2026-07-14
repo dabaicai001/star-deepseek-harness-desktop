@@ -1331,6 +1331,16 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   flex-shrink: 0;
 }
 
+/* logs-toolbar 里的按钮带文字,不能沿用 action-btn-sm 的 22px 固定宽 */
+.logs-toolbar .action-btn-sm {
+  width: auto;
+  height: 24px;
+  padding: 0 8px;
+  gap: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .logs-content {
   flex: 1;
   overflow-y: auto;
