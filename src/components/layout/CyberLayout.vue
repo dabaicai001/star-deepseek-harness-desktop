@@ -74,6 +74,7 @@ vueWatch2(showNewConnection, (open) => {
 
 // 跨平台快捷键修饰键(Mac ⌘, Win/Linux Ctrl)
 const isMac = ref(false)
+const isLinux = ref(false)
 const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
 const searchShortcut = computed(() => `${modKey.value}K`)
 
@@ -177,6 +178,24 @@ function onTitlebarDblclick() {
   winToggleMaximize()
 }
 
+// ====== Linux/Wayland 窗口拖拽兜底 ======
+// data-tauri-drag-region 在某些 Wayland 合成器(如旧版 Mutter)上不生效,
+// 在 Linux 上额外监听 mousedown 主动调用 startDragging() 作为兜底。
+// 排除所有交互元素(button/input/a 等),仅对标题栏空白区域生效。
+function onTitlebarMousedown(e: MouseEvent) {
+  if (!isLinux.value) return
+  if (e.button !== 0) return
+  if (!appWindow) return
+  const target = e.target as HTMLElement
+  // 排除交互元素及其子元素
+  if (target.closest(
+    'button, input, textarea, select, a, [role="button"], ' +
+    '.window-controls, .top-search, .top-actions, .logo, .user-menu, .search-dropdown'
+  )) return
+  e.preventDefault()
+  appWindow.startDragging().catch(() => {})
+}
+
 // ====== 欢迎页 stagger 交错入场 ======
 const welcomeRef = ref<HTMLElement | null>(null)
 const welcomeStaggerRun = ref(false)
@@ -198,6 +217,10 @@ vueWatch(() => appStore.tabs.length, (len) => {
 
 onMounted(async () => {
   triggerWelcomeStagger()
+  // 平台检测(Mac 修饰键显示 + Linux 拖拽兜底)
+  const ua = navigator.userAgent.toLowerCase()
+  isMac.value = /mac|iphone|ipad|ipod/.test(ua)
+  isLinux.value = /linux/.test(ua) && !/android/.test(ua)
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('keydown', onSearchShortcut)
   window.addEventListener('keydown', onGlobalKeydown)
@@ -1053,7 +1076,7 @@ vueWatch(() => appStore.tabs.length, () => {
 <template>
   <div class="app-layout">
     <!-- Title Bar (自画 chrome · 替代系统标题栏) -->
-    <div class="titlebar" data-tauri-drag-region @dblclick="onTitlebarDblclick">
+    <div class="titlebar" data-tauri-drag-region @dblclick="onTitlebarDblclick" @mousedown="onTitlebarMousedown">
       <div class="logo" aria-label="StarHub">
         <img :src="logoUrl" alt="StarHub" class="logo-img" />
       </div>

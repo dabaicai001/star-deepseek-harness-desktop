@@ -13,6 +13,14 @@
 
 ---
 
+## [0.28.4] - 2026-07-14
+
+### 修复
+- 🐛 fix(layout): Linux/Wayland 窗口拖拽兜底——在 `data-tauri-drag-region` 基础上,新增 `mousedown` 监听主动调用 `startDragging()`,修复某些 Wayland 合成器(如旧版 Mutter)上 `data-tauri-drag-region` 不生效导致窗口无法拖动的问题。仅 Linux 生效,Windows/macOS 不受影响。
+- 🐛 fix(layout): `onMounted` 中补充 `isMac` 平台检测(原 `isMac` 声明后从未赋值,导致快捷键修饰键在 macOS 上始终显示 Ctrl)。
+
+---
+
 ## [0.28.3] - 2026-07-13
 
 ### 修复
