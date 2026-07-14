@@ -176,7 +176,7 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            release-artifacts/*.exe
-            release-artifacts/*.deb
-            release-artifacts/*.rpm
-            release-artifacts/*.AppImage
+            release-artifacts/**/*.exe
+            release-artifacts/**/*.deb
+            release-artifacts/**/*.rpm
+            release-artifacts/**/*.AppImage
