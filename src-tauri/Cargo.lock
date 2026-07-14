@@ -4705,7 +4705,7 @@ dependencies = [
 
 [[package]]
 name = "serde_derive_internals"
-version = "0.29.2"
+version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
 dependencies = [
@@ -5356,7 +5356,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "starhub"
-version = "0.29.1"
+version = "0.29.3"
 dependencies = [
  "anyhow",
  "apple-native-keyring-store",
