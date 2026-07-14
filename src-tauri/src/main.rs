@@ -46,6 +46,7 @@ fn main() {
             commands::asset::delete_asset,
             commands::asset::toggle_asset_favorite,
             commands::ssh::ssh_connect,
+            commands::ssh::ssh_connect_exec,
             commands::ssh::ssh_disconnect,
             commands::ssh::ssh_write,
             commands::ssh::ssh_write_binary,

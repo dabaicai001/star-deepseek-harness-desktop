@@ -53,6 +53,11 @@ export async function sshConnect(id: string, config: SshConfig): Promise<SshSess
   return invoke('ssh_connect', { id, config })
 }
 
+/** 为一次性命令建立无 PTY / 无远端 shell 的 SSH 会话。 */
+export async function sshConnectExec(id: string, config: SshConfig): Promise<SshSessionInfo> {
+  return invoke('ssh_connect_exec', { id, config })
+}
+
 export async function sshDisconnect(id: string): Promise<void> {
   return invoke('ssh_disconnect', { id })
 }

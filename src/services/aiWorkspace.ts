@@ -7,7 +7,7 @@ import type { QueryResult } from '@/types/db'
 import {
   assetConfigToSshConfig,
   respondKeyboardInteractive,
-  sshConnect,
+  sshConnectExec,
   sshDisconnect,
   sshExec,
   type KbInteractiveEvent
@@ -250,7 +250,8 @@ export function createDirectWorkspaceRuntime(options: DirectWorkspaceOptions): D
     if (!asset.config.host || !asset.config.username) throw new Error(`SSH 工作区配置不完整: ${asset.name}`)
     const connId = `${options.runtimeId}:ssh:${asset.id}`
     await registerSshListeners(asset, connId)
-    await sshConnect(connId, assetConfigToSshConfig(asset.config))
+    // AI 只通过 ssh_exec 打开一次性命令 channel，不应额外申请 PTY 或启动登录 shell。
+    await sshConnectExec(connId, assetConfigToSshConfig(asset.config))
     return { asset, connId, kind: 'ssh' }
   }
 

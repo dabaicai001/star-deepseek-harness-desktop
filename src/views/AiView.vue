@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import {
+  computed,
+  nextTick,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  ref,
+  watch
+} from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   useAiStore,
@@ -27,6 +36,7 @@ import {
   buildConversationContext,
   resolveStickyContextBinding
 } from '@/utils/aiContext'
+import { captureScrollAnchor, resolveScrollTop, type ScrollAnchor } from '@/utils/scrollPosition'
 
 const props = defineProps<{ id?: string }>()
 const { t } = useI18n()
@@ -46,6 +56,8 @@ const stopRequested = ref(false)
 const currentExecutionSessionIds = ref<Set<string>>(new Set())
 const pendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
 const runningAgentNames = ref<Set<string>>(new Set())
+let viewActive = true
+let savedScrollAnchor: ScrollAnchor | null = null
 
 const instanceId = computed(() => props.id || appStore.activeTab || 'global-ai-view')
 const activeTab = computed(() => appStore.tabs.find(tab => tab.id === instanceId.value))
@@ -199,9 +211,34 @@ watch(
   { flush: 'post' }
 )
 
-function scrollToBottom() {
+function captureScrollPosition() {
+  const container = messagesRef.value
+  if (!container) return
+  savedScrollAnchor = captureScrollAnchor(container)
+}
+
+function onConversationScroll() {
+  if (viewActive) captureScrollPosition()
+}
+
+function scrollToBottom(force = false) {
+  if (!viewActive || (!force && savedScrollAnchor && !savedScrollAnchor.atBottom)) return
+  if (force) savedScrollAnchor = { scrollTop: savedScrollAnchor?.scrollTop || 0, atBottom: true }
   nextTick(() => {
-    if (messagesRef.value) messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+    const container = messagesRef.value
+    if (!container || !viewActive) return
+    container.scrollTop = container.scrollHeight
+    captureScrollPosition()
+  })
+}
+
+async function restoreScrollPosition() {
+  await nextTick()
+  window.requestAnimationFrame(() => {
+    const container = messagesRef.value
+    if (!container || !viewActive) return
+    container.scrollTop = resolveScrollTop(savedScrollAnchor, container)
+    captureScrollPosition()
   })
 }
 
@@ -692,6 +729,7 @@ async function send() {
   inputText.value = ''
   lastUserText.value = text
   session.value.messages.push({ role: 'user', content: text })
+  scrollToBottom(true)
   aiStore.addConversationSummary({
     id: instanceId.value,
     agentId: activeAgent.value.id,
@@ -807,7 +845,16 @@ onMounted(() => {
   window.addEventListener('starhub:ai-quick-analyze', onQuickAnalyze)
   applyDevMockState()
 })
+onActivated(() => {
+  viewActive = true
+  void restoreScrollPosition()
+})
+onDeactivated(() => {
+  captureScrollPosition()
+  viewActive = false
+})
 onBeforeUnmount(() => {
+  captureScrollPosition()
   window.removeEventListener('starhub:ai-quick-analyze', onQuickAnalyze)
   if (orchestrationBusy.value) stopOrchestration()
   else resolvePendingConfirms()
@@ -903,7 +950,7 @@ function shortResult(value: string, max = 600) {
       </aside>
 
       <main class="ai-conversation">
-        <div ref="messagesRef" class="ai-conversation-messages">
+        <div ref="messagesRef" class="ai-conversation-messages" @scroll.passive="onConversationScroll">
           <section v-if="executionPlan" class="ai-execution-plan cyber-panel" :class="`status-${executionPlan.status}`">
             <div class="ai-plan-header">
               <div>

@@ -158,6 +158,30 @@ pub async fn ssh_connect(
     config: SshConfig,
     app_handle: tauri::AppHandle,
 ) -> Result<SshSessionInfo, String> {
+    connect_session(&manager, id, config, app_handle, true).await
+}
+
+/// 为 AI / 仪表盘的一次性命令建立无 PTY 的 SSH 会话。
+///
+/// 与交互终端分开，避免无用的远端登录 shell、启动脚本和后台任务占用服务器资源。
+#[tauri::command]
+pub async fn ssh_connect_exec(
+    manager: State<'_, SshManager>,
+    id: String,
+    config: SshConfig,
+    app_handle: tauri::AppHandle,
+) -> Result<SshSessionInfo, String> {
+    connect_session(&manager, id, config, app_handle, false).await
+}
+
+async fn connect_session(
+    manager: &SshManager,
+    id: String,
+    config: SshConfig,
+    app_handle: tauri::AppHandle,
+    interactive: bool,
+) -> Result<SshSessionInfo, String> {
+    let started_at = std::time::Instant::now();
     // 每次显式连接都有独立代次。失败后的 disconnect 只会让旧代次失效，
     // 不会像永久 abandoned 标记那样污染同一 tab/窗口里的下一次重试。
     let attempt_generation = manager.begin_attempt(&id).await;
@@ -174,19 +198,36 @@ pub async fn ssh_connect(
             &manager.pending_hostkey,
         )
         .await?;
+    let auth_elapsed = started_at.elapsed();
 
     if !manager.is_current_attempt(&id, attempt_generation).await {
         session.disconnect();
         return Err("Connection aborted by client".to_string());
     }
-    session
-        .open_shell(
-            &id,
-            attempt_generation,
-            app_handle.clone(),
-            manager.channels.clone(),
-        )
-        .await?;
+    if interactive {
+        if let Err(error) = session
+            .open_shell(
+                &id,
+                attempt_generation,
+                app_handle.clone(),
+                manager.channels.clone(),
+            )
+            .await
+        {
+            session.disconnect();
+            return Err(error);
+        }
+    }
+
+    tracing::info!(
+        session_id = %id,
+        host = %config.host,
+        port = config.port,
+        interactive,
+        auth_ms = auth_elapsed.as_millis(),
+        total_ms = started_at.elapsed().as_millis(),
+        "SSH session connected"
+    );
 
     let info = SshSessionInfo {
         id: id.clone(),
