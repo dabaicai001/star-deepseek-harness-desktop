@@ -13,6 +13,20 @@
 
 ---
 
+## [0.28.6] - 2026-07-14
+
+### 修复
+- 🐛 fix(ssh): SSH 终端底部安全区改为施加在 xterm 根元素上，使 FitAddon 在计算可用行数时真正扣除 32px；移除无效的终端外边距及 viewport/screen 巨大 padding，解决连续输出后提示符紧贴底部边框的问题。
+
+### 样式
+- 🎨 style(design-system): 新增 `.terminal-container-bottom-safe` 可选终端安全区类，SSH 启用后终端外壳继续填满工作区，底部文字保持一个间距节奏单位。
+
+### 测试
+- ✅ test(ui): 应用内 Browser 在 1280×800 浅色主题下通过 `mockLines=64` 复现并回归，提示符到底部边框距离由 6.4px 增至 33.5px；14px/15px 字号切换均保持安全区，console 无新增 error。
+- ✅ test(frontend): `npm run build` 通过（`vue-tsc --noEmit` + Vite production build）。
+
+---
+
 ## [0.28.5] - 2026-07-14
 
 ### 修复

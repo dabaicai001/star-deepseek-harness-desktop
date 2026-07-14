@@ -11,6 +11,8 @@ const props = defineProps<{
   sessionId: string
   fontSize?: number
   reconnectMode?: boolean
+  /** 让 FitAddon 在行数计算中扣除终端底部安全区。 */
+  bottomSafeArea?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -326,7 +328,11 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="terminalRef" class="terminal-container">
+  <div
+    ref="terminalRef"
+    class="terminal-container"
+    :class="{ 'terminal-container-bottom-safe': props.bottomSafeArea }"
+  >
     <!-- 右键菜单 -->
     <div
       v-if="ctxMenu.visible"
@@ -360,24 +366,7 @@ defineExpose({
 <style scoped>
 .terminal-container {
   width: 100%;
-  /* 物理 buffer(给 fit 算少行数):
-     原来用 padding-bottom: calc(8px + 1.7em) 想让光标不贴底,但
-     默认 content-box 下 padding 不算在 height 里,xterm fitAddon
-     算 viewport 行数时只读 clientHeight(content 区高度),padding
-     那 1.7em 完全是死空间,光标仍然停在父元素底部 → 被状态栏盖住。
-
-     ⚠ 注意:不能用 height: calc(100% - 3.2em)!!
-     .terminal-container 在 SshTerminal.vue 里是 flex item
-     (.terminal-pane > :deep(.terminal-container) { flex: 1; }),
-     flex item 上 height 会被 flex-basis: 0% 覆盖,完全没生效。
-     必须用 margin-bottom —— flex 布局会把 margin 算进总占用,
-     box 高度才会真的少掉,fitAddon 算的 clientHeight 才真的少 2 行。
-
-     留 3.2em ≈ 2 行的 buffer,光标距离 .terminal-pane content 底
-     ≈ 3.2em + 8px(padding) + 1px(border) ≈ 3 行,绝对不会再被
-     statusbar 遮住。 */
   box-sizing: border-box;
-  margin-bottom: 3.2em;
   background: var(--bg-terminal);
   border-radius: 8px;
   border: 1px solid var(--line-2);
@@ -401,12 +390,6 @@ defineExpose({
 
 .terminal-container :deep(.xterm-viewport) {
   background-color: transparent !important;
-  padding-bottom: 200px;
-  box-sizing: border-box;
-}
-
-.terminal-container :deep(.xterm-screen) {
-  padding: 4px 4px 200px 4px;
 }
 
 /* 防御性兜底:有些浏览器(JetBrains Mono 没装,回退到

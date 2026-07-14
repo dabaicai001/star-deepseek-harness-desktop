@@ -1360,6 +1360,12 @@ body {
 }
 
 /* Shared SSH / Docker Exec terminal chrome */
+.terminal-container-bottom-safe > .xterm {
+  /* FitAddon 会读取 xterm 根元素的 padding 来计算可用行数。 */
+  box-sizing: border-box;
+  padding-bottom: 32px;
+}
+
 .terminal-font-size-indicator {
   min-width: 32px;
   color: var(--muted);

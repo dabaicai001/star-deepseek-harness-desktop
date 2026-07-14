@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.28.4(Linux/Wayland 窗口拖拽兜底) |
+| 当前版本 | v0.28.6(SSH 终端底部安全区) |
 
 ---
 
@@ -248,7 +248,7 @@ starhub/
 | `.cyber-badge` | 徽章(青底 + 等宽) |
 | `.cyber-tab` / `.cyber-tab.active` | 标签(底部 2px 激活条) |
 | `.section-header` / `.section-number` | 节标题(编号 + 标题 + 渐变分割线) |
-| `.terminal-container` / `.terminal-header` / `.terminal-dots` | 终端外壳(红黄绿三点) |
+| `.terminal-container` / `.terminal-header` / `.terminal-dots` / `.terminal-container-bottom-safe` | 终端外壳(红黄绿三点)与参与 FitAddon 行数计算的底部安全区 |
 | `.terminal-font-size-indicator` / `.terminal-action-divider` / `.terminal-search-*` / `.terminal-quick-*` | SSH / Docker Exec 共用的终端工具栏、搜索与快捷命令视觉 |
 | `.docker-exec-terminal` / `.docker-exec-pane` | Docker 持久交互式 TTY 的 xterm 工作区与完整 flex 高度链 |
 | `.quick-command-editor` / `.qc-editor-*` | SSH 自定义快捷命令弹窗、字段、拖拽列表与浅色主题高对比度覆盖 |
@@ -765,4 +765,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-14 (v0.28.5)*
+*最后更新: 2026-07-14 (v0.28.6)*

@@ -86,6 +86,12 @@ const props = defineProps<{
 /** 从 instanceId解析出资产 id,再用资产 id找资产配置 */
 const instanceInfo = computed(() => parseInstanceId(props.id))
 const devMockWorkspace = computed(() => import.meta.env.DEV && route.query.mock === '1')
+const devMockLineCount = computed(() => {
+  if (!devMockWorkspace.value) return 0
+  const rawValue = Array.isArray(route.query.mockLines) ? route.query.mockLines[0] : route.query.mockLines
+  const parsedValue = Number.parseInt(String(rawValue ?? '0'), 10)
+  return Number.isFinite(parsedValue) ? Math.min(Math.max(parsedValue, 0), 200) : 0
+})
 const devMockTimestamp = Date.now()
 const devMockAsset = computed<Asset | undefined>(() => devMockWorkspace.value ? {
   id: instanceInfo.value.assetId,
@@ -453,6 +459,9 @@ async function connect() {
     if (connectCallId !== currentConnectId) return
     terminalRef.value?.writeln(`\x1b[36m» Connecting to ${a.config.username}@${a.config.host}:${a.config.port || 22}...\x1b[0m`)
     terminalRef.value?.writeln('\x1b[32m✓ Connected (browser mock)\x1b[0m')
+    for (let lineNumber = 1; lineNumber <= devMockLineCount.value; lineNumber++) {
+      terminalRef.value?.writeln(`mock-output-${String(lineNumber).padStart(3, '0')}`)
+    }
     terminalRef.value?.write('\x1b[32mroot@starhub\x1b[0m:\x1b[34m~\x1b[0m$ ')
     connected.value = true
     sftpReady.value = true
@@ -1550,6 +1559,7 @@ function handleKbCancelled() {
  :session-id="id"
  :font-size="fontSize"
  :reconnect-mode="!connected && !connecting"
+ bottom-safe-area
  @data="handleData"
  @reconnect="handleReconnect"
  @resize="handleResize"
