@@ -24,6 +24,12 @@ fn looks_like_supported_private_key(text: &str) -> bool {
         .any(|header| text.starts_with(header))
 }
 
+/// Sanitize private key content: strip UTF-8 BOM and normalize CRLF to LF.
+/// Fixes keys saved by Windows Notepad / editors that use CRLF line endings.
+fn sanitize_key(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 fn decode_private_key_file(bytes: &[u8]) -> Result<String, String> {
     let text = if let Some(content) = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]) {
         String::from_utf8(content.to_vec())
@@ -58,7 +64,7 @@ fn decode_private_key_file(bytes: &[u8]) -> Result<String, String> {
             "[KEY_FILE_FORMAT] Selected file is not a supported SSH private key".to_string(),
         );
     }
-    Ok(text)
+    Ok(sanitize_key(&text))
 }
 
 pub struct SshManager {
@@ -447,6 +453,18 @@ mod tests {
         assert!(decode_private_key_file(public_key)
             .unwrap_err()
             .starts_with("[KEY_FILE_FORMAT]"));
+    }
+
+    #[test]
+    fn sanitize_key_normalizes_crlf_to_lf() {
+        let crlf_key = "-----BEGIN PRIVATE KEY-----\r\nAAAA\r\n-----END PRIVATE KEY-----\r\n";
+        assert_eq!(sanitize_key(crlf_key), TEST_PRIVATE_KEY);
+    }
+
+    #[test]
+    fn decode_private_key_file_with_crlf_normalizes_to_lf() {
+        let crlf_bytes = b"-----BEGIN PRIVATE KEY-----\r\nAAAA\r\n-----END PRIVATE KEY-----\r\n";
+        assert_eq!(decode_private_key_file(crlf_bytes).unwrap(), TEST_PRIVATE_KEY);
     }
 
     #[tokio::test]
