@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.28.2-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.28.7-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -33,11 +33,11 @@
 | 平台 | 文件格式 | 安装方式 |
 |---|---|---|
 | **Windows** | `.msi` | 双击安装 |
-| **Linux** (Debian/Ubuntu) | `.deb` | `sudo dpkg -i StarHub_0.28.2_amd64.deb` |
-| **Linux** (Fedora/RHEL) | `.rpm` | `sudo rpm -i StarHub-0.28.2-1.x86_64.rpm` |
-| **Linux** (通用) | `.AppImage` | `chmod +x StarHub_0.28.2_amd64.AppImage && ./StarHub_0.28.2_amd64.AppImage` |
+| **Linux** (Debian/Ubuntu) | `.deb` | `sudo apt install ./StarHub_0.28.7_amd64.deb` |
+| **Linux** (Fedora 38+ 等 glibc 2.35+ RPM 系) | `.rpm` | `sudo dnf install ./StarHub-0.28.7-1.x86_64.rpm` |
+| **Linux** (通用) | `.AppImage` | `chmod +x StarHub_0.28.7_amd64.AppImage && ./StarHub_0.28.7_amd64.AppImage` |
 
-> Linux 包在 Ubuntu 22.04 环境中编译,兼容 Ubuntu 22.04+ / Debian 12+ / Fedora 38+ 等主流发行版。
+> Linux 同时发布 x86_64 (`amd64`) 与 ARM64 (`arm64` / `aarch64`)。产物固定在 Ubuntu 22.04 原生 runner 构建,兼容 Ubuntu 22.04+ / Debian 12+ / Fedora 38+ 等主流 glibc 桌面发行版。AppImage 已携带 WebKitGTK、GTK 和静态 Go sidecar;无 FUSE 环境可使用 `./StarHub_0.28.7_amd64.AppImage --appimage-extract-and-run`。Alpine(musl)与无 FHS 兼容层的 NixOS 不属于直接兼容范围。
 
 ---
 
@@ -104,9 +104,14 @@
 
 ## 当前版本
 
-### v0.28.2 (2026-07-13)
-- 🐛 修复 Linux (WebKit2GTK) 自定义标题栏无法拖动窗口的问题,添加 `data-tauri-drag-region` 属性
-- 🔧 Linux 包改为 Ubuntu 22.04 环境编译,兼容 Ubuntu 22.04+ (glibc 2.35)
+### v0.28.7 (2026-07-14)
+- 🐛 SSH/DB/Docker/Excel 工作区 AI 确认卡固定在输入框上方,StarHub AI 规划与选择移动到长对话末端
+- 🐛 Linux 外部文件打开支持 `xdg-open` → `gio open` 回退,密钥优先持久化到 Secret Service
+- 🔧 Ubuntu 22.04 原生 x86_64 / ARM64 双架构生成 AppImage、DEB、RPM,自动审计 sidecar、包依赖和动态库缺口
+- 🔧 Rust HTTP 改用 rustls,移除 Linux 对系统 OpenSSL 动态库的额外依赖
+
+### v0.28.6 (2026-07-14)
+- 🐛 修复 SSH 终端提示符紧贴底部边框的问题
 
 ### v0.28.1 (2026-07-13)
 - 🐛 修复 MySQL 表格 Shift 多选批量删除与复制 INSERT 语句
@@ -204,15 +209,15 @@ npm run tauri:build
 | 单文件可执行 | `src-tauri/target/release/starhub.exe` | 绿色版,免安装 |
 | Go Sidecar | `sidecar/bin/starhub-sidecar.exe` | 数据库代理进程 |
 
-### Linux 产物 (Ubuntu 22.04 兼容)
+### Linux 产物 (Ubuntu 22.04 / glibc 2.35 基线)
 
 | 文件 | 路径 | 用途 |
 |---|---|---|
-| DEB 安装包 | `src-tauri/target/release/bundle/deb/StarHub_<version>_amd64.deb` | Debian/Ubuntu |
-| RPM 安装包 | `src-tauri/target/release/bundle/rpm/StarHub-<version>.x86_64.rpm` | Fedora/RHEL |
-| AppImage | `src-tauri/target/release/bundle/appimage/StarHub_<version>_amd64.AppImage` | 免安装通用版 |
+| DEB 安装包 | `src-tauri/target/release/bundle/deb/StarHub_<version>_{amd64,arm64}.deb` | Debian/Ubuntu,通过 APT 安装并解析依赖 |
+| RPM 安装包 | `src-tauri/target/release/bundle/rpm/StarHub-<version>-1.{x86_64,aarch64}.rpm` | glibc 2.35+ RPM 系,通过 DNF 安装并解析依赖 |
+| AppImage | `src-tauri/target/release/bundle/appimage/StarHub_<version>_{amd64,aarch64}.AppImage` | 主流 glibc 桌面通用版,内置 WebKitGTK/GTK/sidecar |
 
-> Linux 包需在 Ubuntu 22.04 环境(或 Docker 容器)中编译,确保 glibc 2.35 兼容性。WSL 中可用 Docker 构建:
+> Linux 包必须在 Ubuntu 22.04 对应架构的原生环境构建,确保 glibc 2.35 兼容下限;AppImage 不允许交叉编译。CI 使用 `ubuntu-22.04` 与 `ubuntu-22.04-arm` runner,完成后执行 `bash scripts/verify-linux-bundles.sh`。WSL 中可用 Docker 验证 x86_64 构建:
 > ```bash
 > docker run --rm --network host \
 >   -v ~/.cargo:/root/.cargo -v ~/.rustup:/root/.rustup \
@@ -227,6 +232,8 @@ npm run tauri:build
 2. `vite build` — 前端 production build
 3. `cargo build --release` — Rust 主进程编译
 4. NSIS / MSI 打包
+
+Linux 打包把第 4 步替换为 AppImage / DEB / RPM,随后校验包架构、静态 sidecar 的执行权限、DEB/RPM 依赖元数据以及主程序 `ldd` 无缺失库。
 
 > 注:Go sidecar 编译时必须指定正确的 `GOOS` 和 `GOARCH` (例如 `GOOS=windows GOARCH=amd64`),否则二进制无法在目标平台运行。
 
@@ -274,7 +281,7 @@ UI 改动必须先读 `AGENTS.md` 第 4.4 节,**token 优先 + 组件类集中**
 
 ## 安全提示
 
-- DB / SSH 密码、私钥和 AI API Key 应存入系统 Keyring (macOS Keychain / Windows Credential Manager / Linux Secret Service)
+- DB / SSH 密码、私钥和 AI API Key 应存入系统 Keyring (macOS Keychain / Windows Credential Manager / Linux Secret Service;无桌面密钥环时回退到会话级 Keyutils)
 - AI 执行命令前会经过安全规则和确认机制,白名单命令可自动放行
 - 危险命令、删除类操作和破坏性操作需要显式确认
 - 生产环境连接请优先使用最小权限账号,定期轮换凭据

@@ -1,0 +1,99 @@
+name: Linux compatibility
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: linux-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ubuntu-22-04:
+    name: Ubuntu 22.04 / ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86_64
+            runner: ubuntu-22.04
+            deb_arch: amd64
+          - name: ARM64
+            runner: ubuntu-22.04-arm
+            deb_arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            cpio \
+            file \
+            libayatana-appindicator3-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libsqlite3-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            pkg-config \
+            rpm
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.x
+          cache-dependency-path: sidecar/go.sum
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Check frontend production build
+        run: npm run build
+
+      - name: Test Go sidecar
+        working-directory: sidecar
+        run: go test ./...
+
+      - name: Build and verify native Linux sidecar
+        run: npm run sidecar:build:release
+
+      - name: Test Tauri backend on Linux
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      - name: Build Linux desktop bundles
+        run: npx tauri build --bundles deb,rpm,appimage
+
+      - name: Audit packages, sidecar and shared libraries
+        run: bash scripts/verify-linux-bundles.sh src-tauri/target/release/bundle "${{ matrix.deb_arch }}"
+
+      - name: Upload Linux bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: starhub-linux-${{ matrix.name }}-${{ github.sha }}
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error

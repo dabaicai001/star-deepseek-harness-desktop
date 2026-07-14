@@ -3634,6 +3634,8 @@ body {
 
 .ai-execution-plan {
   display: flex;
+  /* 计划属于当前操作而非历史抬头；放在消息流末尾，让自动滚动直接落到选择/确认区。 */
+  order: 1;
   flex: 0 0 auto;
   flex-direction: column;
   gap: 12px;
@@ -4126,6 +4128,27 @@ body {
 .ai-tool-call-summary::-webkit-scrollbar-thumb {
   border-radius: 3px;
   background: var(--line-2);
+}
+
+/* 连接工作区 AI 的当前待处理操作，固定在消息流与输入框之间。 */
+.ai-action-dock {
+  display: flex;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-height: min(36vh, 320px);
+  padding: 8px 12px;
+  overflow-y: auto;
+  border-top: 1px solid var(--line-2);
+  background: var(--panel-solid-2);
+  box-shadow: var(--glow-soft);
+}
+
+.ai-action-dock > .ai-tool-call {
+  flex: 1 1 auto;
+  margin: 0;
+  overflow: visible;
 }
 
 .ai-workspace-tool,

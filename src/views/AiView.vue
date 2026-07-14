@@ -62,6 +62,9 @@ const pendingConfirmRecords = computed(() =>
 const devMockWorkspace = computed(() =>
   import.meta.env.DEV && new URL(window.location.href).searchParams.get('mock') === '1'
 )
+const devMockLongConversation = computed(() =>
+  devMockWorkspace.value && new URL(window.location.href).searchParams.get('mockHistory') === '1'
+)
 
 const capabilityOptions: Array<{
   type: AiAssetType
@@ -166,7 +169,15 @@ watch(
   () => session.value.messages.map(message => message.content).join('\n'),
   () => scrollToBottom()
 )
-watch(() => session.value.toolCalls.length, () => scrollToBottom())
+watch(
+  () => [
+    executionPlan.value?.status,
+    executionPlan.value?.issues.map(issue => `${issue.id}:${issue.selectedOptionId || ''}`).join('|'),
+    session.value.toolCalls.map(record => `${record.id}:${record.status}`).join('|')
+  ].join(':'),
+  () => scrollToBottom(),
+  { flush: 'post' }
+)
 
 function scrollToBottom() {
   nextTick(() => {
@@ -679,7 +690,14 @@ function onQuickAnalyze(e: Event) {
 
 function applyDevMockState() {
   if (!devMockWorkspace.value) return
+  const history = devMockLongConversation.value
+    ? Array.from({ length: 12 }, (_, index) => [
+        { role: 'user' as const, content: `第 ${index + 1} 轮：检查服务 ${index + 1} 的运行状态与最近告警` },
+        { role: 'assistant' as const, agentName: activeAgent.value.name, content: `已完成第 ${index + 1} 轮检查，服务状态和关键证据已记录。` }
+      ]).flat()
+    : []
   session.value.messages = [
+    ...history,
     { role: 'user', content: '#LOCAL #SSH-生产主机 检查本机与服务状态,必要时并行分析日志和容器' },
     {
       role: 'assistant',

@@ -32,6 +32,7 @@ const { t } = useI18n()
 const inputText = ref('')
 const messagesRef = ref<HTMLElement | null>(null)
 const expandedThinks = ref<Set<number>>(new Set())
+const devMockToolDismissed = ref(false)
 
 /**
  * 解析消息内容,将 <think>...</think> 标签提取为独立的 think 块
@@ -158,19 +159,43 @@ function getToolCallsAfterMessage(msgIdx: number): AiToolCallRecord[] {
   return records
 }
 
-// 获取等待确认的工具调用
-function getPendingToolCall(): AiToolCallRecord | undefined {
-  return props.session.toolCalls.find(t => t.status === 'awaiting-confirm')
+// 当前待确认操作固定展示在输入区上方，不要求用户回到历史消息中处理。
+const devMockPendingToolCall = computed<AiToolCallRecord | undefined>(() => {
+  if (!import.meta.env.DEV || devMockToolDismissed.value) return undefined
+  const explicitlyEnabled = new URL(window.location.href).searchParams.get('mockAiPending') === '1'
+  if (!explicitlyEnabled && !props.session.assetId.startsWith('browser-')) return undefined
+  return {
+    id: 'dev-mock-ai-pending',
+    name: 'ssh_exec_confirmed',
+    args: { command: 'sudo systemctl restart payment-api' },
+    status: 'awaiting-confirm',
+    confirmReason: 'whitelist-miss',
+    result: '目标: Linux 生产主机\n该操作会重启 payment-api,请确认是否继续。',
+    startedAt: Date.now(),
+  }
+})
+
+const pendingToolCall = computed(() =>
+  props.session.toolCalls.find(record => record.status === 'awaiting-confirm')
+    ?? devMockPendingToolCall.value
+)
+
+function resolveToolCall(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {
+  if (recordId === devMockPendingToolCall.value?.id) {
+    devMockToolDismissed.value = true
+    return
+  }
+  emit('confirmTool', recordId, decision)
 }
 
 function approve(recordId: string) {
-  emit('confirmTool', recordId, 'approve')
+  resolveToolCall(recordId, 'approve')
 }
 function reject(recordId: string) {
-  emit('confirmTool', recordId, 'reject')
+  resolveToolCall(recordId, 'reject')
 }
 function addToWhitelist(recordId: string) {
-  emit('confirmTool', recordId, 'whitelist')
+  resolveToolCall(recordId, 'whitelist')
 }
 
 function canAddToWhitelist(rec: AiToolCallRecord): boolean {
@@ -304,28 +329,6 @@ function shortResult(s: string, max = 240): string {
             </div>
             <pre v-if="rec.result" class="tool-result">{{ shortResult(rec.result, 600) }}</pre>
             <pre v-if="rec.errorMessage" class="tool-error">{{ rec.errorMessage }}</pre>
-            <div v-if="rec.status === 'awaiting-confirm'" class="tool-confirm">
-              <span class="confirm-hint">执行这条操作?</span>
-              <button class="cyber-btn-secondary confirm-btn reject" @click="reject(rec.id)">
-                <v-icon size="12">mdi-close</v-icon>
-                拒绝
-              </button>
-              <button class="cyber-btn confirm-btn" @click="approve(rec.id)">
-                <v-icon size="12">mdi-check</v-icon>
-                批准
-              </button>
-              <button
-                v-if="canAddToWhitelist(rec)"
-                class="cyber-btn-secondary confirm-btn whitelist"
-                @click="addToWhitelist(rec.id)"
-              >
-                <v-icon size="12">mdi-shield-check-outline</v-icon>
-                加入白名单
-              </button>
-            </div>
-            <div v-if="rec.status === 'awaiting-confirm' && canAddToWhitelist(rec)" class="whitelist-hint">
-              加入白名单后,该命令将不再询问
-            </div>
           </div>
         </template>
       </template>
@@ -348,6 +351,41 @@ function shortResult(s: string, max = 240): string {
           <v-icon size="12">mdi-refresh</v-icon>
           重试
         </button>
+      </div>
+    </div>
+
+    <!-- 当前操作区：不随历史消息滚动，长对话中也能直接选择。 -->
+    <div v-if="pendingToolCall" class="ai-action-dock" aria-live="polite">
+      <div class="ai-tool-call status-awaiting-confirm" role="region" aria-label="待确认操作">
+        <div class="ai-tool-call-head">
+          <v-icon size="13">mdi-shield-alert-outline</v-icon>
+          <span class="ai-tool-call-name">{{ pendingToolCall.name }}</span>
+          <pre class="ai-tool-call-summary">{{ toolCallSummary(pendingToolCall) }}</pre>
+        </div>
+        <pre v-if="pendingToolCall.result" class="tool-result">{{ shortResult(pendingToolCall.result, 600) }}</pre>
+        <pre v-if="pendingToolCall.errorMessage" class="tool-error">{{ pendingToolCall.errorMessage }}</pre>
+        <div class="tool-confirm">
+          <span class="confirm-hint">执行这条操作?</span>
+          <button class="cyber-btn-secondary confirm-btn reject" @click="reject(pendingToolCall.id)">
+            <v-icon size="12">mdi-close</v-icon>
+            拒绝
+          </button>
+          <button class="cyber-btn confirm-btn" @click="approve(pendingToolCall.id)">
+            <v-icon size="12">mdi-check</v-icon>
+            批准
+          </button>
+          <button
+            v-if="canAddToWhitelist(pendingToolCall)"
+            class="cyber-btn-secondary confirm-btn whitelist"
+            @click="addToWhitelist(pendingToolCall.id)"
+          >
+            <v-icon size="12">mdi-shield-check-outline</v-icon>
+            加入白名单
+          </button>
+        </div>
+        <div v-if="canAddToWhitelist(pendingToolCall)" class="whitelist-hint">
+          加入白名单后,该命令将不再询问
+        </div>
       </div>
     </div>
 

@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.28.6(SSH 终端底部安全区) |
+| 当前版本 | v0.28.7(Linux 双架构分发与 AI 操作区) |
 
 ---
 
@@ -275,7 +275,8 @@ starhub/
 | `.broker-*` / `.docker-transport-switch` | Kafka/NSQ 状态页与 Docker 连接协议切换 |
 | `.ai-workspace-*` / `.ai-agent-*` / `.ai-mention-menu` | 独立 AI Agent 工作区、Agent 配置与 @/# 补全 |
 | `.ai-think-*` / `.ai-message-segmented` | AI `<think>` 思考过程折叠块与分段消息布局 |
-| `.ai-execution-plan` / `.ai-plan-*` / `.ai-current-agent-badge` | Planner → Executor 计划、点击选项、临时/并行 Agent、直连确认卡与当前 Agent 状态 |
+| `.ai-execution-plan` / `.ai-plan-*` / `.ai-current-agent-badge` | Planner → Executor 计划、点击选项、临时/并行 Agent、直连确认卡与当前 Agent 状态；当前计划在消息流末尾展示 |
+| `.ai-action-dock` | 连接工作区 AI 的当前待确认操作区，固定在消息流与输入框之间，不随历史消息滚走 |
 | `.ai-tool-call` / `.ai-tool-call-*` | 连接工作区 AI 工具卡片、完整命令代码区与状态边框 |
 
 #### 4.4.5.1 数据库与消息产品图标(强制)
@@ -554,7 +555,7 @@ cargo tauri build
 | SSH 连接 | < 1.5s |
 | 百万行表格滚动 | 60fps |
 | 空闲内存 | < 200MB |
-| 安装包 | < 30MB |
+| 安装包 | DEB/RPM/Windows < 35MB;自包含 AppImage < 120MB |
 | 终端输入延迟 | < 30ms |
 
 ---
@@ -621,13 +622,13 @@ v0.17.0 使用 `zmodem.js` 在 Webview 侧实现 `rz` / `sz` 协议:
 
 | 优先级 | 路径 | 场景 |
 |---|---|---|
-| 1 | `<exe_dir>/starhub-sidecar.exe` | 生产环境:sidecar 与主程序同目录 |
-| 2 | `<exe_dir>/sidecar/starhub-sidecar.exe` | 生产环境:sidecar 子目录 |
-| 3 | `<exe_dir>/../sidecar/bin/starhub-sidecar.exe` | 开发环境:exe 在 `src-tauri/target/<profile>/` |
-| 4 | `<exe_dir>/../../sidecar/bin/starhub-sidecar.exe` | 开发环境备用 |
-| 5 | `<exe_dir>/../../../sidecar/bin/starhub-sidecar.exe` | 开发环境:exe 在 `src-tauri/target/debug/` |
+| 1 | `<exe_dir>/starhub-sidecar[.exe]` | 生产环境:sidecar 与主程序同目录 |
+| 2 | `<exe_dir>/sidecar/starhub-sidecar[.exe]` | 生产环境:sidecar 子目录 |
+| 3 | `<exe_dir>/../sidecar/bin/starhub-sidecar[.exe]` | 开发环境:主程序在 `src-tauri/target/<profile>/` |
+| 4 | `<exe_dir>/../../sidecar/bin/starhub-sidecar[.exe]` | 开发环境备用 |
+| 5 | `<exe_dir>/../../../sidecar/bin/starhub-sidecar[.exe]` | 开发环境:主程序在 `src-tauri/target/debug/` |
 
-**开发时**:`cargo tauri dev` 编译出的 exe 位于 `src-tauri/target/debug/starhub.exe`,向上 3 层到项目根目录 → `sidecar/bin/starhub-sidecar.exe`。
+**开发时**:Windows 主程序位于 `src-tauri/target/debug/starhub.exe`,Unix 主程序为 `src-tauri/target/debug/starhub`;Sidecar 分别为 `sidecar/bin/starhub-sidecar.exe` 与 `sidecar/bin/starhub-sidecar`。
 
 **打包时**:需确保 sidecar 二进制与主程序 exe 放在同一目录(或 `sidecar/` 子目录)。推荐配置 `tauri.conf.json`:
 
@@ -645,7 +646,10 @@ v0.17.0 使用 `zmodem.js` 在 Webview 侧实现 `rz` / `sz` 协议:
 
 - macOS arm64 + x86_64 需双架构打包(用 `cargo tauri build --target universal-apple-darwin`)
 - Windows 代码签名需 EV 证书(否则 SmartScreen 警告)
-- Linux 优先 AppImage(零依赖)+ deb/rpm 给特定发行版
+- Linux 固定 Ubuntu 22.04 / glibc 2.35 基线,使用原生 x86_64 与 ARM64 runner 分别构建,禁止跨架构生成 AppImage
+- Linux 每个架构必须同时产出 AppImage、DEB、RPM;AppImage 内置 WebKitGTK/GTK 与静态 Go sidecar,DEB/RPM 由包管理器解析系统依赖
+- `scripts/verify-linux-bundles.sh` 必须校验三类包、架构、sidecar 执行权限/静态链接、DEB/RPM 依赖和 `ldd` 的 `not found`;缺一项不得发布
+- AppImage 面向主流 glibc 桌面发行版,不宣称兼容 Alpine(musl)或无 FHS 兼容层的 NixOS;无 FUSE 环境使用 `--appimage-extract-and-run`
 
 ### 10.6 应用图标管理(重要)
 
@@ -765,4 +769,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-14 (v0.28.6)*
+*最后更新: 2026-07-14 (v0.28.7)*

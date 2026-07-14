@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -8,8 +8,11 @@ const projectRoot = resolve(scriptDir, '..')
 const sidecarDir = join(projectRoot, 'sidecar')
 const binDir = join(sidecarDir, 'bin')
 const release = process.argv.includes('--release')
-const targetOS = process.env.GOOS || ({ win32: 'windows', darwin: 'darwin' }[process.platform] ?? 'linux')
-const targetArch = process.env.GOARCH || ({ x64: 'amd64', arm64: 'arm64' }[process.arch] ?? process.arch)
+const hostOS = ({ win32: 'windows', darwin: 'darwin' }[process.platform] ?? 'linux')
+const hostArch = ({ x64: 'amd64', arm64: 'arm64' }[process.arch] ?? process.arch)
+const targetOS = process.env.GOOS || hostOS
+const targetArch = process.env.GOARCH || hostArch
+const canExecuteTarget = targetOS === hostOS && targetArch === hostArch
 const outputName = `starhub-sidecar${targetOS === 'windows' ? '.exe' : ''}`
 const outputPath = join(binDir, outputName)
 const ldflags = ['-s', '-w']
@@ -28,10 +31,17 @@ const requiredMethods = [
 ]
 
 function verifySidecar(binaryPath) {
+  if (!canExecuteTarget) {
+    console.log(`Skipping execution check for cross-compiled sidecar: ${targetOS}/${targetArch}`)
+    return
+  }
+
   const verification = spawnSync(binaryPath, [], {
     input: '{"id":"build-check","method":"version","params":{}}\n',
     encoding: 'utf8',
-    timeout: 5000
+    // Linux builds may execute the freshly linked binary from a bind-mounted
+    // workspace (Docker/WSL), where the first launch can be noticeably slower.
+    timeout: 30000
   })
   if (verification.error || verification.status !== 0) {
     throw new Error(`Sidecar verification failed for ${binaryPath}: ${verification.error?.message || verification.stderr}`)
@@ -46,6 +56,10 @@ function verifySidecar(binaryPath) {
   if (missing.length > 0) {
     throw new Error(`Sidecar is missing required methods: ${missing.join(', ')}`)
   }
+}
+
+function ensureExecutable(binaryPath) {
+  if (targetOS !== 'windows') chmodSync(binaryPath, 0o755)
 }
 
 function rustTargetTriple() {
@@ -88,11 +102,13 @@ if (result.error) {
 if (result.status !== 0) {
   process.exit(result.status ?? 1)
 }
+ensureExecutable(outputPath)
 verifySidecar(outputPath)
 
 const extension = targetOS === 'windows' ? '.exe' : ''
 const bundledPath = join(binDir, `starhub-sidecar-${rustTargetTriple()}${extension}`)
 copyFileSync(outputPath, bundledPath)
+ensureExecutable(bundledPath)
 verifySidecar(bundledPath)
 console.log(`Tauri external binary verified: ${bundledPath}`)
 
@@ -100,8 +116,9 @@ const targetProfiles = release ? ['release', 'debug'] : ['debug']
 for (const profile of targetProfiles) {
   const targetDir = join(projectRoot, 'src-tauri', 'target', profile)
   if (existsSync(targetDir)) {
-    copyFileSync(outputPath, join(targetDir, outputName))
     const syncedPath = join(targetDir, outputName)
+    copyFileSync(outputPath, syncedPath)
+    ensureExecutable(syncedPath)
     verifySidecar(syncedPath)
     console.log(`Sidecar synced and verified: ${syncedPath}`)
   }

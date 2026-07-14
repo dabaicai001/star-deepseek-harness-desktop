@@ -43,14 +43,30 @@ fn init_native_store() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let store = apple_native_keyring_store::Store::new();
     #[cfg(target_os = "linux")]
-    let store = linux_keyutils_keyring_store::Store::new();
+    let store: std::sync::Arc<keyring_core::CredentialStore> =
+        match zbus_secret_service_keyring_store::Store::new() {
+            Ok(store) => store,
+            Err(secret_service_error) => {
+                tracing::warn!(
+                    "Linux Secret Service is unavailable; falling back to the session Keyutils store: {}",
+                    secret_service_error
+                );
+                linux_keyutils_keyring_store::Store::new().map_err(|keyutils_error| {
+                    format!(
+                        "Linux Secret Service is unavailable ({secret_service_error}); Keyutils fallback failed: {keyutils_error}"
+                    )
+                })?
+            }
+        };
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     return Err("The current platform has no supported native keyring".to_string());
 
     #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
     {
-        keyring_core::set_default_store(store.map_err(|e| e.to_string())?);
+        #[cfg(not(target_os = "linux"))]
+        let store = store.map_err(|e| e.to_string())?;
+        keyring_core::set_default_store(store);
         Ok(())
     }
 }

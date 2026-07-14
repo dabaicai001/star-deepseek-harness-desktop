@@ -13,6 +13,27 @@
 
 ---
 
+## [0.28.7] - 2026-07-14
+
+### 修复
+- 🐛 fix(ai): 连接工作区 AI 助手把当前待确认操作固定到输入区上方,不再要求用户回翻历史工具卡;StarHub AI 的当前执行计划改为排在消息流末端,长对话后规划选项仍在最新内容附近可直接操作。
+- 🐛 fix(linux): 外部文件打开在 `xdg-open` 缺失时回退到 `gio open`;Linux 密钥存储优先使用持久化 Secret Service,无桌面密钥环时降级到内核 Keyutils。
+- 🐛 fix(browser): Vite 真实布局回归使用页面生命周期内的内存资产 CRUD,新建测试连接不再因缺少 Tauri IPC 进入全局错误页。
+
+### 构建
+- 🔧 chore(linux): Linux CI 固定 Ubuntu 22.04 最低构建基线,以原生 x86_64 / ARM64 runner 同时生成 AppImage、DEB 与 RPM,并校验包架构、sidecar 静态链接和执行权限、DEB/RPM 依赖元数据及主程序动态库缺口。
+- 🔧 chore(sidecar): 跨架构构建不再错误执行目标平台二进制,Unix 输出与 Tauri 三元组副本统一补可执行权限;Go sidecar 继续以静态 ELF 随三类 Linux 包分发。
+- 🔧 chore(network): Rust HTTP 客户端切换到 rustls,移除 Linux 运行时对系统 OpenSSL 动态库的额外依赖。
+- 🔧 chore(ci): 新增 Linux 包审计脚本与 GitHub Actions 双架构兼容流水线。
+
+### 测试
+- ✅ test(linux): WSL Ubuntu 22.04 原生 Rust 37 项测试全部通过,覆盖 `xdg-open` → `gio open` 回退与现有 SSH/SFTP/Keyring 回归。
+- ✅ test(package): Ubuntu 22.04 x86_64 实际生成 AppImage、DEB、RPM;AppImage 关键 GUI 库从包内解析,DEB/RPM 版本、架构、依赖元数据及静态 Sidecar 均已核对。
+- ✅ test(ui): 应用内 Browser 在 1280×800 与 2048×1214 长对话场景验证 SSH AI 操作坞及 StarHub AI 规划选项;批准/拒绝/选项交互正常,console 无新增 error。
+- ✅ test(frontend): `npm run build` 通过（`vue-tsc --noEmit` + Vite production build）,Rust fmt 与 Clippy 通过。
+
+---
+
 ## [0.28.6] - 2026-07-14
 
 ### 修复

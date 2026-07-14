@@ -464,7 +464,10 @@ mod tests {
     #[test]
     fn decode_private_key_file_with_crlf_normalizes_to_lf() {
         let crlf_bytes = b"-----BEGIN PRIVATE KEY-----\r\nAAAA\r\n-----END PRIVATE KEY-----\r\n";
-        assert_eq!(decode_private_key_file(crlf_bytes).unwrap(), TEST_PRIVATE_KEY);
+        assert_eq!(
+            decode_private_key_file(crlf_bytes).unwrap(),
+            TEST_PRIVATE_KEY
+        );
     }
 
     #[tokio::test]

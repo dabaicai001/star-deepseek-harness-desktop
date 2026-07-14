@@ -1,6 +1,6 @@
 [package]
 name = "starhub"
-version = "0.28.6"
+version = "0.28.7"
 edition = "2021"
 
 [dependencies]
@@ -22,7 +22,7 @@ russh-sftp = "2"
 glob-match = "0.2"
 tokio-util = "0.7"
 chrono = "0.4"
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 futures = "0.3"
 keyring-core = "1.0.0"
 
@@ -34,6 +34,7 @@ apple-native-keyring-store = { version = "1.0.0", features = ["keychain"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 linux-keyutils-keyring-store = "1.0.0"
+zbus-secret-service-keyring-store = { version = "1.0.0", default-features = false, features = ["rt-tokio-crypto-rust"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
