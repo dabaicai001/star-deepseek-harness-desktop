@@ -22,6 +22,11 @@ import { createDirectWorkspaceRuntime } from '@/services/aiWorkspace'
 import { createLocalAiRuntime } from '@/services/aiLocal'
 import type { ToolConfirmCtx } from '@/utils/aiTools'
 import { extractWhitelistPrefix } from '@/utils/commandGuard'
+import {
+  buildCompletedStepContext,
+  buildConversationContext,
+  resolveStickyContextBinding
+} from '@/utils/aiContext'
 
 const props = defineProps<{ id?: string }>()
 const { t } = useI18n()
@@ -61,6 +66,9 @@ const pendingConfirmRecords = computed(() =>
 )
 const devMockWorkspace = computed(() =>
   import.meta.env.DEV && new URL(window.location.href).searchParams.get('mock') === '1'
+)
+const devMockSeedState = computed(() =>
+  new URL(window.location.href).searchParams.get('mockSeed') !== '0'
 )
 const devMockLongConversation = computed(() =>
   devMockWorkspace.value && new URL(window.location.href).searchParams.get('mockHistory') === '1'
@@ -163,6 +171,18 @@ const mentionSuggestions = computed<MentionSuggestion[]>(() => {
 const selectedScopes = computed(() => extractScopes(inputText.value))
 const selectedWorkspaceReferences = computed(() => extractWorkspaceReferences(inputText.value))
 const selectedAgents = computed(() => extractAgents(inputText.value))
+const selectedContextTokens = computed(() => Array.from(new Set([
+  ...selectedScopes.value.map(scope => `#${workspacePrefix(scope)}`),
+  ...selectedWorkspaceReferences.value.map(reference => reference.token)
+])))
+const inheritedContextActive = computed(() =>
+  selectedContextTokens.value.length === 0 && Boolean(session.value.contextBinding)
+)
+const composerContextTokens = computed(() =>
+  selectedContextTokens.value.length > 0
+    ? selectedContextTokens.value
+    : session.value.contextBinding?.tokens || []
+)
 
 watch(mentionSuggestions, () => { mentionIndex.value = 0 })
 watch(
@@ -195,6 +215,10 @@ function selectMention(suggestion: MentionSuggestion) {
 function appendToken(token: string) {
   const spacer = inputText.value && !inputText.value.endsWith(' ') ? ' ' : ''
   inputText.value += `${spacer}${token} `
+}
+
+function clearInheritedContext() {
+  session.value.contextBinding = undefined
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -271,7 +295,7 @@ const workspaceTools: LlmTool[] = [
     type: 'function',
     function: {
       name: 'starhub_list_assets',
-      description: '列出本轮通过 # 授权的 StarHub 工作区资产。',
+      description: '列出当前会话通过 # 绑定的 StarHub 工作区资产。',
       parameters: {
         type: 'object',
         properties: {
@@ -343,20 +367,33 @@ function buildPrompt(text: string, primaryAgent: AiAgent = activeAgent.value) {
   let prompt = aiStore.buildAgentPrompt(primaryAgent, collaborators)
   const scopes = extractScopes(text)
   const references = extractWorkspaceReferences(text)
-  const assets = scopedAssets(scopes, references)
-  const localAuthorized = scopes.includes('local')
-  const contextTokens = [
+  const explicitContextTokens = [
     ...scopes.map(scope => `#${workspacePrefix(scope)}`),
     ...references.map(reference => reference.token)
   ]
+  const explicitAssets = scopedAssets(scopes, references)
+  const resolvedContext = resolveStickyContextBinding({
+    explicitAssetIds: explicitAssets.map(asset => asset.id),
+    explicitLocal: scopes.includes('local'),
+    explicitTokens: explicitContextTokens,
+    previous: session.value.contextBinding,
+    availableAssetIds: assetStore.assets.map(asset => asset.id)
+  })
+  session.value.contextBinding = resolvedContext.binding
+  const boundAssetIds = new Set(resolvedContext.binding?.assetIds || [])
+  const assets = assetStore.assets.filter(asset => boundAssetIds.has(asset.id))
+  const localAuthorized = resolvedContext.binding?.local || false
+  const contextTokens = resolvedContext.binding?.tokens || []
+  const inheritedContext = resolvedContext.inherited
+
   if (assets.length > 0 || localAuthorized) {
     const inventory = [
       ...assets.map(asset => `- ${asset.id} | ${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`),
       ...(localAuthorized ? ['- LOCAL | 本机 | 当前运行 StarHub 的 Windows / macOS / Linux 设备'] : [])
     ].join('\n')
-    prompt += `\n\n本轮 # 工作区授权: ${contextTokens.join(', ')}\n可见目标:\n${inventory}\n\n你可以直接调用授权目标对应的 SSH / DB / Redis / Elasticsearch / Docker / Excel / LOCAL 工具,不会打开、切换或新建标签页。LOCAL 工具仅在 #LOCAL 或 #本机 明确出现时可用；Windows 命令使用 PowerShell 语法,macOS/Linux 使用 POSIX /bin/sh 语法,应先调用 local_system_info 判断平台。文件正文读取会发送给当前 AI Provider,必须经人工确认；本机写操作、移动、复制和删除始终确认；Shell 命令继续受白名单与系统级高危规则约束。未通过 # 提及的资产和本机能力不得访问。需要用户做选择时不得要求输入 A/B/C 或序号,必须交回 Planner 的结构化点击选项。`
+    prompt += `\n\n当前会话 # 工作区上下文${inheritedContext ? '（沿用上一轮）' : '（本轮更新）'}: ${contextTokens.join(', ')}\n可见目标:\n${inventory}\n\n你可以直接调用当前会话绑定目标对应的 SSH / DB / Redis / Elasticsearch / Docker / Excel / LOCAL 工具,不会打开、切换或新建标签页。绑定只包含用户明确选择时已经存在的目标,不会因后来新增资产而自动扩大；用户可在输入区清除绑定,新建会话或重启应用也会撤销工具授权。Windows 命令使用 PowerShell 语法,macOS/Linux 使用 POSIX /bin/sh 语法,应先调用 local_system_info 判断平台。文件正文读取会发送给当前 AI Provider,必须经人工确认；本机写操作、移动、复制和删除始终确认；Shell 命令继续受白名单与系统级高危规则约束。未绑定的资产和本机能力不得访问。需要用户做选择时不得要求输入 A/B/C 或序号,必须交回 Planner 的结构化点击选项。`
   } else {
-    prompt += '\n\n本轮没有 # 工作区授权。可以使用应用级设置和能力发现工具,但不得访问任何资产或本机;需要本机能力时请要求用户引用 #LOCAL,需要远程资产时引用具体工作区,例如 #SSH-测试服务器。'
+    prompt += '\n\n当前会话没有 # 工作区上下文。可以使用应用级设置和能力发现工具,但不得访问任何资产或本机;需要本机能力时请要求用户引用 #LOCAL,需要远程资产时引用具体工作区,例如 #SSH-测试服务器。'
   }
   return {
     prompt,
@@ -478,13 +515,15 @@ async function runPlanStep(plan: AiExecutionPlan, step: AiPlanStep): Promise<boo
   runningAgentNames.value = new Set(runningAgentNames.value)
   syncRunningAgents(plan)
   const { prompt, assets, localAuthorized } = buildPrompt(plan.request, agent)
+  const conversationContext = buildConversationContext(session.value.messages, plan.request)
+  const previousStepResults = buildCompletedStepContext(plan.steps)
   const tempId = `${instanceId.value}:execution:${plan.id}:${step.id}`
   currentExecutionSessionIds.value.add(tempId)
   currentExecutionSessionIds.value = new Set(currentExecutionSessionIds.value)
   const tempSession = aiStore.getOrCreateSession(tempId, agent.id, 'ai')
   tempSession.messages = [{
     role: 'user',
-    content: `原始目标:\n${plan.request}\n\n当前执行步骤:\n${step.title}\n${step.detail}\n\n只完成当前步骤,给出证据、结果和下一步所需信息。`
+    content: `原始目标:\n${plan.request}\n\n此前对话上下文:\n${conversationContext || '(新对话)'}\n\n已完成的前置步骤结果:\n${previousStepResults || '(无)'}\n\n当前执行步骤:\n${step.title}\n${step.detail}\n\n只完成当前步骤,必须利用已有上下文和前置结果,给出证据、结果和下一步所需信息。`
   }]
   tempSession.toolCalls = []
   tempSession.error = null
@@ -510,7 +549,7 @@ async function runPlanStep(plan: AiExecutionPlan, step: AiPlanStep): Promise<boo
         : call.function.name.startsWith('local_')
           ? localAuthorized
             ? localRuntime.execute(call)
-            : Promise.reject(new Error('本轮未通过 #LOCAL / #本机 授权本机操作'))
+            : Promise.reject(new Error('当前会话未通过 #LOCAL / #本机 绑定本机操作'))
         : runtime.execute(call),
       `${prompt}\n\n你当前是执行 Agent「${agent.name}」。严格只执行计划中的当前步骤: ${step.title}。${step.agentMode === 'temporary' ? '\n你是只在本计划中存在的一次性专职 Agent,完成后立即结束。' : ''}`
     )
@@ -601,10 +640,12 @@ async function planAndExecute(text: string, decision?: string) {
     createdAt: Date.now()
   }
   const { context } = buildPrompt(text)
+  const conversationContext = buildConversationContext(session.value.messages, text)
   try {
     const plan = await aiStore.createExecutionPlan({
       request: text,
       context,
+      conversationContext,
       defaultAgentId: activeAgent.value.id,
       decision
     })
@@ -651,6 +692,13 @@ async function send() {
   inputText.value = ''
   lastUserText.value = text
   session.value.messages.push({ role: 'user', content: text })
+  aiStore.addConversationSummary({
+    id: instanceId.value,
+    agentId: activeAgent.value.id,
+    agentName: activeAgent.value.name,
+    preview: text.length > 80 ? `${text.slice(0, 80)}…` : text,
+    timestamp: Date.now()
+  })
   await planAndExecute(text)
 }
 
@@ -689,7 +737,7 @@ function onQuickAnalyze(e: Event) {
 }
 
 function applyDevMockState() {
-  if (!devMockWorkspace.value) return
+  if (!devMockWorkspace.value || !devMockSeedState.value) return
   const history = devMockLongConversation.value
     ? Array.from({ length: 12 }, (_, index) => [
         { role: 'user' as const, content: `第 ${index + 1} 轮：检查服务 ${index + 1} 的运行状态与最近告警` },
@@ -992,10 +1040,19 @@ function shortResult(value: string, max = 600) {
         </div>
 
         <div class="ai-composer">
-          <div v-if="selectedAgents.length || selectedScopes.length || selectedWorkspaceReferences.length" class="ai-composer-context">
+          <div v-if="selectedAgents.length || composerContextTokens.length" class="ai-composer-context">
             <span v-for="agent in selectedAgents" :key="agent.id" class="cyber-badge">@{{ agentHandle(agent) }}</span>
-            <span v-for="scope in selectedScopes" :key="scope" class="cyber-badge">#{{ scope }}</span>
-            <span v-for="reference in selectedWorkspaceReferences" :key="reference.id" class="cyber-badge">{{ reference.token }}</span>
+            <span v-for="token in composerContextTokens" :key="token" class="cyber-badge">{{ token }}</span>
+            <span v-if="inheritedContextActive" class="cyber-badge">{{ t('ai.inheritedContext') }}</span>
+            <button
+              v-if="inheritedContextActive"
+              class="action-btn"
+              :aria-label="t('ai.clearInheritedContext')"
+              :data-tooltip="t('ai.clearInheritedContext')"
+              @click="clearInheritedContext"
+            >
+              <v-icon size="12">mdi-close</v-icon>
+            </button>
           </div>
           <div class="ai-composer-input">
             <textarea

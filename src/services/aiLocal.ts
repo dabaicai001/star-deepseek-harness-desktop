@@ -240,7 +240,7 @@ function formatShellResult(result: LocalShellResult): string {
   ].filter(Boolean).join('\n')
 }
 
-/** 创建只在本轮显式 #LOCAL 授权内可见的本机执行器。 */
+/** 创建只在当前会话 #LOCAL 绑定内可见的本机执行器。 */
 export function createLocalAiRuntime(options: LocalAiRuntimeOptions): LocalAiRuntime {
   async function confirmShell(name: string, args: Record<string, unknown>): Promise<void> {
     const command = String(args.command || '').trim()

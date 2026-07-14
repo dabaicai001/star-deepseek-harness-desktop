@@ -254,9 +254,22 @@ function openAiSettings() {
   window.dispatchEvent(new CustomEvent('starhub:open-ai-settings'))
 }
 
-function reopenConversation(summary: { agentId: string }) {
+function reopenConversation(summary: { id: string; agentId: string }) {
   const agent = aiStore.getAgent(summary.agentId)
-  if (agent) openAiAgent(agent)
+  if (!agent) return
+  const existing = appStore.tabs.find(tab => tab.id === summary.id)
+  if (existing) {
+    appStore.setActiveTab(existing.id)
+    router.push({ name: 'ai', params: { id: existing.id } })
+    return
+  }
+  appStore.addTab({
+    id: summary.id,
+    assetId: agent.id,
+    title: agent.name,
+    type: 'ai'
+  })
+  router.push({ name: 'ai', params: { id: summary.id } })
 }
 
 function formatSummaryTime(ts: number): string {

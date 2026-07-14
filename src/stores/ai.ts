@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { ChatMessage, LlmTool, LlmToolCall, NewChatRequest, NewChatResponse } from '@/services/ai'
 import { chatWithTools, chatStream } from '@/services/ai'
 import { decrypt as decryptLegacyKey } from '@/utils/crypto'
+import { compactPersistedMessages, snapshotChatMessages, type StickyContextBinding } from '@/utils/aiContext'
 
 const KEYRING_MARKER = 'keyring:v1'
 
@@ -102,7 +103,7 @@ function createDefaultAgent(): AiAgent {
     id: 'starhub-assistant',
     name: 'StarHub AI',
     description: '通用 DevOps 助手,负责本机与跨工作区分析、规划和任务分派。',
-    systemPrompt: '你是 StarHub 的主 AI 助手。先理解目标和上下文,优先使用只读信息形成判断;操作本机或具体工作区前必须确认本轮 # 授权范围。',
+    systemPrompt: '你是 StarHub 的主 AI 助手。先理解目标和上下文,优先使用只读信息形成判断;操作本机或具体工作区前必须确认当前会话的 # 绑定范围。',
     skillIds: [...DEFAULT_ENABLED_SKILL_IDS],
     favorited: true,
     createdAt: now,
@@ -226,7 +227,11 @@ export interface AiSession {
   toolCalls: AiToolCallRecord[]
   /** 全局 AI 的 Planner → Executor 编排状态。 */
   executionPlan?: AiExecutionPlan
+  /** 独立 AI 工作区在当前会话内沿用的 # 目标；重启后不会恢复授权。 */
+  contextBinding?: AiContextBinding
 }
+
+export type AiContextBinding = StickyContextBinding
 
 export interface AiToolCallRecord {
   id: string
@@ -243,6 +248,31 @@ export interface AiToolCallRecord {
 }
 
 const DEFAULT_SYSTEM_PROMPT = '你是一个专业的运维助手,帮助用户操作本机、SSH、数据库、Docker 和工作簿。请用中文回答,简洁准确。'
+const AI_SESSIONS_STORAGE_KEY = 'ai-sessions-v1'
+const MAX_PERSISTED_SESSIONS = 30
+
+interface PersistedAiSession {
+  instanceId: string
+  assetId: string
+  assetType: AiContextType
+  messages: ChatMessage[]
+}
+
+function isAiContextType(value: unknown): value is AiContextType {
+  return value === 'ssh' || value === 'db' || value === 'docker' || value === 'excel' || value === 'local' || value === 'ai'
+}
+
+function parsePersistedMessage(value: unknown): ChatMessage | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if ((record.role !== 'user' && record.role !== 'assistant') || typeof record.content !== 'string') return null
+  return {
+    role: record.role,
+    content: record.content,
+    ...(typeof record.id === 'string' ? { id: record.id } : {}),
+    ...(typeof record.agentName === 'string' ? { agentName: record.agentName } : {})
+  }
+}
 
 export const useAiStore = defineStore('ai', () => {
   // ====== 全局配置 ======
@@ -385,6 +415,66 @@ export const useAiStore = defineStore('ai', () => {
   // ====== 每个 tab 独立的 AI 会话 ======
   // key = tab instanceId,value = AiSession
   const sessions = ref<Map<string, AiSession>>(new Map())
+  let persistSessionsTimer: ReturnType<typeof setTimeout> | undefined
+
+  function restorePersistedSessions() {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = localStorage.getItem(AI_SESSIONS_STORAGE_KEY)
+      if (!raw) return
+      const parsed: unknown = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return
+      for (const value of parsed.slice(-MAX_PERSISTED_SESSIONS)) {
+        if (!value || typeof value !== 'object') continue
+        const record = value as Record<string, unknown>
+        if (typeof record.instanceId !== 'string' || typeof record.assetId !== 'string' || !isAiContextType(record.assetType)) continue
+        const messages = Array.isArray(record.messages)
+          ? compactPersistedMessages(record.messages.map(parsePersistedMessage).filter(message => message !== null))
+          : []
+        if (messages.length === 0) continue
+        sessions.value.set(record.instanceId, {
+          instanceId: record.instanceId,
+          assetId: record.assetId,
+          assetType: record.assetType,
+          messages,
+          loading: false,
+          error: null,
+          toolCalls: []
+        })
+      }
+    } catch {
+      // localStorage 不可用或历史格式损坏时按空会话启动。
+    }
+  }
+
+  function persistSessions() {
+    if (typeof window === 'undefined') return
+    const persisted: PersistedAiSession[] = Array.from(sessions.value.values())
+      .filter(session => !session.instanceId.includes(':execution:'))
+      .map(session => ({
+        instanceId: session.instanceId,
+        assetId: session.assetId,
+        assetType: session.assetType,
+        messages: compactPersistedMessages(session.messages)
+      }))
+      .filter(session => session.messages.length > 0)
+      .slice(-MAX_PERSISTED_SESSIONS)
+    try {
+      if (persisted.length > 0) localStorage.setItem(AI_SESSIONS_STORAGE_KEY, JSON.stringify(persisted))
+      else localStorage.removeItem(AI_SESSIONS_STORAGE_KEY)
+    } catch {
+      // 隐私模式或存储配额不足不应中断当前对话。
+    }
+  }
+
+  function schedulePersistSessions() {
+    if (persistSessionsTimer) clearTimeout(persistSessionsTimer)
+    persistSessionsTimer = setTimeout(persistSessions, 250)
+  }
+
+  restorePersistedSessions()
+  watch(sessions, schedulePersistSessions, { deep: true, flush: 'post' })
+  if (typeof window !== 'undefined') window.addEventListener('beforeunload', persistSessions)
 
   /**
    * 获取或创建某个 tab 的 AI 会话
@@ -402,6 +492,9 @@ export const useAiStore = defineStore('ai', () => {
         toolCalls: []
       }
       sessions.value.set(instanceId, s)
+    } else {
+      s.assetId = assetId
+      s.assetType = assetType
     }
     return s
   }
@@ -449,7 +542,9 @@ export const useAiStore = defineStore('ai', () => {
       session.error = null
       session.loading = false
       session.executionPlan = undefined
+      session.contextBinding = undefined
     }
+    conversationSummaries.value = conversationSummaries.value.filter(summary => summary.id !== instanceId)
   }
 
   function clearAllSessions() {
@@ -528,10 +623,8 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   function addConversationSummary(summary: AiConversationSummary) {
-    // 去重:同 agent + 同一轮对话不重复
-    const existing = conversationSummaries.value.findIndex(
-      s => s.agentId === summary.agentId && s.preview === summary.preview
-    )
+    // 同一个 tab 会话持续更新同一条摘要,避免连续追问挤满最近列表。
+    const existing = conversationSummaries.value.findIndex(s => s.id === summary.id)
     if (existing >= 0) {
       conversationSummaries.value[existing] = summary
     } else {
@@ -607,6 +700,7 @@ export const useAiStore = defineStore('ai', () => {
   async function createExecutionPlan(input: {
     request: string
     context: string
+    conversationContext: string
     defaultAgentId: string
     decision?: string
   }): Promise<AiExecutionPlan> {
@@ -687,7 +781,7 @@ export const useAiStore = defineStore('ai', () => {
 缺少目标资产、范围、危险变更策略等关键条件时,不要猜测,必须在 issues 中给出 2-4 个清晰互斥的结构化选择。禁止在 summary、步骤或问题中要求用户输入 A/B/C、序号或自由文本来选择；所有选项都由界面按钮承载。若信息充分,issues 必须为空数组。`,
       messages: [{
         role: 'user',
-        content: `用户请求:\n${input.request}\n\n当前工作区上下文:\n${input.context || '(无授权工作区)'}\n\n可用 Agents:\n${JSON.stringify(availableAgents)}${input.decision ? `\n\n用户对上一轮问题的选择:\n${input.decision}` : ''}`
+        content: `用户请求:\n${input.request}\n\n最近对话上下文（用于理解指代和延续目标,不会自动扩大工具范围）:\n${input.conversationContext || '(新对话)'}\n\n当前工作区上下文:\n${input.context || '(无授权工作区)'}\n\n可用 Agents:\n${JSON.stringify(availableAgents)}${input.decision ? `\n\n用户对上一轮问题的选择:\n${input.decision}` : ''}`
       }]
     })
 
@@ -868,7 +962,8 @@ export const useAiStore = defineStore('ai', () => {
           baseUrl: settings.value.baseUrl,
           apiKey,
           model: settings.value.model,
-          messages: session.messages,
+          // 必须先拍快照；下面追加的流式 assistant 占位不能进入本次请求。
+          messages: snapshotChatMessages(session.messages),
           temperature: settings.value.temperature,
           maxTokens: settings.value.maxTokens,
           system: systemPrompt,

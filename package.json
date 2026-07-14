@@ -1,11 +1,12 @@
 {
   "name": "starhub",
-  "version": "0.28.8",
+  "version": "0.28.9",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "test:ai-context": "node --test tests/ai-context.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "sidecar:build": "node scripts/build-sidecar.mjs",

@@ -125,7 +125,7 @@ function addWorkspaceParameter(tool: LlmTool, required: boolean): LlmTool {
     ...tool,
     function: {
       ...tool.function,
-      description: `${tool.function.description} 直接作用于本轮 # 引用授权的工作区,不会打开标签页。`,
+      description: `${tool.function.description} 直接作用于当前会话 # 绑定的工作区,不会打开标签页。`,
       parameters: {
         ...tool.function.parameters,
         properties: {
@@ -167,10 +167,10 @@ function resolveAsset(assets: Asset[], toolName: string, args: Record<string, un
       candidate.id.toLowerCase() === requested || candidate.name.toLowerCase() === requested
     )
     if (asset) return asset
-    throw new Error(`工作区未通过本轮 # 引用授权: ${String(args.workspace)}`)
+    throw new Error(`工作区未包含在当前会话 # 绑定中: ${String(args.workspace)}`)
   }
   if (candidates.length === 1) return candidates[0]
-  if (candidates.length === 0) throw new Error(`当前 # 授权范围不支持工具 ${toolName}`)
+  if (candidates.length === 0) throw new Error(`当前会话 # 绑定范围不支持工具 ${toolName}`)
   throw new Error(`存在多个可用工作区,调用 ${toolName} 时必须指定 workspace: ${candidates.map(asset => `${asset.id} (${asset.name})`).join(', ')}`)
 }
 
