@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.29.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.29.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -106,7 +106,7 @@
 
 ## 当前版本
 
-### v0.29.0 (2026-07-14)
+### v0.29.1 (2026-07-14)
 - ✨ AI 可确认后通过 SFTP 上传/下载,并等待现有传输队列完成
 - ✨ 最近对话常驻列表支持恢复与删除;发送区新增三步提问引导
 - ✨ MCP 支持 stdio、Streamable HTTP、兼容 SSE,鉴权值保存在系统 Keyring

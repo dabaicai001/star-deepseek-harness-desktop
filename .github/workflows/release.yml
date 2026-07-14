@@ -54,6 +54,9 @@ jobs:
           Pop-Location
           exit $testExit
 
+      - name: Build release sidecar
+        run: npm run sidecar:build:release
+
       - name: Test Tauri backend
         working-directory: src-tauri
         run: cargo test --locked
@@ -129,6 +132,9 @@ jobs:
         run: |
           npm run build
           (cd sidecar && go test ./...)
+
+      - name: Build release sidecar
+        run: npm run sidecar:build:release
 
       - name: Test Tauri backend
         working-directory: src-tauri

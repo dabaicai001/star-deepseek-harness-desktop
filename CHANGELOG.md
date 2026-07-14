@@ -13,6 +13,13 @@
 
 ---
 
+## [0.29.1] - 2026-07-14
+
+### 修复
+- 🐛 fix(release): Windows 与 Linux Release 任务在运行 Rust 测试前先生成目标平台 Sidecar,避免 Tauri build script 因缺少 `starhub-sidecar-<target-triple>` 提前失败。
+
+---
+
 ## [0.29.0] - 2026-07-14
 
 ### 功能
