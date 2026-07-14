@@ -112,7 +112,22 @@ fi
 mkdir "$audit_root/rpm"
 (
   cd "$audit_root/rpm"
+  # Ubuntu's rpm2cpio can return 1 for Tauri-generated packages even after it
+  # has emitted a complete, valid payload.  Preserve that diagnostic without
+  # letting pipefail discard a package that cpio extracted successfully; the
+  # payload, executable modes, metadata, dependencies and architecture are all
+  # validated below.
+  set +e
   rpm2cpio "$rpm" | cpio -idm --quiet
+  rpm_pipeline_status=("${PIPESTATUS[@]}")
+  set -e
+  if [[ "${rpm_pipeline_status[1]}" -ne 0 ]]; then
+    echo "Failed to extract RPM payload with cpio (exit ${rpm_pipeline_status[1]})" >&2
+    exit 1
+  fi
+  if [[ "${rpm_pipeline_status[0]}" -ne 0 ]]; then
+    echo "Warning: rpm2cpio returned ${rpm_pipeline_status[0]} after cpio accepted the complete payload" >&2
+  fi
 )
 rpm_main="$audit_root/rpm/usr/bin/starhub"
 rpm_sidecar="$audit_root/rpm/usr/bin/starhub-sidecar"
