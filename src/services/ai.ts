@@ -74,17 +74,19 @@ export interface LlmTool {
       type: 'object'
       properties: Record<string, LlmJsonSchemaProperty>
       required?: string[]
+      [key: string]: unknown
     }
   }
 }
 
 export interface LlmJsonSchemaProperty {
-  type: string
+  type?: string | string[]
   description?: string
   enum?: string[]
   properties?: Record<string, LlmJsonSchemaProperty>
   items?: LlmJsonSchemaProperty
   required?: string[]
+  [key: string]: unknown
 }
 
 export interface LlmToolCall {

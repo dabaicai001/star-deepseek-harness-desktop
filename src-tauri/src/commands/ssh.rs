@@ -1,3 +1,4 @@
+use crate::sftp::transfer::TransferManager;
 use crate::ssh::session::SshSession;
 use crate::ssh::{
     PendingHostKeyResponses, PendingKeyboardResponses, SshConfig, SshSessionInfo, SshWriteChannels,
@@ -254,7 +255,13 @@ async fn connect_session(
 }
 
 #[tauri::command]
-pub async fn ssh_disconnect(manager: State<'_, SshManager>, id: String) -> Result<(), String> {
+pub async fn ssh_disconnect(
+    manager: State<'_, SshManager>,
+    transfer_manager: State<'_, TransferManager>,
+    id: String,
+) -> Result<(), String> {
+    // SFTP 通道由 TransferManager 单独持有；先移除，避免关闭 SSH 后仍残留失效句柄。
+    transfer_manager.unregister_sftp(&id).await;
     // 先从 map 中移除(短暂持锁),再对单个 session 加锁断开,
     // 避免 disconnect 期间阻塞其他 session 的操作。
     let session_arc = {

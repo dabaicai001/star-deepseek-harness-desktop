@@ -14,6 +14,7 @@ import {
 } from '@/services/ssh'
 import * as dbService from '@/services/db'
 import * as dockerService from '@/services/docker'
+import { makeSftpToolCaller, sftpTools } from '@/utils/aiSftpTools'
 import {
   dbTools,
   dockerTools,
@@ -112,6 +113,7 @@ function isRelational(asset: Asset): boolean {
 
 function matchesTool(asset: Asset, toolName: string): boolean {
   if (toolName.startsWith('ssh_')) return asset.type === 'ssh'
+  if (toolName.startsWith('sftp_')) return asset.type === 'ssh'
   if (toolName.startsWith('redis_')) return asset.type === 'db' && dbType(asset) === 'redis'
   if (toolName.startsWith('es_')) return asset.type === 'db' && dbType(asset) === 'elasticsearch'
   if (toolName.startsWith('db_')) return isRelational(asset)
@@ -146,6 +148,7 @@ function addWorkspaceParameter(tool: LlmTool, required: boolean): LlmTool {
 function buildTools(assets: Asset[]): LlmTool[] {
   const available = [
     ...sshTools,
+    ...sftpTools,
     ...dbTools,
     ...redisTools,
     ...esTools,
@@ -578,6 +581,14 @@ export function createDirectWorkspaceRuntime(options: DirectWorkspaceOptions): D
     const wrappedCall = { function: { name: call.function.name, arguments: JSON.stringify(args) } }
 
     if (connection.kind === 'ssh') {
+      if (call.function.name.startsWith('sftp_')) {
+        const caller = makeSftpToolCaller(
+          connection.connId,
+          context => options.confirm(withWorkspaceContext(context, asset)),
+          asset.name
+        )
+        return caller(wrappedCall)
+      }
       const caller = makeSshToolCaller(
         command => sshExec(connection.connId, command, 30),
         options.getWhitelist,

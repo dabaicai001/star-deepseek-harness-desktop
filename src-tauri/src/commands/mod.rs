@@ -5,6 +5,7 @@ pub mod db;
 pub mod docker;
 pub mod file;
 pub mod local;
+pub mod mcp;
 pub mod secret;
 pub mod sftp;
 pub mod sidecar;

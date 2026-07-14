@@ -9,6 +9,7 @@ import { useI18n } from 'vue-i18n'
 import * as esService from '@/services/db'
 import { ES_SYSTEM_PROMPT, esTools, makeEsToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
+import { createMcpRuntime } from '@/services/mcp'
 import AiChat from '@/components/ai/AiChat.vue'
 import NewIndexDialog from '@/components/es/NewIndexDialog.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -195,13 +196,17 @@ async function onAiSend(text: string) {
     () => aiStore.settings.commandWhitelist,
     confirmFn
   )
+  const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
+  if (mcpRuntime.warnings.length) console.warn('[es-ai] MCP discovery warnings:', mcpRuntime.warnings)
   const toolExec = async (call: LlmToolCall) =>
-    await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+    call.function.name.startsWith('mcp__')
+      ? mcpRuntime.execute(call)
+      : caller({ function: { name: call.function.name, arguments: call.function.arguments } })
   const basePrompt = selectedIndex.value
     ? ES_SYSTEM_PROMPT.replace('Elasticsearch 集群', `Elasticsearch 集群,当前选中的索引是 "${selectedIndex.value}"`)
     : ES_SYSTEM_PROMPT
   const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'db')
-  await aiStore.runAgent(instanceId.value, esTools, toolExec, sysPrompt)
+  await aiStore.runAgent(instanceId.value, [...esTools, ...mcpRuntime.tools], toolExec, sysPrompt)
 }
 
 async function onAiRetry() {

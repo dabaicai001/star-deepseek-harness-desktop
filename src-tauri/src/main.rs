@@ -7,6 +7,7 @@ mod ai;
 mod commands;
 mod db;
 mod keyring;
+mod mcp;
 mod sftp;
 mod sidecar;
 mod ssh;
@@ -209,6 +210,11 @@ fn main() {
             commands::secret::set_ai_api_key,
             commands::secret::get_ai_api_key,
             commands::secret::delete_ai_api_key,
+            commands::secret::set_mcp_server_secrets,
+            commands::secret::get_mcp_server_secrets,
+            commands::secret::delete_mcp_server_secrets,
+            commands::mcp::mcp_list_tools,
+            commands::mcp::mcp_call_tool,
             // Sidecar 通用 RPC
             commands::sidecar::sidecar_rpc,
         ])

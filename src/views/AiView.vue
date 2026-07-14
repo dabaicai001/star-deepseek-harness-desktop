@@ -28,6 +28,7 @@ import AiMessageContent from '@/components/ai/AiMessageContent.vue'
 import type { Asset } from '@/types/asset'
 import type { LlmTool, LlmToolCall } from '@/services/ai'
 import { createDirectWorkspaceRuntime } from '@/services/aiWorkspace'
+import { createMcpRuntime } from '@/services/mcp'
 import { createLocalAiRuntime } from '@/services/aiLocal'
 import type { ToolConfirmCtx } from '@/utils/aiTools'
 import { extractWhitelistPrefix } from '@/utils/commandGuard'
@@ -50,6 +51,7 @@ const lastUserText = ref('')
 const messagesRef = ref<HTMLElement | null>(null)
 const mentionIndex = ref(0)
 const showAgentDialog = ref(false)
+const showPromptGuide = ref(false)
 const planning = ref(false)
 const executing = ref(false)
 const stopRequested = ref(false)
@@ -252,6 +254,20 @@ function selectMention(suggestion: MentionSuggestion) {
 function appendToken(token: string) {
   const spacer = inputText.value && !inputText.value.endsWith(' ') ? ' ' : ''
   inputText.value += `${spacer}${token} `
+}
+
+type PromptGuideKind = 'triage' | 'change' | 'transfer' | 'mcp'
+
+function applyPromptGuide(kind: PromptGuideKind) {
+  const agentToken = selectedAgents.value.length > 0 ? '' : `@${agentHandle(activeAgent.value)} `
+  const templates: Record<PromptGuideKind, string> = {
+    triage: `${agentToken}#SSH 请先只读检查【目标主机/服务】的【现象】。请给出证据、可能原因和下一步验证,暂不修改配置。`,
+    change: `${agentToken}#SSH 请在【目标工作区】完成【期望变更】。执行前说明影响范围、备份/回滚方案,所有写操作等我确认。`,
+    transfer: `${agentToken}#SSH 请通过 SFTP 将【本机完整路径】上传到【远端目录】/将【远端完整路径】下载到【本机目录】,传输前让我确认路径。`,
+    mcp: `${agentToken}请使用已配置的 MCP 工具完成【目标】。先说明要调用的 Server、工具和参数,等我确认后再执行。`
+  }
+  inputText.value = templates[kind]
+  showPromptGuide.value = false
 }
 
 function clearInheritedContext() {
@@ -575,14 +591,28 @@ async function runPlanStep(plan: AiExecutionPlan, step: AiPlanStep): Promise<boo
     getWhitelist: () => aiStore.settings.commandWhitelist,
     confirm: context => requestToolConfirmation(tempId, context)
   })
+  const mcpRuntime = await createMcpRuntime(
+    await aiStore.getMcpServers(),
+    context => requestToolConfirmation(tempId, context)
+  )
+  if (mcpRuntime.warnings.length > 0) {
+    console.warn('[ai] Some MCP servers are unavailable:', mcpRuntime.warnings)
+  }
 
   try {
-    const allTools = [...workspaceTools, ...runtime.tools, ...(localAuthorized ? localRuntime.tools : [])]
+    const allTools = [
+      ...workspaceTools,
+      ...runtime.tools,
+      ...(localAuthorized ? localRuntime.tools : []),
+      ...mcpRuntime.tools
+    ]
     await aiStore.runAgent(
       tempId,
       allTools,
       call => call.function.name.startsWith('starhub_')
         ? executeWorkspaceTool(call, assets)
+        : call.function.name.startsWith('mcp__')
+          ? mcpRuntime.execute(call)
         : call.function.name.startsWith('local_')
           ? localAuthorized
             ? localRuntime.execute(call)
@@ -1101,6 +1131,25 @@ function shortResult(value: string, max = 600) {
               <v-icon size="12">mdi-close</v-icon>
             </button>
           </div>
+          <div v-if="showPromptGuide" class="ai-composer-guide cyber-panel">
+            <div class="ai-composer-guide-head">
+              <span><v-icon size="14">mdi-compass-outline</v-icon>{{ t('ai.promptGuideTitle') }}</span>
+              <button class="action-btn" :aria-label="t('common.close')" @click="showPromptGuide = false">
+                <v-icon size="13">mdi-close</v-icon>
+              </button>
+            </div>
+            <div class="ai-composer-guide-steps">
+              <span><b>01</b>{{ t('ai.promptGuideAgent') }}</span>
+              <span><b>02</b>{{ t('ai.promptGuideWorkspace') }}</span>
+              <span><b>03</b>{{ t('ai.promptGuideGoal') }}</span>
+            </div>
+            <div class="ai-composer-guide-templates">
+              <button @click="applyPromptGuide('triage')"><v-icon size="13">mdi-stethoscope</v-icon>{{ t('ai.promptGuideTriage') }}</button>
+              <button @click="applyPromptGuide('change')"><v-icon size="13">mdi-shield-edit-outline</v-icon>{{ t('ai.promptGuideChange') }}</button>
+              <button @click="applyPromptGuide('transfer')"><v-icon size="13">mdi-folder-swap-outline</v-icon>{{ t('ai.promptGuideTransfer') }}</button>
+              <button @click="applyPromptGuide('mcp')"><v-icon size="13">mdi-connection</v-icon>{{ t('ai.promptGuideMcp') }}</button>
+            </div>
+          </div>
           <div class="ai-composer-input">
             <textarea
               v-model="inputText"
@@ -1121,6 +1170,14 @@ function shortResult(value: string, max = 600) {
                 <span><strong>{{ suggestion.label }}</strong><small>{{ suggestion.detail }}</small></span>
               </button>
             </div>
+            <button
+              class="cyber-btn-secondary"
+              :aria-expanded="showPromptGuide"
+              :disabled="orchestrationBusy"
+              @click="showPromptGuide = !showPromptGuide"
+            >
+              <v-icon size="14">mdi-compass-outline</v-icon>{{ t('ai.promptGuide') }}
+            </button>
             <button v-if="orchestrationBusy" class="cyber-btn-secondary" @click="stopOrchestration">
               <v-icon size="14">mdi-stop</v-icon>{{ t('ai.stop') }}
             </button>

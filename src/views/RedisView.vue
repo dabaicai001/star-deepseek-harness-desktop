@@ -13,6 +13,7 @@ import * as dbService from '@/services/db'
 import { useDialogStore } from '@/stores/dialog'
 import { REDIS_SYSTEM_PROMPT, redisTools, makeRedisToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
+import { createMcpRuntime } from '@/services/mcp'
 import KeyBrowser from '@/components/redis/KeyBrowser.vue'
 import RedisValueEditor from '@/components/redis/RedisValueEditor.vue'
 import RedisCli from '@/components/redis/RedisCli.vue'
@@ -127,11 +128,15 @@ async function onAiSend(text: string) {
     () => aiStore.settings.commandWhitelist,
     confirmFn
   )
+  const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
+  if (mcpRuntime.warnings.length) console.warn('[redis-ai] MCP discovery warnings:', mcpRuntime.warnings)
   const toolExec = async (call: LlmToolCall) =>
-    await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+    call.function.name.startsWith('mcp__')
+      ? mcpRuntime.execute(call)
+      : caller({ function: { name: call.function.name, arguments: call.function.arguments } })
   const basePrompt = REDIS_SYSTEM_PROMPT.replace('db0', `db${currentDb.value}`)
   const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'db')
-  await aiStore.runAgent(instanceId.value, redisTools, toolExec, sysPrompt)
+  await aiStore.runAgent(instanceId.value, [...redisTools, ...mcpRuntime.tools], toolExec, sysPrompt)
 }
 
 async function onAiRetry() {

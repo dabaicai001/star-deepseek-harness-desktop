@@ -21,8 +21,10 @@ import { useThemeStore } from '@/stores/theme'
 import type { Asset } from '@/types/asset'
 import { parseInstanceId } from '@/utils/tabId'
 import { SSH_SYSTEM_PROMPT, sshTools, makeSshToolCaller } from '@/utils/aiTools'
+import { makeSftpToolCaller, sftpTools } from '@/utils/aiSftpTools'
 import { extractWhitelistPrefix } from '@/utils/commandGuard'
 import type { LlmToolCall } from '@/services/ai'
+import { createMcpRuntime } from '@/services/mcp'
 import ZmodemModule from 'zmodem.js/src/zmodem_browser.js'
 
 interface ZmodemTransfer {
@@ -343,14 +345,19 @@ async function runSshAgent() {
  () => aiStore.settings.commandWhitelist,
  confirmFn
  )
+ const sftpCaller = makeSftpToolCaller(props.id, confirmFn, asset.value?.name)
+ const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
+ if (mcpRuntime.warnings.length) console.warn('[ssh-ai] MCP discovery warnings:', mcpRuntime.warnings)
  const toolExec = async (call: LlmToolCall) => {
- return await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+ if (call.function.name.startsWith('mcp__')) return mcpRuntime.execute(call)
+ const target = call.function.name.startsWith('sftp_') ? sftpCaller : caller
+ return await target({ function: { name: call.function.name, arguments: call.function.arguments } })
  }
  const basePrompt = sshCwd.value
    ? SSH_SYSTEM_PROMPT.replace('当前已连接到远程服务器', `当前已连接到远程服务器,当前工作目录: ${sshCwd.value}`)
    : SSH_SYSTEM_PROMPT
  const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'ssh')
- await aiStore.runAgent(props.id, sshTools, toolExec, sysPrompt)
+ await aiStore.runAgent(props.id, [...sshTools, ...sftpTools, ...mcpRuntime.tools], toolExec, sysPrompt)
 }
 
 onMounted(async () => {

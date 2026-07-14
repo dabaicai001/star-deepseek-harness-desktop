@@ -13,6 +13,31 @@
 
 ---
 
+## [0.29.0] - 2026-07-14
+
+### 功能
+- ✨ feat(ai): SSH 工作区 AI 与独立 AI Agent 新增 `sftp_list`、`sftp_stat`、`sftp_upload`、`sftp_download` 工具;上传读取本机文件、下载写入本机目录均逐次确认,并复用现有断点传输队列等待任务完成后再释放连接。
+- ✨ feat(ai): AI 侧边栏最近对话从 3 条扩展为最多 10 条并始终可见,支持恢复会话、单条删除确认及同步清理本地历史。
+- ✨ feat(mcp): AI 设置新增 stdio、Streamable HTTP 与兼容 SSE 三类 MCP Server,完成 initialize 生命周期、分页 tools/list、tools/call、Streamable HTTP 向旧 SSE 回退与动态 Function Calling 注册。
+- ✨ feat(ai): 发送区新增提问引导,按 Agent、`#` 工作区、目标/限制/验收三步组织需求,并提供排障、安全变更、SFTP 与 MCP 快捷模板。
+
+### 安全
+- 🔐 security(mcp): MCP 环境变量与 HTTP Header 值仅保存到系统 Keyring;外部工具每次调用都进入人工确认区,旧 SSE endpoint 限制为配置 URL 同源。
+- 🔐 security(sftp): AI SFTP 单次最多处理 20 个显式路径,本机上传与下载写入禁止绕过确认;SSH 断开时同步释放 TransferManager 持有的 SFTP 通道。
+
+### 样式
+- 🎨 style(design-system): 新增 `.ai-mcp-*` MCP 设置卡、`.ai-composer-guide*` 提问引导和 `.ai-recent-delete` 最近对话删除交互类。
+
+### 测试
+- ✅ test(mcp): Rust 测试覆盖 JSON-RPC id / error 解析、MCP 配置反序列化及真实 stdio Server 的工具发现与调用。
+- ✅ test(ui): 应用内 Browser 在 1280×800 验证最近对话常驻/删除取消、MCP 三类传输配置卡、发送引导展开与模板填入,console 无新增 error。
+- ✅ test(frontend): `npm run build` 通过（`vue-tsc --noEmit` + Vite production build）,Rust fmt、check 与测试通过。
+
+### 构建
+- 🔧 chore(release): 新增 tag 触发的多平台 Release 流水线,构建 Windows x86_64 NSIS EXE 与 Linux x86_64/ARM64 DEB、RPM、AppImage,校验后统一上传 GitHub Release。
+
+---
+
 ## [0.28.10] - 2026-07-14
 
 ### 修复

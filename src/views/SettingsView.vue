@@ -3,7 +3,8 @@ import { ref, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { BUILTIN_AI_SKILLS, useAiStore } from '@/stores/ai'
-import type { AiAssetType, AiSettings } from '@/stores/ai'
+import type { AiAssetType, AiSettings, McpKeyValue, McpServerConfig } from '@/stores/ai'
+import { listMcpTools } from '@/services/mcp'
 import { version as appVersion } from '~package.json'
 
 const { t, locale } = useI18n()
@@ -61,6 +62,7 @@ onMounted(async () => {
     console.warn('[settings] AI API key is unavailable outside Tauri:', error)
     aiLocal.value.apiKey = ''
   }
+  aiLocal.value.mcpServers = await aiStore.getMcpServers()
 })
 
 // AI 配置本地副本(用于表单展示,保存时再写回 store)
@@ -72,6 +74,12 @@ function cloneAiSettings(settings: AiSettings): AiSettings {
     customSkills: settings.customSkills.map(skill => ({
       ...skill,
       assetTypes: [...skill.assetTypes]
+    })),
+    mcpServers: settings.mcpServers.map(server => ({
+      ...server,
+      args: [...server.args],
+      env: server.env.map(item => ({ ...item })),
+      headers: server.headers.map(item => ({ ...item }))
     }))
   }
 }
@@ -81,6 +89,8 @@ const newWhitelistItem = ref('')
 const saved = ref(false)
 const testing = ref(false)
 const testResult = ref<string | null>(null)
+const mcpTestResults = ref<Record<string, string>>({})
+const mcpTesting = ref<Set<string>>(new Set())
 
 const AI_ASSET_TYPES: Array<{ value: AiAssetType; label: string }> = [
   { value: 'ssh', label: 'SSH' },
@@ -106,9 +116,12 @@ const accentOptions = [
 
 async function onSave() {
   // apiKey 单独处理(走加密通道),其他字段用 updateSettings
-  const { apiKey, ...rest } = aiLocal.value
+  const { apiKey, mcpServers, ...rest } = aiLocal.value
   aiStore.updateSettings(rest)
-  await aiStore.setApiKey(apiKey)
+  await Promise.all([
+    aiStore.setApiKey(apiKey),
+    aiStore.setMcpServers(mcpServers)
+  ])
   saved.value = true
   setTimeout(() => { saved.value = false }, 2000)
 }
@@ -158,6 +171,67 @@ function addWhitelist() {
 
 function removeWhitelist(cmd: string) {
   aiLocal.value.commandWhitelist = aiLocal.value.commandWhitelist.filter(c => c !== cmd)
+}
+
+function addMcpServer() {
+  aiLocal.value.mcpServers.push({
+    id: `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: 'MCP Server',
+    enabled: true,
+    transport: 'stdio',
+    command: '',
+    args: [],
+    cwd: '',
+    url: '',
+    env: [],
+    headers: []
+  })
+}
+
+function removeMcpServer(id: string) {
+  aiLocal.value.mcpServers = aiLocal.value.mcpServers.filter(server => server.id !== id)
+  delete mcpTestResults.value[id]
+}
+
+function setMcpArgs(server: McpServerConfig, event: Event) {
+  server.args = (event.target as HTMLTextAreaElement).value
+    .split(/\r?\n/)
+    .map(value => value.trim())
+    .filter(Boolean)
+}
+
+function addMcpEntry(target: McpKeyValue[]) {
+  target.push({ name: '', value: '' })
+}
+
+function removeMcpEntry(target: McpKeyValue[], index: number) {
+  target.splice(index, 1)
+}
+
+async function testMcpServer(server: McpServerConfig) {
+  const testing = new Set(mcpTesting.value)
+  testing.add(server.id)
+  mcpTesting.value = testing
+  mcpTestResults.value = { ...mcpTestResults.value, [server.id]: '' }
+  try {
+    if (typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)) {
+      throw new Error('请在 StarHub 桌面端测试 MCP Server')
+    }
+    const tools = await listMcpTools(server)
+    mcpTestResults.value = {
+      ...mcpTestResults.value,
+      [server.id]: `✓ 连接成功,发现 ${tools.length} 个工具`
+    }
+  } catch (error) {
+    mcpTestResults.value = {
+      ...mcpTestResults.value,
+      [server.id]: `✗ ${error instanceof Error ? error.message : String(error)}`
+    }
+  } finally {
+    const next = new Set(mcpTesting.value)
+    next.delete(server.id)
+    mcpTesting.value = next
+  }
 }
 
 function isSkillEnabled(id: string) {
@@ -495,7 +569,7 @@ const PRESET_MODELS = [
           <div class="form-field">
             <label class="field-label">API Key</label>
             <input v-model="aiLocal.apiKey" class="cyber-input" type="password" placeholder="sk-..." />
-            <div class="field-hint">仅保存在本地浏览器,不发送到任何第三方</div>
+            <div class="field-hint">密钥保存在系统 Keyring,仅在请求所配置的 LLM 服务时使用</div>
           </div>
 
           <div class="form-field">
@@ -647,6 +721,123 @@ const PRESET_MODELS = [
       <div class="section">
         <div class="section-header">
           <span class="section-number">03</span>
+          <span class="section-title">MCP Servers</span>
+        </div>
+        <p class="section-desc">
+          支持 stdio、Streamable HTTP 与兼容 SSE。启用后会动态发现 tools,每次 MCP 工具调用仍需人工确认;环境变量和请求头值保存在系统 Keyring。
+        </p>
+
+        <div class="ai-mcp-toolbar">
+          <button class="cyber-btn-secondary" @click="addMcpServer">
+            <v-icon size="14">mdi-plus</v-icon>
+            添加 MCP Server
+          </button>
+          <span class="field-hint">stdio 参数一行一个,不会经过 Shell 二次解析</span>
+        </div>
+
+        <div v-if="aiLocal.mcpServers.length === 0" class="ai-mcp-empty">
+          <v-icon size="20">mdi-connection</v-icon>
+          <span>尚未配置 MCP Server</span>
+        </div>
+
+        <div class="ai-mcp-list">
+          <div v-for="server in aiLocal.mcpServers" :key="server.id" class="ai-mcp-card">
+            <div class="ai-mcp-card-head">
+              <label class="checkbox-row">
+                <input v-model="server.enabled" type="checkbox" />
+                <span>启用</span>
+              </label>
+              <input v-model="server.name" class="cyber-input ai-mcp-name" aria-label="MCP Server 名称" placeholder="MCP Server 名称" />
+              <span class="cyber-badge">{{ server.transport }}</span>
+              <button
+                class="action-btn"
+                :disabled="mcpTesting.has(server.id)"
+                :aria-label="`测试 ${server.name}`"
+                data-tooltip="测试连接与工具发现"
+                @click="testMcpServer(server)"
+              >
+                <v-icon size="14">{{ mcpTesting.has(server.id) ? 'mdi-loading mdi-spin' : 'mdi-lan-check' }}</v-icon>
+              </button>
+              <button class="action-btn ai-mcp-delete" :aria-label="`删除 ${server.name}`" data-tooltip="删除 MCP Server" @click="removeMcpServer(server.id)">
+                <v-icon size="14">mdi-delete-outline</v-icon>
+              </button>
+            </div>
+
+            <div class="form-grid ai-mcp-grid">
+              <div class="form-field">
+                <label class="field-label">传输类型</label>
+                <select v-model="server.transport" class="cyber-input">
+                  <option value="stdio">stdio</option>
+                  <option value="streamable-http">Streamable HTTP</option>
+                  <option value="sse">SSE (兼容旧服务)</option>
+                </select>
+              </div>
+
+              <template v-if="server.transport === 'stdio'">
+                <div class="form-field">
+                  <label class="field-label">Command</label>
+                  <input v-model="server.command" class="cyber-input" placeholder="npx / uvx / 可执行文件路径" />
+                </div>
+                <div class="form-field">
+                  <label class="field-label">工作目录 (可选)</label>
+                  <input v-model="server.cwd" class="cyber-input" placeholder="D:\\workspace 或 /home/user/project" />
+                </div>
+                <div class="form-field ai-mcp-span">
+                  <label class="field-label">Arguments (每行一个)</label>
+                  <textarea
+                    class="cyber-input ai-mcp-textarea"
+                    rows="3"
+                    :value="server.args.join('\n')"
+                    placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;D:\\workspace"
+                    @input="setMcpArgs(server, $event)"
+                  />
+                </div>
+              </template>
+
+              <div v-else class="form-field ai-mcp-span">
+                <label class="field-label">Server URL</label>
+                <input v-model="server.url" class="cyber-input" placeholder="https://example.com/mcp" />
+              </div>
+            </div>
+
+            <div v-if="server.transport === 'stdio'" class="ai-mcp-secret-block">
+              <div class="ai-mcp-secret-head">
+                <span>Environment</span>
+                <button class="action-btn" aria-label="添加环境变量" data-tooltip="添加环境变量" @click="addMcpEntry(server.env)">
+                  <v-icon size="12">mdi-plus</v-icon>
+                </button>
+              </div>
+              <div v-for="(item, index) in server.env" :key="`env-${index}`" class="ai-mcp-key-value">
+                <input v-model="item.name" class="cyber-input" aria-label="环境变量名" placeholder="API_TOKEN" />
+                <input v-model="item.value" class="cyber-input" type="password" aria-label="环境变量值" placeholder="value" />
+                <button class="action-btn" aria-label="删除环境变量" @click="removeMcpEntry(server.env, index)"><v-icon size="12">mdi-close</v-icon></button>
+              </div>
+            </div>
+
+            <div v-else class="ai-mcp-secret-block">
+              <div class="ai-mcp-secret-head">
+                <span>HTTP Headers</span>
+                <button class="action-btn" aria-label="添加请求头" data-tooltip="添加请求头" @click="addMcpEntry(server.headers)">
+                  <v-icon size="12">mdi-plus</v-icon>
+                </button>
+              </div>
+              <div v-for="(item, index) in server.headers" :key="`header-${index}`" class="ai-mcp-key-value">
+                <input v-model="item.name" class="cyber-input" aria-label="请求头名" placeholder="Authorization" />
+                <input v-model="item.value" class="cyber-input" type="password" aria-label="请求头值" placeholder="Bearer ..." />
+                <button class="action-btn" aria-label="删除请求头" @click="removeMcpEntry(server.headers, index)"><v-icon size="12">mdi-close</v-icon></button>
+              </div>
+            </div>
+
+            <div v-if="mcpTestResults[server.id]" class="ai-mcp-test-result" :class="{ ok: mcpTestResults[server.id].startsWith('✓') }">
+              {{ mcpTestResults[server.id] }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">04</span>
           <span class="section-title">命令白名单</span>
         </div>
         <p class="section-desc">

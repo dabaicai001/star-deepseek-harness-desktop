@@ -17,6 +17,7 @@ import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
+import { createMcpRuntime } from '@/services/mcp'
 import SqlEditor from '@/components/db/SqlEditor.vue'
 import DataGrid from '@/components/db/DataGrid.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -1895,13 +1896,17 @@ async function onAiSend(text: string) {
     () => aiStore.settings.commandWhitelist,
     confirmFn
   )
+  const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
+  if (mcpRuntime.warnings.length) console.warn('[db-ai] MCP discovery warnings:', mcpRuntime.warnings)
   const toolExec = async (call: LlmToolCall) =>
-    await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+    call.function.name.startsWith('mcp__')
+      ? mcpRuntime.execute(call)
+      : caller({ function: { name: call.function.name, arguments: call.function.arguments } })
   const basePrompt = selectedDb.value
     ? DB_SYSTEM_PROMPT.replace('当前已连接到数据库', `当前已连接到数据库,当前数据库: ${selectedDb.value}`)
     : DB_SYSTEM_PROMPT
   const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'db')
-  await aiStore.runAgent(instanceId.value, dbTools, toolExec, sysPrompt)
+  await aiStore.runAgent(instanceId.value, [...dbTools, ...mcpRuntime.tools], toolExec, sysPrompt)
 }
 
 async function onAiRetry() {

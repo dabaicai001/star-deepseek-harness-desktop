@@ -851,7 +851,7 @@ graph LR
         </div>
         <div class="module-name">AI 助手</div>
       </div>
-      <p>Planner → Executor 多 Agent 编排、有界多轮上下文、滚动位置恢复、会话级 # 绑定、SSH exec-only 直连、#LOCAL 本机操作与危险操作追溯</p>
+      <p>Planner → Executor 多 Agent 编排、有界多轮上下文、最近对话恢复/删除、会话级 # 绑定、AI SFTP、三类 MCP 传输、发送引导与危险操作追溯</p>
       <div class="tag-row">
         <span class="tag">Claude / GPT</span>
         <span class="tag">Function Call</span>
@@ -861,9 +861,12 @@ graph LR
         <span class="tag">Parallel Agents</span>
         <span class="tag">Multi-turn Context</span>
         <span class="tag">SSH Exec-only</span>
+        <span class="tag">AI SFTP</span>
+        <span class="tag">Recent Chats</span>
+        <span class="tag">Prompt Guide</span>
         <span class="tag">Skill Import</span>
         <span class="tag">Ollama 本地</span>
-        <span class="tag">MCP 协议</span>
+        <span class="tag">MCP stdio / HTTP / SSE</span>
       </div>
     </div>
     <div class="module">
@@ -1052,7 +1055,7 @@ graph LR
     <li><strong>SSH/SFTP</strong>:连接管理、终端渲染、PTY、跳板机、隧道、拖拽、ZMODEM、SCP</li>
     <li><strong>数据库</strong>:MySQL/PG/SQLite/Redis 完整链路、SQL 编辑器、表格编辑、跨库同步</li>
     <li><strong>Docker</strong>:本地/SSH 通道连接、容器/镜像管理、终端、日志、监控</li>
-    <li><strong>AI</strong>:多 LLM、Planner → Executor、有界多轮上下文、顺序步骤结果传递、会话级 # 绑定、#LOCAL 跨平台本机 Shell/文件、Function Calling 与危险操作确认</li>
+    <li><strong>AI</strong>:多 LLM、Planner → Executor、有界多轮上下文、最近对话恢复/删除、会话级 # 绑定、#LOCAL、AI SFTP、stdio / Streamable HTTP / SSE MCP、发送引导、Function Calling 与危险操作确认</li>
     <li><strong>安全</strong>:主密码、Keyring、敏感加密、危险拦截、审计</li>
     <li><strong>基础</strong>:多平台、中英文、双主题、资产中心、导入导出、命令面板</li>
   </ul>

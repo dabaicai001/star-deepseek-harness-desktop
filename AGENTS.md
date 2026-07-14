@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.28.10(AI 滚动恢复与 SSH exec-only 直连) |
+| 当前版本 | v0.29.0(AI SFTP、最近对话、MCP 与发送引导) |
 
 ---
 
@@ -274,6 +274,7 @@ starhub/
 | `.dashboard-chart-*` / `.dashboard-detail-table-*` | 指标折线/环图与可钻取明细表 |
 | `.broker-*` / `.docker-transport-switch` | Kafka/NSQ 状态页与 Docker 连接协议切换 |
 | `.ai-workspace-*` / `.ai-agent-*` / `.ai-mention-menu` | 独立 AI Agent 工作区、Agent 配置与 @/# 补全 |
+| `.ai-mcp-*` / `.ai-composer-guide*` / `.ai-recent-delete` | MCP Server 设置卡、AI 发送引导与最近对话删除操作 |
 | `.ai-think-*` / `.ai-message-segmented` | AI `<think>` 思考过程折叠块与分段消息布局 |
 | `.ai-execution-plan` / `.ai-plan-*` / `.ai-current-agent-badge` | Planner → Executor 计划、点击选项、临时/并行 Agent、直连确认卡与当前 Agent 状态；当前计划在消息流末尾展示 |
 | `.ai-action-dock` | 连接工作区 AI 的当前待确认操作区，固定在消息流与输入框之间，不随历史消息滚走 |
@@ -779,4 +780,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-14 (v0.28.10)*
+*最后更新: 2026-07-14 (v0.29.0)*

@@ -3125,6 +3125,11 @@ body {
   transition: all 0.15s var(--ease-standard);
 }
 
+.ai-recent-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
 .ai-recent-item:hover {
   color: var(--text);
   background: var(--hover-cyan-faint);
@@ -3150,6 +3155,141 @@ body {
   font-size: 9px;
   color: var(--muted);
   flex-shrink: 0;
+}
+
+.ai-recent-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  opacity: 0;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-standard);
+}
+
+.ai-recent-item:hover .ai-recent-delete,
+.ai-recent-item:focus-within .ai-recent-delete {
+  opacity: 1;
+}
+
+.ai-recent-delete:hover,
+.ai-recent-delete:focus-visible {
+  color: var(--red);
+  border-color: var(--line-2);
+  background: transparent;
+  outline: none;
+}
+
+/* AI 设置 — MCP Server 配置 */
+.ai-mcp-toolbar,
+.ai-mcp-card-head,
+.ai-mcp-secret-head,
+.ai-mcp-key-value {
+  display: flex;
+  align-items: center;
+}
+
+.ai-mcp-toolbar {
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ai-mcp-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 72px;
+  color: var(--muted);
+  border: 1px dashed var(--line-2);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.ai-mcp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-mcp-card {
+  padding: 12px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+}
+
+.ai-mcp-card-head {
+  gap: 8px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ai-mcp-name {
+  flex: 1;
+  min-width: 140px;
+}
+
+.ai-mcp-delete:hover {
+  color: var(--red);
+}
+
+.ai-mcp-grid {
+  margin-bottom: 12px;
+}
+
+.ai-mcp-span {
+  grid-column: 1 / -1;
+}
+
+.ai-mcp-textarea {
+  min-height: 76px;
+  resize: vertical;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.ai-mcp-secret-block {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.ai-mcp-secret-head {
+  justify-content: space-between;
+  min-height: 28px;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ai-mcp-key-value {
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ai-mcp-key-value .cyber-input:first-child {
+  flex: 0 0 36%;
+}
+
+.ai-mcp-key-value .cyber-input:nth-child(2) {
+  flex: 1;
+}
+
+.ai-mcp-test-result {
+  margin-top: 10px;
+  color: var(--red);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.ai-mcp-test-result.ok {
+  color: var(--green);
 }
 
 /* AI 分组内的子分隔线(快捷入口 / 最近对话 与 Agent 列表之间) */
@@ -4222,6 +4362,82 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.ai-composer-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel-solid-2);
+}
+
+.ai-composer-guide-head,
+.ai-composer-guide-head > span,
+.ai-composer-guide-steps,
+.ai-composer-guide-templates {
+  display: flex;
+  align-items: center;
+}
+
+.ai-composer-guide-head {
+  justify-content: space-between;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-composer-guide-head > span {
+  gap: 6px;
+}
+
+.ai-composer-guide-head .v-icon {
+  color: var(--cyan);
+}
+
+.ai-composer-guide-steps {
+  gap: 8px;
+}
+
+.ai-composer-guide-steps span {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: 10px;
+}
+
+.ai-composer-guide-steps b {
+  color: var(--cyan);
+  font: 10px 'Orbitron', sans-serif;
+}
+
+.ai-composer-guide-templates {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-composer-guide-templates button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-standard);
+}
+
+.ai-composer-guide-templates button:hover,
+.ai-composer-guide-templates button:focus-visible {
+  color: var(--cyan);
+  border-color: var(--cyan);
+  outline: none;
 }
 
 .ai-composer-input {

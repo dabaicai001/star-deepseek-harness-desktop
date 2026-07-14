@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useNotifyStore } from '@/stores/notify'
-import { useAiStore, type AiAgent, type AiAgentDraft } from '@/stores/ai'
+import { useAiStore, type AiAgent, type AiAgentDraft, type AiConversationSummary } from '@/stores/ai'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -66,8 +66,8 @@ const sortedAiAgents = computed(() =>
   })
 )
 
-/** 最近对话摘要(取前 3 条) */
-const recentSummaries = computed(() => aiStore.conversationSummaries.slice(0, 3))
+/** 最近对话摘要(持久化列表最多 10 条) */
+const recentSummaries = computed(() => aiStore.conversationSummaries.slice(0, 10))
 
 /** 当前激活的工作区类型 */
 const activeWorkspaceType = computed(() => {
@@ -420,6 +420,8 @@ const showAgentDialog = ref(false)
 const editingAgent = ref<AiAgent | null>(null)
 const showAgentDeleteConfirm = ref(false)
 const deletingAgent = ref<AiAgent | null>(null)
+const showConversationDeleteConfirm = ref(false)
+const deletingConversation = ref<AiConversationSummary | null>(null)
 
 function openNewAgentDialog() {
   editingAgent.value = null
@@ -522,6 +524,27 @@ function deleteAgent() {
     const next = appStore.tabs.find(tab => tab.id === appStore.activeTab)
     if (next?.type === 'ai') router.push({ name: 'ai', params: { id: next.id } })
     else if (!next) router.push('/')
+  }
+}
+
+function openConversationDeleteConfirm(summary: AiConversationSummary) {
+  deletingConversation.value = summary
+  showConversationDeleteConfirm.value = true
+}
+
+function deleteConversation() {
+  const summary = deletingConversation.value
+  if (!summary) return
+  const removingCurrent = router.currentRoute.value.params.id === summary.id
+  const tab = appStore.tabs.find(item => item.id === summary.id)
+  if (tab) appStore.removeTab(tab.id)
+  aiStore.deleteConversation(summary.id)
+  deletingConversation.value = null
+  showConversationDeleteConfirm.value = false
+  if (removingCurrent) {
+    const next = appStore.tabs.find(item => item.id === appStore.activeTab)
+    if (next?.type === 'ai') router.push({ name: 'ai', params: { id: next.id } })
+    else router.push('/')
   }
 }
 
@@ -956,6 +979,38 @@ function isGroupExpanded(id: string) {
           </button>
         </div>
 
+        <!-- 最近对话始终可见,即使 LLM 暂未配置也可以恢复或删除历史 -->
+        <template v-if="recentSummaries.length > 0">
+          <div class="ai-recent-label">
+            <v-icon size="10">mdi-history</v-icon>最近对话
+          </div>
+          <div class="ai-recent-list">
+            <div
+              v-for="summary in recentSummaries"
+              :key="summary.id"
+              class="ai-recent-item"
+              role="button"
+              tabindex="0"
+              :data-tooltip="summary.preview"
+              @click.stop="reopenConversation(summary)"
+              @keydown.enter.prevent="reopenConversation(summary)"
+            >
+              <v-icon size="12">mdi-message-outline</v-icon>
+              <span class="ai-recent-preview">{{ summary.preview }}</span>
+              <span class="ai-recent-time">{{ formatSummaryTime(summary.timestamp) }}</span>
+              <button
+                class="ai-recent-delete"
+                :aria-label="t('ai.deleteConversation')"
+                :data-tooltip="t('ai.deleteConversation')"
+                @click.stop="openConversationDeleteConfirm(summary)"
+              >
+                <v-icon size="11">mdi-delete-outline</v-icon>
+              </button>
+            </div>
+          </div>
+          <div class="ai-section-divider" />
+        </template>
+
         <!-- 已配置时的内容 -->
         <template v-if="aiConfigured">
           <!-- 快捷入口 -->
@@ -976,25 +1031,6 @@ function isGroupExpanded(id: string) {
           </div>
 
           <div class="ai-section-divider" />
-
-          <!-- 最近对话 -->
-          <template v-if="recentSummaries.length > 0">
-            <div class="ai-recent-label">
-              <v-icon size="10">mdi-history</v-icon>最近对话
-            </div>
-            <button
-              v-for="summary in recentSummaries"
-              :key="summary.id"
-              class="ai-recent-item"
-              :data-tooltip="summary.preview"
-              @click.stop="reopenConversation(summary)"
-            >
-              <v-icon size="12">mdi-message-outline</v-icon>
-              <span class="ai-recent-preview">{{ summary.preview }}</span>
-              <span class="ai-recent-time">{{ formatSummaryTime(summary.timestamp) }}</span>
-            </button>
-            <div class="ai-section-divider" />
-          </template>
 
           <!-- Agent 列表 -->
           <TransitionGroup name="cyber-list">
@@ -1082,6 +1118,16 @@ function isGroupExpanded(id: string) {
     :cancel-text="t('common.cancel')"
     danger
     @confirm="deleteAgent"
+  />
+
+  <ConfirmDialog
+    v-model="showConversationDeleteConfirm"
+    :title="t('ai.deleteConversation')"
+    :message="t('ai.confirmDeleteConversation', { preview: deletingConversation?.preview })"
+    :confirm-text="t('common.delete')"
+    :cancel-text="t('common.cancel')"
+    danger
+    @confirm="deleteConversation"
   />
 
   <!-- 编辑 dialog -->

@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 const SERVICE: &str = "com.starhub.app.assets";
 const AI_SERVICE: &str = "com.starhub.app.ai";
 const AI_API_KEY: &str = "default";
+const MCP_SERVICE: &str = "com.starhub.app.mcp";
 // Windows Credential Manager limits the UTF-16 encoded credential blob to
 // 2560 bytes. Keep a safety margin for native-store implementation details.
 const SECRET_CHUNK_MAX_UTF16_BYTES: usize = 2048;
@@ -298,6 +299,37 @@ pub async fn delete_ai_api_key() -> Result<(), String> {
             Err(error) => Err(format!("Failed to delete AI API key: {error}")),
         },
     )
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub async fn store_mcp_server_secrets(id: String, secrets: Value) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let serialized = serde_json::to_string(&secrets).map_err(|e| e.to_string())?;
+        entry(MCP_SERVICE, &id)?
+            .set_password(&serialized)
+            .map_err(|e| format!("Failed to store MCP server secrets: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub async fn load_mcp_server_secrets(id: String) -> Result<Value, String> {
+    tokio::task::spawn_blocking(move || match entry(MCP_SERVICE, &id)?.get_password() {
+        Ok(serialized) => serde_json::from_str(&serialized)
+            .map_err(|e| format!("Failed to parse MCP server secrets: {e}")),
+        Err(Error::NoEntry) => Ok(serde_json::json!({ "env": [], "headers": [] })),
+        Err(error) => Err(format!("Failed to load MCP server secrets: {error}")),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub async fn delete_mcp_server_secrets(id: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || match entry(MCP_SERVICE, &id)?.delete_credential() {
+        Ok(()) | Err(Error::NoEntry) => Ok(()),
+        Err(error) => Err(format!("Failed to delete MCP server secrets: {error}")),
+    })
     .await
     .map_err(|e| e.to_string())?
 }

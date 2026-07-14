@@ -47,6 +47,27 @@ export interface AiConversationSummary {
   timestamp: number
 }
 
+export type McpTransport = 'stdio' | 'streamable-http' | 'sse'
+
+export interface McpKeyValue {
+  name: string
+  /** 仅在内存中解锁；持久化配置中的值始终为空。 */
+  value: string
+}
+
+export interface McpServerConfig {
+  id: string
+  name: string
+  enabled: boolean
+  transport: McpTransport
+  command: string
+  args: string[]
+  cwd: string
+  url: string
+  env: McpKeyValue[]
+  headers: McpKeyValue[]
+}
+
 /** AI 健康状态 */
 export type AiHealthStatus = 'ready' | 'unconfigured' | 'error'
 
@@ -160,6 +181,8 @@ export interface AiSettings {
   enabledSkillIds: string[]
   /** 用户自定义 SKILLS。 */
   customSkills: AiCustomSkill[]
+  /** 外部 MCP Server；env/header 的值存入系统 Keyring，不进入持久化配置。 */
+  mcpServers: McpServerConfig[]
   /**
    * 白名单:匹配的命令前缀不需要再弹确认对话框。
    * 风险词命中的命令即使加进白名单也会被强制拦截。
@@ -336,6 +359,7 @@ export const useAiStore = defineStore('ai', () => {
     commandTimeoutSec: 3,
     enabledSkillIds: [...DEFAULT_ENABLED_SKILL_IDS],
     customSkills: [],
+    mcpServers: [],
     commandWhitelist: [...DEFAULT_COMMAND_WHITELIST],
     // 初始值保留在上一版,确保首次创建和旧持久化状态都执行一次 v3 跨平台预设迁移。
     commandWhitelistVersion: 2
@@ -383,6 +407,29 @@ export const useAiStore = defineStore('ai', () => {
         assetTypes: Array.isArray(skill.assetTypes) && skill.assetTypes.length > 0
           ? skill.assetTypes.filter(type => ['ssh', 'db', 'docker', 'excel'].includes(type))
           : ['ssh', 'db', 'docker', 'excel']
+      }))
+    if (!Array.isArray(s.mcpServers)) {
+      s.mcpServers = []
+    }
+    s.mcpServers = s.mcpServers
+      .filter(server => server && typeof server.id === 'string' && typeof server.name === 'string')
+      .map(server => ({
+        id: server.id,
+        name: server.name.trim() || 'MCP Server',
+        enabled: server.enabled !== false,
+        transport: server.transport === 'stdio' || server.transport === 'sse'
+          ? server.transport
+          : 'streamable-http',
+        command: typeof server.command === 'string' ? server.command : '',
+        args: Array.isArray(server.args) ? server.args.filter(arg => typeof arg === 'string') : [],
+        cwd: typeof server.cwd === 'string' ? server.cwd : '',
+        url: typeof server.url === 'string' ? server.url : '',
+        env: Array.isArray(server.env)
+          ? server.env.filter(item => item && typeof item.name === 'string').map(item => ({ name: item.name, value: '' }))
+          : [],
+        headers: Array.isArray(server.headers)
+          ? server.headers.filter(item => item && typeof item.name === 'string').map(item => ({ name: item.name, value: '' }))
+          : []
       }))
     if (!Number.isFinite(s.commandTimeoutSec)) {
       s.commandTimeoutSec = 3
@@ -609,6 +656,7 @@ export const useAiStore = defineStore('ai', () => {
     for (const [instanceId, session] of sessions.value.entries()) {
       if (session.assetId === id) clearSession(instanceId)
     }
+    clearConversationSummariesForAgent(id)
     return true
   }
 
@@ -636,8 +684,73 @@ export const useAiStore = defineStore('ai', () => {
     }
   }
 
+  function deleteConversation(instanceId: string) {
+    clearSession(instanceId)
+    conversationSummaries.value = conversationSummaries.value.filter(summary => summary.id !== instanceId)
+    persistSessions()
+  }
+
   function clearConversationSummariesForAgent(agentId: string) {
     conversationSummaries.value = conversationSummaries.value.filter(s => s.agentId !== agentId)
+  }
+
+  async function setMcpServers(servers: McpServerConfig[]) {
+    ensureSettingsShape()
+    const normalized = servers.map(server => ({
+      ...server,
+      name: server.name.trim() || 'MCP Server',
+      command: server.command.trim(),
+      cwd: server.cwd.trim(),
+      url: server.url.trim(),
+      args: server.args.map(arg => arg.trim()).filter(Boolean),
+      env: server.env
+        .map(item => ({ name: item.name.trim(), value: item.value }))
+        .filter(item => item.name),
+      headers: server.headers
+        .map(item => ({ name: item.name.trim(), value: item.value }))
+        .filter(item => item.name)
+    }))
+    const previousIds = new Set(settings.value.mcpServers.map(server => server.id))
+    const nextIds = new Set(normalized.map(server => server.id))
+    const hasTauri = typeof window === 'undefined' || '__TAURI_INTERNALS__' in window
+
+    if (hasTauri) {
+      await Promise.all(normalized.map(server => invoke('set_mcp_server_secrets', {
+        id: server.id,
+        secrets: { env: server.env, headers: server.headers }
+      })))
+      await Promise.all([...previousIds]
+        .filter(id => !nextIds.has(id))
+        .map(id => invoke('delete_mcp_server_secrets', { id })))
+    }
+
+    settings.value.mcpServers = normalized.map(server => ({
+      ...server,
+      env: server.env.map(item => ({ name: item.name, value: '' })),
+      headers: server.headers.map(item => ({ name: item.name, value: '' }))
+    }))
+  }
+
+  async function getMcpServers(): Promise<McpServerConfig[]> {
+    ensureSettingsShape()
+    const configs = settings.value.mcpServers.map(server => ({
+      ...server,
+      args: [...server.args],
+      env: server.env.map(item => ({ ...item })),
+      headers: server.headers.map(item => ({ ...item }))
+    }))
+    if (typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)) return configs
+
+    await Promise.all(configs.map(async server => {
+      try {
+        const secrets = await invoke<{ env?: McpKeyValue[]; headers?: McpKeyValue[] }>('get_mcp_server_secrets', { id: server.id })
+        server.env = Array.isArray(secrets.env) ? secrets.env : server.env
+        server.headers = Array.isArray(secrets.headers) ? secrets.headers : server.headers
+      } catch (error) {
+        console.warn(`[ai] MCP secrets unavailable for ${server.name}:`, error)
+      }
+    }))
+    return configs
   }
 
   function updateSettings(partial: Partial<AiSettings>) {
@@ -1152,12 +1265,15 @@ export const useAiStore = defineStore('ai', () => {
     favoriteAgent,
     unfavoriteAgent,
     addConversationSummary,
+    deleteConversation,
     clearConversationSummariesForAgent,
     getOrCreateSession,
     getSession,
     clearSession,
     clearAllSessions,
     updateSettings,
+    setMcpServers,
+    getMcpServers,
     addToWhitelist,
     removeFromWhitelist,
     setSkillEnabled,

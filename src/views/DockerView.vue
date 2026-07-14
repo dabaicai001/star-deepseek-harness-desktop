@@ -23,6 +23,7 @@ import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller } from '@/utils
 import * as dockerService from '@/services/docker'
 import { assetConfigToSshConfig, type KbInteractiveEvent } from '@/services/ssh'
 import type { LlmToolCall } from '@/services/ai'
+import { createMcpRuntime } from '@/services/mcp'
 import type { Asset } from '@/types/asset'
 import type { ContainerInfo, DockerConnectParams } from '@/types/docker'
 
@@ -541,10 +542,14 @@ async function onAiSend(text: string) {
     () => aiStore.settings.commandWhitelist,
     confirmFn
   )
+  const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
+  if (mcpRuntime.warnings.length) console.warn('[docker-ai] MCP discovery warnings:', mcpRuntime.warnings)
   const toolExec = async (call: LlmToolCall) =>
-    await caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+    call.function.name.startsWith('mcp__')
+      ? mcpRuntime.execute(call)
+      : caller({ function: { name: call.function.name, arguments: call.function.arguments } })
   const sysPrompt = aiStore.buildSystemPrompt(DOCKER_SYSTEM_PROMPT, 'docker')
-  await aiStore.runAgent(instanceId.value, dockerTools, toolExec, sysPrompt)
+  await aiStore.runAgent(instanceId.value, [...dockerTools, ...mcpRuntime.tools], toolExec, sysPrompt)
 }
 
 async function onAiRetry() {
