@@ -498,10 +498,12 @@ async function connect() {
    try {
     let effectivePassword = a.config.mfaEnabled ? a.config.mfaPassword : a.config.password
 
+    const terminalSize = terminalRef.value?.getSize()
     const config: Record<string, unknown> = {
       host: a.config.host,
       port: a.config.port || 22,
       username: a.config.username,
+      ...(terminalSize ? { pty_cols: terminalSize.cols, pty_rows: terminalSize.rows } : {}),
       sftp_timeout_sec: a.config.sftpTimeoutSec ?? 30,
       auth: a.config.useKeyAuth && a.config.usePasswordAuth !== false && effectivePassword && a.config.privateKey
         ? { PasswordAndKey: { password: effectivePassword, key: a.config.privateKey, passphrase: a.config.passphrase ?? null } }
@@ -568,8 +570,12 @@ async function connect() {
  // → 如果 connectCallId已经不是最新的了(用户重连了),本次结果作废
  if (connectCallId !== currentConnectId) {
  terminalRef.value?.writeln('\x1b[33m! Superseded by a newer connection attempt\x1b[0m')
- return
+  return
  }
+
+  // request_pty 已使用当前尺寸；建链完成后再同步一次，覆盖连接期间的布局变化。
+  // resize 失败不应把一条已经可用的 SSH 连接判定为建链失败。
+  await syncRemoteTerminalSize()
 
   connected.value = true
   reconnectAttempt.value = 0
@@ -824,6 +830,17 @@ async function handleResize(cols: number, rows: number) {
  console.error('Failed to resize:', error)
  }
  }
+}
+
+async function syncRemoteTerminalSize() {
+  if (devMockWorkspace.value) return
+  const size = terminalRef.value?.getSize()
+  if (!size) return
+  try {
+    await invoke('ssh_resize', { id: props.id, cols: size.cols, rows: size.rows })
+  } catch (error) {
+    console.error('Failed to synchronize terminal size:', error)
+  }
 }
 
 // ====== AI助手用:写命令 +捕获输出 ======

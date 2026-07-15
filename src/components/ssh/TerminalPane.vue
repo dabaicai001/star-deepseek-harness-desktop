@@ -316,6 +316,18 @@ function fit() {
   fitAddon?.fit()
 }
 
+/**
+ * 返回 FitAddon 按当前真实容器计算出的终端尺寸。
+ *
+ * SSH 建链前需要把这个尺寸交给远端 PTY；否则远端会按默认 80 列
+ * 重绘 readline，而本地 xterm 按更宽的列数显示，长命令就会覆盖提示符。
+ */
+function getSize(): { cols: number; rows: number } | null {
+  if (!terminal) return null
+  fitAddon?.fit()
+  return { cols: terminal.cols, rows: terminal.rows }
+}
+
 defineExpose({
   write,
   writeln,
@@ -323,7 +335,8 @@ defineExpose({
   focus,
   search,
   setFontSize,
-  fit
+  fit,
+  getSize
 })
 </script>
 

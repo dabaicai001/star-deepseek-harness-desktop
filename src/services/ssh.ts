@@ -33,6 +33,8 @@ export interface SshConfig {
   port: number
   username: string
   auth: SshAuthConfig
+  pty_cols?: number | null
+  pty_rows?: number | null
   sftp_timeout_sec?: number
   sftp_launch_mode?: SftpLaunchMode
   sftp_server_path?: string | null

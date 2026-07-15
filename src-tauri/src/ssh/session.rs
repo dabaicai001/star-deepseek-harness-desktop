@@ -1,12 +1,12 @@
 use super::sftp_transport::{SftpChannelDiagnostics, SftpChannelStream};
 use super::{SftpLaunchMode, SshAuth, SshConfig};
-use russh::client::{self, Handle, Msg};
-use russh::{Channel, ChannelMsg, MethodKind, MethodSet};
+use russh::client::{self, Handle};
+use russh::{ChannelMsg, MethodKind, MethodSet};
 use serde::Serialize;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::timeout;
 use tracing::debug;
 
@@ -94,7 +94,7 @@ struct RemoteProbeOutput {
 pub struct SshSession {
     config: SshConfig,
     handle: Option<Handle<super::auth::SshHandler>>,
-    shell_channel: Arc<Mutex<Option<Channel<Msg>>>>,
+    resize_tx: Option<watch::Sender<(u32, u32)>>,
 }
 
 impl SshSession {
@@ -102,7 +102,7 @@ impl SshSession {
         Self {
             config,
             handle: None,
-            shell_channel: Arc::new(Mutex::new(None)),
+            resize_tx: None,
         }
     }
 
@@ -322,35 +322,29 @@ impl SshSession {
         channels: super::SshWriteChannels,
     ) -> Result<(), String> {
         let handle = self.handle.as_mut().ok_or("Not connected")?;
-        let channel = handle
+        let mut channel = handle
             .channel_open_session()
             .await
             .map_err(|e| format!("Failed to open channel: {}", e))?;
+        let (pty_cols, pty_rows) = self.config.effective_pty_size();
         channel
-            .request_pty(true, "xterm-256color", 80, 24, 0, 0, &[])
+            .request_pty(true, "xterm-256color", pty_cols, pty_rows, 0, 0, &[])
             .await
             .map_err(|e| format!("Failed to request PTY: {}", e))?;
         channel
             .request_shell(true)
             .await
             .map_err(|e| format!("Failed to request shell: {}", e))?;
-        let channel_arc = self.shell_channel.clone();
-        *channel_arc.lock().await = Some(channel);
-        let mut writer = {
-            let mut guard = channel_arc.lock().await;
-            guard
-                .as_mut()
-                .ok_or("Channel unexpectedly missing after pty+shell")?
-                .make_writer()
-        };
+        let mut writer = channel.make_writer();
         let (write_tx, mut write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (resize_tx, mut resize_rx) = watch::channel((pty_cols, pty_rows));
+        self.resize_tx = Some(resize_tx);
         {
             let mut ch = channels.lock().await;
             ch.insert(session_id.to_string(), (attempt_generation, write_tx));
         }
         let id_for_read = session_id.to_string();
         let channels_clone = channels.clone();
-        let channel_for_read = channel_arc;
         tokio::spawn(async move {
             use tokio::io::AsyncWriteExt;
             while let Some(data) = write_rx.recv().await {
@@ -361,34 +355,37 @@ impl SshSession {
         });
         tokio::spawn(async move {
             loop {
-                // Take channel out of the lock so resize can acquire it while we wait
-                let mut ch = {
-                    let mut guard = channel_for_read.lock().await;
-                    match guard.take() {
-                        Some(ch) => ch,
-                        None => break,
+                tokio::select! {
+                    resize_result = resize_rx.changed() => {
+                        if resize_result.is_err() {
+                            break;
+                        }
+                        let (cols, rows) = *resize_rx.borrow_and_update();
+                        if let Err(error) = channel.window_change(cols, rows, 0, 0).await {
+                            tracing::warn!(
+                                session_id = %id_for_read,
+                                cols,
+                                rows,
+                                %error,
+                                "Failed to resize SSH PTY"
+                            );
+                        }
                     }
-                };
-                // wait() outside the lock — this is the long await that previously
-                // held the Mutex and blocked resize.
-                let msg = ch.wait().await;
-                // Put channel back before processing the message
-                {
-                    let mut guard = channel_for_read.lock().await;
-                    *guard = Some(ch);
-                }
-                match msg {
-                    Some(ChannelMsg::Data { data }) => {
-                        let _ =
-                            app_handle.emit(&format!("ssh:data:{}", id_for_read), data.to_vec());
+                    msg = channel.wait() => {
+                        match msg {
+                            Some(ChannelMsg::Data { data }) => {
+                                let _ = app_handle
+                                    .emit(&format!("ssh:data:{}", id_for_read), data.to_vec());
+                            }
+                            Some(ChannelMsg::ExtendedData { data, .. }) => {
+                                let _ = app_handle
+                                    .emit(&format!("ssh:data:{}", id_for_read), data.to_vec());
+                            }
+                            Some(ChannelMsg::WindowChange { .. }) | Some(ChannelMsg::Success) => {}
+                            Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                            _ => {}
+                        }
                     }
-                    Some(ChannelMsg::ExtendedData { data, .. }) => {
-                        let _ =
-                            app_handle.emit(&format!("ssh:data:{}", id_for_read), data.to_vec());
-                    }
-                    Some(ChannelMsg::WindowChange { .. }) | Some(ChannelMsg::Success) => {}
-                    Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
-                    _ => {}
                 }
             }
             let mut ch = channels_clone.lock().await;
@@ -407,22 +404,12 @@ impl SshSession {
     }
 
     pub async fn resize(&self, cols: u32, rows: u32) -> Result<(), String> {
-        // Use take/put-back so we don't hold the lock during window_change await.
-        // If the reader has temporarily taken the channel out, just skip this resize.
-        let ch = {
-            let mut guard = self.shell_channel.lock().await;
-            match guard.take() {
-                Some(ch) => ch,
-                None => return Ok(()),
-            }
+        let Some(resize_tx) = &self.resize_tx else {
+            return Ok(());
         };
-        let result = ch
-            .window_change(cols, rows, 0, 0)
-            .await
-            .map_err(|e| format!("Failed to send window-change: {}", e));
-        let mut guard = self.shell_channel.lock().await;
-        *guard = Some(ch);
-        result
+        resize_tx
+            .send((cols, rows))
+            .map_err(|_| "SSH shell is no longer available".to_string())
     }
 
     async fn start_sftp_attempt(
@@ -932,6 +919,7 @@ impl SshSession {
     }
 
     pub fn disconnect(&mut self) {
+        self.resize_tx = None;
         if let Some(handle) = self.handle.take() {
             tokio::spawn(async move {
                 let _ = handle

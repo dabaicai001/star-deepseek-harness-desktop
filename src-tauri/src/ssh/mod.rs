@@ -17,6 +17,10 @@ pub type SshWriteChannels =
 pub const DEFAULT_SFTP_TIMEOUT_SEC: u64 = 30;
 pub const MIN_SFTP_TIMEOUT_SEC: u64 = 5;
 pub const MAX_SFTP_TIMEOUT_SEC: u64 = 300;
+pub const DEFAULT_PTY_COLS: u32 = 80;
+pub const DEFAULT_PTY_ROWS: u32 = 24;
+const MIN_PTY_DIMENSION: u32 = 2;
+const MAX_PTY_DIMENSION: u32 = 10_000;
 
 const fn default_sftp_timeout_sec() -> u64 {
     DEFAULT_SFTP_TIMEOUT_SEC
@@ -37,6 +41,10 @@ pub struct SshConfig {
     pub port: u16,
     pub username: String,
     pub auth: SshAuth,
+    #[serde(default)]
+    pub pty_cols: Option<u32>,
+    #[serde(default)]
+    pub pty_rows: Option<u32>,
     #[serde(default = "default_sftp_timeout_sec")]
     pub sftp_timeout_sec: u64,
     #[serde(default)]
@@ -56,6 +64,17 @@ pub struct SshConfig {
 }
 
 impl SshConfig {
+    pub fn effective_pty_size(&self) -> (u32, u32) {
+        (
+            self.pty_cols
+                .unwrap_or(DEFAULT_PTY_COLS)
+                .clamp(MIN_PTY_DIMENSION, MAX_PTY_DIMENSION),
+            self.pty_rows
+                .unwrap_or(DEFAULT_PTY_ROWS)
+                .clamp(MIN_PTY_DIMENSION, MAX_PTY_DIMENSION),
+        )
+    }
+
     pub fn effective_sftp_timeout_sec(&self) -> u64 {
         self.sftp_timeout_sec
             .clamp(MIN_SFTP_TIMEOUT_SEC, MAX_SFTP_TIMEOUT_SEC)
@@ -148,6 +167,10 @@ mod tests {
         assert_eq!(config.sftp_timeout_sec, DEFAULT_SFTP_TIMEOUT_SEC);
         assert_eq!(config.sftp_launch_mode, SftpLaunchMode::Auto);
         assert!(config.sftp_server_path.is_none());
+        assert_eq!(
+            config.effective_pty_size(),
+            (DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS)
+        );
     }
 
     #[test]
@@ -170,6 +193,22 @@ mod tests {
 
         config.sftp_timeout_sec = 600;
         assert_eq!(config.effective_sftp_timeout_sec(), MAX_SFTP_TIMEOUT_SEC);
+    }
+
+    #[test]
+    fn test_pty_size_serde_and_clamping() {
+        let mut config: SshConfig = serde_json::from_str(
+            r#"{"host":"localhost","port":22,"username":"root","auth":{"Password":""},"pty_cols":180,"pty_rows":52}"#,
+        )
+        .unwrap();
+        assert_eq!(config.effective_pty_size(), (180, 52));
+
+        config.pty_cols = Some(0);
+        config.pty_rows = Some(20_000);
+        assert_eq!(
+            config.effective_pty_size(),
+            (MIN_PTY_DIMENSION, MAX_PTY_DIMENSION)
+        );
     }
 
     #[test]
