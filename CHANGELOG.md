@@ -8,8 +8,42 @@
 ## [未发布]
 
 ### 计划中
-- SQLite 数据库适配器
 - Settings 补「代理」「安全」2 个 tab
+
+---
+
+## [0.30.1] - 2026-07-16
+
+### 修复
+- 🐛 fix(types): `src/services/ai.ts` 第 223 行 `tc: any` 替换为已有的 `RawToolCall` 接口,消除 strict 模式下的 `any` 类型。
+- 🐛 fix(types): `src/services/db.ts` 中 ClickHouse 的 `clickhouseGetPartitions`/`clickhouseGetMergeTreeInfo`/`clickhouseGetTableStats` 返回值从 `unknown`/`unknown[]` 替换为具体的 `ClickHousePartition[]`/`ClickHouseMergeTreeInfo`/`ClickHouseTableStats`;ES 的 `esCreateIndex`/`esDeleteIndex` 替换为 `EsAcknowledgedResult`,`esIndexDocument`/`esUpdateDocument`/`esDeleteDocument` 替换为 `EsDocumentOperationResult`。新增类型定义在 `src/types/db.ts`。
+
+### 重构
+- 🔧 refactor(sftp): `src/services/sftp.ts` 所有裸 `invoke()` 调用统一用 `wrapInvokeError` 包装,catch 中生成 `[SFTP] <operation> 失败: <message>` 格式的用户可读错误。
+- 🔧 refactor(docker): `src/services/docker.ts` 同样添加 `wrapInvokeError` 统一错误包装,保留 DEV 环境下的 mock 数据降级逻辑。
+
+### 测试
+- ✅ test: 新增 vitest + @vue/test-utils + jsdom 测试基础设施,配置 `vite.config.ts` 的 `test` 选项。
+- ✅ test: 新增 `tests/utils/crypto.test.mjs`(9 项)、`tests/utils/ddlGenerator.test.mjs`(18 项)、`tests/utils/sqlHistory.test.mjs`(8 项)单元测试,覆盖加解密往返、DDL 生成、SQL 历史管理等核心工具函数。
+
+---
+
+## [0.30.0] - 2026-07-16
+
+### 新功能
+- ✨ feat(sidecar): 新增 SQLite 适配器(`sidecar/adapters/sqlite.go` + `sqlite_handlers.go`),使用 `modernc.org/sqlite` 纯 Go 驱动,实现完整 CRUD。
+- ✨ feat(sidecar): 新增 SQL Server (MSSQL) 适配器(`sidecar/adapters/mssql.go` + `mssql_handlers.go`),使用 `microsoft/go-mssqldb` 驱动。
+- ✨ feat(sidecar): 新增 Redis Pub/Sub 支持(`sidecar/adapters/redis_pubsub_handlers.go`),subscribe 阻塞收集消息、unsubscribe 取消订阅。
+- ✨ feat(ssh): 新增 SSH 端口转发(本地/远程),支持 `add_local_forward`、`add_remote_forward`、`remove_forward`、`list_forwards` 命令。
+- ✨ feat(ssh): 新增 SSH Config 文件导入,解析 `~/.ssh/config` 返回主机列表(Host/HostName/Port/User/IdentityFile/ProxyJump)。
+- ✨ feat(ssh): 新增 SSH 危险命令拦截,`commandGuard.ts` 扩展 mkfs/chmod 777/iptables/fork 炸弹等规则,终端回车时检查并弹出确认弹窗。
+- ✨ feat(updater): 新增应用自动更新服务(`src/services/updater.ts`),集成 `tauri-plugin-updater`,SettingsView 增加检查更新入口。
+
+### 修复
+- 🐛 fix(ui): `DbDashboard.vue` 对 clickhouse/elasticsearch/kafka/nsq 不再抛硬错误,改为由模板 v-else 分支显示友好提示。
+- 🐛 fix(types): `src/types/asset.ts` 的 `DatabaseType` 已包含 `'sqlite'` 但 `src/types/db.ts` 不含,导致用户可创建 SQLite 资产但工作区无法处理。已同步添加 `'sqlite'` 和 `'mssql'`。
+- 🐛 fix(docker): `sidecar/adapters/docker.go` 移除 `TODO(#33)`,不再将 `context.Context` 存储在 struct 字段中,改为方法内创建。
+- 🐛 fix(docs): `AGENTS.md` 第 4.3 节技术栈表同步实际实现状态,SQLite/MSSQL 标注新增,Oracle/MongoDB/国产库标注规划中。
 
 ---
 

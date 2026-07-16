@@ -473,6 +473,180 @@ pub async fn ssh_hostkey_response(
         .map_err(|_| "Failed to send hostkey response (handler dropped)".to_string())
 }
 
+/// 添加本地端口转发
+#[tauri::command]
+pub async fn ssh_add_local_forward(
+    manager: State<'_, SshManager>,
+    id: String,
+    local_port: u16,
+    remote_host: String,
+    remote_port: u16,
+) -> Result<u16, String> {
+    let session_arc = {
+        let sessions = manager.sessions.lock().await;
+        sessions
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| format!("SSH session {} not found", id))?
+    };
+    let mut session = session_arc.lock().await;
+    session
+        .add_local_port_forward(local_port, &remote_host, remote_port)
+        .await
+}
+
+/// 添加远程端口转发
+#[tauri::command]
+pub async fn ssh_add_remote_forward(
+    manager: State<'_, SshManager>,
+    id: String,
+    remote_port: u16,
+    local_host: String,
+    local_port: u16,
+) -> Result<u16, String> {
+    let session_arc = {
+        let sessions = manager.sessions.lock().await;
+        sessions
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| format!("SSH session {} not found", id))?
+    };
+    let mut session = session_arc.lock().await;
+    session
+        .add_remote_port_forward(remote_port, &local_host, local_port)
+        .await
+}
+
+/// 移除端口转发
+#[tauri::command]
+pub async fn ssh_remove_forward(
+    manager: State<'_, SshManager>,
+    id: String,
+    bound_port: u16,
+    is_remote: bool,
+) -> Result<(), String> {
+    let session_arc = {
+        let sessions = manager.sessions.lock().await;
+        sessions
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| format!("SSH session {} not found", id))?
+    };
+    let mut session = session_arc.lock().await;
+    session.remove_port_forward(bound_port, is_remote).await
+}
+
+/// 列出端口转发
+#[tauri::command]
+pub async fn ssh_list_forwards(
+    manager: State<'_, SshManager>,
+    id: String,
+) -> Result<Vec<crate::ssh::PortForwardInfo>, String> {
+    let session_arc = {
+        let sessions = manager.sessions.lock().await;
+        sessions
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| format!("SSH session {} not found", id))?
+    };
+    let session = session_arc.lock().await;
+    Ok(session.list_port_forwards())
+}
+
+/// SSH Config 主机条目
+#[derive(Debug, serde::Serialize)]
+pub struct SshConfigHost {
+    pub name: String,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub user: Option<String>,
+    pub identity_file: Option<String>,
+    pub proxy_jump: Option<String>,
+}
+
+/// 解析 SSH config 文件,返回主机列表
+#[tauri::command]
+pub async fn ssh_parse_config_file(
+    config_path: Option<String>,
+) -> Result<Vec<SshConfigHost>, String> {
+    use std::path::PathBuf;
+
+    let path = match config_path {
+        Some(p) if !p.is_empty() => PathBuf::from(p),
+        _ => {
+            let home = home_dir()?;
+            home.join(".ssh").join("config")
+        }
+    };
+
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read SSH config {}: {}", path.display(), e))?;
+
+    let mut hosts: Vec<SshConfigHost> = Vec::new();
+    let mut current: Option<SshConfigHost> = None;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let (key, value) = match line.split_once(char::is_whitespace) {
+            Some((k, v)) => (k.trim().to_lowercase(), v.trim()),
+            None => continue,
+        };
+
+        if key == "host" {
+            if let Some(h) = current.take() {
+                hosts.push(h);
+            }
+            current = Some(SshConfigHost {
+                name: value.to_string(),
+                host: None,
+                port: None,
+                user: None,
+                identity_file: None,
+                proxy_jump: None,
+            });
+        } else if let Some(ref mut h) = current {
+            match key.as_str() {
+                "hostname" => h.host = Some(value.to_string()),
+                "port" => h.port = value.parse().ok(),
+                "user" => h.user = Some(value.to_string()),
+                "identityfile" => h.identity_file = Some(value.to_string()),
+                "proxyjump" => h.proxy_jump = Some(value.to_string()),
+                _ => {}
+            }
+        }
+    }
+
+    if let Some(h) = current.take() {
+        hosts.push(h);
+    }
+
+    Ok(hosts)
+}
+
+fn home_dir() -> Result<std::path::PathBuf, String> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(home) = std::env::var_os("USERPROFILE") {
+            return Ok(std::path::PathBuf::from(home));
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Some(home) = std::env::var_os("HOME") {
+            return Ok(std::path::PathBuf::from(home));
+        }
+    }
+    Err("Could not determine home directory".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

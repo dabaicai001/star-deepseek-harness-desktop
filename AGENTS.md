@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.29.7(去重计数列 + sidecar 校验修复) |
+| 当前版本 | v0.30.1(SQLite + MSSQL 适配器 + Redis PubSub + SSH 端口转发/Config 导入/危险命令拦截 + Tauri Updater + 前端类型安全/错误处理/测试基础设施) |
 
 ---
 
@@ -122,6 +122,8 @@ starhub/
 | 类别 | Crate | 用途 |
 |---|---|---|
 | 桌面壳 | `tauri` 2.x | 多窗口、权限、Updater |
+| 自动更新 | `tauri-plugin-updater` 2 | 检查/下载/安装应用更新 |
+| 进程管理 | `tauri-plugin-process` 2 | 更新后重启应用 |
 | 异步 | `tokio` | 全异步 |
 | SSH | `russh` + `russh-sftp` | SSH / SFTP |
 | SFTP | `russh-sftp` 2.x | SFTP client |
@@ -141,25 +143,25 @@ starhub/
 |---|---|---|
 | MySQL | `github.com/go-sql-driver/mysql` | |
 | PostgreSQL | `github.com/jackc/pgx/v5` | 性能之王,流式一等公民 |
-| SQLite | `modernc.org/sqlite` | 纯 Go,无 CGO,跨平台编译无坑 |
+| SQLite | `modernc.org/sqlite` | 纯 Go,无 CGO,跨平台编译无坑 **(v0.30.0 新增,代码已就绪,go.mod 待补)** |
 | Redis | `github.com/redis/go-redis/v9` | 官方维护 |
 | ClickHouse | `github.com/ClickHouse/clickhouse-go/v2` | 官方 |
-| SQL Server | `github.com/microsoft/go-mssqldb` | 微软官方 |
-| Oracle | `github.com/sijms/go-ora` | 纯 Go,无需 Instant Client |
+| SQL Server | `github.com/microsoft/go-mssqldb` | 微软官方 **(v0.30.0 新增,代码已就绪,go.mod 待补)** |
+| Oracle | `github.com/sijms/go-ora` | 纯 Go,无需 Instant Client **(规划中)** |
 | Elasticsearch | `github.com/elastic/go-elasticsearch/v8` | 官方 |
-| MongoDB | `go.mongodb.org/mongo-driver` | |
+| MongoDB | `go.mongodb.org/mongo-driver` | **(规划中)** |
 | Kafka | `github.com/segmentio/kafka-go` | Broker 元数据、Topic / 分区状态 |
 | NSQ | nsqd TCP + HTTP Stats API | Topic / Channel / 积压状态 |
-| 国产库兜底 | `github.com/alexbrainman/odbc` | 达梦/金仓 ODBC 桥 |
+| 国产库兜底 | `github.com/alexbrainman/odbc` | 达梦/金仓 ODBC 桥 **(规划中)** |
 | SQL 工具 | `github.com/jmoiron/sqlx` | Struct 映射 + 命名参数 |
 | Excel | `github.com/xuri/excelize/v2` | 导入导出、工作簿编辑 |
-| 验证 | `github.com/go-playground/validator/v10` | |
 | 日志 | `github.com/rs/zerolog` 或标准库 `log/slog` | |
-| 配置 | `github.com/spf13/viper` | |
-| 指标 | `github.com/prometheus/client_golang` | |
-| 追踪 | `go.opentelemetry.io/otel` | |
-| 测试 | `github.com/stretchr/testify` | |
-	| Mock | `github.com/golang/mock` + `github.com/DATA-DOG/go-sqlmock` | |
+| 验证 | `github.com/go-playground/validator/v10` | **(规划中)** |
+| 配置 | `github.com/spf13/viper` | **(规划中)** |
+| 指标 | `github.com/prometheus/client_golang` | **(规划中)** |
+| 追踪 | `go.opentelemetry.io/otel` | **(规划中)** |
+| 测试 | `github.com/stretchr/testify` | **(规划中)** |
+| Mock | `github.com/golang/mock` + `github.com/DATA-DOG/go-sqlmock` | **(规划中)** |
 
 ---
 
@@ -780,4 +782,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-16 (v0.29.8)*
+*最后更新: 2026-07-16 (v0.30.1)*

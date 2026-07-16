@@ -14,6 +14,19 @@ pub type PendingHostKeyResponses = Arc<Mutex<HashMap<String, oneshot::Sender<(bo
 pub type SshWriteChannels =
     Arc<Mutex<HashMap<String, (u64, tokio::sync::mpsc::UnboundedSender<Vec<u8>>)>>>;
 
+/// 端口转发信息(返回给前端)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortForwardInfo {
+    /// 转发类型: "local" 或 "remote"
+    pub forward_type: String,
+    /// 监听端口(本地转发: 本地端口; 远程转发: 远程端口)
+    pub bound_port: u16,
+    /// 目标主机
+    pub target_host: String,
+    /// 目标端口
+    pub target_port: u16,
+}
+
 pub const DEFAULT_SFTP_TIMEOUT_SEC: u64 = 30;
 pub const MIN_SFTP_TIMEOUT_SEC: u64 = 5;
 pub const MAX_SFTP_TIMEOUT_SEC: u64 = 300;

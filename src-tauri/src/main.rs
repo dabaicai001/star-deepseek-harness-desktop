@@ -24,6 +24,8 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::init())
+        .plugin(tauri_plugin_process::init())
         .manage(SshManager::new())
         .manage(sidecar_manager)
         .setup(|app| {
@@ -59,6 +61,11 @@ fn main() {
             commands::ssh::ssh_kb_response,
             commands::ssh::ssh_hostkey_response,
             commands::ssh::ssh_get_trusted_host_key,
+            commands::ssh::ssh_add_local_forward,
+            commands::ssh::ssh_add_remote_forward,
+            commands::ssh::ssh_remove_forward,
+            commands::ssh::ssh_list_forwards,
+            commands::ssh::ssh_parse_config_file,
             commands::sftp::sftp_list,
             commands::sftp::sftp_read,
             commands::sftp::sftp_write,
@@ -121,6 +128,8 @@ fn main() {
             commands::db::db_redis_bigkey_scan,
             commands::db::db_redis_memory_analysis,
             commands::db::db_redis_flush_db,
+            commands::db::db_redis_subscribe,
+            commands::db::db_redis_unsubscribe,
             // Elasticsearch
             commands::db::db_es_connect,
             commands::db::db_es_test,
@@ -167,6 +176,14 @@ fn main() {
             commands::db::db_clickhouse_get_partitions,
             commands::db::db_clickhouse_get_merge_tree_info,
             commands::db::db_clickhouse_get_table_stats,
+            // SQLite
+            commands::db::db_sqlite_connect,
+            commands::db::db_sqlite_test,
+            commands::db::db_sqlite_disconnect,
+            // MSSQL
+            commands::db::db_mssql_connect,
+            commands::db::db_mssql_test,
+            commands::db::db_mssql_disconnect,
             // Docker
             commands::docker::docker_connect,
             commands::docker::docker_test,

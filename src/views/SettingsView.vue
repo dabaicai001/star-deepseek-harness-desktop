@@ -5,6 +5,8 @@ import { useThemeStore } from '@/stores/theme'
 import { BUILTIN_AI_SKILLS, useAiStore } from '@/stores/ai'
 import type { AiAssetType, AiSettings, McpKeyValue, McpServerConfig } from '@/stores/ai'
 import { listMcpTools } from '@/services/mcp'
+import { checkForUpdates, downloadAndInstall } from '@/services/updater'
+import type { UpdateInfo } from '@/services/updater'
 import { version as appVersion } from '~package.json'
 
 const { t, locale } = useI18n()
@@ -106,6 +108,37 @@ const customSkillPrompt = ref('')
 const customSkillAssetTypes = ref<AiAssetType[]>(['ssh', 'db', 'docker', 'excel', 'local'])
 const skillImportInput = ref<HTMLInputElement | null>(null)
 const skillImportResult = ref<string | null>(null)
+
+// 更新检查
+const updateChecking = ref(false)
+const updateInfo = ref<UpdateInfo | null>(null)
+const updateInstalling = ref(false)
+const updateError = ref<string | null>(null)
+
+async function onCheckUpdate() {
+  updateChecking.value = true
+  updateInfo.value = null
+  updateError.value = null
+  try {
+    updateInfo.value = await checkForUpdates()
+  } catch (e) {
+    updateError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    updateChecking.value = false
+  }
+}
+
+async function onDownloadAndInstall() {
+  updateInstalling.value = true
+  updateError.value = null
+  try {
+    await downloadAndInstall()
+  } catch (e) {
+    updateError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    updateInstalling.value = false
+  }
+}
 
 const accentOptions = [
   { value: 'cyan' as const,   label: '青色 (Cyberpunk)',   color: '#00f0ff' },
@@ -882,11 +915,28 @@ const PRESET_MODELS = [
             <v-icon size="14">mdi-github</v-icon>
             <span>{{ t('settings.aboutGithub') }}</span>
           </a>
-          <button class="about-link" disabled>
-            <v-icon size="14">mdi-update</v-icon>
+          <button class="about-link" :disabled="updateChecking || updateInstalling" @click="onCheckUpdate">
+            <v-icon size="14">{{ updateChecking ? 'mdi-loading mdi-spin' : 'mdi-update' }}</v-icon>
             <span>{{ t('settings.aboutCheckUpdate') }}</span>
-            <span class="about-soon">{{ t('common.soon') }}</span>
           </button>
+        </div>
+        <div v-if="updateInfo?.available" class="about-update-status">
+          <div class="about-update-available">
+            <v-icon size="14">mdi-arrow-up-circle-outline</v-icon>
+            <span>{{ t('settings.updateAvailable') }}: v{{ updateInfo.version }}</span>
+          </div>
+          <button class="cyber-btn" :disabled="updateInstalling" @click="onDownloadAndInstall">
+            <v-icon size="14">{{ updateInstalling ? 'mdi-loading mdi-spin' : 'mdi-download' }}</v-icon>
+            {{ updateInstalling ? t('settings.updateInstalling') : t('settings.updateDownload') }}
+          </button>
+        </div>
+        <div v-else-if="updateInfo && !updateInfo.available" class="about-update-status">
+          <v-icon size="14">mdi-check-circle-outline</v-icon>
+          <span>{{ t('settings.upToDate') }}</span>
+        </div>
+        <div v-if="updateError" class="about-update-status error">
+          <v-icon size="14">mdi-alert-circle-outline</v-icon>
+          <span>{{ updateError }}</span>
         </div>
         <p class="about-license">{{ t('settings.aboutLicense') }}</p>
       </div>
@@ -1579,6 +1629,29 @@ const PRESET_MODELS = [
   color: var(--orange);
   margin-left: 4px;
 }
+.about-update-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--text-2);
+  position: relative;
+  flex-wrap: wrap;
+}
+
+.about-update-status.error {
+  color: var(--red);
+}
+
+.about-update-available {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cyan);
+}
+
 .about-license {
   font-size: 10px;
   color: var(--muted);

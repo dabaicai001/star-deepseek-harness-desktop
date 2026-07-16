@@ -1,13 +1,16 @@
 {
   "name": "starhub",
- "version": "0.29.8",
+ "version": "0.30.1",
   "private": true,
  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:ai-context": "node --test tests/ai-context.test.mjs",
     "test:ai-scroll": "node --test tests/ai-scroll-position.test.mjs",
+    "test:utils": "node --test tests/utils/crypto.test.mjs tests/utils/ddlGenerator.test.mjs tests/utils/sqlHistory.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "sidecar:build": "node scripts/build-sidecar.mjs",
@@ -23,6 +26,8 @@
     "@codemirror/view": "^6.34.0",
     "@mdi/font": "^7.4.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-process": "^2.0.0",
+    "@tauri-apps/plugin-updater": "^2.0.0",
     "@univerjs/preset-sheets-conditional-formatting": "0.25.1",
     "@univerjs/preset-sheets-core": "0.25.1",
     "@univerjs/preset-sheets-data-validation": "0.25.1",
@@ -52,9 +57,12 @@
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/cli": "^2.0.0",
     "@vitejs/plugin-vue": "^5.0.0",
+    "@vue/test-utils": "^2.4.0",
+    "jsdom": "^24.0.0",
     "sass": "^1.70.0",
     "typescript": "^5.3.0",
     "vite": "^5.0.0",
+    "vitest": "^1.6.0",
     "vue-tsc": "^2.0.0"
   }
 }

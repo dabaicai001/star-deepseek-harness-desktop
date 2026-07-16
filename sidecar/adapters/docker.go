@@ -29,7 +29,6 @@ import (
 // DockerAdapter 封装 Docker 连接
 type DockerAdapter struct {
 	cli          *client.Client
-	ctx          context.Context
 	info         *DockerConnInfo
 	transport    *http.Transport
 	sshClients   []*ssh.Client
@@ -96,7 +95,6 @@ type LogEntry struct {
 
 // NewDockerAdapter 创建 Docker 适配器
 func NewDockerAdapter(info *DockerConnInfo) (*DockerAdapter, error) {
-	ctx := context.Background()
 	opts := []client.Opt{client.FromEnv, client.WithAPIVersionNegotiation()}
 	var httpTransport *http.Transport
 	var sshClients []*ssh.Client
@@ -123,8 +121,7 @@ func NewDockerAdapter(info *DockerConnInfo) (*DockerAdapter, error) {
 	}
 
 	// 测试连接
-	// TODO(#33): context 不应存储在 struct 中,应通过方法参数传递。
-	pingCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	pingCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_, err = cli.Ping(pingCtx)
 	if err != nil {
@@ -140,7 +137,6 @@ func NewDockerAdapter(info *DockerConnInfo) (*DockerAdapter, error) {
 
 	return &DockerAdapter{
 		cli:          cli,
-		ctx:          ctx,
 		info:         info,
 		transport:    httpTransport,
 		sshClients:   sshClients,
@@ -161,14 +157,14 @@ func (a *DockerAdapter) Close() error {
 
 // Ping 检测连接
 func (a *DockerAdapter) Ping() error {
-	_, err := a.cli.Ping(a.ctx)
+	_, err := a.cli.Ping(context.Background())
 	return err
 }
 
 // ListContainers 列出容器
 func (a *DockerAdapter) ListContainers(all bool) ([]ContainerInfo, error) {
 	opts := container.ListOptions{All: all}
-	containers, err := a.cli.ContainerList(a.ctx, opts)
+	containers, err := a.cli.ContainerList(context.Background(), opts)
 	if err != nil {
 		return nil, fmt.Errorf("list containers: %w", err)
 	}
@@ -206,7 +202,7 @@ func (a *DockerAdapter) ListContainers(all bool) ([]ContainerInfo, error) {
 
 // InspectContainer 获取容器详情
 func (a *DockerAdapter) InspectContainer(containerID string) (map[string]interface{}, error) {
-	info, err := a.cli.ContainerInspect(a.ctx, containerID)
+	info, err := a.cli.ContainerInspect(context.Background(), containerID)
 	if err != nil {
 		return nil, fmt.Errorf("inspect container: %w", err)
 	}
@@ -223,7 +219,7 @@ func (a *DockerAdapter) InspectContainer(containerID string) (map[string]interfa
 
 // StartContainer 启动容器
 func (a *DockerAdapter) StartContainer(containerID string) error {
-	return a.cli.ContainerStart(a.ctx, containerID, container.StartOptions{})
+	return a.cli.ContainerStart(context.Background(), containerID, container.StartOptions{})
 }
 
 // StopContainer 停止容器
@@ -232,7 +228,7 @@ func (a *DockerAdapter) StopContainer(containerID string, timeout *int) error {
 	if timeout != nil {
 		opts.Timeout = timeout
 	}
-	return a.cli.ContainerStop(a.ctx, containerID, opts)
+	return a.cli.ContainerStop(context.Background(), containerID, opts)
 }
 
 // RestartContainer 重启容器
@@ -241,13 +237,13 @@ func (a *DockerAdapter) RestartContainer(containerID string, timeout *int) error
 	if timeout != nil {
 		opts.Timeout = timeout
 	}
-	return a.cli.ContainerRestart(a.ctx, containerID, opts)
+	return a.cli.ContainerRestart(context.Background(), containerID, opts)
 }
 
 // RemoveContainer 删除容器
 func (a *DockerAdapter) RemoveContainer(containerID string, force bool) error {
 	opts := container.RemoveOptions{Force: force}
-	return a.cli.ContainerRemove(a.ctx, containerID, opts)
+	return a.cli.ContainerRemove(context.Background(), containerID, opts)
 }
 
 // ContainerLogs 获取容器日志
@@ -264,7 +260,7 @@ func (a *DockerAdapter) ContainerLogs(containerID string, tail string, follow bo
 		Follow:     false, // 我们不支持流式，只获取一次
 	}
 
-	reader, err := a.cli.ContainerLogs(a.ctx, containerID, opts)
+	reader, err := a.cli.ContainerLogs(context.Background(), containerID, opts)
 	if err != nil {
 		return nil, fmt.Errorf("container logs: %w", err)
 	}
@@ -307,7 +303,7 @@ func (a *DockerAdapter) ContainerLogs(containerID string, tail string, follow bo
 
 // ContainerStats 获取容器资源统计
 func (a *DockerAdapter) ContainerStats(containerID string) (*ContainerStats, error) {
-	statsResp, err := a.cli.ContainerStatsOneShot(a.ctx, containerID)
+	statsResp, err := a.cli.ContainerStatsOneShot(context.Background(), containerID)
 	if err != nil {
 		return nil, fmt.Errorf("container stats: %w", err)
 	}
@@ -368,7 +364,7 @@ func (a *DockerAdapter) ContainerStats(containerID string) (*ContainerStats, err
 // ListImages 列出镜像
 func (a *DockerAdapter) ListImages(all bool) ([]ImageInfo, error) {
 	opts := image.ListOptions{All: all}
-	images, err := a.cli.ImageList(a.ctx, opts)
+	images, err := a.cli.ImageList(context.Background(), opts)
 	if err != nil {
 		return nil, fmt.Errorf("list images: %w", err)
 	}
@@ -393,7 +389,7 @@ func (a *DockerAdapter) ListImages(all bool) ([]ImageInfo, error) {
 
 // PullImage 拉取镜像
 func (a *DockerAdapter) PullImage(imageName string) (string, error) {
-	reader, err := a.cli.ImagePull(a.ctx, imageName, image.PullOptions{})
+	reader, err := a.cli.ImagePull(context.Background(), imageName, image.PullOptions{})
 	if err != nil {
 		return "", fmt.Errorf("pull image: %w", err)
 	}
@@ -415,19 +411,19 @@ func (a *DockerAdapter) PullImage(imageName string) (string, error) {
 // RemoveImage 删除镜像
 func (a *DockerAdapter) RemoveImage(imageID string, force bool) ([]image.DeleteResponse, error) {
 	opts := image.RemoveOptions{Force: force}
-	return a.cli.ImageRemove(a.ctx, imageID, opts)
+	return a.cli.ImageRemove(context.Background(), imageID, opts)
 }
 
 // PruneImages 清理悬空镜像
 func (a *DockerAdapter) PruneImages() (image.PruneReport, error) {
 	filterArgs := filters.NewArgs()
 	filterArgs.Add("dangling", "true")
-	return a.cli.ImagesPrune(a.ctx, filterArgs)
+	return a.cli.ImagesPrune(context.Background(), filterArgs)
 }
 
 // PruneContainers 清理已停止的容器
 func (a *DockerAdapter) PruneContainers() (container.PruneReport, error) {
-	return a.cli.ContainersPrune(a.ctx, filters.NewArgs())
+	return a.cli.ContainersPrune(context.Background(), filters.NewArgs())
 }
 
 // ExecResult 容器内 exec 结果
@@ -555,7 +551,7 @@ func (a *DockerAdapter) Exec(containerID string, command []string, workdir strin
 		timeoutSec = 30
 	}
 
-	ctx, cancel := context.WithTimeout(a.ctx, time.Duration(timeoutSec)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
 	execConfig := container.ExecOptions{
@@ -813,7 +809,7 @@ func (a *DockerAdapter) StartExecSession(containerID string, cols int, rows int)
 	}
 	width, height := normalizeDockerExecSize(cols, rows)
 	consoleSize := [2]uint{height, width}
-	ctx, cancel := context.WithCancel(a.ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	execConfig := container.ExecOptions{
 		Cmd:          dockerInteractiveShellCommand,
@@ -901,7 +897,7 @@ func (a *DockerAdapter) ResizeExecSession(sessionID string, cols int, rows int) 
 		return err
 	}
 	width, height := normalizeDockerExecSize(cols, rows)
-	ctx, cancel := context.WithTimeout(a.ctx, dockerExecSessionResizeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), dockerExecSessionResizeTimeout)
 	defer cancel()
 	if err := a.cli.ContainerExecResize(ctx, session.execID, container.ResizeOptions{
 		Width:  width,

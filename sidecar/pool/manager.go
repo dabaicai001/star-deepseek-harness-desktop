@@ -19,6 +19,8 @@ const (
 	ConnCH     ConnType = "clickhouse"
 	ConnExcel  ConnType = "excel"
 	ConnCSV    ConnType = "csv"
+	ConnSQLite ConnType = "sqlite"
+	ConnMSSQL  ConnType = "mssql"
 )
 
 // ConnInfo 存储连接元信息

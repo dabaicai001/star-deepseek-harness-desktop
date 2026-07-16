@@ -1,11 +1,12 @@
 use super::sftp_transport::{SftpChannelDiagnostics, SftpChannelStream};
-use super::{SftpLaunchMode, SshAuth, SshConfig};
+use super::{auth::RemoteForwards, SftpLaunchMode, SshAuth, SshConfig};
 use russh::client::{self, Handle};
 use russh::{ChannelMsg, MethodKind, MethodSet};
 use serde::Serialize;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::timeout;
 use tracing::debug;
@@ -91,10 +92,22 @@ struct RemoteProbeOutput {
     exit_signal: Option<String>,
 }
 
+/// 内部端口转发条目,用于跟踪活跃的转发任务
+struct PortForwardEntry {
+    forward_type: String,
+    bound_port: u16,
+    target_host: String,
+    target_port: u16,
+    /// 用于取消转发任务的 AbortHandle
+    abort_handle: tokio::task::AbortHandle,
+}
+
 pub struct SshSession {
     config: SshConfig,
-    handle: Option<Handle<super::auth::SshHandler>>,
+    handle: Option<Arc<Handle<super::auth::SshHandler>>>,
     resize_tx: Option<watch::Sender<(u32, u32)>>,
+    remote_forwards: RemoteForwards,
+    port_forwards: Vec<PortForwardEntry>,
 }
 
 impl SshSession {
@@ -103,6 +116,8 @@ impl SshSession {
             config,
             handle: None,
             resize_tx: None,
+            remote_forwards: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            port_forwards: Vec::new(),
         }
     }
 
@@ -920,6 +935,10 @@ impl SshSession {
 
     pub fn disconnect(&mut self) {
         self.resize_tx = None;
+        // 停止所有端口转发任务
+        for pf in self.port_forwards.drain(..) {
+            pf.abort_handle.abort();
+        }
         if let Some(handle) = self.handle.take() {
             tokio::spawn(async move {
                 let _ = handle
@@ -927,6 +946,192 @@ impl SshSession {
                     .await;
             });
         }
+    }
+
+    /// 添加本地端口转发: 本地 local_port -> 远程 remote_host:remote_port
+    pub async fn add_local_port_forward(
+        &mut self,
+        local_port: u16,
+        remote_host: &str,
+        remote_port: u16,
+    ) -> Result<u16, String> {
+        let handle = self.handle.as_ref().ok_or("SSH not connected")?.clone();
+        let remote_host = remote_host.to_string();
+
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", local_port))
+            .await
+            .map_err(|e| format!("Failed to bind local port {}: {}", local_port, e))?;
+
+        let actual_port = listener
+            .local_addr()
+            .map_err(|e| format!("Failed to get local addr: {}", e))?
+            .port();
+
+        let target_host = remote_host.clone();
+        let target_port = remote_port;
+
+        let task = tokio::spawn(async move {
+            loop {
+                match listener.accept().await {
+                    Ok((tcp_stream, addr)) => {
+                        let handle = handle.clone();
+                        let target_host = target_host.clone();
+                        tokio::spawn(async move {
+                            match handle
+                                .channel_open_direct_tcpip(
+                                    &target_host,
+                                    target_port,
+                                    &addr.ip().to_string(),
+                                    addr.port(),
+                                )
+                                .await
+                            {
+                                Ok(channel) => {
+                                    let channel_writer = channel.make_writer();
+                                    let (mut tcp_reader, mut tcp_writer) =
+                                        tokio::io::split(tcp_stream);
+
+                                    // TCP -> SSH channel
+                                    let mut writer = channel_writer;
+                                    tokio::spawn(async move {
+                                        let mut buf = [0u8; 8192];
+                                        loop {
+                                            match tokio::io::AsyncReadExt::read(
+                                                &mut tcp_reader,
+                                                &mut buf,
+                                            )
+                                            .await
+                                            {
+                                                Ok(0) => break,
+                                                Ok(n) => {
+                                                    if writer.write_all(&buf[..n]).await.is_err() {
+                                                        break;
+                                                    }
+                                                }
+                                                Err(_) => break,
+                                            }
+                                        }
+                                    });
+
+                                    // SSH channel -> TCP
+                                    tokio::spawn(async move {
+                                        loop {
+                                            match channel.wait().await {
+                                                Some(ChannelMsg::Data { data }) => {
+                                                    if tcp_writer.write_all(&data).await.is_err() {
+                                                        break;
+                                                    }
+                                                }
+                                                Some(ChannelMsg::ExtendedData { data, .. }) => {
+                                                    if tcp_writer.write_all(&data).await.is_err() {
+                                                        break;
+                                                    }
+                                                }
+                                                Some(ChannelMsg::Eof)
+                                                | Some(ChannelMsg::Close)
+                                                | None => break,
+                                                _ => {}
+                                            }
+                                        }
+                                    });
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Local port forward: failed to open channel: {}",
+                                        e
+                                    );
+                                }
+                            }
+                        });
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        self.port_forwards.push(PortForwardEntry {
+            forward_type: "local".to_string(),
+            bound_port: actual_port,
+            target_host: remote_host,
+            target_port: remote_port,
+            abort_handle: task.abort_handle(),
+        });
+
+        Ok(actual_port)
+    }
+
+    /// 添加远程端口转发: 远程 remote_port -> 本地 local_host:local_port
+    pub async fn add_remote_port_forward(
+        &mut self,
+        remote_port: u16,
+        local_host: &str,
+        local_port: u16,
+    ) -> Result<u16, String> {
+        let handle = self.handle.as_ref().ok_or("SSH not connected")?.clone();
+
+        // 注册转发映射,供 SshHandler::server_channel_open_forwarded_tcpip 使用
+        {
+            let mut forwards = self.remote_forwards.lock().await;
+            forwards.insert(remote_port, (local_host.to_string(), local_port));
+        }
+
+        // 请求远程服务器监听端口
+        let actual_port = handle
+            .channel_forward_listen(remote_port)
+            .await
+            .map_err(|e| format!("Failed to request remote port forward: {}", e))?;
+
+        self.port_forwards.push(PortForwardEntry {
+            forward_type: "remote".to_string(),
+            bound_port: actual_port,
+            target_host: local_host.to_string(),
+            target_port: local_port,
+            // 远程转发由服务器发起,无需本地 task,用 dummy handle
+            abort_handle: tokio::spawn(async {}).abort_handle(),
+        });
+
+        Ok(actual_port)
+    }
+
+    /// 移除端口转发
+    pub async fn remove_port_forward(
+        &mut self,
+        bound_port: u16,
+        is_remote: bool,
+    ) -> Result<(), String> {
+        let forward_type = if is_remote { "remote" } else { "local" };
+
+        let idx = self
+            .port_forwards
+            .iter()
+            .position(|f| f.bound_port == bound_port && f.forward_type == forward_type)
+            .ok_or_else(|| {
+                format!("Port forward not found: {} {}", forward_type, bound_port)
+            })?;
+
+        let entry = self.port_forwards.remove(idx);
+        entry.abort_handle.abort();
+
+        if is_remote {
+            // 移除映射后,handler 会拒绝后续连接
+            let mut forwards = self.remote_forwards.lock().await;
+            forwards.remove(&bound_port);
+        }
+
+        Ok(())
+    }
+
+    /// 列出所有活跃的端口转发
+    pub fn list_port_forwards(&self) -> Vec<super::PortForwardInfo> {
+        self.port_forwards
+            .iter()
+            .map(|f| super::PortForwardInfo {
+                forward_type: f.forward_type.clone(),
+                bound_port: f.bound_port,
+                target_host: f.target_host.clone(),
+                target_port: f.target_port,
+            })
+            .collect()
     }
 }
 

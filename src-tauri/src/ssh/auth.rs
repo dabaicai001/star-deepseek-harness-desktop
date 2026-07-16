@@ -1,8 +1,15 @@
 use russh::client;
 use russh::keys::HashAlg;
 use russh::keys::PublicKey;
+use russh::{ChannelMsg, ChannelOpenFailure};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tauri::Emitter;
-use tokio::sync::oneshot;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::{oneshot, Mutex};
+
+/// 远程端口转发映射表: remote_port -> (local_host, local_port)
+pub type RemoteForwards = Arc<Mutex<HashMap<u16, (String, u16)>>>;
 
 pub struct SshHandler {
     pub session_id: String,
@@ -10,6 +17,7 @@ pub struct SshHandler {
     pub pending_hostkey: super::PendingHostKeyResponses,
     pub host: String,
     pub port: u16,
+    pub remote_forwards: RemoteForwards,
 }
 
 impl SshHandler {
@@ -19,6 +27,7 @@ impl SshHandler {
         pending_hostkey: super::PendingHostKeyResponses,
         host: String,
         port: u16,
+        remote_forwards: RemoteForwards,
     ) -> Self {
         Self {
             session_id,
@@ -26,6 +35,7 @@ impl SshHandler {
             pending_hostkey,
             host,
             port,
+            remote_forwards,
         }
     }
 }
@@ -103,5 +113,88 @@ impl client::Handler for SshHandler {
         } else {
             Ok(false)
         }
+    }
+
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<russh::client::Msg>,
+        _connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: russh::client::ChannelOpenHandle,
+        _session: &mut russh::client::Session,
+    ) -> Result<(), Self::Error> {
+        let target = {
+            let forwards = self.remote_forwards.lock().await;
+            forwards.get(&(connected_port as u16)).cloned()
+        };
+
+        let Some((local_host, local_port)) = target else {
+            reply
+                .reject(ChannelOpenFailure::AdministrativelyProhibited)
+                .await;
+            return Ok(());
+        };
+
+        let stream = match tokio::net::TcpStream::connect((local_host.as_str(), local_port)).await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    session_id = %self.session_id,
+                    local_host = %local_host,
+                    local_port,
+                    error = %e,
+                    "Remote port forward: failed to connect to local target"
+                );
+                reply
+                    .reject(ChannelOpenFailure::ConnectFailed)
+                    .await;
+                return Ok(());
+            }
+        };
+
+        reply.accept().await;
+
+        let channel_writer = channel.make_writer();
+        let (mut tcp_reader, mut tcp_writer) = tokio::io::split(stream);
+
+        // TCP -> SSH channel
+        tokio::spawn(async move {
+            let mut buf = [0u8; 8192];
+            loop {
+                match tokio::io::AsyncReadExt::read(&mut tcp_reader, &mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if channel_writer.write_all(&buf[..n]).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // SSH channel -> TCP
+        tokio::spawn(async move {
+            loop {
+                match channel.wait().await {
+                    Some(ChannelMsg::Data { data }) => {
+                        if tcp_writer.write_all(&data).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(ChannelMsg::ExtendedData { data, .. }) => {
+                        if tcp_writer.write_all(&data).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                    _ => {}
+                }
+            }
+        });
+
+        Ok(())
     }
 }

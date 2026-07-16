@@ -22,7 +22,7 @@ import type { Asset } from '@/types/asset'
 import { parseInstanceId } from '@/utils/tabId'
 import { SSH_SYSTEM_PROMPT, sshTools, makeSshToolCaller } from '@/utils/aiTools'
 import { makeSftpToolCaller, sftpTools } from '@/utils/aiSftpTools'
-import { extractWhitelistPrefix } from '@/utils/commandGuard'
+import { checkCommand, extractWhitelistPrefix } from '@/utils/commandGuard'
 import type { LlmToolCall } from '@/services/ai'
 import { createMcpRuntime } from '@/services/mcp'
 import ZmodemModule from 'zmodem.js/src/zmodem_browser.js'
@@ -806,9 +806,45 @@ async function tryReconnect(sessionId: string) {
   }, delay)
 }
 
+// 危险命令拦截: 缓冲当前命令行,回车时检查
+const lineBuffer = ref('')
+const pendingRiskyCommand = ref<{ command: string; reason: string } | null>(null)
+
+function confirmRiskyCommand() {
+  if (!pendingRiskyCommand.value) return
+  pendingRiskyCommand.value = null
+  lineBuffer.value = ''
+  invoke('ssh_write', { id: props.id, data: '\r' }).catch(() => {})
+}
+
+function cancelRiskyCommand() {
+  pendingRiskyCommand.value = null
+  lineBuffer.value = ''
+}
+
 async function handleData(data: string) {
   if (connected.value) {
   if (devMockWorkspace.value) return
+
+  // 危险命令拦截: 当用户按回车时检查当前命令行
+  if (data === '\r' && !pendingRiskyCommand.value) {
+    const command = lineBuffer.value.trim()
+    if (command) {
+      const result = checkCommand(command, aiStore.settings.commandWhitelist)
+      if (result.isRisky) {
+        pendingRiskyCommand.value = { command, reason: result.riskReason ?? '风险命令' }
+        return // 不发送回车,等待用户确认
+      }
+    }
+    lineBuffer.value = ''
+  } else if (data === '\x7f' || data === '\b') {
+    lineBuffer.value = lineBuffer.value.slice(0, -1)
+  } else if (data === '\x03') {
+    lineBuffer.value = ''
+  } else if (data.length === 1 && data >= ' ' && !pendingRiskyCommand.value) {
+    lineBuffer.value += data
+  }
+
   let finalData = data
   if (data.endsWith('\n') && data.trimStart().startsWith('cd ')) {
     finalData = data.slice(0, -1) + ' && pwd\n'
@@ -1667,6 +1703,30 @@ function handleKbCancelled() {
           </button>
           <button v-else class="cyber-btn" style="font-size: 12px; padding: 6px 18px;" @click="onAiInputSubmit(aiInputFieldValue)">
             发送
+          </button>
+        </div>
+      </div>
+    </v-dialog>
+
+    <!-- 危险命令确认弹窗 -->
+    <v-dialog :model-value="!!pendingRiskyCommand" max-width="480" transition="cyber-dialog" persistent>
+      <div v-if="pendingRiskyCommand" class="cyber-panel" style="padding: 24px;">
+        <div class="section-header">
+          <span class="section-number" style="color: var(--red);">!</span>
+          <h3 style="color: var(--red);">危险命令确认</h3>
+        </div>
+        <p style="color: var(--text-2); font-size: 12px; margin-bottom: 8px;">
+          检测到高风险操作: {{ pendingRiskyCommand.reason }}
+        </p>
+        <pre style="background: var(--bg-2); padding: 10px; border-radius: 6px; font-size: 11px;
+          color: var(--red); max-height: 140px; overflow-y: auto; font-family: 'JetBrains Mono', monospace;
+          white-space: pre-wrap; word-break: break-all; border: 1px solid var(--red);">{{ pendingRiskyCommand.command }}</pre>
+        <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
+          <button class="cyber-btn-secondary" style="font-size: 12px; padding: 6px 14px;" @click="cancelRiskyCommand">
+            取消
+          </button>
+          <button class="cyber-btn" style="font-size: 12px; padding: 6px 18px; background: var(--red);" @click="confirmRiskyCommand">
+            确认执行
           </button>
         </div>
       </div>

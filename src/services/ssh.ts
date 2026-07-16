@@ -139,3 +139,57 @@ export async function respondKeyboardInteractive(
 ): Promise<void> {
   return invoke('ssh_kb_response', { id, responses })
 }
+
+// ─── 端口转发 ───
+
+export interface PortForwardInfo {
+  forward_type: string
+  bound_port: number
+  target_host: string
+  target_port: number
+}
+
+export async function sshAddLocalForward(
+  id: string,
+  localPort: number,
+  remoteHost: string,
+  remotePort: number
+): Promise<number> {
+  return invoke('ssh_add_local_forward', { id, localPort, remoteHost, remotePort })
+}
+
+export async function sshAddRemoteForward(
+  id: string,
+  remotePort: number,
+  localHost: string,
+  localPort: number
+): Promise<number> {
+  return invoke('ssh_add_remote_forward', { id, remotePort, localHost, localPort })
+}
+
+export async function sshRemoveForward(
+  id: string,
+  boundPort: number,
+  isRemote: boolean
+): Promise<void> {
+  return invoke('ssh_remove_forward', { id, boundPort, isRemote })
+}
+
+export async function sshListForwards(id: string): Promise<PortForwardInfo[]> {
+  return invoke('ssh_list_forwards', { id })
+}
+
+// ─── SSH Config 导入 ───
+
+export interface SshConfigHost {
+  name: string
+  host?: string
+  port?: number
+  user?: string
+  identity_file?: string
+  proxy_jump?: string
+}
+
+export async function parseSshConfigFile(configPath?: string): Promise<SshConfigHost[]> {
+  return invoke('ssh_parse_config_file', { configPath: configPath ?? null })
+}

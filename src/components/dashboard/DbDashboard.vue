@@ -376,7 +376,9 @@ async function loadAll() {
       } else if (props.dbType === 'postgresql') {
         await loadPostgres()
       } else {
-        throw new Error(`仪表盘暂未支持 ${props.dbType}`)
+        // 不支持的数据库类型不抛错，由模板 v-else 分支显示友好提示
+        loading.value = false
+        return
       }
     }
     error.value = null

@@ -3,6 +3,9 @@ import type {
   MySQLConnectParams,
   RedisConnectParams,
   ClickHouseConnectParams,
+  SQLiteConnectParams,
+  MSSQLConnectParams,
+  RedisPubSubResult,
   DbConnectionInfo,
   TestResult,
   QueryResult,
@@ -30,7 +33,12 @@ import type {
   EsSearchResult,
   EsDocument,
   BulkResult,
-  ScrollResult
+  ScrollResult,
+  ClickHousePartition,
+  ClickHouseMergeTreeInfo,
+  ClickHouseTableStats,
+  EsAcknowledgedResult,
+  EsDocumentOperationResult
 } from '@/types/db'
 
 // ─── MySQL ───
@@ -57,6 +65,34 @@ export async function postgresTest(params: MySQLConnectParams): Promise<TestResu
 
 export async function postgresDisconnect(connId: string): Promise<void> {
   return invoke('db_postgres_disconnect', { connId })
+}
+
+// ─── SQLite ───
+
+export async function sqliteConnect(params: SQLiteConnectParams): Promise<DbConnectionInfo> {
+  return invoke('db_sqlite_connect', { params })
+}
+
+export async function sqliteTest(params: SQLiteConnectParams): Promise<TestResult> {
+  return invoke('db_sqlite_test', { params })
+}
+
+export async function sqliteDisconnect(connId: string): Promise<void> {
+  return invoke('db_sqlite_disconnect', { connId })
+}
+
+// ─── MSSQL ───
+
+export async function mssqlConnect(params: MSSQLConnectParams): Promise<DbConnectionInfo> {
+  return invoke('db_mssql_connect', { params })
+}
+
+export async function mssqlTest(params: MSSQLConnectParams): Promise<TestResult> {
+  return invoke('db_mssql_test', { params })
+}
+
+export async function mssqlDisconnect(connId: string): Promise<void> {
+  return invoke('db_mssql_disconnect', { connId })
 }
 
 export async function mysqlListDatabases(connId: string): Promise<string[]> {
@@ -239,7 +275,7 @@ export async function redisFlushDB(connId: string): Promise<void> {
   return invoke('db_redis_flush_db', { connId })
 }
 
-export async function redisSubscribe(connId: string, channels: string[], patterns: string[]): Promise<void> {
+export async function redisSubscribe(connId: string, channels: string[], patterns: string[]): Promise<RedisPubSubResult> {
   return invoke('db_redis_subscribe', { connId, channels, patterns })
 }
 
@@ -344,15 +380,15 @@ export async function clickhouseGetTableMeta(connId: string, table: string, data
   return invoke('db_clickhouse_get_table_meta', { connId, table, database })
 }
 
-export async function clickhouseGetPartitions(connId: string, table: string, database?: string): Promise<unknown[]> {
+export async function clickhouseGetPartitions(connId: string, table: string, database?: string): Promise<ClickHousePartition[]> {
   return invoke('db_clickhouse_get_partitions', { connId, table, database })
 }
 
-export async function clickhouseGetMergeTreeInfo(connId: string, table: string, database?: string): Promise<unknown> {
+export async function clickhouseGetMergeTreeInfo(connId: string, table: string, database?: string): Promise<ClickHouseMergeTreeInfo> {
   return invoke('db_clickhouse_get_merge_tree_info', { connId, table, database })
 }
 
-export async function clickhouseGetTableStats(connId: string, table: string, database?: string): Promise<unknown> {
+export async function clickhouseGetTableStats(connId: string, table: string, database?: string): Promise<ClickHouseTableStats> {
   return invoke('db_clickhouse_get_table_stats', { connId, table, database })
 }
 
@@ -394,11 +430,11 @@ export async function esCreateIndex(
   connId: string, index: string,
   mappings?: Record<string, unknown>,
   settings?: Record<string, unknown>
-): Promise<Record<string, unknown>> {
+): Promise<EsAcknowledgedResult> {
   return invoke('db_es_create_index', { connId, index, mappings, settings })
 }
 
-export async function esDeleteIndex(connId: string, index: string): Promise<Record<string, unknown>> {
+export async function esDeleteIndex(connId: string, index: string): Promise<EsAcknowledgedResult> {
   return invoke('db_es_delete_index', { connId, index })
 }
 
@@ -423,19 +459,19 @@ export async function esGetDocument(
 
 export async function esIndexDocument(
   connId: string, index: string, body: Record<string, unknown>, id?: string
-): Promise<Record<string, unknown>> {
+): Promise<EsDocumentOperationResult> {
   return invoke('db_es_index_document', { connId, index, body, id })
 }
 
 export async function esUpdateDocument(
   connId: string, index: string, id: string, body: Record<string, unknown>
-): Promise<Record<string, unknown>> {
+): Promise<EsDocumentOperationResult> {
   return invoke('db_es_update_document', { connId, index, id, body })
 }
 
 export async function esDeleteDocument(
   connId: string, index: string, id: string
-): Promise<Record<string, unknown>> {
+): Promise<EsDocumentOperationResult> {
   return invoke('db_es_delete_document', { connId, index, id })
 }
 

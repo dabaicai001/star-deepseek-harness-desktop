@@ -1,6 +1,6 @@
 export type AssetType = 'ssh' | 'db' | 'docker' | 'excel'
 
-export type DatabaseType = 'mysql' | 'postgresql' | 'sqlite' | 'redis' | 'elasticsearch' | 'clickhouse' | 'kafka' | 'nsq'
+export type DatabaseType = 'mysql' | 'postgresql' | 'sqlite' | 'redis' | 'elasticsearch' | 'clickhouse' | 'kafka' | 'nsq' | 'mssql'
 export type SftpLaunchMode = 'auto' | 'subsystem' | 'custom'
 
 export interface AssetGroup {

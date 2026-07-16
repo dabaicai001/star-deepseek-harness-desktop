@@ -220,7 +220,7 @@ export async function chatWithTools(req: NewChatRequest): Promise<NewChatRespons
     role: 'assistant',
     content: rawMessage.content ?? '',
     tool_calls: Array.isArray(rawMessage.tool_calls) && rawMessage.tool_calls.length > 0
-      ? rawMessage.tool_calls.map((tc: any) => ({
+      ? rawMessage.tool_calls.map((tc: RawToolCall) => ({
           id: tc.id,
           type: 'function',
           function: {

@@ -1343,3 +1343,100 @@ pub async fn db_clickhouse_get_table_stats(
     }
     sidecar.call("db.clickhouse.getTableStats", params).await
 }
+
+// ─── SQLite Commands ───
+
+#[tauri::command]
+pub async fn db_sqlite_connect(
+    sidecar: State<'_, SidecarManager>,
+    params: Value,
+) -> Result<Value, String> {
+    sidecar.call("db.sqlite.connect", params).await
+}
+
+#[tauri::command]
+pub async fn db_sqlite_test(
+    sidecar: State<'_, SidecarManager>,
+    params: Value,
+) -> Result<Value, String> {
+    sidecar.call("db.sqlite.test", params).await
+}
+
+#[tauri::command]
+pub async fn db_sqlite_disconnect(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "db.sqlite.disconnect",
+            serde_json::json!({ "connId": conn_id }),
+        )
+        .await
+}
+
+// ─── MSSQL Commands ───
+
+#[tauri::command]
+pub async fn db_mssql_connect(
+    sidecar: State<'_, SidecarManager>,
+    params: Value,
+) -> Result<Value, String> {
+    sidecar.call("db.mssql.connect", params).await
+}
+
+#[tauri::command]
+pub async fn db_mssql_test(
+    sidecar: State<'_, SidecarManager>,
+    params: Value,
+) -> Result<Value, String> {
+    sidecar.call("db.mssql.test", params).await
+}
+
+#[tauri::command]
+pub async fn db_mssql_disconnect(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "db.mssql.disconnect",
+            serde_json::json!({ "connId": conn_id }),
+        )
+        .await
+}
+
+// ─── Redis PubSub Commands ───
+
+#[tauri::command]
+pub async fn db_redis_subscribe(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    channels: Vec<String>,
+    patterns: Vec<String>,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "db.redis.subscribe",
+            serde_json::json!({
+                "connId": conn_id,
+                "channels": channels,
+                "patterns": patterns
+            }),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn db_redis_unsubscribe(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    channels: Vec<String>,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "db.redis.unsubscribe",
+            serde_json::json!({ "connId": conn_id, "channels": channels }),
+        )
+        .await
+}

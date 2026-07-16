@@ -9,16 +9,37 @@ import type {
   LogEntry
 } from '@/types/docker'
 
+/**
+ * 统一包装 invoke 错误,生成面向用户可读的错误信息。
+ * 返回类型为 never,调用方在 catch 块中调用后 TypeScript 会自动收窄类型。
+ */
+function wrapInvokeError(operation: string, error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error)
+  throw new Error(`[Docker] ${operation} 失败: ${message}`)
+}
+
 export async function dockerConnect(params: DockerConnectParams): Promise<DockerConnectionInfo> {
-  return invoke('docker_connect', { params })
+  try {
+    return await invoke('docker_connect', { params })
+  } catch (error) {
+    wrapInvokeError('docker_connect', error)
+  }
 }
 
 export async function dockerTest(params: DockerConnectParams): Promise<TestResult> {
-  return invoke('docker_test', { params })
+  try {
+    return await invoke('docker_test', { params })
+  } catch (error) {
+    wrapInvokeError('docker_test', error)
+  }
 }
 
 export async function dockerDisconnect(connId: string): Promise<void> {
-  return invoke('docker_disconnect', { connId })
+  try {
+    return await invoke('docker_disconnect', { connId })
+  } catch (error) {
+    wrapInvokeError('docker_disconnect', error)
+  }
 }
 
 export async function listContainers(connId: string, all?: boolean): Promise<ContainerInfo[]> {
@@ -56,35 +77,67 @@ export async function listContainers(connId: string, all?: boolean): Promise<Con
       },
     ]
   }
-  return invoke('docker_list_containers', { connId, all })
+  try {
+    return await invoke('docker_list_containers', { connId, all })
+  } catch (error) {
+    wrapInvokeError('docker_list_containers', error)
+  }
 }
 
 export async function inspectContainer(connId: string, containerId: string): Promise<Record<string, unknown>> {
-  return invoke('docker_inspect_container', { connId, containerId })
+  try {
+    return await invoke('docker_inspect_container', { connId, containerId })
+  } catch (error) {
+    wrapInvokeError('docker_inspect_container', error)
+  }
 }
 
 export async function startContainer(connId: string, containerId: string): Promise<void> {
-  return invoke('docker_start_container', { connId, containerId })
+  try {
+    return await invoke('docker_start_container', { connId, containerId })
+  } catch (error) {
+    wrapInvokeError('docker_start_container', error)
+  }
 }
 
 export async function stopContainer(connId: string, containerId: string, timeout?: number): Promise<void> {
-  return invoke('docker_stop_container', { connId, containerId, timeout })
+  try {
+    return await invoke('docker_stop_container', { connId, containerId, timeout })
+  } catch (error) {
+    wrapInvokeError('docker_stop_container', error)
+  }
 }
 
 export async function restartContainer(connId: string, containerId: string, timeout?: number): Promise<void> {
-  return invoke('docker_restart_container', { connId, containerId, timeout })
+  try {
+    return await invoke('docker_restart_container', { connId, containerId, timeout })
+  } catch (error) {
+    wrapInvokeError('docker_restart_container', error)
+  }
 }
 
 export async function removeContainer(connId: string, containerId: string, force?: boolean): Promise<void> {
-  return invoke('docker_remove_container', { connId, containerId, force })
+  try {
+    return await invoke('docker_remove_container', { connId, containerId, force })
+  } catch (error) {
+    wrapInvokeError('docker_remove_container', error)
+  }
 }
 
 export async function containerLogs(connId: string, containerId: string, tail?: string): Promise<LogEntry[]> {
-  return invoke('docker_container_logs', { connId, containerId, tail })
+  try {
+    return await invoke('docker_container_logs', { connId, containerId, tail })
+  } catch (error) {
+    wrapInvokeError('docker_container_logs', error)
+  }
 }
 
 export async function containerStats(connId: string, containerId: string): Promise<ContainerStats> {
-  return invoke('docker_container_stats', { connId, containerId })
+  try {
+    return await invoke('docker_container_stats', { connId, containerId })
+  } catch (error) {
+    wrapInvokeError('docker_container_stats', error)
+  }
 }
 
 export async function listImages(connId: string, all?: boolean): Promise<ImageInfo[]> {
@@ -96,19 +149,35 @@ export async function listImages(connId: string, all?: boolean): Promise<ImageIn
       created: Math.floor(Date.now() / 1000) - 86400,
     }]
   }
-  return invoke('docker_list_images', { connId, all })
+  try {
+    return await invoke('docker_list_images', { connId, all })
+  } catch (error) {
+    wrapInvokeError('docker_list_images', error)
+  }
 }
 
 export async function pullImage(connId: string, imageName: string): Promise<{ result: string }> {
-  return invoke('docker_pull_image', { connId, imageName })
+  try {
+    return await invoke('docker_pull_image', { connId, imageName })
+  } catch (error) {
+    wrapInvokeError('docker_pull_image', error)
+  }
 }
 
 export async function removeImage(connId: string, imageId: string, force?: boolean): Promise<void> {
-  return invoke('docker_remove_image', { connId, imageId, force })
+  try {
+    return await invoke('docker_remove_image', { connId, imageId, force })
+  } catch (error) {
+    wrapInvokeError('docker_remove_image', error)
+  }
 }
 
 export async function pruneImages(connId: string): Promise<void> {
-  return invoke('docker_prune_images', { connId })
+  try {
+    return await invoke('docker_prune_images', { connId })
+  } catch (error) {
+    wrapInvokeError('docker_prune_images', error)
+  }
 }
 
 /** 在指定容器内执行命令,返回 stdout + stderr */
@@ -150,13 +219,17 @@ export async function dockerExec(
       exitCode: 0,
     }
   }
-  return invoke('docker_exec', {
-    connId,
-    containerId,
-    command,
-    workdir: options?.workdir,
-    timeoutSec: options?.timeoutSec
-  })
+  try {
+    return await invoke('docker_exec', {
+      connId,
+      containerId,
+      command,
+      workdir: options?.workdir,
+      timeoutSec: options?.timeoutSec
+    })
+  } catch (error) {
+    wrapInvokeError('docker_exec', error)
+  }
 }
 
 /** 持久交互式容器 Shell 的创建结果。 */
@@ -245,7 +318,11 @@ export async function dockerExecSessionStart(
     mockDockerExecSessions.set(sessionId, session)
     return { sessionId }
   }
-  return invoke('docker_exec_session_start', { connId, containerId, cols, rows })
+  try {
+    return await invoke('docker_exec_session_start', { connId, containerId, cols, rows })
+  } catch (error) {
+    wrapInvokeError('docker_exec_session_start', error)
+  }
 }
 
 /** 长轮询读取交互式 Shell 输出。 */
@@ -268,7 +345,11 @@ export async function dockerExecSessionRead(
       exitCode: session.exitCode,
     }
   }
-  return invoke('docker_exec_session_read', { connId, sessionId, waitMs })
+  try {
+    return await invoke('docker_exec_session_read', { connId, sessionId, waitMs })
+  } catch (error) {
+    wrapInvokeError('docker_exec_session_read', error)
+  }
 }
 
 /** 把 xterm 输入原样写入容器 Shell。 */
@@ -303,7 +384,11 @@ export async function dockerExecSessionWrite(connId: string, sessionId: string, 
     }
     return
   }
-  return invoke('docker_exec_session_write', { connId, sessionId, data })
+  try {
+    return await invoke('docker_exec_session_write', { connId, sessionId, data })
+  } catch (error) {
+    wrapInvokeError('docker_exec_session_write', error)
+  }
 }
 
 /** 同步容器 TTY 尺寸。 */
@@ -314,7 +399,11 @@ export async function dockerExecSessionResize(
   rows: number
 ): Promise<void> {
   if (isMockDockerConnection(connId)) return
-  return invoke('docker_exec_session_resize', { connId, sessionId, cols, rows })
+  try {
+    return await invoke('docker_exec_session_resize', { connId, sessionId, cols, rows })
+  } catch (error) {
+    wrapInvokeError('docker_exec_session_resize', error)
+  }
 }
 
 /** 关闭交互式容器 Shell。 */
@@ -323,5 +412,9 @@ export async function dockerExecSessionClose(connId: string, sessionId: string):
     mockDockerExecSessions.delete(sessionId)
     return
   }
-  return invoke('docker_exec_session_close', { connId, sessionId })
+  try {
+    return await invoke('docker_exec_session_close', { connId, sessionId })
+  } catch (error) {
+    wrapInvokeError('docker_exec_session_close', error)
+  }
 }

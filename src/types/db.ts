@@ -1,4 +1,4 @@
-export type DatabaseType = 'mysql' | 'postgresql' | 'redis' | 'elasticsearch' | 'clickhouse' | 'kafka' | 'nsq'
+export type DatabaseType = 'mysql' | 'postgresql' | 'sqlite' | 'redis' | 'elasticsearch' | 'clickhouse' | 'kafka' | 'nsq' | 'mssql'
 
 export interface DbConnectionInfo {
   connId: string
@@ -32,6 +32,30 @@ export interface ClickHouseConnectParams {
   password: string
   database?: string
   ssl?: boolean
+}
+
+export interface SQLiteConnectParams {
+  filePath: string
+}
+
+export interface MSSQLConnectParams {
+  host: string
+  port: number
+  username: string
+  password: string
+  database?: string
+  ssl?: boolean
+}
+
+export interface RedisPubSubMessage {
+  channel: string
+  pattern?: string
+  payload: string
+}
+
+export interface RedisPubSubResult {
+  messages: RedisPubSubMessage[]
+  count: number
 }
 
 export interface TestResult {
@@ -280,4 +304,42 @@ export interface ScrollResult {
   scrollId: string
   totalHits: number
   hits: EsSearchHit[]
+}
+
+// ─── ClickHouse 扩展类型 ───
+
+export interface ClickHousePartition {
+  partition: string
+  name: string
+  active: number
+  rows: number
+  bytes: number
+  minBlockNumber: number
+  maxBlockNumber: number
+}
+
+export interface ClickHouseMergeTreeInfo {
+  engine: string
+  partitionKey: string
+  sortingKey: string
+  primaryKey: string
+}
+
+export interface ClickHouseTableStats {
+  rows: number
+  bytes: number
+  parts: number
+}
+
+// ─── Elasticsearch 扩展类型 ───
+
+export interface EsAcknowledgedResult {
+  acknowledged: boolean
+}
+
+export interface EsDocumentOperationResult {
+  index: string
+  id: string
+  version: number
+  result: string
 }

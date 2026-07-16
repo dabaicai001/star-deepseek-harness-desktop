@@ -46,6 +46,16 @@ func RegisterDBHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("db.postgres.test", handlePostgresTest())
 	server.Register("db.postgres.disconnect", handleDisconnect(mgr))
 
+	// SQLite 连接建立后复用 MySQL 关系型数据库 CRUD handlers（参考 PostgreSQL 模式）
+	server.Register("db.sqlite.connect", handleSQLiteConnect(mgr))
+	server.Register("db.sqlite.test", handleSQLiteTest())
+	server.Register("db.sqlite.disconnect", handleDisconnect(mgr))
+
+	// SQL Server (MSSQL) 连接建立后复用 MySQL 关系型数据库 CRUD handlers
+	server.Register("db.mssql.connect", handleMSSQLConnect(mgr))
+	server.Register("db.mssql.test", handleMSSQLTest())
+	server.Register("db.mssql.disconnect", handleDisconnect(mgr))
+
 	// ClickHouse
 	server.Register("db.clickhouse.connect", handleClickHouseConnect(mgr))
 	server.Register("db.clickhouse.test", handleClickHouseTest())
@@ -93,6 +103,8 @@ func RegisterDBHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("db.redis.bigkeyScan", handleRedisBigKeyScan(mgr))
 	server.Register("db.redis.memoryAnalysis", handleRedisMemoryAnalysis(mgr))
 	server.Register("db.redis.flushDb", handleRedisFlushDB(mgr))
+	server.Register("db.redis.subscribe", handleRedisSubscribe(mgr))
+	server.Register("db.redis.unsubscribe", handleRedisUnsubscribe(mgr))
 
 	// Elasticsearch
 	server.Register("db.es.connect", handleESConnect(mgr))
@@ -229,7 +241,8 @@ func getRelationalAdapter(mgr *pool.Manager, connID string) (relationalAdapter, 
 	if err != nil {
 		return nil, err
 	}
-	if info.Type != pool.ConnMySQL && info.Type != pool.ConnPG {
+	if info.Type != pool.ConnMySQL && info.Type != pool.ConnPG &&
+		info.Type != pool.ConnSQLite && info.Type != pool.ConnMSSQL {
 		return nil, fmt.Errorf("connection %s is not relational SQL (type=%s)", connID, info.Type)
 	}
 	relational, ok := adapter.(relationalAdapter)
@@ -237,6 +250,28 @@ func getRelationalAdapter(mgr *pool.Manager, connID string) (relationalAdapter, 
 		return nil, fmt.Errorf("connection %s does not implement relational operations", connID)
 	}
 	return relational, nil
+}
+
+func getSQLiteAdapter(mgr *pool.Manager, connID string) (*SQLiteAdapter, error) {
+	adapter, info, err := mgr.Get(connID)
+	if err != nil {
+		return nil, err
+	}
+	if info.Type != pool.ConnSQLite {
+		return nil, fmt.Errorf("connection %s is not SQLite (type=%s)", connID, info.Type)
+	}
+	return adapter.(*SQLiteAdapter), nil
+}
+
+func getMSSQLAdapter(mgr *pool.Manager, connID string) (*MSSQLAdapter, error) {
+	adapter, info, err := mgr.Get(connID)
+	if err != nil {
+		return nil, err
+	}
+	if info.Type != pool.ConnMSSQL {
+		return nil, fmt.Errorf("connection %s is not MSSQL (type=%s)", connID, info.Type)
+	}
+	return adapter.(*MSSQLAdapter), nil
 }
 
 func getClickHouseAdapter(mgr *pool.Manager, connID string) (*ClickHouseAdapter, error) {

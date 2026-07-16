@@ -931,6 +931,74 @@ func (a *RedisAdapter) FlushDB() error {
 	return nil
 }
 
+// RedisPubSubMessage PubSub 消息
+type RedisPubSubMessage struct {
+	Channel string `json:"channel"`
+	Pattern string `json:"pattern,omitempty"`
+	Payload string `json:"payload"`
+}
+
+// Subscribe 订阅指定频道和模式，阻塞等待 timeoutMs 毫秒收集消息
+func (a *RedisAdapter) Subscribe(channels, patterns []string, timeoutMs int) ([]RedisPubSubMessage, error) {
+	if len(channels) == 0 && len(patterns) == 0 {
+		return nil, fmt.Errorf("at least one channel or pattern is required")
+	}
+	if timeoutMs <= 0 {
+		timeoutMs = 5000
+	}
+
+	// 使用单独的 PubSub 实例订阅频道和模式
+	var pubsub *redis.PubSub
+	if len(channels) > 0 {
+		pubsub = a.client.Subscribe(a.ctx, channels...)
+		if len(patterns) > 0 {
+			if err := pubsub.PSubscribe(a.ctx, patterns...); err != nil {
+				pubsub.Close()
+				return nil, fmt.Errorf("psubscribe: %w", err)
+			}
+		}
+	} else {
+		pubsub = a.client.PSubscribe(a.ctx, patterns...)
+	}
+	defer pubsub.Close()
+
+	var messages []RedisPubSubMessage
+	timeout := time.After(time.Duration(timeoutMs) * time.Millisecond)
+	msgCh := pubsub.Channel()
+
+	for {
+		select {
+		case msg, ok := <-msgCh:
+			if !ok {
+				return messages, nil
+			}
+			messages = append(messages, RedisPubSubMessage{
+				Channel: msg.Channel,
+				Pattern: msg.Pattern,
+				Payload: msg.Payload,
+			})
+		case <-timeout:
+			return messages, nil
+		}
+	}
+}
+
+// Unsubscribe 取消订阅指定频道
+func (a *RedisAdapter) Unsubscribe(channels []string) error {
+	if len(channels) == 0 {
+		return nil
+	}
+
+	pubsub := a.client.Subscribe(a.ctx)
+	defer pubsub.Close()
+
+	err := pubsub.Unsubscribe(a.ctx, channels...)
+	if err != nil {
+		return fmt.Errorf("unsubscribe: %w", err)
+	}
+	return nil
+}
+
 // MarshalJSON 为 RedisAdapter 提供自定义 JSON 序列化（避免导出 ctx）
 func (a *RedisAdapter) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{

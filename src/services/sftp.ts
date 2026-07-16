@@ -1,5 +1,14 @@
 import { invoke } from '@tauri-apps/api/core'
 
+/**
+ * 统一包装 invoke 错误,生成面向用户可读的错误信息。
+ * 返回类型为 never,调用方在 catch 块中调用后 TypeScript 会自动收窄类型。
+ */
+function wrapInvokeError(operation: string, error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error)
+  throw new Error(`[SFTP] ${operation} 失败: ${message}`)
+}
+
 export interface SftpEntry {
   /** 文件/目录名(不含父路径) */
   name: string
@@ -20,31 +29,59 @@ export interface SftpEntry {
 }
 
 export async function sftpList(id: string, path: string): Promise<SftpEntry[]> {
-  return invoke('sftp_list', { id, path })
+  try {
+    return await invoke('sftp_list', { id, path })
+  } catch (error) {
+    wrapInvokeError('sftp_list', error)
+  }
 }
 
 export async function sftpRead(id: string, path: string): Promise<number[]> {
-  return invoke('sftp_read', { id, path })
+  try {
+    return await invoke('sftp_read', { id, path })
+  } catch (error) {
+    wrapInvokeError('sftp_read', error)
+  }
 }
 
 export async function sftpWrite(id: string, path: string, data: number[]): Promise<void> {
-  return invoke('sftp_write', { id, path, data })
+  try {
+    return await invoke('sftp_write', { id, path, data })
+  } catch (error) {
+    wrapInvokeError('sftp_write', error)
+  }
 }
 
 export async function sftpStat(id: string, path: string): Promise<SftpEntry> {
-  return invoke('sftp_stat', { id, path })
+  try {
+    return await invoke('sftp_stat', { id, path })
+  } catch (error) {
+    wrapInvokeError('sftp_stat', error)
+  }
 }
 
 export async function sftpRemove(id: string, path: string): Promise<void> {
-  return invoke('sftp_remove', { id, path })
+  try {
+    return await invoke('sftp_remove', { id, path })
+  } catch (error) {
+    wrapInvokeError('sftp_remove', error)
+  }
 }
 
 export async function sftpMkdir(id: string, path: string): Promise<void> {
-  return invoke('sftp_mkdir', { id, path })
+  try {
+    return await invoke('sftp_mkdir', { id, path })
+  } catch (error) {
+    wrapInvokeError('sftp_mkdir', error)
+  }
 }
 
 export async function sftpRename(id: string, from: string, to: string): Promise<void> {
-  return invoke('sftp_rename', { id, from, to })
+  try {
+    return await invoke('sftp_rename', { id, from, to })
+  } catch (error) {
+    wrapInvokeError('sftp_rename', error)
+  }
 }
 
 // ===== 流式传输(走 TransferManager,带 progress / status 事件) =====
@@ -93,7 +130,11 @@ export interface SftpLaunchInfo {
 
 /** 先确保 SFTP 通道已开启并注册到 TransferManager(后续传输复用同一通道) */
 export async function sftpEnsureSession(id: string): Promise<SftpLaunchInfo | null> {
-  return invoke('sftp_ensure_session', { id })
+  try {
+    return await invoke('sftp_ensure_session', { id })
+  } catch (error) {
+    wrapInvokeError('sftp_ensure_session', error)
+  }
 }
 
 /** 启动流式上传,返回 transfer_id(用于 listen 进度/状态) */
@@ -103,7 +144,11 @@ export async function sftpStartUpload(
   remoteDir: string,
   speedLimit: number = 0
 ): Promise<string> {
-  return invoke('sftp_start_upload', { id, localPaths, remoteDir, speedLimit })
+  try {
+    return await invoke('sftp_start_upload', { id, localPaths, remoteDir, speedLimit })
+  } catch (error) {
+    wrapInvokeError('sftp_start_upload', error)
+  }
 }
 
 /** 启动流式下载,返回 transfer_id */
@@ -113,27 +158,47 @@ export async function sftpStartDownload(
   localDir: string,
   speedLimit: number = 0
 ): Promise<string> {
-  return invoke('sftp_start_download', { id, remotePaths, localDir, speedLimit })
+  try {
+    return await invoke('sftp_start_download', { id, remotePaths, localDir, speedLimit })
+  } catch (error) {
+    wrapInvokeError('sftp_start_download', error)
+  }
 }
 
 /** 取消一个传输 */
 export async function sftpCancelTransfer(id: string, transferId: string): Promise<void> {
-  return invoke('sftp_cancel_transfer', { id, transferId })
+  try {
+    return await invoke('sftp_cancel_transfer', { id, transferId })
+  } catch (error) {
+    wrapInvokeError('sftp_cancel_transfer', error)
+  }
 }
 
 /** 重试一个失败/已取消的传输 */
 export async function sftpRetryTransfer(id: string, transferId: string): Promise<string> {
-  return invoke('sftp_retry_transfer', { id, transferId })
+  try {
+    return await invoke('sftp_retry_transfer', { id, transferId })
+  } catch (error) {
+    wrapInvokeError('sftp_retry_transfer', error)
+  }
 }
 
 /** 动态设置传输任务的速度限制(bytes/s,0 表示不限) */
 export async function sftpSetSpeedLimit(id: string, transferId: string, speedLimit: number): Promise<void> {
-  return invoke('sftp_set_speed_limit', { id, transferId, speedLimit })
+  try {
+    return await invoke('sftp_set_speed_limit', { id, transferId, speedLimit })
+  } catch (error) {
+    wrapInvokeError('sftp_set_speed_limit', error)
+  }
 }
 
 /** 列出某 session 的所有传输任务 */
 export async function sftpListTransfers(id: string): Promise<TransferTask[]> {
-  return invoke('sftp_list_transfers', { id })
+  try {
+    return await invoke('sftp_list_transfers', { id })
+  } catch (error) {
+    wrapInvokeError('sftp_list_transfers', error)
+  }
 }
 
 /** 把 parent + name 拼成 child 路径(保证中间有 /) */
