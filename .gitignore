@@ -69,6 +69,7 @@ coverage/
 
 # Tauri 特定
 src-tauri/target/
+src-tauri/target-*/
 src-tauri/gen/
 
 # 跨平台
