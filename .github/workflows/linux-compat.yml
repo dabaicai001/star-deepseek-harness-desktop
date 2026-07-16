@@ -32,21 +32,31 @@ jobs:
 
       - name: Install Tauri Linux dependencies
         run: |
+          # ARM64 runners fetch from ports.ubuntu.com which is prone to
+          # transient timeouts; configure apt retries and loop the install.
+          echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            build-essential \
-            cpio \
-            file \
-            libayatana-appindicator3-dev \
-            libgtk-3-dev \
-            librsvg2-dev \
-            libsqlite3-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            patchelf \
-            pkg-config \
-            rpm
+          for i in 1 2 3; do
+            sudo apt-get install --no-install-recommends -y \
+              build-essential \
+              cpio \
+              file \
+              libayatana-appindicator3-dev \
+              libgtk-3-dev \
+              librsvg2-dev \
+              libsqlite3-dev \
+              libssl-dev \
+              libwebkit2gtk-4.1-dev \
+              libxdo-dev \
+              patchelf \
+              pkg-config \
+              rpm && break
+            echo "apt-get install attempt $i failed, retrying in 10s..."
+            sleep 10
+            sudo apt-get update
+          done
+          # Verify the critical package installed; fail loudly if not.
+          dpkg -s libwebkit2gtk-4.1-dev >/dev/null 2>&1 || { echo "ERROR: libwebkit2gtk-4.1-dev not installed"; exit 1; }
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

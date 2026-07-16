@@ -13,6 +13,13 @@
 
 ---
 
+## [0.29.8] - 2026-07-16
+
+### 修复
+- 🐛 fix(ci): GitHub Actions Linux ARM64 构建因 `ports.ubuntu.com` 间歇性网络超时导致 `apt-get install` 失败(exit code 100)。为 `release.yml` 和 `linux-compat.yml` 的 apt 安装步骤增加 `Acquire::Retries` 配置和 3 次重试循环,并在完成后校验关键包 `libwebkit2gtk-4.1-dev` 是否真正安装成功。
+
+---
+
 ## [0.29.7] - 2026-07-16
 
 ### 新功能
