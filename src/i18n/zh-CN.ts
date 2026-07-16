@@ -141,6 +141,7 @@ export default {
     closeSameAssetTabs: '关闭同一资产的其他标签页',
     closeRightTabs: '关闭右侧标签页',
     closeAllTabs: '关闭所有',
+    copyTabTitle: '复制标签标题',
    openRecent: '打开最近的 {type}…',
     newConnection: '新建 {type}…',
     quickStartHint: '点 + 创建新连接，或点上方按钮快速打开',
@@ -624,7 +625,6 @@ export default {
     approve: '批准',
     addToWhitelist: '加入白名单',
     whitelistHint: '加入白名单后，该命令将不再询问',
-    collapseToolCall: '收起工具详情',
-    copyTabTitle: '复制标签标题'
+    collapseToolCall: '收起工具详情'
  }
 }

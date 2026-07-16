@@ -141,6 +141,7 @@ export default {
     closeSameAssetTabs: 'Close Other Tabs for Same Asset',
     closeRightTabs: 'Close Tabs to the Right',
     closeAllTabs: 'Close All',
+    copyTabTitle: 'Copy Tab Title',
    openRecent: 'Open Recent {type}…',
     newConnection: 'New {type}…',
     quickStartHint: 'Click + to create a connection, or use the buttons above to quickly open one',
@@ -623,7 +624,6 @@ export default {
     approve: 'Approve',
     addToWhitelist: 'Add to Allowlist',
     whitelistHint: 'After adding, this command will not be asked again',
-    collapseToolCall: 'Collapse Tool Details',
-    copyTabTitle: 'Copy Tab Title'
+    collapseToolCall: 'Collapse Tool Details'
  }
 }
