@@ -7,6 +7,10 @@ import type { AiAssetType, AiSettings, McpKeyValue, McpServerConfig } from '@/st
 import { listMcpTools } from '@/services/mcp'
 import { checkForUpdates, downloadAndInstall } from '@/services/updater'
 import type { UpdateInfo } from '@/services/updater'
+import { fetchAuditLogs, clearAuditLogs, fetchAuditStats } from '@/services/audit'
+import type { AuditLogEntry, AuditStatItem } from '@/services/audit'
+import { fetchAlertRules, createAlertRule, updateAlertRule, deleteAlertRule, testAlertWebhook } from '@/services/alert'
+import type { AlertRule, AlertRuleInput } from '@/services/alert'
 import { version as appVersion } from '~package.json'
 
 const { t, locale } = useI18n()
@@ -15,12 +19,18 @@ const aiStore = useAiStore()
 aiStore.ensureSettingsShape()
 
 // 选中的 tab
-type TabKey = 'general' | 'appearance' | 'ai' | 'about'
+type TabKey = 'general' | 'appearance' | 'ai' | 'audit' | 'alert' | 'about'
 const props = withDefaults(defineProps<{ initialTab?: TabKey }>(), {
   initialTab: 'general'
 })
 const activeTab = ref<TabKey>(props.initialTab)
 watch(() => props.initialTab, tab => { activeTab.value = tab })
+
+// 切换到审计/告警 tab 时懒加载
+watch(activeTab, tab => {
+  if (tab === 'audit' && auditLogs.value.length === 0) loadAuditLogs()
+  if (tab === 'alert' && alertRules.value.length === 0) loadAlertRules()
+})
 
 /** 通用设置(用 localStorage 持久化,P2 阶段先不上 store) */
 const startPage = ref<'welcome' | 'restore'>('welcome')
@@ -411,6 +421,202 @@ const PRESET_MODELS = [
   { id: 'deepseek-chat', label: 'DeepSeek (deepseek-chat)' },
   { id: 'qwen-turbo', label: '通义千问 Qwen Turbo (阿里)' }
 ]
+
+// ====== 审计日志 ======
+const auditLogs = ref<AuditLogEntry[]>([])
+const auditStats = ref<AuditStatItem[]>([])
+const auditLoading = ref(false)
+const auditCategoryFilter = ref<string>('')
+const auditClearing = ref(false)
+const auditClearResult = ref<string | null>(null)
+
+const AUDIT_CATEGORIES = [
+  { value: '', label: '全部' },
+  { value: 'ssh', label: 'SSH' },
+  { value: 'db', label: '数据库' },
+  { value: 'sftp', label: 'SFTP' },
+  { value: 'docker', label: 'Docker' },
+  { value: 'ai', label: 'AI' },
+  { value: 'system', label: '系统' }
+]
+
+async function loadAuditLogs() {
+  auditLoading.value = true
+  try {
+    const [logs, stats] = await Promise.all([
+      fetchAuditLogs({ limit: 200, offset: 0, categoryFilter: auditCategoryFilter.value || null }),
+      fetchAuditStats()
+    ])
+    auditLogs.value = logs
+    auditStats.value = stats
+  } catch (e) {
+    console.warn('[settings] Failed to load audit logs:', e)
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+async function onClearAudit() {
+  auditClearing.value = true
+  auditClearResult.value = null
+  try {
+    const deleted = await clearAuditLogs()
+    auditClearResult.value = `已清理 ${deleted} 条日志`
+    await loadAuditLogs()
+  } catch (e) {
+    auditClearResult.value = `清理失败: ${e instanceof Error ? e.message : String(e)}`
+  } finally {
+    auditClearing.value = false
+    setTimeout(() => { auditClearResult.value = null }, 3000)
+  }
+}
+
+function formatAuditTime(ts: number): string {
+  const d = new Date(ts * 1000)
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+function formatAuditDetail(detail: Record<string, unknown> | null): string {
+  if (!detail) return ''
+  try {
+    return JSON.stringify(detail)
+  } catch {
+    return String(detail)
+  }
+}
+
+// ====== 告警规则 ======
+const alertRules = ref<AlertRule[]>([])
+const alertLoading = ref(false)
+const alertEditing = ref<AlertRule | null>(null)
+const alertDialog = ref(false)
+const alertTestResult = ref<string | null>(null)
+const alertTesting = ref<string | null>(null)
+
+const alertForm = ref<AlertRuleInput>({
+  name: '',
+  enabled: true,
+  category: 'ssh',
+  metric: 'ssh.error_count',
+  operator: '>',
+  threshold: 5,
+  duration_sec: 0,
+  webhook_url: null,
+  cooldown_sec: 300
+})
+
+const ALERT_CATEGORIES = [
+  { value: 'ssh', label: 'SSH' },
+  { value: 'db', label: '数据库' },
+  { value: 'docker', label: 'Docker' },
+  { value: 'system', label: '系统' }
+]
+
+const ALERT_OPERATORS = [
+  { value: '>', label: '>' },
+  { value: '<', label: '<' },
+  { value: '>=', label: '>=' },
+  { value: '<=', label: '<=' },
+  { value: '==', label: '==' }
+]
+
+const ALERT_METRICS = [
+  { value: 'ssh.error_count', label: 'SSH 错误次数 (1h)' },
+  { value: 'ssh.total_count', label: 'SSH 总操作数 (1h)' },
+  { value: 'ssh.error_rate', label: 'SSH 错误率 % (1h)' },
+  { value: 'db.error_count', label: 'DB 错误次数 (1h)' },
+  { value: 'db.total_count', label: 'DB 总操作数 (1h)' },
+  { value: 'db.error_rate', label: 'DB 错误率 % (1h)' },
+  { value: 'docker.error_count', label: 'Docker 错误次数 (1h)' },
+  { value: 'docker.total_count', label: 'Docker 总操作数 (1h)' },
+  { value: 'docker.error_rate', label: 'Docker 错误率 % (1h)' },
+  { value: 'system.error_count', label: '系统错误次数 (1h)' },
+  { value: 'system.total_count', label: '系统总操作数 (1h)' },
+  { value: 'system.error_rate', label: '系统错误率 % (1h)' }
+]
+
+async function loadAlertRules() {
+  alertLoading.value = true
+  try {
+    alertRules.value = await fetchAlertRules()
+  } catch (e) {
+    console.warn('[settings] Failed to load alert rules:', e)
+  } finally {
+    alertLoading.value = false
+  }
+}
+
+function openCreateAlert() {
+  alertEditing.value = null
+  alertForm.value = {
+    name: '',
+    enabled: true,
+    category: 'ssh',
+    metric: 'ssh.error_count',
+    operator: '>',
+    threshold: 5,
+    duration_sec: 0,
+    webhook_url: null,
+    cooldown_sec: 300
+  }
+  alertDialog.value = true
+}
+
+function openEditAlert(rule: AlertRule) {
+  alertEditing.value = rule
+  alertForm.value = {
+    name: rule.name,
+    enabled: rule.enabled,
+    category: rule.category,
+    metric: rule.metric,
+    operator: rule.operator,
+    threshold: rule.threshold,
+    duration_sec: rule.duration_sec,
+    webhook_url: rule.webhook_url,
+    cooldown_sec: rule.cooldown_sec
+  }
+  alertDialog.value = true
+}
+
+async function onSaveAlert() {
+  try {
+    if (alertEditing.value) {
+      await updateAlertRule(alertEditing.value.id, alertForm.value)
+    } else {
+      await createAlertRule(alertForm.value)
+    }
+    alertDialog.value = false
+    await loadAlertRules()
+  } catch (e) {
+    console.error('[settings] Failed to save alert rule:', e)
+  }
+}
+
+async function onDeleteAlert(id: string) {
+  try {
+    await deleteAlertRule(id)
+    await loadAlertRules()
+  } catch (e) {
+    console.error('[settings] Failed to delete alert rule:', e)
+  }
+}
+
+async function onTestWebhook(url: string) {
+  if (!url) return
+  alertTesting.value = url
+  alertTestResult.value = null
+  try {
+    const result = await testAlertWebhook(url)
+    alertTestResult.value = result
+  } catch (e) {
+    alertTestResult.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    alertTesting.value = null
+    setTimeout(() => { alertTestResult.value = null }, 5000)
+  }
+}
+
 </script>
 
 <template>
@@ -434,6 +640,14 @@ const PRESET_MODELS = [
         <v-icon size="13">mdi-robot-outline</v-icon>
         <span>AI 助手</span>
         <span class="tab-hint">Function Calling · 命令执行</span>
+      </button>
+      <button class="tab" :class="{ active: activeTab === 'audit' }" @click="activeTab = 'audit'">
+        <v-icon size="13">mdi-clipboard-list-outline</v-icon>
+        <span>审计日志</span>
+      </button>
+      <button class="tab" :class="{ active: activeTab === 'alert' }" @click="activeTab = 'alert'">
+        <v-icon size="13">mdi-bell-alert-outline</v-icon>
+        <span>告警规则</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'about' }" @click="activeTab = 'about'">
         <v-icon size="13">mdi-information-outline</v-icon>
@@ -896,6 +1110,201 @@ const PRESET_MODELS = [
         </div>
       </div>
     </div>
+
+    <!-- 审计日志 -->
+    <div v-if="activeTab === 'audit'" class="settings-panel">
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">01</span>
+          <span class="section-title">操作历史</span>
+        </div>
+        <p class="section-desc">记录 SSH、数据库、SFTP、Docker、AI 等模块的关键操作,用于审计与追溯。</p>
+
+        <div class="audit-toolbar">
+          <select v-model="auditCategoryFilter" class="cyber-input audit-filter" @change="loadAuditLogs">
+            <option v-for="cat in AUDIT_CATEGORIES" :key="cat.value" :value="cat.value">{{ cat.label }}</option>
+          </select>
+          <button class="cyber-btn-secondary" :disabled="auditLoading" @click="loadAuditLogs">
+            <v-icon size="14">{{ auditLoading ? 'mdi-loading mdi-spin' : 'mdi-refresh' }}</v-icon>
+            {{ auditLoading ? '加载中…' : '刷新' }}
+          </button>
+          <button class="cyber-btn-secondary" :disabled="auditClearing" @click="onClearAudit">
+            <v-icon size="14">{{ auditClearing ? 'mdi-loading mdi-spin' : 'mdi-delete-sweep-outline' }}</v-icon>
+            {{ auditClearing ? '清理中…' : '清理全部' }}
+          </button>
+          <span v-if="auditClearResult" class="audit-clear-result">{{ auditClearResult }}</span>
+        </div>
+
+        <div class="audit-table-wrap">
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>类别</th>
+                <th>操作</th>
+                <th>目标</th>
+                <th>状态</th>
+                <th>详情</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="auditLogs.length === 0">
+                <td colspan="6" class="audit-empty">暂无审计日志</td>
+              </tr>
+              <tr v-for="log in auditLogs" :key="log.id" :class="{ failed: !log.success }">
+                <td class="audit-time">{{ formatAuditTime(log.timestamp) }}</td>
+                <td><span class="cyber-badge">{{ log.category }}</span></td>
+                <td>{{ log.action }}</td>
+                <td class="audit-target">{{ log.target ?? '-' }}</td>
+                <td>
+                  <span class="audit-status" :class="log.success ? 'ok' : 'fail'">
+                    {{ log.success ? '成功' : '失败' }}
+                  </span>
+                </td>
+                <td class="audit-detail" :title="formatAuditDetail(log.detail)">{{ formatAuditDetail(log.detail) || '-' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div v-if="auditStats.length > 0" class="section">
+        <div class="section-header">
+          <span class="section-number">02</span>
+          <span class="section-title">统计</span>
+        </div>
+        <div class="audit-stats-grid">
+          <div v-for="stat in auditStats" :key="`${stat.category}-${stat.date}`" class="audit-stat-card">
+            <div class="audit-stat-head">
+              <span class="cyber-badge">{{ stat.category }}</span>
+              <span class="audit-stat-date">{{ stat.date }}</span>
+            </div>
+            <div class="audit-stat-row">
+              <span>总计: <strong>{{ stat.total }}</strong></span>
+              <span class="ok">成功: {{ stat.success }}</span>
+              <span class="fail">失败: {{ stat.failed }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 告警规则 -->
+    <div v-if="activeTab === 'alert'" class="settings-panel">
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">01</span>
+          <span class="section-title">告警规则</span>
+        </div>
+        <p class="section-desc">基于审计日志统计指标配置阈值告警,触发时通过 Webhook 发送通知。前端可定时调用 <code>alert_check</code> 检查所有启用的规则。</p>
+
+        <div class="audit-toolbar">
+          <button class="cyber-btn-secondary" :disabled="alertLoading" @click="loadAlertRules">
+            <v-icon size="14">{{ alertLoading ? 'mdi-loading mdi-spin' : 'mdi-refresh' }}</v-icon>
+            {{ alertLoading ? '加载中…' : '刷新' }}
+          </button>
+          <button class="cyber-btn" @click="openCreateAlert">
+            <v-icon size="14">mdi-plus</v-icon>
+            新建规则
+          </button>
+        </div>
+
+        <div v-if="alertRules.length === 0" class="audit-empty">暂无告警规则,点击"新建规则"创建</div>
+
+        <div class="alert-rule-list">
+          <div v-for="rule in alertRules" :key="rule.id" class="alert-rule-card" :class="{ disabled: !rule.enabled }">
+            <div class="alert-rule-head">
+              <span class="alert-rule-name">{{ rule.name }}</span>
+              <span class="cyber-badge" :class="{ 'badge-off': !rule.enabled }">{{ rule.enabled ? '启用' : '禁用' }}</span>
+              <span class="alert-rule-metric">{{ rule.metric }} {{ rule.operator }} {{ rule.threshold }}</span>
+              <div class="alert-rule-actions">
+                <button class="action-btn" aria-label="编辑规则" data-tooltip="编辑" @click="openEditAlert(rule)">
+                  <v-icon size="14">mdi-pencil-outline</v-icon>
+                </button>
+                <button class="action-btn" aria-label="删除规则" data-tooltip="删除" @click="onDeleteAlert(rule.id)">
+                  <v-icon size="14">mdi-delete-outline</v-icon>
+                </button>
+              </div>
+            </div>
+            <div class="alert-rule-meta">
+              <span>类别: {{ rule.category }}</span>
+              <span>持续时间: {{ rule.duration_sec }}s</span>
+              <span>冷却: {{ rule.cooldown_sec }}s</span>
+              <span v-if="rule.webhook_url">Webhook: {{ rule.webhook_url }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="alertTestResult" class="alert-test-result">{{ alertTestResult }}</div>
+      </div>
+    </div>
+
+    <!-- 告警规则编辑弹窗 -->
+    <v-dialog v-model="alertDialog" max-width="560" transition="cyber-dialog">
+      <div class="cyber-panel alert-dialog-panel">
+        <div class="settings-header">
+          <v-icon size="20" color="cyan">mdi-bell-alert-outline</v-icon>
+          <h2>{{ alertEditing ? '编辑告警规则' : '新建告警规则' }}</h2>
+        </div>
+        <div class="form-grid">
+          <div class="form-field">
+            <label class="field-label">规则名称</label>
+            <input v-model="alertForm.name" class="cyber-input" placeholder="例如: SSH 连接失败告警" />
+          </div>
+          <div class="form-field">
+            <label class="field-label">类别</label>
+            <select v-model="alertForm.category" class="cyber-input">
+              <option v-for="cat in ALERT_CATEGORIES" :key="cat.value" :value="cat.value">{{ cat.label }}</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="field-label">监控指标</label>
+            <select v-model="alertForm.metric" class="cyber-input">
+              <option v-for="m in ALERT_METRICS" :key="m.value" :value="m.value">{{ m.label }}</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="field-label">操作符</label>
+            <select v-model="alertForm.operator" class="cyber-input">
+              <option v-for="op in ALERT_OPERATORS" :key="op.value" :value="op.value">{{ op.label }}</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="field-label">阈值</label>
+            <input v-model.number="alertForm.threshold" class="cyber-input" type="number" step="0.1" />
+          </div>
+          <div class="form-field">
+            <label class="field-label">持续时间 (秒)</label>
+            <input v-model.number="alertForm.duration_sec" class="cyber-input" type="number" min="0" />
+          </div>
+          <div class="form-field">
+            <label class="field-label">冷却时间 (秒)</label>
+            <input v-model.number="alertForm.cooldown_sec" class="cyber-input" type="number" min="0" />
+          </div>
+          <div class="form-field">
+            <label class="field-label">Webhook URL (可选)</label>
+            <input v-model="alertForm.webhook_url" class="cyber-input" placeholder="https://example.com/webhook" />
+          </div>
+        </div>
+        <label class="checkbox-row">
+          <input v-model="alertForm.enabled" type="checkbox" />
+          <span>启用此规则</span>
+        </label>
+        <div v-if="alertForm.webhook_url" class="action-row compact">
+          <button class="cyber-btn-secondary" :disabled="alertTesting === alertForm.webhook_url" @click="onTestWebhook(alertForm.webhook_url!)">
+            <v-icon size="14">{{ alertTesting === alertForm.webhook_url ? 'mdi-loading mdi-spin' : 'mdi-lan-check' }}</v-icon>
+            测试 Webhook
+          </button>
+        </div>
+        <div class="action-row">
+          <button class="cyber-btn-secondary" @click="alertDialog = false">取消</button>
+          <button class="cyber-btn" :disabled="!alertForm.name.trim()" @click="onSaveAlert">
+            <v-icon size="14">mdi-content-save-outline</v-icon>
+            保存
+          </button>
+        </div>
+      </div>
+    </v-dialog>
 
     <!-- 关于 -->
     <div v-if="activeTab === 'about'" class="settings-panel">

@@ -362,3 +362,87 @@ pub async fn docker_exec_session_close(
         )
         .await
 }
+
+// ─── Docker Compose Commands ───
+
+#[tauri::command]
+pub async fn docker_compose_up(
+    sidecar: State<'_, SidecarManager>,
+    work_dir: String,
+    service_name: Option<String>,
+) -> Result<Value, String> {
+    let mut params = serde_json::json!({ "workDir": work_dir });
+    if let Some(s) = service_name {
+        params["serviceName"] = serde_json::json!(s);
+    }
+    sidecar.call("docker.compose.up", params).await
+}
+
+#[tauri::command]
+pub async fn docker_compose_down(
+    sidecar: State<'_, SidecarManager>,
+    work_dir: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "docker.compose.down",
+            serde_json::json!({ "workDir": work_dir }),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn docker_compose_ps(
+    sidecar: State<'_, SidecarManager>,
+    work_dir: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "docker.compose.ps",
+            serde_json::json!({ "workDir": work_dir }),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn docker_compose_logs(
+    sidecar: State<'_, SidecarManager>,
+    work_dir: String,
+    service_name: Option<String>,
+    tail: Option<i64>,
+) -> Result<Value, String> {
+    let mut params = serde_json::json!({ "workDir": work_dir });
+    if let Some(s) = service_name {
+        params["serviceName"] = serde_json::json!(s);
+    }
+    if let Some(t) = tail {
+        params["tail"] = serde_json::json!(t);
+    }
+    sidecar.call("docker.compose.logs", params).await
+}
+
+#[tauri::command]
+pub async fn docker_compose_config(
+    sidecar: State<'_, SidecarManager>,
+    work_dir: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "docker.compose.config",
+            serde_json::json!({ "workDir": work_dir }),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn docker_compose_list(
+    sidecar: State<'_, SidecarManager>,
+    work_dir: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "docker.compose.list",
+            serde_json::json!({ "workDir": work_dir }),
+        )
+        .await
+}

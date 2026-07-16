@@ -8,7 +8,7 @@ import BroadcastDialog, { type BroadcastSession } from './BroadcastDialog.vue'
 import type { KbInteractiveEvent } from '@/services/ssh'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import TerminalPane from './TerminalPane.vue'
+import SplitTerminal from './SplitTerminal.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import SshDashboard from '@/components/dashboard/SshDashboard.vue'
@@ -112,7 +112,8 @@ const asset = computed(() =>
   assetStore.assets.find((a) => a.id === instanceInfo.value.assetId) ?? devMockAsset.value
 )
 
-const terminalRef = ref<InstanceType<typeof TerminalPane>>()
+const terminalRef = ref<InstanceType<typeof SplitTerminal>>()
+const paneCount = ref(1)
 const connected = ref(false)
 const connecting = ref(false)
 const sftpReady = ref(false)

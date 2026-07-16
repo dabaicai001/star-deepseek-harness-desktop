@@ -126,6 +126,11 @@ func RegisterDBHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("db.es.bulkIndex", handleESBulkIndex(mgr))
 	server.Register("db.es.exportJSON", handleESExportJSON(mgr))
 	server.Register("db.es.scrollSearch", handleESScrollSearch(mgr))
+
+	// Backup / Restore
+	server.Register("db.backup", handleBackupDatabase(mgr))
+	server.Register("db.restore", handleRestoreDatabase(mgr))
+	server.Register("db.listBackups", handleListBackups(mgr))
 }
 
 // ServerInterface 定义 server 需要的方法（避免循环导入）
@@ -1589,6 +1594,14 @@ func RegisterDockerHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("docker.execSessionWrite", handleDockerExecSessionWrite(mgr))
 	server.Register("docker.execSessionResize", handleDockerExecSessionResize(mgr))
 	server.Register("docker.execSessionClose", handleDockerExecSessionClose(mgr))
+
+	// Docker Compose
+	server.Register("docker.compose.up", handleDockerComposeUp(mgr))
+	server.Register("docker.compose.down", handleDockerComposeDown(mgr))
+	server.Register("docker.compose.ps", handleDockerComposePs(mgr))
+	server.Register("docker.compose.logs", handleDockerComposeLogs(mgr))
+	server.Register("docker.compose.config", handleDockerComposeConfig(mgr))
+	server.Register("docker.compose.list", handleDockerComposeList(mgr))
 }
 
 func getDockerAdapter(mgr *pool.Manager, connID string) (*DockerAdapter, error) {

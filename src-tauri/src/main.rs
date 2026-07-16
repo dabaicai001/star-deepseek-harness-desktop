@@ -176,6 +176,10 @@ fn main() {
             commands::db::db_clickhouse_get_partitions,
             commands::db::db_clickhouse_get_merge_tree_info,
             commands::db::db_clickhouse_get_table_stats,
+            // Backup / Restore
+            commands::db::db_backup,
+            commands::db::db_restore,
+            commands::db::db_list_backups,
             // SQLite
             commands::db::db_sqlite_connect,
             commands::db::db_sqlite_test,
@@ -206,6 +210,13 @@ fn main() {
             commands::docker::docker_exec_session_write,
             commands::docker::docker_exec_session_resize,
             commands::docker::docker_exec_session_close,
+            // Docker Compose
+            commands::docker::docker_compose_up,
+            commands::docker::docker_compose_down,
+            commands::docker::docker_compose_ps,
+            commands::docker::docker_compose_logs,
+            commands::docker::docker_compose_config,
+            commands::docker::docker_compose_list,
             commands::broker::broker_test,
             commands::broker::broker_overview,
             // File
@@ -234,6 +245,18 @@ fn main() {
             commands::mcp::mcp_call_tool,
             // Sidecar 通用 RPC
             commands::sidecar::sidecar_rpc,
+            // 审计日志
+            commands::audit::audit_log,
+            commands::audit::audit_list,
+            commands::audit::audit_clear,
+            commands::audit::audit_stats,
+            // 告警系统
+            commands::alert::alert_create,
+            commands::alert::alert_update,
+            commands::alert::alert_delete,
+            commands::alert::alert_list,
+            commands::alert::alert_check,
+            commands::alert::alert_test_webhook,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

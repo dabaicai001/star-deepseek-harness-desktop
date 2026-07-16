@@ -1,5 +1,7 @@
 pub mod ai;
+pub mod alert;
 pub mod asset;
+pub mod audit;
 pub mod broker;
 pub mod db;
 pub mod docker;

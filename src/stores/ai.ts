@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { ChatMessage, LlmTool, LlmToolCall, NewChatRequest, NewChatResponse } from '@/services/ai'
-import { chatWithTools, chatStream } from '@/services/ai'
+import { chatWithTools, chatStream, estimateCost } from '@/services/ai'
 import { decrypt as decryptLegacyKey } from '@/utils/crypto'
 import { compactPersistedMessages, snapshotChatMessages, type StickyContextBinding } from '@/utils/aiContext'
 
@@ -70,6 +70,23 @@ export interface McpServerConfig {
 
 /** AI 健康状态 */
 export type AiHealthStatus = 'ready' | 'unconfigured' | 'error'
+
+/** 单次 LLM 调用的用量记录 */
+export interface TokenUsageRecord {
+  input_tokens: number
+  output_tokens: number
+  cost: number
+}
+
+/** 全局 token 用量统计(持久化到 localStorage) */
+export interface TokenUsageState {
+  totalTokens: number
+  promptTokens: number
+  completionTokens: number
+  estimatedCost: number
+  /** 按会话 ID 聚合的用量 */
+  conversations: Record<string, { tokens: number; cost: number }>
+}
 
 export interface AiAgentDraft {
   name: string
@@ -370,6 +387,15 @@ export const useAiStore = defineStore('ai', () => {
 
   /** 最近对话摘要(侧边栏展示用,持久化到 localStorage) */
   const conversationSummaries = ref<AiConversationSummary[]>([])
+
+  /** AI token 用量统计(持久化到 localStorage) */
+  const tokenUsage = ref<TokenUsageState>({
+    totalTokens: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    estimatedCost: 0,
+    conversations: {}
+  })
 
   /** AI 健康状态(基于 LLM 配置完整度) */
   function aiHealthStatus(): AiHealthStatus {
@@ -692,6 +718,54 @@ export const useAiStore = defineStore('ai', () => {
 
   function clearConversationSummariesForAgent(agentId: string) {
     conversationSummaries.value = conversationSummaries.value.filter(s => s.agentId !== agentId)
+  }
+
+  /**
+   * 记录一次 LLM 调用的 token 用量,累加到全局统计和当前会话统计。
+   */
+  function recordUsage(sessionId: string, usage: TokenUsageRecord): void {
+    const total = usage.input_tokens + usage.output_tokens
+    tokenUsage.value.totalTokens += total
+    tokenUsage.value.promptTokens += usage.input_tokens
+    tokenUsage.value.completionTokens += usage.output_tokens
+    tokenUsage.value.estimatedCost += usage.cost
+    const conv = tokenUsage.value.conversations[sessionId] || { tokens: 0, cost: 0 }
+    conv.tokens += total
+    conv.cost += usage.cost
+    tokenUsage.value.conversations[sessionId] = conv
+  }
+
+  /**
+   * 返回用量统计快照(含全局汇总和指定会话的用量)。
+   */
+  function getUsageStats(sessionId?: string): {
+    totalTokens: number
+    promptTokens: number
+    completionTokens: number
+    estimatedCost: number
+    sessionTokens: number
+    sessionCost: number
+  } {
+    const session = sessionId ? tokenUsage.value.conversations[sessionId] : undefined
+    return {
+      totalTokens: tokenUsage.value.totalTokens,
+      promptTokens: tokenUsage.value.promptTokens,
+      completionTokens: tokenUsage.value.completionTokens,
+      estimatedCost: tokenUsage.value.estimatedCost,
+      sessionTokens: session?.tokens ?? 0,
+      sessionCost: session?.cost ?? 0
+    }
+  }
+
+  /** 清零全部用量统计 */
+  function resetUsage(): void {
+    tokenUsage.value = {
+      totalTokens: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      estimatedCost: 0,
+      conversations: {}
+    }
   }
 
   async function setMcpServers(servers: McpServerConfig[]) {

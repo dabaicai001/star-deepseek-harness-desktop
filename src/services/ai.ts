@@ -25,6 +25,49 @@ export interface ChatMessage {
   name?: string
   /** assistant 消息带的 tool_calls */
   tool_calls?: LlmToolCall[]
+  /** 用户消息附带的图片(base64 data URL,如 data:image/png;base64,...);发送给 LLM 时转为 OpenAI 多模态 content 数组 */
+  images?: string[]
+}
+
+/** OpenAI 兼容多模态 content 数组中的单个部分 */
+export interface ContentPart {
+  type: 'text' | 'image_url'
+  text?: string
+  image_url?: { url: string }
+}
+
+/**
+ * 估算单次 LLM 调用的花费(美元)。
+ * 输入 $0.01/1K tokens,输出 $0.03/1K tokens(简化估算)。
+ */
+export function estimateCost(inputTokens: number, outputTokens: number): number {
+  const inputCost = (inputTokens / 1000) * 0.01
+  const outputCost = (outputTokens / 1000) * 0.03
+  return Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000
+}
+
+/**
+ * 将内部 ChatMessage[] 序列化为 OpenAI 兼容的请求 messages 数组。
+ * 含 images 的 user 消息转为多模态 content 数组格式。
+ */
+function serializeMessages(messages: ChatMessage[]): Array<Record<string, unknown>> {
+  return messages.map(msg => {
+    if (msg.images && msg.images.length > 0 && msg.role === 'user') {
+      const contentParts: ContentPart[] = []
+      if (msg.content) {
+        contentParts.push({ type: 'text', text: msg.content })
+      }
+      for (const image of msg.images) {
+        contentParts.push({ type: 'image_url', image_url: { url: image } })
+      }
+      const result: Record<string, unknown> = { role: msg.role, content: contentParts }
+      if (msg.tool_call_id) result.tool_call_id = msg.tool_call_id
+      if (msg.name) result.name = msg.name
+      if (msg.tool_calls) result.tool_calls = msg.tool_calls
+      return result
+    }
+    return msg as unknown as Record<string, unknown>
+  })
 }
 
 export interface ChatRequest {
@@ -126,6 +169,8 @@ export interface NewChatResponse {
   usage: {
     input_tokens: number
     output_tokens: number
+    /** 估算花费(美元),优先取 response header x-usage-cost,否则按 token 单价估算 */
+    cost: number
   }
 }
 
@@ -140,7 +185,7 @@ export type StreamChunk =
   | { kind: 'content'; delta: string }
   | { kind: 'tool_call_start'; id: string; name: string }
   | { kind: 'tool_call_delta'; id: string; argumentsDelta: string }
-  | { kind: 'done'; message: ChatMessage; usage?: { input_tokens: number; output_tokens: number } }
+  | { kind: 'done'; message: ChatMessage; usage?: { input_tokens: number; output_tokens: number; cost: number } }
   | { kind: 'error'; message: string }
 
 /**
@@ -181,7 +226,7 @@ export async function chatWithTools(req: NewChatRequest): Promise<NewChatRespons
 
   const body: Record<string, unknown> = {
     model: req.model,
-    messages,
+    messages: serializeMessages(messages),
     temperature: req.temperature ?? 0.3,
     max_tokens: req.maxTokens ?? 4096
   }
@@ -231,12 +276,18 @@ export async function chatWithTools(req: NewChatRequest): Promise<NewChatRespons
       : undefined
   }
 
+  const inputTokens = data.usage?.prompt_tokens ?? 0
+  const outputTokens = data.usage?.completion_tokens ?? 0
+  const headerCost = parseFloat(res.headers.get('x-usage-cost') || '')
+  const cost = Number.isFinite(headerCost) ? headerCost : estimateCost(inputTokens, outputTokens)
+
   return {
     message,
     model: data.model ?? req.model,
     usage: {
-      input_tokens: data.usage?.prompt_tokens ?? 0,
-      output_tokens: data.usage?.completion_tokens ?? 0
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cost
     }
   }
 }
@@ -266,7 +317,7 @@ export async function* chatStream(req: NewChatRequest): AsyncGenerator<StreamChu
 
   const body: Record<string, unknown> = {
     model: req.model,
-    messages,
+    messages: serializeMessages(messages),
     temperature: req.temperature ?? 0.3,
     max_tokens: req.maxTokens ?? 4096,
     stream: true,
@@ -314,7 +365,10 @@ export async function* chatStream(req: NewChatRequest): AsyncGenerator<StreamChu
   const accContent: string[] = []
   const accToolCalls = new Map<number, { id?: string; name?: string; arguments: string[] }>()
   let modelName = req.model
-  let usage: { input_tokens: number; output_tokens: number } | undefined
+  let usage: { input_tokens: number; output_tokens: number; cost: number } | undefined
+  // 从 response header 读取 x-usage-cost(如果 Provider 支持)
+  const headerCostRaw = res.headers.get('x-usage-cost')
+  const headerCost = headerCostRaw ? parseFloat(headerCostRaw) : NaN
 
   // 解析 SSE
   try {
@@ -338,10 +392,12 @@ export async function* chatStream(req: NewChatRequest): AsyncGenerator<StreamChu
             const choice = parsed.choices?.[0]
             modelName = parsed.model ?? modelName
             if (parsed.usage) {
-              usage = {
-                input_tokens: parsed.usage.prompt_tokens ?? 0,
-                output_tokens: parsed.usage.completion_tokens ?? 0
-              }
+              const inputTokens = parsed.usage.prompt_tokens ?? 0
+              const outputTokens = parsed.usage.completion_tokens ?? 0
+              const cost = Number.isFinite(headerCost)
+                ? headerCost
+                : estimateCost(inputTokens, outputTokens)
+              usage = { input_tokens: inputTokens, output_tokens: outputTokens, cost }
             }
             if (!choice) continue
             const delta = choice.delta ?? {}

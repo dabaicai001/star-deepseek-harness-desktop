@@ -1440,3 +1440,54 @@ pub async fn db_redis_unsubscribe(
         )
         .await
 }
+
+// ─── Backup / Restore Commands ───
+
+#[tauri::command]
+pub async fn db_backup(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    format: String,
+    output_path: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "db.backup",
+            serde_json::json!({
+                "connId": conn_id,
+                "format": format,
+                "outputPath": output_path
+            }),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn db_restore(
+    sidecar: State<'_, SidecarManager>,
+    conn_id: String,
+    input_path: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "db.restore",
+            serde_json::json!({
+                "connId": conn_id,
+                "inputPath": input_path
+            }),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn db_list_backups(
+    sidecar: State<'_, SidecarManager>,
+    backup_dir: String,
+) -> Result<Value, String> {
+    sidecar
+        .call(
+            "db.listBackups",
+            serde_json::json!({ "backupDir": backup_dir }),
+        )
+        .await
+}

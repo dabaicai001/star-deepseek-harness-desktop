@@ -12,6 +12,22 @@
 
 ---
 
+## [0.31.0] - 2026-07-16
+
+### 新功能
+- ✨ feat(db): 数据库备份/恢复,sidecar 封装 mysqldump/pg_dump,支持备份列表管理(`sidecar/adapters/backup.go` + `backup_handlers.go`)。
+- ✨ feat(docker): Docker Compose 支持,up/down/ps/logs/config/list 6 个 RPC(`sidecar/adapters/docker_compose.go`)。
+- ✨ feat(ssh): SSH 终端分屏,支持水平/垂直分屏,多 pane 共享同一 SSH 会话(`src/components/ssh/SplitTerminal.vue`)。
+- ✨ feat(audit): 操作历史与审计日志,SQLite 持久化,按类别/时间查询和统计(`src-tauri/src/commands/audit.rs` + `src/services/audit.ts`)。
+- ✨ feat(alert): 告警系统,阈值规则 + Webhook 通知 + 冷却期(`src-tauri/src/commands/alert.rs` + `src/services/alert.ts`)。
+- ✨ feat(ai): AI 成本统计,追踪每次对话 token 用量和估算花费,持久化到 localStorage。
+- ✨ feat(ai): AI 截图识别,支持粘贴图片发送给 AI 解读,OpenAI 兼容多模态格式。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.31.0(package.json / Cargo.toml / tauri.conf.json / CHANGELOG.md / AGENTS.md)。
+
+---
+
 ## [0.30.1] - 2026-07-16
 
 ### 修复
