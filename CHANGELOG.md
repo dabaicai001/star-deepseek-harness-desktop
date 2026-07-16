@@ -13,6 +13,22 @@
 
 ---
 
+## [0.29.7] - 2026-07-16
+
+### 新功能
+- ✨ feat(excel): 选中列去重到新 Sheet 时,末列自动添加「重复次数」列,标明每行在源数据中的出现次数。
+- ✨ feat(csv): CSV 文件也支持选中列去重功能,去重结果(含「重复次数」列)直接覆盖当前 Sheet。
+
+### 修复
+- 🐛 fix(i18n): `copyTabTitle` 国际化 key 错误地放在 `ai` 命名空间下,导致标签页右键菜单在中文模式下显示英文回退。已移至 `layout` 命名空间。
+- 🐛 fix(sidecar): `REQUIRED_METHODS` 启动握手校验遗漏了 `file.excel.*` 系列方法。旧版或缺失 Excel handler 的 sidecar 能通过校验,用户点保存时才报 `RPC error -32601: Method not found`。已补齐 5 个核心 Excel 方法。
+- 🐛 fix(release): `Cargo.lock` 中 starhub 版本停留在 0.29.4,与 `Cargo.toml` 的 0.29.6 不同步,导致 `cargo test --locked` 在三平台 CI 全部失败。
+
+### 构建
+- 🔧 chore: `.gitignore` 新增 `src-tauri/target-*/` 过滤交叉编译产物。
+
+---
+
 ## [0.29.6] - 2026-07-16
 
 ### 改进
