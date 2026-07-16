@@ -1,8 +1,8 @@
 {
   "name": "starhub",
-  "version": "0.29.4",
+ "version": "0.29.5",
   "private": true,
-  "type": "module",
+ "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
