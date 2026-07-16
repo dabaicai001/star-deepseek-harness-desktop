@@ -867,14 +867,14 @@ const tabCtxItems = computed<MenuItem[]>(() => {
     {
       type: 'item',
       icon: 'mdi-close',
-      label: '关闭',
+      label: t('layout.closeTab'),
       shortcut: 'Ctrl+W',
       onClick: () => closeTab(tab.id)
     },
     {
       type: 'item',
       icon: 'mdi-close-circle-outline',
-      label: '关闭其他标签页',
+      label: t('layout.closeOtherTabs'),
       disabled: others.length === 0,
       onClick: () => {
         // 关闭除当前外的所有
@@ -888,7 +888,7 @@ const tabCtxItems = computed<MenuItem[]>(() => {
     {
       type: 'item',
       icon: 'mdi-close-circle-outline',
-      label: '关闭同一资产的其他标签页',
+      label: t('layout.closeSameAssetTabs'),
       disabled: sameAssetTabs.length === 0,
       onClick: () => {
         for (const t of sameAssetTabs) {
@@ -899,7 +899,7 @@ const tabCtxItems = computed<MenuItem[]>(() => {
     {
       type: 'item',
       icon: 'mdi-arrow-collapse-right',
-      label: '关闭右侧标签页',
+      label: t('layout.closeRightTabs'),
       disabled: !hasRight,
       onClick: () => {
         const right = appStore.tabs.slice(idx + 1)
@@ -914,7 +914,7 @@ const tabCtxItems = computed<MenuItem[]>(() => {
     {
       type: 'item',
       icon: 'mdi-content-duplicate',
-      label: '复制标签标题',
+      label: t('layout.copyTabTitle'),
       onClick: async () => {
         try { await navigator.clipboard.writeText(tab.title) } catch {}
       }
@@ -922,7 +922,7 @@ const tabCtxItems = computed<MenuItem[]>(() => {
     {
       type: 'item',
       icon: 'mdi-arrow-right',
-      label: '关闭所有',
+      label: t('layout.closeAllTabs'),
       danger: true,
       disabled: appStore.tabs.length === 0,
       onClick: () => {

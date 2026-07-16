@@ -690,10 +690,10 @@ function onDatabaseContextMenu(e: MouseEvent, db: string) {
   const items: MenuItem[] = []
   items.push({ type: 'header', label: db })
   items.push({ type: 'divider' })
-  items.push({ type: 'item', label: t('db.copyName', '复制名称'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(db).catch(() => {}) } })
+  items.push({ type: 'item', label: t('db.copyName'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(db).catch(() => {}) } })
   items.push({ type: 'divider' })
-  items.push({ type: 'item', label: t('db.newTable', '新建表...'), icon: 'mdi-table-plus', onClick: () => { openNewTableDialog(db) } })
-  items.push({ type: 'item', label: t('db.refreshTables', '刷新表列表'), icon: 'mdi-refresh', onClick: () => { refreshTablesForDb(db) } })
+  items.push({ type: 'item', label: t('db.newTable'), icon: 'mdi-table-plus', onClick: () => { openNewTableDialog(db) } })
+  items.push({ type: 'item', label: t('db.refreshTables'), icon: 'mdi-refresh', onClick: () => { refreshTablesForDb(db) } })
   ctxMenu.value = { x: e.clientX, y: e.clientY, items }
 }
 
@@ -755,15 +755,15 @@ async function onTableContextMenu(e: MouseEvent, db: string, table: string) {
   if (connId.value) {
     items.push({ type: 'header', label: table })
     items.push({ type: 'divider' })
-    items.push({ type: 'item', label: t('db.copyName', '复制名称'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(table).catch(() => {}) } })
+    items.push({ type: 'item', label: t('db.copyName'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(table).catch(() => {}) } })
     items.push({ type: 'divider' })
     items.push({ type: 'item', label: t('db.viewFields'), icon: 'mdi-table-column', onClick: () => { showColumnList.value = true } })
     items.push({ type: 'item', label: t('db.viewDDL'), icon: 'mdi-code-tags', onClick: () => { showCreateTableDDL.value = true } })
     items.push({ type: 'item', label: t('db.viewIndexes'), icon: 'mdi-key-variant', onClick: () => { showIndexList.value = true } })
     items.push({ type: 'divider' })
-    items.push({ type: 'item', label: t('db.renameTable', '重命名...'), icon: 'mdi-rename-outline', onClick: () => { renameTableNewName.value = table; showRenameTable.value = true } })
-    items.push({ type: 'item', label: t('db.truncateTable', '清空表'), icon: 'mdi-eraser', onClick: () => { doTruncateTable(db, table) } })
-    items.push({ type: 'item', label: t('db.dropTable', '删除表'), icon: 'mdi-delete-outline', danger: true, onClick: () => { doDropTable(db, table) } })
+    items.push({ type: 'item', label: t('db.renameTable'), icon: 'mdi-rename-outline', onClick: () => { renameTableNewName.value = table; showRenameTable.value = true } })
+    items.push({ type: 'item', label: t('db.truncateTable'), icon: 'mdi-eraser', onClick: () => { doTruncateTable(db, table) } })
+    items.push({ type: 'item', label: t('db.dropTable'), icon: 'mdi-delete-outline', danger: true, onClick: () => { doDropTable(db, table) } })
   }
 
   ctxMenu.value = { x: e.clientX, y: e.clientY, items }

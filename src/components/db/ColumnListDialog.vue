@@ -193,8 +193,8 @@ function onColContextMenu(e: MouseEvent, idx: number) {
   colCtxMenu.value = {
     x: e.clientX, y: e.clientY,
     items: [
-      { type: 'item', label: 'Copy ALTER', icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(alter).catch(() => {}) } },
-    ]
+        { type: 'item', label: t('db.copyAlter'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(alter).catch(() => {}) } },
+      ]
   }
 }
 

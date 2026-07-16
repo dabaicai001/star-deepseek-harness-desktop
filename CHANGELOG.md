@@ -13,6 +13,24 @@
 
 ---
 
+## [0.29.6] - 2026-07-16
+
+### 改进
+- ✨ feat(ui): 统一右键菜单实现：`SftpPanel`、`TerminalPane` 接入公共 `ContextMenu`，支持边界翻转、键盘导航与 focus trap。
+- ✨ feat(ui): SFTP 上传下拉菜单也收敛到公共 `ContextMenu`。
+
+### 国际化
+- 🌐 i18n: 移除 `ElasticsearchView` 与 `Redis KeyBrowser` 菜单中的 Emoji，全部文案走 i18n。
+- 🌐 i18n: `CyberLayout` 标签页右键菜单、`AssetTree` 分组菜单、`ColumnListDialog`、`DbView` 补齐 i18n key，移除硬编码中文 fallback。
+
+### 样式
+- 🎨 style(design-system): 公共 `ContextMenu` 增加 `max-height`、滚动条样式与选区自动滚入视野。
+
+### 测试
+- ✅ test(frontend): `vue-tsc --noEmit` 与 `npm run build` 通过。
+
+---
+
 ## [0.29.5] - 2026-07-16
 
 ### 修复

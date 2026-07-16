@@ -1705,6 +1705,8 @@ body {
   position: fixed;
   z-index: 9999;
   min-width: 200px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   background: var(--panel-solid);
   border: 1px solid var(--line-2);
   border-radius: 10px;
@@ -1720,6 +1722,21 @@ body {
   animation: cm-appear 0.12s cubic-bezier(0.4, 0, 0.2, 1);
   transform-origin: top left;
   user-select: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+.context-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.context-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.context-menu::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 3px;
 }
 
 @keyframes cm-appear {

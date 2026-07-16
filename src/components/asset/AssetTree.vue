@@ -394,14 +394,14 @@ const groupCtxItems = computed<MenuItem[]>(() => {
       }
     ]
   }
-  const label = gt === 'ssh' ? 'SSH' : gt === 'db' ? t('db.title') : gt === 'docker' ? 'Docker' : 'Excel'
+  const label = gt === 'ssh' ? t('asset.groupSsh') : gt === 'db' ? t('asset.groupDb') : gt === 'docker' ? t('asset.groupDocker') : t('asset.groupExcel')
   const icon = gt === 'ssh' ? 'mdi-console' : gt === 'db' ? 'mdi-database-outline' : gt === 'docker' ? 'mdi-docker' : 'mdi-file-excel-outline'
   return [
     { type: 'header', icon, label },
     {
       type: 'item',
       icon: 'mdi-plus',
-      label: `新建${label === 'SSH' ? ' SSH ' : ' '}连接…`,
+      label: t('asset.create'),
       onClick: () => emit('new-connection-type', gt)
     }
   ]

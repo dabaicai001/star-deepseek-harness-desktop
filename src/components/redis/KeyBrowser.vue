@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import type { RedisKeyInfo } from '@/types/db'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import ResizableSidebarHandle from '@/components/layout/ResizableSidebarHandle.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   connId: string
@@ -366,12 +369,12 @@ function onDbContextMenu(e: MouseEvent, db: number) {
   const items: MenuItem[] = [
     { type: 'header', label: `db${db}` },
     { type: 'divider' },
-    { type: 'item', label: '📋 复制名称', icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(`db${db}`).catch(() => {}) } },
+    { type: 'item', label: t('redis.copyName'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(`db${db}`).catch(() => {}) } },
     { type: 'divider' },
-    { type: 'item', label: '➕ 新建 Key...', icon: 'mdi-key-plus', onClick: () => { emit('new-key', db) } },
-    { type: 'item', label: '🔄 刷新 Keys', icon: 'mdi-refresh', onClick: () => { emit('refresh-keys', db) } },
+    { type: 'item', label: t('redis.newKey'), icon: 'mdi-key-plus', onClick: () => { emit('new-key', db) } },
+    { type: 'item', label: t('redis.refreshKeys'), icon: 'mdi-refresh', onClick: () => { emit('refresh-keys', db) } },
     { type: 'divider' },
-    { type: 'item', label: '🧹 清空 DB', icon: 'mdi-delete-sweep', danger: true, onClick: () => { emit('flush-db', db) } },
+    { type: 'item', label: t('redis.flushDb'), icon: 'mdi-delete-sweep', danger: true, onClick: () => { emit('flush-db', db) } },
   ]
   ctxMenu.value = { x: e.clientX, y: e.clientY, items }
 }
@@ -380,10 +383,10 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
   const items: MenuItem[] = [
     { type: 'header', label: node.fullKey },
     { type: 'divider' },
-    { type: 'item', label: '📋 复制 Key 名', icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(node.fullKey).catch(() => {}) } },
+    { type: 'item', label: t('redis.copyKeyName'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(node.fullKey).catch(() => {}) } },
     { type: 'divider' },
-    { type: 'item', label: '✏️ 重命名...', icon: 'mdi-rename-outline', onClick: () => { emit('rename-key', node.fullKey) } },
-    { type: 'item', label: '🗑️ 删除 Key', icon: 'mdi-delete-outline', danger: true, onClick: () => { onDeleteKey(e, db, node) } },
+    { type: 'item', label: t('redis.rename'), icon: 'mdi-rename-outline', onClick: () => { emit('rename-key', node.fullKey) } },
+    { type: 'item', label: t('redis.deleteKey'), icon: 'mdi-delete-outline', danger: true, onClick: () => { onDeleteKey(e, db, node) } },
   ]
   ctxMenu.value = { x: e.clientX, y: e.clientY, items }
 }

@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { useThemeStore } from '@/stores/theme'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import '@xterm/xterm/css/xterm.css'
 
 const props = defineProps<{
@@ -24,6 +27,7 @@ const emit = defineEmits<{
 }>()
 
 const themeStore = useThemeStore()
+const { t } = useI18n()
 
 const terminalRef = ref<HTMLDivElement>()
 let terminal: Terminal
@@ -64,13 +68,44 @@ function buildTerminalTheme() {
 }
 
 // 右键菜单状态
-type CtxMenu = {
-  visible: boolean
-  x: number
-  y: number
-  hasSelection: boolean
-}
-const ctxMenu = ref<CtxMenu>({ visible: false, x: 0, y: 0, hasSelection: false })
+const termCtxMenu = ref<{ x: number; y: number; hasSelection: boolean } | null>(null)
+const termCtxItems = computed<MenuItem[]>(() => {
+  if (!termCtxMenu.value) return []
+  const hasSelection = termCtxMenu.value.hasSelection
+  return [
+    {
+      type: 'item',
+      icon: 'mdi-content-copy',
+      label: t('ssh.copy'),
+      shortcut: t('ssh.copyShortcut'),
+      disabled: !hasSelection,
+      onClick: () => {
+        const sel = terminal.getSelection()
+        if (sel) doCopy(sel)
+      }
+    },
+    {
+      type: 'item',
+      icon: 'mdi-content-paste',
+      label: t('ssh.paste'),
+      shortcut: t('ssh.pasteShortcut'),
+      onClick: doPaste
+    },
+    { type: 'divider' },
+    {
+      type: 'item',
+      icon: 'mdi-selection-multiple',
+      label: t('ssh.selectAll'),
+      onClick: () => terminal.selectAll()
+    },
+    {
+      type: 'item',
+      icon: 'mdi-eraser',
+      label: t('ssh.clear'),
+      onClick: () => terminal.clear()
+    }
+  ]
+})
 
 onMounted(() => {
   if (!terminalRef.value) return
@@ -117,8 +152,8 @@ onMounted(() => {
 
   // 选区变化时更新右键菜单的"复制"可用状态
   terminal.onSelectionChange(() => {
-    if (ctxMenu.value.visible) {
-      ctxMenu.value.hasSelection = terminal.getSelection().length > 0
+    if (termCtxMenu.value) {
+      termCtxMenu.value.hasSelection = terminal.getSelection().length > 0
     }
   })
 
@@ -169,8 +204,6 @@ onMounted(() => {
   // ====== 右键菜单 ======
   // xterm.js 内部不接管 contextmenu,自己挂一个。
   terminalRef.value.addEventListener('contextmenu', onContextMenu)
-  // 点别处关菜单
-  document.addEventListener('pointerdown', closeCtxMenu)
 
   window.addEventListener('resize', handleResize)
 
@@ -219,8 +252,7 @@ function onContextMenu(e: MouseEvent) {
   e.preventDefault()
   e.stopPropagation()
   const sel = terminal.getSelection()
-  ctxMenu.value = {
-    visible: true,
+  termCtxMenu.value = {
     x: e.clientX,
     y: e.clientY,
     hasSelection: sel.length > 0
@@ -228,35 +260,11 @@ function onContextMenu(e: MouseEvent) {
 }
 
 function closeCtxMenu() {
-  if (ctxMenu.value.visible) ctxMenu.value.visible = false
-}
-
-function ctxCopy() {
-  const sel = terminal.getSelection()
-  if (sel) doCopy(sel)
-  closeCtxMenu()
-}
-
-function ctxPaste() {
-  doPaste()
-  closeCtxMenu()
-}
-
-function ctxSelectAll() {
-  terminal.selectAll()
-  closeCtxMenu()
-  // 重开菜单显示已选(用户可以接着点复制)
-  // 这里简化,直接关闭;有需要可再开
-}
-
-function ctxClear() {
-  terminal.clear()
-  closeCtxMenu()
+  termCtxMenu.value = null
 }
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
-  document.removeEventListener('pointerdown', closeCtxMenu)
   if (terminalRef.value) {
     terminalRef.value.removeEventListener('contextmenu', onContextMenu)
   }
@@ -346,33 +354,13 @@ defineExpose({
     class="terminal-container"
     :class="{ 'terminal-container-bottom-safe': props.bottomSafeArea }"
   >
-    <!-- 右键菜单 -->
-    <div
-      v-if="ctxMenu.visible"
-      class="term-ctx-menu"
-      :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
-      @pointerdown.stop
-    >
-      <button class="ctx-item" :disabled="!ctxMenu.hasSelection" @click="ctxCopy">
-        <v-icon size="13">mdi-content-copy</v-icon>
-        <span class="label">复制</span>
-        <kbd>Ctrl+Shift+C</kbd>
-      </button>
-      <button class="ctx-item" @click="ctxPaste">
-        <v-icon size="13">mdi-content-paste</v-icon>
-        <span class="label">粘贴</span>
-        <kbd>Ctrl+Shift+V</kbd>
-      </button>
-      <div class="ctx-divider" />
-      <button class="ctx-item" @click="ctxSelectAll">
-        <v-icon size="13">mdi-selection-multiple</v-icon>
-        <span class="label">全选</span>
-      </button>
-      <button class="ctx-item" @click="ctxClear">
-        <v-icon size="13">mdi-eraser</v-icon>
-        <span class="label">清屏</span>
-      </button>
-    </div>
+    <ContextMenu
+      v-if="termCtxMenu"
+      :x="termCtxMenu.x"
+      :y="termCtxMenu.y"
+      :items="termCtxItems"
+      @close="closeCtxMenu"
+    />
   </div>
 </template>
 
@@ -415,70 +403,5 @@ defineExpose({
 }
 .terminal-container :deep(.xterm-rows > div) {
   line-height: normal;
-}
-
-/* ====== 右键菜单 ====== */
-.term-ctx-menu {
-  position: fixed;
-  z-index: 9999;
-  min-width: 200px;
-  background: var(--panel-solid);
-  border: 1px solid var(--line-2);
-  border-radius: 8px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
-  padding: 4px;
-  font-size: 12px;
-  color: var(--text-2);
-  font-family: 'Outfit', -apple-system, 'PingFang SC', sans-serif;
-  user-select: none;
-  animation: ctxMenuIn 0.1s ease;
-}
-@keyframes ctxMenuIn {
-  from { opacity: 0; transform: translateY(-2px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.ctx-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 7px 10px;
-  background: transparent;
-  border: 0;
-  border-radius: 5px;
-  color: var(--text-2);
-  font-family: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.12s;
-}
-.ctx-item:hover:not(:disabled) {
-  background: var(--hover-cyan);
-  color: var(--cyan);
-}
-.ctx-item:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.ctx-item .label { flex: 1; }
-.ctx-item kbd {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  padding: 1px 5px;
-  background: var(--kbd-bg);
-  border: 1px solid var(--line-2);
-  border-radius: 3px;
-  color: var(--muted);
-  letter-spacing: 0;
-}
-.ctx-item:hover:not(:disabled) kbd {
-  border-color: var(--focus-cyan);
-  color: var(--cyan);
-}
-.ctx-divider {
-  height: 1px;
-  background: var(--line);
-  margin: 4px 2px;
 }
 </style>

@@ -344,20 +344,20 @@ function onIndexContextMenu(e: MouseEvent, index: EsIndexInfo) {
   const items: MenuItem[] = [
     { type: 'header', label: index.name },
     { type: 'divider' },
-    { type: 'item', label: '📋 复制名称', icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(index.name).catch(() => {}) } },
+    { type: 'item', label: t('common.copyName'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(index.name).catch(() => {}) } },
     { type: 'divider' },
-    { type: 'item', label: '📝 查看映射', icon: 'mdi-file-tree', onClick: () => { selectIndex(index.name) } },
-    { type: 'item', label: '⚙️ 查看设置', icon: 'mdi-cog', onClick: () => { selectIndex(index.name) } },
+    { type: 'item', label: t('es.viewMapping'), icon: 'mdi-file-tree', onClick: () => { selectIndex(index.name) } },
+    { type: 'item', label: t('es.viewSettings'), icon: 'mdi-cog', onClick: () => { selectIndex(index.name) } },
     { type: 'divider' },
-    { type: 'item', label: '🗑️ 删除索引', icon: 'mdi-delete-outline', danger: true, onClick: () => { doDeleteIndex(index.name) } },
+    { type: 'item', label: t('es.deleteIndex'), icon: 'mdi-delete-outline', danger: true, onClick: () => { doDeleteIndex(index.name) } },
   ]
   ctxMenu.value = { x: e.clientX, y: e.clientY, items }
 }
 
 function onSidebarContextMenu(e: MouseEvent) {
   const items: MenuItem[] = [
-    { type: 'item', label: '➕ 新建索引...', icon: 'mdi-database-plus', onClick: () => { showNewIndex.value = true } },
-    { type: 'item', label: '🔄 刷新索引列表', icon: 'mdi-refresh', onClick: () => { loadIndices() } },
+    { type: 'item', label: t('es.newIndex'), icon: 'mdi-database-plus', onClick: () => { showNewIndex.value = true } },
+    { type: 'item', label: t('es.refreshIndices'), icon: 'mdi-refresh', onClick: () => { loadIndices() } },
   ]
   ctxMenu.value = { x: e.clientX, y: e.clientY, items }
 }

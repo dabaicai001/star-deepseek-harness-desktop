@@ -9,14 +9,20 @@ export interface MenuItem {
   danger?: boolean
   disabled?: boolean
   checked?: boolean
+  /** 预留子菜单能力；当前 UI 尚未渲染 children */
+  children?: MenuItem[]
   onClick?: () => void
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   x: number
   y: number
   items: MenuItem[]
-}>()
+  /** 空间不足时是否向上/向左翻转，默认 true */
+  flip?: boolean
+}>(), {
+  flip: true
+})
 
 const emit = defineEmits<{
   close: []
@@ -51,6 +57,15 @@ function moveSelection(delta: number) {
     ? (delta > 0 ? 0 : indexes.length - 1)
     : (currentPos + delta + indexes.length) % indexes.length
   selectedIdx.value = indexes[nextPos]
+  scrollSelectedIntoView()
+}
+
+function scrollSelectedIntoView() {
+  nextTick(() => {
+    if (!menuRef.value || selectedIdx.value < 0) return
+    const el = menuRef.value.querySelector(`[data-cm-index="${selectedIdx.value}"]`) as HTMLElement | null
+    el?.scrollIntoView({ block: 'nearest' })
+  })
 }
 
 function onDocPointer(e: PointerEvent) {
@@ -72,15 +87,22 @@ function onKeydown(e: KeyboardEvent) {
     moveSelection(-1)
   } else if (e.key === 'Home') {
     e.preventDefault()
-    selectedIdx.value = enabledItemIndexes.value[0] ?? -1
+    const indexes = enabledItemIndexes.value
+    selectedIdx.value = indexes[0] ?? -1
+    scrollSelectedIntoView()
   } else if (e.key === 'End') {
     e.preventDefault()
     const indexes = enabledItemIndexes.value
     selectedIdx.value = indexes[indexes.length - 1] ?? -1
+    scrollSelectedIntoView()
   } else if (e.key === 'Enter' || e.key === ' ') {
     if (selectedIdx.value < 0) return
     e.preventDefault()
     handleItemClick(props.items[selectedIdx.value])
+  } else if (e.key === 'Tab') {
+    // Focus trap：Tab 在菜单项之间循环，不跳到页面其他元素
+    e.preventDefault()
+    moveSelection(e.shiftKey ? -1 : 1)
   }
 }
 
@@ -88,27 +110,40 @@ function onWindowResize() {
   close()
 }
 
+function onWindowScroll() {
+  close()
+}
+
 onMounted(() => {
   document.addEventListener('pointerdown', onDocPointer, true)
   document.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', onWindowResize)
+  window.addEventListener('scroll', onWindowScroll, true)
   window.addEventListener('blur', close)
 
-  // 防止默认右键菜单
   void nextTick().then(() => {
     if (!menuRef.value) return
     menuRef.value.focus()
-    selectedIdx.value = enabledItemIndexes.value[0] ?? -1
     const rect = menuRef.value.getBoundingClientRect()
     const vw = window.innerWidth
     const vh = window.innerHeight
+    const pad = 8
     let nx = props.x
     let ny = props.y
-    if (nx + rect.width > vw - 8) nx = vw - rect.width - 8
-    if (ny + rect.height > vh - 8) ny = vh - rect.height - 8
-    if (nx < 8) nx = 8
-    if (ny < 8) ny = 8
+
+    // 水平边界
+    if (nx + rect.width > vw - pad) nx = vw - rect.width - pad
+    if (nx < pad) nx = pad
+
+    // 垂直边界：下方空间不足则向上翻转
+    if (props.flip && ny + rect.height > vh - pad) {
+      ny = props.y - rect.height
+    }
+    if (ny + rect.height > vh - pad) ny = vh - rect.height - pad
+    if (ny < pad) ny = pad
+
     adjusted.value = { x: nx, y: ny }
+    selectedIdx.value = enabledItemIndexes.value[0] ?? -1
   })
 })
 
@@ -116,6 +151,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocPointer, true)
   document.removeEventListener('keydown', onKeydown)
   window.removeEventListener('resize', onWindowResize)
+  window.removeEventListener('scroll', onWindowScroll, true)
   window.removeEventListener('blur', close)
 })
 </script>
@@ -128,16 +164,19 @@ onBeforeUnmount(() => {
       :style="{ left: adjusted.x + 'px', top: adjusted.y + 'px' }"
       tabindex="-1"
       role="menu"
+      aria-modal="true"
       @contextmenu.prevent
     >
       <template v-for="(item, idx) in items" :key="idx">
         <div
           v-if="item.type === 'divider'"
           class="cm-divider"
+          :data-cm-index="idx"
         />
         <div
           v-else-if="item.type === 'header'"
           class="cm-header"
+          :data-cm-index="idx"
         >
           <v-icon v-if="item.icon" class="type-icon" size="12">{{ item.icon }}</v-icon>
           <span>{{ item.label }}</span>
@@ -146,6 +185,7 @@ onBeforeUnmount(() => {
           v-else
           class="cm-item"
           :class="{ disabled: item.disabled, danger: item.danger, selected: idx === selectedIdx }"
+          :data-cm-index="idx"
           role="menuitem"
           :aria-disabled="item.disabled ? 'true' : 'false'"
           @click="handleItemClick(item)"

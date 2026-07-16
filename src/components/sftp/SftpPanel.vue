@@ -9,6 +9,8 @@ import { useDialogStore } from '@/stores/dialog'
 import { sftpList, sftpEnsureSession, sftpStartUpload, sftpStartDownload, joinPath, parentPath, formatSize, type SftpEntry, type SftpLaunchInfo } from '@/services/sftp'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import SftpTransferQueue from './SftpTransferQueue.vue'
 
 const { t } = useI18n()
@@ -169,15 +171,14 @@ const entries = ref<SftpEntry[]>([])
 const loading = ref(false)
 const showHidden = ref(false)
 const showTransfers = ref(false)
-const uploadMenuOpen = ref(false)
 const showDropOverlay = ref(false)
 let unlistenDragDrop: (() => void) | null = null
 
 const selectedPaths = ref<Set<string>>(new Set())
 const lastClickedIndex = ref<number>(-1)
 
-const contextMenu = ref<{ x: number; y: number; entry: SftpEntry | null }>({ x: 0, y: 0, entry: null })
-const contextMenuVisible = ref(false)
+const sftpCtxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
+const uploadMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 
 let loadId = 0
 
@@ -189,7 +190,7 @@ const visibleEntries = computed(() => {
 const pathSegments = computed(() => currentPath.value.split('/').filter(Boolean))
 
 async function loadDir(path: string) {
-  closeContextMenu()
+  closeSftpContextMenu()
   selectedPaths.value.clear()
 
   const sessionId = sftpSessionId
@@ -230,7 +231,7 @@ function navigateTo(entry: SftpEntry) {
 
 // ====== 上传/下载 ======
 async function uploadFiles() {
-  uploadMenuOpen.value = false
+  uploadMenu.value = null
   const selected = await open({ multiple: true, directory: false })
   if (!selected || (Array.isArray(selected) && selected.length === 0)) return
   const paths = Array.isArray(selected) ? selected : [selected]
@@ -245,7 +246,7 @@ async function uploadFiles() {
 }
 
 async function uploadFolder() {
-  uploadMenuOpen.value = false
+  uploadMenu.value = null
   const selected = await open({ directory: true })
   if (!selected) return
   const paths = Array.isArray(selected) ? selected : [selected]
@@ -300,29 +301,117 @@ async function downloadSelected() {
 }
 
 // ====== Context menu ======
+function closeSftpContextMenu() {
+  sftpCtxMenu.value = null
+}
+
+function buildSftpContextItems(entry: SftpEntry | null): MenuItem[] {
+  const items: MenuItem[] = []
+  if (entry?.isDir) {
+    items.push({
+      type: 'item',
+      icon: 'mdi-folder-open',
+      label: t('sftp.open'),
+      onClick: () => { closeSftpContextMenu(); navigateTo(entry) }
+    })
+  }
+  items.push({
+    type: 'item',
+    icon: 'mdi-download',
+    label: t('sftp.download'),
+    onClick: () => ctxDownload(entry)
+  })
+  if (!entry) {
+    items.push({ type: 'divider' })
+    items.push({
+      type: 'item',
+      icon: 'mdi-file-upload',
+      label: t('sftp.uploadFile'),
+      onClick: uploadFiles
+    })
+    items.push({
+      type: 'item',
+      icon: 'mdi-folder-upload',
+      label: t('sftp.uploadFolder'),
+      onClick: uploadFolder
+    })
+    items.push({
+      type: 'item',
+      icon: 'mdi-folder-plus',
+      label: t('sftp.newFolder'),
+      onClick: ctxNewFolder
+    })
+    items.push({ type: 'divider' })
+  }
+  if (entry && selectedPaths.value.size <= 1) {
+    items.push({
+      type: 'item',
+      icon: 'mdi-rename-box',
+      label: t('sftp.rename'),
+      onClick: () => ctxRename(entry)
+    })
+  }
+  items.push({
+    type: 'item',
+    icon: 'mdi-delete-outline',
+    label: t('common.delete'),
+    danger: true,
+    onClick: () => ctxDelete(entry)
+  })
+  if (entry && selectedPaths.value.size <= 1) {
+    items.push({
+      type: 'item',
+      icon: 'mdi-content-copy',
+      label: t('sftp.copyPath'),
+      onClick: () => ctxCopyPath(entry)
+    })
+  }
+  return items
+}
+
 function onContextMenu(event: MouseEvent, entry: SftpEntry | null) {
   event.preventDefault()
-  contextMenu.value = { x: event.clientX, y: event.clientY, entry }
-  contextMenuVisible.value = true
-}
-
-function closeContextMenu() {
-  contextMenuVisible.value = false
-}
-
-async function ctxOpen() {
-  closeContextMenu()
-  if (contextMenu.value.entry?.isDir) {
-    navigateTo(contextMenu.value.entry)
+  uploadMenu.value = null
+  sftpCtxMenu.value = {
+    x: event.clientX,
+    y: event.clientY,
+    items: buildSftpContextItems(entry)
   }
 }
 
-async function ctxDownload() {
-  closeContextMenu()
+function openUploadMenu(event: MouseEvent) {
+  event.stopPropagation()
+  sftpCtxMenu.value = null
+  uploadMenu.value = {
+    x: (event.currentTarget as HTMLElement).getBoundingClientRect().left,
+    y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom + 4,
+    items: [
+      {
+        type: 'item',
+        icon: 'mdi-file-outline',
+        label: t('sftp.uploadFile'),
+        onClick: uploadFiles
+      },
+      {
+        type: 'item',
+        icon: 'mdi-folder',
+        label: t('sftp.uploadFolder'),
+        onClick: uploadFolder
+      }
+    ]
+  }
+}
+
+function closeUploadMenu() {
+  uploadMenu.value = null
+}
+
+async function ctxDownload(entry: SftpEntry | null) {
+  closeSftpContextMenu()
   const paths = selectedPaths.value.size > 0
     ? [...selectedPaths.value]
-    : contextMenu.value.entry
-    ? [contextMenu.value.entry.path]
+    : entry
+    ? [entry.path]
     : []
   if (paths.length === 0) return
   const dir = await open({ directory: true })
@@ -337,7 +426,7 @@ async function ctxDownload() {
 }
 
 async function ctxNewFolder() {
-  closeContextMenu()
+  closeSftpContextMenu()
   const name = await dlg.prompt({
     message: t('sftp.newFolderPrompt'),
     placeholder: 'new-folder',
@@ -353,10 +442,8 @@ async function ctxNewFolder() {
   }
 }
 
-async function ctxRename() {
-  closeContextMenu()
-  const entry = contextMenu.value.entry
-  if (!entry) return
+async function ctxRename(entry: SftpEntry) {
+  closeSftpContextMenu()
   const newName = await dlg.prompt({
     message: t('sftp.renamePrompt'),
     defaultValue: entry.name,
@@ -376,12 +463,12 @@ async function ctxRename() {
   }
 }
 
-async function ctxDelete() {
-  closeContextMenu()
+async function ctxDelete(entry: SftpEntry | null) {
+  closeSftpContextMenu()
   const paths = selectedPaths.value.size > 0
     ? [...selectedPaths.value]
-    : contextMenu.value.entry
-    ? [contextMenu.value.entry.path]
+    : entry
+    ? [entry.path]
     : []
   if (paths.length === 0) return
   const ok = await dlg.confirm({
@@ -402,10 +489,8 @@ async function ctxDelete() {
   }
 }
 
-async function ctxCopyPath() {
-  closeContextMenu()
-  const entry = contextMenu.value.entry
-  if (!entry) return
+async function ctxCopyPath(entry: SftpEntry) {
+  closeSftpContextMenu()
   await navigator.clipboard.writeText(entry.path)
 }
 
@@ -503,19 +588,9 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
           <v-icon size="14">mdi-eye-off-outline</v-icon>
         </button>
         <div class="tb-separator" />
-        <div class="upload-group">
-          <button class="tb-btn" :title="t('sftp.upload')" @click="uploadMenuOpen = !uploadMenuOpen">
-            <v-icon size="14">mdi-upload</v-icon>
-          </button>
-          <div v-if="uploadMenuOpen" class="upload-menu">
-            <button class="upload-menu-item" @click="uploadFiles">
-              <v-icon size="12">mdi-file-outline</v-icon> {{ t('sftp.uploadFile') }}
-            </button>
-            <button class="upload-menu-item" @click="uploadFolder">
-              <v-icon size="12">mdi-folder</v-icon> {{ t('sftp.uploadFolder') }}
-            </button>
-          </div>
-        </div>
+        <button class="tb-btn" :title="t('sftp.upload')" @click="openUploadMenu">
+          <v-icon size="14">mdi-upload</v-icon>
+        </button>
         <button class="tb-btn" :title="t('sftp.download')" :disabled="selectedPaths.size === 0" @click="downloadSelected">
           <v-icon size="14">mdi-download</v-icon>
         </button>
@@ -537,7 +612,7 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
       </div>
 
       <!-- 文件列表 -->
-      <div class="sftp-file-list" @click="uploadMenuOpen = false" @contextmenu.prevent="onContextMenu($event, null)">
+      <div class="sftp-file-list" @click="closeUploadMenu" @contextmenu.prevent="onContextMenu($event, null)">
         <div v-if="showDropOverlay" class="drop-overlay">
           <v-icon size="32" color="var(--cyan)">mdi-cloud-upload-outline</v-icon>
           <span class="drop-text">{{ t('sftp.dropToUpload') }}</span>
@@ -573,42 +648,22 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
         </template>
       </div>
 
-      <!-- Context menu backdrop -->
-      <div v-if="contextMenuVisible" class="ctx-backdrop" @click="closeContextMenu" />
+      <ContextMenu
+        v-if="sftpCtxMenu"
+        :x="sftpCtxMenu.x"
+        :y="sftpCtxMenu.y"
+        :items="sftpCtxMenu.items"
+        @close="closeSftpContextMenu"
+      />
 
-      <!-- Context menu -->
-      <div
-        v-if="contextMenuVisible"
-        class="context-menu"
-        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
-      >
-        <button v-if="contextMenu.entry?.isDir" class="ctx-item" @click="ctxOpen">
-          <v-icon size="12">mdi-folder-open</v-icon> {{ t('sftp.open') }}
-        </button>
-        <button class="ctx-item" @click="ctxDownload">
-          <v-icon size="12">mdi-download</v-icon> {{ t('sftp.download') }}
-        </button>
-        <div class="ctx-sep" />
-        <button v-if="!contextMenu.entry" class="ctx-item" @click="uploadFiles">
-          <v-icon size="12">mdi-file-upload</v-icon> {{ t('sftp.uploadFile') }}
-        </button>
-        <button v-if="!contextMenu.entry" class="ctx-item" @click="uploadFolder">
-          <v-icon size="12">mdi-folder-upload</v-icon> {{ t('sftp.uploadFolder') }}
-        </button>
-        <button v-if="!contextMenu.entry" class="ctx-item" @click="ctxNewFolder">
-          <v-icon size="12">mdi-folder-plus</v-icon> {{ t('sftp.newFolder') }}
-        </button>
-        <div v-if="!contextMenu.entry" class="ctx-sep" />
-        <button v-if="contextMenu.entry && selectedPaths.size <= 1" class="ctx-item" @click="ctxRename">
-          <v-icon size="12">mdi-rename-box</v-icon> {{ t('sftp.rename') }}
-        </button>
-        <button class="ctx-item" @click="ctxDelete">
-          <v-icon size="12">mdi-delete-outline</v-icon> {{ t('sftp.delete') }}
-        </button>
-        <button v-if="contextMenu.entry && selectedPaths.size <= 1" class="ctx-item" @click="ctxCopyPath">
-          <v-icon size="12">mdi-content-copy</v-icon> {{ t('sftp.copyPath') }}
-        </button>
-      </div>
+      <ContextMenu
+        v-if="uploadMenu"
+        :x="uploadMenu.x"
+        :y="uploadMenu.y"
+        :items="uploadMenu.items"
+        :flip="true"
+        @close="closeUploadMenu"
+      />
 
       <SftpTransferQueue v-model:visible="showTransfers" :session-id="sftpSessionId!" />
     </template>
@@ -726,44 +781,6 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
   height: 14px;
   background: var(--line);
   margin: 0 4px;
-}
-
-.upload-group {
-  position: relative;
-}
-
-.upload-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  background: var(--panel-solid);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 4px;
-  min-width: 140px;
-  z-index: 10;
-  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.5);
-}
-
-.upload-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 6px 8px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text);
-  font-size: 11px;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.upload-menu-item:hover {
-  background: var(--hover-cyan-faint);
-  color: var(--cyan);
 }
 
 .tb-btn {
@@ -892,46 +909,4 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
   text-align: right;
 }
 
-.ctx-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 9;
-}
-
-.context-menu {
-  position: fixed;
-  z-index: 10;
-  background: var(--panel-solid);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 4px;
-  min-width: 160px;
-  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.5);
-}
-
-.ctx-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 6px 10px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text);
-  font-size: 11px;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.ctx-item:hover {
-  background: var(--hover-cyan-faint);
-  color: var(--cyan);
-}
-
-.ctx-sep {
-  height: 1px;
-  background: var(--line);
-  margin: 4px 6px;
-}
 </style>
