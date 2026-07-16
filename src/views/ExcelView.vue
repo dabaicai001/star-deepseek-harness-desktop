@@ -406,29 +406,32 @@ function normalizeRow(row: string[], width = store.columns.length): string[] {
 }
 
 function dedupRowsByColumns(rows: string[][], columns: number[]) {
-  const seen = new Set<string>()
-  const result: string[][] = []
+  const seen = new Map<string, { row: string[]; count: number }>()
   let removed = 0
 
   for (const row of rows) {
     const normalized = normalizeRow(row)
     const key = columns.map(col => normalized[col] ?? '').join('\u001f')
-    if (seen.has(key)) {
+    const existing = seen.get(key)
+    if (existing) {
+      existing.count++
       removed++
-      continue
+    } else {
+      seen.set(key, { row: normalized, count: 1 })
     }
-    seen.add(key)
-    result.push(normalized)
   }
 
-  return { rows: result, removed }
+  const result: string[][] = []
+  const counts: number[] = []
+  for (const { row, count } of seen.values()) {
+    result.push(row)
+    counts.push(count)
+  }
+
+  return { rows: result, removed, counts }
 }
 
 async function removeDuplicatesToSheet(columnsOverride?: number[]) {
-  if (isCsvFile.value) {
-    notify.notify({ message: 'CSV 是单表文件,无法输出到新 Sheet', color: 'warning', timeout: 2500 })
-    return
-  }
   if (!store.connId || !store.activeSheet) return
 
   const columns = selectedDedupColumns(columnsOverride)
@@ -440,17 +443,53 @@ async function removeDuplicatesToSheet(columnsOverride?: number[]) {
   const sourceSheet = store.activeSheet
   const headers = [...store.columns]
   const sourceRows = store.rowData.map(row => normalizeRow(row, headers.length))
-  const { rows, removed } = dedupRowsByColumns(sourceRows, columns)
-  const sheetName = makeUniqueSheetName(`${sourceSheet}_去重`)
+  const { rows, removed, counts } = dedupRowsByColumns(sourceRows, columns)
   const columnLabels = columns.map(col => headers[col]?.trim() || store.colIndexToLetter(col)).join(', ')
+  const countColHeader = '重复次数'
+  const countColIndex = headers.length
+
+  if (isCsvFile.value) {
+    try {
+      const newHeaders = [...headers, countColHeader]
+      await sidecarRpc(`${rpcPrefix.value}.writeHeaders`, { connId: store.connId, headers: newHeaders })
+      if (sourceRows.length > 0) {
+        await sidecarRpc(`${rpcPrefix.value}.deleteRows`, { connId: store.connId, row: 0, count: sourceRows.length })
+      }
+      const cells = rows.flatMap((row, rowIndex) =>
+        row.map((value, col) => ({ row: rowIndex, col, value }))
+      )
+      counts.forEach((count, rowIndex) => {
+        cells.push({ row: rowIndex, col: countColIndex, value: String(count) })
+      })
+      if (cells.length > 0) {
+        await sidecarRpc(`${rpcPrefix.value}.writeCells`, { connId: store.connId, cells })
+      }
+      store.setDirty(true)
+      await reloadActiveSheet()
+      store.setDirty(true)
+      notify.notify({
+        message: `已按 ${columnLabels} 去重,移除 ${removed} 行,结果已覆盖当前 Sheet`,
+        color: 'success',
+        timeout: 3200,
+      })
+    } catch (e) {
+      notify.notify({ message: `去重失败: ${errMsg(e)}`, color: 'error', timeout: 5000 })
+    }
+    return
+  }
+
+  const sheetName = makeUniqueSheetName(`${sourceSheet}_去重`)
 
   try {
     await sidecarRpc(`${rpcPrefix.value}.addSheet`, { connId: store.connId, sheetName })
     store.sheetNames.push(sheetName)
-    await sidecarRpc(`${rpcPrefix.value}.writeHeaders`, { connId: store.connId, sheetName, headers })
+    await sidecarRpc(`${rpcPrefix.value}.writeHeaders`, { connId: store.connId, sheetName, headers: [...headers, countColHeader] })
     const cells = rows.flatMap((row, rowIndex) =>
       row.map((value, col) => ({ row: rowIndex, col, value }))
     )
+    counts.forEach((count, rowIndex) => {
+      cells.push({ row: rowIndex, col: countColIndex, value: String(count) })
+    })
     if (cells.length > 0) {
       await sidecarRpc(`${rpcPrefix.value}.writeCells`, { connId: store.connId, sheetName, cells })
     }
