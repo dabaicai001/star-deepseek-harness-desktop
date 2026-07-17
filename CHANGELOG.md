@@ -12,6 +12,19 @@
 
 ---
 
+## [0.31.2] - 2026-07-17
+
+### 修复
+- 🐛 fix(ssh): 修复 SSH 连接报 `u.value?.writeln is not a function`:`SshTerminal.vue` 在 v0.31.0 引入分屏时把 import 换成了 `SplitTerminal`,模板却仍写 `<TerminalPane>`,组件解析失败导致 ref 落到原生 DOM 元素上;模板改用 `<SplitTerminal>` 并接上 `@panes-change`(`src/components/ssh/SshTerminal.vue`)。
+- 🐛 fix(ssh): `SplitTerminal.vue` 补充分屏布局样式(`.ssh-split-container/.ssh-split-pane/.ssh-split-divider`),保证终端 flex 高度链完整。
+- 🐛 fix(app): 隐藏/后台标签页中 `requestAnimationFrame` 永不触发导致应用一直停在启动页,`App.vue` 在 `document.visibilityState === 'hidden'` 时退化为 `setTimeout` 翻转 `appReady`。
+- 🐛 fix(dashboard): `SshDashboard.vue` 纯浏览器预览缺少 Tauri `invoke` 时按只读空态降级,不再显示原始 `TypeError` 红横幅(对齐 AGENTS.md 7.3 的降级约定)。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.31.2(package.json / Cargo.toml / Cargo.lock / tauri.conf.json / CHANGELOG.md / AGENTS.md)。
+
+---
+
 ## [0.31.1] - 2026-07-16
 
 ### 修复
