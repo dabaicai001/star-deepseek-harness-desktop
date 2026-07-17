@@ -12,6 +12,23 @@
 
 ---
 
+## [0.31.1] - 2026-07-16
+
+### 修复
+- 🐛 fix(rust): 修复 `tauri_plugin_updater::init()` 在 2.10.x 中不存在导致的编译错误,改用 `Builder::new().build()`。
+- 🐛 fix(ssh): 适配 russh 0.62.2 API 变更:
+  - `Channel::make_writer()` / `Channel::wait()` 需要可变绑定。
+  - `Handle::channel_open_direct_tcpip` 端口参数改为 `u32`。
+  - `Handle::channel_forward_listen` 已重命名为 `Handle::tcpip_forward`。
+  - `Handle` 改为 `Arc<Handle>` 存储以匹配新的类型要求。
+- 🐛 fix(ssh): `SshHandler::new` 补全 `remote_forwards` 参数,修复远程端口转发绑定缺失。
+- 🐛 fix(ssh): 远程端口转发申请失败时不再残留映射;移除远程转发时主动调用 `cancel_tcpip_forward`。
+
+### 样式
+- 🎨 style(ui): 统一页面视觉风格,修正与 Cyber Command Center 设计系统不一致的组件/颜色/间距。
+
+---
+
 ## [0.31.0] - 2026-07-16
 
 ### 新功能

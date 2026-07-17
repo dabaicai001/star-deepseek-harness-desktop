@@ -136,6 +136,7 @@ impl SshSession {
         app_handle: Option<&tauri::AppHandle>,
         pending_kb: &super::PendingKeyboardResponses,
         pending_hostkey: &super::PendingHostKeyResponses,
+        remote_forwards: RemoteForwards,
     ) -> Result<client::Handle<super::auth::SshHandler>, String> {
         let socket_addr = format!("{}:{}", host, port);
 
@@ -150,6 +151,7 @@ impl SshSession {
             Arc::clone(pending_hostkey),
             host.to_string(),
             port,
+            remote_forwards,
         );
 
         let connect_timeout = Duration::from_secs(370); // 含 MFA 360s 等待
@@ -237,6 +239,7 @@ impl SshSession {
                 app_handle,
                 pending_kb,
                 pending_hostkey,
+                Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             )
             .await?;
 
@@ -266,6 +269,7 @@ impl SshSession {
                 Arc::clone(pending_hostkey),
                 self.config.host.clone(),
                 self.config.port,
+                Arc::clone(&self.remote_forwards),
             );
             let channel_stream = direct_tcpip.into_stream();
             let mut handle = client::connect_stream(Arc::new(config), channel_stream, handler)
@@ -321,11 +325,12 @@ impl SshSession {
                 app_handle,
                 pending_kb,
                 pending_hostkey,
+                Arc::clone(&self.remote_forwards),
             )
             .await?
         };
 
-        self.handle = Some(handle);
+        self.handle = Some(Arc::new(handle));
         Ok(())
     }
 
@@ -980,13 +985,13 @@ impl SshSession {
                             match handle
                                 .channel_open_direct_tcpip(
                                     &target_host,
-                                    target_port,
+                                    target_port as u32,
                                     &addr.ip().to_string(),
-                                    addr.port(),
+                                    addr.port() as u32,
                                 )
                                 .await
                             {
-                                Ok(channel) => {
+                                Ok(mut channel) => {
                                     let channel_writer = channel.make_writer();
                                     let (mut tcp_reader, mut tcp_writer) =
                                         tokio::io::split(tcp_stream);
@@ -1069,17 +1074,17 @@ impl SshSession {
     ) -> Result<u16, String> {
         let handle = self.handle.as_ref().ok_or("SSH not connected")?.clone();
 
+        // 请求远程服务器监听端口
+        let actual_port = handle
+            .tcpip_forward("0.0.0.0", remote_port as u32)
+            .await
+            .map_err(|e| format!("Failed to request remote port forward: {}", e))? as u16;
+
         // 注册转发映射,供 SshHandler::server_channel_open_forwarded_tcpip 使用
         {
             let mut forwards = self.remote_forwards.lock().await;
-            forwards.insert(remote_port, (local_host.to_string(), local_port));
+            forwards.insert(actual_port, (local_host.to_string(), local_port));
         }
-
-        // 请求远程服务器监听端口
-        let actual_port = handle
-            .channel_forward_listen(remote_port)
-            .await
-            .map_err(|e| format!("Failed to request remote port forward: {}", e))?;
 
         self.port_forwards.push(PortForwardEntry {
             forward_type: "remote".to_string(),
@@ -1113,6 +1118,12 @@ impl SshSession {
         entry.abort_handle.abort();
 
         if is_remote {
+            // 通知服务器取消远程端口监听
+            if let Some(handle) = self.handle.as_ref() {
+                let _ = handle
+                    .cancel_tcpip_forward("0.0.0.0", bound_port as u32)
+                    .await;
+            }
             // 移除映射后,handler 会拒绝后续连接
             let mut forwards = self.remote_forwards.lock().await;
             forwards.remove(&bound_port);

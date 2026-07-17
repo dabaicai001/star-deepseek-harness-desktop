@@ -117,7 +117,7 @@ impl client::Handler for SshHandler {
 
     async fn server_channel_open_forwarded_tcpip(
         &mut self,
-        channel: russh::Channel<russh::client::Msg>,
+        mut channel: russh::Channel<russh::client::Msg>,
         _connected_address: &str,
         connected_port: u32,
         _originator_address: &str,
@@ -156,7 +156,7 @@ impl client::Handler for SshHandler {
 
         reply.accept().await;
 
-        let channel_writer = channel.make_writer();
+        let mut channel_writer = channel.make_writer();
         let (mut tcp_reader, mut tcp_writer) = tokio::io::split(stream);
 
         // TCP -> SSH channel
