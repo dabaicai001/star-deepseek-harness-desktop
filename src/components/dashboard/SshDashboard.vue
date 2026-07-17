@@ -80,6 +80,12 @@ async function loadAll() {
     loading.value = false
     return
   }
+  // 纯浏览器预览没有 Tauri invoke,按只读空态降级(见 AGENTS.md 7.3)
+  if (typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)) {
+    loading.value = false
+    refreshing.value = false
+    return
+  }
   try {
     const results = await Promise.allSettled([
       sshExec(props.sessionId, 'cat /proc/meminfo', 5),
