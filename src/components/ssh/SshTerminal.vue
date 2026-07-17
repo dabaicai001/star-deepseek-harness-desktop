@@ -1615,7 +1615,7 @@ function handleKbCancelled() {
  </div>
  </v-dialog>
 
- <TerminalPane
+ <SplitTerminal
  ref="terminalRef"
  :session-id="id"
  :font-size="fontSize"
@@ -1626,6 +1626,7 @@ function handleKbCancelled() {
  @resize="handleResize"
  @copy="handleCopy"
  @paste="handlePaste"
+ @panes-change="paneCount = $event"
  />
  </div>
 
@@ -1847,8 +1848,9 @@ function handleKbCancelled() {
  transform: translateY(-6px);
 }
 
-.terminal-pane > :deep(.terminal-container) {
+.terminal-pane > :deep(.ssh-split-container) {
  flex:1;
+ min-height:0;
 }
 
 .quick-commands {

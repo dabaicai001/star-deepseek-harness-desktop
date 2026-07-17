@@ -346,3 +346,62 @@ defineExpose({
     </template>
   </div>
 </template>
+
+<style scoped>
+.ssh-split-container {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  width: 100%;
+}
+
+.ssh-split-horizontal {
+  flex-direction: row;
+}
+
+.ssh-split-vertical {
+  flex-direction: column;
+}
+
+.ssh-split-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+
+/* TerminalPane 根节点会带上父级 scope id,可以直接命中 */
+.ssh-split-pane > .terminal-container {
+  flex: 1;
+}
+
+.ssh-split-pane.active > .terminal-container {
+  box-shadow: inset 0 0 0 1px var(--hover-cyan);
+}
+
+.ssh-split-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+}
+
+.ssh-split-divider {
+  flex: 0 0 4px;
+  background: var(--line);
+  transition: background 0.2s;
+}
+
+.ssh-split-divider:hover {
+  background: var(--line-2);
+}
+
+.ssh-split-divider-horizontal {
+  cursor: col-resize;
+}
+
+.ssh-split-divider-vertical {
+  cursor: row-resize;
+}
+</style>
