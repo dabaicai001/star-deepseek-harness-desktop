@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
 // Polyfill localStorage for Node.js
@@ -12,7 +14,8 @@ globalThis.localStorage = {
   clear: () => store.clear(),
 }
 
-const source = await readFile(new URL('../../src/utils/sqlHistory.ts', import.meta.url), 'utf8')
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const source = await readFile(path.join(__dirname, '../../src/utils/sqlHistory.ts'), 'utf8')
 const transpiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
 }).outputText

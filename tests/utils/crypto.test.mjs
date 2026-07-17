@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
 // Polyfill window for Web Crypto API (Node 18+ has globalThis.crypto)
 globalThis.window = globalThis
 
-const source = await readFile(new URL('../../src/utils/crypto.ts', import.meta.url), 'utf8')
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const source = await readFile(path.join(__dirname, '../../src/utils/crypto.ts'), 'utf8')
 const transpiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
 }).outputText

@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
-const source = await readFile(new URL('../../src/utils/ddlGenerator.ts', import.meta.url), 'utf8')
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const source = await readFile(path.join(__dirname, '../../src/utils/ddlGenerator.ts'), 'utf8')
 const transpiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
 }).outputText

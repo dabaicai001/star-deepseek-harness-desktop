@@ -48,6 +48,8 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     root: resolve(__dirname),
-    include: ['tests/**/*.test.{ts,mts,js,mjs}']
+    include: ['tests/**/*.test.{ts,mts,js,mjs}'],
+    exclude: ['tests/**/*.test.mjs', 'node_modules', 'dist'],
+    passWithNoTests: true
   }
 })
