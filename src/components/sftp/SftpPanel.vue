@@ -11,13 +11,15 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
-import SftpTransferQueue from './SftpTransferQueue.vue'
+import { useTransferStore } from '@/stores/transfer'
 
 const { t } = useI18n()
 
 const assetStore = useAssetStore()
 const notify = useNotifyStore()
 const dlg = useDialogStore()
+// 传输任务进度统一进全局任务栏(TransferDock),不再用组件内弹框
+const transferStore = useTransferStore()
 
 const props = defineProps<{
   /** SSH 资产 ID */
@@ -170,7 +172,6 @@ const currentPath = ref('/')
 const entries = ref<SftpEntry[]>([])
 const loading = ref(false)
 const showHidden = ref(false)
-const showTransfers = ref(false)
 const showDropOverlay = ref(false)
 let unlistenDragDrop: (() => void) | null = null
 
@@ -236,8 +237,8 @@ async function uploadFiles() {
   if (!selected || (Array.isArray(selected) && selected.length === 0)) return
   const paths = Array.isArray(selected) ? selected : [selected]
   try {
-    await sftpStartUpload(sftpSessionId!, paths, currentPath.value)
-    showTransfers.value = true
+    const transferId = await sftpStartUpload(sftpSessionId!, paths, currentPath.value)
+    transferStore.registerTask(sftpSessionId!, transferId, 'upload')
     setTimeout(() => loadDir(currentPath.value), 2000)
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
@@ -251,8 +252,8 @@ async function uploadFolder() {
   if (!selected) return
   const paths = Array.isArray(selected) ? selected : [selected]
   try {
-    await sftpStartUpload(sftpSessionId!, paths, currentPath.value)
-    showTransfers.value = true
+    const transferId = await sftpStartUpload(sftpSessionId!, paths, currentPath.value)
+    transferStore.registerTask(sftpSessionId!, transferId, 'upload')
     setTimeout(() => loadDir(currentPath.value), 2000)
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
@@ -292,8 +293,8 @@ async function downloadSelected() {
   if (!dir) return
   const remotePaths = [...selectedPaths.value]
   try {
-    await sftpStartDownload(sftpSessionId!, remotePaths, dir as string)
-    showTransfers.value = true
+    const transferId = await sftpStartDownload(sftpSessionId!, remotePaths, dir as string)
+    transferStore.registerTask(sftpSessionId!, transferId, 'download')
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     notify.notify({ message: `Download failed: ${msg}`, color: 'error', timeout: 5000 })
@@ -417,8 +418,8 @@ async function ctxDownload(entry: SftpEntry | null) {
   const dir = await open({ directory: true })
   if (!dir) return
   try {
-    await sftpStartDownload(sftpSessionId!, paths, dir as string)
-    showTransfers.value = true
+    const transferId = await sftpStartDownload(sftpSessionId!, paths, dir as string)
+    transferStore.registerTask(sftpSessionId!, transferId, 'download')
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     notify.notify({ message: `Download failed: ${msg}`, color: 'error', timeout: 5000 })
@@ -514,8 +515,8 @@ onMounted(async () => {
       const paths = event.payload.paths
       if (paths.length > 0 && sftpSessionId) {
         sftpStartUpload(sftpSessionId, paths, currentPath.value)
-          .then(() => {
-            showTransfers.value = true
+          .then((transferId) => {
+            transferStore.registerTask(sftpSessionId!, transferId, 'upload')
             setTimeout(() => loadDir(currentPath.value), 2000)
           })
           .catch((error) => {
@@ -595,7 +596,7 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
           <v-icon size="14">mdi-download</v-icon>
         </button>
         <div class="tb-separator" />
-        <button class="tb-btn" :title="t('sftp.transfers')" @click="showTransfers = true">
+        <button class="tb-btn" :title="t('sftp.transfers')" @click="transferStore.toggleExpanded()">
           <v-icon size="14">mdi-progress-download</v-icon>
         </button>
       </div>
@@ -665,7 +666,6 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
         @close="closeUploadMenu"
       />
 
-      <SftpTransferQueue v-model:visible="showTransfers" :session-id="sftpSessionId!" />
     </template>
   </div>
 </template>

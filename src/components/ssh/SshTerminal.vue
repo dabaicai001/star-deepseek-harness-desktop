@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onActivated, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import KbInteractiveDialog from './KbInteractiveDialog.vue'
@@ -20,6 +20,8 @@ import { useNotifyStore } from '@/stores/notify'
 import { useThemeStore } from '@/stores/theme'
 import type { Asset } from '@/types/asset'
 import { parseInstanceId } from '@/utils/tabId'
+import { formatSize } from '@/services/sftp'
+import { getDetachedInfo, LOCAL_TAB_DETACH_EVENT } from '@/lib/windowDetach'
 import { SSH_SYSTEM_PROMPT, sshTools, makeSshToolCaller } from '@/utils/aiTools'
 import { makeSftpToolCaller, sftpTools } from '@/utils/aiSftpTools'
 import { checkCommand, extractWhitelistPrefix } from '@/utils/commandGuard'
@@ -205,9 +207,56 @@ const zmodemInputRef = ref<HTMLInputElement>()
 const zmodemPromptVisible = ref(false)
 const zmodemStatus = ref('')
 const zmodemProgress = ref(0)
+/** 当前传输的文件名 / 已传字节 / 总字节(驱动任务条的数字区) */
+const zmodemFileName = ref('')
+const zmodemTransferred = ref(0)
+const zmodemTotal = ref(0)
 let zmodemSession: ZmodemSession | null = null
 let zmodemSentry: InstanceType<ZmodemApi['Sentry']> | null = null
+/** 接收方向没有 on_progress 回调,用定时器轮询 transfer.get_offset() 补进度 */
+let zmodemRecvTimer: number | null = null
+
+/** 接收等待远端发文件阶段:无法算百分比,进度条走 shimmer 不定态 */
+const zmodemIndeterminate = computed(() =>
+  zmodemPromptVisible.value && zmodemSession?.type === 'receive' && zmodemTotal.value === 0
+)
+const zmodemBytesText = computed(() => {
+  if (zmodemTotal.value === 0 && zmodemTransferred.value === 0) return ''
+  return `${formatSize(zmodemTransferred.value)} / ${formatSize(zmodemTotal.value)}`
+})
 const terminalDecoder = new TextDecoder()
+
+// ====== 独立窗口(标签页拖出) ======
+/** 非空 = 本组件运行在拖出的独立窗口里 */
+const detachedWindowInfo = getDetachedInfo()
+/** 附加模式:复用了主窗口建好的后端 session,unmount 时不能 disconnect */
+let attachedToExisting = false
+/** 主窗口侧:tab 被拖出后本实例被 keep-alive 缓存,标记以便送回时恢复订阅 */
+let silencedForDetach = false
+
+/** 主窗口把本 tab 拖成独立窗口:停止消费会话数据(ZMODEM sentry 会抢字节),
+ *  但不断开后端 session — 留给独立窗口附加。 */
+function onLocalDetachEvent(e: Event) {
+  const detail = (e as CustomEvent<{ id?: string }>).detail
+  if (detail?.id !== props.id) return
+  silencedForDetach = true
+  if (unlisten) { unlisten(); unlisten = null }
+  if (unlistenClose) { unlistenClose(); unlistenClose = null }
+  resetZmodem()
+  stopTimer()
+}
+
+/** tab 从独立窗口送回主窗口:keep-alive 重激活,恢复订阅同一后端会话 */
+onActivated(() => {
+  if (!silencedForDetach) return
+  silencedForDetach = false
+  if (!connected.value) return
+  terminalRef.value?.writeln('\x1b[36m⟐ 会话已从独立窗口送回(期间输出未回显)\x1b[0m')
+  startTimer()
+  setupZmodemSentry()
+  void subscribeSessionEvents(props.id)
+  void syncRemoteTerminalSize()
+})
 
 // ======右侧 Panel(仪表盘 / AI切换) ======
 const rightActiveTab = ref<string>('dashboard')
@@ -369,6 +418,7 @@ onMounted(async () => {
    }
  }
  window.addEventListener('beforeunload', beforeUnloadHandler)
+ window.addEventListener(LOCAL_TAB_DETACH_EVENT, onLocalDetachEvent)
 
  initQuickCommands()
 
@@ -383,6 +433,7 @@ onMounted(async () => {
 
 onBeforeUnmount(async () => {
   currentConnectId++
+  window.removeEventListener(LOCAL_TAB_DETACH_EVENT, onLocalDetachEvent)
   if (beforeUnloadHandler) {
     window.removeEventListener('beforeunload', beforeUnloadHandler)
     beforeUnloadHandler = null
@@ -402,7 +453,11 @@ onBeforeUnmount(async () => {
   captureResolve = null
   clearPromptCapture(new Error('SSH terminal closed'))
   stopTimer()
-  await disconnect()
+  // 附加模式下 session 属于主窗口原会话,unmount 不断开(独立窗口销毁后,
+  // 主窗口 reattach 还要复用它;后端 session 的生命周期由主窗口侧管理)
+  if (!attachedToExisting) {
+    await disconnect()
+  }
 })
 
 function startTimer() {
@@ -488,6 +543,32 @@ async function connect() {
  connected.value = false
  resetSftpReady()
  connecting.value = true
+
+  // ===== 独立窗口附加模式 =====
+  // 本 tab 是从主窗口拖出的:后端 SSH session 还活着,直接附加
+  // (订阅同一 sessionId 的事件),不重新建链 — 远端 shell 与正在
+  // 运行的任务完全不受影响;拖出前的历史输出不回显。
+  if (detachedWindowInfo) {
+    try {
+      const sessions = await invoke<Array<{ id: string; connected: boolean }>>('ssh_get_sessions')
+      if (sessions.some(s => s.id === sessionId && s.connected)) {
+        attachedToExisting = true
+        connected.value = true
+        connecting.value = false
+        reconnectAttempt.value = 0
+        terminalRef.value?.writeln('\x1b[36m⟐ 已附加到现有会话(拖出前的历史输出未回显)\x1b[0m')
+        startTimer()
+        setupZmodemSentry()
+        await subscribeSessionEvents(sessionId)
+        await syncRemoteTerminalSize()
+        scheduleSftpReadyFallback()
+        return
+      }
+    } catch (error) {
+      // 探测失败(后端未就绪等)→ 回退到正常建链
+      console.warn('[ssh] attach probe failed, fallback to connect:', error)
+    }
+  }
 
  lastError.value = null
  terminalRef.value?.writeln('')
@@ -584,28 +665,8 @@ async function connect() {
   startTimer()
 
   setupZmodemSentry()
-  unlisten = await listen(`ssh:data:${sessionId}`, (event) => {
-  const payload = event.payload
-  const octets = typeof payload === 'string'
-    ? Array.from(new TextEncoder().encode(payload))
-    : Array.from(payload as number[])
-  zmodemSentry?.consume(octets)
-  })
+  await subscribeSessionEvents(sessionId)
   scheduleSftpReadyFallback()
-
-  unlistenClose = await listen(`ssh:close:${sessionId}`, () => {
-  connected.value = false
-  clearPromptCapture(new Error('SSH connection closed before prompt returned'))
-  resetZmodem()
-  resetSftpReady()
-  stopTimer()
-  terminalRef.value?.writeln('\r\n\x1b[33m! Connection closed by remote host\x1b[0m')
-  if (autoReconnect.value && !asset.value?.config.mfaEnabled) {
-    tryReconnect(sessionId)
-  } else if (asset.value?.config.mfaEnabled) {
-    terminalRef.value?.writeln('\x1b[36m MFA/2FA session closed. Click reconnect when you are ready to verify again.\x1b[0m')
-  }
-  })
 
 
 
@@ -641,6 +702,31 @@ async function connect() {
  }
 }
 
+/** 订阅会话数据 / 关闭事件(正常建链与独立窗口附加模式共用) */
+async function subscribeSessionEvents(sessionId: string) {
+  unlisten = await listen(`ssh:data:${sessionId}`, (event) => {
+    const payload = event.payload
+    const octets = typeof payload === 'string'
+      ? Array.from(new TextEncoder().encode(payload))
+      : Array.from(payload as number[])
+    zmodemSentry?.consume(octets)
+  })
+
+  unlistenClose = await listen(`ssh:close:${sessionId}`, () => {
+    connected.value = false
+    clearPromptCapture(new Error('SSH connection closed before prompt returned'))
+    resetZmodem()
+    resetSftpReady()
+    stopTimer()
+    terminalRef.value?.writeln('\r\n\x1b[33m! Connection closed by remote host\x1b[0m')
+    if (autoReconnect.value && !asset.value?.config.mfaEnabled) {
+      tryReconnect(sessionId)
+    } else if (asset.value?.config.mfaEnabled) {
+      terminalRef.value?.writeln('\x1b[36m MFA/2FA session closed. Click reconnect when you are ready to verify again.\x1b[0m')
+    }
+  })
+}
+
 function handleTerminalOctets(octets: number[]) {
   const chunk = terminalDecoder.decode(new Uint8Array(octets), { stream: true })
   if (!chunk) return
@@ -668,6 +754,9 @@ function setupZmodemSentry() {
     on_detect: detection => {
       zmodemSession = detection.confirm()
       zmodemProgress.value = 0
+      zmodemFileName.value = ''
+      zmodemTransferred.value = 0
+      zmodemTotal.value = 0
       if (zmodemSession.type === 'send') {
         zmodemStatus.value = '远端 rz 已就绪，请选择要发送的文件'
         zmodemPromptVisible.value = true
@@ -679,8 +768,24 @@ function setupZmodemSentry() {
       zmodemSession.on('offer', (...args: unknown[]) => {
         const transfer = args[0] as ZmodemTransfer
         const details = transfer.get_details()
+        zmodemFileName.value = details.name
+        zmodemTotal.value = details.size ?? 0
         zmodemStatus.value = `正在接收 ${details.name}`
+        // accept() 没有进度回调,轮询 offset 补一个真实进度条
+        if (zmodemRecvTimer !== null) window.clearInterval(zmodemRecvTimer)
+        zmodemRecvTimer = window.setInterval(() => {
+          const offset = transfer.get_offset()
+          zmodemTransferred.value = offset
+          if (zmodemTotal.value > 0) {
+            zmodemProgress.value = Math.min(99, (offset / zmodemTotal.value) * 100)
+          }
+        }, 200)
         void transfer.accept().then(payloads => {
+          if (zmodemRecvTimer !== null) {
+            window.clearInterval(zmodemRecvTimer)
+            zmodemRecvTimer = null
+          }
+          zmodemTransferred.value = zmodemTotal.value || zmodemTransferred.value
           Zmodem.Browser.save_to_disk(payloads, details.name)
           zmodemStatus.value = `已接收 ${details.name}`
           zmodemProgress.value = 100
@@ -705,10 +810,14 @@ async function onZmodemFilesSelected(event: Event) {
   const files = input.files
   const totalBytes = Array.from(files).reduce((sum, file) => sum + file.size, 0)
   try {
-    zmodemStatus.value = `正在发送 ${files.length} 个文件`
+    zmodemTotal.value = totalBytes
+    zmodemStatus.value = files.length === 1 ? `正在发送 ${files[0].name}` : `正在发送 ${files.length} 个文件`
+    zmodemFileName.value = files.length === 1 ? files[0].name : `${files.length} 个文件`
     await Zmodem.Browser.send_files(zmodemSession, files, {
-      on_progress: (_file, transfer) => {
+      on_progress: (file, transfer) => {
         const sent = transfer.get_offset()
+        zmodemFileName.value = file.name
+        zmodemTransferred.value = sent
         zmodemProgress.value = totalBytes > 0 ? Math.min(99, sent / totalBytes * 100) : 0
       },
       on_file_complete: file => {
@@ -733,10 +842,17 @@ function cancelZmodem() {
 }
 
 function finishZmodem() {
+  if (zmodemRecvTimer !== null) {
+    window.clearInterval(zmodemRecvTimer)
+    zmodemRecvTimer = null
+  }
   zmodemSession = null
   zmodemPromptVisible.value = false
   zmodemStatus.value = ''
   zmodemProgress.value = 0
+  zmodemFileName.value = ''
+  zmodemTransferred.value = 0
+  zmodemTotal.value = 0
 }
 
 function resetZmodem() {
@@ -1483,15 +1599,26 @@ function handleKbCancelled() {
  @change="onZmodemFilesSelected"
  />
  <Transition name="zmodem-transfer">
- <div v-if="zmodemPromptVisible" class="zmodem-transfer-bar">
+ <div
+   v-if="zmodemPromptVisible"
+   class="zmodem-transfer-bar"
+   :class="zmodemSession?.type === 'send' ? 'send' : 'receive'"
+ >
    <div class="zmodem-transfer-icon">
-     <v-icon size="16">mdi-swap-vertical-bold</v-icon>
+     <v-icon size="16">{{ zmodemSession?.type === 'send' ? 'mdi-upload-outline' : 'mdi-download-outline' }}</v-icon>
    </div>
    <div class="zmodem-transfer-copy">
-     <strong>ZMODEM</strong>
-     <span>{{ zmodemStatus }}</span>
-     <div class="zmodem-progress">
-       <span :style="{ width: `${zmodemProgress}%` }" />
+     <div class="zmodem-transfer-head">
+       <strong>ZMODEM</strong>
+       <span class="zmodem-transfer-tag">{{ zmodemSession?.type === 'send' ? 'RZ · 发送' : 'SZ · 接收' }}</span>
+       <span v-if="zmodemFileName" class="zmodem-transfer-file" :title="zmodemFileName">{{ zmodemFileName }}</span>
+       <span class="zmodem-transfer-nums">
+         <template v-if="zmodemBytesText">{{ zmodemBytesText }} · </template>{{ Math.round(zmodemProgress) }}%
+       </span>
+     </div>
+     <span class="zmodem-transfer-status">{{ zmodemStatus }}</span>
+     <div class="zmodem-progress" :class="{ indeterminate: zmodemIndeterminate }">
+       <span :style="{ width: zmodemIndeterminate ? '40%' : `${zmodemProgress}%` }" />
      </div>
    </div>
    <button
@@ -1499,9 +1626,10 @@ function handleKbCancelled() {
      class="cyber-btn zmodem-select-btn"
      @click="chooseZmodemFiles"
    >
+     <v-icon size="13">mdi-file-upload-outline</v-icon>
      选择文件
    </button>
-   <button class="action-btn" title="取消 ZMODEM 传输" @click="cancelZmodem">
+   <button class="action-btn" data-tooltip="取消 ZMODEM 传输" aria-label="取消 ZMODEM 传输" @click="cancelZmodem">
      <v-icon size="14">mdi-close</v-icon>
    </button>
  </div>
@@ -1768,85 +1896,7 @@ function handleKbCancelled() {
  flex-direction: column;
 }
 
-.zmodem-file-input {
- display: none;
-}
-
-.zmodem-transfer-bar {
- display: flex;
- align-items: center;
- gap: 12px;
- padding: 8px 12px;
- margin-bottom: 8px;
- border: 1px solid var(--focus-cyan);
- border-radius: 8px;
- background: var(--panel-solid-2);
- box-shadow: var(--glow-cyan);
-}
-
-.zmodem-transfer-icon {
- width: 30px;
- height: 30px;
- display: grid;
- place-items: center;
- flex: 0 0 auto;
- border-radius: 6px;
- color: var(--cyan);
- background: var(--active-cyan);
-}
-
-.zmodem-transfer-copy {
- min-width: 0;
- flex: 1;
- display: grid;
- gap: 2px;
-}
-
-.zmodem-transfer-copy strong {
- color: var(--cyan);
- font: 600 10px/1.2 'Orbitron', sans-serif;
- letter-spacing: 0.1em;
-}
-
-.zmodem-transfer-copy > span {
- overflow: hidden;
- color: var(--text-2);
- font-size: 11px;
- text-overflow: ellipsis;
- white-space: nowrap;
-}
-
-.zmodem-progress {
- height: 2px;
- overflow: hidden;
- border-radius: 2px;
- background: var(--line-2);
-}
-
-.zmodem-progress span {
- display: block;
- height: 100%;
- border-radius: inherit;
- background: var(--grad-primary);
- transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.zmodem-select-btn {
- min-height: 28px;
- padding: 4px 12px;
- font-size: 11px;
-}
-
-.zmodem-transfer-enter-active,
-.zmodem-transfer-leave-active {
- transition: opacity 0.2s, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.zmodem-transfer-enter-from,
-.zmodem-transfer-leave-to {
- opacity: 0;
- transform: translateY(-6px);
-}
+/* ZMODEM 传输条样式已迁移到 cyber.css(.zmodem-*)全局组件类 */
 
 .terminal-pane > :deep(.ssh-split-container) {
  flex:1;

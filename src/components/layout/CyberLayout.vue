@@ -3,19 +3,30 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
-import { useAppStore, SIDEBAR_COLLAPSED_WIDTH } from '@/stores/app'
+import { useAppStore, SIDEBAR_COLLAPSED_WIDTH, type Tab } from '@/stores/app'
 import { useThemeStore } from '@/stores/theme'
 import { useDialogStore } from '@/stores/dialog'
 import { useAiStore, type AiAgent } from '@/stores/ai'
+import { useTransferStore } from '@/stores/transfer'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import AssetTree from '@/components/asset/AssetTree.vue'
 import SidebarHandle from '@/components/layout/SidebarHandle.vue'
 import CommandPalette from '@/components/layout/CommandPalette.vue'
 import NotificationCenter from '@/components/layout/NotificationCenter.vue'
 import SettingsView from '@/views/SettingsView.vue'
+import TransferDock from '@/components/transfer/TransferDock.vue'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import ProductIcon from '@/components/common/ProductIcon.vue'
 import * as tauriWindowApi from '@tauri-apps/api/window'
+import { WebviewWindow, getAllWebviewWindows } from '@tauri-apps/api/webviewWindow'
+import { emitTo, listen as tauriListen } from '@tauri-apps/api/event'
+import {
+  getDetachedInfo,
+  detachedLabelFor,
+  buildDetachedUrl,
+  TAB_REATTACH_EVENT,
+  LOCAL_TAB_DETACH_EVENT,
+} from '@/lib/windowDetach'
 import { generateInstanceId } from '@/utils/tabId'
 import { version as appVersion } from '~package.json'
 import logoUrl from '@/assets/logo-star.png'
@@ -33,6 +44,7 @@ const appStore = useAppStore()
 const themeStore = useThemeStore()
 const dlg = useDialogStore()
 const aiStore = useAiStore()
+const transferStore = useTransferStore()
 aiStore.ensureAgentsShape()
 
 // menubar 水平 padding(.menubar 上写的 0 12px),
@@ -196,6 +208,132 @@ function onTitlebarMousedown(e: MouseEvent) {
   appWindow.startDragging().catch(() => {})
 }
 
+// ====== 标签页拖出为独立窗口 ======
+// detachedInfo 非空 = 当前窗口就是被拖出的独立工作区窗口(渲染精简外壳)
+const detachedInfo = getDetachedInfo()
+
+/** 拖出手势状态:armed = 已离开 tab 条,松开即拖出 */
+const tabDragState = ref<{ tabId: string; clientX: number; clientY: number; detachArmed: boolean } | null>(null)
+
+function onTabDragStart(e: DragEvent, tab: Tab) {
+  if (!e.dataTransfer || !appWindow) {
+    // 纯浏览器预览没有多窗口能力,不启拖
+    e.preventDefault()
+    return
+  }
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', tab.id)
+  tabDragState.value = { tabId: tab.id, clientX: e.clientX, clientY: e.clientY, detachArmed: false }
+  window.addEventListener('dragover', onTabDragOver)
+}
+
+function onTabDragOver(e: DragEvent) {
+  if (!tabDragState.value) return
+  const strip = tabStripRef.value
+  const stripBottom = strip ? strip.getBoundingClientRect().bottom : 92
+  // 拖离 tab 条下方 64px,或超出窗口左右/上边缘 → 武装拖出
+  const armed = e.clientY > stripBottom + 64 || e.clientY < 0 || e.clientX < 0 || e.clientX > window.innerWidth
+  tabDragState.value = { ...tabDragState.value, clientX: e.clientX, clientY: e.clientY, detachArmed: armed }
+}
+
+async function onTabDragEnd(e: DragEvent, tab: Tab) {
+  window.removeEventListener('dragover', onTabDragOver)
+  const state = tabDragState.value
+  tabDragState.value = null
+  if (!state?.detachArmed) return
+  // 拖出窗口松开时 dragend 的坐标可能是 0,用最后追踪到的坐标兜底
+  const pos = e.clientX || e.clientY
+    ? { x: e.clientX, y: e.clientY }
+    : { x: state.clientX, y: state.clientY }
+  await detachTab(tab, pos)
+}
+
+/** 把 tab 拖出为一个独立窗口(右键菜单 / 拖拽落点两条入口共用) */
+async function detachTab(tab: Tab, clientPos?: { x: number; y: number }) {
+  if (!appWindow) return
+  const routePath = router.resolve({ name: routeNameForTab(tab), params: { id: tab.id } }).fullPath
+  const label = detachedLabelFor(tab.id)
+
+  // 同一 tab 的独立窗口已存在 → 聚焦,不重复创建
+  try {
+    const existing = await WebviewWindow.getByLabel(label)
+    if (existing) {
+      await existing.setFocus()
+      return
+    }
+  } catch {}
+
+  // 通知主窗口里缓存的 keep-alive 组件实例:
+  // 停止消费该会话的数据(后端 session 保留,等独立窗口附加)
+  window.dispatchEvent(new CustomEvent(LOCAL_TAB_DETACH_EVENT, { detail: { id: tab.id } }))
+
+  // 拖拽落点(client 坐标)→ 新窗口的屏幕物理坐标
+  let position: { x: number; y: number } | undefined
+  if (clientPos) {
+    try {
+      const [scale, inner] = await Promise.all([appWindow.scaleFactor(), appWindow.innerPosition()])
+      position = {
+        x: inner.x + Math.round(clientPos.x * scale) - 240,
+        y: inner.y + Math.round(clientPos.y * scale) - 16,
+      }
+    } catch {}
+  }
+
+  const win = new WebviewWindow(label, {
+    url: buildDetachedUrl(routePath, tab.title, tab.type, tab.assetId),
+    title: `${tab.title} — StarHub`,
+    width: 980,
+    height: 700,
+    minWidth: 520,
+    minHeight: 360,
+    decorations: false,
+    backgroundColor: '#080d14',
+    ...(position ? { x: position.x, y: position.y } : {}),
+  })
+  void win.once('tauri://error', (error) => {
+    console.error('[detach] create window failed:', error)
+  })
+
+  // 从主窗口 tab 条移除(复用 closeTab 的路由回退逻辑)
+  closeTab(tab.id)
+}
+
+/** 独立窗口 → 主窗口:tab 被送回,重新挂上 tab 条并激活 */
+function onTabReattach(event: { payload: Tab }) {
+  const tab = event.payload
+  if (!tab?.id || !tab?.assetId) return
+  if (appStore.tabs.find(t => t.id === tab.id)) {
+    appStore.setActiveTab(tab.id)
+  } else {
+    appStore.addTab(tab)
+  }
+  router.push({ name: routeNameForTab(tab), params: { id: tab.id } })
+}
+
+// ====== 独立窗口(被拖出的一侧) ======
+let reattachStarted = false
+
+/** 把 tab 送回主窗口,然后销毁自己(标题栏送回按钮 / 关闭按钮 / 窗口 X 共用) */
+async function reattachToMainWindow() {
+  if (!detachedInfo || reattachStarted) return
+  reattachStarted = true
+  try {
+    await emitTo('main', TAB_REATTACH_EVENT, {
+      id: detachedInfo.instanceId,
+      assetId: detachedInfo.assetId,
+      title: detachedInfo.title,
+      type: detachedInfo.type,
+    })
+  } catch (error) {
+    // 主窗口已不在 → 直接销毁自己
+    console.warn('[detach] reattach emit failed:', error)
+  }
+  // 留一个事件往返的余量再自杀
+  window.setTimeout(() => {
+    appWindow?.destroy().catch(() => {})
+  }, 80)
+}
+
 // ====== 欢迎页 stagger 交错入场 ======
 const welcomeRef = ref<HTMLElement | null>(null)
 const welcomeStaggerRun = ref(false)
@@ -216,11 +354,34 @@ vueWatch(() => appStore.tabs.length, (len) => {
 })
 
 onMounted(async () => {
-  triggerWelcomeStagger()
   // 平台检测(Mac 修饰键显示 + Linux 拖拽兜底)
   const ua = navigator.userAgent.toLowerCase()
   isMac.value = /mac|iphone|ipad|ipod/.test(ua)
   isLinux.value = /linux/.test(ua) && !/android/.test(ua)
+
+  // ===== 独立窗口模式:精简初始化,不挂主窗口的快捷键/时钟/tab 逻辑 =====
+  if (detachedInfo) {
+    assetStore.fetchAssets().catch((e) => {
+      console.warn('[detach] fetchAssets failed:', e)
+    })
+    transferStore.ensureInit()
+    await refreshMaximized()
+    try {
+      await appWindow?.onResized(async () => { await refreshMaximized() })
+    } catch {}
+    // 直达拖出 tab 的工作区路由
+    router.replace(detachedInfo.route)
+    // 关闭窗口(X / 系统关闭)= 把 tab 送回主窗口,防止误关丢会话
+    try {
+      await appWindow?.onCloseRequested(async (event) => {
+        event.preventDefault()
+        await reattachToMainWindow()
+      })
+    } catch {}
+    return
+  }
+
+  triggerWelcomeStagger()
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('keydown', onSearchShortcut)
   window.addEventListener('keydown', onGlobalKeydown)
@@ -238,6 +399,23 @@ onMounted(async () => {
   assetStore.fetchAssets().catch((e) => {
     console.warn('[layout] fetchAssets failed:', e)
   })
+  // 全局传输任务栏:挂一次 SFTP 进度/状态事件监听(窗口生命周期内有效)
+  transferStore.ensureInit()
+  // 监听独立窗口把 tab 送回来
+  try {
+    await tauriListen<Tab>(TAB_REATTACH_EVENT, onTabReattach)
+  } catch {}
+  // 主窗口关闭时,把所有拖出的独立窗口一起销毁,避免留下孤儿窗口
+  try {
+    await appWindow?.onCloseRequested(async () => {
+      try {
+        const wins = await getAllWebviewWindows()
+        await Promise.all(
+          wins.filter(w => w.label.startsWith('detach-')).map(w => w.destroy())
+        )
+      } catch {}
+    })
+  } catch {}
 })
 
 onBeforeUnmount(() => {
@@ -913,6 +1091,15 @@ const tabCtxItems = computed<MenuItem[]>(() => {
     { type: 'divider' },
     {
       type: 'item',
+      icon: 'mdi-open-in-new',
+      label: t('layout.detachTab'),
+      onClick: () => {
+        const full = appStore.tabs.find(t => t.id === tab.id)
+        if (full) void detachTab(full)
+      }
+    },
+    {
+      type: 'item',
       icon: 'mdi-content-duplicate',
       label: t('layout.copyTabTitle'),
       onClick: async () => {
@@ -1074,7 +1261,54 @@ vueWatch(() => appStore.tabs.length, () => {
 </script>
 
 <template>
-  <div class="app-layout">
+  <!-- ===== 独立窗口模式(从主窗口拖出的单 tab 工作区) ===== -->
+  <div v-if="detachedInfo" class="detached-layout">
+    <div
+      class="detached-titlebar"
+      data-tauri-drag-region
+      @dblclick="onTitlebarDblclick"
+      @mousedown="onTitlebarMousedown"
+    >
+      <v-icon size="13" class="detached-icon">{{ getIcon(detachedInfo.type) }}</v-icon>
+      <span class="detached-title">{{ detachedInfo.title }}</span>
+      <span class="detached-sub">{{ t('layout.detachedHint') }}</span>
+      <div class="window-controls">
+        <button
+          class="win-btn"
+          :data-tooltip="t('layout.reattachTab')"
+          :aria-label="t('layout.reattachTab')"
+          @click="reattachToMainWindow"
+        >
+          <v-icon size="13">mdi-arrow-u-left-bottom</v-icon>
+        </button>
+        <button class="win-btn" aria-label="Minimize" @click="winMinimize">
+          <v-icon size="13">mdi-window-minimize</v-icon>
+        </button>
+        <button
+          class="win-btn"
+          :aria-label="isMaximized ? 'Restore' : 'Maximize'"
+          @click="winToggleMaximize"
+        >
+          <v-icon size="13">{{ isMaximized ? 'mdi-window-restore' : 'mdi-window-maximize' }}</v-icon>
+        </button>
+        <button
+          class="win-btn close"
+          :data-tooltip="t('layout.reattachTab')"
+          :aria-label="t('common.close')"
+          @click="reattachToMainWindow"
+        >
+          <v-icon size="13">mdi-window-close</v-icon>
+        </button>
+      </div>
+    </div>
+    <div class="detached-workspace">
+      <router-view v-slot="{ Component }">
+        <component :is="Component" :key="route.fullPath" />
+      </router-view>
+    </div>
+  </div>
+
+  <div v-else class="app-layout">
     <!-- Title Bar (自画 chrome · 替代系统标题栏) -->
     <div class="titlebar" data-tauri-drag-region @dblclick="onTitlebarDblclick" @mousedown="onTitlebarMousedown">
       <div class="logo" aria-label="StarHub">
@@ -1223,10 +1457,13 @@ vueWatch(() => appStore.tabs.length, () => {
             v-for="tab in appStore.tabs"
             :key="tab.id"
             class="tab"
-            :class="{ active: appStore.activeTab === tab.id }"
+            :class="{ active: appStore.activeTab === tab.id, 'drag-armed': tabDragState?.tabId === tab.id && tabDragState?.detachArmed }"
+            draggable="true"
             @click="selectTab(tab)"
             @contextmenu="openTabContextMenu($event, tab)"
             @auxclick.middle.prevent="closeTab(tab.id)"
+            @dragstart="onTabDragStart($event, tab)"
+            @dragend="onTabDragEnd($event, tab)"
           >
             <v-icon size="12">{{ getIcon(tab.type) }}</v-icon>
             <span class="tab-title">{{ getTabDisplayTitle(tab) }}</span>
@@ -1543,6 +1780,19 @@ vueWatch(() => appStore.tabs.length, () => {
 
     <!-- 全局命令面板 (⌘P) -->
     <CommandPalette />
+
+    <!-- 全局传输任务栏(SFTP 上传/下载,可最小化) -->
+    <TransferDock />
+
+    <!-- 拖出提示:tab 被拖离 tab 条时跟随光标 -->
+    <div
+      v-if="tabDragState?.detachArmed"
+      class="tab-detach-hint"
+      :style="{ left: tabDragState.clientX + 14 + 'px', top: tabDragState.clientY + 16 + 'px' }"
+    >
+      <v-icon size="13">mdi-open-in-new</v-icon>
+      <span>{{ t('layout.detachHint') }}</span>
+    </div>
   </div>
 </template>
 
@@ -2176,6 +2426,14 @@ kbd {
   color: var(--cyan);
   background: linear-gradient(180deg, var(--active-cyan) 0%, transparent 100%);
   border-bottom-color: var(--cyan);
+}
+
+/* 拖出武装态:tab 被拖离 tab 条,松开即生成独立窗口 */
+.tab.drag-armed {
+  opacity: 0.55;
+  border-style: dashed;
+  outline: 1px dashed var(--focus-cyan);
+  outline-offset: -1px;
 }
 
 .tab-title {
