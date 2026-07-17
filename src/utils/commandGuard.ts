@@ -126,6 +126,18 @@ export function checkCommand(
 }
 
 /**
+ * 从终端回显行剥离 shell 提示符,提取命令文本。
+ *
+ * 从行首非贪婪匹配第一个提示符终止符($ / # / ❯ / % / ➜ / > / ])+空白,
+ * 覆盖 bash / zsh / fish / PowerShell 等常见提示符;匹配不到时返回空串,
+ * 调用方应回退到本地按键缓冲。
+ */
+export function stripShellPrompt(line: string): string {
+  const m = line.trim().match(/^.*?[$#❯%➜>\]]\s+(.*)$/)
+  return (m?.[1] ?? '').trim()
+}
+
+/**
  * 白名单前缀匹配:支持简单的开头匹配,自动 trim 空白
  */
 function matchesWhitelist(command: string, prefix: string): boolean {

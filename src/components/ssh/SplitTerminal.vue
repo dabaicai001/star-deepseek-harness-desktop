@@ -210,6 +210,11 @@ function getSize(): { cols: number; rows: number } | null {
   return getMinSize()
 }
 
+/** 读取活动 pane 光标所在的完整逻辑行(危险命令拦截用) */
+function readActiveCursorLine(): string {
+  return getActivePane()?.readCursorLine() ?? ''
+}
+
 // ====== 拖拽分隔条 ======
 
 const draggingDivider = ref<number | null>(null)
@@ -298,7 +303,8 @@ defineExpose({
   splitVertical,
   closePane,
   closeActivePane,
-  paneCount
+  paneCount,
+  readActiveCursorLine
 })
 </script>
 

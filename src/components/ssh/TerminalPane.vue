@@ -336,6 +336,27 @@ function getSize(): { cols: number; rows: number } | null {
   return { cols: terminal.cols, rows: terminal.rows }
 }
 
+/**
+ * 读取光标所在的完整逻辑行文本(向上合并软换行)。
+ *
+ * 危险命令拦截以终端真实回显为准:Tab 补全、历史召回等 shell 行编辑
+ * 不经过 onData,只追踪本地按键会得到残缺命令。
+ */
+function readCursorLine(): string {
+  if (!terminal) return ''
+  const buffer = terminal.buffer.active
+  let y = buffer.baseY + buffer.cursorY
+  const cursorLine = buffer.getLine(y)
+  if (!cursorLine) return ''
+  let text = cursorLine.translateToString(true)
+  // 长命令软换行:isWrapped 表示该行是上一行的延续,向上拼接完整逻辑行
+  while (y > 0 && buffer.getLine(y)?.isWrapped) {
+    y--
+    text = (buffer.getLine(y)?.translateToString(false) ?? '') + text
+  }
+  return text
+}
+
 defineExpose({
   write,
   writeln,
@@ -344,7 +365,8 @@ defineExpose({
   search,
   setFontSize,
   fit,
-  getSize
+  getSize,
+  readCursorLine
 })
 </script>
 

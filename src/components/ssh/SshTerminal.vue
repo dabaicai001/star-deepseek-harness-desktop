@@ -24,7 +24,7 @@ import { formatSize } from '@/services/sftp'
 import { getDetachedInfo, LOCAL_TAB_DETACH_EVENT } from '@/lib/windowDetach'
 import { SSH_SYSTEM_PROMPT, sshTools, makeSshToolCaller } from '@/utils/aiTools'
 import { makeSftpToolCaller, sftpTools } from '@/utils/aiSftpTools'
-import { checkCommand, extractWhitelistPrefix } from '@/utils/commandGuard'
+import { checkCommand, extractWhitelistPrefix, stripShellPrompt } from '@/utils/commandGuard'
 import type { LlmToolCall } from '@/services/ai'
 import { createMcpRuntime } from '@/services/mcp'
 import ZmodemModule from 'zmodem.js/src/zmodem_browser.js'
@@ -927,6 +927,18 @@ async function tryReconnect(sessionId: string) {
 const lineBuffer = ref('')
 const pendingRiskyCommand = ref<{ command: string; reason: string } | null>(null)
 
+/**
+ * 从终端 buffer 提取当前命令行的真实回显(剥离 shell 提示符)。
+ *
+ * Tab 补全 / 方向键历史召回 / shell 行编辑都是 shell 本地回显,不经过
+ * onData — 只追踪本地按键会得到残缺命令,确认框显示不全甚至漏检。
+ */
+function readEchoedCommand(): string {
+  const line = terminalRef.value?.readActiveCursorLine() ?? ''
+  if (!line.trim()) return ''
+  return stripShellPrompt(line)
+}
+
 function confirmRiskyCommand() {
   if (!pendingRiskyCommand.value) return
   pendingRiskyCommand.value = null
@@ -941,26 +953,48 @@ function cancelRiskyCommand() {
 
 async function handleData(data: string) {
   if (connected.value) {
-  if (devMockWorkspace.value) return
 
-  // 危险命令拦截: 当用户按回车时检查当前命令行
+  // 危险命令拦截: 当用户按回车时检查当前命令行(mock 模式也跑,便于浏览器回归)
   if (data === '\r' && !pendingRiskyCommand.value) {
-    const command = lineBuffer.value.trim()
-    if (command) {
+    // 回显(shell 真实命令行,含 Tab 补全 / 历史召回)优先;本地按键缓冲兜底
+    // (提示符剥离失败或无回显时)。两个来源都过一遍风险检测,任一命中即拦截,
+    // 弹窗展示命中来源的完整命令。
+    const typed = lineBuffer.value.trim()
+    const echoed = readEchoedCommand()
+    lineBuffer.value = ''
+    const sources = echoed && echoed !== typed ? [echoed, typed] : [typed]
+    for (const command of sources) {
+      if (!command) continue
       const result = checkCommand(command, aiStore.settings.commandWhitelist)
       if (result.isRisky) {
         pendingRiskyCommand.value = { command, reason: result.riskReason ?? '风险命令' }
         return // 不发送回车,等待用户确认
       }
     }
-    lineBuffer.value = ''
   } else if (data === '\x7f' || data === '\b') {
     lineBuffer.value = lineBuffer.value.slice(0, -1)
   } else if (data === '\x03') {
     lineBuffer.value = ''
   } else if (data.length === 1 && data >= ' ' && !pendingRiskyCommand.value) {
     lineBuffer.value += data
+  } else if (data.length > 1 && !pendingRiskyCommand.value) {
+    // 粘贴 / IME 等多字符输入:剥离 bracketed-paste 标记与 ANSI 转义序列,
+    // 把可打印字符计入缓冲,避免整块粘贴的危险命令绕过检测
+    const text = data
+      .replace(/\x1b\[2(?:00|01)~/g, '')
+      .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    for (const ch of text) {
+      if (ch === '\r' || ch === '\n') {
+        lineBuffer.value = ''
+      } else if (ch === '\x7f' || ch === '\b') {
+        lineBuffer.value = lineBuffer.value.slice(0, -1)
+      } else if (ch >= ' ') {
+        lineBuffer.value += ch
+      }
+    }
   }
+
+  if (devMockWorkspace.value) return
 
   let finalData = data
   if (data.endsWith('\n') && data.trimStart().startsWith('cd ')) {

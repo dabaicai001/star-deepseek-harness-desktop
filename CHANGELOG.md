@@ -12,6 +12,17 @@
 
 ---
 
+## [0.32.1] - 2026-07-17
+
+### 修复
+- 🐛 fix(ssh): 危险命令确认框显示残缺命令 — 拦截逻辑只缓冲本地按下的可打印单字符,Tab 补全 / 方向键历史召回等 shell 本地回显不经过 `onData`,确认框只能显示残缺的按键序列(如 `rm -rf e`),而真正执行的是补全后的完整命令。改为回车时读取 xterm buffer 光标所在完整逻辑行(合并软换行)、剥离 shell 提示符后作为第一检测源,本地按键缓冲兜底,双源任一命中即拦截并展示完整命令(`TerminalPane.readCursorLine` + `SplitTerminal.readActiveCursorLine` + `commandGuard.stripShellPrompt`)。
+- 🐛 fix(ssh): 粘贴 / IME 的多字符输入原先完全不计入命令缓冲,整块粘贴的危险命令回车会绕过检测;现剥离 bracketed-paste 标记与 ANSI 转义序列后计入缓冲。顺带修复:取消确认后再次回车仍能通过终端回显兜底拦截(原先清空缓冲后直接放行)。
+
+### 测试
+- ✅ test(utils): 新增 `tests/utils/commandGuard.test.mjs`,覆盖提示符剥离(bash / zsh / fish / PowerShell / oh-my-zsh)与补全、粘贴场景的风险检测。
+
+---
+
 ## [0.32.0] - 2026-07-17
 
 ### 新功能
