@@ -516,7 +516,9 @@ onBeforeUnmount(() => {
           <v-icon size="16" color="var(--cyan)">mdi-rename-outline</v-icon>
           <span class="dialog-title">重命名 Key</span>
           <v-spacer />
-          <v-btn variant="text" size="small" icon="mdi-close" @click="showRenameKey = false" />
+          <button class="action-btn" @click="showRenameKey = false">
+            <v-icon size="16">mdi-close</v-icon>
+          </button>
         </div>
         <div style="padding: 16px;">
           <div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">

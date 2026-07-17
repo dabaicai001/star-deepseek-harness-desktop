@@ -45,7 +45,9 @@ function copyDDL() {
         <span class="dialog-title">CREATE TABLE</span>
         <span class="dialog-subtitle">{{ db }}.{{ table }}</span>
         <v-spacer />
-        <v-btn variant="text" size="small" icon="mdi-close" @click="emit('update:modelValue', false)" />
+        <button class="action-btn" @click="emit('update:modelValue', false)">
+            <v-icon size="16">mdi-close</v-icon>
+          </button>
       </div>
 
       <div v-if="loading" class="dialog-loading">

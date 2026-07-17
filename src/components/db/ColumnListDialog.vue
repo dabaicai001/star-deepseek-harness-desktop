@@ -307,7 +307,9 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
         <span class="dialog-title">{{ db }}.{{ table }}</span>
         <span class="dialog-subtitle">{{ editList.length }} columns</span>
         <v-spacer />
-        <v-btn variant="text" size="small" icon="mdi-close" @click="emit('update:modelValue', false)" />
+        <button class="action-btn" @click="emit('update:modelValue', false)">
+            <v-icon size="16">mdi-close</v-icon>
+          </button>
       </div>
 
       <div class="search-row" style="padding: 8px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center;">
@@ -472,7 +474,7 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
 .cell-input:focus { border-color: var(--cyan); }
 tr.dirty td { background: rgba(255, 193, 7, 0.04); }
 tr.dropped td { opacity: 0.4; text-decoration: line-through; }
-.key-badge { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: var(--purple); color: #fff; }
+.key-badge { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: var(--purple); color: var(--text); }
 .add-row { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
 .action-btn-sm {
   width: 24px; height: 24px; border-radius: 4px; border: 1px solid var(--line-2);

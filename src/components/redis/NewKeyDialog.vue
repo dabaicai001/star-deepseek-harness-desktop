@@ -105,7 +105,9 @@ function onCancel() {
         <span class="dialog-title">{{ t('redis.newKey', '新建 Key') }}</span>
         <span class="dialog-subtitle">db{{ currentDb }}</span>
         <v-spacer />
-        <v-btn variant="text" size="small" icon="mdi-close" @click="onCancel" />
+        <button class="action-btn" @click="onCancel">
+            <v-icon size="16">mdi-close</v-icon>
+          </button>
       </div>
 
       <div class="dialog-body">

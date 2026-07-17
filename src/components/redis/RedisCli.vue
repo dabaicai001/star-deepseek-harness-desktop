@@ -188,7 +188,7 @@ watch(() => props.currentDb, () => {
   width: 10px; height: 10px; border-radius: 50%;
   display: inline-block;
 }
-.dot.red { background: #ff5f57; }
-.dot.yellow { background: #febc2e; }
-.dot.green { background: #28c840; }
+.dot.red { background: var(--red); }
+.dot.yellow { background: var(--yellow); }
+.dot.green { background: var(--green); }
 </style>

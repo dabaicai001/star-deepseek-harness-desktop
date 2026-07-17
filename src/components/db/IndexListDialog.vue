@@ -252,7 +252,9 @@ watch(() => props.modelValue, (v) => { if (v) load() }, { immediate: true })
         <span class="dialog-title">{{ db }}.{{ table }}</span>
         <span class="dialog-subtitle">{{ groupedEdits.length }} indexes · {{ tableColumns.length }} columns</span>
         <v-spacer />
-        <v-btn variant="text" size="small" icon="mdi-close" @click="emit('update:modelValue', false)" />
+        <button class="action-btn" @click="emit('update:modelValue', false)">
+            <v-icon size="16">mdi-close</v-icon>
+          </button>
       </div>
 
       <div class="search-row" style="padding: 8px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center;">

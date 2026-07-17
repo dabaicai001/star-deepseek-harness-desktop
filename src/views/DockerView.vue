@@ -743,14 +743,14 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         <div class="error-actions">
           <button
             v-if="canRepairDockerSshTrust"
-            class="cyber-btn-secondary"
+            class="cyber-btn-secondary cyber-btn-sm"
             :disabled="repairingHostKey || connecting"
             @click="repairDockerSshTrust"
           >
             <v-icon size="14">{{ repairingHostKey ? 'mdi-loading mdi-spin' : 'mdi-shield-refresh-outline' }}</v-icon>
             {{ repairingHostKey ? '校验中' : '校验并更新 SSH 主机密钥' }}
           </button>
-          <button class="cyber-btn-secondary" :disabled="connecting || repairingHostKey" @click="connect">
+          <button class="cyber-btn-secondary cyber-btn-sm" :disabled="connecting || repairingHostKey" @click="connect">
             <v-icon size="14">mdi-refresh</v-icon>
             重试
           </button>
@@ -772,16 +772,16 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
             </span>
 
             <div class="detail-actions">
-              <button v-if="dockerStore.selectedContainer.state !== 'running'" class="cyber-btn" @click="doStart(dockerStore.selectedContainer!.id)">
+              <button v-if="dockerStore.selectedContainer.state !== 'running'" class="cyber-btn cyber-btn-sm" @click="doStart(dockerStore.selectedContainer!.id)">
                 <v-icon size="12">mdi-play</v-icon> {{ t('docker.start') }}
               </button>
-              <button v-if="dockerStore.selectedContainer.state === 'running'" class="cyber-btn-secondary" @click="doStop(dockerStore.selectedContainer!.id)">
+              <button v-if="dockerStore.selectedContainer.state === 'running'" class="cyber-btn-secondary cyber-btn-sm" @click="doStop(dockerStore.selectedContainer!.id)">
                 <v-icon size="12">mdi-stop</v-icon> {{ t('docker.stop') }}
               </button>
-              <button v-if="dockerStore.selectedContainer.state === 'running'" class="cyber-btn-secondary" @click="doRestart(dockerStore.selectedContainer!.id)">
+              <button v-if="dockerStore.selectedContainer.state === 'running'" class="cyber-btn-secondary cyber-btn-sm" @click="doRestart(dockerStore.selectedContainer!.id)">
                 <v-icon size="12">mdi-restart</v-icon> {{ t('docker.restart') }}
               </button>
-              <button class="cyber-btn-danger" @click="doRemove(dockerStore.selectedContainer!.id)">
+              <button class="cyber-btn-danger cyber-btn-sm" @click="doRemove(dockerStore.selectedContainer!.id)">
                 <v-icon size="12">mdi-delete</v-icon> {{ t('docker.remove') }}
               </button>
             </div>
@@ -864,7 +864,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               </div>
             </div>
             <div v-else class="stats-loading">
-              <button class="cyber-btn-secondary" @click="dockerStore.loadContainerStats(dockerStore.selectedContainer!.id)">
+              <button class="cyber-btn-secondary cyber-btn-sm" @click="dockerStore.loadContainerStats(dockerStore.selectedContainer!.id)">
                 <v-icon size="14">mdi-chart-line</v-icon> Load Stats
               </button>
             </div>
@@ -1555,68 +1555,6 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   padding: 60px;
   color: var(--muted);
   font-size: 13px;
-}
-
-.cyber-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 500;
-  font-family: inherit;
-  color: #050810;
-  background: var(--grad-primary);
-  border: none;
-  cursor: pointer;
-  transition: all 0.25s;
-}
-
-.cyber-btn:hover {
-  box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
-}
-
-.cyber-btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 500;
-  font-family: inherit;
-  color: var(--text-2);
-  background: transparent;
-  border: 1px solid var(--line-2);
-  cursor: pointer;
-  transition: all 0.25s;
-}
-
-.cyber-btn-secondary:hover {
-  border-color: var(--cyan);
-  color: var(--cyan);
-}
-
-.cyber-btn-danger {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 500;
-  font-family: inherit;
-  color: var(--red);
-  background: transparent;
-  border: 1px solid rgba(255, 77, 109, 0.2);
-  cursor: pointer;
-  transition: all 0.25s;
-}
-
-.cyber-btn-danger:hover {
-  background: rgba(255, 77, 109, 0.08);
-  border-color: var(--red);
 }
 
 .action-btn {

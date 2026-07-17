@@ -2122,13 +2122,13 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
     <div class="db-main">
       <!-- 工具栏:新建查询按钮 -->
       <div class="db-toolbar">
-        <button class="cyber-btn" @click="newSqlQuery" :disabled="!connected">
+        <button class="cyber-btn cyber-btn-sm" @click="newSqlQuery" :disabled="!connected">
           <v-icon size="14">mdi-plus</v-icon>
           {{ t('db.newQuery', '新建查询') }}
         </button>
         <button
           v-if="asset?.config.dbType === 'mysql' || asset?.config.dbType === 'postgresql' || asset?.config.dbType === 'clickhouse'"
-          class="cyber-btn-secondary"
+          class="cyber-btn-secondary cyber-btn-sm"
           @click="openNewTableDialog()"
           :disabled="!connected"
         >
@@ -2306,11 +2306,11 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
             <!-- SQL 编辑器(每个标签页独立) -->
             <div class="sql-area sql-area-inline">
               <div class="sql-toolbar">
-                <button class="cyber-btn" @click="executeSql(activeSqlEditorTab.sqlText)" :disabled="isExecutingAny">
+                <button class="cyber-btn cyber-btn-sm" @click="executeSql(activeSqlEditorTab.sqlText)" :disabled="isExecutingAny">
                   <v-icon size="14">mdi-play</v-icon>
                   {{ t('db.execute') }}
                 </button>
-                <button class="cyber-btn-secondary" @click="explainSql(activeSqlEditorTab.sqlText)" :disabled="isExecutingAny">
+                <button class="cyber-btn-secondary cyber-btn-sm" @click="explainSql(activeSqlEditorTab.sqlText)" :disabled="isExecutingAny">
                   <v-icon size="14">mdi-chart-timeline-variant</v-icon>
                   {{ t('db.explain') }}
                 </button>
@@ -2400,7 +2400,9 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               <v-icon size="16" color="var(--cyan)">mdi-rename-outline</v-icon>
               <span class="dialog-title">{{ t('db.renameTable', '重命名表') }}</span>
               <v-spacer />
-              <v-btn variant="text" size="small" icon="mdi-close" @click="showRenameTable = false" />
+              <button class="action-btn" @click="showRenameTable = false">
+                <v-icon size="16">mdi-close</v-icon>
+              </button>
             </div>
             <div style="padding: 16px;">
               <div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">
@@ -2409,8 +2411,8 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
               <input v-model="renameTableNewName" class="cyber-input" :placeholder="t('db.newTableName', '新表名')" autofocus @keydown.enter="doRenameTable()" />
             </div>
             <div class="dialog-footer">
-              <button class="cyber-btn-secondary" @click="showRenameTable = false">{{ t('common.cancel') }}</button>
-              <button class="cyber-btn" :disabled="!renameTableNewName.trim() || renameTableNewName === ctxTable" @click="doRenameTable()">
+              <button class="cyber-btn-secondary cyber-btn-sm" @click="showRenameTable = false">{{ t('common.cancel') }}</button>
+              <button class="cyber-btn cyber-btn-sm" :disabled="!renameTableNewName.trim() || renameTableNewName === ctxTable" @click="doRenameTable()">
                 <v-icon size="14">mdi-check</v-icon> {{ t('common.confirm') }}
               </button>
             </div>
@@ -3328,57 +3330,6 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 .action-btn:hover {
   border-color: var(--cyan);
   color: var(--cyan);
-}
-
-.cyber-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  color: #050810;
-  background: var(--grad-primary);
-  border: none;
-  cursor: pointer;
-  transition: all 0.25s;
-}
-
-.cyber-btn:hover:not(:disabled) {
-  box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
-}
-
-.cyber-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.cyber-btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  color: var(--text-2);
-  background: transparent;
-  border: 1px solid var(--line-2);
-  cursor: pointer;
-  transition: all 0.25s;
-}
-
-.cyber-btn-secondary:hover:not(:disabled) {
-  border-color: var(--cyan);
-  color: var(--cyan);
-}
-
-.cyber-btn-secondary:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 
 .status-dot {

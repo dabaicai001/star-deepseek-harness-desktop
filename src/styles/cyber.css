@@ -486,6 +486,33 @@ body {
   box-shadow: 0 0 0 3px var(--focus-cyan);
 }
 
+.cyber-btn-danger {
+  background: transparent;
+  color: var(--red);
+  border: 1px solid rgba(238, 107, 122, 0.25);
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cyber-btn-danger:hover {
+  background: rgba(238, 107, 122, 0.1);
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(238, 107, 122, 0.12);
+}
+
+.cyber-btn-sm {
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 6px;
+  gap: 4px;
+}
+
 /* Card styles */
 .cyber-card {
   background: var(--panel);

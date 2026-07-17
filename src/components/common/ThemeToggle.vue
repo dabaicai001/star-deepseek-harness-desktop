@@ -5,13 +5,9 @@ const themeStore = useThemeStore()
 </script>
 
 <template>
-  <v-btn
-    icon
-    variant="text"
-    @click="themeStore.toggleTheme()"
-  >
+  <button class="action-btn" @click="themeStore.toggleTheme()">
     <v-icon>
       {{ themeStore.isDark ? 'mdi-weather-sunny' : 'mdi-weather-night' }}
     </v-icon>
-  </v-btn>
+  </button>
 </template>

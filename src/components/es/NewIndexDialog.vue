@@ -64,7 +64,9 @@ function onCancel() {
         <v-icon size="16" color="var(--cyan)">mdi-database-plus</v-icon>
         <span class="dialog-title">{{ t('es.newIndex', '新建索引') }}</span>
         <v-spacer />
-        <v-btn variant="text" size="small" icon="mdi-close" @click="onCancel" />
+        <button class="action-btn" @click="onCancel">
+            <v-icon size="16">mdi-close</v-icon>
+          </button>
       </div>
 
       <div class="dialog-body">

@@ -143,7 +143,9 @@ function onCancel() {
         <span class="dialog-title">{{ t('db.newTable', '新建表') }}</span>
         <span class="dialog-subtitle">{{ db }}</span>
         <v-spacer />
-        <v-btn variant="text" size="small" icon="mdi-close" @click="onCancel" />
+        <button class="action-btn" @click="onCancel">
+            <v-icon size="16">mdi-close</v-icon>
+          </button>
       </div>
 
       <div class="dialog-body">
