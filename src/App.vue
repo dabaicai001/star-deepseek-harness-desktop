@@ -18,9 +18,18 @@ onMounted(async () => {
   try {
     await router.isReady()
   } finally {
-    requestAnimationFrame(() => {
-      appReady.value = true
-    })
+    // rAF 在隐藏/后台标签页里可能永不触发(浏览器节流),
+    // 那样 appReady 永远为 false,应用会一直停在启动页。
+    // 隐藏时退化为 setTimeout,可见时仍用 rAF 保证首帧后再亮界面。
+    if (document.visibilityState === 'hidden') {
+      setTimeout(() => {
+        appReady.value = true
+      }, 0)
+    } else {
+      requestAnimationFrame(() => {
+        appReady.value = true
+      })
+    }
   }
 })
 
