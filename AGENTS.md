@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.31.2(SSH 终端组件解析修复 + 后台标签页启动修复 + 浏览器预览降级) |
+| 当前版本 | v0.32.0(标签页拖出独立窗口 + 全局传输任务条 TransferDock) |
 
 ---
 
@@ -281,6 +281,8 @@ starhub/
 | `.ai-execution-plan` / `.ai-plan-*` / `.ai-current-agent-badge` | Planner → Executor 计划、点击选项、临时/并行 Agent、直连确认卡与当前 Agent 状态；当前计划在消息流末尾展示 |
 | `.ai-action-dock` | 连接工作区 AI 的当前待确认操作区，固定在消息流与输入框之间，不随历史消息滚走 |
 | `.ai-tool-call` / `.ai-tool-call-*` | 连接工作区 AI 工具卡片、完整命令代码区与状态边框 |
+| `.transfer-dock` / `.transfer-dock-*` | 全局传输任务条(右下角 pill + 展开面板),聚合 SFTP 上传/下载进度、限速与清理已完成 |
+| `.detached-layout` / `.detached-titlebar` / `.detached-workspace` / `.tab-detach-hint` | 标签页拖出独立窗口的精简外壳(无 sidebar / tab 条 / 状态栏)与拖拽提示 |
 
 #### 4.4.5.1 数据库与消息产品图标(强制)
 
@@ -782,4 +784,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-17 (v0.31.2)*
+*最后更新: 2026-07-17 (v0.32.0)*

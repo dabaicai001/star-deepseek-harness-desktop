@@ -12,6 +12,23 @@
 
 ---
 
+## [0.32.0] - 2026-07-17
+
+### 新功能
+- ✨ feat(app): 标签页拖出为独立窗口 — 拖拽 tab 脱离主窗口生成精简外壳的 WebviewWindow(无 sidebar / tab 条 / 状态栏),支持送回主窗口;URL query 传递还原工作区所需的最小信息,`src/lib/windowDetach.ts` + `CyberLayout.vue` + `src-tauri/capabilities/default.json`(`detach-*` 窗口权限)。
+- ✨ feat(transfer): 全局传输任务条 TransferDock — 右下角悬浮 pill 聚合所有 SFTP 上传/下载任务,展开面板支持限速、取消、清理已完成;取代原 SFTP 面板内嵌传输队列(`src/stores/transfer.ts` + `src/components/transfer/TransferDock.vue`,删除 `SftpTransferQueue.vue`)。
+
+### 样式
+- 🎨 style(design-system): `cyber.css` 新增 `.transfer-dock-*` / `.detached-*` / `.tab-detach-hint` 组件类,并集中补充告警 / 审计页样式。
+
+### 文档
+- 📝 docs: 新增《移动端适配方案》(iOS / Android / 小屏浏览器分阶段路线,评审中未实施)。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.32.0(package.json / Cargo.toml / Cargo.lock / tauri.conf.json / CHANGELOG.md / AGENTS.md)。
+
+---
+
 ## [0.31.2] - 2026-07-17
 
 ### 修复
