@@ -224,8 +224,6 @@ const tabDragState = ref<{ tabId: string; clientX: number; clientY: number; drag
 
 /** 按下时的拖拽上下文(未过阈值前仅记录,不影响点击) */
 let tabPointerDrag: { pointerId: number; tab: Tab; startX: number; startY: number } | null = null
-/** 拖拽结束后屏蔽紧随其后的 click(pointer capture 会把 click 派发到源 tab) */
-let suppressTabClick = false
 
 /** 按下后位移超过该值才算拖拽,避免误触点击 */
 const TAB_DRAG_THRESHOLD = 6
@@ -309,18 +307,31 @@ function cleanupTabPointerDrag() {
   document.body.classList.remove('tab-dragging')
 }
 
-/** pointer capture 会让拖拽后的 click 仍派发到源 tab,需屏蔽一次 */
-function suppressNextTabClick() {
-  suppressTabClick = true
-  setTimeout(() => { suppressTabClick = false }, 300)
+/** pointer capture 会让拖拽后的 click 仍派发到源 tab,需屏蔽一次。
+ *  不用定时器(click 派发若被事件循环延迟,定时器可能提前失效):
+ *  注册一次性 capture 监听器吞掉那次 click;若拖拽后根本没有 click 派发
+ *  (如在窗口外松开),则在用户下一次 pointerdown 时撤掉,避免误吞正常点击。 */
+let swallowClickHandler: ((e: Event) => void) | null = null
+
+function removeClickSwallower() {
+  if (!swallowClickHandler) return
+  window.removeEventListener('click', swallowClickHandler, true)
+  swallowClickHandler = null
 }
 
-/** tab 点击:拖拽刚结束时屏蔽一次(capture 导致 click 仍落到源 tab 上) */
-function onTabClick(tab: Tab) {
-  if (suppressTabClick) {
-    suppressTabClick = false
-    return
+function suppressNextTabClick() {
+  removeClickSwallower()
+  swallowClickHandler = (e: Event) => {
+    e.preventDefault()
+    e.stopPropagation()
+    removeClickSwallower()
   }
+  window.addEventListener('click', swallowClickHandler, true)
+  window.addEventListener('pointerdown', removeClickSwallower, { capture: true, once: true })
+}
+
+/** tab 点击:拖拽刚结束的那次 click 已被 capture 阶段的吞听器拦截 */
+function onTabClick(tab: Tab) {
   selectTab(tab)
 }
 
