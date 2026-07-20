@@ -12,6 +12,17 @@
 
 ---
 
+## [0.32.2] - 2026-07-20
+
+### 修复
+- 🐛 fix(app): Windows 上标签页无法拖出为独立窗口 — 根因是 `tauri.conf.json` 的 `dragDropEnabled: true`(SFTP / Excel 拖文件进窗依赖系统级拖放)在 Windows 上会拦截 HTML5 drag-and-drop(Tauri 官方文档明确说明),导致 v0.32.0 引入的 HTML5 DnD 拖拽手势在用户机器上完全失效。改用 Pointer Events + `setPointerCapture` 自实现拖拽手势,与系统拖放互不干扰,文件拖入与标签页拖出兼得;武装判定从「拖离 tab 条下方 64px」改为「离开 tab 条四向 24px 死区」,并支持 Esc 取消(`CyberLayout.vue`)。
+- 🐛 fix(app): 拖拽可发现性 — 拖拽全程显示跟随光标的提示芯片(未武装态低调文案「拖离标签栏,以在独立窗口打开」,武装态高亮「松开以在独立窗口打开」),源 tab 拖动中轻微透明;`pointer capture` 会把拖拽后的 click 派发到源 tab,已做一次性屏蔽。
+
+### 样式
+- 🎨 style(design-system): `cyber.css` 的 `.tab-detach-hint` 拆分为基础态 + `.armed` 高亮态,新增 `body.tab-dragging` 拖拽中进行态(禁止文本选中 + 抓手光标);`.tab` 增加 `user-select: none` 与 `.dragging` 拖动中透明态。
+
+---
+
 ## [0.32.1] - 2026-07-17
 
 ### 修复

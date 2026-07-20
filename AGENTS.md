@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.32.1(SSH 危险命令确认框显示完整命令) |
+| 当前版本 | v0.32.2(修复 Windows 标签页无法拖出独立窗口) |
 
 ---
 
@@ -282,7 +282,7 @@ starhub/
 | `.ai-action-dock` | 连接工作区 AI 的当前待确认操作区，固定在消息流与输入框之间，不随历史消息滚走 |
 | `.ai-tool-call` / `.ai-tool-call-*` | 连接工作区 AI 工具卡片、完整命令代码区与状态边框 |
 | `.transfer-dock` / `.transfer-dock-*` | 全局传输任务条(右下角 pill + 展开面板),聚合 SFTP 上传/下载进度、限速与清理已完成 |
-| `.detached-layout` / `.detached-titlebar` / `.detached-workspace` / `.tab-detach-hint` | 标签页拖出独立窗口的精简外壳(无 sidebar / tab 条 / 状态栏)与拖拽提示 |
+| `.detached-layout` / `.detached-titlebar` / `.detached-workspace` / `.tab-detach-hint(.armed)` / `body.tab-dragging` | 标签页拖出独立窗口的精简外壳(无 sidebar / tab 条 / 状态栏)、拖拽跟随提示芯片(armed 高亮)与拖拽中进行态 |
 
 #### 4.4.5.1 数据库与消息产品图标(强制)
 
@@ -741,6 +741,13 @@ v0.17.0 使用 `zmodem.js` 在 Webview 侧实现 `rz` / `sz` 协议:
 - AI 消息滚动位置由 keep-alive 页面实例在停用时捕获、激活后恢复;原本停留在底部的会话继续跟随新增内容,用户正在回看历史时不得强制跳到底部。
 - 全局 AI 的 SSH 工具只能使用 exec-only 连接,禁止申请 PTY 或启动远端 shell;手动 SSH 标签页继续使用交互式 PTY,两条路径不得混用。
 
+### 10.10 Windows 上 `dragDropEnabled` 与 HTML5 DnD 冲突(重要)
+
+- `tauri.conf.json` 的 `dragDropEnabled: true` 是 SFTP / Excel 拖 OS 文件进窗口(`getCurrentWebview().onDragDropEvent`,拿完整路径)的前提,不能关。
+- 但 Tauri 官方文档明确:**Windows 上开启它会拦截 HTML5 drag-and-drop**,`draggable` + `dragstart` / `dragover` 全部失效(macOS / Linux 不受影响)。
+- 因此窗口内的"拖动手势"(如标签页拖出独立窗口)必须用 **Pointer Events + `setPointerCapture`** 自实现,禁止回到 HTML5 DnD;capture 还能保证拖出窗口外持续收到 move/up。
+- 注意 pointer capture 会把拖拽后的 `click` 派发到源元素,需要一次性屏蔽(`suppressNextTabClick`)。
+
 ---
 
 ## 11. MVP 任务优先级
@@ -784,4 +791,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-17 (v0.32.1)*
+*最后更新: 2026-07-20 (v0.32.2)*
