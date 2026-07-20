@@ -12,6 +12,18 @@
 
 ---
 
+## [0.32.6] - 2026-07-20
+
+### 修复
+- 🐛 fix(layout): 修复标签页拖出独立窗口后白屏。
+  - `src/lib/windowDetach.ts` 的 `buildDetachedUrl` 改为 `/?detach=1&...`,不再使用 `index.html?detach=1&...`。`createWebHistory` 对 `index.html` 路径不匹配任何路由,导致 CyberLayout 无法挂载、新窗口白屏。
+  - `src/components/layout/CyberLayout.vue` 独立窗口初始化时 `await assetStore.fetchAssets()` 后再 `router.replace(detachedInfo.route)`。此前 fetchAssets 未等待,工作区组件(SshTerminal / DbView / DockerView 等)onMounted 时资产列表为空,会误判"资产已删除"把路由推回 `/`,造成工作区空白。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.32.6(package.json / Cargo.toml / Cargo.lock / tauri.conf.json / CHANGELOG.md / AGENTS.md / README.md)。
+
+---
+
 ## [0.32.5] - 2026-07-20
 
 ### 文档

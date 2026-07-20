@@ -4,7 +4,11 @@ import type { TabType } from '@/stores/app'
  * 标签页"拖出为独立窗口"的窗口侧协议。
  *
  * 主窗口在创建 WebviewWindow 时把还原工作区所需的最小信息
- * 编进 URL query(`index.html?detach=1&route=/ssh/<instanceId>&title=...&type=ssh`),
+ * 编进 URL query(`/?detach=1&route=/ssh/<instanceId>&title=...&type=ssh`),
+ *
+ * 注意:URL 必须用 `/` 而不是 `index.html` —— vue-router 用 createWebHistory,
+ * 初始 path 若是 `/index.html` 不匹配任何路由(路由表只有 `/` + 子路由),
+ * 根 <router-view/> 渲染为空,CyberLayout 不会挂载,新窗口直接白屏。
  * 新窗口启动时解析一次(窗口生命周期内不变),CyberLayout 据此渲染
  * 精简外壳(无 sidebar / tab 条 / 状态栏)并直接 router.replace 到该路由。
  */
@@ -53,7 +57,7 @@ export function detachedLabelFor(tabId: string): string {
 
 export function buildDetachedUrl(route: string, title: string, type: TabType, assetId: string): string {
   const params = new URLSearchParams({ detach: '1', route, title, type, assetId })
-  return `index.html?${params.toString()}`
+  return `/?${params.toString()}`
 }
 
 /**

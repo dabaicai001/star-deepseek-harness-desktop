@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.32.5(AGENTS.md 整体优化:对齐实际代码结构、踩坑索引化、版本同步清单更正为七处) |
+| 当前版本 | v0.32.6(修复标签页拖出独立窗口白屏;URL 路径与资产加载竞态) |
 
 ---
 
@@ -632,6 +632,7 @@ npm run tauri:build
 | 8 | SFTP Subsystem 错误与受控降级 | channel request 必须读 Success/Failure;错误保留完整远端诊断 |
 | 9 | AI 多轮上下文与会话绑定 | Planner/Executor 上下文规则、持久化边界、exec-only SSH 工具 |
 | 10 | Windows `dragDropEnabled` 与 HTML5 DnD 冲突(重要) | 窗口内拖拽手势用 Pointer Events + `setPointerCapture` 自实现 |
+| 11 | 拖出独立窗口白屏 | URL 路径用 `/` 不用 `index.html`;独立窗口挂载工作区前 await 资产加载 |
 
 **维护规则**:
 
@@ -687,4 +688,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-07-20 (v0.32.5)*
+*最后更新: 2026-07-20 (v0.32.6)*

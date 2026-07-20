@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.32.5-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.32.6-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,10 @@
 ---
 
 ## 当前版本
+
+### v0.32.6 (2026-07-20)
+- 🐛 修复标签页拖出独立窗口后白屏:修正 WebviewWindow URL 为 `/` 避免 vue-router 初始路径 `/index.html` 不匹配;独立窗口挂载工作区前等待资产列表加载,避免组件误判资产已删除把路由推回 `/`
+- 完整演进见 [CHANGELOG.md](./CHANGELOG.md)
 
 ### v0.32.5 (2026-07-20)
 - 📝 `AGENTS.md` 整体优化:目录结构 / 关键命令 / 依赖表对齐实际代码,踩坑详情索引化至 `docs/踩坑记录.md`

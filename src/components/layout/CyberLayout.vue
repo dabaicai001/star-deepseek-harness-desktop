@@ -448,7 +448,10 @@ onMounted(async () => {
 
   // ===== 独立窗口模式:精简初始化,不挂主窗口的快捷键/时钟/tab 逻辑 =====
   if (detachedInfo) {
-    assetStore.fetchAssets().catch((e) => {
+    // 必须等资产加载完再挂工作区:SshTerminal / DbView / DockerView 等组件
+    // onMounted 时若 assetStore 仍为空,会误判"资产已被删除"把路由推回 '/',
+    // 独立窗口工作区白屏(此前 fetchAssets 不 await,存在加载竞态)。
+    await assetStore.fetchAssets().catch((e) => {
       console.warn('[detach] fetchAssets failed:', e)
     })
     transferStore.ensureInit()
