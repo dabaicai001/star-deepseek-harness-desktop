@@ -12,6 +12,18 @@
 
 ---
 
+## [0.32.4] - 2026-07-20
+
+### 文档
+- 📝 docs: `AGENTS.md` 第 10 节「已知坑与注意事项」整体迁移至 `docs/踩坑记录.md`,原位置改为主题索引 + 维护规则,按需查阅。
+- 📝 docs: `README.md` 纳入版本变更强制同步范围;`AGENTS.md` 6.5 / 6.5.1 的版本同步清单由「五处」更正为「七处」(补上此前遗漏的 `Cargo.lock` 与新增的 `README.md`)。
+- 📝 docs: `README.md` 功能矩阵、当前版本区与路线图同步至 v0.32.4 实际状态(PostgreSQL / SQLite / SQL Server、SSH 端口转发与分屏、SFTP 拖拽传输与断点续传、Docker Compose、数据库备份恢复、审计与告警等)。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.32.4(package.json / Cargo.toml / Cargo.lock / tauri.conf.json / CHANGELOG.md / AGENTS.md / README.md)。
+
+---
+
 ## [0.32.3] - 2026-07-20
 
 ### 修复
