@@ -12,6 +12,19 @@
 
 ---
 
+## [0.32.5] - 2026-07-20
+
+### 文档
+- 📝 docs: `AGENTS.md` 整体优化对齐 v0.32 实际代码 — 新增全文快速导航;目录结构由「目标形态」重写为实际快照(`src-tauri/src/commands/` 全量 command、`sidecar/adapters/` 含 broker/docker/excel/backup、`tests/` 等);第 5 节关键命令由过期占位(`cd src`、`hexhub-sidecar`)更正为仓库根实际 npm 脚本(`sidecar:build` / `tauri:dev` / `test:utils` 等)。
+- 📝 docs: `AGENTS.md` 第 10 节踩坑详情正式替换为 `docs/踩坑记录.md` 主题索引 + 维护规则,补齐 0.32.4 记录但未实际落地的编辑;修正 §7.3 指向旧 10.7 节的悬空引用。
+- 📝 docs: `AGENTS.md` 6.5 / 6.5.1 版本同步清单由「五处」更正为「七处」(补 `Cargo.lock` 与 `README.md`),发布检查清单同步更正。
+- 📝 docs: `AGENTS.md` 4.3 Sidecar 依赖表去除 SQLite / SQL Server 的「go.mod 待补」过期标注(均已在 `go.mod`),补 Docker 依赖行;7.1 测试策略表对齐实际脚本;第 11 节由「MVP 任务优先级」更新为当前路线图(P0 已交付,P1+ 持续迭代)。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.32.5(package.json / Cargo.toml / Cargo.lock / tauri.conf.json / CHANGELOG.md / AGENTS.md / README.md)。
+
+---
+
 ## [0.32.4] - 2026-07-20
 
 ### 文档

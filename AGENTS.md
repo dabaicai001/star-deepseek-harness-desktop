@@ -3,6 +3,8 @@
 > 本文件供 AI Agent(以及人类贡献者)快速理解项目结构、技术栈、约定与工作方式。
 > 任何架构级变更请同步更新 `docs/` 与本文件。
 
+**快速导航**:[1. 项目定位](#1-项目定位) · [2. 仓库信息](#2-仓库信息) · [3. 目录结构](#3-目录结构v032-实际快照) · [4. 技术栈](#4-技术栈)([4.4 设计系统](#44-设计系统design-system)) · [5. 关键命令](#5-关键命令) · [6. 开发约定](#6-开发约定)([6.5 版本发布](#65-版本发布强制) / [6.6 必 commit](#66-修改后必-commit强制)) · [7. 测试/构建](#7-测试--构建)([7.3 UI 回归](#73-真实布局浏览器回归ui-改动强制)) · [8. 沟通协作](#8-沟通与协作) · [9. 文档维护](#9-文档维护强制) · [10. 已知坑索引](#10-已知坑与注意事项索引) · [11. 路线图](#11-路线图与任务优先级) · [12. 协作 Tips](#12-agent-协作-tips)
+
 ---
 
 ## 1. 项目定位
@@ -27,11 +29,11 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.32.3(拖拽后 click 屏蔽改为事件驱动的一次性 capture 吞听器) |
+| 当前版本 | v0.32.5(AGENTS.md 整体优化:对齐实际代码结构、踩坑索引化、版本同步清单更正为七处) |
 
 ---
 
-## 3. 目录结构(目标形态)
+## 3. 目录结构(v0.32 实际快照)
 
 ```
 starhub/
@@ -43,50 +45,58 @@ starhub/
 ├── README.md
 ├── docs/
 │   ├── 技术方案.md            # 完整技术方案
+│   ├── 踩坑记录.md            # 已知坑沉淀(见第 10 节索引)
 │   └── 架构图.html            # 可视化架构图
 │
-├── src/                      # 前端 - Vue 3 + Vite + TypeScript
-│   ├── components/            # 通用组件
-│   ├── views/                 # 页面
-│   ├── stores/                # Pinia 状态
+├── src/                      # 前端 - Vue 3 + Vite + TypeScript(仓库根 npm 管理)
+│   ├── components/            # 按域组织的组件(ai/asset/common/dashboard/db/docker/es/excel/layout/redis/sftp/ssh/transfer)
+│   ├── views/                 # 页面(DbView / SshTerminal / AiView / ExcelView 等)
+│   ├── stores/                # Pinia 状态(app/asset/db/docker/excel/theme/transfer 等)
+│   ├── services/              # Tauri IPC 封装(ssh/sftp/db/docker/ai/mcp/updater 等)
+│   ├── lib/                   # 第三方集成层(univer.ts、windowDetach.ts)
+│   ├── plugins/               # vuetify 等插件
 │   ├── router/                # Vue Router
-│   ├── assets/                # 静态资源
+│   ├── i18n/                  # 中/英文案
+│   ├── styles/                # cyber.css 设计系统
+│   ├── utils/                 # 纯工具(commandGuard、ddlGenerator 等,有 node --test 单测)
+│   ├── assets/                # 静态资源(含 logo)
 │   ├── App.vue
 │   └── main.ts
 │
 ├── src-tauri/                # 桌面壳与主进程 - Rust
 │   ├── src/
 │   │   ├── main.rs            # 入口
-│   │   ├── commands/local.rs  # #LOCAL 本机 Shell / 文件系统 IPC
-│   │   ├── ssh/               # SSH 模块(russh)
-│   │   ├── sftp/              # SFTP 模块
-│   │   ├── docker/            # Docker 模块(bollard)
-│   │   ├── tunnel/            # 跳板机 / 隧道
+│   │   ├── mcp.rs             # MCP Server 管理
+│   │   ├── commands/          # 全部 Tauri Command(ssh/sftp/db/docker/ai/mcp/asset/audit/alert/local/secret/sidecar/broker/file)
+│   │   ├── ssh/               # SSH 会话(russh):auth / session / known_hosts / sftp_transport
+│   │   ├── sftp/              # SFTP 会话与传输(russh-sftp)
+│   │   ├── db/                # 本地 SQLite 持久化(sqlx)
 │   │   ├── ai/                # AI Gateway
 │   │   ├── keyring/           # 系统 Keyring 封装
-│   │   └── sidecar/           # Go Sidecar 启动器
+│   │   └── sidecar/           # Go Sidecar 启动器(路径解析见 docs/踩坑记录.md 第 4 节)
+│   ├── capabilities/          # Tauri 权限(含 detach-* 窗口)
 │   ├── Cargo.toml
 │   ├── tauri.conf.json
-│   └── icons/
+│   └── icons/                 # 打包图标(见 docs/踩坑记录.md 第 6 节)
 │
-├── sidecar/                  # Go Sidecar - 数据库代理
+├── sidecar/                  # Go Sidecar - 数据库/中间件代理
 │   ├── main.go                # 入口(stdio JSON-RPC server)
-│   ├── adapters/              # 各 DB 适配器
-│   │   ├── mysql.go
-│   │   ├── postgres.go        # jackc/pgx/v5
-│   │   ├── sqlite.go          # modernc.org/sqlite
-│   │   ├── redis.go           # redis/go-redis/v9
-│   │   ├── elasticsearch.go    # elastic/go-elasticsearch/v8
-│   │   ├── clickhouse.go
-│   │   ├── mssql.go
-│   │   └── oracle.go
+│   ├── adapters/              # 各 DB / 中间件适配器
+│   │   ├── mysql.go / postgres.go / sqlite.go / redis.go
+│   │   ├── clickhouse.go / mssql.go / elasticsearch.go
+│   │   ├── broker.go          # Kafka / NSQ 元数据
+│   │   ├── docker.go / docker_compose.go / docker_ssh.go
+│   │   ├── excel.go / csv.go / backup.go
+│   │   └── handlers.go        # RPC 分发(各域 *_handlers.go)
 │   ├── pool/                  # 连接池
 │   ├── rpc/                   # JSON-RPC 协议
-│   ├── stream/                # 流式数据处理
+│   ├── bin/                   # 构建输出(starhub-sidecar[.exe])
+│   ├── winres/                # Windows 资源(rsrc_*.syso)
 │   ├── go.mod
 │   └── go.sum
 │
-├── scripts/                  # 构建脚本(CI / 发布)
+├── scripts/                  # 构建脚本(build-sidecar.mjs、Linux 打包与校验)
+├── tests/                    # node --test 单测(utils、AI 上下文/滚动)
 └── vendor/                   # 上游源码引用(git submodule)
     ├── univer/               # DreamNum Univer v0.25.1
     └── univer-presets/       # DreamNum Univer Presets v0.25.1
@@ -143,27 +153,26 @@ starhub/
 |---|---|---|
 | MySQL | `github.com/go-sql-driver/mysql` | |
 | PostgreSQL | `github.com/jackc/pgx/v5` | 性能之王,流式一等公民 |
-| SQLite | `modernc.org/sqlite` | 纯 Go,无 CGO,跨平台编译无坑 **(v0.30.0 新增,代码已就绪,go.mod 待补)** |
+| SQLite | `modernc.org/sqlite` | 纯 Go,无 CGO,跨平台编译无坑 |
 | Redis | `github.com/redis/go-redis/v9` | 官方维护 |
 | ClickHouse | `github.com/ClickHouse/clickhouse-go/v2` | 官方 |
-| SQL Server | `github.com/microsoft/go-mssqldb` | 微软官方 **(v0.30.0 新增,代码已就绪,go.mod 待补)** |
+| SQL Server | `github.com/microsoft/go-mssqldb` | 微软官方 |
 | Oracle | `github.com/sijms/go-ora` | 纯 Go,无需 Instant Client **(规划中)** |
 | Elasticsearch | `github.com/elastic/go-elasticsearch/v8` | 官方 |
 | MongoDB | `go.mongodb.org/mongo-driver` | **(规划中)** |
 | Kafka | `github.com/segmentio/kafka-go` | Broker 元数据、Topic / 分区状态 |
 | NSQ | nsqd TCP + HTTP Stats API | Topic / Channel / 积压状态 |
+| Docker | `github.com/docker/docker` | 容器/镜像/Compose,支持 SSH 通道 |
 | 国产库兜底 | `github.com/alexbrainman/odbc` | 达梦/金仓 ODBC 桥 **(规划中)** |
 | SQL 工具 | `github.com/jmoiron/sqlx` | Struct 映射 + 命名参数 |
 | Excel | `github.com/xuri/excelize/v2` | 导入导出、工作簿编辑 |
-| 日志 | `github.com/rs/zerolog` 或标准库 `log/slog` | |
+| 日志 | `github.com/rs/zerolog` | 结构化日志 |
 | 验证 | `github.com/go-playground/validator/v10` | **(规划中)** |
 | 配置 | `github.com/spf13/viper` | **(规划中)** |
 | 指标 | `github.com/prometheus/client_golang` | **(规划中)** |
 | 追踪 | `go.opentelemetry.io/otel` | **(规划中)** |
 | 测试 | `github.com/stretchr/testify` | **(规划中)** |
 | Mock | `github.com/golang/mock` + `github.com/DATA-DOG/go-sqlmock` | **(规划中)** |
-
----
 
 ### 4.4 设计系统(Design System)
 
@@ -350,25 +359,43 @@ starhub/
 
 ---
 
-## 5. 关键命令(代码落地后补全)
+## 5. 关键命令
 
-> 文档阶段先列出,代码 init 后填具体命令。
+> 前端依赖与脚本统一在**仓库根** `package.json` 管理(`src/` 下无独立 package.json)。
 
 ```bash
 # 仓库根
 cd D:\code\new_project\starhub
 
-# 前端开发(M1 之后)
-cd src && npm install && npm run dev
+# 安装前端依赖
+npm install
 
-# Rust 主进程编译
-cd src-tauri && cargo build
+# 前端开发(纯浏览器预览,http://127.0.0.1:1420,无 Tauri IPC)
+npm run dev
 
-# Go Sidecar 编译
-cd sidecar && go build -o bin/hexhub-sidecar .
+# 完整桌面开发(先编 Go Sidecar,再启动 Tauri dev)
+npm run sidecar:build
+npm run tauri:dev
 
-# 跨平台构建(Releases 用)
-cargo tauri build
+# 前端构建(先 vue-tsc 类型检查再 vite build)
+npm run build
+
+# 前端测试
+npm run test              # Vitest
+npm run test:utils        # node --test:commandGuard / crypto / ddlGenerator / sqlHistory
+npm run test:ai-context   # AI 多轮上下文
+npm run test:ai-scroll    # AI 滚动位置
+
+# Rust 主进程
+cd src-tauri && cargo build && cargo test
+
+# Go Sidecar(推荐走根目录脚本,自动处理 GOOS/GOARCH 与 rsrc)
+npm run sidecar:build           # debug
+npm run sidecar:build:release   # release(-ldflags "-s -w")
+# 手动:cd sidecar && go build -o bin/starhub-sidecar .   # 注意二进制名是 starhub-sidecar
+
+# 跨平台打包(Releases 用,产出 MSI/DEB/RPM/AppImage 等)
+npm run tauri:build
 ```
 
 ---
@@ -440,13 +467,15 @@ cargo tauri build
    - 新版本号格式:`[x.y.z] - YYYY-MM-DD`
    - 保留 `[未发布]` 部分用于计划中功能
 
-2. **同步五处版本号**:
+2. **同步七处版本号**:
    - `package.json` 的 `version` 字段
    - `src-tauri/Cargo.toml` 的 `version` 字段
+   - `src-tauri/Cargo.lock` 中 `starhub` 包的 `version`(`cargo check` 或手动同步)
    - `src-tauri/tauri.conf.json` 的 `version` 字段
    - `CHANGELOG.md` 的最新版本号
    - `AGENTS.md` 第 2 节「当前版本」一行
-   - 五处必须保持一致,禁止出现某个文件落后于其他文件的情况
+   - `README.md` 的版本 badge 与「当前版本」区
+   - 七处必须保持一致,禁止出现某个文件落后于其他文件的情况
 
 3. **版本号规则**:
    - **主版本(x)**: 架构重大变更、不兼容 API
@@ -455,7 +484,7 @@ cargo tauri build
 
 4. **发布检查清单**:
    - [ ] CHANGELOG.md 已更新
-   - [ ] package.json / Cargo.toml / tauri.conf.json 三处 version 已同步
+   - [ ] 七处版本号(package.json / Cargo.toml / Cargo.lock / tauri.conf.json / CHANGELOG.md / AGENTS.md / README.md)已同步
    - [ ] AGENTS.md 第 2 节「当前版本」已更新
    - [ ] AGENTS.md 末尾「最后更新」日期已同步
    - [ ] 文档与代码一致
@@ -475,7 +504,7 @@ cargo tauri build
    - 仅改文档 / 构建脚本 / 修复 typo → **修订版(z)+1**
    - 新增功能或大需求 → **次版本(y)+1**(z 归零)
    - 架构级不兼容变更 → **主版本(x)+1**(y、z 归零)
-3. 同步更新 6.5 第 2 条列出的**五处**版本号,不允许只改其中一两个
+3. 同步更新 6.5 第 2 条列出的**七处**版本号,不允许只改其中一两个
 4. 在 `CHANGELOG.md` 的 `[未发布]` 下补一条本次改动,或在发布时移到新版本号下
 5. 不允许出现「代码已 commit、版本号仍停在上一版」的情况;若发现历史遗留(如本次修复的 0.12.0/0.12.1 不一致),必须一次性对齐
 
@@ -515,14 +544,15 @@ cargo tauri build
 
 ### 7.1 测试策略
 
-| 层 | 工具 | 范围 |
-|---|---|---|
-| 前端单元 | Vitest + Vue Test Utils | components / stores / utils |
-| 前端 E2E | Playwright | 关键流程(连接 SSH、跑 SQL) |
-| Rust 单元 | `cargo test` | 协议层、工具函数 |
-| Rust 集成 | `cargo test --test integration` | 跨模块 |
-| Go 单元 | `go test` + `testify` | adapters、pool、stream |
-| Go 集成 | `docker-compose up -d mysql pg redis` | 真实 DB 跑查询 |
+| 层 | 工具 | 命令 | 范围 |
+|---|---|---|---|
+| 前端单元 | Vitest | `npm run test` | components / stores / utils |
+| 前端纯逻辑 | node --test | `npm run test:utils` / `test:ai-context` / `test:ai-scroll` | `tests/` 下的 utils 与 AI 上下文/滚动 |
+| 前端 E2E | Playwright | (规划中) | 关键流程(连接 SSH、跑 SQL) |
+| Rust 单元 | `cargo test` | `cd src-tauri && cargo test` | 协议层、工具函数 |
+| Rust 集成 | `cargo test --test integration` | 同上 | 跨模块 |
+| Go 单元 | `go test` | `cd sidecar && go test ./...` | adapters、pool、rpc(已有 `*_test.go`) |
+| Go 集成 | `docker-compose up -d mysql pg redis` | (规划中) | 真实 DB 跑查询 |
 
 ### 7.2 CI(GitHub Actions,规划)
 
@@ -546,7 +576,7 @@ cargo tauri build
    - Sidebar 展开 / 折叠及窄窗口断点;
    - 空状态、loading、error、disabled 状态;
    - 键盘操作与 `aria-label` 可定位性。
-4. 对重要页面截取真实视口截图,检查溢出、遮挡、留白、滚动区域、高度链、字体和深浅主题对比;涉及第三方 Canvas 时继续按 10.7 节记录真实 DOM 尺寸。
+4. 对重要页面截取真实视口截图,检查溢出、遮挡、留白、滚动区域、高度链、字体和深浅主题对比;涉及第三方 Canvas 时继续按 `docs/踩坑记录.md` 第 7 节的方法记录真实 DOM 尺寸。
 5. 每次交互后读取新的局部 DOM 状态或明确结果,并检查新增 console error;发现错误必须修复后从页面 reload 重新走一遍,不能只依赖 HMR 后的旧状态。
 6. 纯浏览器预览缺少 Tauri `invoke` 属正常环境差异,组件必须捕获并做只读/空值降级,不能让全局 ErrorBoundary 接管;涉及 Keyring、文件选择或原生窗口的最终行为再用 Tauri dev / EXE 验证。
 
@@ -585,182 +615,48 @@ cargo tauri build
 
 ---
 
-## 10. 已知坑与注意事项
+## 10. 已知坑与注意事项(索引)
 
-### 10.1 中文输入法 + xterm.js
+> 详细内容已全部沉淀到 [`docs/踩坑记录.md`](./docs/踩坑记录.md)(v0.32.4 起迁移)。
+> 本节只保留主题索引,遇到对应领域的问题再去查阅,不必通读。
 
-中文 IME 在终端中输入是已知的难点。后续实现要点:
-- xterm.js 的 `onData` 事件拿到的不是 IME 合成后的最终文本
-- 需要监听 `keydown` 而非 `onData` 处理输入法
-- 设置 `applicationCursor`、`applicationKeypad` 模式按需
-- 持续在 Linux / macOS / Windows + 搜狗/微软/QQ 输入法下测试
-
-### 10.2 ZMODEM 协议
-
-v0.17.0 使用 `zmodem.js` 在 Webview 侧实现 `rz` / `sz` 协议:
-- SSH 输出事件必须传 `Vec<u8>` JSON 字节数组,禁止先 `String::from_utf8_lossy`;ZMODEM 是二进制协议,一次 UTF-8 损失转换就会破坏握手和文件
-- 前端所有 SSH 输出先经过 `Zmodem.Sentry`;普通终端字节由 `to_terminal` 交给 `TextDecoder(stream:true)` 与 xterm,ZMODEM 字节由 session 消费
-- 协议回包通过 `ssh_write_binary(Vec<u8>)` 写入 russh channel;普通键盘输入仍走 `ssh_write(String)`
-- 远端执行 `rz` 时弹出本地文件选择条并发送;远端执行 `sz <file>` 时接收后触发本地保存
-- 后续若替换协议库,必须保留“端到端原始字节”边界并用真实 lrzsz 主机做双向回归
-
-### 10.3 国产数据库适配
-
-优先级:用兼容协议(PG/MySQL) > ODBC 桥 > 私有驱动
-- 达梦 DM:PG 兼容 + ODBC 兜底
-- 人大金仓 KingbaseES:PG 兼容
-- OceanBase:MySQL 兼容
-- OpenGauss:PG 兼容
-- 华为 GaussDB:私有协议(P3 阶段)
-
-### 10.4 Sidecar 通信
-
-- MVP 用 `stdio JSON-RPC`(Go `bufio.Scanner` 读 stdin)
-- Rust 侧读写循环分离,按请求 ID 关联并发响应,单次 RPC 默认超时 120 秒
-- 启动时必须完成协议版本与关键 RPC 能力握手,禁止加载旧 Sidecar
-- 性能敏感场景升级到 `gRPC over Unix Socket`
-- 协议版本号:Sidecar 启动时打印,便于排查
-
-#### 10.4.1 Sidecar 路径解析
-
-`SidecarManager::start()` 通过 `std::env::current_exe()` 获取主程序 exe 路径,然后按优先级检查以下候选路径:
-
-| 优先级 | 路径 | 场景 |
+| # | 主题 | 一句话提醒 |
 |---|---|---|
-| 1 | `<exe_dir>/starhub-sidecar[.exe]` | 生产环境:sidecar 与主程序同目录 |
-| 2 | `<exe_dir>/sidecar/starhub-sidecar[.exe]` | 生产环境:sidecar 子目录 |
-| 3 | `<exe_dir>/../sidecar/bin/starhub-sidecar[.exe]` | 开发环境:主程序在 `src-tauri/target/<profile>/` |
-| 4 | `<exe_dir>/../../sidecar/bin/starhub-sidecar[.exe]` | 开发环境备用 |
-| 5 | `<exe_dir>/../../../sidecar/bin/starhub-sidecar[.exe]` | 开发环境:主程序在 `src-tauri/target/debug/` |
+| 1 | 中文输入法 + xterm.js | IME 合成文本监听 `keydown` 而非 `onData` |
+| 2 | ZMODEM 协议 | SSH 输出端到端必须传 `Vec<u8>` 原始字节,禁止 UTF-8 损失转换 |
+| 3 | 国产数据库适配 | 兼容协议(PG/MySQL) > ODBC 桥 > 私有驱动 |
+| 4 | Sidecar 通信与路径解析 | stdio JSON-RPC + 启动握手;sidecar 二进制 5 级候选路径 |
+| 5 | Tauri 2 跨平台打包 | Linux 锁 Ubuntu 22.04 基线,双架构原生构建,`verify-linux-bundles.sh` 必过 |
+| 6 | 应用图标管理(重要) | 图标有 3 个独立位置,换 Logo 必须全换 + `cargo clean -p starhub` |
+| 7 | Univer 留白与 CSS 类名冲突 | 挂载根用 `.univer-host`;布局问题先量真实 DOM 尺寸再改 |
+| 8 | SFTP Subsystem 错误与受控降级 | channel request 必须读 Success/Failure;错误保留完整远端诊断 |
+| 9 | AI 多轮上下文与会话绑定 | Planner/Executor 上下文规则、持久化边界、exec-only SSH 工具 |
+| 10 | Windows `dragDropEnabled` 与 HTML5 DnD 冲突(重要) | 窗口内拖拽手势用 Pointer Events + `setPointerCapture` 自实现 |
 
-**开发时**:Windows 主程序位于 `src-tauri/target/debug/starhub.exe`,Unix 主程序为 `src-tauri/target/debug/starhub`;Sidecar 分别为 `sidecar/bin/starhub-sidecar.exe` 与 `sidecar/bin/starhub-sidecar`。
+**维护规则**:
 
-**打包时**:需确保 sidecar 二进制与主程序 exe 放在同一目录(或 `sidecar/` 子目录)。推荐配置 `tauri.conf.json`:
-
-```json
-{
-  "bundle": {
-    "externalBin": ["../sidecar/bin/starhub-sidecar"]
-  }
-}
-```
-
-> ⚠️ Go sidecar 编译时必须指定正确的 `GOOS` 和 `GOARCH`(如 `GOOS=windows GOARCH=amd64`),否则二进制无法在目标平台运行。
-
-### 10.5 Tauri 2 跨平台打包
-
-- macOS arm64 + x86_64 需双架构打包(用 `cargo tauri build --target universal-apple-darwin`)
-- Windows 代码签名需 EV 证书(否则 SmartScreen 警告)
-- Linux 固定 Ubuntu 22.04 / glibc 2.35 基线,使用原生 x86_64 与 ARM64 runner 分别构建,禁止跨架构生成 AppImage
-- Linux 每个架构必须同时产出 AppImage、DEB、RPM;AppImage 内置 WebKitGTK/GTK 与静态 Go sidecar,DEB/RPM 由包管理器解析系统依赖
-- `scripts/verify-linux-bundles.sh` 必须校验三类包、架构、sidecar 执行权限/静态链接、DEB/RPM 依赖和 `ldd` 的 `not found`;缺一项不得发布
-- AppImage 面向主流 glibc 桌面发行版,不宣称兼容 Alpine(musl)或无 FHS 兼容层的 NixOS;无 FUSE 环境使用 `--appimage-extract-and-run`
-
-### 10.6 应用图标管理(重要)
-
-> 换 Logo 时最容易踩的坑:改了打包图标但应用内 / 快捷方式还是旧的。
-
-**图标存在 3 个独立位置,必须全部更新才不漏**:
-
-| 位置 | 文件 | 作用 | 更新方式 |
-|---|---|---|---|
-| 打包图标 | `src-tauri/icons/icon.ico` / `icon.png` / `icon.icns` / 各尺寸 PNG | exe 图标、桌面快捷方式、任务栏、托盘 | `npx @tauri-apps/cli icon <源图.png>` 一键生成全套 |
-| 应用内标题栏 | `src/assets/logo-star.png` + `CyberLayout.vue` 的 `.logo` | 自定义标题栏左上角 Logo(`decorations: false` 时系统标题栏不渲染,Logo 全靠前端画) | 替换图片 + 确认模板用 `<img :src>` 而非 CSS 几何图形 |
-| 前端其他引用 | `src/assets/logo.png` 等 | 设置页、关于弹窗、Loading 等场景 | 全局搜索 `logo` 确认无遗漏 |
-
-**换 Logo 标准流程**:
-
-1. 准备一张 1024×1024 透明背景 PNG,放入 `icons/_candidates/`
-2. 用 `npx @tauri-apps/cli icon icons/_candidates/xxx.png` 生成 `src-tauri/icons/` 全套(ICO/ICNS/PNG/iOS/Android/Store Logo)
-3. 把生成的 `icon.png` 复制到 `src/assets/logo-star.png`(标题栏用)
-4. 确认 `CyberLayout.vue` 模板中 `.logo` 用 `<img :src="logoUrl">`,不是 CSS 画的几何图形
-5. 全局搜索 `logo.png` / `icon.svg` / `logo-mark` / `logo-core` 确认无残留旧引用
-6. **清 Tauri 构建缓存**:`cargo clean -p starhub`(否则 exe 里嵌的还是旧图标)
-7. 重新 `npm run tauri build`
-
-**踩过的坑(v0.13.2 ~ v0.13.5)**:
-
-- ❌ 源图是 JPEG 伪装成 .png → `tauri icon` 生成的图标无透明通道,exe 显示为带米黄背景的方形
-  - 修复:用 .NET `System.Drawing` 转真 PNG + `LockBits` 把背景色设为 Alpha=0
-- ❌ 标题栏 Logo 用 CSS 画的 `S` 轨道几何图形(`.logo-mark` / `.logo-orbit` / `.logo-core`),换 Logo 后应用内不变
-  - 修复:CyberLayout 模板改为 `<img :src="logoUrl">`,删除 CSS 几何 Logo 样式
-- ❌ 改了 `icon.ico` 但 exe / 快捷方式还是旧图标 → Tauri 构建缓存(`target/`)里嵌的旧图标
-  - 修复:`cargo clean -p starhub` 后重新打包
-- ❌ `icon.svg` / `icon-source.svg` 仍是旧设计 → `tauri icon` 不生成 SVG,需要手动用 `icon.png` base64 嵌入 SVG `<image>`
-- ❌ Windows 安装后桌面快捷方式图标不更新 → Windows 图标缓存问题
-  - 修复:`ie4uinit.exe -show` 或重启资源管理器
-
-### 10.7 Univer 视图下方留白与 CSS 类名冲突
-
-> v0.14.6 ~ v0.14.14 曾连续从尾行数量、canvas resize、grid 模板和 flex 高度链排查 Excel 下方留白,最终在 v0.14.15 通过 Vite 真实 DOM 尺寸测量找到根因。后续 Agent 遇到类似问题必须先量尺寸,不要继续凭视觉猜高度。
-
-**最终根因**:
-
-- StarHub 原本把 Univer 挂载容器命名为 `.univer-grid`
-- Univer 0.25.1 自己也提供全局 Tailwind 工具类 `.univer-grid { display: grid }`
-- 全局样式污染挂载容器后,504px 高度被浏览器自动拆成约 `290px + 214px` 两个 grid 行
-- `[data-u-comp="workbench-layout"]` 只占第一行,第二行就是截图中的整块留白;因此继续给 Workbench 内部补 `height:100%` / `flex:1` 无法解决外层分行
-
-**修复与硬约束**:
-
-1. Univer 挂载根必须包含 `.univer-host`(数据库结果可同时带 `.db-univer-host`),禁止改回 `.univer-grid`
-2. 新增第三方组件挂载类时,必须先检查其编译 CSS 中是否存在同名全局工具类
-3. 留白问题先在 Vite dev server 注入可重复 mock 数据,同时测试默认窗口与用户截图尺寸
-4. 用 `getBoundingClientRect()` + `getComputedStyle()` 从外向内记录:
-   - StarHub shell
-   - 挂载根
-   - `[data-u-comp="workbench-layout"]`
-   - `[data-range-selector]`
-   - 数据 canvas
-5. 正确状态是挂载根与 Workbench 等高、`data-range-selector` 与数据 canvas 等高;若父层已被拆行,不要先改 canvas resize
-6. 修复后必须在浏览器截图确认网格连续铺到 Sheet 标签栏,并检查控制台无新增错误
-7. 覆盖 Univer 内部布局时必须限制到直接子级(例如 `> section > .univer-grid`),禁止用后代选择器覆盖全部 `.univer-grid`;后者会误伤 Ribbon 内部网格并把工具按钮折叠成省略号
-8. Sheet 切换禁止 dispose/recreate Univer。工作簿首次加载后只调用 `workbook.setActiveSheet()`,仅在缓存对象真正替换时用 `setValues()` 原地同步数据
-9. 数据库分页、排序、刷新和保存后也必须保留 `DbUniverGrid` 实例,用 loading 遮罩 + 原地 `setValues()` 更新,否则会闪白并丢失滚动位置
-
-**本次实测判据(v0.14.15)**:
-
-- 修复前:`.univer-grid` 挂载根 `display:grid`,`grid-template-rows: 290px 214px`,Workbench 高 290px
-- 修复后:`.univer-host` 挂载根 `display:block`,挂载根与 Workbench 均高 504px,数据 canvas 与 `[data-range-selector]` 均高 399px
-
-### 10.8 SFTP Subsystem 路径错误与受控降级
-
-- `russh` 的 `request_subsystem(true, "sftp")` / `exec(true, ...)` 只负责发送 channel request；必须继续读取 channel 的 `Success` / `Failure`，否则服务端拒绝会被后续 `russh-sftp` 初始化误判成 Timeout。
-- 建链期间必须区分 stdout 的 SFTP 二进制协议与 `ExtendedData` stderr，并完整保留 exit status、exit signal、request failure 和提前关闭状态。面向用户的错误不得只显示 `[SFTP_FAILED]` 或 Timeout。
-- 默认 `sftpLaunchMode=auto`：先使用标准 subsystem，确认是可恢复的服务端启动失败后才执行固定探测脚本；找到可执行 `sftp-server` 才用 SSH exec 降级。真实网络超时、SSH 通道打开失败等错误不自动重试为 exec。
-- `subsystem` 模式用于严格禁止降级；`custom` 模式只接受远端 Unix 绝对路径，后端必须再次做长度、控制字符校验和 POSIX 安全引用，禁止接收任意命令文本。
-- 自动探测失败时要同时展示 subsystem 原始错误与探测结果，并建议服务端优先改为 `Subsystem sftp internal-sftp`、执行 `sshd -t` 校验后 reload sshd。
-
-### 10.9 AI 多轮上下文与会话绑定
-
-- Planner 必须接收有界的历史对话,不能只发送当前输入;重试和结构化选项重新规划时要移除一次重复的当前请求。
-- 顺序 Executor 必须注入已经完成的前置步骤结果;同一并行批次不得读取仍在执行的兄弟步骤结果。
-- `runAgent` 必须在追加流式 assistant UI 占位前复制消息快照,禁止把空 assistant 发送给 Provider。
-- 正式 tab 会话只持久化有界的用户/助手文本,不得把工具参数、工具原始输出、执行计划或 `#` 工具绑定写入 localStorage;恢复后工具范围为空。
-- `#` 上下文在当前对话内沿用并持续可见,模块引用必须在绑定时固化为具体资产 ID,不得因后来新增资产扩大范围;清除按钮、新对话和应用重启都撤销绑定,写操作与高危动作继续逐次确认。
-- AI 消息滚动位置由 keep-alive 页面实例在停用时捕获、激活后恢复;原本停留在底部的会话继续跟随新增内容,用户正在回看历史时不得强制跳到底部。
-- 全局 AI 的 SSH 工具只能使用 exec-only 连接,禁止申请 PTY 或启动远端 shell;手动 SSH 标签页继续使用交互式 PTY,两条路径不得混用。
-
-### 10.10 Windows 上 `dragDropEnabled` 与 HTML5 DnD 冲突(重要)
-
-- `tauri.conf.json` 的 `dragDropEnabled: true` 是 SFTP / Excel 拖 OS 文件进窗口(`getCurrentWebview().onDragDropEvent`,拿完整路径)的前提,不能关。
-- 但 Tauri 官方文档明确:**Windows 上开启它会拦截 HTML5 drag-and-drop**,`draggable` + `dragstart` / `dragover` 全部失效(macOS / Linux 不受影响)。
-- 因此窗口内的"拖动手势"(如标签页拖出独立窗口)必须用 **Pointer Events + `setPointerCapture`** 自实现,禁止回到 HTML5 DnD;capture 还能保证拖出窗口外持续收到 move/up。
-- 注意 pointer capture 会把拖拽后的 `click` 派发到源元素,需要一次性屏蔽(`suppressNextTabClick`)。**禁止用定时器屏蔽**(click 派发被事件循环延迟时定时器会先失效);要用 window capture 阶段的一次性 click 吞听器,并以 `pointerdown` once 监听兜底撤掉,避免误吞正常点击。
+1. 排查出一个新坑 → 在 `docs/踩坑记录.md` 末尾追加一节,写明:版本、现象、根因、修复方案、后续硬约束。
+2. 同时在上表补一行索引,保持双向可发现。
+3. 已修复的坑不删除,作为历史决策依据保留;后续硬约束如需调整,先改踩坑记录再改代码。
 
 ---
 
-## 11. MVP 任务优先级
+## 11. 路线图与任务优先级
 
-参考 `docs/技术方案.md` 第 11 章。当前 P0(必须做):
+完整功能矩阵与 P0/P1/P2/P3 标注见 `docs/技术方案.md` 第 3、11 章。
 
-1. **SSH 终端** — 关键路径,M1 验证架构
-2. **SFTP** — 三栏布局 + 拖拽 + ZMODEM
-3. **MySQL / PostgreSQL / SQLite / Redis** — 数据库核心四件套
-4. **Docker 基础** — 本地 + SSH 通道连远程
-5. **AI 基础** — Claude / GPT,Function Calling
+**MVP(P0)已全部交付**:SSH 终端、SFTP(三栏 + 拖拽 + ZMODEM)、MySQL / PostgreSQL / SQLite / Redis、Docker 基础、AI 基础。
 
-P1 阶段再做告警、Compose、批量操作、协作。
+**当前所处阶段(P1+ 持续迭代中,截至 v0.32)已交付的代表性能力**:
+
+- 数据库:ClickHouse / SQL Server / Elasticsearch、备份恢复、审计与告警
+- SSH:跳板机、端口转发、分屏、命令广播、危险命令拦截
+- SFTP:断点续传、全局传输任务条(TransferDock)
+- Docker:Compose、SSH 通道连远程
+- AI:Planner → Executor、MCP Server、工作区内嵌确认卡、@/# 上下文绑定
+- 应用:标签页拖出独立窗口、深浅双主题、自动更新
+
+**下一步候选**(以 Issue / `CHANGELOG.md` [未发布] 为准):Settings 代理与安全 tab、Oracle / MongoDB 适配、国产库 ODBC 桥、CI/CD 流水线。
 
 ---
 
@@ -791,4 +687,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-20 (v0.32.3)*
+*最后更新: 2026-07-20 (v0.32.5)*
