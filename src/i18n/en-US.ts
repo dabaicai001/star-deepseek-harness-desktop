@@ -144,6 +144,7 @@ export default {
     copyTabTitle: 'Copy Tab Title',
     detachTab: 'Open in New Window',
     detachHint: 'Release to open in new window',
+    detachHintIdle: 'Drag away from tab bar to open in new window',
     reattachTab: 'Return to Main Window',
     detachedHint: 'Detached · Closing returns tab to main window',
    openRecent: 'Open Recent {type}…',

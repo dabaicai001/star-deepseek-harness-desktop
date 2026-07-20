@@ -212,40 +212,116 @@ function onTitlebarMousedown(e: MouseEvent) {
 // detachedInfo 非空 = 当前窗口就是被拖出的独立工作区窗口(渲染精简外壳)
 const detachedInfo = getDetachedInfo()
 
-/** 拖出手势状态:armed = 已离开 tab 条,松开即拖出 */
-const tabDragState = ref<{ tabId: string; clientX: number; clientY: number; detachArmed: boolean } | null>(null)
+/**
+ * 拖出手势状态:dragging = 已超过位移阈值进入拖拽;detachArmed = 已离开 tab 条死区,松开即拖出。
+ *
+ * 注意:不能用 HTML5 drag-and-drop —— Windows 上 tauri.conf.json 的
+ * `dragDropEnabled: true`(SFTP / Excel 拖文件进窗依赖系统级拖放)会拦截 HTML5 DnD,
+ * 导致 tab 拖拽完全失效(Tauri 官方文档明确说明,仅 Windows 受影响)。
+ * 因此这里用 Pointer Events + setPointerCapture 自实现拖拽手势,与系统拖放互不干扰。
+ */
+const tabDragState = ref<{ tabId: string; clientX: number; clientY: number; dragging: boolean; detachArmed: boolean } | null>(null)
 
-function onTabDragStart(e: DragEvent, tab: Tab) {
-  if (!e.dataTransfer || !appWindow) {
-    // 纯浏览器预览没有多窗口能力,不启拖
-    e.preventDefault()
-    return
+/** 按下时的拖拽上下文(未过阈值前仅记录,不影响点击) */
+let tabPointerDrag: { pointerId: number; tab: Tab; startX: number; startY: number } | null = null
+/** 拖拽结束后屏蔽紧随其后的 click(pointer capture 会把 click 派发到源 tab) */
+let suppressTabClick = false
+
+/** 按下后位移超过该值才算拖拽,避免误触点击 */
+const TAB_DRAG_THRESHOLD = 6
+/** 光标离开 tab 条该距离即武装拖出(上下左右四向死区) */
+const TAB_DETACH_DEAD_ZONE = 24
+
+function onTabPointerDown(e: PointerEvent, tab: Tab) {
+  if (e.button !== 0) return
+  // 关闭按钮不参与拖拽
+  if ((e.target as HTMLElement).closest('.tab-close')) return
+  const el = e.currentTarget as HTMLElement
+  tabPointerDrag = { pointerId: e.pointerId, tab, startX: e.clientX, startY: e.clientY }
+  // 捕获指针:拖出窗口外仍能持续收到 move/up,在外部松开也能拿到落点坐标
+  try { el.setPointerCapture(e.pointerId) } catch {}
+  window.addEventListener('pointermove', onTabPointerMove)
+  window.addEventListener('pointerup', onTabPointerUp)
+  window.addEventListener('pointercancel', onTabPointerCancel)
+  window.addEventListener('keydown', onTabDragKeydown)
+}
+
+function onTabPointerMove(e: PointerEvent) {
+  const drag = tabPointerDrag
+  if (!drag || e.pointerId !== drag.pointerId) return
+  if (!tabDragState.value?.dragging) {
+    const dx = e.clientX - drag.startX
+    const dy = e.clientY - drag.startY
+    if (Math.hypot(dx, dy) < TAB_DRAG_THRESHOLD) return
+    document.body.classList.add('tab-dragging')
   }
-  e.dataTransfer.effectAllowed = 'move'
-  e.dataTransfer.setData('text/plain', tab.id)
-  tabDragState.value = { tabId: tab.id, clientX: e.clientX, clientY: e.clientY, detachArmed: false }
-  window.addEventListener('dragover', onTabDragOver)
+  const rect = tabStripRef.value?.getBoundingClientRect()
+  const inDeadZone = !!rect &&
+    e.clientX >= rect.left - TAB_DETACH_DEAD_ZONE &&
+    e.clientX <= rect.right + TAB_DETACH_DEAD_ZONE &&
+    e.clientY >= rect.top - TAB_DETACH_DEAD_ZONE &&
+    e.clientY <= rect.bottom + TAB_DETACH_DEAD_ZONE
+  tabDragState.value = {
+    tabId: drag.tab.id,
+    clientX: e.clientX,
+    clientY: e.clientY,
+    dragging: true,
+    detachArmed: !inDeadZone,
+  }
 }
 
-function onTabDragOver(e: DragEvent) {
-  if (!tabDragState.value) return
-  const strip = tabStripRef.value
-  const stripBottom = strip ? strip.getBoundingClientRect().bottom : 92
-  // 拖离 tab 条下方 64px,或超出窗口左右/上边缘 → 武装拖出
-  const armed = e.clientY > stripBottom + 64 || e.clientY < 0 || e.clientX < 0 || e.clientX > window.innerWidth
-  tabDragState.value = { ...tabDragState.value, clientX: e.clientX, clientY: e.clientY, detachArmed: armed }
-}
-
-async function onTabDragEnd(e: DragEvent, tab: Tab) {
-  window.removeEventListener('dragover', onTabDragOver)
+async function onTabPointerUp(e: PointerEvent) {
+  const drag = tabPointerDrag
+  if (!drag || e.pointerId !== drag.pointerId) return
+  cleanupTabPointerDrag()
   const state = tabDragState.value
   tabDragState.value = null
-  if (!state?.detachArmed) return
-  // 拖出窗口松开时 dragend 的坐标可能是 0,用最后追踪到的坐标兜底
-  const pos = e.clientX || e.clientY
-    ? { x: e.clientX, y: e.clientY }
-    : { x: state.clientX, y: state.clientY }
-  await detachTab(tab, pos)
+  if (!state?.dragging) return // 位移不足 = 普通点击,交给 @click
+  suppressNextTabClick()
+  if (!state.detachArmed) return
+  await detachTab(drag.tab, { x: e.clientX, y: e.clientY })
+}
+
+function onTabPointerCancel(e: PointerEvent) {
+  if (!tabPointerDrag || e.pointerId !== tabPointerDrag.pointerId) return
+  cancelTabDrag()
+}
+
+/** Esc 取消拖拽 */
+function onTabDragKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || !tabPointerDrag) return
+  cancelTabDrag()
+}
+
+function cancelTabDrag() {
+  const wasDragging = tabDragState.value?.dragging
+  cleanupTabPointerDrag()
+  tabDragState.value = null
+  if (wasDragging) suppressNextTabClick()
+}
+
+function cleanupTabPointerDrag() {
+  tabPointerDrag = null
+  window.removeEventListener('pointermove', onTabPointerMove)
+  window.removeEventListener('pointerup', onTabPointerUp)
+  window.removeEventListener('pointercancel', onTabPointerCancel)
+  window.removeEventListener('keydown', onTabDragKeydown)
+  document.body.classList.remove('tab-dragging')
+}
+
+/** pointer capture 会让拖拽后的 click 仍派发到源 tab,需屏蔽一次 */
+function suppressNextTabClick() {
+  suppressTabClick = true
+  setTimeout(() => { suppressTabClick = false }, 300)
+}
+
+/** tab 点击:拖拽刚结束时屏蔽一次(capture 导致 click 仍落到源 tab 上) */
+function onTabClick(tab: Tab) {
+  if (suppressTabClick) {
+    suppressTabClick = false
+    return
+  }
+  selectTab(tab)
 }
 
 /** 把 tab 拖出为一个独立窗口(右键菜单 / 拖拽落点两条入口共用) */
@@ -1457,13 +1533,15 @@ vueWatch(() => appStore.tabs.length, () => {
             v-for="tab in appStore.tabs"
             :key="tab.id"
             class="tab"
-            :class="{ active: appStore.activeTab === tab.id, 'drag-armed': tabDragState?.tabId === tab.id && tabDragState?.detachArmed }"
-            draggable="true"
-            @click="selectTab(tab)"
+            :class="{
+              active: appStore.activeTab === tab.id,
+              dragging: tabDragState?.tabId === tab.id && tabDragState?.dragging,
+              'drag-armed': tabDragState?.tabId === tab.id && tabDragState?.detachArmed
+            }"
+            @click="onTabClick(tab)"
             @contextmenu="openTabContextMenu($event, tab)"
             @auxclick.middle.prevent="closeTab(tab.id)"
-            @dragstart="onTabDragStart($event, tab)"
-            @dragend="onTabDragEnd($event, tab)"
+            @pointerdown="onTabPointerDown($event, tab)"
           >
             <v-icon size="12">{{ getIcon(tab.type) }}</v-icon>
             <span class="tab-title">{{ getTabDisplayTitle(tab) }}</span>
@@ -1784,14 +1862,15 @@ vueWatch(() => appStore.tabs.length, () => {
     <!-- 全局传输任务栏(SFTP 上传/下载,可最小化) -->
     <TransferDock />
 
-    <!-- 拖出提示:tab 被拖离 tab 条时跟随光标 -->
+    <!-- 拖出提示:tab 拖拽全程跟随光标,离开 tab 条死区后高亮(松开即拖出) -->
     <div
-      v-if="tabDragState?.detachArmed"
+      v-if="tabDragState?.dragging"
       class="tab-detach-hint"
+      :class="{ armed: tabDragState.detachArmed }"
       :style="{ left: tabDragState.clientX + 14 + 'px', top: tabDragState.clientY + 16 + 'px' }"
     >
       <v-icon size="13">mdi-open-in-new</v-icon>
-      <span>{{ t('layout.detachHint') }}</span>
+      <span>{{ tabDragState.detachArmed ? t('layout.detachHint') : t('layout.detachHintIdle') }}</span>
     </div>
   </div>
 </template>
@@ -2415,6 +2494,7 @@ kbd {
   position: relative;
   white-space: nowrap;
   max-width: 220px;
+  user-select: none;
 }
 
 .tab:hover {
@@ -2426,6 +2506,11 @@ kbd {
   color: var(--cyan);
   background: linear-gradient(180deg, var(--active-cyan) 0%, transparent 100%);
   border-bottom-color: var(--cyan);
+}
+
+/* 拖拽进行中(未武装):轻微透明,提示正在被拖动 */
+.tab.dragging {
+  opacity: 0.75;
 }
 
 /* 拖出武装态:tab 被拖离 tab 条,松开即生成独立窗口 */

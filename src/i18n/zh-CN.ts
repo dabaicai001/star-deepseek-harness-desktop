@@ -144,6 +144,7 @@ export default {
     copyTabTitle: '复制标签标题',
     detachTab: '在独立窗口打开',
     detachHint: '松开以在独立窗口打开',
+    detachHintIdle: '拖离标签栏,以在独立窗口打开',
     reattachTab: '送回主窗口',
     detachedHint: '独立窗口 · 关闭即送回主窗口',
    openRecent: '打开最近的 {type}…',

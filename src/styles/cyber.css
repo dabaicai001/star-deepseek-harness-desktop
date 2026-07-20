@@ -5333,7 +5333,7 @@ body {
   min-height: 0;
 }
 
-/* 拖出提示:tab 被拖离 tab 条时跟随光标的芯片 */
+/* 拖出提示:tab 拖拽全程跟随光标的芯片(基础态低调,教学手势) */
 .tab-detach-hint {
   position: fixed;
   z-index: 300;
@@ -5341,16 +5341,28 @@ body {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border: 1px solid var(--focus-cyan);
+  border: 1px solid var(--line-2);
   border-radius: 16px;
   background: var(--panel-2);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  color: var(--cyan);
+  color: var(--text-2);
   font-size: 11px;
   box-shadow: var(--glow-soft);
   pointer-events: none;
+}
+
+/* 拖出武装态:已离开 tab 条死区,松开即生成独立窗口 */
+.tab-detach-hint.armed {
+  border-color: var(--focus-cyan);
+  color: var(--cyan);
   animation: pulse 1.2s ease-in-out infinite;
+}
+
+/* tab 拖拽进行中:禁止文本选中 + 抓手光标 */
+body.tab-dragging {
+  user-select: none;
+  cursor: grabbing;
 }
 
 /* ===== reduced-motion 无障碍降级(系统级偏好) ===== */
