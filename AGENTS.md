@@ -27,7 +27,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.32.2(修复 Windows 标签页无法拖出独立窗口) |
+| 当前版本 | v0.32.3(拖拽后 click 屏蔽改为事件驱动的一次性 capture 吞听器) |
 
 ---
 
@@ -746,7 +746,7 @@ v0.17.0 使用 `zmodem.js` 在 Webview 侧实现 `rz` / `sz` 协议:
 - `tauri.conf.json` 的 `dragDropEnabled: true` 是 SFTP / Excel 拖 OS 文件进窗口(`getCurrentWebview().onDragDropEvent`,拿完整路径)的前提,不能关。
 - 但 Tauri 官方文档明确:**Windows 上开启它会拦截 HTML5 drag-and-drop**,`draggable` + `dragstart` / `dragover` 全部失效(macOS / Linux 不受影响)。
 - 因此窗口内的"拖动手势"(如标签页拖出独立窗口)必须用 **Pointer Events + `setPointerCapture`** 自实现,禁止回到 HTML5 DnD;capture 还能保证拖出窗口外持续收到 move/up。
-- 注意 pointer capture 会把拖拽后的 `click` 派发到源元素,需要一次性屏蔽(`suppressNextTabClick`)。
+- 注意 pointer capture 会把拖拽后的 `click` 派发到源元素,需要一次性屏蔽(`suppressNextTabClick`)。**禁止用定时器屏蔽**(click 派发被事件循环延迟时定时器会先失效);要用 window capture 阶段的一次性 click 吞听器,并以 `pointerdown` once 监听兜底撤掉,避免误吞正常点击。
 
 ---
 
@@ -791,4 +791,4 @@ P1 阶段再做告警、Compose、批量操作、协作。
 
 ---
 
-*最后更新: 2026-07-20 (v0.32.2)*
+*最后更新: 2026-07-20 (v0.32.3)*
