@@ -143,6 +143,7 @@ func NewClickHouseAdapter(info *ClickHouseConnInfo) (*ClickHouseAdapter, error) 
 	db := sqlx.NewDb(conn, "clickhouse")
 
 	if err := db.Ping(); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("clickhouse connect failed: %w", err)
 	}
 

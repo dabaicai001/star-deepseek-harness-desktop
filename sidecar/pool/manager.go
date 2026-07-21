@@ -78,14 +78,16 @@ func (m *Manager) Get(id string) (DBAdapter, ConnInfo, error) {
 // Remove 移除一个连接
 func (m *Manager) Remove(id string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	adapter, ok := m.adapters[id]
 	if !ok {
+		m.mu.Unlock()
 		return nil
 	}
 	delete(m.adapters, id)
 	delete(m.infos, id)
+	m.mu.Unlock()
 	log.Info().Str("id", id).Msg("connection removed")
+	// Close 可能涉及网络 I/O(如 Docker),放在锁外执行,避免阻塞其他 Get/Remove。
 	return adapter.Close()
 }
 

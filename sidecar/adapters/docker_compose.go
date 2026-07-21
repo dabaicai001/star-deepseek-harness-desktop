@@ -1,16 +1,21 @@
 package adapters
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/starhub/sidecar/pool"
 )
+
+// composeCmdTimeout 限制 docker compose 子进程最长执行时间(up 可能拉取镜像)
+const composeCmdTimeout = 30 * time.Minute
 
 // composeFileNames docker compose 默认查找的文件名（按优先级）
 var composeFileNames = []string{"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"}
@@ -29,7 +34,9 @@ func findComposeFile(workDir string) string {
 // runComposeCmd 在 workDir 下执行 docker compose 子命令，返回合并的 stdout+stderr。
 func runComposeCmd(workDir string, args []string) (string, error) {
 	fullArgs := append([]string{"compose"}, args...)
-	cmd := exec.Command("docker", fullArgs...)
+	ctx, cancel := context.WithTimeout(context.Background(), composeCmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", fullArgs...)
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {

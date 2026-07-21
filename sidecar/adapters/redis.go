@@ -2,11 +2,13 @@ package adapters
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -15,6 +17,7 @@ import (
 
 // RedisAdapter 封装 Redis 连接
 type RedisAdapter struct {
+	mu     sync.RWMutex // 保护 client 与 conn,Select 切换数据库时写锁互斥
 	client *redis.Client
 	conn   *RedisConnInfo
 	ctx    context.Context
@@ -101,7 +104,8 @@ func newRedisClient(info *RedisConnInfo) (*redis.Client, error) {
 	}
 
 	if info.SSL {
-		opts.TLSConfig = nil // go-redis handles TLS with nil config for default
+		// go-redis v9 只有 TLSConfig 非 nil 才启用 TLS;证书校验策略与 ClickHouse 一致(默认校验)。
+		opts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 
 	client := redis.NewClient(opts)
@@ -117,16 +121,22 @@ func newRedisClient(info *RedisConnInfo) (*redis.Client, error) {
 
 // Close 关闭连接
 func (a *RedisAdapter) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.client.Close()
 }
 
 // Ping 检测连接
 func (a *RedisAdapter) Ping() error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.client.Ping(a.ctx).Err()
 }
 
 // Select 切换数据库
 func (a *RedisAdapter) Select(db int) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.conn != nil && a.conn.DB == db {
 		return nil
 	}
@@ -149,11 +159,15 @@ func (a *RedisAdapter) Select(db int) error {
 
 // GetDB 当前数据库编号
 func (a *RedisAdapter) GetDB() int {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.conn.DB
 }
 
 // Info 获取 Redis INFO
 func (a *RedisAdapter) RedisInfo(section string) (string, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	if section == "" {
 		section = "default"
 	}
@@ -162,11 +176,15 @@ func (a *RedisAdapter) RedisInfo(section string) (string, error) {
 
 // DBSize 当前 DB 的 key 数量
 func (a *RedisAdapter) DBSize() (int64, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.client.DBSize(a.ctx).Result()
 }
 
 // Scan SCAN 扫描 key
 func (a *RedisAdapter) Scan(cursor uint64, match string, count int64) (*RedisScanResult, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	if match == "" {
 		match = "*"
 	}
@@ -232,11 +250,15 @@ func (a *RedisAdapter) keyInfos(keys []string, typeFilter string) ([]RedisKeyInf
 
 // Type 获取 key 类型
 func (a *RedisAdapter) GetType(key string) (string, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.client.Type(a.ctx, key).Result()
 }
 
 // TTL 获取 key 的 TTL
 func (a *RedisAdapter) TTL(key string) (int64, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	ttl, err := a.client.TTL(a.ctx, key).Result()
 	if err != nil {
 		return 0, err
@@ -246,21 +268,29 @@ func (a *RedisAdapter) TTL(key string) (int64, error) {
 
 // Del 删除 key
 func (a *RedisAdapter) Del(keys ...string) (int64, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.client.Del(a.ctx, keys...).Result()
 }
 
 // Rename 重命名 key
 func (a *RedisAdapter) Rename(oldKey, newKey string) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.client.Rename(a.ctx, oldKey, newKey).Err()
 }
 
 // Set 设置值
 func (a *RedisAdapter) Set(key string, value interface{}, expiration time.Duration) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.client.Set(a.ctx, key, value, expiration).Err()
 }
 
 // GetValue 获取 key 的值（根据类型返回不同结构）
 func (a *RedisAdapter) GetValue(key string) (*RedisValueResult, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	keyType, err := a.client.Type(a.ctx, key).Result()
 	if err != nil {
 		return nil, fmt.Errorf("type: %w", err)
@@ -383,26 +413,36 @@ func (a *RedisAdapter) GetValue(key string) (*RedisValueResult, error) {
 
 // Get 执行 GET
 func (a *RedisAdapter) Get(key string) (string, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.client.Get(a.ctx, key).Result()
 }
 
 // HGetAll 执行 HGETALL
 func (a *RedisAdapter) HGetAll(key string) (map[string]string, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.client.HGetAll(a.ctx, key).Result()
 }
 
 // LRange 执行 LRANGE
 func (a *RedisAdapter) LRange(key string, start, stop int64) ([]string, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.client.LRange(a.ctx, key, start, stop).Result()
 }
 
 // SMembers 执行 SMEMBERS
 func (a *RedisAdapter) SMembers(key string) ([]string, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.client.SMembers(a.ctx, key).Result()
 }
 
 // ZRangeWithScores 执行 ZRANGE WITHSCORES
 func (a *RedisAdapter) ZRangeWithScores(key string, start, stop int64) ([]redis.Z, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.client.ZRangeWithScores(a.ctx, key, start, stop).Result()
 }
 
@@ -425,6 +465,30 @@ func (a *RedisAdapter) Execute(command string) (*RedisCommandResult, error) {
 	}
 
 	cmd := strings.ToUpper(parts[0])
+
+	// SELECT 需要写锁切换客户端,单独处理,避免在读锁内调用 Select 死锁。
+	if cmd == "SELECT" {
+		if len(parts) < 2 {
+			return &RedisCommandResult{Error: "SELECT requires db number"}, nil
+		}
+		db, perr := strconv.Atoi(parts[1])
+		if perr != nil {
+			return &RedisCommandResult{Error: "invalid db number: " + parts[1]}, nil
+		}
+		if err := a.Select(db); err != nil {
+			return &RedisCommandResult{
+				Error:      err.Error(),
+				DurationMs: time.Since(start).Milliseconds(),
+			}, nil
+		}
+		return &RedisCommandResult{
+			Result:     "OK",
+			DurationMs: time.Since(start).Milliseconds(),
+		}, nil
+	}
+
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 
 	var result interface{}
 	var err error
@@ -663,19 +727,6 @@ func (a *RedisAdapter) Execute(command string) (*RedisCommandResult, error) {
 		}
 		result, err = a.client.Info(a.ctx, section).Result()
 
-	case "SELECT":
-		if len(parts) < 2 {
-			return &RedisCommandResult{Error: "SELECT requires db number"}, nil
-		}
-		db, perr := strconv.Atoi(parts[1])
-		if perr != nil {
-			return &RedisCommandResult{Error: "invalid db number: " + parts[1]}, nil
-		}
-		err = a.Select(db)
-		if err == nil {
-			result = "OK"
-		}
-
 	case "FLUSHDB":
 		err = a.client.FlushDB(a.ctx).Err()
 		if err == nil {
@@ -753,6 +804,8 @@ type SlowlogEntry struct {
 
 // SlowlogGet 获取慢查询日志
 func (a *RedisAdapter) SlowlogGet(count int64) ([]SlowlogEntry, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	result, err := a.client.SlowLogGet(a.ctx, count).Result()
 	if err != nil {
 		return nil, fmt.Errorf("slowlog get: %w", err)
@@ -771,6 +824,8 @@ func (a *RedisAdapter) SlowlogGet(count int64) ([]SlowlogEntry, error) {
 
 // SlowlogReset 重置慢查询日志
 func (a *RedisAdapter) SlowlogReset() error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	_, err := a.client.SlowLogReset(a.ctx).Result()
 	if err != nil {
 		return fmt.Errorf("slowlog reset: %w", err)
@@ -780,6 +835,8 @@ func (a *RedisAdapter) SlowlogReset() error {
 
 // ScanAll 全量扫描所有 key（带类型过滤）
 func (a *RedisAdapter) ScanAll(match string, count int64, typeFilter string) ([]RedisKeyInfo, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	var allKeys []RedisKeyInfo
 	var cursor uint64 = 0
 	if count <= 0 {
@@ -813,6 +870,8 @@ type BigKeyEntry struct {
 
 // BigKeyScan 扫描大 key
 func (a *RedisAdapter) BigKeyScan(match string, stringThreshold, memberThreshold int64) ([]BigKeyEntry, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	var results []BigKeyEntry
 	var cursor uint64 = 0
 	for {
@@ -869,6 +928,8 @@ type MemoryAnalysisEntry struct {
 
 // MemoryAnalysis 按 key 前缀分析内存使用
 func (a *RedisAdapter) MemoryAnalysis(match string, sampleSize int) ([]MemoryAnalysisEntry, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	type agg struct {
 		Keys, Memory int64
 	}
@@ -924,6 +985,8 @@ func (a *RedisAdapter) MemoryAnalysis(match string, sampleSize int) ([]MemoryAna
 
 // FlushDB 清空当前数据库
 func (a *RedisAdapter) FlushDB() error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	_, err := a.client.FlushDB(a.ctx).Result()
 	if err != nil {
 		return fmt.Errorf("flushdb: %w", err)
@@ -940,6 +1003,8 @@ type RedisPubSubMessage struct {
 
 // Subscribe 订阅指定频道和模式，阻塞等待 timeoutMs 毫秒收集消息
 func (a *RedisAdapter) Subscribe(channels, patterns []string, timeoutMs int) ([]RedisPubSubMessage, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	if len(channels) == 0 && len(patterns) == 0 {
 		return nil, fmt.Errorf("at least one channel or pattern is required")
 	}
@@ -985,6 +1050,8 @@ func (a *RedisAdapter) Subscribe(channels, patterns []string, timeoutMs int) ([]
 
 // Unsubscribe 取消订阅指定频道
 func (a *RedisAdapter) Unsubscribe(channels []string) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	if len(channels) == 0 {
 		return nil
 	}
@@ -1001,6 +1068,8 @@ func (a *RedisAdapter) Unsubscribe(channels []string) error {
 
 // MarshalJSON 为 RedisAdapter 提供自定义 JSON 序列化（避免导出 ctx）
 func (a *RedisAdapter) MarshalJSON() ([]byte, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return json.Marshal(map[string]interface{}{
 		"host": a.conn.Host,
 		"port": a.conn.Port,

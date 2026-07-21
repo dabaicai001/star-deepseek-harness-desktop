@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,7 +14,29 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
+	"github.com/rs/zerolog/log"
 )
+
+// esRequestTimeout 单次 ES 请求等待响应头的最长时间
+const esRequestTimeout = 30 * time.Second
+
+// newElasticsearchTransport 返回带连接与响应头超时的 HTTP transport;
+// 默认 transport 没有任何超时,节点无响应时 RPC 会永久挂起。
+func newElasticsearchTransport() *http.Transport {
+	return &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: esRequestTimeout,
+	}
+}
 
 // ElasticsearchConnInfo holds connection parameters
 type ElasticsearchConnInfo struct {
@@ -179,10 +202,13 @@ func NewElasticsearchAdapter(info *ElasticsearchConnInfo) (*ElasticsearchAdapter
 		APIKey:    info.APIKey,
 	}
 
+	// 统一使用带超时的 transport,避免节点无响应时请求永久挂起
+	transport := newElasticsearchTransport()
 	// For v7.x nodes, wrap transport to inject X-Elastic-Product header
 	if needCompat {
-		baseTransport := http.DefaultTransport
-		cfg.Transport = &esProductCompatTransport{inner: baseTransport}
+		cfg.Transport = &esProductCompatTransport{inner: transport}
+	} else {
+		cfg.Transport = transport
 	}
 
 	client, err := elasticsearch.NewClient(cfg)
@@ -815,7 +841,22 @@ func (a *ElasticsearchAdapter) ScrollSearch(index string, body map[string]interf
 			Source: source,
 		})
 	}
+	// 当前 RPC 只返回首批结果、不提供续翻页,返回前主动释放 scroll 上下文,
+	// 否则每个 scroll 都要等 2 分钟超时才被服务端回收。
+	if raw.ScrollID != "" {
+		a.clearScroll(raw.ScrollID)
+	}
 	return result, nil
+}
+
+// clearScroll 释放 ES scroll 上下文,尽力而为,失败只记日志。
+func (a *ElasticsearchAdapter) clearScroll(scrollID string) {
+	res, err := a.client.ClearScroll(a.client.ClearScroll.WithScrollID(scrollID))
+	if err != nil {
+		log.Warn().Err(err).Msg("clear ES scroll failed")
+		return
+	}
+	_ = res.Body.Close()
 }
 
 // ─── Helpers ───

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -55,34 +56,68 @@ func (s *Server) Run() error {
 	return s.RunIO(os.Stdin, os.Stdout)
 }
 
+// maxRequestLineBytes 单条 RPC 请求行的最大字节数,防止异常输入撑爆内存。
+const maxRequestLineBytes = 64 << 20
+
 // RunIO runs the server with explicit streams, which keeps transport logic testable.
 func (s *Server) RunIO(reader io.Reader, writer io.Writer) error {
 	s.writer = writer
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 1<<20), 10<<20) // 10MB buffer
+	bufReader := bufio.NewReaderSize(reader, 1<<20)
 
-	for scanner.Scan() {
-		data := scanner.Bytes()
-		if len(data) == 0 {
-			continue
+	for {
+		data, tooLong, readErr := readRequestLine(bufReader)
+		if tooLong {
+			// 超限请求只回错误响应并继续服务,不能让整个 sidecar 进程退出。
+			s.writeError("", ParseError, fmt.Sprintf("request exceeds %d bytes limit", maxRequestLineBytes))
+		} else if len(bytes.TrimSpace(data)) > 0 {
+			var req Request
+			if err := json.Unmarshal(data, &req); err != nil {
+				s.writeError("", ParseError, "Parse error: "+err.Error())
+			} else {
+				s.wg.Add(1)
+				go func() {
+					defer s.wg.Done()
+					s.handleRequest(req)
+				}()
+			}
 		}
-
-		var req Request
-		if err := json.Unmarshal(data, &req); err != nil {
-			s.writeError("", ParseError, "Parse error: "+err.Error())
-			continue
+		if readErr != nil {
+			s.wg.Wait()
+			if readErr == io.EOF {
+				return nil
+			}
+			return readErr
 		}
-
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			s.handleRequest(req)
-		}()
 	}
+}
 
-	err := scanner.Err()
-	s.wg.Wait()
-	return err
+// readRequestLine 读取一条以换行结尾的请求。超过 maxRequestLineBytes 的行
+// 会被完整消耗并丢弃,返回 tooLong=true,由调用方回错误响应而不是终止循环。
+func readRequestLine(reader *bufio.Reader) (line []byte, tooLong bool, err error) {
+	var buf []byte
+	for {
+		frag, fragErr := reader.ReadSlice('\n')
+		if !tooLong {
+			buf = append(buf, frag...)
+			if len(buf) > maxRequestLineBytes {
+				tooLong = true
+				buf = nil
+			}
+		}
+		switch fragErr {
+		case nil:
+			return buf, tooLong, nil
+		case bufio.ErrBufferFull:
+			continue
+		case io.EOF:
+			if len(buf) > 0 {
+				return buf, tooLong, nil
+			}
+			return nil, tooLong, io.EOF
+		default:
+			return nil, tooLong, fragErr
+		}
+	}
 }
 
 func (s *Server) handleRequest(req Request) {

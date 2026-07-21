@@ -97,6 +97,8 @@ func NewExcelAdapter(info *ExcelConnInfo) (*ExcelAdapter, error) {
 
 // Close 关闭适配器
 func (a *ExcelAdapter) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.f != nil {
 		if err := a.f.Close(); err != nil {
 			return fmt.Errorf("excel close failed: %w", err)
@@ -117,6 +119,8 @@ func (a *ExcelAdapter) Ping() error {
 
 // GetSheetNames 获取所有 Sheet 名称
 func (a *ExcelAdapter) GetSheetNames() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.f.GetSheetList()
 }
 
@@ -143,6 +147,8 @@ func (a *ExcelAdapter) ReadWorkbook() ([]SheetData, error) {
 // 出现大块留白且 Univer 渲染超长。这里去掉数据区尾部所有 cell 都为空的行,totalRows 也按
 // trim 后的真实数据行数返回,与前端显示一致。
 func (a *ExcelAdapter) ReadSheet(sheetName string, offset, limit int) (*SheetData, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	rows, err := a.f.GetRows(sheetName)
 	if err != nil {
 		return nil, fmt.Errorf("read sheet failed: %w", err)
@@ -231,6 +237,8 @@ func (a *ExcelAdapter) ReadSheet(sheetName string, offset, limit int) (*SheetDat
 
 // WriteCells 批量写入单元格
 func (a *ExcelAdapter) WriteCells(sheetName string, cells []CellChange) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	for _, cell := range cells {
 		axis, err := dataCellName(cell.Row, cell.Col)
 		if err != nil {
@@ -257,6 +265,8 @@ func (a *ExcelAdapter) WriteCells(sheetName string, cells []CellChange) error {
 
 // WriteHeaders 重写第 1 行表头。
 func (a *ExcelAdapter) WriteHeaders(sheetName string, headers []string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if len(headers) == 0 {
 		return fmt.Errorf("headers cannot be empty")
 	}
@@ -319,6 +329,8 @@ func (a *ExcelAdapter) StyleHeader(sheetName string) error {
 
 // InsertRows 在数据区插入行,dataRow 为 0-based 数据行索引(表头下面第一行为 0)。
 func (a *ExcelAdapter) InsertRows(sheetName string, dataRow, count int) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if count < 1 {
 		count = 1
 	}
@@ -334,6 +346,8 @@ func (a *ExcelAdapter) InsertRows(sheetName string, dataRow, count int) error {
 
 // DeleteRows 删除数据区行,不会删除第 1 行表头。
 func (a *ExcelAdapter) DeleteRows(sheetName string, dataRow, count int) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if count < 1 {
 		count = 1
 	}
@@ -351,6 +365,8 @@ func (a *ExcelAdapter) DeleteRows(sheetName string, dataRow, count int) error {
 
 // InsertCols 在指定列前插入列,会同步移动表头和数据。
 func (a *ExcelAdapter) InsertCols(sheetName string, col, count int) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if count < 1 {
 		count = 1
 	}
@@ -385,6 +401,8 @@ func (a *ExcelAdapter) DeleteCols(sheetName string, col, count int) error {
 
 // SortRows 按指定数据列排序,第 1 行表头保持不动。
 func (a *ExcelAdapter) SortRows(sheetName string, col int, descending bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	rows, err := a.f.GetRows(sheetName)
 	if err != nil {
 		return fmt.Errorf("read sheet failed: %w", err)
@@ -416,6 +434,8 @@ func (a *ExcelAdapter) SortRows(sheetName string, col int, descending bool) erro
 
 // FindReplace 在整个工作表中查找并替换文本。
 func (a *ExcelAdapter) FindReplace(sheetName string, opts FindReplaceOptions) (int, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if opts.Find == "" {
 		return 0, fmt.Errorf("find text is required")
 	}
@@ -455,6 +475,8 @@ func (a *ExcelAdapter) FindReplace(sheetName string, opts FindReplaceOptions) (i
 
 // SetFreezePanes 设置冻结窗格。rows/cols 为需要冻结的行列数量。
 func (a *ExcelAdapter) SetFreezePanes(sheetName string, rows, cols int) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if rows < 0 {
 		rows = 0
 	}
@@ -504,6 +526,8 @@ func (a *ExcelAdapter) SetAutoFilter(sheetName string) error {
 
 // AddSheet 添加 Sheet
 func (a *ExcelAdapter) AddSheet(sheetName string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	_, err := a.f.NewSheet(sheetName)
 	if err == nil {
 		a.formulaCells[sheetName] = make(map[string]string)
@@ -513,6 +537,8 @@ func (a *ExcelAdapter) AddSheet(sheetName string) error {
 
 // RemoveSheet 删除 Sheet
 func (a *ExcelAdapter) RemoveSheet(sheetName string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if err := a.f.DeleteSheet(sheetName); err != nil {
 		return err
 	}
@@ -522,6 +548,8 @@ func (a *ExcelAdapter) RemoveSheet(sheetName string) error {
 
 // RenameSheet 重命名 Sheet
 func (a *ExcelAdapter) RenameSheet(oldName, newName string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if err := a.f.SetSheetName(oldName, newName); err != nil {
 		return err
 	}
@@ -532,6 +560,8 @@ func (a *ExcelAdapter) RenameSheet(oldName, newName string) error {
 
 // Save 保存文件
 func (a *ExcelAdapter) Save() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.filePath == "" {
 		return fmt.Errorf("no file path specified")
 	}
@@ -558,6 +588,8 @@ func (a *ExcelAdapter) SaveAs(filePath string) error {
 
 // GetFilePath 获取文件路径
 func (a *ExcelAdapter) GetFilePath() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.filePath
 }
 
@@ -565,6 +597,8 @@ func (a *ExcelAdapter) GetFilePath() string {
 // columns: 基于哪些列判断重复（0-based 列索引）
 // 返回删除的行数
 func (a *ExcelAdapter) RemoveDuplicates(sheetName string, columns []int) (int, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	rows, err := a.f.GetRows(sheetName)
 	if err != nil {
 		return 0, fmt.Errorf("read sheet failed: %w", err)

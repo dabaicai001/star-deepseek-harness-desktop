@@ -1,15 +1,34 @@
 package adapters
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/starhub/sidecar/pool"
 )
+
+// backupCmdTimeout 备份/恢复子进程最长执行时间(大数据库备份可能较久)
+const backupCmdTimeout = 30 * time.Minute
+
+// runBackupCmd 执行备份/恢复子进程,把 stderr 并入返回错误,避免前端只看到 exit status。
+func runBackupCmd(cmd *exec.Cmd, action string) error {
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if detail := strings.TrimSpace(stderr.String()); detail != "" {
+			return fmt.Errorf("%s failed: %w: %s", action, err, detail)
+		}
+		return fmt.Errorf("%s failed: %w", action, err)
+	}
+	return nil
+}
 
 // BackupInfo 备份文件信息
 type BackupInfo struct {
@@ -112,14 +131,15 @@ func backupMySQL(conn *MySQLConnInfo, outputPath string) error {
 	if err != nil {
 		return fmt.Errorf("create output file: %w", err)
 	}
-	defer outFile.Close()
 
 	port := conn.Port
 	if port == 0 {
 		port = 3306
 	}
 
-	cmd := exec.Command("mysqldump",
+	ctx, cancel := context.WithTimeout(context.Background(), backupCmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "mysqldump",
 		"-h", conn.Host,
 		"-P", fmt.Sprintf("%d", port),
 		"-u", conn.Username,
@@ -131,7 +151,6 @@ func backupMySQL(conn *MySQLConnInfo, outputPath string) error {
 	// 通过环境变量传递密码，避免出现在命令行参数 / ps 输出中
 	cmd.Env = append(os.Environ(), "MYSQL_PWD="+conn.Password)
 	cmd.Stdout = outFile
-	cmd.Stderr = os.Stderr
 
 	log.Info().
 		Str("host", conn.Host).
@@ -140,8 +159,15 @@ func backupMySQL(conn *MySQLConnInfo, outputPath string) error {
 		Str("output", outputPath).
 		Msg("starting MySQL backup")
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("mysqldump failed: %w", err)
+	runErr := runBackupCmd(cmd, "mysqldump")
+	// 先关闭输出文件再删半成品(Windows 下打开中的文件无法删除)
+	closeErr := outFile.Close()
+	if runErr != nil {
+		_ = os.Remove(outputPath)
+		return runErr
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close output file: %w", closeErr)
 	}
 	return nil
 }
@@ -162,7 +188,9 @@ func restoreMySQL(conn *MySQLConnInfo, inputPath string) error {
 		port = 3306
 	}
 
-	cmd := exec.Command("mysql",
+	ctx, cancel := context.WithTimeout(context.Background(), backupCmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "mysql",
 		"-h", conn.Host,
 		"-P", fmt.Sprintf("%d", port),
 		"-u", conn.Username,
@@ -170,7 +198,6 @@ func restoreMySQL(conn *MySQLConnInfo, inputPath string) error {
 	)
 	cmd.Env = append(os.Environ(), "MYSQL_PWD="+conn.Password)
 	cmd.Stdin = inFile
-	cmd.Stderr = os.Stderr
 
 	log.Info().
 		Str("host", conn.Host).
@@ -179,10 +206,7 @@ func restoreMySQL(conn *MySQLConnInfo, inputPath string) error {
 		Str("input", inputPath).
 		Msg("starting MySQL restore")
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("mysql restore failed: %w", err)
-	}
-	return nil
+	return runBackupCmd(cmd, "mysql restore")
 }
 
 // ─── PostgreSQL ───
@@ -215,9 +239,10 @@ func backupPostgres(conn *PostgresConnInfo, format string, outputPath string) er
 		args = append(args, "-F", "p")
 	}
 
-	cmd := exec.Command("pg_dump", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), backupCmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "pg_dump", args...)
 	cmd.Env = append(os.Environ(), "PGPASSWORD="+conn.Password)
-	cmd.Stderr = os.Stderr
 
 	log.Info().
 		Str("host", conn.Host).
@@ -227,8 +252,10 @@ func backupPostgres(conn *PostgresConnInfo, format string, outputPath string) er
 		Str("output", outputPath).
 		Msg("starting PostgreSQL backup")
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("pg_dump failed: %w", err)
+	if err := runBackupCmd(cmd, "pg_dump"); err != nil {
+		// 删除失败留下的半成品备份文件
+		_ = os.Remove(outputPath)
+		return err
 	}
 	return nil
 }
@@ -243,7 +270,9 @@ func restorePostgres(conn *PostgresConnInfo, inputPath string) error {
 		db = "postgres"
 	}
 
-	cmd := exec.Command("psql",
+	ctx, cancel := context.WithTimeout(context.Background(), backupCmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "psql",
 		"-h", conn.Host,
 		"-p", fmt.Sprintf("%d", port),
 		"-U", conn.Username,
@@ -251,7 +280,6 @@ func restorePostgres(conn *PostgresConnInfo, inputPath string) error {
 		"-f", inputPath,
 	)
 	cmd.Env = append(os.Environ(), "PGPASSWORD="+conn.Password)
-	cmd.Stderr = os.Stderr
 
 	log.Info().
 		Str("host", conn.Host).
@@ -260,8 +288,5 @@ func restorePostgres(conn *PostgresConnInfo, inputPath string) error {
 		Str("input", inputPath).
 		Msg("starting PostgreSQL restore")
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("psql restore failed: %w", err)
-	}
-	return nil
+	return runBackupCmd(cmd, "psql restore")
 }

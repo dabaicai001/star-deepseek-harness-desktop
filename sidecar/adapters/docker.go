@@ -93,6 +93,18 @@ type LogEntry struct {
 	Message   string `json:"message"`
 }
 
+const (
+	// dockerAPITimeout 常规 Docker API 调用超时,避免守护进程无响应时 RPC 永久挂起
+	dockerAPITimeout = 30 * time.Second
+	// dockerLongOpTimeout 镜像拉取等长操作超时
+	dockerLongOpTimeout = 30 * time.Minute
+)
+
+// dockerAPIContext 返回带默认超时的 context。
+func dockerAPIContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), dockerAPITimeout)
+}
+
 // NewDockerAdapter 创建 Docker 适配器
 func NewDockerAdapter(info *DockerConnInfo) (*DockerAdapter, error) {
 	opts := []client.Opt{client.FromEnv, client.WithAPIVersionNegotiation()}
@@ -157,14 +169,18 @@ func (a *DockerAdapter) Close() error {
 
 // Ping 检测连接
 func (a *DockerAdapter) Ping() error {
-	_, err := a.cli.Ping(context.Background())
+	ctx, cancel := dockerAPIContext()
+	defer cancel()
+	_, err := a.cli.Ping(ctx)
 	return err
 }
 
 // ListContainers 列出容器
 func (a *DockerAdapter) ListContainers(all bool) ([]ContainerInfo, error) {
 	opts := container.ListOptions{All: all}
-	containers, err := a.cli.ContainerList(context.Background(), opts)
+	ctx, cancel := dockerAPIContext()
+	defer cancel()
+	containers, err := a.cli.ContainerList(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("list containers: %w", err)
 	}
@@ -202,7 +218,9 @@ func (a *DockerAdapter) ListContainers(all bool) ([]ContainerInfo, error) {
 
 // InspectContainer 获取容器详情
 func (a *DockerAdapter) InspectContainer(containerID string) (map[string]interface{}, error) {
-	info, err := a.cli.ContainerInspect(context.Background(), containerID)
+	ctx, cancel := dockerAPIContext()
+	defer cancel()
+	info, err := a.cli.ContainerInspect(ctx, containerID)
 	if err != nil {
 		return nil, fmt.Errorf("inspect container: %w", err)
 	}
@@ -219,7 +237,9 @@ func (a *DockerAdapter) InspectContainer(containerID string) (map[string]interfa
 
 // StartContainer 启动容器
 func (a *DockerAdapter) StartContainer(containerID string) error {
-	return a.cli.ContainerStart(context.Background(), containerID, container.StartOptions{})
+	ctx, cancel := dockerAPIContext()
+	defer cancel()
+	return a.cli.ContainerStart(ctx, containerID, container.StartOptions{})
 }
 
 // StopContainer 停止容器
@@ -228,7 +248,9 @@ func (a *DockerAdapter) StopContainer(containerID string, timeout *int) error {
 	if timeout != nil {
 		opts.Timeout = timeout
 	}
-	return a.cli.ContainerStop(context.Background(), containerID, opts)
+	ctx, cancel := context.WithTimeout(context.Background(), dockerGracefulTimeout(timeout))
+	defer cancel()
+	return a.cli.ContainerStop(ctx, containerID, opts)
 }
 
 // RestartContainer 重启容器
@@ -237,13 +259,25 @@ func (a *DockerAdapter) RestartContainer(containerID string, timeout *int) error
 	if timeout != nil {
 		opts.Timeout = timeout
 	}
-	return a.cli.ContainerRestart(context.Background(), containerID, opts)
+	ctx, cancel := context.WithTimeout(context.Background(), dockerGracefulTimeout(timeout))
+	defer cancel()
+	return a.cli.ContainerRestart(ctx, containerID, opts)
 }
 
 // RemoveContainer 删除容器
 func (a *DockerAdapter) RemoveContainer(containerID string, force bool) error {
 	opts := container.RemoveOptions{Force: force}
-	return a.cli.ContainerRemove(context.Background(), containerID, opts)
+	ctx, cancel := dockerAPIContext()
+	defer cancel()
+	return a.cli.ContainerRemove(ctx, containerID, opts)
+}
+
+// dockerGracefulTimeout 在默认超时基础上为优雅停止/重启留出宽限时间。
+func dockerGracefulTimeout(timeout *int) time.Duration {
+	if timeout != nil && *timeout > 0 {
+		return time.Duration(*timeout)*time.Second + dockerAPITimeout
+	}
+	return dockerAPITimeout
 }
 
 // ContainerLogs 获取容器日志
@@ -260,7 +294,9 @@ func (a *DockerAdapter) ContainerLogs(containerID string, tail string, follow bo
 		Follow:     false, // 我们不支持流式，只获取一次
 	}
 
-	reader, err := a.cli.ContainerLogs(context.Background(), containerID, opts)
+	ctx, cancel := dockerAPIContext()
+	defer cancel()
+	reader, err := a.cli.ContainerLogs(ctx, containerID, opts)
 	if err != nil {
 		return nil, fmt.Errorf("container logs: %w", err)
 	}
@@ -268,6 +304,8 @@ func (a *DockerAdapter) ContainerLogs(containerID string, tail string, follow bo
 
 	var entries []LogEntry
 	scanner := bufio.NewScanner(reader)
+	// 默认 64KB 行上限会让超长日志行静默截断扫描,放宽到 4MB。
+	scanner.Buffer(make([]byte, 64<<10), 4<<20)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if len(line) < 8 {
@@ -297,13 +335,18 @@ func (a *DockerAdapter) ContainerLogs(containerID string, tail string, follow bo
 			Message:   msg,
 		})
 	}
+	if err := scanner.Err(); err != nil {
+		return entries, fmt.Errorf("read container logs: %w", err)
+	}
 
 	return entries, nil
 }
 
 // ContainerStats 获取容器资源统计
 func (a *DockerAdapter) ContainerStats(containerID string) (*ContainerStats, error) {
-	statsResp, err := a.cli.ContainerStatsOneShot(context.Background(), containerID)
+	ctx, cancel := dockerAPIContext()
+	defer cancel()
+	statsResp, err := a.cli.ContainerStatsOneShot(ctx, containerID)
 	if err != nil {
 		return nil, fmt.Errorf("container stats: %w", err)
 	}
@@ -364,7 +407,9 @@ func (a *DockerAdapter) ContainerStats(containerID string) (*ContainerStats, err
 // ListImages 列出镜像
 func (a *DockerAdapter) ListImages(all bool) ([]ImageInfo, error) {
 	opts := image.ListOptions{All: all}
-	images, err := a.cli.ImageList(context.Background(), opts)
+	ctx, cancel := dockerAPIContext()
+	defer cancel()
+	images, err := a.cli.ImageList(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("list images: %w", err)
 	}
@@ -389,7 +434,10 @@ func (a *DockerAdapter) ListImages(all bool) ([]ImageInfo, error) {
 
 // PullImage 拉取镜像
 func (a *DockerAdapter) PullImage(imageName string) (string, error) {
-	reader, err := a.cli.ImagePull(context.Background(), imageName, image.PullOptions{})
+	// 拉取镜像可能耗时较长,使用放宽后的长操作超时
+	ctx, cancel := context.WithTimeout(context.Background(), dockerLongOpTimeout)
+	defer cancel()
+	reader, err := a.cli.ImagePull(ctx, imageName, image.PullOptions{})
 	if err != nil {
 		return "", fmt.Errorf("pull image: %w", err)
 	}
@@ -411,19 +459,25 @@ func (a *DockerAdapter) PullImage(imageName string) (string, error) {
 // RemoveImage 删除镜像
 func (a *DockerAdapter) RemoveImage(imageID string, force bool) ([]image.DeleteResponse, error) {
 	opts := image.RemoveOptions{Force: force}
-	return a.cli.ImageRemove(context.Background(), imageID, opts)
+	ctx, cancel := dockerAPIContext()
+	defer cancel()
+	return a.cli.ImageRemove(ctx, imageID, opts)
 }
 
 // PruneImages 清理悬空镜像
 func (a *DockerAdapter) PruneImages() (image.PruneReport, error) {
 	filterArgs := filters.NewArgs()
 	filterArgs.Add("dangling", "true")
-	return a.cli.ImagesPrune(context.Background(), filterArgs)
+	ctx, cancel := dockerAPIContext()
+	defer cancel()
+	return a.cli.ImagesPrune(ctx, filterArgs)
 }
 
 // PruneContainers 清理已停止的容器
 func (a *DockerAdapter) PruneContainers() (container.PruneReport, error) {
-	return a.cli.ContainersPrune(context.Background(), filters.NewArgs())
+	ctx, cancel := dockerAPIContext()
+	defer cancel()
+	return a.cli.ContainersPrune(ctx, filters.NewArgs())
 }
 
 // ExecResult 容器内 exec 结果
@@ -586,6 +640,11 @@ const (
 	dockerExecSessionReadWait       = time.Second
 	dockerExecSessionResizeTimeout  = 5 * time.Second
 	dockerExecSessionMaxOutputBytes = 4 << 20
+	// dockerExecSessionIdleTimeout 无任何读写活动的会话最长存活时间,
+	// 防止前端异常退出(未调 execSessionClose)导致会话与 goroutine 永久泄漏。
+	dockerExecSessionIdleTimeout = 10 * time.Minute
+	// dockerExecSessionIdleCheckInterval 空闲会话巡检间隔
+	dockerExecSessionIdleCheckInterval = time.Minute
 )
 
 var dockerInteractiveShellCommand = []string{
@@ -611,23 +670,25 @@ type DockerExecSessionReadResult struct {
 }
 
 type dockerExecSession struct {
-	id       string
-	execID   string
-	resp     types.HijackedResponse
-	ctx      context.Context
-	cancel   context.CancelFunc
-	inspect  dockerExecInspectFunc
-	notify   chan struct{}
-	done     chan struct{}
-	writeMu  sync.Mutex
-	outputMu sync.Mutex
-	stateMu  sync.RWMutex
-	output   bytes.Buffer
-	running  bool
-	exitCode *int
-	readErr  string
-	finish   sync.Once
-	close    sync.Once
+	id         string
+	execID     string
+	resp       types.HijackedResponse
+	ctx        context.Context
+	cancel     context.CancelFunc
+	inspect    dockerExecInspectFunc
+	notify     chan struct{}
+	done       chan struct{}
+	writeMu    sync.Mutex
+	outputMu   sync.Mutex
+	stateMu    sync.RWMutex
+	activityMu sync.Mutex
+	lastActive time.Time
+	output     bytes.Buffer
+	running    bool
+	exitCode   *int
+	readErr    string
+	finish     sync.Once
+	close      sync.Once
 }
 
 func newDockerExecSession(
@@ -639,18 +700,49 @@ func newDockerExecSession(
 	inspect dockerExecInspectFunc,
 ) *dockerExecSession {
 	session := &dockerExecSession{
-		id:      id,
-		execID:  execID,
-		resp:    resp,
-		ctx:     ctx,
-		cancel:  cancel,
-		inspect: inspect,
-		notify:  make(chan struct{}, 1),
-		done:    make(chan struct{}),
-		running: true,
+		id:         id,
+		execID:     execID,
+		resp:       resp,
+		ctx:        ctx,
+		cancel:     cancel,
+		inspect:    inspect,
+		notify:     make(chan struct{}, 1),
+		done:       make(chan struct{}),
+		running:    true,
+		lastActive: time.Now(),
 	}
 	go session.readLoop()
+	go session.idleReaper()
 	return session
+}
+
+// touch 记录一次读写活动,供空闲回收判断。
+func (s *dockerExecSession) touch() {
+	s.activityMu.Lock()
+	s.lastActive = time.Now()
+	s.activityMu.Unlock()
+}
+
+// idleReaper 定期巡检,超过 dockerExecSessionIdleTimeout 没有任何读写活动的
+// 会话自动 stop;会话正常结束时(done 关闭)本 goroutine 随之退出。
+func (s *dockerExecSession) idleReaper() {
+	ticker := time.NewTicker(dockerExecSessionIdleCheckInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-ticker.C:
+			s.activityMu.Lock()
+			idle := time.Since(s.lastActive)
+			s.activityMu.Unlock()
+			if idle >= dockerExecSessionIdleTimeout {
+				log.Info().Str("session", s.id).Dur("idle", idle).Msg("docker exec session idle timeout, closing")
+				s.stop()
+				return
+			}
+		}
+	}
 }
 
 func (s *dockerExecSession) readLoop() {
@@ -750,6 +842,7 @@ func (s *dockerExecSession) snapshot() DockerExecSessionReadResult {
 }
 
 func (s *dockerExecSession) read(wait time.Duration) DockerExecSessionReadResult {
+	s.touch()
 	result := s.snapshot()
 	if len(result.Data) > 0 || !result.Running || wait <= 0 {
 		return result
@@ -769,6 +862,7 @@ func (s *dockerExecSession) write(data string) error {
 	if data == "" {
 		return nil
 	}
+	s.touch()
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 

@@ -85,6 +85,8 @@ func (a *CsvAdapter) Ping() error {
 
 // GetColumns 获取列名
 func (a *CsvAdapter) GetColumns() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	maxCols := maxColumnCount(a.rows)
 	if maxCols == 0 {
 		maxCols = 10
@@ -101,6 +103,8 @@ func (a *CsvAdapter) GetSheetNames() []string {
 
 // ReadSheet 以工作表模型读取 CSV,第 1 行作为表头。
 func (a *CsvAdapter) ReadSheet(sheetName string, offset, limit int) (*SheetData, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if sheetName != "" && sheetName != csvSheetName {
 		return nil, fmt.Errorf("csv only supports virtual sheet %q", csvSheetName)
 	}
@@ -171,6 +175,8 @@ func (a *CsvAdapter) GetRows(offset, limit int) [][]string {
 
 // TotalRows 总行数
 func (a *CsvAdapter) TotalRows() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if len(a.rows) == 0 {
 		return 0
 	}
@@ -200,6 +206,8 @@ func (a *CsvAdapter) WriteCells(cells []CellChange) error {
 
 // WriteHeaders 重写 CSV 第 1 行表头。
 func (a *CsvAdapter) WriteHeaders(headers []string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if len(headers) == 0 {
 		return fmt.Errorf("headers cannot be empty")
 	}
@@ -211,6 +219,8 @@ func (a *CsvAdapter) WriteHeaders(headers []string) error {
 
 // InsertRows 在数据区插入行
 func (a *CsvAdapter) InsertRows(dataRow, count int) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if count < 1 {
 		count = 1
 	}
@@ -237,6 +247,8 @@ func (a *CsvAdapter) InsertRows(dataRow, count int) error {
 
 // DeleteRows 删除数据区行
 func (a *CsvAdapter) DeleteRows(dataRow, count int) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if count < 1 {
 		count = 1
 	}
@@ -277,6 +289,8 @@ func (a *CsvAdapter) InsertCols(col, count int) error {
 
 // DeleteCols 删除列
 func (a *CsvAdapter) DeleteCols(col, count int) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if count < 1 {
 		count = 1
 	}
@@ -320,6 +334,8 @@ func (a *CsvAdapter) SortRows(col int, descending bool) error {
 
 // FindReplace 在 CSV 全文件中查找替换
 func (a *CsvAdapter) FindReplace(opts FindReplaceOptions) (int, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if opts.Find == "" {
 		return 0, fmt.Errorf("find text is required")
 	}
@@ -352,6 +368,8 @@ func (a *CsvAdapter) FindReplace(opts FindReplaceOptions) (int, error) {
 
 // RemoveDuplicates 删除重复数据行,保留第一条。
 func (a *CsvAdapter) RemoveDuplicates(columns []int) (int, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if len(a.rows) <= 1 {
 		return 0, nil
 	}
@@ -376,6 +394,8 @@ func (a *CsvAdapter) RemoveDuplicates(columns []int) (int, error) {
 
 // Save 保存 CSV
 func (a *CsvAdapter) Save() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.filePath == "" {
 		return fmt.Errorf("no file path specified")
 	}

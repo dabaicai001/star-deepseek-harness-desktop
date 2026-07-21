@@ -103,12 +103,13 @@ func newDockerSSHTransport(info *DockerConnInfo) (*http.Transport, []*ssh.Client
 		useSudo:    useSudo,
 	}
 	return &http.Transport{
-		DialContext:         dialer.DialContext,
-		DisableCompression:  true,
-		ForceAttemptHTTP2:   false,
-		MaxIdleConns:        8,
-		MaxIdleConnsPerHost: 8,
-		IdleConnTimeout:     30 * time.Second,
+		DialContext:           dialer.DialContext,
+		DisableCompression:    true,
+		ForceAttemptHTTP2:     false,
+		MaxIdleConns:          8,
+		MaxIdleConnsPerHost:   8,
+		IdleConnTimeout:       30 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
 	}, clients, nil
 }
 
