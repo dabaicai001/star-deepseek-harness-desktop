@@ -277,6 +277,7 @@ export default {
     transferActive: '传输中 {count} 项',
     clearFinished: '清理已完成',
     minimize: '最小化到任务条',
+    dragHint: '拖动调整位置,双击复位',
     noTransfers: '暂无传输任务',
     speedLimit: '限速',
     speedUnlimited: '不限速',

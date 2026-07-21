@@ -277,6 +277,7 @@ export default {
     transferActive: '{count} transferring',
     clearFinished: 'Clear finished',
     minimize: 'Minimize to taskbar',
+    dragHint: 'Drag to move, double-click to reset',
     noTransfers: 'No active transfers',
     speedLimit: 'Speed Limit',
     speedUnlimited: 'Unlimited',

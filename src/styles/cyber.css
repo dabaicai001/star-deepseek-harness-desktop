@@ -4893,6 +4893,15 @@ body {
   gap: 8px;
 }
 
+/* 拖到上半屏时:展开面板翻转到 pill 下方,避免顶出视口 */
+.transfer-dock.drop-down {
+  flex-direction: column-reverse;
+}
+
+.transfer-dock.dragging {
+  transition: none;
+}
+
 /* 任务条(最小化态):胶囊 + 聚合进度 */
 .transfer-dock-pill {
   display: flex;
@@ -4908,9 +4917,16 @@ body {
   -webkit-backdrop-filter: blur(20px);
   color: var(--text-2);
   font-size: 11px;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
   box-shadow: var(--shadow);
   transition: border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.transfer-dock.dragging .transfer-dock-pill {
+  cursor: grabbing;
+  border-color: var(--focus-cyan);
 }
 
 .transfer-dock-pill:hover {
