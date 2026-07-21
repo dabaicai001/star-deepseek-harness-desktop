@@ -14,6 +14,7 @@ import AiChat from '@/components/ai/AiChat.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
 import ProductIcon from '@/components/common/ProductIcon.vue'
 import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
+import { extractFromTables } from '@/utils/sqlTables'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
@@ -246,6 +247,52 @@ const allTableNames = computed(() => {
     for (const t of tbls) out.push(t.name)
   }
   return out
+})
+
+// ─── SQL 字段名补全:列元数据缓存("db.table" -> 列名列表) ───
+const columnNameCache = ref<Map<string, string[]>>(new Map())
+
+function cacheColumnNames(db: string, table: string, cols: { name: string }[]) {
+  if (!db || !table || cols.length === 0) return
+  columnNameCache.value.set(`${db}.${table}`, cols.map(c => c.name))
+  columnNameCache.value = new Map(columnNameCache.value)
+}
+
+/** 当前 SQL 编辑器 tab 生效的库(编辑器内联选择优先,其次侧栏选中库) */
+const activeEditorDb = computed(() => activeSqlEditorTab.value?.selectedDb || selectedDb.value)
+
+// 喂给 SqlEditor 的补全 schema:当前库口径下已缓存列的 表 -> 列名
+const sqlCompletionSchema = computed(() => {
+  const out: Record<string, string[]> = {}
+  const dbs = activeEditorDb.value ? [activeEditorDb.value] : [...databaseTables.value.keys()]
+  for (const db of dbs) {
+    for (const tbl of databaseTables.value.get(db) ?? []) {
+      const cols = columnNameCache.value.get(`${db}.${tbl.name}`)
+      if (cols) out[tbl.name] = cols
+    }
+  }
+  return out
+})
+
+// SQL 文本里 FROM/JOIN 引用了但还没缓存列的表,防抖后惰性拉取(作为补全数据源)
+let columnFetchTimer: ReturnType<typeof setTimeout> | null = null
+watch(() => activeSqlEditorTab.value?.sqlText, (sqlText) => {
+  if (columnFetchTimer) clearTimeout(columnFetchTimer)
+  if (!sqlText || !connId.value) return
+  columnFetchTimer = setTimeout(() => {
+    const db = activeEditorDb.value
+    if (!db || !connId.value) return
+    const missing = extractFromTables(sqlText).filter(tbl => !columnNameCache.value.has(`${db}.${tbl}`))
+    if (missing.length === 0) return
+    void Promise.all(missing.map(async (tbl) => {
+      try {
+        const cols = isClickhouse.value
+          ? await dbService.clickhouseListColumns(connId.value!, tbl, db)
+          : await dbService.mysqlListColumns(connId.value!, tbl, db)
+        cacheColumnNames(db, tbl, cols)
+      } catch { /* 补全数据拉取失败不影响编辑 */ }
+    }))
+  }, 400)
 })
 
 // 表格搜索
@@ -637,6 +684,7 @@ async function loadTableDataFor(tab: TableSubTab, force = false) {
       const [meta, data] = await Promise.all([metaPromise, dataPromise])
       if (isStale()) return
       tab.columns = meta.columns
+      cacheColumnNames(tab.db, tab.table, meta.columns)
       tab.dataTotal = data.totalRows != null ? data.totalRows : meta.rowCount
       tab.data = data
     } else {
@@ -691,6 +739,7 @@ async function reloadActiveTable() {
     tab.columns = isClickhouse.value
       ? await dbService.clickhouseListColumns(connId.value, tab.table, tab.db)
       : await dbService.mysqlListColumns(connId.value, tab.table, tab.db)
+    cacheColumnNames(tab.db, tab.table, tab.columns)
   // 重新拉数据
   await loadTableDataFor(tab, true)
 }
@@ -901,6 +950,84 @@ function onTableDataSortChange(col: string) {
 // ─── 表数据筛选 ───
 let filterDebounceTimer: ReturnType<typeof setTimeout> | null = null
 const whereInputRef = ref<HTMLInputElement | null>(null)
+
+// ─── WHERE 输入条:字段名模糊匹配下拉 ───
+const whereSuggest = ref<{ open: boolean; items: ColumnMeta[]; index: number; wordStart: number }>({
+  open: false, items: [], index: 0, wordStart: 0
+})
+// Enter 被补全消费过的标记:避免同一次回车既选列又触发查询
+let whereEnterHandled = false
+
+/** 按光标上下文刷新 WHERE 字段名建议;不在期望列名的位置时关闭 */
+function updateWhereSuggest() {
+  const input = whereInputRef.value
+  const tab = activeTableTab.value
+  if (!input || !tab || tab.columns.length === 0) { whereSuggest.value.open = false; return }
+  const pos = input.selectionStart ?? input.value.length
+  const before = input.value.slice(0, pos)
+  const word = before.match(/[\w$]*$/)?.[0] ?? ''
+  const ctx = before.slice(0, before.length - word.length)
+  const prevToken = ctx.trimEnd().match(/(\S+)$/)?.[1] ?? ''
+  // 只在期望列名的上下文提示:开头 / where / and / or / on / not / by / ( / , 之后
+  if (!(ctx.trim() === '' || /^(where|and|or|on|not|by|\(|,)$/i.test(prevToken))) {
+    whereSuggest.value.open = false
+    return
+  }
+  const kw = word.toLowerCase()
+  const matched = tab.columns
+    .filter(c => !kw || c.name.toLowerCase().includes(kw))
+    .sort((a, b) => Number(b.name.toLowerCase().startsWith(kw)) - Number(a.name.toLowerCase().startsWith(kw)))
+    .slice(0, 10)
+  if (matched.length === 0) { whereSuggest.value.open = false; return }
+  whereSuggest.value = { open: true, items: matched, index: 0, wordStart: pos - word.length }
+}
+
+/** 把选中的列名以反引号形式写回输入框(替换正在输入的单词) */
+function acceptWhereSuggest(colName: string) {
+  const input = whereInputRef.value
+  const tab = activeTableTab.value
+  if (!input || !tab) return
+  const pos = input.selectionStart ?? input.value.length
+  const before = input.value.slice(0, whereSuggest.value.wordStart)
+  const after = input.value.slice(pos)
+  const inserted = '`' + colName + '`'
+  tab.whereClause = before + inserted + after
+  whereSuggest.value.open = false
+  void input.focus()
+  requestAnimationFrame(() => {
+    const p = before.length + inserted.length
+    input.setSelectionRange(p, p)
+  })
+}
+
+function onWhereKeydown(e: KeyboardEvent) {
+  const sg = whereSuggest.value
+  if (!sg.open) return
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    sg.index = (sg.index + 1) % sg.items.length
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    sg.index = (sg.index - 1 + sg.items.length) % sg.items.length
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault()
+    whereEnterHandled = true
+    acceptWhereSuggest(sg.items[sg.index].name)
+  } else if (e.key === 'Escape') {
+    sg.open = false
+  }
+}
+
+function onWhereEnter() {
+  // 回车已用于选中建议项时不触发查询
+  if (whereEnterHandled) { whereEnterHandled = false; return }
+  applyTableFilters()
+}
+
+function onWhereBlur() {
+  whereSuggest.value.open = false
+  applyTableFilters()
+}
 
 const hasActiveFilters = computed(() => {
   const tab = activeTableTab.value
@@ -2244,9 +2371,26 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                   type="text"
                   class="cyber-input filter-where-input"
                   placeholder="name = 'test' AND age > 18"
-                  @keyup.enter="applyTableFilters"
-                  @blur="applyTableFilters"
+                  @input="updateWhereSuggest"
+                  @focus="updateWhereSuggest"
+                  @keydown="onWhereKeydown"
+                  @keyup.enter="onWhereEnter"
+                  @blur="onWhereBlur"
                 />
+                <!-- 字段名模糊匹配下拉 -->
+                <div v-if="whereSuggest.open" class="where-suggest">
+                  <div
+                    v-for="(col, i) in whereSuggest.items"
+                    :key="col.name"
+                    class="where-suggest-item"
+                    :class="{ active: i === whereSuggest.index }"
+                    @mousedown.prevent="acceptWhereSuggest(col.name)"
+                    @mouseenter="whereSuggest.index = i"
+                  >
+                    <span class="where-suggest-name">{{ col.name }}</span>
+                    <span class="where-suggest-type">{{ col.type }}</span>
+                  </div>
+                </div>
                 <button
                   class="filter-where-apply"
                   :class="{ visible: activeTableTab.whereClause }"
@@ -2350,6 +2494,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
                 v-model="activeSqlEditorTab.sqlText"
                 :dialect="asset?.config.dbType === 'redis' ? 'redis' : asset?.config.dbType === 'postgresql' ? 'postgresql' : 'mysql'"
                 :tables="allTableNames"
+                :schema="sqlCompletionSchema"
                 @execute="executeSql"
                 @explain="explainSql"
               />
@@ -3035,6 +3180,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   display: flex;
   align-items: center;
   gap: 0;
+  position: relative;
 }
 .filter-where-prefix {
   padding: 0 8px;

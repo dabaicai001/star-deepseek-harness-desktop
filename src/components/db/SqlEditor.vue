@@ -3,6 +3,8 @@ import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EditorView, basicSetup } from 'codemirror'
 import { sql, MySQL, PostgreSQL } from '@codemirror/lang-sql'
+import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
+import { extractFromTables } from '@/utils/sqlTables'
 import { Compartment, EditorState } from '@codemirror/state'
 import { keymap } from '@codemirror/view'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
@@ -14,6 +16,8 @@ const props = defineProps<{
   dialect?: 'mysql' | 'postgresql' | 'redis'
   readonly?: boolean
   tables?: string[]
+  /** 表名 -> 列名列表,用于 WHERE 等上下文后的字段名模糊补全 */
+  schema?: Record<string, string[]>
   placeholder?: string
 }>()
 
@@ -171,14 +175,60 @@ const cyberTheme = EditorView.theme({
   }
 })
 
+/**
+ * 字段名补全:从 SQL 文本的 FROM / JOIN / UPDATE / INSERT INTO 推断涉及的表,
+ * 在 WHERE / AND / OR / ON / SET / BY / , / ( 等上下文后给出这些表的列名
+ * (模糊匹配与排序由 CodeMirror 补全框架完成)。
+ * `表名.` 前缀的场景交给 lang-sql 自带补全,这里直接跳过。
+ */
+let schemaLowerCache: { src: Record<string, string[]>; map: Map<string, string[]> } | null = null
+function schemaColumnsOf(table: string): string[] | undefined {
+  const schema = props.schema ?? {}
+  if (!schemaLowerCache || schemaLowerCache.src !== schema) {
+    const map = new Map<string, string[]>()
+    for (const [k, v] of Object.entries(schema)) map.set(k.toLowerCase(), v)
+    schemaLowerCache = { src: schema, map }
+  }
+  return schema[table] ?? schemaLowerCache.map.get(table.toLowerCase())
+}
+
+function columnCompletionSource(context: CompletionContext): CompletionResult | null {
+  if (!props.schema || Object.keys(props.schema).length === 0) return null
+  // `table.` / `alias.` 前缀 → lang-sql 的 schema 补全处理
+  if (context.matchBefore(/[\w$]+\.[\w$]*$/)) return null
+  const word = context.matchBefore(/[\w$]+/)
+  if (!word) {
+    // 光标前还没输入单词:只在期望列名的上下文(where/and/or/on/set/by/,/( 之后)触发
+    const before = context.state.sliceDoc(Math.max(0, context.pos - 32), context.pos)
+    if (!/(?:\bwhere|\band|\bor|\bon|\bset|\bby|,|\()\s*$/i.test(before)) return null
+  }
+  const tables = extractFromTables(context.state.doc.toString())
+  if (tables.length === 0) return null
+  const seen = new Set<string>()
+  const options: Completion[] = []
+  for (const table of tables) {
+    for (const col of schemaColumnsOf(table) ?? []) {
+      if (seen.has(col)) continue
+      seen.add(col)
+      options.push({ label: col, type: 'property', detail: table, boost: 1 })
+    }
+  }
+  if (options.length === 0) return null
+  return { from: word ? word.from : context.pos, options, validFor: /^[\w$]*$/ }
+}
+
 function buildLangExtension() {
   if (props.dialect === 'redis') return []
   const dialect = props.dialect === 'postgresql' ? PostgreSQL : MySQL
-  return sql({
+  const support = sql({
     dialect,
-    schema: {},
+    schema: props.schema ?? {},
     tables: props.tables?.map(t => ({ label: t })) || []
   })
+  return [
+    support,
+    support.language.data.of({ autocomplete: columnCompletionSource })
+  ]
 }
 
 function createEditor() {
@@ -232,7 +282,7 @@ function createEditor() {
   })
 }
 
-watch(() => props.tables, () => {
+watch([() => props.tables, () => props.schema], () => {
   if (editorView) {
     editorView.dispatch({
       effects: langCompartment.reconfigure(buildLangExtension())

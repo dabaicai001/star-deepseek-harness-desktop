@@ -4561,6 +4561,56 @@ body {
   white-space: nowrap;
 }
 
+/* ============================================
+   WHERE 筛选条字段名模糊匹配下拉(表数据视图)
+   ============================================ */
+.where-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 220px;
+  max-height: 260px;
+  padding: 4px;
+  overflow-y: auto;
+  background: var(--panel-solid-2);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.where-suggest-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.where-suggest-item.active,
+.where-suggest-item:hover {
+  background: var(--hover-cyan-soft);
+}
+
+.where-suggest-item.active .where-suggest-name,
+.where-suggest-item:hover .where-suggest-name {
+  color: var(--cyan);
+}
+
+.where-suggest-name {
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.where-suggest-type {
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+}
+
 @media (max-width: 980px) {
   .ai-agent-profile {
     display: none;
