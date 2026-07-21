@@ -397,15 +397,61 @@ body {
   overflow: hidden;
 }
 
-.cyber-panel::before {
+.cyber-panel::before,
+.cyber-card::before,
+.connection-card::before,
+.zmodem-transfer-bar::before {
   content: "";
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 1px;
-  background: var(--grad-primary);
-  opacity: 0.6;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--cyan) 10%,
+    var(--purple) 28%,
+    var(--cyan) 46%,
+    var(--purple) 64%,
+    var(--cyan) 82%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: liquid-light 2.8s ease-in-out infinite;
+  opacity: 0.85;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* 液体流动灯带光晕层 */
+.cyber-panel::after,
+.cyber-card::after,
+.connection-card::after,
+.zmodem-transfer-bar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--cyan) 10%,
+    var(--purple) 28%,
+    var(--cyan) 46%,
+    var(--purple) 64%,
+    var(--cyan) 82%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: liquid-light 2.8s ease-in-out infinite;
+  animation-delay: 0.15s;
+  filter: blur(5px);
+  opacity: 0.35;
+  z-index: 0;
+  pointer-events: none;
 }
 
 /* Button styles */
@@ -524,17 +570,6 @@ body {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
-}
-
-.cyber-card::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--grad-primary);
-  opacity: 0.4;
 }
 
 .cyber-card:hover {
@@ -771,6 +806,28 @@ body {
   50% { transform: translateY(-4px); }
 }
 
+/* 顶部液体流动灯带:青紫渐变左右流动 + 轻微晃动,模拟霓虹液体 */
+@keyframes liquid-light {
+  0% {
+    background-position: 0% 50%;
+    transform: translateX(-2px) scaleY(1);
+  }
+  25% {
+    transform: translateX(3px) scaleY(1.25);
+  }
+  50% {
+    background-position: 100% 50%;
+    transform: translateX(2px) scaleY(1);
+  }
+  75% {
+    transform: translateX(-3px) scaleY(1.25);
+  }
+  100% {
+    background-position: 0% 50%;
+    transform: translateX(-2px) scaleY(1);
+  }
+}
+
 /* Grid background */
 .grid-bg::before {
   content: "";
@@ -857,17 +914,6 @@ body {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
-}
-
-.connection-card::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--grad-primary);
-  opacity: 0.3;
 }
 
 .connection-card:hover {
@@ -5213,18 +5259,6 @@ body {
   box-shadow: var(--glow-soft);
   position: relative;
   overflow: hidden;
-}
-
-/* 顶部 1px 主渐变高光,与 cyber-panel 同一语言 */
-.zmodem-transfer-bar::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--grad-primary);
-  opacity: 0.5;
 }
 
 .zmodem-transfer-icon {
