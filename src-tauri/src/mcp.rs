@@ -823,7 +823,7 @@ pub async fn call_tool(
 
 #[cfg(test)]
 mod tests {
-    use super::{id_matches, rpc_result, stdio_call_tool, stdio_list_tools, McpServerConfig};
+    use super::{evict_stdio_client, id_matches, rpc_result, stdio_call_tool, stdio_list_tools, McpServerConfig};
     use serde_json::json;
 
     fn node_stdio_server() -> Option<McpServerConfig> {
@@ -905,13 +905,22 @@ rl.on('line', line => {
         let Some(server) = node_stdio_server() else {
             return;
         };
-        let tools = stdio_list_tools(&server).await.unwrap();
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name, "echo");
+        // 长驻 client 缓存在静态 map 里,测试结束若不显式杀掉子进程,
+        // Windows 上测试线程退出、运行时回收管道/子进程句柄时可能永久挂起
+        // (CI 曾因此卡满 90 分钟 job 超时)。整体加硬超时兜底,结尾显式淘汰。
+        tokio::time::timeout(std::time::Duration::from_secs(120), async {
+            let tools = stdio_list_tools(&server).await.unwrap();
+            assert_eq!(tools.len(), 1);
+            assert_eq!(tools[0].name, "echo");
 
-        let result = stdio_call_tool(&server, "echo", json!({ "text": "hello" }))
-            .await
-            .unwrap();
-        assert_eq!(result["content"][0]["text"], "hello");
+            let result = stdio_call_tool(&server, "echo", json!({ "text": "hello" }))
+                .await
+                .unwrap();
+            assert_eq!(result["content"][0]["text"], "hello");
+
+            evict_stdio_client(&server.id).await;
+        })
+        .await
+        .expect("MCP stdio test timed out");
     }
 }
