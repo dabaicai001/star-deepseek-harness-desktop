@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.34.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.34.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.34.2 (2026-07-21)
+- 📝 新增「AI 运维剧本引擎」设计文档(`docs/superpowers/specs/2026-07-21-ai-playbook-engine-design.md`):跨 SSH/DB/SFTP/Docker 的多步自动化剧本,AI 生成 + 审批门 + 结构化回放
 
 ### v0.34.1 (2026-07-21)
 - 🎨 style(design-system): 面板/卡片/资产卡片/ZMODEM 传输条顶部高光改为液体流动灯带(青紫渐变左右流动 + 光晕晃动),所有 `.cyber-panel` / `.cyber-card` / `.connection-card` / `.zmodem-transfer-bar` 统一生效

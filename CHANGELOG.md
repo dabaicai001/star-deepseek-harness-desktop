@@ -12,6 +12,16 @@
 
 ---
 
+## [0.34.2] - 2026-07-21
+
+### 文档
+- 📝 docs(spec): 新增「AI 运维剧本引擎」设计文档 `docs/superpowers/specs/2026-07-21-ai-playbook-engine-design.md` — 跨 SSH/DB/SFTP/Docker/本机/MCP 的多步自动化剧本:复用现有 AI runtime 三元组与确认门机制,AI 自然语言生成草稿(不直执 + 首跑保护),SQLite 三表(playbooks/playbook_runs/playbook_run_steps)持久化,结构化步骤回放;明确 YAGNI 剪枝(定时调度/并行 DAG/子剧本嵌套留 v2 接口)。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.34.2(package.json / Cargo.toml / Cargo.lock / tauri.conf.json / CHANGELOG.md / AGENTS.md / README.md)。
+
+---
+
 ## [0.34.1] - 2026-07-21
 
 ### 样式
