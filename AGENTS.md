@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.34.0(SQL 字段补全;命令广播修复;其他见 CHANGELOG) |
+| 当前版本 | v0.34.1(面板/卡片顶部液体流动灯带;其他见 CHANGELOG) |
 
 ---
 
@@ -247,13 +247,13 @@ starhub/
 
 | 类名 | 用途 |
 |---|---|
-| `.cyber-panel` | 玻璃面板(带顶部 1px 主渐变高光 + blur) |
-| `.cyber-card` | 卡片(同 panel 但更紧凑,带 hover 上抬) |
+| `.cyber-panel` | 玻璃面板(带顶部液体流动灯带 + blur) |
+| `.cyber-card` | 卡片(同 panel 但更紧凑,带 hover 上抬;顶部液体流动灯带) |
 | `.cyber-btn` / `.cyber-btn-secondary` | 主按钮(渐变 + 光带扫过) / 次按钮(描边) |
 | `.action-btn` / `.action-btn.primary` | 工具栏图标按钮 |
 | `.cyber-input` | 输入框(深底 + 聚焦青色光环) |
 | `.cyber-number-input` | 数字输入框的等宽数字变体，不继承代码文本域最小高度 |
-| `.connection-card` / `.connection-icon(.ssh/.db/.docker/.add)` | 资产卡片 + 类型色块 |
+| `.connection-card` / `.connection-icon(.ssh/.db/.docker/.add)` | 资产卡片 + 类型色块(顶部液体流动灯带) |
 | `.tree-item` / `.tree-item.active` | 树节点(带左侧 2px 激活条 + 文字发光) |
 | `.status-dot(.online/.offline/.connecting)` | 状态点(绿/灰/青脉冲) |
 | `.cyber-badge` | 徽章(青底 + 等宽) |
@@ -689,4 +689,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-07-21 (v0.34.0)*
+*最后更新: 2026-07-21 (v0.34.1)*

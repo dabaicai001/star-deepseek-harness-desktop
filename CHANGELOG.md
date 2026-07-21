@@ -12,6 +12,16 @@
 
 ---
 
+## [0.34.1] - 2026-07-21
+
+### 样式
+- 🎨 style(design-system): 面板/卡片/资产卡片/ZMODEM 传输条顶部高光改为液体流动灯带 — 青紫渐变(`--cyan` → `--purple`)左右流动并伴随轻微左右晃动,所有 `.cyber-panel` / `.cyber-card` / `.connection-card` / `.zmodem-transfer-bar` 统一生效;新增 `::after` 模糊光晕层增强霓虹感。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.34.1(package.json / Cargo.toml / Cargo.lock / tauri.conf.json / CHANGELOG.md / AGENTS.md / README.md)。
+
+---
+
 ## [0.34.0] - 2026-07-21
 
 ### 新增
