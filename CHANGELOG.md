@@ -12,6 +12,47 @@
 
 ---
 
+## [0.33.0] - 2026-07-20
+
+### 新增
+- ✨ feat(transfer): 全局传输任务条 TransferDock 支持拖动换位 — Pointer Events 手势(与 tab 拖出同一模式,规避 Windows `dragDropEnabled` 对 HTML5 DnD 的拦截),位置持久化到 localStorage,上半屏时展开面板自动翻转到 pill 下方,双击复位默认右下角;解决其遮挡 AI 助手发送按钮的问题。
+
+### 修复
+- 🐛 fix(sidecar): Redis SSL 开关实际仍走明文 — go-redis v9 仅在 `TLSConfig != nil` 时启用 TLS,原代码 `info.SSL` 为 true 反而赋 nil;改为 `&tls.Config{MinVersion: TLS1.2}`。
+- 🐛 fix(sidecar): Excel/CSV 适配器互斥锁覆盖不全 — excelize.File 与 CSV 行集非 goroutine 安全,RPC 每请求一个 goroutine,Univer 自动保存并发写入会数据竞争甚至损坏文件;全部读写方法统一加锁。
+- 🐛 fix(sidecar): Redis `Select` 无锁换 client,并发命令 use-after-close;加 `sync.RWMutex`。
+- 🐛 fix(sidecar): Docker 容器日志 `bufio.Scanner` 64KB 行上限导致静默截断且不报错;上限提至 4MB 并上抛 `scanner.Err()`。
+- 🐛 fix(sidecar): Docker/ES 全部调用无超时(`context.Background()`),daemon 挂死时 goroutine 只增不减;统一 30s `WithTimeout`(拉镜像等长操作 30 分钟),docker-over-SSH 补 `ResponseHeaderTimeout`。
+- 🐛 fix(sidecar): 备份/Compose 子进程无超时、stderr 丢失(前端只见 `exit status 1`)、失败遗留半截文件;改 `CommandContext` + stderr 入错误信息 + 失败清理半成品。
+- 🐛 fix(sidecar): RPC 单行超 10MB 直接杀死整个 sidecar 进程;上限提至 64MB,超限行消耗后回错误响应继续服务。
+- 🐛 fix(sidecar): ES ScrollSearch 创建 2 分钟 scroll 上下文但从不 ClearScroll,高频使用耗尽 ES scroll 槽;响应返回前主动清理。
+- 🐛 fix(sidecar): ClickHouse Ping 失败泄漏底层 conn;pool `Remove` 持锁关连接(网络 I/O)阻塞全部 Get,改为锁外 Close;Docker exec session 加 10 分钟空闲自动回收。
+- 🐛 fix(ssh): `ssh exec` 输出与超时均无上限且全程持 session 锁 — AI/前端发 `yes` 类命令可致内存无限膨胀;输出 4MB 截断、超时 clamp 上限。
+- 🐛 fix(sftp): `sftp_read`/`sftp_write` 整文件进内存经 IPC 传输且无大小限制;对齐 local 命令加上限,超限引导走 TransferManager 分块传输。
+- 🐛 fix(alert): 告警 webhook reqwest 无超时且串行 await,一个挂死地址让整个 alert_check IPC 永久挂起;加 10s 超时并并发发送。
+- 🐛 fix(sftp): TransferManager 任务表只增不减(慢性内存泄漏);终态任务滚动淘汰。浏览类 SFTP 操作(ls/stat/mkdir 等)复用缓存通道,不再每次完整 channel open + subsystem 协商。
+- 🐛 fix(ssh): SSH 写入 unbounded channel 无背压,ZMODEM 大文件 + 慢网络下无限堆积;改 bounded channel 背压。端口转发移除时存量连接继续转发,现记录子任务 AbortHandle 一并 abort。
+- 🐛 fix(sidecar-launcher): sidecar 崩溃后 tx 残留、后续调用永久失败只能重启应用;read_loop 加单行上限,崩溃后清空 tx 并支持惰性重连,消除 start 的 TOCTOU 竞态。
+- 🐛 fix(mcp): stdio MCP 每次工具调用都 spawn + initialize + kill 子进程,且超时按行重置可被刷行绕过;按 server 缓存长驻 client,超时覆盖整个请求。
+- 🐛 fix(ai): AI chat 每次请求重建 reqwest Client 丢连接池/TLS 复用;改共享实例。
+- 🐛 fix(ssh): 持全局 sessions 锁内 await attempts 锁的锁内 await 反模式;hostkey 确认失败分支 pending 条目残留。均修正。
+- 🐛 fix(layout): `<keep-alive>` 无 include/max,关闭标签页只移除 tab 记录,缓存组件永不卸载 — SSH 会话、xterm 实例、事件订阅、计时器全部泄漏;现 include 由打开 tab 驱动,关 tab 即真正 unmount 触发 `onBeforeUnmount` 清理,拖出独立窗口路径保留缓存不受影响。
+- 🐛 fix(ssh): 终端 AI 输出缓冲 `dataBuffer` 无上限增长(清空函数无调用方);改 500 块环形缓冲,AI capture 读取逻辑同步适配。
+- 🐛 fix(ssh): 命令广播弹窗背景为半透明 `--panel` 且无 backdrop-filter,终端内容透底导致文字几乎不可见;改用 `--panel-2` + blur(20px),阴影硬编码色改走 `--glow-soft` token。
+- 🐛 fix(docker/db): Docker/Db 仪表盘在 keep-alive 失活后仍 30s 轮询;与 SshDashboard 统一抽 `usePolling` composable,失活暂停、激活恢复。
+- 🐛 fix(db): DbView 表数据加载无竞态防护,快速翻页/排序时慢响应覆盖新状态;加 per-tab request token 只接受最新响应。
+
+### 性能
+- ⚡ perf(redis): KeyBrowser 模板内每次渲染对整个 key 列表重建 trie;改 per-db computed 缓存。
+- ⚡ perf(transfer): SFTP 进度事件每发一次全量克隆任务 Map;改 reactive Map 原地变更,已完成任务保留最近 100 条滚动淘汰。
+- ⚡ perf(ai): AI 会话 deep watch 流式期间每 token 全量深遍历 + 全量 JSON.stringify;改轻量 getter 跟踪;AiChat 滚动 watch 由全量 map+join 改为只跟踪末条消息长度。
+- ⚡ perf(redis): RedisCli 输出数组无上限、大结果整 JSON 进 DOM;保留最近 200 行,单行超 4000 字符截断提示。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.33.0(package.json / Cargo.toml / Cargo.lock / tauri.conf.json / CHANGELOG.md / AGENTS.md / README.md)。
+
+---
+
 ## [0.32.6] - 2026-07-20
 
 ### 修复

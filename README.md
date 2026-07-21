@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.32.6-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.33.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,12 @@
 ---
 
 ## 当前版本
+
+### v0.33.0 (2026-07-20)
+- ✨ 传输任务条 TransferDock 可拖动换位(Pointer Events 手势,位置持久化,双击复位),不再遮挡 AI 发送按钮
+- 🐛 修复 Redis SSL 开关实际走明文、Excel/CSV 并发写数据竞争、Docker 日志静默截断、命令广播弹窗文字几乎不可见
+- ⚡ 关闭标签页立即释放 SSH 会话与 xterm 实例;终端 AI 缓冲改环形上限;Sidecar 崩溃自动重连;全链路补超时与背压(30+ 项稳定性/性能修复)
+- 完整演进见 [CHANGELOG.md](./CHANGELOG.md)
 
 ### v0.32.6 (2026-07-20)
 - 🐛 修复标签页拖出独立窗口后白屏:修正 WebviewWindow URL 为 `/` 避免 vue-router 初始路径 `/index.html` 不匹配;独立窗口挂载工作区前等待资产列表加载,避免组件误判资产已删除把路由推回 `/`

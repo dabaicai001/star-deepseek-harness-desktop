@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.32.6(修复标签页拖出独立窗口白屏;URL 路径与资产加载竞态) |
+| 当前版本 | v0.33.0(稳定性与性能集中修复;TransferDock 可拖动;命令广播弹窗可读性) |
 
 ---
 
@@ -290,7 +290,7 @@ starhub/
 | `.ai-execution-plan` / `.ai-plan-*` / `.ai-current-agent-badge` | Planner → Executor 计划、点击选项、临时/并行 Agent、直连确认卡与当前 Agent 状态；当前计划在消息流末尾展示 |
 | `.ai-action-dock` | 连接工作区 AI 的当前待确认操作区，固定在消息流与输入框之间，不随历史消息滚走 |
 | `.ai-tool-call` / `.ai-tool-call-*` | 连接工作区 AI 工具卡片、完整命令代码区与状态边框 |
-| `.transfer-dock` / `.transfer-dock-*` | 全局传输任务条(右下角 pill + 展开面板),聚合 SFTP 上传/下载进度、限速与清理已完成 |
+| `.transfer-dock` / `.transfer-dock-*` | 全局传输任务条(右下角 pill + 展开面板),聚合 SFTP 上传/下载进度、限速与清理已完成;pill 可 Pointer Events 拖动换位(位置持久化,上半屏面板自动下翻,双击复位) |
 | `.detached-layout` / `.detached-titlebar` / `.detached-workspace` / `.tab-detach-hint(.armed)` / `body.tab-dragging` | 标签页拖出独立窗口的精简外壳(无 sidebar / tab 条 / 状态栏)、拖拽跟随提示芯片(armed 高亮)与拖拽中进行态 |
 
 #### 4.4.5.1 数据库与消息产品图标(强制)
@@ -688,4 +688,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-07-20 (v0.32.6)*
+*最后更新: 2026-07-20 (v0.33.0)*
