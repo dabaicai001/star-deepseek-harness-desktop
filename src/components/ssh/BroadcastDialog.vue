@@ -155,11 +155,14 @@ const noneSelected = computed(() => selectedIds.value.size === 0)
 
 <style scoped>
 .broadcast-dialog {
-  background: var(--panel);
+  background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 14px;
   overflow: hidden;
-  box-shadow: var(--shadow), 0 0 40px rgba(0, 240, 255, 0.08);
+  color: var(--text);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--shadow), var(--glow-soft);
 }
 
 .bd-header {
