@@ -11,6 +11,12 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::timeout;
 use tracing::debug;
 
+/// exec 单次输出上限,超出后截断并在结果尾部标注,避免远端命令刷屏打爆内存。
+const MAX_EXEC_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
+/// exec 超时秒数上限,防止调用方传入超大值让 channel 永远悬挂。
+const MAX_EXEC_TIMEOUT_SEC: u64 = 600;
+/// SSH 写通道缓冲条数上限:慢网络时发送端等待(背压),而不是无限堆积内存。
+const SSH_WRITE_CHANNEL_CAPACITY: usize = 256;
 const SFTP_PROBE_MARKER: &str = "__STARHUB_SFTP_PATH__";
 const SFTP_PROBE_NONE_MARKER: &str = "__STARHUB_SFTP_NONE__";
 const SFTP_SERVER_CANDIDATES: &[&str] = &[
@@ -100,6 +106,20 @@ struct PortForwardEntry {
     target_port: u16,
     /// 用于取消转发任务的 AbortHandle
     abort_handle: tokio::task::AbortHandle,
+    /// 每条接入连接派生的子任务(channel 建立 + 双向拷贝)的 AbortHandle,
+    /// 移除转发 / 断开 session 时一并终止,避免存量连接泄漏。
+    connection_handles: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>>,
+}
+
+impl PortForwardEntry {
+    fn abort_all(&self) {
+        self.abort_handle.abort();
+        if let Ok(handles) = self.connection_handles.lock() {
+            for handle in handles.iter() {
+                handle.abort();
+            }
+        }
+    }
 }
 
 pub struct SshSession {
@@ -108,6 +128,9 @@ pub struct SshSession {
     resize_tx: Option<watch::Sender<(u32, u32)>>,
     remote_forwards: RemoteForwards,
     port_forwards: Vec<PortForwardEntry>,
+    /// 浏览类 SFTP 操作(list/stat/remove/mkdir/rename/read/write)复用的通道,
+    /// 避免每个操作都重新 channel open + subsystem 协商。断线或操作失败时失效重建。
+    browse_sftp: Option<russh_sftp::client::SftpSession>,
 }
 
 impl SshSession {
@@ -118,6 +141,7 @@ impl SshSession {
             resize_tx: None,
             remote_forwards: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             port_forwards: Vec::new(),
+            browse_sftp: None,
         }
     }
 
@@ -356,7 +380,9 @@ impl SshSession {
             .await
             .map_err(|e| format!("Failed to request shell: {}", e))?;
         let mut writer = channel.make_writer();
-        let (write_tx, mut write_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        // bounded channel 提供背压:ZMODEM 大文件 + 慢网络时发送端会等待,
+        // 而不是让未发送数据在内存里无限堆积。
+        let (write_tx, mut write_rx) = mpsc::channel::<Vec<u8>>(SSH_WRITE_CHANNEL_CAPACITY);
         let (resize_tx, mut resize_rx) = watch::channel((pty_cols, pty_rows));
         self.resize_tx = Some(resize_tx);
         {
@@ -788,19 +814,25 @@ impl SshSession {
             .await
             .map_err(|e| format!("Failed to exec command: {}", e))?;
         let mut output = Vec::<u8>::new();
+        let mut truncated = false;
         let mut exit_status: Option<u32> = None;
         let collect = async {
             while let Some(msg) = channel.wait().await {
                 match msg {
-                    ChannelMsg::Data { data } => output.extend_from_slice(&data),
-                    ChannelMsg::ExtendedData { data, .. } => output.extend_from_slice(&data),
+                    ChannelMsg::Data { data } => {
+                        truncated |= append_capped(&mut output, &data, MAX_EXEC_OUTPUT_BYTES);
+                    }
+                    ChannelMsg::ExtendedData { data, .. } => {
+                        truncated |= append_capped(&mut output, &data, MAX_EXEC_OUTPUT_BYTES);
+                    }
                     ChannelMsg::ExitStatus { exit_status: code } => exit_status = Some(code),
                     ChannelMsg::Eof | ChannelMsg::Close => break,
                     _ => {}
                 }
             }
         };
-        let timeout_duration = Duration::from_secs(timeout_sec.max(1));
+        let timeout_sec = timeout_sec.clamp(1, MAX_EXEC_TIMEOUT_SEC);
+        let timeout_duration = Duration::from_secs(timeout_sec);
         if timeout(timeout_duration, collect).await.is_err() {
             let _ = channel.close().await;
             return Err(format!(
@@ -808,7 +840,13 @@ impl SshSession {
                 timeout_sec, command
             ));
         }
-        let stdout = String::from_utf8_lossy(&output).to_string();
+        let mut stdout = String::from_utf8_lossy(&output).to_string();
+        if truncated {
+            stdout.push_str(&format!(
+                "\n[OUTPUT_TRUNCATED] output exceeded {} bytes and was truncated",
+                MAX_EXEC_OUTPUT_BYTES
+            ));
+        }
         match exit_status {
             Some(0) => Ok(stdout),
             None => {
@@ -938,11 +976,38 @@ impl SshSession {
         self.open_sftp_with_info().await.map(|(session, _)| session)
     }
 
+    /// 在缓存的浏览用 SFTP 通道上执行操作。
+    ///
+    /// 浏览类操作(list/stat/remove/mkdir/rename/read/write)此前每次都重新
+    /// channel open + subsystem 协商,代价很高;这里按 SSH session 缓存一条通道复用。
+    /// 操作失败(可能是通道已随断线失效)时丢弃缓存,下次调用自动重建。
+    pub async fn with_browse_sftp<T, F>(&mut self, f: F) -> Result<T, String>
+    where
+        F: for<'a> FnOnce(
+            &'a mut russh_sftp::client::SftpSession,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<T, String>> + Send + 'a>,
+        >,
+    {
+        if self.browse_sftp.is_none() {
+            self.browse_sftp = Some(self.open_sftp().await?);
+        }
+        let sftp = self.browse_sftp.as_mut().expect("browse sftp just opened");
+        let result = f(sftp).await;
+        if result.is_err() {
+            // 失败原因可能是文件不存在等业务错误,也可能是通道已死;
+            // 保守起见直接失效,下一次操作重建通道。
+            self.browse_sftp = None;
+        }
+        result
+    }
+
     pub fn disconnect(&mut self) {
         self.resize_tx = None;
-        // 停止所有端口转发任务
+        self.browse_sftp = None;
+        // 停止所有端口转发任务及其存量连接
         for pf in self.port_forwards.drain(..) {
-            pf.abort_handle.abort();
+            pf.abort_all();
         }
         if let Some(handle) = self.handle.take() {
             tokio::spawn(async move {
@@ -974,6 +1039,9 @@ impl SshSession {
 
         let target_host = remote_host.clone();
         let target_port = remote_port;
+        let connection_handles: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let connection_handles_for_loop = Arc::clone(&connection_handles);
 
         let task = tokio::spawn(async move {
             loop {
@@ -981,7 +1049,8 @@ impl SshSession {
                     Ok((tcp_stream, addr)) => {
                         let handle = handle.clone();
                         let target_host = target_host.clone();
-                        tokio::spawn(async move {
+                        let connection_handles_inner = Arc::clone(&connection_handles_for_loop);
+                        let connection_task = tokio::spawn(async move {
                             match handle
                                 .channel_open_direct_tcpip(
                                     &target_host,
@@ -998,7 +1067,7 @@ impl SshSession {
 
                                     // TCP -> SSH channel
                                     let mut writer = channel_writer;
-                                    tokio::spawn(async move {
+                                    let upload_task = tokio::spawn(async move {
                                         let mut buf = [0u8; 8192];
                                         loop {
                                             match tokio::io::AsyncReadExt::read(
@@ -1019,7 +1088,7 @@ impl SshSession {
                                     });
 
                                     // SSH channel -> TCP
-                                    tokio::spawn(async move {
+                                    let download_task = tokio::spawn(async move {
                                         loop {
                                             match channel.wait().await {
                                                 Some(ChannelMsg::Data { data }) => {
@@ -1039,6 +1108,12 @@ impl SshSession {
                                             }
                                         }
                                     });
+
+                                    // 记录双向拷贝任务的 handle,移除转发时一并终止
+                                    if let Ok(mut handles) = connection_handles_inner.lock() {
+                                        handles.push(upload_task.abort_handle());
+                                        handles.push(download_task.abort_handle());
+                                    }
                                 }
                                 Err(e) => {
                                     tracing::warn!(
@@ -1048,6 +1123,9 @@ impl SshSession {
                                 }
                             }
                         });
+                        if let Ok(mut handles) = connection_handles_for_loop.lock() {
+                            handles.push(connection_task.abort_handle());
+                        }
                     }
                     Err(_) => break,
                 }
@@ -1060,6 +1138,7 @@ impl SshSession {
             target_host: remote_host,
             target_port: remote_port,
             abort_handle: task.abort_handle(),
+            connection_handles,
         });
 
         Ok(actual_port)
@@ -1078,7 +1157,8 @@ impl SshSession {
         let actual_port = handle
             .tcpip_forward("0.0.0.0", remote_port as u32)
             .await
-            .map_err(|e| format!("Failed to request remote port forward: {}", e))? as u16;
+            .map_err(|e| format!("Failed to request remote port forward: {}", e))?
+            as u16;
 
         // 注册转发映射,供 SshHandler::server_channel_open_forwarded_tcpip 使用
         {
@@ -1093,6 +1173,7 @@ impl SshSession {
             target_port: local_port,
             // 远程转发由服务器发起,无需本地 task,用 dummy handle
             abort_handle: tokio::spawn(async {}).abort_handle(),
+            connection_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
         });
 
         Ok(actual_port)
@@ -1110,12 +1191,10 @@ impl SshSession {
             .port_forwards
             .iter()
             .position(|f| f.bound_port == bound_port && f.forward_type == forward_type)
-            .ok_or_else(|| {
-                format!("Port forward not found: {} {}", forward_type, bound_port)
-            })?;
+            .ok_or_else(|| format!("Port forward not found: {} {}", forward_type, bound_port))?;
 
         let entry = self.port_forwards.remove(idx);
-        entry.abort_handle.abort();
+        entry.abort_all();
 
         if is_remote {
             // 通知服务器取消远程端口监听
@@ -1143,6 +1222,21 @@ impl SshSession {
                 target_port: f.target_port,
             })
             .collect()
+    }
+}
+
+/// 向 buffer 追加数据,总量达到 cap 后丢弃多余部分;返回是否发生了截断。
+fn append_capped(buffer: &mut Vec<u8>, data: &[u8], cap: usize) -> bool {
+    if buffer.len() >= cap {
+        return !data.is_empty();
+    }
+    let remaining = cap - buffer.len();
+    if data.len() <= remaining {
+        buffer.extend_from_slice(data);
+        false
+    } else {
+        buffer.extend_from_slice(&data[..remaining]);
+        true
     }
 }
 

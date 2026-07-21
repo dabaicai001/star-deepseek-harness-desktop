@@ -11,6 +11,11 @@ fn map_err<E: std::fmt::Display>(e: E) -> String {
     format!("{}", e)
 }
 
+/// sftp_read 单次读取上限(整文件进内存 + IPC 传输)。超出请走 TransferManager 分块下载。
+const MAX_SFTP_READ_BYTES: u64 = 1024 * 1024;
+/// sftp_write 单次写入上限。超出请走 TransferManager 分块上传。
+const MAX_SFTP_WRITE_BYTES: usize = 2 * 1024 * 1024;
+
 /// 从 sessions map 中取出 Arc,立即释放主锁。
 /// 返回的 Arc 由调用方持有,保证 MutexGuard 有效。
 macro_rules! get_session_arc {
@@ -34,9 +39,11 @@ pub async fn sftp_list(
 ) -> Result<Vec<SftpEntry>, String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let sftp = session.open_sftp().await.map_err(map_err)?;
-
-    let read_dir = sftp.read_dir(&path).await.map_err(map_err)?;
+    let read_dir = session
+        .with_browse_sftp(|sftp| {
+            Box::pin(async move { sftp.read_dir(&path).await.map_err(map_err) })
+        })
+        .await?;
 
     let mut entries: Vec<SftpEntry> = Vec::new();
     for dir_entry in read_dir {
@@ -73,7 +80,8 @@ pub async fn sftp_list(
     Ok(entries)
 }
 
-/// 读文件内容(返回字节)
+/// 读文件内容(返回字节)。整文件进内存并经 IPC 传输,限制 1MB;
+/// 更大的文件请走 TransferManager 分块下载(sftp_start_download)。
 #[tauri::command]
 pub async fn sftp_read(
     manager: State<'_, SshManager>,
@@ -82,11 +90,25 @@ pub async fn sftp_read(
 ) -> Result<Vec<u8>, String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let sftp = session.open_sftp().await.map_err(map_err)?;
-    sftp.read(&path).await.map_err(map_err)
+    session
+        .with_browse_sftp(|sftp| {
+            Box::pin(async move {
+                let metadata = sftp.metadata(&path).await.map_err(map_err)?;
+                let size = metadata.size.unwrap_or(0);
+                if size > MAX_SFTP_READ_BYTES {
+                    return Err(format!(
+                        "[SFTP_FILE_TOO_LARGE] File is {} bytes, exceeding the {} bytes limit of sftp_read; use chunked download (sftp_start_download) instead",
+                        size, MAX_SFTP_READ_BYTES
+                    ));
+                }
+                sftp.read(&path).await.map_err(map_err)
+            })
+        })
+        .await
 }
 
-/// 写文件(覆盖)
+/// 写文件(覆盖)。整文件进内存并经 IPC 传输,限制 2MB;
+/// 更大的文件请走 TransferManager 分块上传(sftp_start_upload)。
 #[tauri::command]
 pub async fn sftp_write(
     manager: State<'_, SshManager>,
@@ -94,10 +116,20 @@ pub async fn sftp_write(
     path: String,
     data: Vec<u8>,
 ) -> Result<(), String> {
+    if data.len() > MAX_SFTP_WRITE_BYTES {
+        return Err(format!(
+            "[SFTP_FILE_TOO_LARGE] Payload is {} bytes, exceeding the {} bytes limit of sftp_write; use chunked upload (sftp_start_upload) instead",
+            data.len(),
+            MAX_SFTP_WRITE_BYTES
+        ));
+    }
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let sftp = session.open_sftp().await.map_err(map_err)?;
-    sftp.write(&path, &data).await.map_err(map_err)
+    session
+        .with_browse_sftp(|sftp| {
+            Box::pin(async move { sftp.write(&path, &data).await.map_err(map_err) })
+        })
+        .await
 }
 
 /// 读文件元数据
@@ -109,8 +141,12 @@ pub async fn sftp_stat(
 ) -> Result<SftpEntry, String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let sftp = session.open_sftp().await.map_err(map_err)?;
-    let metadata = sftp.metadata(&path).await.map_err(map_err)?;
+    let meta_path = path.clone();
+    let metadata = session
+        .with_browse_sftp(|sftp| {
+            Box::pin(async move { sftp.metadata(&meta_path).await.map_err(map_err) })
+        })
+        .await?;
     let name = std::path::Path::new(&path)
         .file_name()
         .and_then(|n| n.to_str())
@@ -137,8 +173,11 @@ pub async fn sftp_remove_file(
 ) -> Result<(), String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let sftp = session.open_sftp().await.map_err(map_err)?;
-    sftp.remove_file(&path).await.map_err(map_err)
+    session
+        .with_browse_sftp(|sftp| {
+            Box::pin(async move { sftp.remove_file(&path).await.map_err(map_err) })
+        })
+        .await
 }
 
 /// 删除目录(空目录)
@@ -150,8 +189,11 @@ pub async fn sftp_remove_dir(
 ) -> Result<(), String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let sftp = session.open_sftp().await.map_err(map_err)?;
-    sftp.remove_dir(&path).await.map_err(map_err)
+    session
+        .with_browse_sftp(|sftp| {
+            Box::pin(async move { sftp.remove_dir(&path).await.map_err(map_err) })
+        })
+        .await
 }
 
 /// 删除文件或空目录(自动判断)
@@ -163,14 +205,19 @@ pub async fn sftp_remove(
 ) -> Result<(), String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let sftp = session.open_sftp().await.map_err(map_err)?;
-    let metadata = sftp.metadata(&path).await.map_err(map_err)?;
-    if metadata.is_dir() {
-        sftp.remove_dir(&path).await.map_err(map_err)?;
-    } else {
-        sftp.remove_file(&path).await.map_err(map_err)?;
-    }
-    Ok(())
+    session
+        .with_browse_sftp(|sftp| {
+            Box::pin(async move {
+                let metadata = sftp.metadata(&path).await.map_err(map_err)?;
+                if metadata.is_dir() {
+                    sftp.remove_dir(&path).await.map_err(map_err)?;
+                } else {
+                    sftp.remove_file(&path).await.map_err(map_err)?;
+                }
+                Ok(())
+            })
+        })
+        .await
 }
 
 /// 创建目录
@@ -182,8 +229,11 @@ pub async fn sftp_mkdir(
 ) -> Result<(), String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let sftp = session.open_sftp().await.map_err(map_err)?;
-    sftp.create_dir(&path).await.map_err(map_err)
+    session
+        .with_browse_sftp(|sftp| {
+            Box::pin(async move { sftp.create_dir(&path).await.map_err(map_err) })
+        })
+        .await
 }
 
 /// 重命名
@@ -196,8 +246,11 @@ pub async fn sftp_rename(
 ) -> Result<(), String> {
     let session_arc = get_session_arc!(manager, id);
     let mut session = session_arc.lock().await;
-    let sftp = session.open_sftp().await.map_err(map_err)?;
-    sftp.rename(&from, &to).await.map_err(map_err)
+    session
+        .with_browse_sftp(|sftp| {
+            Box::pin(async move { sftp.rename(&from, &to).await.map_err(map_err) })
+        })
+        .await
 }
 
 // ============== 流式传输(走 TransferManager,分块 + progress 事件) ==============

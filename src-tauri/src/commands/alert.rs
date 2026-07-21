@@ -2,6 +2,22 @@ use crate::db;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
+/// webhook 请求超时,避免对端挂死导致告警检查整体卡死。
+const WEBHOOK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// 共享 reqwest Client(复用连接池 / TLS),带 10s 超时。
+fn webhook_client() -> Result<&'static reqwest::Client, String> {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client);
+    }
+    let client = reqwest::Client::builder()
+        .timeout(WEBHOOK_TIMEOUT)
+        .build()
+        .map_err(|e| format!("Failed to create webhook HTTP client: {e}"))?;
+    Ok(CLIENT.get_or_init(|| client))
+}
+
 /// 告警规则
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AlertRule {
@@ -187,6 +203,8 @@ pub async fn alert_check() -> Result<Vec<AlertCheckResult>, String> {
         .map_err(|e| format!("Failed to fetch alert rules: {}", e))?;
 
     let mut results = Vec::new();
+    // (result 下标, webhook_url, rule_name, message),循环结束后并发发送
+    let mut pending_webhooks: Vec<(usize, String, String, String)> = Vec::new();
 
     for row in rows {
         let rule = match row_to_alert_rule(&row) {
@@ -231,23 +249,35 @@ pub async fn alert_check() -> Result<Vec<AlertCheckResult>, String> {
             format!("正常: {} = {:.2}", rule.metric, metric_value)
         };
 
-        let webhook_sent = if triggered {
+        if triggered {
             if let Some(ref url) = rule.webhook_url {
-                send_webhook(url, &rule.name, &message).await.unwrap_or(false)
-            } else {
-                false
+                pending_webhooks.push((
+                    results.len(),
+                    url.clone(),
+                    rule.name.clone(),
+                    message.clone(),
+                ));
             }
-        } else {
-            false
-        };
+        }
 
         results.push(AlertCheckResult {
             rule_id: rule.id,
             rule_name: rule.name,
             triggered,
             message,
-            webhook_sent,
+            webhook_sent: false,
         });
+    }
+
+    // 并发发送所有触发的 webhook,避免串行等待拖慢整轮检查
+    let outcomes = futures::future::join_all(
+        pending_webhooks
+            .iter()
+            .map(|(_, url, name, message)| send_webhook(url, name, message)),
+    )
+    .await;
+    for ((index, ..), outcome) in pending_webhooks.iter().zip(outcomes) {
+        results[*index].webhook_sent = outcome.unwrap_or(false);
     }
 
     Ok(results)
@@ -256,7 +286,7 @@ pub async fn alert_check() -> Result<Vec<AlertCheckResult>, String> {
 /// 测试 webhook 连通性
 #[tauri::command]
 pub async fn alert_test_webhook(url: String) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = webhook_client()?;
     let payload = serde_json::json!({
         "text": "StarHub 告警 Webhook 测试",
         "source": "starhub",
@@ -284,7 +314,11 @@ pub async fn alert_test_webhook(url: String) -> Result<String, String> {
 }
 
 /// 从审计日志统计中查询指标值
-async fn query_metric(pool: &sqlx::SqlitePool, category: &str, metric: &str) -> Result<f64, String> {
+async fn query_metric(
+    pool: &sqlx::SqlitePool,
+    category: &str,
+    metric: &str,
+) -> Result<f64, String> {
     // 支持的指标:
     // - {category}.error_count: 指定类别最近1小时的失败操作数
     // - {category}.total_count: 指定类别最近1小时的总操作数
@@ -343,7 +377,7 @@ async fn query_metric(pool: &sqlx::SqlitePool, category: &str, metric: &str) -> 
 
 /// 发送 webhook 通知
 async fn send_webhook(url: &str, rule_name: &str, message: &str) -> Result<bool, String> {
-    let client = reqwest::Client::new();
+    let client = webhook_client()?;
     let payload = serde_json::json!({
         "text": format!("[StarHub 告警] {}: {}", rule_name, message),
         "source": "starhub",

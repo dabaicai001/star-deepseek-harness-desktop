@@ -89,6 +89,8 @@ impl client::Handler for SshHandler {
             match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
                 Ok(Ok(v)) => v,
                 Ok(Err(_)) => {
+                    let mut pending = self.pending_hostkey.lock().await;
+                    pending.remove(&self.session_id);
                     return Err(anyhow::anyhow!(
                         "[HOSTKEY_REJECTED] Host key prompt channel dropped"
                     ));
@@ -147,9 +149,7 @@ impl client::Handler for SshHandler {
                     error = %e,
                     "Remote port forward: failed to connect to local target"
                 );
-                reply
-                    .reject(ChannelOpenFailure::ConnectFailed)
-                    .await;
+                reply.reject(ChannelOpenFailure::ConnectFailed).await;
                 return Ok(());
             }
         };

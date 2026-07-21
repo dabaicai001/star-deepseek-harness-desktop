@@ -71,15 +71,26 @@ pub fn list_models() -> Vec<ModelInfo> {
     ]
 }
 
-pub async fn chat(request: ChatRequest) -> Result<ChatResponse, String> {
+/// 共享 HTTP client:复用连接池 / TLS 会话,避免每次 chat 都重建。
+/// API key 等头部按请求设置,不同请求间共享 client 是安全的。
+fn http_client() -> Result<&'static Client, String> {
+    static CLIENT: std::sync::OnceLock<Client> = std::sync::OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client);
+    }
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    Ok(CLIENT.get_or_init(|| client))
+}
+
+pub async fn chat(request: ChatRequest) -> Result<ChatResponse, String> {
+    let client = http_client()?;
 
     match request.provider.as_str() {
-        "claude" => chat_claude(&client, &request).await,
-        "openai" => chat_openai(&client, &request).await,
+        "claude" => chat_claude(client, &request).await,
+        "openai" => chat_openai(client, &request).await,
         _ => Err(format!("Unsupported provider: {}", request.provider)),
     }
 }

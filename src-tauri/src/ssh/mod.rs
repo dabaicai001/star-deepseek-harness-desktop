@@ -11,8 +11,7 @@ use tokio::sync::{oneshot, Mutex};
 
 pub type PendingKeyboardResponses = Arc<Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>>;
 pub type PendingHostKeyResponses = Arc<Mutex<HashMap<String, oneshot::Sender<(bool, bool)>>>>;
-pub type SshWriteChannels =
-    Arc<Mutex<HashMap<String, (u64, tokio::sync::mpsc::UnboundedSender<Vec<u8>>)>>>;
+pub type SshWriteChannels = Arc<Mutex<HashMap<String, (u64, tokio::sync::mpsc::Sender<Vec<u8>>)>>>;
 
 /// 端口转发信息(返回给前端)
 #[derive(Debug, Clone, Serialize, Deserialize)]

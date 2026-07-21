@@ -238,11 +238,15 @@ async fn connect_session(
         connected: true,
     };
 
-    // 只在插入 map 时短暂持锁，并在同一锁顺序下再次校验代次，
-    // 关闭 disconnect / 新 connect 与当前尝试完成之间的竞态窗口。
+    // 只在插入 map 时短暂持锁。锁顺序固定为 attempts -> sessions:
+    // 先取 attempts 锁(校验代次),再取 sessions 锁插入,
+    // 避免持 sessions 锁时 await attempts 锁的锁内 await 反模式,
+    // 同时关闭 disconnect / 新 connect 与当前尝试完成之间的竞态窗口。
+    let attempts = manager.attempts.lock().await;
     let mut sessions = manager.sessions.lock().await;
-    if !manager.is_current_attempt(&id, attempt_generation).await {
+    if attempts.get(&id).copied() != Some(attempt_generation) {
         drop(sessions);
+        drop(attempts);
         manager
             .remove_channel_for_attempt(&id, attempt_generation)
             .await;
@@ -291,10 +295,16 @@ pub async fn ssh_write(
     id: String,
     data: String,
 ) -> Result<(), String> {
-    let channels = manager.channels.lock().await;
+    // 克隆 sender 后立即释放 channels 锁再 await send(背压),
+    // 避免慢网络下写满缓冲时持锁阻塞 disconnect / 其他操作。
+    let tx = {
+        let channels = manager.channels.lock().await;
+        channels.get(&id).map(|(_, tx)| tx.clone())
+    };
 
-    if let Some((_, tx)) = channels.get(&id) {
+    if let Some(tx) = tx {
         tx.send(data.into_bytes())
+            .await
             .map_err(|_| "Failed to send data to channel".to_string())?;
     }
 
@@ -311,10 +321,15 @@ pub async fn ssh_write_binary(
     id: String,
     data: Vec<u8>,
 ) -> Result<(), String> {
-    let channels = manager.channels.lock().await;
+    // 与 ssh_write 同理:锁外 await send,形成背压。
+    let tx = {
+        let channels = manager.channels.lock().await;
+        channels.get(&id).map(|(_, tx)| tx.clone())
+    };
 
-    if let Some((_, tx)) = channels.get(&id) {
+    if let Some(tx) = tx {
         tx.send(data)
+            .await
             .map_err(|_| "Failed to send binary data to channel".to_string())?;
     }
 

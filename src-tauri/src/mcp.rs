@@ -3,7 +3,12 @@ use futures::{stream::BoxStream, StreamExt};
 use reqwest::{header, Client, RequestBuilder, Response, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::VecDeque, process::Stdio, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    process::Stdio,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines},
     process::{Child, ChildStdin, ChildStdout, Command},
@@ -138,6 +143,8 @@ struct StdioMcpClient {
     child: Child,
     stdin: ChildStdin,
     stdout: Lines<BufReader<ChildStdout>>,
+    /// 长驻 client 的递增请求 id(1 留给 initialize)
+    next_id: u64,
 }
 
 impl StdioMcpClient {
@@ -184,7 +191,14 @@ impl StdioMcpClient {
             child,
             stdin,
             stdout: BufReader::new(stdout).lines(),
+            next_id: 2,
         })
+    }
+
+    fn next_request_id(&mut self) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
     }
 
     async fn send(&mut self, message: &Value) -> Result<(), String> {
@@ -204,26 +218,32 @@ impl StdioMcpClient {
     }
 
     async fn wait_for(&mut self, id: u64) -> Result<Value, String> {
-        loop {
-            let line = timeout(REQUEST_TIMEOUT, self.stdout.next_line())
-                .await
-                .map_err(|_| format!("MCP stdio response timed out for request {id}"))?
-                .map_err(|e| format!("Failed to read MCP stdio response: {e}"))?
-                .ok_or_else(|| "MCP stdio server closed stdout".to_string())?;
-            if line.len() > MAX_STDIO_MESSAGE_BYTES {
-                return Err("MCP stdio response exceeded 8 MiB".to_string());
-            }
-            let message: Value = match serde_json::from_str(&line) {
-                Ok(value) => value,
-                Err(error) => {
-                    tracing::warn!("Ignoring malformed MCP stdout line: {error}");
-                    continue;
+        // 超时覆盖整个请求,而不是每读一行就重置
+        timeout(REQUEST_TIMEOUT, async {
+            loop {
+                let line = self
+                    .stdout
+                    .next_line()
+                    .await
+                    .map_err(|e| format!("Failed to read MCP stdio response: {e}"))?
+                    .ok_or_else(|| "MCP stdio server closed stdout".to_string())?;
+                if line.len() > MAX_STDIO_MESSAGE_BYTES {
+                    return Err("MCP stdio response exceeded 8 MiB".to_string());
                 }
-            };
-            if id_matches(&message, id) {
-                return Ok(message);
+                let message: Value = match serde_json::from_str(&line) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        tracing::warn!("Ignoring malformed MCP stdout line: {error}");
+                        continue;
+                    }
+                };
+                if id_matches(&message, id) {
+                    return Ok(message);
+                }
             }
-        }
+        })
+        .await
+        .map_err(|_| format!("MCP stdio response timed out for request {id}"))?
     }
 
     async fn request(&mut self, id: u64, method: &str, params: Value) -> Result<Value, String> {
@@ -243,19 +263,57 @@ impl StdioMcpClient {
     }
 }
 
-async fn stdio_list_tools(server: &McpServerConfig) -> Result<Vec<McpTool>, String> {
+/// 长驻 stdio MCP client 缓存(按 server.id):避免每次调用都 spawn + initialize + kill。
+/// 请求失败(通常是进程崩溃)时淘汰缓存,下一次调用自动重建。
+static STDIO_CLIENTS: OnceLock<
+    tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<StdioMcpClient>>>>,
+> = OnceLock::new();
+
+fn stdio_clients(
+) -> &'static tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<StdioMcpClient>>>> {
+    STDIO_CLIENTS.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
+}
+
+async fn get_stdio_client(
+    server: &McpServerConfig,
+) -> Result<Arc<tokio::sync::Mutex<StdioMcpClient>>, String> {
+    if let Some(client) = stdio_clients().lock().await.get(&server.id) {
+        return Ok(client.clone());
+    }
     let mut client = StdioMcpClient::connect(server).await?;
+    if let Err(error) = client.initialize().await {
+        client.shutdown().await;
+        return Err(error);
+    }
+    let client = Arc::new(tokio::sync::Mutex::new(client));
+    stdio_clients()
+        .lock()
+        .await
+        .insert(server.id.clone(), client.clone());
+    Ok(client)
+}
+
+/// 淘汰缓存的 stdio client 并杀掉残留进程,下一次调用会重新 spawn + initialize。
+async fn evict_stdio_client(server_id: &str) {
+    let client = stdio_clients().lock().await.remove(server_id);
+    if let Some(client) = client {
+        client.lock().await.shutdown().await;
+    }
+}
+
+async fn stdio_list_tools(server: &McpServerConfig) -> Result<Vec<McpTool>, String> {
+    let client = get_stdio_client(server).await?;
+    let mut guard = client.lock().await;
     let result = async {
-        client.initialize().await?;
         let mut tools = Vec::new();
         let mut cursor: Option<String> = None;
-        for page in 0..MAX_TOOL_PAGES {
-            let id = page as u64 + 2;
+        for _ in 0..MAX_TOOL_PAGES {
+            let id = guard.next_request_id();
             let params = cursor
                 .as_ref()
                 .map(|value| json!({ "cursor": value }))
                 .unwrap_or_else(|| json!({}));
-            let response = client.request(id, "tools/list", params).await?;
+            let response = guard.request(id, "tools/list", params).await?;
             let page_tools = response.get("tools").cloned().unwrap_or_else(|| json!([]));
             tools.extend(
                 serde_json::from_value::<Vec<McpTool>>(page_tools)
@@ -273,8 +331,14 @@ async fn stdio_list_tools(server: &McpServerConfig) -> Result<Vec<McpTool>, Stri
         Err("MCP tools/list exceeded 100 pages".to_string())
     }
     .await;
-    client.shutdown().await;
-    result
+    match result {
+        Ok(tools) => Ok(tools),
+        Err(error) => {
+            drop(guard);
+            evict_stdio_client(&server.id).await;
+            Err(error)
+        }
+    }
 }
 
 async fn stdio_call_tool(
@@ -282,20 +346,24 @@ async fn stdio_call_tool(
     tool_name: &str,
     arguments: Value,
 ) -> Result<Value, String> {
-    let mut client = StdioMcpClient::connect(server).await?;
-    let result = async {
-        client.initialize().await?;
-        client
-            .request(
-                2,
-                "tools/call",
-                json!({ "name": tool_name, "arguments": arguments }),
-            )
-            .await
+    let client = get_stdio_client(server).await?;
+    let mut guard = client.lock().await;
+    let id = guard.next_request_id();
+    let result = guard
+        .request(
+            id,
+            "tools/call",
+            json!({ "name": tool_name, "arguments": arguments }),
+        )
+        .await;
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            drop(guard);
+            evict_stdio_client(&server.id).await;
+            Err(error)
+        }
     }
-    .await;
-    client.shutdown().await;
-    result
 }
 
 #[derive(Debug)]

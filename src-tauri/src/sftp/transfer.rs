@@ -12,6 +12,17 @@ use uuid::Uuid;
 use super::ops::{download_file, mkdir, stat, upload_file};
 use super::{TransferDirection, TransferFile, TransferProgress, TransferStatus, TransferTask};
 
+/// 终态任务(Done/Failed/Cancelled)保留上限,超出后按插入顺序淘汰最旧的,
+/// 避免 tasks map 只增不减。进行中的任务永远保留,不影响现有查询 API。
+const MAX_RETAINED_TERMINAL_TASKS: usize = 100;
+
+fn is_terminal(status: &TransferStatus) -> bool {
+    matches!(
+        status,
+        TransferStatus::Done | TransferStatus::Failed | TransferStatus::Cancelled
+    )
+}
+
 /// 状态变更事件 payload(emit 到 `sftp://transfer-status`)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,6 +96,8 @@ async fn mkdir_p(sftp: &Arc<Mutex<SftpSession>>, path: &str) {
 
 pub struct TransferManager {
     tasks: Arc<Mutex<HashMap<String, TransferTask>>>,
+    /// 任务插入顺序,用于终态任务的滚动淘汰
+    task_order: Arc<Mutex<std::collections::VecDeque<String>>>,
     sftp_sessions: Arc<Mutex<HashMap<String, Arc<Mutex<SftpSession>>>>>,
     cancel_tokens: Arc<Mutex<HashMap<String, CancellationToken>>>,
     app_handle: AppHandle,
@@ -94,9 +107,35 @@ impl TransferManager {
     pub fn new(app_handle: AppHandle) -> Self {
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
+            task_order: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             sftp_sessions: Arc::new(Mutex::new(HashMap::new())),
             cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
             app_handle,
+        }
+    }
+
+    /// 终态任务滚动淘汰:保留最近 MAX_RETAINED_TERMINAL_TASKS 条,超出后淘汰最旧的。
+    /// 调用方必须同时持有 tasks 锁;task_order 锁在其后获取(固定锁顺序)。
+    fn prune_terminal_tasks(
+        tasks: &mut HashMap<String, TransferTask>,
+        order: &mut std::collections::VecDeque<String>,
+    ) {
+        let mut terminal = tasks.values().filter(|t| is_terminal(&t.status)).count();
+        let mut scanned = 0;
+        while terminal > MAX_RETAINED_TERMINAL_TASKS && scanned < order.len() {
+            scanned += 1;
+            let Some(id) = order.pop_front() else {
+                break;
+            };
+            match tasks.get(&id) {
+                Some(task) if is_terminal(&task.status) => {
+                    tasks.remove(&id);
+                    terminal -= 1;
+                }
+                // 仍在进行的任务不淘汰,移到队尾等待下次扫描
+                Some(_) => order.push_back(id),
+                None => {}
+            }
         }
     }
 
@@ -198,6 +237,9 @@ impl TransferManager {
         {
             let mut tasks = self.tasks.lock().await;
             tasks.insert(transfer_id.clone(), task);
+            let mut order = self.task_order.lock().await;
+            order.push_back(transfer_id.clone());
+            Self::prune_terminal_tasks(&mut tasks, &mut order);
         }
         {
             let mut tokens = self.cancel_tokens.lock().await;
@@ -467,6 +509,9 @@ impl TransferManager {
         {
             let mut tasks = self.tasks.lock().await;
             tasks.insert(transfer_id.clone(), task);
+            let mut order = self.task_order.lock().await;
+            order.push_back(transfer_id.clone());
+            Self::prune_terminal_tasks(&mut tasks, &mut order);
         }
         {
             let mut tokens = self.cancel_tokens.lock().await;
