@@ -546,7 +546,17 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   restorePersistedSessions()
-  watch(sessions, schedulePersistSessions, { deep: true, flush: 'post' })
+  // 会话持久化触发器:不用 deep watch —— 流式期间每 token 都会对整个 sessions
+  // 做全量深遍历,成本随历史消息线性放大。改为只跟踪「每个 session 的消息数 +
+  // 最后一条消息内容长度」:消息只会追加、只有最后一条会流式增长,足以覆盖所有
+  // 需持久化的变更;assetId/assetType 变更与流式最终覆盖在对应函数里显式调度。
+  watch(
+    () => Array.from(sessions.value.values())
+      .map(s => `${s.messages.length}:${s.messages[s.messages.length - 1]?.content?.length ?? 0}`)
+      .join('|'),
+    schedulePersistSessions,
+    { flush: 'post' }
+  )
   if (typeof window !== 'undefined') window.addEventListener('beforeunload', persistSessions)
 
   /**
@@ -568,6 +578,8 @@ export const useAiStore = defineStore('ai', () => {
     } else {
       s.assetId = assetId
       s.assetType = assetType
+      // assetId/assetType 会进持久化数据,但不在持久化 watch 的跟踪维度里,显式调度
+      schedulePersistSessions()
     }
     return s
   }
@@ -1195,6 +1207,8 @@ export const useAiStore = defineStore('ai', () => {
           session.messages[assistantIdx] = finalMessage
           assistantMsg.content = finalMessage.content
           assistantMsg.tool_calls = finalMessage.tool_calls
+          // 同长度覆盖不在持久化 watch 的跟踪维度里,显式调度一次
+          schedulePersistSessions()
         }
 
         if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {

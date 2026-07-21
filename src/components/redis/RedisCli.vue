@@ -12,6 +12,23 @@ const cliResult = ref<string[]>([])
 const cliLoading = ref(false)
 const historyIndex = ref(-1)
 
+/** 输出上限:最多保留最近 CLI_MAX_LINES 行;单行超长截断,避免 HGETALL 大 JSON 撑爆 DOM */
+const CLI_MAX_LINES = 200
+const CLI_LINE_MAX_CHARS = 4000
+
+function pushCliLines(...lines: string[]) {
+  for (const line of lines) {
+    cliResult.value.push(
+      line.length > CLI_LINE_MAX_CHARS
+        ? `${line.slice(0, CLI_LINE_MAX_CHARS)}\n… (output truncated, ${line.length} chars total)`
+        : line
+    )
+  }
+  if (cliResult.value.length > CLI_MAX_LINES) {
+    cliResult.value.splice(0, cliResult.value.length - CLI_MAX_LINES)
+  }
+}
+
 const cliOutput = ref<HTMLElement | null>(null)
 
 function scrollToBottom() {
@@ -30,19 +47,19 @@ async function executeCli() {
     const result = await dbService.redisExecute(props.connId, cmd)
     const time = `(${result.durationMs}ms)`
     if (result.error) {
-      cliResult.value.push(`> ${cmd}`, `(error) ${result.error} ${time}`)
+      pushCliLines(`> ${cmd}`, `(error) ${result.error} ${time}`)
     } else {
       const display = typeof result.result === 'object'
         ? JSON.stringify(result.result, null, 2)
         : String(result.result)
-      cliResult.value.push(`> ${cmd}`, display, time)
+      pushCliLines(`> ${cmd}`, display, time)
     }
     dbStore.addCliHistory(cmd)
     historyIndex.value = -1
     cliCommand.value = ''
     scrollToBottom()
   } catch (err: unknown) {
-    cliResult.value.push(`> ${cmd}`, `(error) ${err instanceof Error ? err.message : String(err)}`)
+    pushCliLines(`> ${cmd}`, `(error) ${err instanceof Error ? err.message : String(err)}`)
   } finally {
     cliLoading.value = false
     scrollToBottom()

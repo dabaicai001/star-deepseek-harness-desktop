@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import {
   sftpCancelTransfer,
@@ -45,7 +45,9 @@ export interface DockTransferItem {
  * - 完成的任务保留在历史区,由用户手动清理,不再 5 秒后自动消失
  */
 export const useTransferStore = defineStore('transfer', () => {
-  const tasks = ref<Map<string, DockTransferItem>>(new Map())
+  // reactive Map:set/delete 与任务对象内部字段变更都能触发依赖更新,
+  // 高频进度事件不再每次 new Map 全量克隆
+  const tasks = reactive(new Map<string, DockTransferItem>())
   /** 任务栏面板是否展开(false = 缩成右下角任务条) */
   const expanded = ref(false)
   const speedLimit = ref(0)
@@ -63,12 +65,12 @@ export const useTransferStore = defineStore('transfer', () => {
   // ====== 派生状态 ======
 
   const taskList = computed(() =>
-    [...tasks.value.values()].sort((a, b) => b.startTime - a.startTime)
+    [...tasks.values()].sort((a, b) => b.startTime - a.startTime)
   )
 
   const activeCount = computed(() => {
     let count = 0
-    for (const item of tasks.value.values()) {
+    for (const item of tasks.values()) {
       if (item.status === 'running' || item.status === 'queued') count++
     }
     return count
@@ -80,7 +82,7 @@ export const useTransferStore = defineStore('transfer', () => {
   const aggregatePercent = computed(() => {
     let total = 0
     let transferred = 0
-    for (const item of tasks.value.values()) {
+    for (const item of tasks.values()) {
       if (item.status !== 'running' && item.status !== 'queued') continue
       total += item.totalBytes
       transferred += item.transferredBytes
@@ -92,7 +94,7 @@ export const useTransferStore = defineStore('transfer', () => {
   const totalStats = computed(() => {
     let count = 0
     let bytes = 0
-    for (const item of tasks.value.values()) {
+    for (const item of tasks.values()) {
       count++
       bytes += item.totalBytes
     }
@@ -111,7 +113,7 @@ export const useTransferStore = defineStore('transfer', () => {
     try {
       unlistenProgress = await listen<TransferProgress>('sftp://transfer-progress', (event) => {
         const { transferId, fileName, transferred, total } = event.payload
-        const item = tasks.value.get(transferId)
+        const item = tasks.get(transferId)
         if (!item) return
         let file = item.files.find(f => f.name === fileName)
         if (!file) {
@@ -125,12 +127,11 @@ export const useTransferStore = defineStore('transfer', () => {
         if (total > 0 && item.totalBytes === 0) {
           item.totalBytes = item.files.reduce((s, f) => s + f.size, 0)
         }
-        tasks.value = new Map(tasks.value)
       })
 
       unlistenStatus = await listen<TransferStatusEvent>('sftp://transfer-status', (event) => {
         const { transferId, sessionId, direction, status, error } = event.payload
-        let item = tasks.value.get(transferId)
+        let item = tasks.get(transferId)
         if (!item) {
           item = {
             transferId,
@@ -143,7 +144,7 @@ export const useTransferStore = defineStore('transfer', () => {
             error,
             startTime: Date.now(),
           }
-          tasks.value.set(transferId, item)
+          tasks.set(transferId, item)
         }
         item.status = status
         item.error = error ?? null
@@ -152,7 +153,7 @@ export const useTransferStore = defineStore('transfer', () => {
           speedSnapshots.delete(transferId)
           speedDisplay.value.delete(transferId)
         }
-        tasks.value = new Map(tasks.value)
+        evictFinishedOverflow()
 
         if (status === 'failed' && error) {
           const t = i18n.global.t
@@ -172,7 +173,7 @@ export const useTransferStore = defineStore('transfer', () => {
     }
 
     speedTimer = setInterval(() => {
-      for (const item of tasks.value.values()) {
+      for (const item of tasks.values()) {
         if (item.status === 'running') refreshSpeed(item)
       }
     }, 1000)
@@ -194,8 +195,8 @@ export const useTransferStore = defineStore('transfer', () => {
    * 并自动展开任务栏面板。
    */
   function registerTask(sessionId: string, transferId: string, direction: TransferDirection) {
-    if (!tasks.value.has(transferId)) {
-      tasks.value.set(transferId, {
+    if (!tasks.has(transferId)) {
+      tasks.set(transferId, {
         transferId,
         sessionId,
         direction,
@@ -205,7 +206,6 @@ export const useTransferStore = defineStore('transfer', () => {
         transferredBytes: 0,
         startTime: Date.now(),
       })
-      tasks.value = new Map(tasks.value)
     }
     expanded.value = true
   }
@@ -252,7 +252,7 @@ export const useTransferStore = defineStore('transfer', () => {
   async function applySpeedLimit(speed: number) {
     speedLimit.value = speed
     const promises: Promise<void>[] = []
-    for (const item of tasks.value.values()) {
+    for (const item of tasks.values()) {
       if (item.status === 'running' || item.status === 'queued') {
         promises.push(sftpSetSpeedLimit(item.sessionId, item.transferId, speed))
       }
@@ -260,16 +260,29 @@ export const useTransferStore = defineStore('transfer', () => {
     await Promise.all(promises)
   }
 
+  /** 历史区上限:终态任务最多保留最近 100 条,超出自动淘汰最旧 */
+  const MAX_FINISHED_TASKS = 100
+
+  function evictFinishedOverflow() {
+    const finished = [...tasks.values()].filter(i => i.status !== 'running' && i.status !== 'queued')
+    if (finished.length <= MAX_FINISHED_TASKS) return
+    finished.sort((a, b) => (a.finishTime ?? a.startTime) - (b.finishTime ?? b.startTime))
+    for (const item of finished.slice(0, finished.length - MAX_FINISHED_TASKS)) {
+      tasks.delete(item.transferId)
+      speedSnapshots.delete(item.transferId)
+      speedDisplay.value.delete(item.transferId)
+    }
+  }
+
   /** 清理所有终态任务(历史区) */
   function clearFinished() {
-    for (const [id, item] of tasks.value) {
+    for (const [id, item] of tasks) {
       if (item.status !== 'running' && item.status !== 'queued') {
-        tasks.value.delete(id)
+        tasks.delete(id)
         speedSnapshots.delete(id)
         speedDisplay.value.delete(id)
       }
     }
-    tasks.value = new Map(tasks.value)
   }
 
   function toggleExpanded() {

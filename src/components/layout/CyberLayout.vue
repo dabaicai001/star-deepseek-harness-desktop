@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, cloneVNode, defineComponent, type Component, type VNode } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
@@ -354,6 +354,12 @@ async function detachTab(tab: Tab, clientPos?: { x: number; y: number }) {
   // 停止消费该会话的数据(后端 session 保留,等独立窗口附加)
   window.dispatchEvent(new CustomEvent(LOCAL_TAB_DETACH_EVENT, { detail: { id: tab.id } }))
 
+  // 拖出期间保留该 tab 的 keep-alive 缓存:实例只是失活,不会被裁剪卸载,
+  // 后端 session 由它继续持有,送回时原实例带终端历史直接复活
+  if (!detachedKeepAlivePaths.value.includes(routePath)) {
+    detachedKeepAlivePaths.value.push(routePath)
+  }
+
   // 拖拽落点(client 坐标)→ 新窗口的屏幕物理坐标
   let position: { x: number; y: number } | undefined
   if (clientPos) {
@@ -389,6 +395,9 @@ async function detachTab(tab: Tab, clientPos?: { x: number; y: number }) {
 function onTabReattach(event: { payload: Tab }) {
   const tab = event.payload
   if (!tab?.id || !tab?.assetId) return
+  // 送回的 tab 重新由 appStore.tabs 驱动 include,移出"拖出保留"清单
+  const routePath = router.resolve({ name: routeNameForTab(tab), params: { id: tab.id } }).fullPath
+  detachedKeepAlivePaths.value = detachedKeepAlivePaths.value.filter(p => p !== routePath)
   if (appStore.tabs.find(t => t.id === tab.id)) {
     appStore.setActiveTab(tab.id)
   } else {
@@ -1011,6 +1020,46 @@ function routeNameForTab(tab: { assetId?: string; type: string }): string {
   if (tab.type === 'excel') return 'excel'
   return 'db-mysql'
 }
+
+// ====== keep-alive 按 tab 精确裁剪缓存 ======
+// keep-alive 的 include 只匹配组件 name,不匹配 key;同一类 tab(如多个 SSH)
+// 共享同一个路由组件,直接 include 组件名无法在关闭单个 tab 时卸载对应缓存实例,
+// SshTerminal 的 onBeforeUnmount 清理(断连 / unlisten)永远不触发。
+// 做法:为每个 route.fullPath 生成一个以路径命名的薄包装组件(每 tab 稳定复用),
+// include 由「当前仍打开的 tab 的路径名」驱动 —— 关闭 tab 后其包装名从 include
+// 消失,keep-alive 立即裁剪并真正 unmount 该实例。
+// 独立(detached)窗口的 router-view 不套 keep-alive,不受此影响。
+const keepAliveWrapperCache = new Map<string, Component>()
+
+function keepAliveNameFor(fullPath: string): string {
+  return `tab-${encodeURIComponent(fullPath)}`
+}
+
+function keepAliveComponent(inner: VNode | undefined, fullPath: string): Component | undefined {
+  if (!inner) return undefined
+  let wrapper = keepAliveWrapperCache.get(fullPath)
+  if (!wrapper) {
+    const vnode = inner
+    wrapper = defineComponent({
+      name: keepAliveNameFor(fullPath),
+      setup: () => () => cloneVNode(vnode)
+    })
+    keepAliveWrapperCache.set(fullPath, wrapper)
+  }
+  return wrapper
+}
+
+// 拖出的 tab 会从 appStore.tabs 移除,但它的 keep-alive 实例仍持有主窗口侧
+// 后端会话(SshTerminal 的 silencedForDetach 机制):拖出期间继续保留其缓存,
+// 送回时原实例带着终端历史直接 onActivated 复活,而不是被裁剪卸载后误断连。
+const detachedKeepAlivePaths = ref<string[]>([])
+
+const keepAliveIncludes = computed(() => [
+  ...appStore.tabs.map(tab =>
+    keepAliveNameFor(router.resolve({ name: routeNameForTab(tab), params: { id: tab.id } }).fullPath)
+  ),
+  ...detachedKeepAlivePaths.value.map(keepAliveNameFor)
+])
 
 function openAiAgentTab(agent: AiAgent, reuseExisting = true) {
   if (reuseExisting) {
@@ -1752,8 +1801,8 @@ vueWatch(() => appStore.tabs.length, () => {
         <div v-else class="workspace-content">
           <router-view v-slot="{ Component }">
             <transition name="cyber-route" mode="out-in">
-              <keep-alive>
-                <component :is="Component" :key="route.fullPath" />
+              <keep-alive :include="keepAliveIncludes">
+                <component :is="keepAliveComponent(Component, route.fullPath)" :key="route.fullPath" />
               </keep-alive>
             </transition>
           </router-view>

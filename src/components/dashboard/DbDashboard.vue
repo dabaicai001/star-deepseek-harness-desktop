@@ -5,8 +5,9 @@
  * - MySQL: 跑 SHOW GLOBAL STATUS / SHOW GLOBAL VARIABLES / information_schema 真实 SQL
  * 无任何 mock。
  */
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import DashboardCard from './DashboardCard.vue'
+import { usePolling } from '@/composables/usePolling'
 import { redisInfo, redisDBSize, mysqlExecute } from '@/services/db'
 import {
   parseRedisInfo,
@@ -396,17 +397,13 @@ function refresh() {
   loadAll()
 }
 
-let refreshTimer: number | null = null
+// 轮询统一走 usePolling:挂载启动、<KeepAlive> 失活暂停、激活恢复、卸载清理
+usePolling(() => {
+  if (props.connected) refresh()
+})
 
 onMounted(() => {
   loadAll()
-  refreshTimer = window.setInterval(() => {
-    if (props.connected) refresh()
-  }, 30000)
-})
-
-onBeforeUnmount(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
 })
 
 watch(() => [props.connId, props.dbType, props.connected, props.database], () => {

@@ -594,10 +594,20 @@ async function selectTable(db: string, tableName: string) {
   void loadTableDataFor(subTabs.value[subTabs.value.length - 1] as TableSubTab)
 }
 
+/**
+ * 表数据加载竞态防护:per-tab 自增 token,只接受最新一次请求的响应。
+ * 快速翻页 / 排序 / 刷新时,慢响应到达后发现 token 已过期就直接丢弃,不覆盖新状态。
+ */
+const tableDataLoadTokens = new Map<string, number>()
+
 async function loadTableDataFor(tab: TableSubTab, force = false) {
   if (!connId.value) return
   // 缓存:如果已加载且未强制刷新则跳过
   if (!force && tab.data && tab.columns.length > 0) return
+
+  const token = (tableDataLoadTokens.get(tab.id) ?? 0) + 1
+  tableDataLoadTokens.set(tab.id, token)
+  const isStale = () => tableDataLoadTokens.get(tab.id) !== token
 
   tab.dataLoading = true
   tab.error = false
@@ -625,17 +635,20 @@ async function loadTableDataFor(tab: TableSubTab, force = false) {
     if (import.meta.env.DEV) console.debug('[DbView] loadTableDataFor whereClause:', JSON.stringify(tab.whereClause), 'columnFilters:', JSON.stringify(tab.columnFilters))
     if (metaPromise) {
       const [meta, data] = await Promise.all([metaPromise, dataPromise])
+      if (isStale()) return
       tab.columns = meta.columns
       tab.dataTotal = data.totalRows != null ? data.totalRows : meta.rowCount
       tab.data = data
     } else {
       const data = await dataPromise
+      if (isStale()) return
       tab.data = data
       if (data.totalRows != null) {
         tab.dataTotal = data.totalRows
       }
     }
   } catch (err: unknown) {
+    if (isStale()) return
     tab.data = {
       columns: [],
       rows: [],
@@ -646,7 +659,8 @@ async function loadTableDataFor(tab: TableSubTab, force = false) {
     }
     tab.error = true
   } finally {
-    tab.dataLoading = false
+    // 过期请求不重置 dataLoading —— 最新请求仍在进行,由它的 finally 收尾
+    if (!isStale()) tab.dataLoading = false
   }
 }
 
@@ -1721,6 +1735,7 @@ function closeSubTab(id: string) {
   const idx = subTabs.value.findIndex(t => t.id === id)
   if (idx < 0) return
   subTabs.value.splice(idx, 1)
+  tableDataLoadTokens.delete(id)
   if (activeSubTabId.value === id) {
     // 关闭后:优先激活右边的 tab,没有就激活左边的,都没有就 null
     const next = subTabs.value[idx] || subTabs.value[idx - 1] || null

@@ -3,9 +3,10 @@
  * SSH 服务器仪表盘
  * 全部数据来自 ssh_exec 真实命令采集,无任何 mock。
  */
-import { ref, onMounted, onBeforeUnmount, onActivated, onDeactivated, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import DashboardCard from './DashboardCard.vue'
 import type { DashboardDetailTable } from './DashboardCard.vue'
+import { usePolling } from '@/composables/usePolling'
 import { sshExec } from '@/services/ssh'
 import {
   parseMemInfo,
@@ -130,38 +131,14 @@ function refresh() {
   loadAll()
 }
 
-let refreshTimer: number | null = null
+// 轮询统一走 usePolling:挂载启动、<KeepAlive> 失活暂停、激活恢复、卸载清理
 
-function startTimer() {
-  stopTimer()
-  refreshTimer = window.setInterval(() => {
-    if (props.connected) refresh()
-  }, 30000)
-}
-
-function stopTimer() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-    refreshTimer = null
-  }
-}
+usePolling(() => {
+  if (props.connected) refresh()
+})
 
 onMounted(() => {
   loadAll()
-  startTimer()
-})
-
-onBeforeUnmount(() => {
-  stopTimer()
-})
-
-// <KeepAlive> 失活时暂停定时器(节省资源),激活时恢复
-onDeactivated(() => {
-  stopTimer()
-})
-
-onActivated(() => {
-  startTimer()
 })
 
 // session 变化 / 重连时重新拉

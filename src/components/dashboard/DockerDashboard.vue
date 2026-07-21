@@ -3,9 +3,10 @@
  * Docker 仪表盘
  * 数据全部来自 docker_list_containers / docker_list_images 真实 RPC,无 mock。
  */
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import DashboardCard from './DashboardCard.vue'
 import type { DashboardDetailTable } from './DashboardCard.vue'
+import { usePolling } from '@/composables/usePolling'
 import { listContainers, listImages } from '@/services/docker'
 import { formatBytes } from '@/utils/sshMetrics'
 import type { ContainerInfo, ImageInfo } from '@/types/docker'
@@ -123,17 +124,13 @@ function refresh() {
   loadAll()
 }
 
-let refreshTimer: number | null = null
+// 轮询统一走 usePolling:挂载启动、<KeepAlive> 失活暂停、激活恢复、卸载清理
+usePolling(() => {
+  if (props.connected) refresh()
+})
 
 onMounted(() => {
   loadAll()
-  refreshTimer = window.setInterval(() => {
-    if (props.connected) refresh()
-  }, 30000)
-})
-
-onBeforeUnmount(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
 })
 
 watch(() => [props.connId, props.connected], ([id, conn], [oldId, oldConn]) => {

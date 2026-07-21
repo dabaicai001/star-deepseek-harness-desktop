@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, type ComputedRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import type { RedisKeyInfo } from '@/types/db'
@@ -185,6 +185,18 @@ function buildNamespaceTree(db: number): FlatNode[] {
 
   flatten(new Map(root), 0)
   return result
+}
+
+// 模板渲染期间不直接调 buildNamespaceTree(每次渲染都 O(keys) 重建 trie),
+// 按 db 维度各持有一个 computed 缓存:只有该 db 的 keys / 过滤 / 展开状态变化才重建。
+const namespaceTreeComputeds = new Map<number, ComputedRef<FlatNode[]>>()
+function namespaceTreeFor(db: number): FlatNode[] {
+  let cached = namespaceTreeComputeds.get(db)
+  if (!cached) {
+    cached = computed(() => buildNamespaceTree(db))
+    namespaceTreeComputeds.set(db, cached)
+  }
+  return cached.value
 }
 
 function toggleFolder(db: number, path: string) {
@@ -465,7 +477,7 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
             </div>
 
             <!-- Namespace tree -->
-            <template v-for="node in buildNamespaceTree(db - 1)" :key="node.id">
+            <template v-for="node in namespaceTreeFor(db - 1)" :key="node.id">
               <!-- Folder -->
               <div
                 v-if="!node.isLeaf"

@@ -95,14 +95,26 @@ const emptyDescription = computed(() => {
 })
 
 watch(() => props.session.messages.length, () => scrollToBottom(true))
+// 流式期间每 token 都会重新求值;只跟踪最后一条消息的内容长度,
+// 不再对全部 messages 做 map + join 的全量遍历
 watch(
-  () => props.session.messages.map(message => message.content?.length ?? 0).join(','),
+  () => {
+    const messages = props.session.messages
+    const last = messages[messages.length - 1]
+    return `${messages.length}:${last?.content?.length ?? 0}`
+  },
   () => scrollToBottom(),
   { flush: 'post' }
 )
+// 同理:只跟踪 toolCalls 数量与最后一条状态;awaiting-confirm 必然出现在最新一条,
+// 数量 + 末位状态足以覆盖「新确认卡出现强制滚动」的场景
 watch(
-  () => props.session.toolCalls.map(call => `${call.id}:${call.status}:${call.result?.length ?? 0}:${call.errorMessage?.length ?? 0}`).join('|'),
-  (current, previous) => scrollToBottom(current.includes(':awaiting-confirm:') && !previous?.includes(':awaiting-confirm:')),
+  () => {
+    const calls = props.session.toolCalls
+    const last = calls[calls.length - 1]
+    return `${calls.length}:${last?.status ?? ''}`
+  },
+  (current, previous) => scrollToBottom(current.includes('awaiting-confirm') && !previous?.includes('awaiting-confirm')),
   { flush: 'post' }
 )
 watch(() => props.sending, () => scrollToBottom(true))

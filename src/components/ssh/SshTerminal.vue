@@ -141,8 +141,12 @@ const hostKeyDialogRef = ref<InstanceType<typeof HostKeyConfirmDialog>>()
 // ====== AI助手用:收集 SSH 输出 ======
 //每次 SSH收到数据,都 push 到这里;内部 captureOutput 仍可做短探测,
 //AI 工具执行则通过 promptCapture 等 shell prompt 返回后收口。
+//固定容量环形缓冲:只保留最近 AI_BUFFER_MAX_CHUNKS 块,避免长会话内存无限增长;
+//baseline 一律用「历史累计块数」绝对序号,截断后由 sliceBufferFrom 换算成相对下标。
+const AI_BUFFER_MAX_CHUNKS = 500
 const dataBuffer = ref<string[]>([])
-let captureBaseline =0 // captureOutput 调用前的 buffer长度
+let dataBufferTotalPushed = 0
+let captureBaseline =0 // captureOutput 调用前的 buffer 绝对序号
 let captureResolve: ((s: string) => void) | null = null
 let captureTimer: number | null = null
 interface PromptCapture {
@@ -727,13 +731,29 @@ async function subscribeSessionEvents(sessionId: string) {
   })
 }
 
+/** 追加终端输出块,超出容量时丢弃最旧块(AI capture 只需要尾部)。 */
+function pushDataChunk(chunk: string) {
+  dataBuffer.value.push(chunk)
+  dataBufferTotalPushed++
+  if (dataBuffer.value.length > AI_BUFFER_MAX_CHUNKS) {
+    dataBuffer.value.splice(0, dataBuffer.value.length - AI_BUFFER_MAX_CHUNKS)
+  }
+}
+
+/** 按绝对序号切出 buffer 尾部并 join;环形截断后自动对齐到当前可用起点。 */
+function sliceBufferFrom(absoluteBaseline: number): string {
+  const firstAvailable = dataBufferTotalPushed - dataBuffer.value.length
+  const start = Math.max(absoluteBaseline - firstAvailable, 0)
+  return dataBuffer.value.slice(start).join('')
+}
+
 function handleTerminalOctets(octets: number[]) {
   const chunk = terminalDecoder.decode(new Uint8Array(octets), { stream: true })
   if (!chunk) return
   terminalRef.value?.write(chunk)
   markSftpReady()
-  //收集到 buffer(AI助手用)
-  dataBuffer.value.push(chunk)
+  //收集到 buffer(AI助手用,固定容量环形缓冲)
+  pushDataChunk(chunk)
   //检测 pwd 输出,更新当前工作目录
   const pwdMatch = chunk.match(/(?:\r\n|\n|\r)(\/[\w\-./]{1,200})\s*(?:\r\n|\n|\r|$)/)
   if (pwdMatch && pwdMatch[1].startsWith('/')) {
@@ -1053,7 +1073,7 @@ function runAiCommandWithPrompt(command: string): Promise<string> {
  }
  return new Promise((resolve, reject) => {
   promptCapture = {
-  baseline: dataBuffer.value.length,
+  baseline: dataBufferTotalPushed,
   command,
   expectedPrompt: getCurrentPromptLine(),
   resolve,
@@ -1064,7 +1084,7 @@ function runAiCommandWithPrompt(command: string): Promise<string> {
  promptCapture.safetyTimer = window.setTimeout(() => {
  const current = promptCapture
  if (!current) return
- const raw = dataBuffer.value.slice(current.baseline).join('')
+ const raw = sliceBufferFrom(current.baseline)
  const partial = cleanPromptCapturedOutput(raw, current.command)
  interruptAiCommand(new Error(`等待 shell prompt 返回超时,已发送 Ctrl+C 恢复终端。已收到输出:\n${partial || '(无输出)'}`))
  }, AI_PROMPT_CAPTURE_SAFETY_MS)
@@ -1106,7 +1126,7 @@ function interruptAiCommand(error: Error): boolean {
 function maybeResolvePromptCapture() {
   const current = promptCapture
   if (!current) return
-  const raw = dataBuffer.value.slice(current.baseline).join('')
+  const raw = sliceBufferFrom(current.baseline)
   
   // 先检测是否需要交互输入
   if (detectInteractivePrompt(raw)) return
@@ -1116,7 +1136,7 @@ function maybeResolvePromptCapture() {
     current.settleTimer = window.setTimeout(() => {
       const latest = promptCapture
       if (!latest) return
-      const output = dataBuffer.value.slice(latest.baseline).join('')
+      const output = sliceBufferFrom(latest.baseline)
       if (!hasReturnedPrompt(output, latest.expectedPrompt)) return
       const cleaned = cleanPromptCapturedOutput(output, latest.command)
       if (latest.safetyTimer) window.clearTimeout(latest.safetyTimer)
@@ -1181,7 +1201,7 @@ function onAiInputSubmit(input: string) {
   current.safetyTimer = window.setTimeout(() => {
     const pc = promptCapture
     if (!pc) return
-    const raw2 = dataBuffer.value.slice(pc.baseline).join('')
+    const raw2 = sliceBufferFrom(pc.baseline)
     const partial = cleanPromptCapturedOutput(raw2, pc.command)
     interruptAiCommand(new Error(`等待 shell prompt 返回超时,已发送 Ctrl+C 恢复终端。已收到输出:\n${partial || '(无输出)'}`))
   }, AI_PROMPT_CAPTURE_SAFETY_MS)
@@ -1385,11 +1405,11 @@ function captureOutput(timeoutMs: number): Promise<string> {
  return new Promise(resolve => {
  if (captureResolve) {
  //已有 capture 在进行:合并,直接 return旧的
- captureResolve(dataBuffer.value.slice(captureBaseline).join(''))
+ captureResolve(sliceBufferFrom(captureBaseline))
  captureResolve = null
  if (captureTimer) { clearTimeout(captureTimer); captureTimer = null }
  }
- captureBaseline = dataBuffer.value.length
+ captureBaseline = dataBufferTotalPushed
  captureResolve = (s: string) => {
  resolve(s)
  captureResolve = null
@@ -1397,7 +1417,7 @@ function captureOutput(timeoutMs: number): Promise<string> {
  }
  captureTimer = window.setTimeout(() => {
  if (captureResolve) {
- const output = dataBuffer.value.slice(captureBaseline).join('')
+ const output = sliceBufferFrom(captureBaseline)
  captureResolve(output)
  }
  }, timeoutMs)
@@ -1410,7 +1430,7 @@ function maybeResolveCapture() {
  if (captureTimer) clearTimeout(captureTimer)
  captureTimer = window.setTimeout(() => {
  if (captureResolve) {
- const output = dataBuffer.value.slice(captureBaseline).join('')
+ const output = sliceBufferFrom(captureBaseline)
  captureResolve(output)
  }
  },200)
@@ -1418,6 +1438,7 @@ function maybeResolveCapture() {
 
 function clearBuffer() {
  dataBuffer.value = []
+ dataBufferTotalPushed = 0
  captureBaseline =0
 }
 
