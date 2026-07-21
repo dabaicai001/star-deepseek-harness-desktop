@@ -149,6 +149,16 @@ impl SshSession {
         self.config.effective_sftp_timeout_sec()
     }
 
+    /// 返回会话配置中的连接目标(host, port, username),
+    /// 供会话列表展示(如命令广播对话框)使用。
+    pub fn endpoint(&self) -> (String, u16, String) {
+        (
+            self.config.host.clone(),
+            self.config.port,
+            self.config.username.clone(),
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn connect_and_auth(
         host: &str,

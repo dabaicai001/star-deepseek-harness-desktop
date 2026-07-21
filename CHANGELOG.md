@@ -12,6 +12,14 @@
 
 ---
 
+## [0.33.1] - 2026-07-21
+
+### 修复
+- 🐛 fix(ssh): 命令广播会话列表无名、命令未送达 — 后端 `ssh_get_sessions` 返回的 host/username 为空且无 title 字段,前端按 `sessionId/title` 取值全部 undefined,勾选集合坍缩成 1 个、广播写入全部静默失败;后端改为从会话配置返回真实 host/port/username,前端按 instanceId 反解资产名作为标题(同资产多 tab 加 #N 后缀),并过滤无 shell 通道的 exec-only 会话。
+- 🐛 fix(ssh): 命令广播弹窗与通知文案硬编码英文,全部接入中/英 i18n,工具栏 tooltip 同步。
+
+---
+
 ## [0.33.0] - 2026-07-20
 
 ### 新增

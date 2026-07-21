@@ -19,7 +19,7 @@ import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
 import { useThemeStore } from '@/stores/theme'
 import type { Asset } from '@/types/asset'
-import { parseInstanceId } from '@/utils/tabId'
+import { parseInstanceId, withTabIndexSuffix } from '@/utils/tabId'
 import { formatSize } from '@/services/sftp'
 import { getDetachedInfo, LOCAL_TAB_DETACH_EVENT } from '@/lib/windowDetach'
 import { SSH_SYSTEM_PROMPT, sshTools, makeSshToolCaller } from '@/utils/aiTools'
@@ -1456,11 +1456,34 @@ function handleReconnect() {
 }
 
 // ======广播命令 ======
+/** 后端 ssh_get_sessions 返回的会话元数据 */
+interface SshSessionMeta {
+  id: string
+  host: string
+  port: number
+  username: string
+  connected: boolean
+}
+
 async function handleBroadcast() {
   try {
-    const sessions = await invoke<BroadcastSession[]>('ssh_get_sessions')
-    if (!sessions || sessions.length === 0) {
-      notify.notify({ message: 'No other sessions to broadcast to', color: 'warning', timeout: 3000 })
+    const infos = await invoke<SshSessionMeta[]>('ssh_get_sessions')
+    // 只保留有活跃 shell 通道的会话(AI / 仪表盘的 exec-only 会话没有 PTY,无法接收输入)
+    const allIds = (infos ?? []).filter((s) => s.connected).map((s) => s.id)
+    const sessions: BroadcastSession[] = (infos ?? [])
+      .filter((s) => s.connected)
+      .map((s) => {
+        const { assetId } = parseInstanceId(s.id)
+        const assetName = assetStore.assets.find((a) => a.id === assetId)?.name
+        const endpoint = `${s.username}@${s.host}:${s.port}`
+        return {
+          sessionId: s.id,
+          title: assetName ? withTabIndexSuffix(assetName, s.id, allIds) : endpoint,
+          host: endpoint,
+        }
+      })
+    if (sessions.length === 0) {
+      notify.notify({ message: t('ssh.broadcast.noSessions'), color: 'warning', timeout: 3000 })
       return
     }
     const result = await broadcastDialogRef.value?.open(sessions)
@@ -1474,10 +1497,10 @@ async function handleBroadcast() {
         console.error(`Failed to broadcast to session ${sid}:`, e)
       }
     }
-    notify.notify({ message: `Broadcast sent to ${sessionIds.length} session(s)`, color: 'success', timeout: 2000 })
+    notify.notify({ message: t('ssh.broadcast.sent', { count: sessionIds.length }), color: 'success', timeout: 2000 })
   } catch (e) {
     console.error('Broadcast failed:', e)
-    notify.notify({ message: 'Broadcast failed', color: 'error', timeout: 3000 })
+    notify.notify({ message: t('ssh.broadcast.failed'), color: 'error', timeout: 3000 })
   }
 }
 
@@ -1635,8 +1658,8 @@ function handleKbCancelled() {
 
   <button
   class="action-btn"
-  data-tooltip="命令广播"
-  title="命令广播"
+  :data-tooltip="t('ssh.broadcast.tooltip')"
+  :title="t('ssh.broadcast.tooltip')"
   @click="handleBroadcast"
   >
   <v-icon size="14">mdi-broadcast</v-icon>

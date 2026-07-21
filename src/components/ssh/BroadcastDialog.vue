@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 export interface BroadcastSession {
   sessionId: string
@@ -75,10 +78,10 @@ const noneSelected = computed(() => selectedIds.value.size === 0)
       <div class="bd-header">
         <div class="bd-title">
           <v-icon size="20" color="var(--cyan)">mdi-broadcast</v-icon>
-          <span>Broadcast Command</span>
+          <span>{{ t('ssh.broadcast.title') }}</span>
         </div>
         <div class="bd-subtitle">
-          {{ selectedIds.size }} of {{ sessions.length }} sessions selected
+          {{ t('ssh.broadcast.selected', { selected: selectedIds.size, total: sessions.length }) }}
         </div>
       </div>
 
@@ -86,11 +89,11 @@ const noneSelected = computed(() => selectedIds.value.size === 0)
         <div class="bd-select-actions">
           <button type="button" class="cyber-btn-secondary bd-select-btn" @click="selectAll">
             <v-icon size="12">mdi-checkbox-multiple-marked</v-icon>
-            Select All
+            {{ t('ssh.broadcast.selectAll') }}
           </button>
           <button type="button" class="cyber-btn-secondary bd-select-btn" @click="deselectAll">
             <v-icon size="12">mdi-checkbox-multiple-blank</v-icon>
-            Deselect All
+            {{ t('ssh.broadcast.deselectAll') }}
           </button>
         </div>
 
@@ -117,27 +120,27 @@ const noneSelected = computed(() => selectedIds.value.size === 0)
         <div class="bd-command-input">
           <label class="field-label">
             <v-icon size="11">mdi-console-line</v-icon>
-            Command
+            {{ t('ssh.broadcast.command') }}
           </label>
           <input
             v-model="command"
             type="text"
             class="cyber-input"
-            placeholder="Enter command to broadcast..."
+            :placeholder="t('ssh.broadcast.commandPlaceholder')"
             @keydown.enter="handleSend"
           />
         </div>
 
         <div class="bd-warning">
           <v-icon size="14">mdi-alert-outline</v-icon>
-          <span>This will send the command to all selected sessions simultaneously. Use with caution.</span>
+          <span>{{ t('ssh.broadcast.warning') }}</span>
         </div>
       </div>
 
       <div class="bd-footer">
         <button type="button" class="cyber-btn-secondary" @click="handleCancel">
           <v-icon size="14">mdi-close</v-icon>
-          Cancel
+          {{ t('ssh.broadcast.cancel') }}
         </button>
         <button
           type="button"
@@ -146,7 +149,7 @@ const noneSelected = computed(() => selectedIds.value.size === 0)
           @click="handleSend"
         >
           <v-icon size="14">mdi-broadcast</v-icon>
-          Send
+          {{ t('ssh.broadcast.send') }}
         </button>
       </div>
     </div>

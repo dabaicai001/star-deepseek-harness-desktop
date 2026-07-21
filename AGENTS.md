@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.33.0(稳定性与性能集中修复;TransferDock 可拖动;命令广播弹窗可读性) |
+| 当前版本 | v0.33.1(SSH 命令广播修复;i18n;其他见 CHANGELOG) |
 
 ---
 
@@ -284,6 +284,7 @@ starhub/
 | `.db-badge-wrap` / `.db-type-label` | 品牌图标与固定 64px 宽度的数据库类型徽章，确保资产名称对齐 |
 | `.dashboard-chart-*` / `.dashboard-detail-table-*` | 指标折线/环图与可钻取明细表 |
 | `.broker-*` / `.docker-transport-switch` | Kafka/NSQ 状态页与 Docker 连接协议切换 |
+| `.where-suggest` / `.where-suggest-item(.active)` / `.where-suggest-name` / `.where-suggest-type` | 表数据视图 WHERE 筛选条字段名模糊匹配下拉 |
 | `.ai-workspace-*` / `.ai-agent-*` / `.ai-mention-menu` | 独立 AI Agent 工作区、Agent 配置与 @/# 补全 |
 | `.ai-mcp-*` / `.ai-composer-guide*` / `.ai-recent-delete` | MCP Server 设置卡、AI 发送引导与最近对话删除操作 |
 | `.ai-think-*` / `.ai-message-segmented` | AI `<think>` 思考过程折叠块与分段消息布局 |
@@ -688,4 +689,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-07-20 (v0.33.0)*
+*最后更新: 2026-07-21 (v0.33.1)*

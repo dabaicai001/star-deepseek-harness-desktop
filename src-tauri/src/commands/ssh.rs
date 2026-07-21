@@ -361,18 +361,28 @@ pub async fn ssh_resize(
 pub async fn ssh_get_sessions(
     manager: State<'_, SshManager>,
 ) -> Result<Vec<SshSessionInfo>, String> {
-    let sessions = manager.sessions.lock().await;
+    // 先拷贝 (id, Arc) 快照再释放主锁,然后逐个会话加锁读配置,
+    // 避免持 sessions 主锁时 await 单会话锁的锁内 await 反模式。
+    let snapshot: Vec<(String, Arc<Mutex<SshSession>>)> = {
+        let sessions = manager.sessions.lock().await;
+        sessions
+            .iter()
+            .map(|(id, session)| (id.clone(), Arc::clone(session)))
+            .collect()
+    };
     let channels = manager.channels.lock().await;
-    let infos: Vec<SshSessionInfo> = sessions
-        .keys()
-        .map(|id| SshSessionInfo {
+    let mut infos = Vec::with_capacity(snapshot.len());
+    for (id, session_arc) in snapshot {
+        let session = session_arc.lock().await;
+        let (host, port, username) = session.endpoint();
+        infos.push(SshSessionInfo {
             id: id.clone(),
-            host: String::new(),
-            port: 0,
-            username: String::new(),
-            connected: channels.contains_key(id),
-        })
-        .collect();
+            host,
+            port,
+            username,
+            connected: channels.contains_key(&id),
+        });
+    }
     Ok(infos)
 }
 
