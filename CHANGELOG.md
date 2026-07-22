@@ -12,6 +12,37 @@
 
 ---
 
+## [0.34.4] - 2026-07-22
+
+### 修复
+- 🐛 fix(redis): BigKey 扫描和内存分析空结果返回 `null` 导致前端崩溃 — Go sidecar `BigKeyScan` / `MemoryAnalysis` 的 nil slice 改为 `make([]T, 0)` 确保 JSON 序列化为 `[]`；前端 `invoke` 返回值增加 `?? []` 空值防御。
+- 🐛 fix(redis): 内存分析 Go 循环变量 `a` 遮蔽方法接收者 `*RedisAdapter`，重命名为 `ag`。
+- 🐛 fix(redis): 慢日志加载/重置失败仅 `console.error` 无用户反馈，改为组件内错误提示条。
+
+### 国际化
+- 🌐 i18n(redis): Redis 侧边栏（KeyBrowser）11 处硬编码文本全部接入中/英 i18n（Databases 标题、折叠/展开、搜索 placeholder、类型过滤、加载中、加载更多、空状态、删除、过期标记、keys 后缀）。
+- 🌐 i18n(redis): Tools 面板 4 个 tab 标签（Pub/Sub / Slowlog / BigKey / Memory）接入 i18n。
+- 🌐 i18n(redis): BigKey 扫描器全部界面文本接入 i18n（阈值标签、按钮、进度、表头、空状态）。
+- 🌐 i18n(redis): 内存分析器全部界面文本接入 i18n（按钮、采样选项、表头、前缀、合计）。
+- 🌐 i18n(redis): 慢日志查看器全部界面文本接入 i18n（Top N、刷新、表头、空状态、重置）。
+- 🌐 i18n(redis): 修复 zh-CN `hashFieldRequired` 漏翻译（英文 → 中文）。
+
+### 改进
+- ⚡ perf(redis): 慢日志查看器新增自动刷新开关（10s 间隔）、loading 状态、重置前确认对话框、紧凑时间格式（MM-DD HH:mm:ss）、命令列 hover 显示完整命令。
+- ⚡ perf(redis): BigKey 扫描中按钮显示 loading 旋转图标；内存分析中按钮显示 loading 状态。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.34.4（package.json / Cargo.toml / Cargo.lock / tauri.conf.json / CHANGELOG.md / AGENTS.md / README.md）。
+
+---
+
+## [0.34.3] - 2026-07-22
+
+### 文档
+- 📝 docs: AI 运维剧本引擎实施计划，版本号同步至 0.34.3。
+
+---
+
 ## [0.34.2] - 2026-07-21
 
 ### 文档

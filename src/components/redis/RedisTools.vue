@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import PubSubMonitor from './PubSubMonitor.vue'
 import SlowlogViewer from './SlowlogViewer.vue'
 import BigKeyScanner from './BigKeyScanner.vue'
@@ -7,14 +8,16 @@ import MemoryAnalyzer from './MemoryAnalyzer.vue'
 
 defineProps<{ connId: string; currentDb: number }>()
 
+const { t } = useI18n()
+
 const activeTool = ref('pubsub')
 
-const tools = [
-  { key: 'pubsub', label: 'Pub/Sub', icon: 'mdi-broadcast' },
-  { key: 'slowlog', label: 'Slowlog', icon: 'mdi-timer-sand' },
-  { key: 'bigkey', label: 'BigKey', icon: 'mdi-magnify-expand' },
-  { key: 'memory', label: 'Memory', icon: 'mdi-memory' },
-]
+const tools = computed(() => [
+  { key: 'pubsub', label: t('redis.pubsub'), icon: 'mdi-broadcast' },
+  { key: 'slowlog', label: t('redis.slowlog'), icon: 'mdi-timer-sand' },
+  { key: 'bigkey', label: t('redis.bigkey'), icon: 'mdi-magnify-expand' },
+  { key: 'memory', label: t('redis.memory'), icon: 'mdi-memory' },
+])
 </script>
 
 <template>

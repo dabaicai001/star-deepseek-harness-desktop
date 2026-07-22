@@ -872,7 +872,7 @@ type BigKeyEntry struct {
 func (a *RedisAdapter) BigKeyScan(match string, stringThreshold, memberThreshold int64) ([]BigKeyEntry, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	var results []BigKeyEntry
+	results := make([]BigKeyEntry, 0)
 	var cursor uint64 = 0
 	for {
 		keys, nextCursor, err := a.client.Scan(a.ctx, cursor, match, 200).Result()
@@ -964,16 +964,16 @@ func (a *RedisAdapter) MemoryAnalysis(match string, sampleSize int) ([]MemoryAna
 			break
 		}
 	}
-	var results []MemoryAnalysisEntry
-	for prefix, a := range prefixes {
+	results := make([]MemoryAnalysisEntry, 0)
+	for prefix, ag := range prefixes {
 		pct := float64(0)
 		if total > 0 {
-			pct = float64(a.Memory) / float64(total) * 100
+			pct = float64(ag.Memory) / float64(total) * 100
 		}
 		results = append(results, MemoryAnalysisEntry{
 			Prefix:     prefix,
-			Keys:       a.Keys,
-			Memory:     a.Memory,
+			Keys:       ag.Keys,
+			Memory:     ag.Memory,
 			Percentage: pct,
 		})
 	}

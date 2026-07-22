@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import type { MemoryAnalysisEntry } from '@/types/db'
 
 const props = defineProps<{ connId: string }>()
+const { t } = useI18n()
 
 const entries = ref<MemoryAnalysisEntry[]>([])
 const loading = ref(false)
@@ -28,7 +30,7 @@ async function analyze() {
   loading.value = true
   error.value = ''
   try {
-    entries.value = await dbService.redisMemoryAnalysis(props.connId, '', sampleSize.value)
+    entries.value = (await dbService.redisMemoryAnalysis(props.connId, '', sampleSize.value)) ?? []
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : String(err)
   } finally {
@@ -40,27 +42,30 @@ async function analyze() {
 <template>
   <div class="memory-analyzer">
     <div class="analyze-config">
-      <button class="cyber-btn" :disabled="loading" @click="analyze">Analyze</button>
-      <span class="field-label">Sample:</span>
+      <button class="cyber-btn" :disabled="loading" @click="analyze">
+        <v-icon v-if="loading" size="12" class="spin" style="margin-right: 4px;">mdi-loading</v-icon>
+        {{ loading ? t('redis.analyzing') : t('redis.analyze') }}
+      </button>
+      <span class="field-label">{{ t('redis.sample') }}</span>
       <select v-model.number="sampleSize" class="cyber-input" style="width: 100px;">
-        <option :value="10">10 keys</option>
-        <option :value="50">50 keys</option>
-        <option :value="100">100 keys</option>
-        <option :value="0">All</option>
+        <option :value="10">{{ t('redis.sampleKeys', { count: 10 }) }}</option>
+        <option :value="50">{{ t('redis.sampleKeys', { count: 50 }) }}</option>
+        <option :value="100">{{ t('redis.sampleKeys', { count: 100 }) }}</option>
+        <option :value="0">{{ t('redis.sampleAll') }}</option>
       </select>
       <div v-if="error" class="analyze-error">{{ error }}</div>
     </div>
 
     <div class="memory-table">
       <div class="table-header">
-        <span style="flex: 1;">Prefix</span>
-        <span style="width: 80px;">Keys</span>
-        <span style="width: 100px;">Memory</span>
-        <span style="width: 80px;">%</span>
+        <span style="flex: 1;">{{ t('redis.colPrefix') }}</span>
+        <span style="width: 80px;">{{ t('redis.colKeys') }}</span>
+        <span style="width: 100px;">{{ t('redis.colMemory') }}</span>
+        <span style="width: 80px;">{{ t('redis.colPercent') }}</span>
       </div>
       <div v-for="entry in entries" :key="entry.prefix" class="table-row">
         <div class="row-main">
-          <span class="col-prefix">{{ entry.prefix || '(root)' }}</span>
+          <span class="col-prefix">{{ entry.prefix || t('redis.root') }}</span>
           <span class="col-keys">{{ entry.keys }}</span>
           <span class="col-memory">{{ formatMemory(entry.memory) }}</span>
           <span class="col-pct">{{ entry.percentage.toFixed(1) }}%</span>
@@ -70,12 +75,12 @@ async function analyze() {
         </div>
       </div>
       <div v-if="entries.length === 0 && !loading" class="empty-message">
-        Click Analyze to scan memory usage by key prefix.
+        {{ t('redis.noMemoryData') }}
       </div>
     </div>
 
     <div v-if="entries.length" class="summary-footer">
-      <span>Total: {{ totalKeys }} keys | {{ totalMemory }}</span>
+      <span>{{ t('redis.total') }}: {{ totalKeys }} keys | {{ totalMemory }}</span>
     </div>
   </div>
 </template>
@@ -205,4 +210,6 @@ async function analyze() {
   font-size: 12px;
   color: var(--text-2);
 }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>

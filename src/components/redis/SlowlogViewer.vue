@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import type { SlowlogEntry } from '@/types/db'
 
 const props = defineProps<{ connId: string }>()
+const { t } = useI18n()
 
 const entries = ref<SlowlogEntry[]>([])
 const count = ref(50)
 const loading = ref(false)
+const error = ref('')
+const autoRefresh = ref(false)
+let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 function formatDuration(us: number): string {
   if (us < 1000) return `${us}us`
@@ -23,16 +28,28 @@ function durationColor(us: number): string {
 
 function formatTime(ts: number): string {
   const d = new Date(ts * 1000)
-  return d.toLocaleString()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+function toggleAutoRefresh() {
+  autoRefresh.value = !autoRefresh.value
+  if (autoRefresh.value) {
+    refreshTimer = setInterval(() => load(), 10000)
+  } else if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
 }
 
 async function load() {
   if (!props.connId) return
   loading.value = true
+  error.value = ''
   try {
-    entries.value = await dbService.redisSlowlogGet(props.connId, count.value)
+    entries.value = (await dbService.redisSlowlogGet(props.connId, count.value)) ?? []
   } catch (err: unknown) {
-    console.error('Slowlog load failed:', err)
+    error.value = err instanceof Error ? err.message : String(err)
   } finally {
     loading.value = false
   }
@@ -40,16 +57,21 @@ async function load() {
 
 async function reset() {
   if (!props.connId) return
+  if (!window.confirm(t('redis.resetSlowlogConfirm'))) return
   try {
     await dbService.redisSlowlogReset(props.connId)
     await load()
   } catch (err: unknown) {
-    console.error('Slowlog reset failed:', err)
+    error.value = err instanceof Error ? err.message : String(err)
   }
 }
 
 onMounted(() => {
   load()
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
 })
 </script>
 
@@ -57,38 +79,54 @@ onMounted(() => {
   <div class="slowlog-viewer">
     <div class="tool-toolbar">
       <select v-model.number="count" class="cyber-input" style="width: 80px;" @change="load">
-        <option :value="10">Top 10</option>
-        <option :value="25">Top 25</option>
-        <option :value="50">Top 50</option>
-        <option :value="100">Top 100</option>
+        <option :value="10">{{ t('redis.top', { count: 10 }) }}</option>
+        <option :value="25">{{ t('redis.top', { count: 25 }) }}</option>
+        <option :value="50">{{ t('redis.top', { count: 50 }) }}</option>
+        <option :value="100">{{ t('redis.top', { count: 100 }) }}</option>
       </select>
-      <button class="action-btn" title="Refresh" :disabled="loading" @click="load">
+      <button class="action-btn" :title="t('redis.refresh')" :disabled="loading" @click="load">
         <v-icon size="14">mdi-refresh</v-icon>
+      </button>
+      <button
+        class="action-btn"
+        :class="{ primary: autoRefresh }"
+        :title="t('redis.autoRefresh')"
+        @click="toggleAutoRefresh"
+      >
+        <v-icon size="14">mdi-timer-refresh-outline</v-icon>
       </button>
     </div>
 
+    <div v-if="error" class="slowlog-error">{{ error }}</div>
+
     <div class="slowlog-table">
-      <div class="table-header">
-        <span style="width: 60px;">ID</span>
-        <span style="width: 80px;">Duration</span>
-        <span style="width: 100px;">Time</span>
-        <span style="flex: 1;">Command</span>
+      <div v-if="loading" class="slowlog-loading">
+        <v-icon size="16" class="spin">mdi-loading</v-icon>
+        <span>{{ t('redis.loading') }}</span>
       </div>
-      <div v-for="entry in entries" :key="entry.id" class="table-row">
-        <span class="col-id">{{ entry.id }}</span>
-        <span class="col-duration" :style="{ color: durationColor(entry.duration) }">
-          {{ formatDuration(entry.duration) }}
-        </span>
-        <span class="col-time">{{ formatTime(entry.timestamp) }}</span>
-        <span class="col-command">{{ entry.command }}</span>
-      </div>
-      <div v-if="entries.length === 0 && !loading" class="empty-message">
-        No slowlog entries found.
-      </div>
+      <template v-else>
+        <div class="table-header">
+          <span style="width: 60px;">{{ t('redis.colId') }}</span>
+          <span style="width: 80px;">{{ t('redis.colDuration') }}</span>
+          <span style="width: 140px;">{{ t('redis.colTime') }}</span>
+          <span style="flex: 1;">{{ t('redis.colCommand') }}</span>
+        </div>
+        <div v-for="entry in entries" :key="entry.id" class="table-row">
+          <span class="col-id">{{ entry.id }}</span>
+          <span class="col-duration" :style="{ color: durationColor(entry.duration) }">
+            {{ formatDuration(entry.duration) }}
+          </span>
+          <span class="col-time">{{ formatTime(entry.timestamp) }}</span>
+          <span class="col-command" :title="entry.command">{{ entry.command }}</span>
+        </div>
+        <div v-if="entries.length === 0" class="empty-message">
+          {{ t('redis.noSlowlog') }}
+        </div>
+      </template>
     </div>
 
     <div class="tool-footer">
-      <button class="cyber-btn-secondary" @click="reset">Reset Slowlog</button>
+      <button class="cyber-btn-secondary" @click="reset">{{ t('redis.resetSlowlog') }}</button>
     </div>
   </div>
 </template>
@@ -152,7 +190,7 @@ onMounted(() => {
   font-weight: 600;
 }
 .col-time {
-  width: 100px;
+  width: 140px;
   font-size: 11px;
   color: var(--text-2);
   font-family: 'JetBrains Mono', monospace;
@@ -185,4 +223,24 @@ onMounted(() => {
   padding: 4px 12px;
   font-size: 11px;
 }
+.slowlog-error {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--red);
+  font-family: 'JetBrains Mono', monospace;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.slowlog-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 16px;
+  font-size: 12px;
+  color: var(--cyan);
+  font-family: 'JetBrains Mono', monospace;
+}
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>

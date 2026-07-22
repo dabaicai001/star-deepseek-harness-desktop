@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
 import type { BigKeyEntry } from '@/types/db'
 
 const props = defineProps<{ connId: string }>()
+const { t } = useI18n()
 
 const results = ref<BigKeyEntry[]>([])
 const scanning = ref(false)
@@ -52,7 +54,7 @@ async function startScan() {
   scanning.value = true
   error.value = ''
   try {
-    results.value = await dbService.redisBigKeyScan(props.connId, '', strThreshold.value, memThreshold.value)
+    results.value = (await dbService.redisBigKeyScan(props.connId, '', strThreshold.value, memThreshold.value)) ?? []
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : String(err)
   } finally {
@@ -61,7 +63,9 @@ async function startScan() {
 }
 
 function cancelScan() {
+  // 后端扫描无法中途取消，仅重置 UI 状态并清空结果
   scanning.value = false
+  results.value = []
 }
 </script>
 
@@ -69,42 +73,45 @@ function cancelScan() {
   <div class="bigkey-scanner">
     <div class="scan-config">
       <div class="config-row">
-        <span class="field-label">String &gt;</span>
+        <span class="field-label">{{ t('redis.stringThreshold') }}</span>
         <input
           v-model.number="strThreshold"
           type="number"
           class="cyber-input"
-          placeholder="bytes"
+          :placeholder="t('redis.bytes')"
         />
-        <span class="unit-label">bytes</span>
+        <span class="unit-label">{{ t('redis.bytes') }}</span>
       </div>
       <div class="config-row">
-        <span class="field-label">Collection &gt;</span>
+        <span class="field-label">{{ t('redis.collectionThreshold') }}</span>
         <input
           v-model.number="memThreshold"
           type="number"
           class="cyber-input"
-          placeholder="members"
+          :placeholder="t('redis.members')"
         />
-        <span class="unit-label">members</span>
+        <span class="unit-label">{{ t('redis.members') }}</span>
       </div>
       <div class="config-actions">
-        <button class="cyber-btn" :disabled="scanning" @click="startScan">Start Scan</button>
-        <button v-if="scanning" class="cyber-btn-secondary" @click="cancelScan">Cancel</button>
+        <button class="cyber-btn" :disabled="scanning" @click="startScan">
+          <v-icon v-if="scanning" size="12" class="spin" style="margin-right: 4px;">mdi-loading</v-icon>
+          {{ t('redis.startScan') }}
+        </button>
+        <button v-if="scanning" class="cyber-btn-secondary" @click="cancelScan">{{ t('redis.cancel') }}</button>
       </div>
       <div v-if="error" class="scan-error">{{ error }}</div>
     </div>
 
     <div v-if="scanning" class="scan-progress">
-      <span>Scanning... {{ results.length }} big keys found</span>
+      <span>{{ t('redis.scanning') }} {{ t('redis.bigKeysFound', { count: results.length }) }}</span>
     </div>
 
     <div class="results-table">
       <div class="table-header">
-        <span style="flex: 1;">Key</span>
-        <span style="width: 80px;">Type</span>
-        <span style="width: 100px;">Size</span>
-        <span style="width: 100px;">Length</span>
+        <span style="flex: 1;">{{ t('redis.colKey') }}</span>
+        <span style="width: 80px;">{{ t('redis.colType') }}</span>
+        <span style="width: 100px;">{{ t('redis.colSize') }}</span>
+        <span style="width: 100px;">{{ t('redis.colLength') }}</span>
       </div>
       <div v-for="entry in results" :key="entry.key" class="table-row">
         <span class="col-key">{{ entry.key }}</span>
@@ -120,7 +127,7 @@ function cancelScan() {
         </span>
       </div>
       <div v-if="results.length === 0 && !scanning" class="empty-message">
-        No big keys found or scan not started.
+        {{ t('redis.noBigKeys') }}
       </div>
     </div>
   </div>
@@ -257,4 +264,6 @@ function cancelScan() {
   color: var(--muted);
   font-family: 'Outfit', sans-serif;
 }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>

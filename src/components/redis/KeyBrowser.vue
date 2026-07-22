@@ -416,12 +416,12 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
     <div class="section-header">
       <template v-if="!collapsed">
         <span class="section-number">01</span>
-        <span class="section-title">Databases</span>
-        <button class="collapse-btn" @click="toggleCollapse" title="Collapse">
+        <span class="section-title">{{ t('redis.databases') }}</span>
+        <button class="collapse-btn" @click="toggleCollapse" :title="t('redis.collapse')">
           <v-icon :size="14">mdi-chevron-left</v-icon>
         </button>
       </template>
-      <button v-else class="collapse-btn expand-btn" @click="toggleCollapse" title="Expand">
+      <button v-else class="collapse-btn expand-btn" @click="toggleCollapse" :title="t('redis.expand')">
         <v-icon :size="14">mdi-chevron-right</v-icon>
       </button>
     </div>
@@ -445,7 +445,7 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
             </v-icon>
             <v-icon :size="14" :color="db - 1 === currentDb ? 'cyan' : undefined">mdi-database</v-icon>
             <span class="db-name">db{{ db - 1 }}</span>
-            <span class="db-size">{{ dbSizes[db - 1] !== undefined ? `${(dbSizes[db - 1] ?? 0).toLocaleString()} keys` : '...' }}</span>
+            <span class="db-size">{{ dbSizes[db - 1] !== undefined ? `${(dbSizes[db - 1] ?? 0).toLocaleString()} ${t('redis.keys')}` : '...' }}</span>
           </div>
 
           <!-- Keys under this DB -->
@@ -455,12 +455,12 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
               <input
                 class="cyber-input search-input"
                 v-model="getDbState(db - 1).scanMatch"
-                placeholder="模糊搜索..."
+                :placeholder="t('redis.searchPlaceholder')"
                 @input="scheduleDbSearch(db - 1)"
                 @keydown.enter.prevent="onDbSearch(db - 1)"
               />
               <select class="cyber-input type-select" v-model="getDbState(db - 1).typeFilter">
-                <option value="all">All</option>
+                <option value="all">{{ t('redis.typeAll') }}</option>
                 <option value="string">Str</option>
                 <option value="hash">Hsh</option>
                 <option value="list">Lst</option>
@@ -473,7 +473,7 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
             <!-- Loading indicator -->
             <div v-if="getDbState(db - 1).loading" class="db-loading">
               <v-icon size="14" class="spin">mdi-loading</v-icon>
-              <span>Loading...</span>
+              <span>{{ t('redis.loading') }}</span>
             </div>
 
             <!-- Namespace tree -->
@@ -505,8 +505,8 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
                 <v-icon :size="12" :style="{ color: typeColor(node.keyType) }">{{ typeIcon(node.keyType) }}</v-icon>
                 <span class="tree-item-label">{{ node.name }}</span>
                 <span v-if="node.ttl > 0" class="key-ttl">{{ formatTTL(node.ttl) }}</span>
-                <span v-else-if="node.ttl === -2" class="key-ttl expired">Exp</span>
-                <button class="key-del-btn" @click="(e: MouseEvent) => onDeleteKey(e, db - 1, node)" title="Delete">
+                <span v-else-if="node.ttl === -2" class="key-ttl expired">{{ t('redis.expired') }}</span>
+                <button class="key-del-btn" @click="(e: MouseEvent) => onDeleteKey(e, db - 1, node)" :title="t('redis.delete')">
                   <v-icon :size="11">mdi-delete-outline</v-icon>
                 </button>
               </div>
@@ -515,13 +515,13 @@ function onKeyContextMenu(e: MouseEvent, db: number, node: FlatNode) {
             <!-- Load more -->
             <div v-if="getDbState(db - 1).cursor !== 0" class="load-more" @click="loadDbKeys(db - 1, true)">
               <v-icon :size="14">mdi-chevron-down</v-icon>
-              <span>Load more</span>
+              <span>{{ t('redis.loadMore') }}</span>
             </div>
 
             <!-- Empty -->
             <div v-if="getDbState(db - 1).keys.length === 0 && !getDbState(db - 1).loading" class="db-empty">
               <v-icon size="20" class="empty-icon">mdi-key-remove</v-icon>
-              <span>No keys</span>
+              <span>{{ t('redis.noKeys') }}</span>
             </div>
           </div>
         </div>
