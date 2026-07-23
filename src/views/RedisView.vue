@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
@@ -35,8 +35,11 @@ const dlg = useDialogStore()
 const rightPanelOpen = usePersistentPanelState('redis', true)
 const notify = useNotifyStore()
 
-const instanceId = computed(() => route.params.id as string)
-const assetId = computed(() => parseInstanceId(instanceId.value).assetId)
+// 冻结路由参数:keep-alive 缓存的组件实例不应跟踪全局路由变化,
+// 否则切换到其他 tab 时 route.params.id 改变会触发 watch 断开本 tab 的连接。
+const _frozenInstanceId = route.params.id as string
+const instanceId = computed(() => _frozenInstanceId)
+const assetId = computed(() => parseInstanceId(_frozenInstanceId).assetId)
 const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value))
 
 const connected = ref(false)
@@ -373,13 +376,6 @@ onMounted(() => {
   if (asset.value && asset.value.type === 'db' && asset.value.config.dbType === 'redis') {
     connect()
   }
-})
-
-watch(() => assetId.value, () => {
-  // 路由变了 → 立即标 stale,不等 leave 动画结束
-  markStale()
-  connId.value = null
-  if (asset.value && !connected.value) connect()
 })
 
 onBeforeUnmount(() => {

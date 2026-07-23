@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useDbStore } from '@/stores/db'
 import { useAppStore } from '@/stores/app'
@@ -25,8 +25,10 @@ const appStore = useAppStore()
 const assetStore = useAssetStore()
 const aiStore = useAiStore()
 
-const instanceId = computed(() => route.params.id as string)
-const tab = computed(() => appStore.tabs.find(t => t.id === instanceId.value))
+// 冻结路由参数:keep-alive 缓存的组件实例不应跟踪全局路由变化
+const _frozenInstanceId = route.params.id as string
+const instanceId = computed(() => _frozenInstanceId)
+const tab = computed(() => appStore.tabs.find(t => t.id === _frozenInstanceId))
 
 const session = computed(() => {
   for (const [, s] of dbStore.sessions) {
@@ -377,7 +379,6 @@ function onIndexCreated(name: string) {
   loadIndices()
 }
 
-watch(() => route.params.id, () => { connId.value = null; indices.value = []; selectedIndex.value = null; searchResult.value = null; mapping.value = null; error.value = null; initConnection() })
 onMounted(() => initConnection())
 </script>
 

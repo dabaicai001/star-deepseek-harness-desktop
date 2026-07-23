@@ -23,7 +23,9 @@ const notify = useNotifyStore()
 const aiStore = useAiStore()
 const rightPanelOpen = usePersistentPanelState('excel', true)
 
-const instanceId = computed(() => route.params.id as string)
+// 冻结路由参数:keep-alive 缓存的组件实例不应跟踪全局路由变化
+const _frozenInstanceId = route.params.id as string
+const instanceId = computed(() => _frozenInstanceId)
 const asset = computed(() => {
   const tab = appStore.tabs.find(t => t.id === instanceId.value)
   if (!tab?.assetId) return null

@@ -47,8 +47,11 @@ const dlg = useDialogStore()
 const rightPanelOpen = usePersistentPanelState('db', true)
 
 // 路由 :id 是 tab instanceId,需要解析出 assetId 找资产配置
-const instanceId = computed(() => route.params.id as string)
-const assetId = computed(() => parseInstanceId(instanceId.value).assetId)
+// 冻结路由参数:keep-alive 缓存的组件实例不应跟踪全局路由变化,
+// 否则切换到其他 tab 时 route.params.id 改变会触发 watch 断开本 tab 的连接。
+const _frozenInstanceId = route.params.id as string
+const instanceId = computed(() => _frozenInstanceId)
+const assetId = computed(() => parseInstanceId(_frozenInstanceId).assetId)
 const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value))
 
 const isClickhouse = computed(() => asset.value?.config.dbType === 'clickhouse')
@@ -1879,13 +1882,6 @@ function selectSubTab(id: string) {
   }
 }
 
-/** 当外部资产被删除时,清理与之相关的子标签 */
-watch(() => assetId.value, () => {
-  // 资产/路由切换:重置子标签(因为连接实例变了)
-  subTabs.value = []
-  activeSubTabId.value = null
-})
-
 /** 单子标签栏横向滚动溢出检测 */
 const subTabStripRef = ref<HTMLElement | null>(null)
 const canScrollLeft = ref(false)
@@ -1936,18 +1932,6 @@ onMounted(() => {
     connect()
   } else if (!asset.value) {
     // 资产不存在(被删除)→ 关闭对应 tab,workspace 自动落到欢迎页
-    if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
-    router.push('/')
-  }
-})
-
-watch(() => assetId.value, () => {
-  // 路由变了 → 立即标 stale,不等 leave 动画结束
-  markStale()
-  connId.value = null
-  if (asset.value && asset.value.type === 'db' && !connected.value) {
-    connect()
-  } else if (!asset.value) {
     if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
     router.push('/')
   }

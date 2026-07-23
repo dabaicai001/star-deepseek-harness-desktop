@@ -12,6 +12,16 @@
 
 ---
 
+## [0.34.5] - 2026-07-23
+
+### 修复
+- 🐛 fix(multi-tab): 修复同一资产开多个标签页时第一个页面连接被断开、数据丢失的问题。根因是所有视图通过 `computed(() => route.params.id)` 跟踪全局路由,keep-alive 缓存的组件在切换 tab 时路由参数变化触发 watch 导致 `markStale()` 断开连接。修复方式:在组件 setup 时冻结路由参数,移除有害的 `watch(assetId)` / `watch(route.params.id)`。影响 RedisView、DbView(MySQL/PG/ClickHouse)、ElasticsearchView、DockerView、BrokerView、ExcelView 共 6 个视图。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.34.5。
+
+---
+
 ## [0.34.4] - 2026-07-22
 
 ### 修复

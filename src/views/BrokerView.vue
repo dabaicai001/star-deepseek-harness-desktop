@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import DashboardCard from '@/components/dashboard/DashboardCard.vue'
 import type { DashboardDetailTable } from '@/components/dashboard/DashboardCard.vue'
@@ -10,7 +10,9 @@ import ProductIcon from '@/components/common/ProductIcon.vue'
 
 const route = useRoute()
 const assetStore = useAssetStore()
-const assetId = computed(() => parseInstanceId(String(route.params.id || '')).assetId)
+// 冻结路由参数:keep-alive 缓存的组件实例不应跟踪全局路由变化
+const _frozenInstanceId = String(route.params.id || '')
+const assetId = computed(() => parseInstanceId(_frozenInstanceId).assetId)
 const asset = computed(() => assetStore.assets.find(item => item.id === assetId.value))
 const kind = computed<BrokerKind>(() => asset.value?.config.dbType === 'nsq' ? 'nsq' : 'kafka')
 const loading = ref(true)
@@ -84,10 +86,6 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   if (timer !== null) window.clearInterval(timer)
-})
-watch(assetId, () => {
-  loading.value = true
-  void refresh()
 })
 </script>
 

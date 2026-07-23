@@ -39,8 +39,10 @@ const notify = useNotifyStore()
 const dlg = useDialogStore()
 
 // 路由 :id 是 tab instanceId,需要解析出 assetId 找资产配置
-const instanceId = computed(() => route.params.id as string)
-const assetId = computed(() => parseInstanceId(instanceId.value).assetId)
+// 冻结路由参数:keep-alive 缓存的组件实例不应跟踪全局路由变化
+const _frozenInstanceId = route.params.id as string
+const instanceId = computed(() => _frozenInstanceId)
+const assetId = computed(() => parseInstanceId(_frozenInstanceId).assetId)
 const devMockWorkspace = computed(() => import.meta.env.DEV && route.query.mock === '1')
 const devMockTimestamp = Date.now()
 const devMockAsset = computed<Asset | undefined>(() => devMockWorkspace.value ? {
@@ -430,16 +432,6 @@ onMounted(() => {
     connect()
   } else if (!asset.value) {
     // 资产不存在(被删除)→ 关闭对应 tab,workspace 自动落到欢迎页
-    if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
-    router.push('/')
-  }
-})
-
-watch(() => assetId.value, async () => {
-  // 路由变了(切资产 / 关 tab)→ 立即标 stale,不等 leave 动画结束
-  await markStale()
-  if (asset.value && !connected.value) connect()
-  else if (!asset.value) {
     if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
     router.push('/')
   }
