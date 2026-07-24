@@ -1266,6 +1266,12 @@ function onGlobalKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w' && appStore.activeTab) {
     e.preventDefault()
     closeTab(appStore.activeTab)
+    return
+  }
+  // 欢迎页(无任何标签页)按 N 新建连接,与首页按钮上的 kbd 提示对应
+  if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'n' && appStore.tabs.length === 0) {
+    e.preventDefault()
+    openNewConnection()
   }
 }
 
@@ -1689,24 +1695,22 @@ vueWatch(() => appStore.tabs.length, () => {
       <!-- Workspace -->
       <div class="workspace">
         <div v-if="appStore.tabs.length === 0 && !devMockWorkspace" class="workspace-welcome" @contextmenu="openWorkspaceContextMenu">
-          <div ref="welcomeRef" class="welcome-content cyber-panel cyber-stagger" :class="{ run: welcomeStaggerRun }">
+          <div ref="welcomeRef" class="welcome-content cyber-stagger" :class="{ run: welcomeStaggerRun }">
             <div class="welcome-hero">
               <div class="welcome-copy">
-                <div class="welcome-kicker">
-                  <span class="status-dot online"></span>
-                  Local Command Center
-                </div>
-                <h2 class="text-gradient">{{ t('home.welcome') }}</h2>
+                <div class="welcome-kicker">StarHub · Local workspace</div>
+                <h2 class="welcome-title">{{ t('home.welcome') }}</h2>
                 <p class="welcome-subtitle">把 SSH、数据库、Docker、Excel 和 AI 助手收进同一个工作台。</p>
-                <p class="welcome-slogan">{{ t('home.slogan') }}</p>
                 <div class="quick-actions">
-                  <button class="cyber-btn" @click="openNewConnection">
-                    <v-icon size="16">mdi-plus</v-icon>
-                    {{ t('asset.create') }}
+                  <button class="welcome-btn welcome-btn-primary" @click="openNewConnection">
+                    <v-icon size="14">mdi-plus</v-icon>
+                    <span>{{ t('asset.create') }}</span>
+                    <span class="welcome-btn-kbd">N</span>
                   </button>
-                  <button class="cyber-btn-secondary" @click="openCommandPalette">
-                    <v-icon size="16">mdi-magnify-expand</v-icon>
-                    命令面板 {{ modKey }}P
+                  <button class="welcome-btn welcome-btn-secondary" @click="openCommandPalette">
+                    <v-icon size="14">mdi-magnify</v-icon>
+                    <span>命令面板</span>
+                    <span class="welcome-btn-kbd">{{ modKey }}P</span>
                   </button>
                 </div>
               </div>
@@ -1717,7 +1721,7 @@ vueWatch(() => appStore.tabs.length, () => {
                 </div>
                 <div class="metric-card">
                   <strong>{{ dbAssets.length }}</strong>
-                  <span>DB</span>
+                  <span>Database</span>
                 </div>
                 <div class="metric-card">
                   <strong>{{ dockerAssets.length }}</strong>
@@ -1739,7 +1743,7 @@ vueWatch(() => appStore.tabs.length, () => {
                 @click="step.action"
               >
                 <span class="step-icon">
-                  <v-icon size="15">{{ step.done ? 'mdi-check' : step.icon }}</v-icon>
+                  <v-icon size="14">{{ step.done ? 'mdi-check' : step.icon }}</v-icon>
                 </span>
                 <span class="step-copy">
                   <span class="step-title">{{ step.title }}</span>
@@ -1749,7 +1753,7 @@ vueWatch(() => appStore.tabs.length, () => {
             </div>
 
             <div class="section-divider">
-              <span class="section-label">CAPABILITIES</span>
+              <span class="section-label">Modules</span>
               <span class="section-hint">选择一个模块开始</span>
             </div>
 
@@ -1761,34 +1765,32 @@ vueWatch(() => appStore.tabs.length, () => {
                 @click="onWelcomeQuickAction(module.type)"
                 @contextmenu="openWorkspaceContextMenu($event, module.type)"
               >
-                <div class="fc-head">
+                <div class="feature-card-row">
                   <span class="fc-icon" :class="module.iconClass">
-                    <v-icon size="22">{{ module.icon }}</v-icon>
+                    <v-icon size="14">{{ module.icon }}</v-icon>
                   </span>
-                  <span class="fc-tag">{{ maturityLabel(module.type) }}</span>
+                  <h3>{{ module.title }}</h3>
+                  <span class="fc-count">{{ moduleAssetCount(module.type) }}</span>
                 </div>
-                <h3>{{ module.title }}</h3>
-                <p>{{ module.desc }}</p>
-                <div class="fc-foot">
-                  <span>{{ module.detail }}</span>
-                  <span>{{ moduleAssetCount(module.type) }} 个资产</span>
-                </div>
+                <p class="fc-desc">{{ module.desc }}</p>
               </button>
             </div>
 
             <div v-if="recentAssets.length > 0" class="recent-work-panel">
-              <div class="recent-head">
-                <span>最近工作</span>
-                <small>继续上次的连接或文件</small>
+              <div class="section-divider recent-divider">
+                <span class="section-label">Recent</span>
+                <span class="section-hint">继续上次的连接或文件</span>
               </div>
-              <div class="recent-grid">
+              <div class="recent-list">
                 <button
                   v-for="a in recentAssets"
                   :key="a.id"
-                  class="recent-card"
+                  class="recent-row"
                   @click="connectToAsset(a)"
                 >
-                  <v-icon size="15">{{ getIcon(a.type) }}</v-icon>
+                  <span class="recent-type">
+                    <v-icon size="14">{{ getIcon(a.type) }}</v-icon>
+                  </span>
                   <span class="recent-name">{{ a.name }}</span>
                   <span class="recent-meta">{{ a.config.host || a.config.dbType || a.type.toUpperCase() }}</span>
                   <span class="recent-time">{{ shortTimeAgo(a.lastUsedAt) }}</span>
@@ -2759,11 +2761,16 @@ kbd {
   text-transform: uppercase;
 }
 
-.welcome-content h2 {
+.welcome-title {
   font-size: clamp(26px, 3.4vw, 52px);
   line-height: 1.08;
   font-weight: 800;
   margin: 0 0 12px;
+  background: var(--grad-primary);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .welcome-subtitle {
@@ -2771,19 +2778,7 @@ kbd {
   color: var(--text-2);
   font-size: clamp(13px, 1.1vw, 17px);
   line-height: 1.7;
-  margin: 0 0 10px;
-}
-
-.welcome-slogan {
-  margin: 0 0 24px;
-  font-family: 'Orbitron', 'JetBrains Mono', monospace;
-  font-style: italic;
-  font-weight: 500;
-  font-size: 12px;
-  letter-spacing: 0.15em;
-  color: var(--cyan);
-  opacity: 0.75;
-  text-shadow: 0 0 12px var(--focus-cyan);
+  margin: 0 0 20px;
 }
 
 .quick-actions {
@@ -2791,6 +2786,53 @@ kbd {
   flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 0;
+}
+
+.welcome-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.welcome-btn-primary {
+  border: none;
+  background: var(--grad-primary);
+  color: #fff;
+  box-shadow: var(--glow-cyan);
+}
+
+.welcome-btn-primary:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.welcome-btn-secondary {
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--text-2);
+}
+
+.welcome-btn-secondary:hover {
+  color: var(--cyan);
+  border-color: var(--focus-cyan);
+  background: var(--hover-cyan-faint);
+}
+
+.welcome-btn-kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  opacity: 0.65;
+  line-height: 1;
 }
 
 .welcome-metrics {
@@ -2924,13 +2966,13 @@ kbd {
 
 .feature-card {
   min-width: 0;
-  min-height: 154px;
   display: flex;
   flex-direction: column;
+  gap: 8px;
   background: var(--panel);
   border: 1px solid var(--line-2);
   border-radius: 12px;
-  padding: 16px;
+  padding: 14px 16px;
   text-align: left;
   color: inherit;
   cursor: pointer;
@@ -2952,7 +2994,7 @@ kbd {
 }
 
 .feature-card:hover:not(.disabled-card) {
-  transform: translateY(-4px) scale(1.008);
+  transform: translateY(-3px);
   box-shadow:
     0 18px 52px var(--glow-soft),
     0 0 0 1px var(--focus-cyan);
@@ -2964,22 +3006,23 @@ kbd {
   cursor: not-allowed;
 }
 
-.feature-card .fc-head {
+.feature-card-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .fc-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: var(--icon-bg-cyan);
   color: var(--cyan);
+  flex-shrink: 0;
 }
 
 .fc-icon.db {
@@ -2993,135 +3036,114 @@ kbd {
   color: var(--green);
 }
 
-.feature-card .fc-tag {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--hover-cyan-faint);
-  color: var(--muted);
-  border: 1px solid var(--line);
-  letter-spacing: 0.05em;
-}
-
 .feature-card h3 {
-  font-size: 14px;
-  font-weight: 700;
-  margin: 0 0 8px;
-  color: var(--text);
-}
-
-.feature-card p {
   flex: 1;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-2);
-  margin: 0 0 14px;
-}
-
-.fc-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--muted);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
-}
-
-.fc-foot span {
   min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.fc-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--hover-cyan-faint);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.fc-desc {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-2);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .recent-work-panel {
-  margin: 18px 0 0;
+  margin: 0;
   text-align: left;
 }
 
-.recent-head {
+.recent-divider {
+  margin-top: 24px;
+}
+
+.recent-list {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 700;
-  margin-bottom: 8px;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.recent-head small {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 500;
-}
-
-.recent-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
-  gap: 8px;
-}
-
-.recent-card {
+.recent-row {
   min-width: 0;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  grid-template-areas:
-    "icon name time"
-    "icon meta time";
+  display: flex;
   align-items: center;
-  gap: 2px 8px;
-  padding: 9px 10px;
+  gap: 10px;
+  padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid var(--line-2);
-  background: var(--bg-input);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--text-2);
   cursor: pointer;
   text-align: left;
   font-family: inherit;
-  transition: all 0.25s var(--ease-back);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.recent-card:hover {
+.recent-row:hover {
   color: var(--cyan);
-  border-color: var(--focus-cyan);
+  border-color: var(--line-2);
   background: var(--hover-cyan-faint);
-  transform: translateY(-3px) scale(1.01);
-  box-shadow: 0 12px 32px var(--glow-soft);
 }
 
-.recent-card .v-icon { grid-area: icon; color: var(--cyan); }
+.recent-type {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--icon-bg-cyan);
+  color: var(--cyan);
+  flex-shrink: 0;
+}
+
 .recent-name {
-  grid-area: name;
   font-size: 12px;
   font-weight: 700;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.recent-meta {
-  grid-area: meta;
-  font-size: 10px;
-  color: var(--muted);
-  font-family: 'JetBrains Mono', monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.recent-time {
-  grid-area: time;
-  font-size: 10px;
-  color: var(--muted);
-  font-family: 'JetBrains Mono', monospace;
 }
 
-@media (max-width: 720px) {
-  .recent-grid {
-    grid-template-columns: 1fr;
-  }
+.recent-meta {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-time {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  flex-shrink: 0;
 }
 
 .section-divider {
@@ -3142,6 +3164,11 @@ kbd {
   flex: 1;
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--line-2), transparent);
+}
+
+.section-label {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-2);
 }
 
 .section-hint {

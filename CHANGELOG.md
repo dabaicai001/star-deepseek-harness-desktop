@@ -12,6 +12,25 @@
 
 ---
 
+## [0.34.6] - 2026-07-24
+
+### 修复
+- 🐛 fix(db): 新建表选择 VARCHAR 但未配置长度时生成非法 SQL(MySQL Error 1064)。新建表对话框新增「长度/精度」列,支持 `255`、`10,2` 两种写法;VARCHAR/CHAR 缺省自动补 255,DECIMAL/NUMERIC 支持精度与小数位;非法 size 在前端直接拦截。
+- 🐛 fix(db): 新建表 DDL 按方言生成 — PostgreSQL 使用双引号标识符,列/表注释拆为独立 `COMMENT ON` 语句;ClickHouse 可空列自动包装 `Nullable(T)`,补 `ENGINE = MergeTree()` 与 `ORDER BY`(主键列或 `tuple()`),并按方言提供类型与引擎下拉。DDL 生成统一收口到 `src/utils/ddlGenerator.ts` 的 `generateCreateTableDDL`(含 node --test 用例)。
+- 🐛 fix(clickhouse): 表数据标签页无法行编辑。根因是 sidecar `ListColumns` 未查询 `is_in_primary_key`,列的 `key` 永远为空导致前端判定"无主键不可编辑";现把主键列标记为 `PRI`,前端据此放行 `ALTER TABLE ... UPDATE` mutation 批量保存。
+
+### 国际化
+- 🌐 i18n(redis): 右侧边栏 Dashboard / AI / Tools 标签接入 i18n(此前硬编码英文)。
+- 🌐 i18n(redis): 补完 String / Hash / List / Set 编辑器与 RedisValueEditor 的汉化收尾 — 模板 `t()` 已全部接入,补 `StringEditor` 缺失的 `useI18n`(此前构建被它卡住)。
+
+### 改进
+- 🎨 style(home): 首页欢迎区统一优化 — 模块卡片改为紧凑行式(图标 + 标题 + 资产计数),最近工作改为列表行,按钮加 kbd 提示,标题走主渐变;欢迎页新增 `N` 快捷键新建连接(与按钮提示对应)。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.34.6。
+
+---
+
 ## [0.34.5] - 2026-07-23
 
 ### 修复
