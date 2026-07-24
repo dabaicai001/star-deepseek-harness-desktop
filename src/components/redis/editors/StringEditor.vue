@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   connId: string
@@ -108,13 +111,13 @@ load()
           <input
             class="ttl-input"
             v-model="ttlInput"
-            :placeholder="ttl === -1 ? '-1 (persist)' : String(ttl)"
+            :placeholder="ttl === -1 ? t('redis.ttlPersist') : String(ttl)"
             type="number"
             style="width: 80px"
           />
         </span>
         <span class="info-item">
-          <span class="info-label">Size</span>
+          <span class="info-label">{{ t('redis.size') }}</span>
           <span class="info-value mono">{{ size }} B</span>
         </span>
       </div>
@@ -126,7 +129,7 @@ load()
           class="cyber-tab"
           :class="{ active: viewMode === 'text' }"
           @click="onViewModeChange('text')"
-        >Text</button>
+        >{{ t('redis.viewText') }}</button>
         <button
           class="cyber-tab"
           :class="{ active: viewMode === 'json' }"
@@ -137,12 +140,12 @@ load()
         <button
           class="action-btn"
           @click="formatJson"
-          data-tooltip="Format JSON"
+          :data-tooltip="t('redis.formatJson')"
           :disabled="viewMode !== 'json'"
         >
           <v-icon size="15">mdi-code-braces</v-icon>
         </button>
-        <button class="action-btn" @click="load" data-tooltip="Reload" :disabled="loading">
+        <button class="action-btn" @click="load" :data-tooltip="t('redis.reload')" :disabled="loading">
           <v-icon size="15">mdi-refresh</v-icon>
         </button>
       </div>
@@ -150,7 +153,7 @@ load()
 
     <div v-if="loading" class="editor-loading">
       <v-icon size="20" style="color: var(--muted); animation: pulse 1s infinite">mdi-loading</v-icon>
-      <span>Loading...</span>
+      <span>{{ t('redis.loading') }}</span>
     </div>
 
     <div v-else-if="error" class="editor-error">
@@ -163,17 +166,17 @@ load()
       class="editor-area"
       v-model="value"
       :spellcheck="false"
-      placeholder="Value..."
+      :placeholder="t('redis.valuePlaceholder')"
     ></textarea>
 
     <div class="editor-footer">
       <span v-if="error" class="footer-error">{{ error }}</span>
       <span v-else class="footer-spacer"></span>
-      <button class="cyber-btn-secondary" @click="revert" :disabled="!isDirty">Revert</button>
+      <button class="cyber-btn-secondary" @click="revert" :disabled="!isDirty">{{ t('redis.revert') }}</button>
       <button class="cyber-btn" @click="save" :disabled="!isDirty || saving">
         <v-icon v-if="saving" size="14" style="animation: pulse 1s infinite">mdi-loading</v-icon>
         <v-icon v-else size="14">mdi-content-save</v-icon>
-        Save
+        {{ t('common.save') }}
       </button>
     </div>
   </div>

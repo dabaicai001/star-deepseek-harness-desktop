@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   connId: string
@@ -151,19 +154,19 @@ load()
         <v-icon size="14" style="color: var(--purple)">mdi-pound</v-icon>
         <span class="info-key" :title="keyName">{{ keyName }}</span>
         <span class="cyber-badge">HASH</span>
-        <span class="info-count mono">{{ fieldCount }} fields</span>
+        <span class="info-count mono">{{ t('redis.fieldsCount', { count: fieldCount }) }}</span>
       </div>
       <div class="info-right">
         <span class="info-item">
           <span class="info-label">TTL</span>
-          <input class="ttl-input" v-model="ttlInput" :placeholder="ttl === -1 ? '-1 (persist)' : String(ttl)" type="number" style="width: 80px" />
+          <input class="ttl-input" v-model="ttlInput" :placeholder="ttl === -1 ? t('redis.ttlPersist') : String(ttl)" type="number" style="width: 80px" />
         </span>
       </div>
     </div>
 
     <div v-if="loading" class="editor-loading">
       <v-icon size="20" style="color: var(--muted); animation: pulse 1s infinite">mdi-loading</v-icon>
-      <span>Loading...</span>
+      <span>{{ t('redis.loading') }}</span>
     </div>
 
     <div v-else-if="error && fields.length === 0" class="editor-error">
@@ -173,8 +176,8 @@ load()
 
     <template v-else>
       <div class="hash-table-header">
-        <span class="col-field">Field</span>
-        <span class="col-value">Value</span>
+        <span class="col-field">{{ t('redis.colField') }}</span>
+        <span class="col-value">{{ t('redis.colValue') }}</span>
         <span class="col-action"></span>
       </div>
 
@@ -189,25 +192,25 @@ load()
             class="input-cell field-cell"
             v-model="f.field"
             :disabled="f.deleted"
-            placeholder="field"
+            :placeholder="t('redis.fieldPlaceholder')"
             spellcheck="false"
           />
           <input
             class="input-cell value-cell"
             v-model="f.value"
             :disabled="f.deleted"
-            placeholder="value"
+            :placeholder="t('redis.valueCellPlaceholder')"
             spellcheck="false"
           />
-          <button class="row-del-btn" @click="removeField(idx)" :title="f.deleted ? 'Undo delete' : 'Delete'">
+          <button class="row-del-btn" @click="removeField(idx)" :title="f.deleted ? t('redis.undoDelete') : t('redis.delete')">
             <v-icon size="13">{{ f.deleted ? 'mdi-undo' : 'mdi-delete-outline' }}</v-icon>
           </button>
         </div>
       </div>
 
       <div class="hash-new-row">
-        <input class="input-cell field-cell" v-model="newFieldName" placeholder="new field" spellcheck="false" @keyup.enter="addField" />
-        <input class="input-cell value-cell" v-model="newFieldValue" placeholder="value" spellcheck="false" @keyup.enter="addField" />
+        <input class="input-cell field-cell" v-model="newFieldName" :placeholder="t('redis.newField')" spellcheck="false" @keyup.enter="addField" />
+        <input class="input-cell value-cell" v-model="newFieldValue" :placeholder="t('redis.valueCellPlaceholder')" spellcheck="false" @keyup.enter="addField" />
         <button class="row-add-btn" @click="addField" :disabled="!newFieldName.trim()">
           <v-icon size="14">mdi-plus</v-icon>
         </button>
@@ -217,11 +220,11 @@ load()
     <div class="editor-footer">
       <span v-if="error" class="footer-error">{{ error }}</span>
       <span v-else class="footer-spacer"></span>
-      <button class="cyber-btn-secondary" @click="revert" :disabled="!isDirty">Revert</button>
+      <button class="cyber-btn-secondary" @click="revert" :disabled="!isDirty">{{ t('redis.revert') }}</button>
       <button class="cyber-btn" @click="save" :disabled="!isDirty || saving">
         <v-icon v-if="saving" size="14" style="animation: pulse 1s infinite">mdi-loading</v-icon>
         <v-icon v-else size="14">mdi-content-save</v-icon>
-        Save
+        {{ t('common.save') }}
       </button>
     </div>
   </div>

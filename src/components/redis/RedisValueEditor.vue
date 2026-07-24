@@ -48,7 +48,7 @@ async function closeTab(id: string) {
   if (idx === -1) return
   if (tabs.value[idx].isDirty) {
     const ok = await dlg.confirm({
-      message: `Unsaved changes on "${tabs.value[idx].key}". Close?`,
+      message: t('redis.unsavedChanges', { key: tabs.value[idx].key }),
       confirmText: t('common.confirm'),
     })
     if (!ok) return
@@ -59,13 +59,13 @@ async function closeTab(id: string) {
 
 async function openNewKey() {
   const key = await dlg.prompt({
-    message: 'Enter new key name:',
-    placeholder: 'my-key',
+    message: t('redis.newKeyNamePrompt'),
+    placeholder: t('redis.keyNameExample'),
     requireNonEmpty: true,
   })
   if (!key) return
   const type = await dlg.prompt({
-    message: 'Type (string/hash/list/set/zset):',
+    message: t('redis.keyTypePrompt'),
     selectOptions: ['string', 'hash', 'list', 'set', 'zset'],
     selectDefault: 'string',
   }) || 'string'
@@ -118,8 +118,8 @@ defineExpose({ openKey })
     </div>
     <div v-else class="empty-state">
       <v-icon size="48" style="color: var(--muted)">mdi-key-variant</v-icon>
-      <span class="empty-state-title">No Key Selected</span>
-      <span class="empty-state-desc">Click a key in the browser or use [ + ] to create one</span>
+      <span class="empty-state-title">{{ t('redis.noKeySelected') }}</span>
+      <span class="empty-state-desc">{{ t('redis.noKeySelectedDesc') }}</span>
     </div>
   </div>
 </template>

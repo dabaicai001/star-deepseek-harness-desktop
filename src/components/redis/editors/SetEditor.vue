@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   connId: string
@@ -112,13 +115,13 @@ load()
         <v-icon size="14" style="color: var(--yellow)">mdi-set-center</v-icon>
         <span class="info-key" :title="keyName">{{ keyName }}</span>
         <span class="cyber-badge">SET</span>
-        <span class="info-count mono">{{ members.length }} members</span>
+        <span class="info-count mono">{{ t('redis.membersCount', { count: members.length }) }}</span>
       </div>
     </div>
 
     <div v-if="loading" class="editor-loading">
       <v-icon size="20" style="color: var(--muted); animation: pulse 1s infinite">mdi-loading</v-icon>
-      <span>Loading...</span>
+      <span>{{ t('redis.loading') }}</span>
     </div>
 
     <div v-else-if="error && members.length === 0" class="editor-error">
@@ -132,7 +135,7 @@ load()
         <input
           class="filter-input"
           v-model="searchFilter"
-          placeholder="Filter members..."
+          :placeholder="t('redis.filterMembers')"
           spellcheck="false"
         />
         <span v-if="searchFilter" class="filter-count mono">{{ filteredMembers.length }}/{{ members.length }}</span>
@@ -141,8 +144,8 @@ load()
       <div class="set-body">
         <div v-for="(m, idx) in filteredMembers" :key="idx" class="set-row">
           <v-icon size="12" style="color: var(--muted); flex-shrink: 0">mdi-circle-small</v-icon>
-          <input class="input-cell" v-model="m.value" placeholder="member" spellcheck="false" />
-          <button class="row-del-btn" @click="removeMember(members.indexOf(m))" title="Delete">
+          <input class="input-cell" v-model="m.value" :placeholder="t('redis.memberPlaceholder')" spellcheck="false" />
+          <button class="row-del-btn" @click="removeMember(members.indexOf(m))" :title="t('redis.delete')">
             <v-icon size="13">mdi-delete-outline</v-icon>
           </button>
         </div>
@@ -150,7 +153,7 @@ load()
 
       <div class="set-new-row">
         <v-icon size="12" style="color: var(--muted); flex-shrink: 0; opacity: 0.4">mdi-plus-circle</v-icon>
-        <input class="input-cell" v-model="newMember" placeholder="new member" spellcheck="false" @keyup.enter="addMember" />
+        <input class="input-cell" v-model="newMember" :placeholder="t('redis.newMember')" spellcheck="false" @keyup.enter="addMember" />
         <button class="row-add-btn" @click="addMember" :disabled="!newMember.trim()">
           <v-icon size="14">mdi-plus</v-icon>
         </button>
@@ -160,11 +163,11 @@ load()
     <div class="editor-footer">
       <span v-if="error" class="footer-error">{{ error }}</span>
       <span v-else class="footer-spacer"></span>
-      <button class="cyber-btn-secondary" @click="revert" :disabled="!isDirty">Revert</button>
+      <button class="cyber-btn-secondary" @click="revert" :disabled="!isDirty">{{ t('redis.revert') }}</button>
       <button class="cyber-btn" @click="save" :disabled="!isDirty || saving">
         <v-icon v-if="saving" size="14" style="animation: pulse 1s infinite">mdi-loading</v-icon>
         <v-icon v-else size="14">mdi-content-save</v-icon>
-        Save
+        {{ t('common.save') }}
       </button>
     </div>
   </div>

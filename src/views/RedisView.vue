@@ -74,11 +74,11 @@ const showRenameKey = ref(false)
 const renameKeyOld = ref('')
 const renameKeyNew = ref('')
 
-const rightPanelTabs: RightPanelTab[] = [
-  { key: 'dashboard', label: 'Dashboard', icon: 'mdi-view-dashboard' },
-  { key: 'ai', label: 'AI', icon: 'mdi-robot' },
-  { key: 'tools', label: 'Tools', icon: 'mdi-tools' },
-]
+const rightPanelTabs = computed<RightPanelTab[]>(() => [
+  { key: 'dashboard', label: t('redis.dashboard'), icon: 'mdi-view-dashboard' },
+  { key: 'ai', label: t('redis.aiAssistant'), icon: 'mdi-robot' },
+  { key: 'tools', label: t('redis.tools'), icon: 'mdi-tools' },
+])
 
 const activeRightTab = ref('dashboard')
 

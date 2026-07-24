@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as dbService from '@/services/db'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   connId: string
@@ -115,13 +118,13 @@ load()
         <v-icon size="14" style="color: var(--cyan)">mdi-format-list-bulleted</v-icon>
         <span class="info-key" :title="keyName">{{ keyName }}</span>
         <span class="cyber-badge">LIST</span>
-        <span class="info-count mono">{{ items.length }} items</span>
+        <span class="info-count mono">{{ t('redis.itemsCount', { count: items.length }) }}</span>
       </div>
     </div>
 
     <div v-if="loading" class="editor-loading">
       <v-icon size="20" style="color: var(--muted); animation: pulse 1s infinite">mdi-loading</v-icon>
-      <span>Loading...</span>
+      <span>{{ t('redis.loading') }}</span>
     </div>
 
     <div v-else-if="error && items.length === 0" class="editor-error">
@@ -133,14 +136,14 @@ load()
       <div class="list-body">
         <div v-for="(item, idx) in items" :key="idx" class="list-row">
           <span class="row-index mono">{{ idx }}</span>
-          <input class="input-cell" v-model="item.value" placeholder="value" spellcheck="false" />
-          <button class="row-action-btn" @click="moveUp(idx)" :disabled="idx === 0" title="Move up">
+          <input class="input-cell" v-model="item.value" :placeholder="t('redis.valueCellPlaceholder')" spellcheck="false" />
+          <button class="row-action-btn" @click="moveUp(idx)" :disabled="idx === 0" :title="t('redis.moveUp')">
             <v-icon size="12">mdi-chevron-up</v-icon>
           </button>
-          <button class="row-action-btn" @click="moveDown(idx)" :disabled="idx === items.length - 1" title="Move down">
+          <button class="row-action-btn" @click="moveDown(idx)" :disabled="idx === items.length - 1" :title="t('redis.moveDown')">
             <v-icon size="12">mdi-chevron-down</v-icon>
           </button>
-          <button class="row-del-btn" @click="removeItem(idx)" title="Delete">
+          <button class="row-del-btn" @click="removeItem(idx)" :title="t('redis.delete')">
             <v-icon size="13">mdi-delete-outline</v-icon>
           </button>
         </div>
@@ -148,7 +151,7 @@ load()
 
       <div class="list-new-row">
         <span class="row-index mono" style="opacity: 0.4">+</span>
-        <input class="input-cell" v-model="newItem" placeholder="new item" spellcheck="false" @keyup.enter="addItem" />
+        <input class="input-cell" v-model="newItem" :placeholder="t('redis.newItem')" spellcheck="false" @keyup.enter="addItem" />
         <button class="row-add-btn" @click="addItem">
           <v-icon size="14">mdi-plus</v-icon>
         </button>
@@ -158,11 +161,11 @@ load()
     <div class="editor-footer">
       <span v-if="error" class="footer-error">{{ error }}</span>
       <span v-else class="footer-spacer"></span>
-      <button class="cyber-btn-secondary" @click="revert" :disabled="!isDirty">Revert</button>
+      <button class="cyber-btn-secondary" @click="revert" :disabled="!isDirty">{{ t('redis.revert') }}</button>
       <button class="cyber-btn" @click="save" :disabled="!isDirty || saving">
         <v-icon v-if="saving" size="14" style="animation: pulse 1s infinite">mdi-loading</v-icon>
         <v-icon v-else size="14">mdi-content-save</v-icon>
-        Save
+        {{ t('common.save') }}
       </button>
     </div>
   </div>
