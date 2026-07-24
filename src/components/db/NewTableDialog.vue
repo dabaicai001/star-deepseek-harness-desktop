@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useNotifyStore } from '@/stores/notify'
 import * as dbService from '@/services/db'
+import { generateCreateTableDDL, type CreateTableDbType } from '@/utils/ddlGenerator'
 
 const { t } = useI18n()
 const notify = useNotifyStore()
@@ -10,6 +11,8 @@ const notify = useNotifyStore()
 interface ColumnDef {
   name: string
   type: string
+  /** 长度 / 精度,如 '255' 或 '10,2' */
+  size: string
   nullable: boolean
   primaryKey: boolean
   defaultValue: string
@@ -28,11 +31,18 @@ const emit = defineEmits<{
   created: [tableName: string]
 }>()
 
+const dialect = computed<CreateTableDbType>(() => {
+  if (props.dbType === 'postgresql') return 'postgresql'
+  if (props.dbType === 'clickhouse') return 'clickhouse'
+  return 'mysql'
+})
+
 const tableName = ref('')
 const columns = ref<ColumnDef[]>([
-  { name: 'id', type: 'BIGINT', nullable: false, primaryKey: true, defaultValue: '', comment: '' },
+  { name: 'id', type: 'BIGINT', size: '', nullable: false, primaryKey: true, defaultValue: '', comment: '' },
 ])
 const engine = ref('InnoDB')
+const chEngine = ref('MergeTree')
 const charset = ref('utf8mb4')
 const tableComment = ref('')
 const creating = ref(false)
@@ -42,16 +52,46 @@ const canCreate = computed(() => {
   return tableName.value.trim() && columns.value.length > 0 && columns.value.every(c => c.name.trim() && c.type.trim())
 })
 
-const commonTypes = [
-  'BIGINT', 'INT', 'SMALLINT', 'TINYINT',
-  'VARCHAR', 'TEXT', 'LONGTEXT', 'MEDIUMTEXT',
-  'DECIMAL', 'DOUBLE', 'FLOAT',
-  'DATE', 'DATETIME', 'TIMESTAMP',
-  'BOOLEAN', 'JSON', 'BLOB',
-]
+const TYPE_OPTIONS: Record<CreateTableDbType, string[]> = {
+  mysql: [
+    'BIGINT', 'INT', 'SMALLINT', 'TINYINT',
+    'VARCHAR', 'CHAR', 'TEXT', 'LONGTEXT', 'MEDIUMTEXT',
+    'DECIMAL', 'DOUBLE', 'FLOAT',
+    'DATE', 'DATETIME', 'TIMESTAMP',
+    'BOOLEAN', 'JSON', 'BLOB',
+  ],
+  postgresql: [
+    'BIGINT', 'INT', 'SMALLINT',
+    'VARCHAR', 'CHAR', 'TEXT',
+    'NUMERIC', 'DECIMAL', 'DOUBLE PRECISION', 'REAL',
+    'BOOLEAN', 'DATE', 'TIMESTAMP', 'JSON', 'JSONB', 'UUID', 'BYTEA',
+  ],
+  clickhouse: [
+    'String', 'FixedString',
+    'Int8', 'Int16', 'Int32', 'Int64',
+    'UInt8', 'UInt16', 'UInt32', 'UInt64',
+    'Float32', 'Float64', 'Decimal',
+    'Date', 'DateTime', 'Bool', 'UUID', 'JSON',
+  ],
+}
+
+const commonTypes = computed(() => TYPE_OPTIONS[dialect.value])
+
+const CH_ENGINES = ['MergeTree', 'ReplacingMergeTree', 'SummingMergeTree', 'Memory', 'Log', 'TinyLog']
+
+/** 该类型是否使用长度/精度输入(仅提示用,不强制) */
+function sizeHint(type: string): string {
+  const upper = type.trim().toUpperCase()
+  if (upper.startsWith('DECIMAL') || upper.startsWith('NUMERIC')) return '10,2'
+  return '255'
+}
+
+function defaultColumnType(): string {
+  return dialect.value === 'clickhouse' ? 'String' : 'VARCHAR'
+}
 
 function addColumn() {
-  columns.value.push({ name: '', type: 'VARCHAR', nullable: true, primaryKey: false, defaultValue: '', comment: '' })
+  columns.value.push({ name: '', type: defaultColumnType(), size: '', nullable: true, primaryKey: false, defaultValue: '', comment: '' })
 }
 
 function removeColumn(idx: number) {
@@ -78,38 +118,34 @@ async function onCreate() {
       throw new Error(t('db.noDbSelected'))
     }
 
-    const cols = columns.value.map(c => {
-      let col = `\`${c.name}\` ${c.type}`
-      if (!c.nullable) col += ' NOT NULL'
-      if (c.defaultValue) col += ` DEFAULT ${c.defaultValue}`
-      if (c.comment) col += ` COMMENT '${c.comment.replace(/'/g, "\\'")}'`
-      return col
+    const statements = generateCreateTableDDL({
+      dbType: dialect.value,
+      database: props.db,
+      table: tableName.value.trim(),
+      columns: columns.value.map(c => ({
+        name: c.name.trim(),
+        type: c.type,
+        size: c.size,
+        nullable: c.nullable,
+        primaryKey: c.primaryKey,
+        defaultValue: c.defaultValue,
+        comment: c.comment,
+      })),
+      engine: dialect.value === 'clickhouse' ? chEngine.value : engine.value,
+      charset: charset.value,
+      tableComment: tableComment.value,
     })
 
-    const pkCols = columns.value.filter(c => c.primaryKey).map(c => `\`${c.name}\``)
-    if (pkCols.length > 0) {
-      cols.push(`PRIMARY KEY (${pkCols.join(', ')})`)
+    for (const ddl of statements) {
+      const result = dialect.value === 'clickhouse'
+        ? await dbService.clickhouseExecute(props.connId, ddl, props.db)
+        : await dbService.mysqlExecute(props.connId, ddl, props.db)
+      if (result.error) {
+        throw new Error(result.error)
+      }
     }
 
-    let ddl = `CREATE TABLE \`${props.db}\`.\`${tableName.value}\` (\n  ${cols.join(',\n  ')}\n)`
-
-    if (props.dbType === 'mysql') {
-      ddl += ` ENGINE=${engine.value}`
-      ddl += ` DEFAULT CHARSET=${charset.value}`
-    }
-    if (tableComment.value) {
-      ddl += ` COMMENT='${tableComment.value.replace(/'/g, "\\'")}'`
-    }
-
-    const result = props.dbType === 'clickhouse'
-      ? await dbService.clickhouseExecute(props.connId, ddl, props.db)
-      : await dbService.mysqlExecute(props.connId, ddl, props.db)
-
-    if (result.error) {
-      throw new Error(result.error)
-    }
-
-    emit('created', tableName.value)
+    emit('created', tableName.value.trim())
     emit('update:modelValue', false)
     resetForm()
   } catch (err: unknown) {
@@ -122,8 +158,9 @@ async function onCreate() {
 
 function resetForm() {
   tableName.value = ''
-  columns.value = [{ name: 'id', type: 'BIGINT', nullable: false, primaryKey: true, defaultValue: '', comment: '' }]
+  columns.value = [{ name: 'id', type: dialect.value === 'clickhouse' ? 'UInt64' : 'BIGINT', size: '', nullable: false, primaryKey: true, defaultValue: '', comment: '' }]
   engine.value = 'InnoDB'
+  chEngine.value = 'MergeTree'
   charset.value = 'utf8mb4'
   tableComment.value = ''
   error.value = null
@@ -136,7 +173,7 @@ function onCancel() {
 </script>
 
 <template>
-  <v-dialog :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" max-width="780" persistent>
+  <v-dialog :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" max-width="900" persistent>
     <div class="cyber-panel" style="padding: 0;">
       <div class="dialog-header">
         <v-icon size="16" color="var(--cyan)">mdi-table-plus</v-icon>
@@ -156,7 +193,7 @@ function onCancel() {
           <input v-model="tableName" class="cyber-input" :placeholder="t('db.tableNamePlaceholder', '请输入表名')" autofocus />
         </div>
 
-        <div v-if="dbType === 'mysql'" class="form-row-group">
+        <div v-if="dialect === 'mysql'" class="form-row-group">
           <div class="form-row half">
             <label class="form-label">Engine</label>
             <select v-model="engine" class="cyber-input">
@@ -173,6 +210,13 @@ function onCancel() {
               <option value="latin1">latin1</option>
             </select>
           </div>
+        </div>
+
+        <div v-if="dialect === 'clickhouse'" class="form-row">
+          <label class="form-label">Engine</label>
+          <select v-model="chEngine" class="cyber-input">
+            <option v-for="eng in CH_ENGINES" :key="eng" :value="eng">{{ eng }}</option>
+          </select>
         </div>
 
         <div class="form-row">
@@ -192,6 +236,7 @@ function onCancel() {
             <div class="columns-row header-row">
               <span class="col-name">{{ t('db.colName', '列名') }}</span>
               <span class="col-type">{{ t('db.colType', '类型') }}</span>
+              <span class="col-size">{{ t('db.colSize', '长度/精度') }}</span>
               <span class="col-null">NULL</span>
               <span class="col-pk">PK</span>
               <span class="col-default">{{ t('db.colDefault', '默认值') }}</span>
@@ -204,6 +249,7 @@ function onCancel() {
               <select v-model="col.type" class="cyber-input cell type-select">
                 <option v-for="tp in commonTypes" :key="tp" :value="tp">{{ tp }}</option>
               </select>
+              <input v-model="col.size" class="cyber-input cell size-input" :placeholder="sizeHint(col.type)" />
               <span class="cell-check">
                 <input type="checkbox" v-model="col.nullable" />
               </span>
@@ -281,7 +327,7 @@ function onCancel() {
 }
 .columns-row {
   display: grid;
-  grid-template-columns: 120px 100px 40px 40px 100px 1fr 70px;
+  grid-template-columns: 110px 100px 72px 36px 36px 90px 1fr 66px;
   gap: 4px; padding: 6px 8px; align-items: center;
   border-bottom: 1px solid var(--line);
 }

@@ -18,7 +18,9 @@ const {
   generateCreateIndexDDL,
   generateDropIndexDDL,
   generateBatchColumnDDL,
-  generateBatchIndexDDL
+  generateBatchIndexDDL,
+  generateCreateTableDDL,
+  renderColumnType
 } = ddlModule
 
 // Helper: create a ColumnEdit-compatible object
@@ -242,4 +244,155 @@ test('generateBatchIndexDDL skips clean indexes', () => {
   }]
   const result = generateBatchIndexDDL('mydb', 'users', edits)
   assert.deepEqual(result, [])
+})
+
+// ====== renderColumnType ======
+
+test('renderColumnType appends size when provided', () => {
+  assert.equal(renderColumnType('VARCHAR', '64'), 'VARCHAR(64)')
+})
+
+test('renderColumnType supports decimal precision and scale', () => {
+  assert.equal(renderColumnType('DECIMAL', '10,2'), 'DECIMAL(10,2)')
+  assert.equal(renderColumnType('NUMERIC', ' 12 , 4 '), 'NUMERIC(12,4)')
+})
+
+test('renderColumnType defaults VARCHAR to 255 when size is empty', () => {
+  assert.equal(renderColumnType('VARCHAR', ''), 'VARCHAR(255)')
+  assert.equal(renderColumnType('CHAR', ''), 'CHAR(1)')
+})
+
+test('renderColumnType keeps DECIMAL without size (valid, defaults server-side)', () => {
+  assert.equal(renderColumnType('DECIMAL', ''), 'DECIMAL')
+})
+
+test('renderColumnType keeps type with inline parentheses as-is', () => {
+  assert.equal(renderColumnType('VARCHAR(100)', ''), 'VARCHAR(100)')
+  assert.equal(renderColumnType('Decimal(10,2)', '999'), 'Decimal(10,2)')
+})
+
+test('renderColumnType rejects invalid size', () => {
+  assert.throws(() => renderColumnType('VARCHAR', 'abc'), /invalid column size/)
+})
+
+// ====== generateCreateTableDDL ======
+
+function makeCreateCol(overrides = {}) {
+  return {
+    name: 'col1',
+    type: 'VARCHAR',
+    size: '',
+    nullable: true,
+    primaryKey: false,
+    defaultValue: '',
+    comment: '',
+    ...overrides,
+  }
+}
+
+test('generateCreateTableDDL mysql: VARCHAR without size gets default 255 (no Error 1064)', () => {
+  const [sql] = generateCreateTableDDL({
+    dbType: 'mysql',
+    database: 'mydb',
+    table: 'images',
+    columns: [
+      makeCreateCol({ name: 'id', type: 'BIGINT', nullable: false, primaryKey: true }),
+      makeCreateCol({ name: 'batch_no', type: 'VARCHAR', nullable: false, comment: '批次号' }),
+    ],
+    engine: 'InnoDB',
+    charset: 'utf8mb4',
+  })
+  assert.ok(sql.startsWith('CREATE TABLE `mydb`.`images`'))
+  assert.ok(sql.includes('`batch_no` VARCHAR(255) NOT NULL'))
+  assert.ok(sql.includes("COMMENT '批次号'"))
+  assert.ok(sql.includes('PRIMARY KEY (`id`)'))
+  assert.ok(sql.includes('ENGINE=InnoDB'))
+  assert.ok(sql.includes('DEFAULT CHARSET=utf8mb4'))
+})
+
+test('generateCreateTableDDL mysql: DECIMAL with precision renders correctly', () => {
+  const [sql] = generateCreateTableDDL({
+    dbType: 'mysql',
+    database: 'mydb',
+    table: 't',
+    columns: [makeCreateCol({ name: 'price', type: 'DECIMAL', size: '10,2', nullable: false })],
+  })
+  assert.ok(sql.includes('`price` DECIMAL(10,2) NOT NULL'))
+})
+
+test('generateCreateTableDDL mysql: string default is quoted, function default is not', () => {
+  const [sql] = generateCreateTableDDL({
+    dbType: 'mysql',
+    database: 'mydb',
+    table: 't',
+    columns: [
+      makeCreateCol({ name: 'status', type: 'VARCHAR', defaultValue: 'active' }),
+      makeCreateCol({ name: 'created_at', type: 'DATETIME', defaultValue: 'CURRENT_TIMESTAMP' }),
+    ],
+  })
+  assert.ok(sql.includes("DEFAULT 'active'"))
+  assert.ok(sql.includes('DEFAULT CURRENT_TIMESTAMP'))
+  assert.ok(!sql.includes("DEFAULT 'CURRENT_TIMESTAMP'"))
+})
+
+test('generateCreateTableDDL postgresql: double quotes, no inline COMMENT, separate COMMENT ON', () => {
+  const stmts = generateCreateTableDDL({
+    dbType: 'postgresql',
+    database: 'public',
+    table: 'users',
+    columns: [
+      makeCreateCol({ name: 'id', type: 'BIGINT', nullable: false, primaryKey: true }),
+      makeCreateCol({ name: 'email', type: 'VARCHAR', size: '128', comment: '邮箱' }),
+    ],
+    tableComment: '用户表',
+  })
+  assert.equal(stmts.length, 3)
+  assert.ok(stmts[0].startsWith('CREATE TABLE "public"."users"'))
+  assert.ok(stmts[0].includes('"email" VARCHAR(128) NULL'))
+  assert.ok(!stmts[0].includes('COMMENT'))
+  assert.ok(!stmts[0].includes('`'))
+  assert.equal(stmts[1], 'COMMENT ON COLUMN "public"."users"."email" IS \'邮箱\'')
+  assert.equal(stmts[2], 'COMMENT ON TABLE "public"."users" IS \'用户表\'')
+})
+
+test('generateCreateTableDDL clickhouse: Nullable wrapper, MergeTree engine, ORDER BY pk', () => {
+  const [sql] = generateCreateTableDDL({
+    dbType: 'clickhouse',
+    database: 'logs',
+    table: 'events',
+    columns: [
+      makeCreateCol({ name: 'id', type: 'UInt64', nullable: false, primaryKey: true }),
+      makeCreateCol({ name: 'msg', type: 'String', nullable: true, comment: '消息' }),
+    ],
+    engine: 'MergeTree',
+  })
+  assert.ok(sql.startsWith('CREATE TABLE `logs`.`events`'))
+  assert.ok(sql.includes('`id` UInt64'))
+  assert.ok(sql.includes('`msg` Nullable(String)'))
+  assert.ok(!sql.includes('NOT NULL'))
+  assert.ok(!sql.includes('PRIMARY KEY'))
+  assert.ok(sql.includes('ENGINE = MergeTree()'))
+  assert.ok(sql.includes('ORDER BY (`id`)'))
+  assert.ok(sql.includes("COMMENT '消息'"))
+})
+
+test('generateCreateTableDDL clickhouse: ORDER BY tuple() when no primary key', () => {
+  const [sql] = generateCreateTableDDL({
+    dbType: 'clickhouse',
+    database: 'logs',
+    table: 't',
+    columns: [makeCreateCol({ name: 'msg', type: 'String' })],
+  })
+  assert.ok(sql.includes('ORDER BY tuple()'))
+})
+
+test('generateCreateTableDDL escapes identifiers and comments', () => {
+  const [sql] = generateCreateTableDDL({
+    dbType: 'mysql',
+    database: 'mydb',
+    table: 't',
+    columns: [makeCreateCol({ name: 'we`ird', type: 'INT', comment: "it's" })],
+  })
+  assert.ok(sql.includes('`we``ird`'))
+  assert.ok(sql.includes("COMMENT 'it''s'"))
 })

@@ -31,12 +31,13 @@ type ClickHouseConnInfo struct {
 
 // CHColumnMeta ClickHouse 列元数据（中间类型，用于从 system.columns 查询）
 type CHColumnMeta struct {
-	Name        string `json:"name" db:"name"`
-	Type        string `json:"type" db:"type"`
-	DefaultKind string `json:"defaultKind" db:"default_kind"`
-	DefaultExpr string `json:"defaultExpr" db:"default_expression"`
-	Comment     string `json:"comment" db:"comment"`
-	Position    int    `json:"position" db:"position"`
+	Name         string `json:"name" db:"name"`
+	Type         string `json:"type" db:"type"`
+	DefaultKind  string `json:"defaultKind" db:"default_kind"`
+	DefaultExpr  string `json:"defaultExpr" db:"default_expression"`
+	Comment      string `json:"comment" db:"comment"`
+	Position     int    `json:"position" db:"position"`
+	InPrimaryKey bool   `json:"inPrimaryKey" db:"is_in_primary_key"`
 }
 
 // ToColumnMeta 转换为通用 ColumnMeta
@@ -49,12 +50,18 @@ func (c CHColumnMeta) ToColumnMeta() ColumnMeta {
 	if strings.HasPrefix(c.Type, "Nullable(") {
 		nullable = "YES"
 	}
+	// ClickHouse 无传统主键概念,把 ORDER BY / PRIMARY KEY 键列标记为 PRI,
+	// 前端据此放行标签页内行编辑(ALTER TABLE ... UPDATE mutation)
+	key := ""
+	if c.InPrimaryKey {
+		key = "PRI"
+	}
 	return ColumnMeta{
 		Name:         c.Name,
 		Type:         c.Type,
 		DataType:     extractBaseType(c.Type),
 		Nullable:     nullable,
-		Key:          "",
+		Key:          key,
 		DefaultValue: defaultVal,
 		Extra:        c.DefaultKind,
 		Comment:      c.Comment,
@@ -190,7 +197,8 @@ func (a *ClickHouseAdapter) ListColumns(database, table string) ([]ColumnMeta, e
 	if database == "" {
 		database = a.conn.Database
 	}
-	query := `SELECT name, type, default_kind, default_expression, comment, position
+	query := `SELECT name, type, default_kind, default_expression, comment, position,
+			is_in_primary_key
 		FROM system.columns 
 		WHERE database = ? AND table = ?
 		ORDER BY position`
