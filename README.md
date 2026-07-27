@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.34.6-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.35.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,10 @@
 ---
 
 ## 当前版本
+
+### v0.35.0 (2026-07-27)
+- 🐛 修复索引管理器新建索引报 MySQL Error 1091:新索引标记 `isNew`,不再对其生成 `DROP INDEX`
+- 🎨 欢迎页全面重构:背景极光 / 栅格 / 漂浮粒子,标题渐变流光,标语打字机,指标数字滚动,模块卡片光带扫过,全区块交错入场;样式收口 `cyber.css` 并兼容深浅双主题
 
 ### v0.34.6 (2026-07-24)
 - 🐛 新建表修复 MySQL Error 1064:新增「长度/精度」列,VARCHAR 缺省补 255、DECIMAL 支持精度;DDL 按方言生成(PG 双引号 + COMMENT ON,ClickHouse Nullable + MergeTree ORDER BY)

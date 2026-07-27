@@ -12,6 +12,19 @@
 
 ---
 
+## [0.35.0] - 2026-07-27
+
+### 修复
+- 🐛 fix(db): 索引管理器新建索引时报 MySQL Error 1091(`Can't DROP 'xxx_idx'; check that column/key exists`)。根因是 `generateBatchIndexDDL` 对所有 dirty 条目一律先生成 `DROP INDEX`,包括服务器上尚不存在的新索引;`IndexEdit` 新增 `isNew` 标记,新索引只发 `CREATE INDEX`,补 node --test 回归用例。
+
+### 改进
+- 🎨 style(home): 欢迎页全面重构 — 背景极光漂移 + 栅格遮罩 + 漂浮粒子;标题渐变流光与模糊入场;终端光标闪烁 kicker;标语打字机效果;资产指标数字滚动(easeOutCubic)+ 图标光晕呼吸;模块卡片 hover 光带扫过、图标旋转放大、箭头滑入;新手指引 / 最近使用按 `--i` 交错入场 + hover 平移。欢迎页样式全部收口到 `cyber.css` 的 `.welcome-*` / `.metric-card` / `.feature-card` 等全局组件类,走 token 并兼容深浅双主题与 prefers-reduced-motion。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.35.0。
+
+---
+
 ## [0.34.6] - 2026-07-24
 
 ### 修复

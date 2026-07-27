@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.34.6(修复新建表 DDL、ClickHouse 行编辑、Redis 汉化与首页优化;其他见 CHANGELOG) |
+| 当前版本 | v0.35.0(欢迎页动画化重构、修复新建索引 Error 1091;其他见 CHANGELOG) |
 
 ---
 
@@ -293,6 +293,13 @@ starhub/
 | `.ai-tool-call` / `.ai-tool-call-*` | 连接工作区 AI 工具卡片、完整命令代码区与状态边框 |
 | `.transfer-dock` / `.transfer-dock-*` | 全局传输任务条(右下角 pill + 展开面板),聚合 SFTP 上传/下载进度、限速与清理已完成;pill 可 Pointer Events 拖动换位(位置持久化,上半屏面板自动下翻,双击复位) |
 | `.detached-layout` / `.detached-titlebar` / `.detached-workspace` / `.tab-detach-hint(.armed)` / `body.tab-dragging` | 标签页拖出独立窗口的精简外壳(无 sidebar / tab 条 / 状态栏)、拖拽跟随提示芯片(armed 高亮)与拖拽中进行态 |
+| `.workspace-welcome` / `.welcome-decor` / `.welcome-aurora(-a/-b)` / `.welcome-grid-overlay` / `.welcome-particle` | 欢迎页容器与背景装饰层(极光漂移 + 栅格遮罩 + 漂浮粒子,pointer-events 全关) |
+| `.welcome-content` / `.welcome-hero` / `.welcome-kicker` / `.welcome-caret` / `.welcome-title` / `.welcome-subtitle` / `.welcome-slogan` / `.welcome-btn(-primary/-secondary)` / `.welcome-btn-kbd` | 欢迎页 Hero 区(标题渐变流光 + 模糊入场、终端光标闪烁、按钮光带扫过);`.welcome-content.run` 后各块按序入场 |
+| `.welcome-metrics` / `.metric-card` / `.metric-icon` / `.metric-label` / `.metric-value` | 欢迎页资产指标卡(数字滚动由组件 JS 驱动,图标光晕呼吸,顶部液体灯带) |
+| `.onboarding-panel` / `.onboarding-step(.done)` / `.step-icon` / `.step-copy` / `.step-title` / `.step-desc` | 欢迎页新手指引步骤(交错入场 + hover 平移/图标旋转) |
+| `.section-divider` / `.section-label` / `.section-hint` | 欢迎页节分割线(渐变线 + 等宽标签) |
+| `.feature-grid` / `.feature-card` / `.fc-icon(.db/.docker/.excel)` / `.fc-count` / `.fc-desc` / `.fc-detail` / `.fc-arrow` | 欢迎页模块卡片(hover 光带扫过 + 上抬光晕 + 箭头滑入) |
+| `.recent-work-panel` / `.recent-list` / `.recent-row` / `.recent-type` / `.recent-name` / `.recent-meta` / `.recent-time` | 欢迎页最近使用列表(交错入场 + hover 平移) |
 
 #### 4.4.5.1 数据库与消息产品图标(强制)
 
@@ -689,4 +696,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-07-24 (v0.34.6)*
+*最后更新: 2026-07-27 (v0.35.0)*

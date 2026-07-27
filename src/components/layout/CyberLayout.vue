@@ -442,7 +442,17 @@ function triggerWelcomeStagger() {
     for (let i = 0; i < children.length; i++) {
       ;(children[i] as HTMLElement).style.setProperty('--i', String(i))
     }
-    requestAnimationFrame(() => { welcomeStaggerRun.value = true })
+    // 后台/隐藏标签页 rAF 不触发,补一个超时兜底,否则欢迎页会一直透明
+    let fired = false
+    const start = () => {
+      if (fired) return
+      fired = true
+      welcomeStaggerRun.value = true
+      runWelcomeCountUp()
+      runWelcomeTypewriter()
+    }
+    requestAnimationFrame(start)
+    window.setTimeout(start, 120)
   })
 }
 vueWatch(() => appStore.tabs.length, (len) => {
@@ -525,6 +535,9 @@ onBeforeUnmount(() => {
     window.clearInterval(clockTimer)
     clockTimer = null
   }
+  // 欢迎页动效计时器
+  cancelAnimationFrame(welcomeCountRaf)
+  window.clearInterval(welcomeTypeTimer)
 })
 
 // ====== 标签栏 + 号:基于当前 tab 类型弹资产选择器,选哪条就开哪条 ======
@@ -1369,6 +1382,67 @@ function moduleAssetCount(type: WelcomeModuleType) {
   return excelAssets.value.length
 }
 
+// ====== 欢迎页动效:指标数字滚动 + 标语打字机 + 漂浮粒子 ======
+const welcomeMetrics = computed(() => [
+  { icon: 'mdi-console', label: 'SSH', value: sshAssets.value.length },
+  { icon: 'mdi-database', label: 'Database', value: dbAssets.value.length },
+  { icon: 'mdi-docker', label: 'Docker', value: dockerAssets.value.length },
+  { icon: 'mdi-file-excel-outline', label: 'Excel', value: excelAssets.value.length }
+])
+const welcomeMetricDisplay = ref<number[]>([0, 0, 0, 0])
+let welcomeCountRaf = 0
+let welcomeCountDone = false
+function runWelcomeCountUp() {
+  cancelAnimationFrame(welcomeCountRaf)
+  welcomeCountDone = false
+  const targets = welcomeMetrics.value.map(m => m.value)
+  const start = performance.now()
+  const duration = 900
+  const tick = (now: number) => {
+    const p = Math.min((now - start) / duration, 1)
+    const eased = 1 - Math.pow(1 - p, 3)
+    welcomeMetricDisplay.value = targets.map(v => Math.round(v * eased))
+    if (p < 1) {
+      welcomeCountRaf = requestAnimationFrame(tick)
+    } else {
+      welcomeCountDone = true
+    }
+  }
+  welcomeCountRaf = requestAnimationFrame(tick)
+}
+// 数字滚动结束后资产数变化直接同步,不再重放动画
+vueWatch(welcomeMetrics, (list) => {
+  if (welcomeCountDone) welcomeMetricDisplay.value = list.map(m => m.value)
+})
+
+const welcomeSloganText = ref('')
+const welcomeSloganTyping = ref(false)
+let welcomeTypeTimer: number | undefined
+function runWelcomeTypewriter() {
+  window.clearInterval(welcomeTypeTimer)
+  const full = t('home.slogan')
+  welcomeSloganText.value = ''
+  welcomeSloganTyping.value = true
+  let i = 0
+  welcomeTypeTimer = window.setInterval(() => {
+    i += 1
+    welcomeSloganText.value = full.slice(0, i)
+    if (i >= full.length) {
+      window.clearInterval(welcomeTypeTimer)
+      welcomeSloganTyping.value = false
+    }
+  }, 140)
+}
+
+const welcomeParticles = [
+  { id: 0, x: '12%', y: '72%', d: '0s' },
+  { id: 1, x: '28%', y: '84%', d: '2.2s' },
+  { id: 2, x: '55%', y: '78%', d: '4.1s' },
+  { id: 3, x: '74%', y: '86%', d: '1.3s' },
+  { id: 4, x: '88%', y: '70%', d: '3.2s' },
+  { id: 5, x: '42%', y: '90%', d: '5.4s' }
+]
+
 /** 紧凑时间标签(用于 quick-start-bar) */
 function shortTimeAgo(ts: number | null | undefined): string {
   if (!ts) return ''
@@ -1695,12 +1769,27 @@ vueWatch(() => appStore.tabs.length, () => {
       <!-- Workspace -->
       <div class="workspace">
         <div v-if="appStore.tabs.length === 0 && !devMockWorkspace" class="workspace-welcome" @contextmenu="openWorkspaceContextMenu">
+          <div class="welcome-decor" aria-hidden="true">
+            <div class="welcome-aurora welcome-aurora-a"></div>
+            <div class="welcome-aurora welcome-aurora-b"></div>
+            <div class="welcome-grid-overlay"></div>
+            <span
+              v-for="p in welcomeParticles"
+              :key="p.id"
+              class="welcome-particle"
+              :style="{ '--x': p.x, '--y': p.y, '--d': p.d }"
+            ></span>
+          </div>
           <div ref="welcomeRef" class="welcome-content cyber-stagger" :class="{ run: welcomeStaggerRun }">
-            <div class="welcome-hero">
+            <div class="welcome-hero" style="--i: 0">
               <div class="welcome-copy">
-                <div class="welcome-kicker">StarHub · Local workspace</div>
+                <div class="welcome-kicker">
+                  <span class="status-dot online"></span>
+                  <span>StarHub · Local workspace</span>
+                  <span class="welcome-caret"></span>
+                </div>
                 <h2 class="welcome-title">{{ t('home.welcome') }}</h2>
-                <p class="welcome-subtitle">把 SSH、数据库、Docker、Excel 和 AI 助手收进同一个工作台。</p>
+                <p class="welcome-subtitle">{{ t('home.subtitle') }}</p>
                 <div class="quick-actions">
                   <button class="welcome-btn welcome-btn-primary" @click="openNewConnection">
                     <v-icon size="14">mdi-plus</v-icon>
@@ -1713,33 +1802,36 @@ vueWatch(() => appStore.tabs.length, () => {
                     <span class="welcome-btn-kbd">{{ modKey }}P</span>
                   </button>
                 </div>
+                <p class="welcome-slogan">
+                  <span>{{ welcomeSloganText }}</span>
+                  <span v-if="welcomeSloganTyping" class="welcome-caret welcome-caret-inline"></span>
+                </p>
               </div>
               <div class="welcome-metrics" aria-label="Workspace assets summary">
-                <div class="metric-card">
-                  <strong>{{ sshAssets.length }}</strong>
-                  <span>SSH</span>
-                </div>
-                <div class="metric-card">
-                  <strong>{{ dbAssets.length }}</strong>
-                  <span>Database</span>
-                </div>
-                <div class="metric-card">
-                  <strong>{{ dockerAssets.length }}</strong>
-                  <span>Docker</span>
-                </div>
-                <div class="metric-card">
-                  <strong>{{ excelAssets.length }}</strong>
-                  <span>Excel</span>
+                <div
+                  v-for="(m, i) in welcomeMetrics"
+                  :key="m.label"
+                  class="metric-card"
+                  :style="{ '--i': i }"
+                >
+                  <div class="metric-top">
+                    <span class="metric-icon" :style="{ '--i': i }">
+                      <v-icon size="12">{{ m.icon }}</v-icon>
+                    </span>
+                    <span class="metric-label">{{ m.label }}</span>
+                  </div>
+                  <strong class="metric-value">{{ welcomeMetricDisplay[i] }}</strong>
                 </div>
               </div>
             </div>
 
-            <div class="onboarding-panel">
+            <div class="onboarding-panel" style="--i: 1">
               <button
-                v-for="step in onboardingSteps"
+                v-for="(step, i) in onboardingSteps"
                 :key="step.title"
                 class="onboarding-step"
                 :class="{ done: step.done }"
+                :style="{ '--i': i }"
                 @click="step.action"
               >
                 <span class="step-icon">
@@ -1752,16 +1844,17 @@ vueWatch(() => appStore.tabs.length, () => {
               </button>
             </div>
 
-            <div class="section-divider">
+            <div class="section-divider" style="--i: 2">
               <span class="section-label">Modules</span>
               <span class="section-hint">选择一个模块开始</span>
             </div>
 
-            <div class="feature-grid">
+            <div class="feature-grid" style="--i: 3">
               <button
-                v-for="module in welcomeModules"
+                v-for="(module, i) in welcomeModules"
                 :key="module.type"
                 class="feature-card"
+                :style="{ '--i': i }"
                 @click="onWelcomeQuickAction(module.type)"
                 @contextmenu="openWorkspaceContextMenu($event, module.type)"
               >
@@ -1770,22 +1863,27 @@ vueWatch(() => appStore.tabs.length, () => {
                     <v-icon size="14">{{ module.icon }}</v-icon>
                   </span>
                   <h3>{{ module.title }}</h3>
-                  <span class="fc-count">{{ moduleAssetCount(module.type) }}</span>
+                  <span class="fc-count" :key="moduleAssetCount(module.type)">{{ moduleAssetCount(module.type) }}</span>
                 </div>
                 <p class="fc-desc">{{ module.desc }}</p>
+                <span class="fc-detail">{{ module.detail }}</span>
+                <span class="fc-arrow">
+                  <v-icon size="14">mdi-arrow-right</v-icon>
+                </span>
               </button>
             </div>
 
-            <div v-if="recentAssets.length > 0" class="recent-work-panel">
+            <div v-if="recentAssets.length > 0" class="recent-work-panel" style="--i: 4">
               <div class="section-divider recent-divider">
                 <span class="section-label">Recent</span>
                 <span class="section-hint">继续上次的连接或文件</span>
               </div>
               <div class="recent-list">
                 <button
-                  v-for="a in recentAssets"
+                  v-for="(a, i) in recentAssets"
                   :key="a.id"
                   class="recent-row"
+                  :style="{ '--i': i }"
                   @click="connectToAsset(a)"
                 >
                   <span class="recent-type">
@@ -2718,465 +2816,6 @@ kbd {
   display: flex;
   flex-direction: column;
   position: relative;
-}
-
-.workspace-welcome {
-  flex: 1;
-  overflow: auto;
-  overflow-x: hidden;
-  min-width: 0;
-  min-height: 0;
-  padding: clamp(12px, 2vw, 32px);
-}
-
-.welcome-content {
-  width: 100%;
-  min-height: 100%;
-  margin: 0 auto;
-  padding: clamp(16px, 2vw, 32px);
-  display: flex;
-  flex-direction: column;
-}
-
-.welcome-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.7fr);
-  gap: clamp(16px, 2vw, 32px);
-  align-items: stretch;
-}
-
-.welcome-copy {
-  min-width: 0;
-}
-
-.welcome-kicker {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  color: var(--text-2);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.welcome-title {
-  font-size: clamp(26px, 3.4vw, 52px);
-  line-height: 1.08;
-  font-weight: 800;
-  margin: 0 0 12px;
-  background: var(--grad-primary);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-}
-
-.welcome-subtitle {
-  max-width: 72ch;
-  color: var(--text-2);
-  font-size: clamp(13px, 1.1vw, 17px);
-  line-height: 1.7;
-  margin: 0 0 20px;
-}
-
-.quick-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 0;
-}
-
-.welcome-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.welcome-btn-primary {
-  border: none;
-  background: var(--grad-primary);
-  color: #fff;
-  box-shadow: var(--glow-cyan);
-}
-
-.welcome-btn-primary:hover {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-}
-
-.welcome-btn-secondary {
-  border: 1px solid var(--line-2);
-  background: transparent;
-  color: var(--text-2);
-}
-
-.welcome-btn-secondary:hover {
-  color: var(--cyan);
-  border-color: var(--focus-cyan);
-  background: var(--hover-cyan-faint);
-}
-
-.welcome-btn-kbd {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid currentColor;
-  opacity: 0.65;
-  line-height: 1;
-}
-
-.welcome-metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr));
-  gap: 12px;
-}
-
-.metric-card {
-  min-width: 0;
-  padding: 16px;
-  border-radius: 12px;
-  border: 1px solid var(--line-2);
-  background: var(--bg-input);
-}
-
-.metric-card strong {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--cyan);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 28px;
-  line-height: 1;
-}
-
-.metric-card span {
-  color: var(--muted);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.feature-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
-  gap: 12px;
-  margin: 0;
-}
-
-.onboarding-panel {
-  margin: 24px 0 16px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
-  gap: 8px;
-}
-
-.onboarding-step {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--line-2);
-  background: var(--bg-input);
-  color: var(--text-2);
-  cursor: pointer;
-  text-align: left;
-  font-family: inherit;
-  transition: all 0.2s;
-}
-
-.onboarding-step:hover {
-  color: var(--cyan);
-  border-color: var(--focus-cyan);
-  background: var(--hover-cyan-faint);
-}
-
-.onboarding-step.done {
-  border-color: var(--status-online-border);
-  color: var(--green);
-}
-
-.step-icon {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--icon-bg-cyan);
-  flex-shrink: 0;
-}
-
-.onboarding-step.done .step-icon {
-  background: var(--status-online-bg);
-}
-
-.step-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.step-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.step-desc {
-  font-size: 10px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-@media (max-width: 1080px) {
-  .welcome-hero {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 720px) {
-  .workspace-welcome {
-    padding: 16px;
-  }
-
-  .welcome-content {
-    padding: 16px;
-  }
-
-  .welcome-metrics,
-  .feature-grid,
-  .onboarding-panel {
-    grid-template-columns: 1fr;
-  }
-}
-
-.feature-card {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  background: var(--panel);
-  border: 1px solid var(--line-2);
-  border-radius: 12px;
-  padding: 14px 16px;
-  text-align: left;
-  color: inherit;
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-.feature-card::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--grad-primary);
-  opacity: 0.3;
-}
-
-.feature-card:hover:not(.disabled-card) {
-  transform: translateY(-3px);
-  box-shadow:
-    0 18px 52px var(--glow-soft),
-    0 0 0 1px var(--focus-cyan);
-  border-color: var(--status-connecting-border);
-}
-
-.feature-card.disabled-card {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.feature-card-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.fc-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--icon-bg-cyan);
-  color: var(--cyan);
-  flex-shrink: 0;
-}
-
-.fc-icon.db {
-  background: var(--icon-bg-purple);
-  color: var(--purple);
-}
-
-.fc-icon.docker,
-.fc-icon.excel {
-  background: var(--icon-bg-green);
-  color: var(--green);
-}
-
-.feature-card h3 {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 700;
-  margin: 0;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.fc-count {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--hover-cyan-faint);
-  color: var(--muted);
-  border: 1px solid var(--line);
-  flex-shrink: 0;
-}
-
-.fc-desc {
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--text-2);
-  margin: 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.recent-work-panel {
-  margin: 0;
-  text-align: left;
-}
-
-.recent-divider {
-  margin-top: 24px;
-}
-
-.recent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.recent-row {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-  text-align: left;
-  font-family: inherit;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.recent-row:hover {
-  color: var(--cyan);
-  border-color: var(--line-2);
-  background: var(--hover-cyan-faint);
-}
-
-.recent-type {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--icon-bg-cyan);
-  color: var(--cyan);
-  flex-shrink: 0;
-}
-
-.recent-name {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.recent-meta {
-  flex: 1;
-  min-width: 0;
-  font-size: 10px;
-  color: var(--muted);
-  font-family: 'JetBrains Mono', monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.recent-time {
-  font-size: 10px;
-  color: var(--muted);
-  font-family: 'JetBrains Mono', monospace;
-  flex-shrink: 0;
-}
-
-.section-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 24px 0 16px;
-  font-size: 10px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-weight: 700;
-}
-
-.section-divider::before,
-.section-divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--line-2), transparent);
-}
-
-.section-label {
-  font-family: 'JetBrains Mono', monospace;
-  color: var(--text-2);
-}
-
-.section-hint {
-  font-weight: 500;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--muted);
-  opacity: 0.7;
 }
 
 .workspace-content {
