@@ -246,6 +246,44 @@ test('generateBatchIndexDDL skips clean indexes', () => {
   assert.deepEqual(result, [])
 })
 
+test('generateBatchIndexDDL does not DROP a brand-new index (Error 1091 regression)', () => {
+  const edits = [{
+    name: 'gooids_idx',
+    newName: 'gooids_idx',
+    columns: 'gooids',
+    newColumns: 'gooids',
+    unique: false,
+    newUnique: false,
+    indexType: 'BTREE',
+    newIndexType: 'BTREE',
+    dirty: true,
+    dropped: false,
+    isNew: true,
+  }]
+  const result = generateBatchIndexDDL('mydb', 'users', edits)
+  assert.equal(result.length, 1)
+  assert.ok(result[0].includes('CREATE INDEX `gooids_idx`'))
+  assert.ok(!result.some(ddl => ddl.includes('DROP INDEX')))
+})
+
+test('generateBatchIndexDDL emits nothing for a new index that was dropped before apply', () => {
+  const edits = [{
+    name: 'idx_tmp',
+    newName: 'idx_tmp',
+    columns: 'col1',
+    newColumns: 'col1',
+    unique: false,
+    newUnique: false,
+    indexType: 'BTREE',
+    newIndexType: 'BTREE',
+    dirty: true,
+    dropped: true,
+    isNew: true,
+  }]
+  const result = generateBatchIndexDDL('mydb', 'users', edits)
+  assert.deepEqual(result, [])
+})
+
 // ====== renderColumnType ======
 
 test('renderColumnType appends size when provided', () => {

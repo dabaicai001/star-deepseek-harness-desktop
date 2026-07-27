@@ -169,7 +169,8 @@ function resetEdits() {
       indexType: info.indexType || 'BTREE',
       newIndexType: info.indexType || 'BTREE',
       dirty: false,
-      dropped: false
+      dropped: false,
+      isNew: false
     })
   }
   edits.value = map
@@ -213,7 +214,8 @@ function addNewIdx() {
     indexType: newIdx.value.indexType,
     newIndexType: newIdx.value.indexType,
     dirty: true,
-    dropped: false
+    dropped: false,
+    isNew: true
   }
   edits.value.set(name, entry)
   edits.value = new Map(edits.value)

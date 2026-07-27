@@ -139,6 +139,8 @@ export interface IndexEdit {
   newIndexType: string
   dirty: boolean
   dropped: boolean
+  /** true 表示本会话新增的索引，服务器上尚不存在，应用变更时不能对其生成 DROP INDEX(否则 MySQL Error 1091) */
+  isNew: boolean
 }
 
 function splitCols(s: string): string[] {
@@ -279,8 +281,9 @@ export function generateCreateTableDDL(opts: CreateTableOptions): string[] {
 
 export function generateBatchIndexDDL(db: string, table: string, edits: IndexEdit[]): string[] {
   const ddls: string[] = []
-  // 先处理删除
+  // 先处理删除(isNew 的索引服务器上不存在，DROP 会报 Error 1091)
   for (const e of edits) {
+    if (e.isNew) continue
     if (e.dropped) {
       ddls.push(generateDropIndexDDL(db, table, e.name))
     } else if (e.dirty) {
