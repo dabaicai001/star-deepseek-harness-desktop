@@ -293,6 +293,7 @@ async function onAiSend(text: string) {
  if (aiSession.value.loading) return
  aiSession.value.loading = true
  aiSession.value.messages.push({ role: 'user', content: text })
+ logAudit({ category: 'ai', action: 'ssh_ai_query', target: text.slice(0, 120), sessionId: props.id, assetId: asset.value?.id, success: true })
  // 先获取当前工作目录
  try {
    const cwdOutput = await runAiCommandWithPrompt('pwd')
@@ -350,6 +351,10 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
  //唤醒 caller 中的 await confirmFn()
  const resolve = pendingConfirms.value.get(recordId)
  if (resolve) {
+   if (rec) {
+     const cmd = String(rec.args.command ?? rec.args.sql ?? '')
+     logAudit({ category: 'ai', action: `tool_${decision}`, target: cmd.slice(0, 200), detail: { toolName: rec.name }, sessionId: props.id, assetId: asset.value?.id, success: decision !== 'reject' })
+   }
  resolve(decision === 'approve' || decision === 'whitelist')
  pendingConfirms.value.delete(recordId)
  }
@@ -1468,7 +1473,9 @@ function onQuickCmdDragEnd() {
 async function runQuickCommand(cmd: string) {
   try {
     await writeCommand(cmd)
+    logAudit({ category: 'ssh', action: 'quick_command', target: cmd.slice(0, 200), sessionId: props.id, assetId: asset.value?.id, success: true })
   } catch (e) {
+    logAudit({ category: 'ssh', action: 'quick_command', target: cmd.slice(0, 200), sessionId: props.id, assetId: asset.value?.id, success: false })
     terminalRef.value?.writeln(`\x1b[31m✗ ${e instanceof Error ? e.message : String(e)}\x1b[0m`)
   }
 }

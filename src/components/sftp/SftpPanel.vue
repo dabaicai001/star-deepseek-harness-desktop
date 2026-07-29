@@ -255,12 +255,10 @@ async function uploadFolder() {
   try {
     const transferId = await sftpStartUpload(sftpSessionId!, paths, currentPath.value)
     transferStore.registerTask(sftpSessionId!, transferId, 'upload')
-    logAudit({ category: 'sftp', action: 'upload', target: paths.join(', '), detail: { dest: currentPath.value }, sessionId: sftpSessionId, success: true })
+    logAudit({ category: 'sftp', action: 'upload_folder', target: paths.join(', '), detail: { dest: currentPath.value }, sessionId: sftpSessionId, success: true })
     setTimeout(() => loadDir(currentPath.value), 2000)
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
-    logAudit({ category: 'sftp', action: 'upload', target: paths.join(', '), sessionId: sftpSessionId, success: false })
-    notify.notify({ message: `Upload failed: ${msg}`, color: 'error', timeout: 5000 })
     logAudit({ category: 'sftp', action: 'upload_folder', target: paths.join(', '), sessionId: sftpSessionId, success: false })
     notify.notify({ message: `Upload failed: ${msg}`, color: 'error', timeout: 5000 })
   }

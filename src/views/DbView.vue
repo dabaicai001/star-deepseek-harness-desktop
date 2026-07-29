@@ -96,6 +96,8 @@ function isStaleConnect(attemptId: number): boolean {
 
 async function disconnectOwnedSessions() {
   for (const id of [...ownedConnIds]) {
+    const config = asset.value?.config
+    logAudit({ category: 'db', action: 'disconnect', target: config ? `${config.username}@${config.host}:${config.port || 3306}` : 'unknown', sessionId: id, assetId: asset.value?.id, success: true })
     await dbStore.disconnect(id)
     ownedConnIds.delete(id)
   }
@@ -395,6 +397,7 @@ async function connect() {
   const attemptId = ++connectAttemptId
   connecting.value = true
   connectError.value = null
+  const config = asset.value.config
   const attachSession = async (session: { connId: string }) => {
     if (isStaleConnect(attemptId)) {
       await dbStore.disconnect(session.connId)
@@ -403,10 +406,10 @@ async function connect() {
     ownedConnIds.add(session.connId)
     connId.value = session.connId
     connected.value = true
+    logAudit({ category: 'db', action: 'connect', target: `${config.username}@${config.host}:${config.port || 3306}`, sessionId: session.connId, assetId: asset.value?.id, success: true })
     return true
   }
   try {
-    const config = asset.value.config
     const dbType = config.dbType || 'mysql'
 
     if (dbType === 'mysql') {

@@ -263,6 +263,7 @@ async function connect() {
       selectedTab.value = 'exec'
       ownedConnIds.add(connId)
       connected.value = true
+      logAudit({ category: 'docker', action: 'connect', target: connId, assetId: asset.value?.id, success: true })
       return
     }
 
@@ -329,6 +330,7 @@ async function connect() {
     }
     ownedConnIds.add(session.connId)
     connected.value = true
+    logAudit({ category: 'docker', action: 'connect', target: session.connId, assetId: asset.value?.id, success: true })
     await dockerStore.loadContainers()
     if (isStaleConnect(attemptId)) return
     await dockerStore.loadImages()
