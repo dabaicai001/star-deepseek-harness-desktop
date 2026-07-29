@@ -158,9 +158,11 @@ interface PromptCapture {
   reject: (e: Error) => void
   safetyTimer: number | null
   settleTimer: number | null
+  idleTimer: number | null
 }
 let promptCapture: PromptCapture | null = null
 const AI_PROMPT_CAPTURE_SAFETY_MS = 60 * 1000
+const AI_PROMPT_IDLE_FALLBACK_MS = 2000
 
 // SSH AI interactive input dialog
 const aiInputDialogVisible = ref(false)
@@ -762,6 +764,7 @@ function handleTerminalOctets(octets: number[]) {
   //唤醒正在等待的 captureOutput
   maybeResolveCapture()
   maybeResolvePromptCapture()
+  armPromptCaptureIdleFallback()
 }
 
 function setupZmodemSentry() {
@@ -1079,7 +1082,8 @@ function runAiCommandWithPrompt(command: string): Promise<string> {
   resolve,
   reject,
   safetyTimer: null,
-  settleTimer: null
+  settleTimer: null,
+  idleTimer: null
   }
  promptCapture.safetyTimer = window.setTimeout(() => {
  const current = promptCapture
@@ -1106,6 +1110,7 @@ function clearPromptCapture(error?: Error) {
  if (!current) return
  if (current.safetyTimer) window.clearTimeout(current.safetyTimer)
  if (current.settleTimer) window.clearTimeout(current.settleTimer)
+ if (current.idleTimer) window.clearTimeout(current.idleTimer)
  promptCapture = null
  if (error) current.reject(error)
 }
@@ -1141,10 +1146,35 @@ function maybeResolvePromptCapture() {
       const cleaned = cleanPromptCapturedOutput(output, latest.command)
       if (latest.safetyTimer) window.clearTimeout(latest.safetyTimer)
       if (latest.settleTimer) window.clearTimeout(latest.settleTimer)
+      if (latest.idleTimer) window.clearTimeout(latest.idleTimer)
       promptCapture = null
       latest.resolve(cleaned || '(无输出)')
     }, 80)
   }
+}
+
+/**
+ * 数据流 idle 兜底:当 shell prompt 无法被识别(自定义 PS1 / fish / zsh / 带 ❯➜ 的提示符等)时,
+ * 只要数据流连续 AI_PROMPT_IDLE_FALLBACK_MS 没有新内容,就认为命令已经结束,直接收口已收到的输出,
+ * 避免一直等到 safetyTimer 超时再发 Ctrl+C 报错。每次收到新数据都会重置计时。
+ */
+function armPromptCaptureIdleFallback() {
+  const current = promptCapture
+  if (!current) return
+  if (current.idleTimer) window.clearTimeout(current.idleTimer)
+  current.idleTimer = window.setTimeout(() => {
+    const latest = promptCapture
+    if (!latest) return
+    latest.idleTimer = null
+    if (aiInputDialogVisible.value) return
+    const raw = sliceBufferFrom(latest.baseline)
+    if (detectInteractivePrompt(raw)) return
+    const cleaned = cleanPromptCapturedOutput(raw, latest.command)
+    if (latest.safetyTimer) window.clearTimeout(latest.safetyTimer)
+    if (latest.settleTimer) window.clearTimeout(latest.settleTimer)
+    promptCapture = null
+    latest.resolve(cleaned || '(无输出)')
+  }, AI_PROMPT_IDLE_FALLBACK_MS)
 }
 
 /**
@@ -1248,10 +1278,11 @@ function hasReturnedPrompt(raw: string, expectedPrompt: string | null): boolean 
 function isShellPromptLine(line: string): boolean {
  const trimmed = line.trimEnd()
  if (!trimmed || trimmed.length > 180) return false
- if (/^[#$]\s*$/.test(trimmed)) return true
- if (/^\[[^\]\n]{1,140}\]\s*[#$]\s*$/.test(trimmed)) return true
- if (/^[\w.-]+@[\w.-]+(?::[^\n]{0,120})?\s*[#$]\s*$/.test(trimmed)) return true
- if (/^(?:~|\/[\w./-]*|\.\.?)(?:\s+[^\n]{0,80})?\s*[#$]\s*$/.test(trimmed)) return true
+ if (/^[#$%>]\s*$/.test(trimmed)) return true
+ if (/^\[[^\]\n]{1,140}\]\s*[#$%>]\s*$/.test(trimmed)) return true
+ if (/^[\w.-]+@[\w.-]+(?::[^\n]{0,120})?\s*[#$%>]\s*$/.test(trimmed)) return true
+ if (/^(?:~|\/[\w./-]*|\.\.?)(?:\s+[^\n]{0,80})?\s*[#$%>]\s*$/.test(trimmed)) return true
+ if (/(?:❯|➜)\s*$/.test(trimmed)) return true
  return false
 }
 
