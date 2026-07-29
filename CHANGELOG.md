@@ -12,6 +12,25 @@
 
 ---
 
+## [0.36.0] - 2026-07-29
+
+### 新增
+- ✨ feat(ssh): 快捷命令编辑器图标改为下拉选择(MDI 图标库,含预览),拖拽改为手柄触发避免误触
+- ✨ feat(ssh): 右侧 AI 助手面板空状态加入可点击引导提示(按 assetType 显示推荐问题)
+- ✨ feat(ssh): AI 助手新增「后台静默」开关——开启后命令通过 `ssh_exec` 后台执行,不回显到终端
+- ✨ feat(ssh): 新增「访问服务器网页」按钮——通过 SSH 本地端口转发 + Tauri WebviewWindow 在 StarHub 内渲染目标网页
+- ✨ feat(audit): 审计日志全面接入业务操作(SSH 连接/断开、DB SQL 执行、SFTP 上传/下载、Docker 启停/重启/删除)
+- ✨ feat(alert): 告警规则定时检查启动——`CyberLayout` onMounted 中调用 `appStore.startAlertCheck()`,每 60s 检查触发告警与 Webhook
+
+### 修复
+- 🐛 fix(ssh): 快捷命令删除后重启恢复——改为完整持久化全量命令列表(含默认),不再每次重建默认命令
+- 🐛 fix(ssh): 快捷命令拖拽排序修复——`draggable` 受 `qcDragEnabled` 控制,仅手柄 mousedown 时启用
+
+### 构建
+- 🔧 chore: 版本号同步至 0.36.0
+
+---
+
 ## [0.35.1] - 2026-07-29
 
 ### 修复

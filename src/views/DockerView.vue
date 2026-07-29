@@ -18,6 +18,7 @@ import HostKeyConfirmDialog, { type HostKeyInfo } from '@/components/ssh/HostKey
 import KbInteractiveDialog from '@/components/ssh/KbInteractiveDialog.vue'
 import DockerExecTerminal from '@/components/docker/DockerExecTerminal.vue'
 import { parseInstanceId } from '@/utils/tabId'
+import { logAudit } from '@/services/audit'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller } from '@/utils/aiTools'
 import * as dockerService from '@/services/docker'
@@ -390,6 +391,7 @@ function formatPorts(ports: ContainerInfo['ports']): string {
 
 async function doStart(id: string) {
   await dockerStore.startContainer(id)
+  logAudit({ category: 'docker', action: 'start_container', target: id, assetId: asset.value?.id, success: true })
 }
 
 async function doStop(id: string) {
@@ -400,6 +402,7 @@ async function doStop(id: string) {
     danger: true
   }))) return
   await dockerStore.stopContainer(id)
+  logAudit({ category: 'docker', action: 'stop_container', target: id, assetId: asset.value?.id, success: true })
   notify.notify({ title: 'Docker', message: '容器已停止', color: 'success' })
 }
 
@@ -411,6 +414,7 @@ async function doRestart(id: string) {
     danger: true
   }))) return
   await dockerStore.restartContainer(id)
+  logAudit({ category: 'docker', action: 'restart_container', target: id, assetId: asset.value?.id, success: true })
   notify.notify({ title: 'Docker', message: '容器已重启', color: 'success' })
 }
 
@@ -423,6 +427,7 @@ async function doRemove(id: string) {
     requireTyping: 'REMOVE'
   }))) return
   await dockerStore.removeContainer(id, true)
+  logAudit({ category: 'docker', action: 'remove_container', target: id, assetId: asset.value?.id, success: true })
   notify.notify({ title: 'Docker', message: '容器已删除', color: 'success' })
 }
 

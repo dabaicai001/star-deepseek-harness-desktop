@@ -29,6 +29,7 @@ import CreateTableDialog from '@/components/db/CreateTableDialog.vue'
 import NewTableDialog from '@/components/db/NewTableDialog.vue'
 import { addHistory } from '@/utils/sqlHistory'
 import * as dbService from '@/services/db'
+import { logAudit } from '@/services/audit'
 import type { TableInfo, ColumnMeta, QueryResult } from '@/types/db'
 
 const { t } = useI18n()
@@ -1474,6 +1475,7 @@ async function executeSql(sql: string) {
         if (editorTab.result?.error) editorTab.error = true
       }
       addHistory(sql, editorTab.selectedDb || '')
+      logAudit({ category: 'db', action: 'execute_sql', target: sql.slice(0, 120), sessionId: connId.value, assetId: asset.value?.id, success: !editorTab.error })
       if (editorTab.error && editorTab.result?.error) {
         notify.notify({ message: t('db.executeFailed', { msg: editorTab.result.error }), color: 'error', timeout: 5000 })
       } else if (editorTab.result) {
@@ -1497,6 +1499,7 @@ async function executeSql(sql: string) {
       }
       editorTab.error = true
       notify.notify({ message: t('db.executeFailed', { msg: err instanceof Error ? err.message : String(err) }), color: 'error', timeout: 5000 })
+      logAudit({ category: 'db', action: 'execute_sql', target: sql.slice(0, 120), sessionId: connId.value, assetId: asset.value?.id, success: false })
     } finally {
       editorTab.loading = false
       isExecutingAny.value = subTabs.value.some(t => (t.kind === 'sql' || t.kind === 'sql-editor') && t.loading)
@@ -1522,6 +1525,7 @@ async function executeSql(sql: string) {
       ? await dbService.clickhouseExecute(connId.value, sql, selectedDb.value || undefined)
       : await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
     addHistory(sql, selectedDb.value || '')
+    logAudit({ category: 'db', action: 'execute_sql', target: sql.slice(0, 120), sessionId: connId.value, assetId: asset.value?.id, success: !tab.error })
     if (tab.result?.error) {
       tab.error = true
       notify.notify({ message: t('db.executeFailed', { msg: tab.result.error }), color: 'error', timeout: 5000 })
@@ -1546,6 +1550,7 @@ async function executeSql(sql: string) {
     }
     tab.error = true
     notify.notify({ message: t('db.executeFailed', { msg: err instanceof Error ? err.message : String(err) }), color: 'error', timeout: 5000 })
+    logAudit({ category: 'db', action: 'execute_sql', target: sql.slice(0, 120), sessionId: connId.value, assetId: asset.value?.id, success: false })
   } finally {
     tab.loading = false
     isExecutingAny.value = subTabs.value.some(t => (t.kind === 'sql' || t.kind === 'sql-editor') && t.loading)

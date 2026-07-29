@@ -94,6 +94,42 @@ const emptyDescription = computed(() => {
   }
 })
 
+const guidePrompts = computed(() => {
+  switch (props.session.assetType) {
+    case 'ssh':
+      return [
+        { icon: 'mdi-harddisk', text: '查看磁盘使用情况' },
+        { icon: 'mdi-chip', text: '检查 CPU 和内存负载' },
+        { icon: 'mdi-file-document-outline', text: '查看最近的系统日志' },
+        { icon: 'mdi-shield-check-outline', text: '检查防火墙和端口状态' },
+        { icon: 'mdi-docker', text: '列出正在运行的 Docker 容器' },
+        { icon: 'mdi-network-outline', text: '检查网络连接和 DNS 解析' },
+      ]
+    case 'db':
+      return [
+        { icon: 'mdi-table', text: '查看所有表和结构' },
+        { icon: 'mdi-magnify', text: '查询最近 10 条记录' },
+        { icon: 'mdi-chart-bar', text: '统计各状态的数据量' },
+        { icon: 'mdi-clock-outline', text: '查看慢查询' },
+      ]
+    case 'docker':
+      return [
+        { icon: 'mdi-format-list-bulleted', text: '列出所有容器状态' },
+        { icon: 'mdi-file-document-outline', text: '查看最近的应用日志' },
+        { icon: 'mdi-chart-line', text: '检查资源使用情况' },
+        { icon: 'mdi-restart', text: '重启异常容器' },
+      ]
+    default:
+      return [
+        { icon: 'mdi-lightbulb-outline', text: '帮我分析当前状态' },
+        { icon: 'mdi-wrench', text: '排查常见问题' },
+      ]
+  }
+})
+
+function onGuideClick(text: string) {
+  emit('send', text)
+}
 watch(() => props.session.messages.length, () => scrollToBottom(true))
 // 流式期间每 token 都会重新求值;只跟踪最后一条消息的内容长度,
 // 不再对全部 messages 做 map + join 的全量遍历
@@ -282,6 +318,17 @@ function shortResult(s: string, max = 240): string {
         <v-icon size="36" color="muted">mdi-robot-outline</v-icon>
         <div class="empty-title">AI 助手</div>
         <div class="empty-desc">{{ emptyDescription }}</div>
+        <div class="ai-guide-prompts">
+          <button
+            v-for="(g, i) in guidePrompts"
+            :key="i"
+            class="ai-guide-chip"
+            @click="onGuideClick(g.text)"
+          >
+            <v-icon size="12">{{ g.icon }}</v-icon>
+            <span>{{ g.text }}</span>
+          </button>
+        </div>
       </div>
 
       <!-- 消息循环 -->
@@ -474,6 +521,35 @@ function shortResult(s: string, max = 240): string {
   font-size: 12px;
   line-height: 1.6;
   max-width: 280px;
+}
+
+.ai-guide-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 14px;
+  max-width: 320px;
+}
+
+.ai-guide-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ai-guide-chip:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-2));
 }
 
 .msg {

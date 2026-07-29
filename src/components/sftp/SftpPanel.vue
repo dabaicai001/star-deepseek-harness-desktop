@@ -12,6 +12,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import { useTransferStore } from '@/stores/transfer'
+import { logAudit } from '@/services/audit'
 
 const { t } = useI18n()
 
@@ -254,9 +255,13 @@ async function uploadFolder() {
   try {
     const transferId = await sftpStartUpload(sftpSessionId!, paths, currentPath.value)
     transferStore.registerTask(sftpSessionId!, transferId, 'upload')
+    logAudit({ category: 'sftp', action: 'upload', target: paths.join(', '), detail: { dest: currentPath.value }, sessionId: sftpSessionId, success: true })
     setTimeout(() => loadDir(currentPath.value), 2000)
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
+    logAudit({ category: 'sftp', action: 'upload', target: paths.join(', '), sessionId: sftpSessionId, success: false })
+    notify.notify({ message: `Upload failed: ${msg}`, color: 'error', timeout: 5000 })
+    logAudit({ category: 'sftp', action: 'upload_folder', target: paths.join(', '), sessionId: sftpSessionId, success: false })
     notify.notify({ message: `Upload failed: ${msg}`, color: 'error', timeout: 5000 })
   }
 }
@@ -295,8 +300,10 @@ async function downloadSelected() {
   try {
     const transferId = await sftpStartDownload(sftpSessionId!, remotePaths, dir as string)
     transferStore.registerTask(sftpSessionId!, transferId, 'download')
+    logAudit({ category: 'sftp', action: 'download', target: remotePaths.join(', '), detail: { dest: dir }, sessionId: sftpSessionId, success: true })
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
+    logAudit({ category: 'sftp', action: 'download', target: remotePaths.join(', '), sessionId: sftpSessionId, success: false })
     notify.notify({ message: `Download failed: ${msg}`, color: 'error', timeout: 5000 })
   }
 }
@@ -420,8 +427,10 @@ async function ctxDownload(entry: SftpEntry | null) {
   try {
     const transferId = await sftpStartDownload(sftpSessionId!, paths, dir as string)
     transferStore.registerTask(sftpSessionId!, transferId, 'download')
+    logAudit({ category: 'sftp', action: 'download', target: paths.join(', '), detail: { dest: dir }, sessionId: sftpSessionId, success: true })
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
+    logAudit({ category: 'sftp', action: 'download', target: paths.join(', '), sessionId: sftpSessionId, success: false })
     notify.notify({ message: `Download failed: ${msg}`, color: 'error', timeout: 5000 })
   }
 }

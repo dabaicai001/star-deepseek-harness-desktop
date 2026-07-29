@@ -510,6 +510,7 @@ onMounted(async () => {
   })
   // 全局传输任务栏:挂一次 SFTP 进度/状态事件监听(窗口生命周期内有效)
   transferStore.ensureInit()
+  appStore.startAlertCheck()
   // 监听独立窗口把 tab 送回来
   try {
     await tauriListen<Tab>(TAB_REATTACH_EVENT, onTabReattach)
@@ -528,6 +529,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  appStore.stopAlertCheck()
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('keydown', onSearchShortcut)
   window.removeEventListener('keydown', onGlobalKeydown)

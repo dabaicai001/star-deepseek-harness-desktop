@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import KbInteractiveDialog from './KbInteractiveDialog.vue'
 import HostKeyConfirmDialog, { type HostKeyInfo } from './HostKeyConfirmDialog.vue'
 import BroadcastDialog, { type BroadcastSession } from './BroadcastDialog.vue'
-import type { KbInteractiveEvent } from '@/services/ssh'
+import { sshExec, type KbInteractiveEvent } from '@/services/ssh'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import SplitTerminal from './SplitTerminal.vue'
@@ -27,6 +27,7 @@ import { makeSftpToolCaller, sftpTools } from '@/utils/aiSftpTools'
 import { checkCommand, extractWhitelistPrefix, stripShellPrompt } from '@/utils/commandGuard'
 import type { LlmToolCall } from '@/services/ai'
 import { createMcpRuntime } from '@/services/mcp'
+import { logAudit } from '@/services/audit'
 import ZmodemModule from 'zmodem.js/src/zmodem_browser.js'
 
 interface ZmodemTransfer {
@@ -275,6 +276,7 @@ const rightPanelTabs = computed(() => [
 
 // ====== AI助手(每个 tab独立) ======
 const sshCwd = ref<string>('')
+const aiSilentMode = ref(false)
 const aiSession = computed(() => {
  if (!asset.value) return null
  const session = aiStore.getOrCreateSession(props.id, asset.value.id, 'ssh')
@@ -669,6 +671,7 @@ async function connect() {
   reconnectAttempt.value = 0
   terminalRef.value?.writeln('\x1b[32m✓ Connected\x1b[0m')
   startTimer()
+  logAudit({ category: 'ssh', action: 'connect', target: `${asset.value.config.username}@${asset.value.config.host}:${asset.value.config.port || 22}`, sessionId, assetId: asset.value?.id, success: true })
 
   setupZmodemSentry()
   await subscribeSessionEvents(sessionId)
@@ -683,6 +686,7 @@ async function connect() {
   }
   lastError.value = msg
   terminalRef.value?.writeln(`\x1b[31m✗ Connection failed: ${msg}\x1b[0m`)
+  logAudit({ category: 'ssh', action: 'connect', target: asset.value ? `${asset.value.config.username}@${asset.value.config.host}:${asset.value.config.port}` : 'unknown', sessionId, assetId: asset.value?.id, success: false })
   //通知后端清掉可能半初始化的 session(防止 Rust端残留)
   try {
   await invoke('ssh_disconnect', { id: sessionId })
@@ -920,6 +924,7 @@ async function disconnect() {
     }
     connected.value = false
     stopTimer()
+    logAudit({ category: 'ssh', action: 'disconnect', target: asset.value ? `${asset.value.config.username}@${asset.value.config.host}:${asset.value.config.port}` : 'unknown', sessionId: props.id, assetId: asset.value?.id, success: true })
   }
 }
 
@@ -1069,6 +1074,10 @@ async function writeCommand(command: string): Promise<void> {
 function runAiCommandWithPrompt(command: string): Promise<string> {
  if (!connected.value) {
  throw new Error('SSH not connected')
+ }
+
+ if (aiSilentMode.value) {
+   return sshExec(props.id, command, 30)
  }
 
  if (promptCapture) {
@@ -1329,27 +1338,60 @@ const DEFAULT_QUICK_COMMANDS: QuickCommand[] = [
 ]
 
 const QC_STORAGE_PREFIX = 'starhub.quickCmds.'
-function loadQuickCommands(assetId: string): QuickCommand[] {
+const QC_ICON_OPTIONS = [
+  { title: 'mdi-console', value: 'mdi-console' },
+  { title: 'mdi-format-list-bulleted', value: 'mdi-format-list-bulleted' },
+  { title: 'mdi-map-marker-outline', value: 'mdi-map-marker-outline' },
+  { title: 'mdi-harddisk', value: 'mdi-harddisk' },
+  { title: 'mdi-chip', value: 'mdi-chip' },
+  { title: 'mdi-account-outline', value: 'mdi-account-outline' },
+  { title: 'mdi-clock-outline', value: 'mdi-clock-outline' },
+  { title: 'mdi-server', value: 'mdi-server' },
+  { title: 'mdi-database-outline', value: 'mdi-database-outline' },
+  { title: 'mdi-folder-outline', value: 'mdi-folder-outline' },
+  { title: 'mdi-file-document-outline', value: 'mdi-file-document-outline' },
+  { title: 'mdi-cog-outline', value: 'mdi-cog-outline' },
+  { title: 'mdi-shield-check-outline', value: 'mdi-shield-check-outline' },
+  { title: 'mdi-network-outline', value: 'mdi-network-outline' },
+  { title: 'mdi-memory', value: 'mdi-memory' },
+  { title: 'mdi-cpu-64-bit', value: 'mdi-cpu-64-bit' },
+  { title: 'mdi-lan', value: 'mdi-lan' },
+  { title: 'mdi-docker', value: 'mdi-docker' },
+  { title: 'mdi-web', value: 'mdi-web' },
+  { title: 'mdi-bug-outline', value: 'mdi-bug-outline' },
+  { title: 'mdi-magnify', value: 'mdi-magnify' },
+  { title: 'mdi-download-outline', value: 'mdi-download-outline' },
+  { title: 'mdi-upload-outline', value: 'mdi-upload-outline' },
+  { title: 'mdi-restart', value: 'mdi-restart' },
+  { title: 'mdi-power', value: 'mdi-power' },
+  { title: 'mdi-terminal', value: 'mdi-terminal' },
+  { title: 'mdi-script-text-outline', value: 'mdi-script-text-outline' },
+  { title: 'mdi-chart-line', value: 'mdi-chart-line' },
+  { title: 'mdi-bell-outline', value: 'mdi-bell-outline' },
+  { title: 'mdi-lock-outline', value: 'mdi-lock-outline' },
+]
+
+function loadQuickCommands(assetId: string): QuickCommand[] | null {
   try {
     const raw = localStorage.getItem(QC_STORAGE_PREFIX + assetId)
     if (raw) {
       const parsed = JSON.parse(raw)
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((q: QuickCommand) => ({ ...q, isDefault: false }))
+        return parsed.map((q: QuickCommand) => ({ ...q }))
       }
     }
   } catch { /* corrupt storage — fall through */ }
-  return []
+  return null
 }
 function saveQuickCommands(assetId: string, cmds: QuickCommand[]) {
-  const custom = cmds.filter(c => !c.isDefault)
-  localStorage.setItem(QC_STORAGE_PREFIX + assetId, JSON.stringify(custom))
+  localStorage.setItem(QC_STORAGE_PREFIX + assetId, JSON.stringify(cmds))
 }
 
 const quickCommands = ref<QuickCommand[]>([...DEFAULT_QUICK_COMMANDS])
 const showQuickCmdEditor = ref(false)
 const quickCmdDragIdx = ref<number | null>(null)
 const quickCmdDragOverIdx = ref<number | null>(null)
+const qcDragEnabled = ref(false)
 let quickCmdBackup: QuickCommand[] | null = null
 
 function openQuickCmdEditor() {
@@ -1368,7 +1410,11 @@ function initQuickCommands() {
   const a = asset.value
   if (!a) { quickCommands.value = [...DEFAULT_QUICK_COMMANDS]; return }
   const custom = loadQuickCommands(a.id)
-  quickCommands.value = [...DEFAULT_QUICK_COMMANDS, ...custom]
+  if (custom) {
+    quickCommands.value = custom
+  } else {
+    quickCommands.value = [...DEFAULT_QUICK_COMMANDS]
+  }
 }
 
 function onQuickCmdAdd() {
@@ -1384,9 +1430,13 @@ function onQuickCmdSave() {
   quickCmdBackup = null
   showQuickCmdEditor.value = false
 }
+function onQuickCmdResetDefaults() {
+  quickCommands.value = DEFAULT_QUICK_COMMANDS.map(q => ({ ...q }))
+}
 
 // ====== 拖拽排序 ======
 function onQuickCmdDragStart(e: DragEvent, idx: number) {
+  if (!qcDragEnabled.value) { e.preventDefault(); return }
   quickCmdDragIdx.value = idx
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move'
@@ -1412,6 +1462,7 @@ function onQuickCmdDrop(e: DragEvent, idx: number) {
 function onQuickCmdDragEnd() {
   quickCmdDragIdx.value = null
   quickCmdDragOverIdx.value = null
+  qcDragEnabled.value = false
 }
 
 async function runQuickCommand(cmd: string) {
@@ -1419,6 +1470,49 @@ async function runQuickCommand(cmd: string) {
     await writeCommand(cmd)
   } catch (e) {
     terminalRef.value?.writeln(`\x1b[31m✗ ${e instanceof Error ? e.message : String(e)}\x1b[0m`)
+  }
+}
+
+// ====== Web Access(端口转发 + WebviewWindow) ======
+const showWebAccessDialog = ref(false)
+const webAccessHost = ref('127.0.0.1')
+const webAccessPort = ref('8080')
+const webAccessLoading = ref(false)
+
+async function openWebAccess() {
+  if (!connected.value) return
+  const remotePort = parseInt(webAccessPort.value, 10)
+  if (!remotePort || remotePort < 1 || remotePort > 65535) {
+    notify.notify({ message: '请输入有效的端口号 (1-65535)', color: 'error', timeout: 4000 })
+    return
+  }
+  webAccessLoading.value = true
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    const { sshAddLocalForward } = await import('@/services/ssh')
+    const localPort = await sshAddLocalForward(props.id, 0, webAccessHost.value, remotePort)
+    const label = `web-${props.id}-${remotePort}-${Date.now()}`
+    const win = new WebviewWindow(label, {
+      url: `http://127.0.0.1:${localPort}`,
+      title: `${webAccessHost.value}:${remotePort} — StarHub`,
+      width: 1024,
+      height: 768,
+      minWidth: 480,
+      minHeight: 360,
+      decorations: true,
+    })
+    void win.once('tauri://error', (error) => {
+      console.error('[web-access] create window failed:', error)
+      notify.notify({ message: `打开网页窗口失败: ${error}`, color: 'error', timeout: 5000 })
+    })
+    logAudit({ category: 'ssh', action: 'web_access', target: `${webAccessHost.value}:${remotePort}`, detail: { localPort }, sessionId: props.id, assetId: asset.value?.id, success: true })
+    showWebAccessDialog.value = false
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    notify.notify({ message: `端口转发失败: ${msg}`, color: 'error', timeout: 5000 })
+    logAudit({ category: 'ssh', action: 'web_access', target: `${webAccessHost.value}:${remotePort}`, sessionId: props.id, assetId: asset.value?.id, success: false })
+  } finally {
+    webAccessLoading.value = false
   }
 }
 
@@ -1764,6 +1858,15 @@ function handleKbCancelled() {
  >
  <v-icon size="12">mdi-tune</v-icon>
  </button>
+ <button
+ class="qc-btn qc-web-btn"
+ :title="t('ssh.webAccess.title')"
+ :aria-label="t('ssh.webAccess.title')"
+ :disabled="!connected || connecting"
+ @click="showWebAccessDialog = true"
+ >
+ <v-icon size="12">mdi-web</v-icon>
+ </button>
  </div>
 
  <!-- 快速命令编辑弹窗 -->
@@ -1786,13 +1889,18 @@ function handleKbCancelled() {
  'qc-drag-over': quickCmdDragOverIdx === idx,
  'qc-default': qc.isDefault
  }"
- :draggable="true"
+ :draggable="qcDragEnabled"
  @dragstart="onQuickCmdDragStart($event, idx)"
  @dragover="onQuickCmdDragOver($event, idx)"
  @drop="onQuickCmdDrop($event, idx)"
  @dragend="onQuickCmdDragEnd"
  >
- <v-icon size="16" class="qc-drag-handle">mdi-drag-vertical</v-icon>
+ <v-icon
+ size="16"
+ class="qc-drag-handle"
+ @mousedown="qcDragEnabled = true"
+ @mouseup="qcDragEnabled = false"
+ >mdi-drag-vertical</v-icon>
  <v-text-field
  v-model="qc.label"
  :label="t('ssh.quickCommandEditor.label')"
@@ -1811,15 +1919,30 @@ function handleKbCancelled() {
  :readonly="qc.isDefault"
  class="qc-edit-field qc-edit-field-command"
  />
- <v-text-field
+ <v-select
  v-model="qc.icon"
+ :items="QC_ICON_OPTIONS"
  :label="t('ssh.quickCommandEditor.icon')"
  variant="outlined"
  density="compact"
  hide-details
  :readonly="qc.isDefault"
  class="qc-edit-field qc-edit-field-icon"
- />
+ >
+ <template #item="{ props: itemProps, item }">
+ <v-list-item v-bind="itemProps">
+ <template #prepend>
+ <v-icon size="16">{{ item.value }}</v-icon>
+ </template>
+ </v-list-item>
+ </template>
+ <template #selection="{ item }">
+ <div style="display: flex; align-items: center; gap: 6px;">
+ <v-icon size="16">{{ item.value }}</v-icon>
+ <span style="font-size: 11px; opacity: 0.7;">{{ item.value }}</span>
+ </div>
+ </template>
+ </v-select>
  <v-icon
  v-if="qc.isDefault"
  class="qc-default-icon"
@@ -1841,12 +1964,57 @@ function handleKbCancelled() {
  <v-icon size="14">mdi-plus</v-icon>
  {{ t('ssh.quickCommandEditor.addCommand') }}
  </button>
+ <button class="cyber-btn-secondary qc-editor-action-btn" @click="onQuickCmdResetDefaults">
+ <v-icon size="14">mdi-restore</v-icon>
+ {{ t('ssh.quickCommandEditor.resetDefaults') }}
+ </button>
  <div class="qc-editor-action-spacer" />
  <button class="cyber-btn-secondary qc-editor-action-btn" @click="cancelQuickCmdEditor">
  {{ t('ssh.quickCommandEditor.cancel') }}
  </button>
  <button class="cyber-btn qc-editor-action-btn primary" @click="onQuickCmdSave">
  {{ t('ssh.quickCommandEditor.save') }}
+ </button>
+ </div>
+ </div>
+ </v-dialog>
+
+ <!-- Web Access 端口转发弹窗 -->
+ <v-dialog v-model="showWebAccessDialog" max-width="400" transition="cyber-dialog">
+ <div class="cyber-panel" style="padding: 24px;">
+ <div class="section-header">
+ <v-icon size="14" style="color: var(--accent);">mdi-web</v-icon>
+ <h3>{{ t('ssh.webAccess.title') }}</h3>
+ </div>
+ <p style="color: var(--muted); font-size: 11px; margin-bottom: 14px;">
+ {{ t('ssh.webAccess.description') }}
+ </p>
+ <v-text-field
+ v-model="webAccessHost"
+ :label="t('ssh.webAccess.host')"
+ variant="outlined"
+ density="compact"
+ hide-details
+ class="qc-edit-field"
+ style="margin-bottom: 10px;"
+ />
+ <v-text-field
+ v-model="webAccessPort"
+ :label="t('ssh.webAccess.port')"
+ variant="outlined"
+ density="compact"
+ hide-details
+ type="number"
+ class="qc-edit-field"
+ @keydown.enter="openWebAccess"
+ />
+ <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
+ <button class="cyber-btn-secondary" style="font-size: 12px; padding: 6px 14px;" @click="showWebAccessDialog = false">
+ {{ t('ssh.quickCommandEditor.cancel') }}
+ </button>
+ <button class="cyber-btn" style="font-size: 12px; padding: 6px 18px;" :disabled="webAccessLoading" @click="openWebAccess">
+ <v-icon size="12" style="margin-right: 4px;">mdi-open-in-new</v-icon>
+ {{ t('ssh.webAccess.open') }}
  </button>
  </div>
  </div>
@@ -1876,6 +2044,20 @@ function handleKbCancelled() {
  <SshDashboard :session-id="id" :connected="connected" />
  </template>
   <template #tab-ai>
+    <div class="ai-silent-toggle">
+      <v-icon size="12" :color="aiSilentMode ? 'var(--accent)' : 'var(--muted)'">mdi-run-fast</v-icon>
+      <span class="ai-silent-label">{{ t('ssh.aiSilentMode') }}</span>
+      <button
+        class="ai-silent-switch"
+        :class="{ active: aiSilentMode }"
+        role="switch"
+        :aria-checked="aiSilentMode"
+        :title="t('ssh.aiSilentModeHint')"
+        @click="aiSilentMode = !aiSilentMode"
+      >
+        <span class="ai-silent-knob" />
+      </button>
+    </div>
     <AiChat
       v-if="aiSession"
       :session="aiSession"
@@ -2185,5 +2367,52 @@ function handleKbCancelled() {
 @keyframes pulse {
 0%,100% { opacity:1; transform: scale(1); }
 50% { opacity:0.4; transform: scale(0.7); }
+}
+
+.ai-silent-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.ai-silent-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ai-silent-switch {
+  position: relative;
+  width: 30px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: auto;
+}
+
+.ai-silent-switch.active {
+  background: color-mix(in srgb, var(--accent) 30%, var(--bg-3));
+  border-color: var(--accent);
+}
+
+.ai-silent-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: all 0.2s ease;
+}
+
+.ai-silent-switch.active .ai-silent-knob {
+  left: 16px;
+  background: var(--accent);
 }
 </style>

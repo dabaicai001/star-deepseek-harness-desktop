@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { AssetType } from '@/types/asset'
+import { checkAlerts } from '@/services/alert'
 
 /**
  * Tab 的 type:
@@ -33,6 +34,8 @@ export const SIDEBAR_COLLAPSED_WIDTH = 60
 export const RIGHT_PANEL_WIDTH_MIN = 320
 export const RIGHT_PANEL_WIDTH_MAX = 600
 export const RIGHT_PANEL_WIDTH_DEFAULT = 480
+
+let alertTimer: ReturnType<typeof setInterval> | null = null
 
 export const useAppStore = defineStore('app', () => {
   const sidebarOpen = ref(true)
@@ -84,6 +87,19 @@ export const useAppStore = defineStore('app', () => {
     activeTab.value = tabId
   }
 
+  function startAlertCheck(intervalMs = 60_000) {
+    if (alertTimer) return
+    alertTimer = setInterval(async () => {
+      try {
+        await checkAlerts()
+      } catch { /* silent */ }
+    }, intervalMs)
+  }
+
+  function stopAlertCheck() {
+    if (alertTimer) { clearInterval(alertTimer); alertTimer = null }
+  }
+
   return {
     sidebarOpen,
     sidebarWidth,
@@ -99,7 +115,9 @@ export const useAppStore = defineStore('app', () => {
     setRightPanelWidth,
     addTab,
     removeTab,
-    setActiveTab
+    setActiveTab,
+    startAlertCheck,
+    stopAlertCheck
   }
 }, {
   // pinia-plugin-persistedstate: 整个 store 自动落 localStorage,
