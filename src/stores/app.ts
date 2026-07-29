@@ -21,11 +21,12 @@ export interface Tab {
 }
 
 // 侧边栏宽度可调范围(展开态)
+// 默认 280 与 cyber.css 的 --layout-sidebar-w 同步(原 260,加 20 让资产树节点宽一点)
 export const SIDEBAR_WIDTH_MIN = 180
 export const SIDEBAR_WIDTH_MAX = 420
-export const SIDEBAR_WIDTH_DEFAULT = 260
-// 折叠态固定宽度
-export const SIDEBAR_COLLAPSED_WIDTH = 60
+export const SIDEBAR_WIDTH_DEFAULT = 280
+// 折叠态固定宽度 — 与 --layout-sidebar-w-collapsed: 56 同步(原 60 微调到 56,跟 rightpanel-rail 56 视觉对齐)
+export const SIDEBAR_COLLAPSED_WIDTH = 56
 
 // 右侧面板宽度可调范围
 // AI 助手面板里常显示 `cat /path/.../config.toml | head -50` 这类长命令 +

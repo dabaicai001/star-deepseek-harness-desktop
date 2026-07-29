@@ -8,6 +8,7 @@ import { useThemeStore } from '@/stores/theme'
 import { useDialogStore } from '@/stores/dialog'
 import { useAiStore, type AiAgent } from '@/stores/ai'
 import { useTransferStore } from '@/stores/transfer'
+import { useBreakpoint } from '@/composables/useBreakpoint'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import AssetTree from '@/components/asset/AssetTree.vue'
 import SidebarHandle from '@/components/layout/SidebarHandle.vue'
@@ -45,7 +46,12 @@ const themeStore = useThemeStore()
 const dlg = useDialogStore()
 const aiStore = useAiStore()
 const transferStore = useTransferStore()
+const bp = useBreakpoint()
 aiStore.ensureAgentsShape()
+
+// P1 §A:欢迎页装饰层在 < 1280px 窗口下整体关闭(只剩栅格遮罩),
+// 极光 + 漂浮粒子 GPU 渲染开销大,小窗口视觉抢戏
+const showWelcomeDecor = computed(() => bp.width.value >= 1280)
 
 // menubar 水平 padding(.menubar 上写的 0 12px),
 // tab-strip 的左边距要减去这个,才能正好对齐到 workspace 左边缘
@@ -1772,15 +1778,17 @@ vueWatch(() => appStore.tabs.length, () => {
       <div class="workspace">
         <div v-if="appStore.tabs.length === 0 && !devMockWorkspace" class="workspace-welcome" @contextmenu="openWorkspaceContextMenu">
           <div class="welcome-decor" aria-hidden="true">
-            <div class="welcome-aurora welcome-aurora-a"></div>
-            <div class="welcome-aurora welcome-aurora-b"></div>
+            <template v-if="showWelcomeDecor">
+              <div class="welcome-aurora welcome-aurora-a"></div>
+              <div class="welcome-aurora welcome-aurora-b"></div>
+              <span
+                v-for="p in welcomeParticles"
+                :key="p.id"
+                class="welcome-particle"
+                :style="{ '--x': p.x, '--y': p.y, '--d': p.d }"
+              ></span>
+            </template>
             <div class="welcome-grid-overlay"></div>
-            <span
-              v-for="p in welcomeParticles"
-              :key="p.id"
-              class="welcome-particle"
-              :style="{ '--x': p.x, '--y': p.y, '--d': p.d }"
-            ></span>
           </div>
           <div ref="welcomeRef" class="welcome-content cyber-stagger" :class="{ run: welcomeStaggerRun }">
             <div class="welcome-hero" style="--i: 0">
@@ -2044,7 +2052,9 @@ vueWatch(() => appStore.tabs.length, () => {
 .app-layout {
   height: 100vh;
   display: grid;
-  grid-template-rows: 52px 40px 1fr 30px;
+  /* P1 §A:布局尺寸 token 化引用,改 token 一处全站生效
+   * --layout-titlebar-h / --layout-menubar-h / --layout-statusbar-h 来源:cyber.css */
+  grid-template-rows: var(--layout-titlebar-h) var(--layout-menubar-h) 1fr var(--layout-statusbar-h);
   grid-template-areas:
     "titlebar"
     "menubar"

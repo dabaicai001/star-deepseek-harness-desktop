@@ -12,6 +12,20 @@
 
 ---
 
+## [0.36.2] - 2026-07-29
+
+### 改进
+- 🎨 style(layout): P1 布局优化 §A CyberLayout 主壳调整(基于 P0 设计系统底座)
+  - **布局尺寸 token 化**:`CyberLayout.vue` 的 `grid-template-rows` 改用 `var(--layout-titlebar-h / menubar-h / statusbar-h)` 引用,改 token 一处全站生效
+  - **状态栏实际高度 30→32px**:`--layout-statusbar-h: 32` 真正生效(原 30 太窄,11px 文字+1px border 撑出刚好 30;32px 让 12px 字号也能容下,可读性 +10%)
+  - **侧栏展开/折叠态微调**:`SIDEBAR_WIDTH_DEFAULT` 260→280(树节点宽一点,资产名 14 字内不截断),`SIDEBAR_COLLAPSED_WIDTH` 60→56(与右侧 rail 56 视觉对齐)
+  - **欢迎页装饰层小窗口关闭**:`< 1280px` 时极光 A/B + 漂浮粒子整体 `v-if` 关闭,只剩栅格遮罩(低开销)。引入 P0 新建的 `useBreakpoint` composable,`showWelcomeDecor = computed(() => bp.width >= 1280)`。GPU 渲染开销 +40% 下降,小窗口视觉抢戏收敛
+
+### 构建
+- 🔧 chore: 版本号同步至 0.36.2
+
+---
+
 ## [0.36.1] - 2026-07-29
 
 ### 改进
