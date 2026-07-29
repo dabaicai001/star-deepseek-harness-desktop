@@ -249,9 +249,9 @@ export default {
     aiSilentModeHint: 'When enabled, AI commands run in background without echoing to terminal',
     webAccess: {
       title: 'Access Server Web Page',
-      description: 'Access web services on the remote server via SSH port forwarding. Opens a new window inside StarHub.',
-      host: 'Remote Host',
-      port: 'Remote Port',
+      description: 'Enter the full URL of a web service on the remote server. Opens inside StarHub via SSH port forwarding.',
+      url: 'URL',
+      placeholder: 'e.g. http://10.0.0.5:8080/admin',
       open: 'Open',
     },
     mfa: {

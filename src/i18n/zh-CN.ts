@@ -249,9 +249,9 @@ export default {
     aiSilentModeHint: '开启后 AI 命令不回显到终端，直接在后台执行',
     webAccess: {
       title: '访问服务器网页',
-      description: '通过 SSH 端口转发访问远程服务器上的 Web 服务，将在 StarHub 内打开新窗口渲染。',
-      host: '远程地址',
-      port: '远程端口',
+      description: '输入服务器内网的完整网址，将通过 SSH 端口转发在 StarHub 内打开。',
+      url: '网址',
+      placeholder: '例如 http://10.0.0.5:8080/admin',
       open: '打开',
     },
     mfa: {

@@ -1475,26 +1475,40 @@ async function runQuickCommand(cmd: string) {
 
 // ====== Web Access(端口转发 + WebviewWindow) ======
 const showWebAccessDialog = ref(false)
-const webAccessHost = ref('127.0.0.1')
-const webAccessPort = ref('8080')
+const webAccessUrl = ref('')
 const webAccessLoading = ref(false)
 
 async function openWebAccess() {
   if (!connected.value) return
-  const remotePort = parseInt(webAccessPort.value, 10)
-  if (!remotePort || remotePort < 1 || remotePort > 65535) {
-    notify.notify({ message: '请输入有效的端口号 (1-65535)', color: 'error', timeout: 4000 })
+  const raw = webAccessUrl.value.trim()
+  if (!raw) {
+    notify.notify({ message: '请输入要访问的网址', color: 'error', timeout: 4000 })
     return
   }
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    // 尝试补上 http:// 前缀
+    try { parsed = new URL('http://' + raw) } catch {
+      notify.notify({ message: '无效的网址，请输入完整的 URL（如 http://10.0.0.5:8080/admin）', color: 'error', timeout: 5000 })
+      return
+    }
+  }
+  const remoteHost = parsed.hostname
+  const remotePort = parseInt(parsed.port, 10) || (parsed.protocol === 'https:' ? 443 : 80)
+  const pathQuery = parsed.pathname + parsed.search + parsed.hash
+
   webAccessLoading.value = true
   try {
     const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
     const { sshAddLocalForward } = await import('@/services/ssh')
-    const localPort = await sshAddLocalForward(props.id, 0, webAccessHost.value, remotePort)
+    const localPort = await sshAddLocalForward(props.id, 0, remoteHost, remotePort)
     const label = `web-${props.id}-${remotePort}-${Date.now()}`
+    const targetUrl = `http://127.0.0.1:${localPort}${pathQuery}`
     const win = new WebviewWindow(label, {
-      url: `http://127.0.0.1:${localPort}`,
-      title: `${webAccessHost.value}:${remotePort} — StarHub`,
+      url: targetUrl,
+      title: `${raw} — StarHub`,
       width: 1024,
       height: 768,
       minWidth: 480,
@@ -1505,12 +1519,12 @@ async function openWebAccess() {
       console.error('[web-access] create window failed:', error)
       notify.notify({ message: `打开网页窗口失败: ${error}`, color: 'error', timeout: 5000 })
     })
-    logAudit({ category: 'ssh', action: 'web_access', target: `${webAccessHost.value}:${remotePort}`, detail: { localPort }, sessionId: props.id, assetId: asset.value?.id, success: true })
+    logAudit({ category: 'ssh', action: 'web_access', target: raw, detail: { localPort, remoteHost, remotePort }, sessionId: props.id, assetId: asset.value?.id, success: true })
     showWebAccessDialog.value = false
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     notify.notify({ message: `端口转发失败: ${msg}`, color: 'error', timeout: 5000 })
-    logAudit({ category: 'ssh', action: 'web_access', target: `${webAccessHost.value}:${remotePort}`, sessionId: props.id, assetId: asset.value?.id, success: false })
+    logAudit({ category: 'ssh', action: 'web_access', target: raw, sessionId: props.id, assetId: asset.value?.id, success: false })
   } finally {
     webAccessLoading.value = false
   }
@@ -1990,22 +2004,13 @@ function handleKbCancelled() {
  {{ t('ssh.webAccess.description') }}
  </p>
  <v-text-field
- v-model="webAccessHost"
- :label="t('ssh.webAccess.host')"
+ v-model="webAccessUrl"
+ :label="t('ssh.webAccess.url')"
  variant="outlined"
  density="compact"
  hide-details
  class="qc-edit-field"
- style="margin-bottom: 10px;"
- />
- <v-text-field
- v-model="webAccessPort"
- :label="t('ssh.webAccess.port')"
- variant="outlined"
- density="compact"
- hide-details
- type="number"
- class="qc-edit-field"
+ :placeholder="t('ssh.webAccess.placeholder')"
  @keydown.enter="openWebAccess"
  />
  <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
