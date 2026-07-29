@@ -12,6 +12,17 @@
 
 ---
 
+## [0.35.1] - 2026-07-29
+
+### 修复
+- 🐛 fix(ssh): AI 助手 `ssh_exec` 执行快命令(如 `cd /data/logs/... && grep -c '...' xxx.log`)时误报「等待 shell prompt 返回超时,已发送 Ctrl+C 恢复终端」。根因:`isShellPromptLine` 只识别以 `#`/`$` 结尾的提示符,而 `getCurrentPromptLine` 捕获 `expectedPrompt` 时还接受 `%`/`>`/`❯`/`➜`;当命令含 `cd` 改变目录、且 shell 使用 fish / zsh / 自定义提示符时,返回的新 prompt 既不等于 `expectedPrompt` 也不被 `isShellPromptLine` 识别,`hasReturnedPrompt` 持续 false,只能等 60s safetyTimer 超时报错。修复:`isShellPromptLine` 补齐 `%`/`>`/`❯`/`➜` 结尾识别,与捕获侧对齐;并补回此前 CHANGELOG 声称但代码缺失的 idle 兜底——数据流连续 2s 无新内容即 fallback resolve 已收到的输出,不再傻等超时。
+- 🐛 fix(ai): AI 引导功能在流式输出期间无法使用。根因:composer 的 textarea 与「引导」按钮被 `:disabled="orchestrationBusy"` 整体禁用,AI 输出期间无法输入或套用引导模板。修复:移除 textarea 与引导按钮的 disabled(发送仍由 `send()` 的 `orchestrationBusy` 守卫与「发送/停止」按钮切换保护),忙碌时按 Enter 改为插入换行,便于提前撰写下一条指令。
+
+### 构建
+- 🔧 chore: 版本号同步至 0.35.1。
+
+---
+
 ## [0.35.0] - 2026-07-27
 
 ### 修复

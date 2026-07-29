@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.35.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.35.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,10 @@
 ---
 
 ## 当前版本
+
+### v0.35.1 (2026-07-29)
+- 🐛 修复 SSH AI `ssh_exec` 快命令误报「等待 shell prompt 返回超时」:提示符识别补齐 `%`/`>`/`❯`/`➜` 结尾,并补回数据流 idle 2s 兜底
+- 🐛 修复 AI 引导功能在流式输出期间不可用:输入框与引导按钮不再被整体禁用,忙碌时 Enter 插入换行
 
 ### v0.35.0 (2026-07-27)
 - 🐛 修复索引管理器新建索引报 MySQL Error 1091:新索引标记 `isNew`,不再对其生成 `DROP INDEX`
