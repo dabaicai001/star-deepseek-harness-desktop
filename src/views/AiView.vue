@@ -298,6 +298,7 @@ function onKeydown(event: KeyboardEvent) {
     }
   }
   if (event.key === 'Enter' && !event.shiftKey) {
+    if (orchestrationBusy.value) return
     event.preventDefault()
     void send()
   }
@@ -1156,7 +1157,6 @@ function shortResult(value: string, max = 600) {
               class="cyber-input"
               rows="3"
               :placeholder="t('ai.composerPlaceholder')"
-              :disabled="orchestrationBusy"
               @keydown="onKeydown"
             />
             <div v-if="mentionSuggestions.length" class="ai-mention-menu cyber-panel">
@@ -1173,7 +1173,6 @@ function shortResult(value: string, max = 600) {
             <button
               class="cyber-btn-secondary"
               :aria-expanded="showPromptGuide"
-              :disabled="orchestrationBusy"
               @click="showPromptGuide = !showPromptGuide"
             >
               <v-icon size="14">mdi-compass-outline</v-icon>{{ t('ai.promptGuide') }}
