@@ -109,10 +109,7 @@ html.v-theme--darkTheme {
   --danger-hover-bg: rgba(238, 107, 122, 0.1);
   --kbd-bg: rgba(93, 214, 214, 0.08);
 
-  /* 顶栏/菜单栏/状态栏玻璃背景(暗色用深蓝半透明) */
-  --chrome-glass-strong: rgba(8, 13, 20, 0.82);
-  --chrome-glass: rgba(12, 19, 29, 0.68);
-  --chrome-glass-soft: rgba(16, 24, 34, 0.58);
+  /* 5 档玻璃分级(strong / glass / soft / deep / faint)见文件末尾"玻璃分级"块统一维护 */
 
   /* Excel workspace keeps the familiar Office palette inside the cyber shell. */
   --excel-green: #107c41;
@@ -140,6 +137,44 @@ html.v-theme--darkTheme {
   --excel-selection-fill: rgba(16, 124, 65, 0.12);
   --excel-text: #201f1e;
   --excel-muted: #605e5c;
+
+  /* ============================================
+   * 布局尺寸 token(取代硬编码常量,改一处全站生效)
+   * 由 layout-optimization-2026-07-29 P0 引入
+   * ============================================ */
+  --layout-titlebar-h: 52px;
+  --layout-menubar-h: 40px;
+  --layout-statusbar-h: 32px;
+  --layout-sidebar-w: 280px;
+  --layout-sidebar-w-collapsed: 56px;
+  --layout-rightpanel-rail-w: 56px;
+  --layout-content-max-w: 1440px;
+
+  /* 断点(文档与 JS hook 用,CSS @media 沿用 px) */
+  --bp-xs: 1024px;
+  --bp-sm: 1280px;
+  --bp-md: 1600px;
+  --bp-lg: 1920px;
+
+  /* 间距规约(4 级密度,8 节奏) */
+  --space-inline: 8px;          /* 同组内 */
+  --space-section: 24px;        /* 节与节 */
+  --space-page-x: 24px;         /* 页左右 */
+  --space-page-x-narrow: 16px;  /* 小窗口 */
+  --space-page-y: 24px;
+  --space-page-y-narrow: 16px;
+
+  /* 玻璃分级(5 档) */
+  --chrome-glass-deep: rgba(6, 10, 16, 0.92);    /* statusbar / detached window */
+  --chrome-glass-strong: rgba(8, 13, 20, 0.82);  /* titlebar */
+  --chrome-glass: rgba(12, 19, 29, 0.68);        /* menubar */
+  --chrome-glass-soft: rgba(16, 24, 34, 0.58);   /* sidebar / right rail */
+  --chrome-glass-faint: rgba(20, 28, 38, 0.42);  /* dock / floating */
+
+  /* 装饰动效开关(0 = 关 1 = 开)
+   * 由 Settings > Appearance 的"减少装饰动效"开关控制
+   * 配合 @media (prefers-reduced-motion: reduce) 自动关 */
+  --anim-decor: 1;
 }
 
 /* 注意:light 主题必须挂到 <html> 上,这样 teleport 到 body 的元素也能拿到 token。
@@ -248,9 +283,11 @@ html.v-theme--lightTheme {
   --kbd-bg: rgba(83, 106, 120, 0.055);
 
   /* 顶栏/菜单栏/状态栏玻璃背景(白底用近白半透明) */
+  --chrome-glass-deep: rgba(255, 255, 255, 0.92);
   --chrome-glass-strong: rgba(255, 255, 255, 0.85);
   --chrome-glass: rgba(255, 255, 255, 0.6);
   --chrome-glass-soft: rgba(255, 255, 255, 0.4);
+  --chrome-glass-faint: rgba(255, 255, 255, 0.32);
 
   /* Excel workspace uses the same Office palette in light mode. */
   --excel-green: #107c41;
@@ -473,7 +510,8 @@ body {
 }
 
 .cyber-btn:hover {
-  transform: translateY(-2px);
+  /* P0 动效收敛:去掉 translateY,只保留 box-shadow 加深 + ::after 光带扫描
+   * (光带扫描已存在,提供足够视觉反馈;避免按钮 hover 全站累加位移) */
   box-shadow: var(--glow-cyan);
 }
 
@@ -573,7 +611,8 @@ body {
 }
 
 .cyber-card:hover {
-  transform: translateY(-4px);
+  /* P0 动效收敛:4px → 2px,避免 10+ 卡片同屏时累加位移过重 */
+  transform: translateY(-2px);
   box-shadow: 0 12px 40px var(--glow-soft);
   border-color: var(--focus-cyan);
 }
@@ -1099,6 +1138,128 @@ body {
   color: var(--text-2);
   font-size: 12px;
   word-break: break-word;
+}
+
+/* ============================================
+ * Layout Primitives (P0 布局优化)
+ * 取代散落的 inline flex/grid 与硬编码间距,组件只引用 class
+ * ============================================ */
+
+/* .cyber-stack:垂直堆叠容器,统一"节与节"间距 */
+.cyber-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section);
+}
+.cyber-stack.tight {
+  gap: calc(var(--space-section) / 2);
+}
+
+/* .cyber-cluster:水平/垂直紧凑组,统一"组内"间距 */
+.cyber-cluster {
+  display: flex;
+  gap: var(--space-inline);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cyber-cluster.column {
+  flex-direction: column;
+  align-items: stretch;
+}
+.cyber-cluster.between {
+  justify-content: space-between;
+}
+.cyber-cluster.end {
+  justify-content: flex-end;
+}
+.cyber-cluster.no-wrap {
+  flex-wrap: nowrap;
+}
+
+/* .cyber-pane:带 header 的内部面板(替代裸 <section> + 内部 div 嵌套) */
+.cyber-pane {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.cyber-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--chrome-glass-soft);
+  flex-shrink: 0;
+}
+
+.cyber-pane-body {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  overflow: auto;
+}
+.cyber-pane-body.dense {
+  padding: 12px;
+}
+.cyber-pane-body.comfortable {
+  padding: 24px;
+}
+
+/* .cyber-section:节容器(与现有 .section-header 协作) */
+.cyber-section > .section-header {
+  margin-bottom: 12px;
+}
+
+/* .cyber-divider:统一分割线 */
+.cyber-divider {
+  height: 1px;
+  background: var(--line-2);
+  margin: var(--space-section) 0;
+  border: 0;
+}
+.cyber-divider.vertical {
+  width: 1px;
+  height: auto;
+  align-self: stretch;
+  margin: 0 8px;
+}
+.cyber-divider.subtle {
+  background: var(--line);
+}
+
+/* .cyber-meta:辅助元信息(灰字小字,等宽) */
+.cyber-meta {
+  color: var(--muted);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
+}
+
+/* .cyber-key / .cyber-value:键值对的"键"与"值"(详情面板用) */
+.cyber-key {
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+.cyber-value {
+  color: var(--text);
+  font-size: 13px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* .focus-ring:通用焦点环(给非 cyber-btn 元素用,键盘可达性基础) */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-cyan);
+  border-radius: 6px;
 }
 
 /* ============================================
@@ -2099,7 +2260,8 @@ body {
 }
 
 .modal-body {
-  padding: 20px;
+  /* P0 间距规约:20 → 24,迁回 8 节奏(token --space-section) */
+  padding: var(--space-section);
 }
 
 .modal-footer {
@@ -2367,7 +2529,8 @@ body {
  * 在各自 scoped style 里同步加深,避免被 scoped 覆盖失效 */
 .cyber-card:hover,
 .connection-card:hover {
-  transform: translateY(-4px) scale(1.008);
+  /* P0 动效收敛:4px → 2px,保留 scale 微缩反馈 */
+  transform: translateY(-2px) scale(1.008);
   box-shadow:
     0 18px 52px var(--glow-soft),
     0 0 0 1px var(--focus-cyan);
@@ -2402,7 +2565,8 @@ body {
 
 /* 仪表盘指标详情:DashboardCard 通过 v-dialog teleport 到 body,必须放全局样式。 */
 .dashboard-detail-panel {
-  padding: 20px;
+  /* P0 间距规约:20 → 24,迁回 8 节奏 */
+  padding: var(--space-section);
   color: var(--text);
 }
 
@@ -3554,9 +3718,10 @@ body {
 .ai-agent-dialog-body {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  /* P0 间距规约:20 → 24,迁回 8 节奏 */
+  gap: var(--space-section);
   min-height: 0;
-  padding: 20px;
+  padding: var(--space-section);
   overflow-y: auto;
 }
 
@@ -3858,7 +4023,8 @@ body {
   min-height: 0;
   flex-direction: column;
   gap: 16px;
-  padding: 20px;
+  /* P0 间距规约:20 → 24,迁回 8 节奏 */
+  padding: var(--space-section);
   overflow-y: auto;
 }
 
@@ -5566,8 +5732,10 @@ body.tab-dragging {
 }
 
 .welcome-aurora-b {
+  /* P0 动效收敛:降低透明度,作为 A 层的弱补充而非主装饰 */
   bottom: -24%;
   left: -12%;
+  opacity: 0.5;
   background: radial-gradient(circle, color-mix(in srgb, var(--purple) 20%, transparent) 0%, transparent 68%);
   animation: welcome-drift-b 18s ease-in-out infinite;
 }
@@ -5595,6 +5763,11 @@ body.tab-dragging {
   opacity: 0;
   animation: welcome-particle 9s linear infinite;
   animation-delay: var(--d, 0s);
+}
+
+/* P0 动效收敛:超过 12 个的粒子直接隐藏(原来 30 个,GPU 渲染开销大) */
+.welcome-particle:nth-child(n+13) {
+  display: none;
 }
 
 .welcome-content {
@@ -6029,7 +6202,8 @@ body.tab-dragging {
 }
 
 .feature-card:hover:not(.disabled-card) {
-  transform: translateY(-4px) scale(1.01);
+  /* P0 动效收敛:4px → 2px,保留 scale 微缩反馈 */
+  transform: translateY(-2px) scale(1.01);
   box-shadow:
     0 18px 52px var(--glow-soft),
     0 0 0 1px var(--focus-cyan);
@@ -6253,4 +6427,37 @@ body.tab-dragging {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ===== 装饰动效用户开关(独立于系统级 prefers-reduced-motion) =====
+ * 由 Settings > Appearance 的"减少装饰动效"开关控制:
+ * 关闭时仅停掉装饰层(灯带/极光/粒子/光带扫描等)的动效,
+ * 保留必要交互(hover/press/路由过渡等),用户仍能感知反馈。
+ * 配合 js:document.body.classList.toggle('anim-decor-off', on)
+ */
+body.anim-decor-off .cyber-panel::before,
+body.anim-decor-off .cyber-panel::after,
+body.anim-decor-off .cyber-card::before,
+body.anim-decor-off .cyber-card::after,
+body.anim-decor-off .connection-card::before,
+body.anim-decor-off .connection-card::after,
+body.anim-decor-off .zmodem-transfer-bar::before,
+body.anim-decor-off .zmodem-transfer-bar::after,
+body.anim-decor-off .cyber-btn::after,
+body.anim-decor-off .welcome-aurora,
+body.anim-decor-off .welcome-aurora-a,
+body.anim-decor-off .welcome-aurora-b,
+body.anim-decor-off .welcome-title,
+body.anim-decor-off .welcome-caret,
+body.anim-decor-off .status-dot.online,
+body.anim-decor-off .status-dot.connecting {
+  animation: none !important;
+}
+body.anim-decor-off .welcome-aurora,
+body.anim-decor-off .welcome-aurora-a,
+body.anim-decor-off .welcome-aurora-b {
+  opacity: 0.3 !important;  /* 极光不流动,降低亮度 */
+}
+body.anim-decor-off .welcome-particle {
+  display: none !important; /* 粒子直接隐藏 */
 }

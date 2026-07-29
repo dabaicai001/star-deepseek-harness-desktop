@@ -12,6 +12,24 @@
 
 ---
 
+## [0.36.1] - 2026-07-29
+
+### 改进
+- 🎨 style(design-system): P0 布局优化方案与设计系统底座(为后续 P1/P2 业务页面调整铺路,**不直接改动业务页面**)
+  - **CSS Token 增补**(`src/styles/cyber.css`):布局尺寸 7 个(`--layout-titlebar-h/menubar-h/statusbar-h/sidebar-w/sidebar-w-collapsed/rightpanel-rail-w/content-max-w`)、断点 4 个(`--bp-xs/sm/md/lg`)、间距规约 6 个(`--space-inline/section/page-x/page-x-narrow/page-y/page-y-narrow`)、玻璃分级补 2 档(`--chrome-glass-deep/faint`,原 strong/glass/soft 保留)、装饰动效开关(`--anim-decor`)。深浅双主题各自覆盖。
+  - **组件类增补**(Layout Primitives 章节):`.cyber-stack/.cyber-cluster`(间距规约容器,后者带 column/between/end/no-wrap 变体)、`.cyber-pane/-pane-header/-pane-body`(带 header 内部面板,body 有 dense/comfortable 变体)、`.cyber-section`、`.cyber-divider[.vertical/.subtle]`、`.cyber-meta/.cyber-key/.cyber-value`(键值对/元信息文字辅助)、`.focus-ring`(通用焦点环,键盘可达性基础)
+  - **动效收敛**:`.cyber-card:hover` 4px→2px、`.cyber-btn:hover` 去掉 translateY(只保留 box-shadow + ::after 光带扫描)、`.feature-card:hover` 4px→2px、`.connection-card:hover` 增强版同步收敛;welcome 极光 B 层透明度 0.5(降为 A 层弱补充)、粒子 30→12(`nth-child(n+13) display: none`);新增 `body.anim-decor-off` 用户级开关(独立于系统 `prefers-reduced-motion`,Settings > Appearance 可关)
+  - **响应式断点 composable**:新增 `src/composables/useBreakpoint.ts`,5 档(xs/sm/md/lg/xl) + 200ms resize 节流 + SSR 安全 + 卸载清理
+  - **间距规约清理**:4 处 `padding: 20px` 迁到 `var(--space-section)`(`.modal-body / .dashboard-detail-panel / .ai-agent-dialog-body / .ai-conversation-messages`)
+
+### 文档
+- 📝 docs: 新增 `docs/layout-optimization-2026-07-29.md` —— 18 模块 × 4 维度完整方案(信息层级 / 留白 / 动线 / 响应式),P1/P2 实施路线图与风险点
+
+### 构建
+- 🔧 chore: 版本号同步至 0.36.1
+
+---
+
 ## [0.36.0] - 2026-07-29
 
 ### 新增
