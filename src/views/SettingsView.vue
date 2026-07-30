@@ -629,29 +629,35 @@ async function onTestWebhook(url: string) {
     <!-- Tab 切换 -->
     <div class="settings-tabs">
       <button class="tab" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">
+        <span class="tab-num">01</span>
         <v-icon size="13">mdi-tune-variant</v-icon>
-        <span>{{ t('settings.general') }}</span>
+        <span class="tab-label">{{ t('settings.general') }}</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">
+        <span class="tab-num">02</span>
         <v-icon size="13">mdi-palette-outline</v-icon>
-        <span>{{ t('settings.appearance') }}</span>
+        <span class="tab-label">{{ t('settings.appearance') }}</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
+        <span class="tab-num">03</span>
         <v-icon size="13">mdi-robot-outline</v-icon>
-        <span>AI 助手</span>
+        <span class="tab-label">AI 助手</span>
         <span class="tab-hint">Function Calling · 命令执行</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'audit' }" @click="activeTab = 'audit'">
+        <span class="tab-num">04</span>
         <v-icon size="13">mdi-clipboard-list-outline</v-icon>
-        <span>审计日志</span>
+        <span class="tab-label">审计日志</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'alert' }" @click="activeTab = 'alert'">
+        <span class="tab-num">05</span>
         <v-icon size="13">mdi-bell-alert-outline</v-icon>
-        <span>告警规则</span>
+        <span class="tab-label">告警规则</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'about' }" @click="activeTab = 'about'">
+        <span class="tab-num">06</span>
         <v-icon size="13">mdi-information-outline</v-icon>
-        <span>{{ t('settings.about') }}</span>
+        <span class="tab-label">{{ t('settings.about') }}</span>
       </button>
     </div>
 
@@ -1408,6 +1414,26 @@ async function onTestWebhook(url: string) {
   color: var(--cyan);
   border-bottom-color: var(--cyan);
   background: rgba(0, 240, 255, 0.06);
+}
+
+/* P1 §B8:tab 编号(ORBITRON 字体 01-06),体现"控制台"层级感 */
+.settings-tabs .tab-num {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  background: var(--grad-primary);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+.settings-tabs .tab.active .tab-num { opacity: 1; }
+.settings-tabs .tab-label {
+  font-weight: 500;
 }
 
 .settings-tabs .tab-hint {

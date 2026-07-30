@@ -2348,6 +2348,18 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
           <div class="empty-state-hint">
             {{ t('db.emptyHintDetail') }}
           </div>
+          <!-- P1 §B2:空状态加 CTA,引导用户主动操作(避免"看着空不知道干嘛") -->
+          <div class="empty-state-actions">
+            <button class="cyber-btn cyber-btn-sm" @click="newSqlQuery">
+              <v-icon size="13">mdi-play-circle-outline</v-icon>
+              {{ t('db.newQuery') }}
+              <span class="cyber-btn-kbd">⌘N</span>
+            </button>
+            <button class="cyber-btn-secondary cyber-btn-sm" @click="refreshDatabases">
+              <v-icon size="13">mdi-refresh</v-icon>
+              {{ t('common.refresh') }}
+            </button>
+          </div>
         </div>
 
         <!-- 1) 表 tab - 数据视图 -->
@@ -3324,6 +3336,13 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   color: var(--muted);
   max-width: 360px;
   line-height: 1.6;
+}
+.empty-state-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .result-area {

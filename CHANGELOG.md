@@ -12,6 +12,30 @@
 
 ---
 
+## [0.36.3] - 2026-07-29
+
+### 改进
+- 🎨 style(db, settings): P1 布局优化增量(扫读后发现大部分模块 v0.36 已实现,实际只改 2 处)
+  - **§B2 DbView 空状态 CTA**(`src/views/DbView.vue`):无任何 sub-tab 时,从"图标+标题+描述"升级到加 2 个动作按钮
+    - 主按钮"新建查询"(cyber-btn)调用 `newSqlQuery()`
+    - 次按钮"刷新库列表"(cyber-btn-secondary)调用 `refreshDatabases()`
+    - 新增 `.empty-state-actions` flex 容器(间距 8px,居中,wrap)
+    - 理由:用户连上数据库后看到空结果区会不知道下一步干啥,加 CTA 引导主动操作
+  - **§B8 SettingsView tab 编号**(`src/views/SettingsView.vue`):6 tab 加 ORBITRON 数字编号 01-06
+    - 新增 `.tab-num` 类,Orbitron 字体 9px,用 `var(--grad-primary)` 文字渐变
+    - active 时 opacity 1,inactive 0.7,体现"控制台"层级感
+    - 新增 `.tab-label` 统一 5 级 13px + font-weight 500
+    - 理由:Settings 是"配置中心",6 tab 平铺时无视觉锚点;加编号让用户感知"我在第几节"
+- **§C1 SshTerminal / §C2 SftpPanel**:扫读代码后跳过
+  - §C1 工具栏分组已用 divider 实现、快捷命令下拉 v0.36 已修、底部流量需后端改 session 跟踪(非纯前端)
+  - §C2 右键菜单已 onContextMenu 实现、列宽拖拽功能 v0.36 未实现、传输任务跨 TransferDock 组件
+  - 方案 §B2/§C2 部分描述与 v0.36 实际代码不符,实际可改范围小于方案列出
+
+### 构建
+- 🔧 chore: 版本号同步至 0.36.3
+
+---
+
 ## [0.36.2] - 2026-07-29
 
 ### 改进
