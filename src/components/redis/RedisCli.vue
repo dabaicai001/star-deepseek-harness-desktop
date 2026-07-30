@@ -11,6 +11,7 @@ const cliCommand = ref('')
 const cliResult = ref<string[]>([])
 const cliLoading = ref(false)
 const historyIndex = ref(-1)
+const historyOpen = ref(false)  // P2 §B3:命令历史下拉开关
 
 /** 输出上限:最多保留最近 CLI_MAX_LINES 行;单行超长截断,避免 HGETALL 大 JSON 撑爆 DOM */
 const CLI_MAX_LINES = 200
@@ -93,6 +94,12 @@ function clearCli() {
   cliResult.value = []
 }
 
+/** P2 §B3:从历史下拉选一条,直接回填到输入框 */
+function pickFromHistory(cmd: string) {
+  cliCommand.value = cmd
+  historyOpen.value = false
+}
+
 watch(() => props.currentDb, () => {
   // Optional: show a separator when DB changes
 })
@@ -108,9 +115,30 @@ watch(() => props.currentDb, () => {
       </div>
       <span class="terminal-title">redis-cli — db:{{ currentDb }}</span>
       <div class="cli-actions">
+        <button class="action-btn" :class="{ active: historyOpen }" title="命令历史" @click="historyOpen = !historyOpen">
+          <v-icon size="12">mdi-history</v-icon>
+        </button>
         <button class="action-btn" @click="clearCli" title="Clear (Ctrl+L)">
           <v-icon size="12">mdi-delete-sweep</v-icon>
         </button>
+      </div>
+    </div>
+
+    <!-- P2 §B3:历史下拉侧栏(显示最近 20 条,点击回填输入框) -->
+    <div v-if="historyOpen" class="cli-history">
+      <div class="cli-history-title">最近命令</div>
+      <div
+        v-for="(cmd, idx) in dbStore.getCliHistory().slice(-20).reverse()"
+        :key="`${idx}-${cmd}`"
+        class="cli-history-item"
+        :title="cmd"
+        @click="pickFromHistory(cmd)"
+      >
+        <v-icon size="11" color="muted">mdi-chevron-right</v-icon>
+        <span class="cli-history-cmd">{{ cmd }}</span>
+      </div>
+      <div v-if="dbStore.getCliHistory().length === 0" class="cli-history-empty">
+        暂无历史命令
       </div>
     </div>
     <div class="terminal-body" ref="cliOutput">
@@ -200,6 +228,50 @@ watch(() => props.currentDb, () => {
 }
 
 .cli-input-field::placeholder { color: var(--muted); }
+
+/* P2 §B3:命令历史下拉 */
+.cli-history {
+  border-top: 1px solid var(--line);
+  background: var(--panel-solid);
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.cli-history-title {
+  padding: 6px 12px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.cli-history-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.cli-history-item:hover {
+  background: var(--hover-cyan-faint);
+  color: var(--cyan);
+}
+.cli-history-cmd {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cli-history-empty {
+  padding: 12px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
 
 .dot {
   width: 10px; height: 10px; border-radius: 50%;

@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.36.3(布局优化 P1 增量:§B2 DbView 空状态 CTA + §B8 SettingsView tab 编号 ORBITRON) |
+| 当前版本 | v0.36.4(布局优化 P2 增量:§B3 RedisView RedisCli 命令历史下拉侧栏) |
 
 ---
 
@@ -498,4 +498,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-07-29 (v0.36.3)*
+*最后更新: 2026-07-30 (v0.36.4)*

@@ -12,6 +12,22 @@
 
 ---
 
+## [0.36.4] - 2026-07-30
+
+### 改进
+- style(redis): P2 布局优化增量 - RedisCli 命令历史下拉侧栏
+  - 位置: src/components/redis/RedisCli.vue
+  - 原 v0.36 已有 ArrowUp/ArrowDown 翻历史(快捷键循环),但用户看不到哪些命令在历史里
+  - 新增 history 按钮在 cli-actions 里,点开显示历史下拉
+  - 历史下拉显示最近 20 条命令,点击回填到输入框
+  - 样式:dark solid 背景 + 11px JetBrains Mono 文字 + hover 青色高亮
+  - 理由:Redis 调试时常需要复用前几次命令,下拉比循环翻更直观
+
+### 构建
+- chore: 版本号同步至 0.36.4
+
+---
+
 ## [0.36.3] - 2026-07-29
 
 ### 改进
