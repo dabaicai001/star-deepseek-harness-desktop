@@ -81,13 +81,23 @@ export async function sshGetSessions(): Promise<SshSessionInfo[]> {
  * 给仪表盘 / 一次性数据采集用(系统指标、配置查询等)。
  * - `timeoutSec` 默认 10 秒,内部强制 >=1
  * - 非 0 退出码会 throw
+ * - `execId` 可选;传入后可用 `sshExecAbort` 中断本次执行
  */
 export async function sshExec(
   id: string,
   command: string,
-  timeoutSec?: number
+  timeoutSec?: number,
+  execId?: string
 ): Promise<string> {
-  return invoke('ssh_exec', { id, command, timeoutSec })
+  return invoke('ssh_exec', { id, command, timeoutSec, execId })
+}
+
+/**
+ * 中断一个仍在执行的 ssh_exec 命令(通过 execId 定位)。
+ * 远端 channel 被关闭,对应 sshExec 会以 [EXEC_ABORTED] 错误返回已收到的部分输出。
+ */
+export async function sshExecAbort(id: string, execId: string): Promise<boolean> {
+  return invoke('ssh_exec_abort', { id, execId })
 }
 
 function buildAuth(config: AssetConfig): SshAuthConfig {

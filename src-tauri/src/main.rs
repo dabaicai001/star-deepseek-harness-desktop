@@ -56,6 +56,7 @@ fn main() {
             commands::ssh::ssh_resize,
             commands::ssh::ssh_get_sessions,
             commands::ssh::ssh_exec,
+            commands::ssh::ssh_exec_abort,
             commands::ssh::test_ssh_connection,
             commands::ssh::read_ssh_private_key_file,
             commands::ssh::ssh_kb_response,

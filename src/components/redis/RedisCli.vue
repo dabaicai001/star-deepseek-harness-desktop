@@ -2,6 +2,7 @@
 import { ref, nextTick, watch } from 'vue'
 import { useDbStore } from '@/stores/db'
 import * as dbService from '@/services/db'
+import { logAudit } from '@/services/audit'
 
 const props = defineProps<{ connId: string; currentDb: number }>()
 
@@ -43,9 +44,22 @@ function scrollToBottom() {
 async function executeCli() {
   if (!props.connId || !cliCommand.value.trim()) return
   const cmd = cliCommand.value.trim()
+  const startedAt = Date.now()
   cliLoading.value = true
   try {
     const result = await dbService.redisExecute(props.connId, cmd)
+    logAudit({
+      category: 'db',
+      action: 'redis_cli',
+      target: cmd.slice(0, 120),
+      detail: {
+        command: cmd.length > 2000 ? cmd.slice(0, 2000) + '…' : cmd,
+        durationMs: Date.now() - startedAt,
+        error: result.error ?? null
+      },
+      sessionId: props.connId,
+      success: !result.error
+    })
     const time = `(${result.durationMs}ms)`
     if (result.error) {
       pushCliLines(`> ${cmd}`, `(error) ${result.error} ${time}`)
@@ -60,7 +74,20 @@ async function executeCli() {
     cliCommand.value = ''
     scrollToBottom()
   } catch (err: unknown) {
-    pushCliLines(`> ${cmd}`, `(error) ${err instanceof Error ? err.message : String(err)}`)
+    const message = err instanceof Error ? err.message : String(err)
+    logAudit({
+      category: 'db',
+      action: 'redis_cli',
+      target: cmd.slice(0, 120),
+      detail: {
+        command: cmd.length > 2000 ? cmd.slice(0, 2000) + '…' : cmd,
+        durationMs: Date.now() - startedAt,
+        error: message
+      },
+      sessionId: props.connId,
+      success: false
+    })
+    pushCliLines(`> ${cmd}`, `(error) ${message}`)
   } finally {
     cliLoading.value = false
     scrollToBottom()

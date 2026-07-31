@@ -5,12 +5,13 @@ import { useRoute, useRouter } from 'vue-router'
 import KbInteractiveDialog from './KbInteractiveDialog.vue'
 import HostKeyConfirmDialog, { type HostKeyInfo } from './HostKeyConfirmDialog.vue'
 import BroadcastDialog, { type BroadcastSession } from './BroadcastDialog.vue'
-import { sshExec, type KbInteractiveEvent } from '@/services/ssh'
+import { sshExec, sshExecAbort, type KbInteractiveEvent } from '@/services/ssh'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import SplitTerminal from './SplitTerminal.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
+import AiGuideDialog from '@/components/ai/AiGuideDialog.vue'
 import SshDashboard from '@/components/dashboard/SshDashboard.vue'
 import SftpPanel from '@/components/sftp/SftpPanel.vue'
 import { useAssetStore } from '@/stores/asset'
@@ -22,12 +23,13 @@ import type { Asset } from '@/types/asset'
 import { parseInstanceId, withTabIndexSuffix } from '@/utils/tabId'
 import { formatSize } from '@/services/sftp'
 import { getDetachedInfo, LOCAL_TAB_DETACH_EVENT } from '@/lib/windowDetach'
-import { SSH_SYSTEM_PROMPT, sshTools, makeSshToolCaller } from '@/utils/aiTools'
+import { SSH_SYSTEM_PROMPT, SSH_SILENT_MODE_PROMPT_NOTE, sshTools, makeSshToolCaller } from '@/utils/aiTools'
 import { makeSftpToolCaller, sftpTools } from '@/utils/aiSftpTools'
 import { checkCommand, extractWhitelistPrefix, stripShellPrompt } from '@/utils/commandGuard'
 import type { LlmToolCall } from '@/services/ai'
 import { createMcpRuntime } from '@/services/mcp'
 import { logAudit } from '@/services/audit'
+import { usePersistentPanelState } from '@/utils/panelState'
 import ZmodemModule from 'zmodem.js/src/zmodem_browser.js'
 
 interface ZmodemTransfer {
@@ -274,9 +276,30 @@ const rightPanelTabs = computed(() => [
   { key: 'sftp', label: '文件', icon: 'mdi-folder-network-outline' }
 ])
 
+// ====== AI 新手引导(首次打开 AI 面板自动弹出,「?」按钮可重开) ======
+const aiGuideVisible = ref(false)
+watch(rightActiveTab, tab => {
+  if (tab !== 'ai') return
+  try {
+    if (localStorage.getItem('starhub.ai.guideSeen') === 'true') return
+  } catch { return }
+  aiGuideVisible.value = true
+}, { immediate: true })
+
 // ====== AI助手(每个 tab独立) ======
 const sshCwd = ref<string>('')
-const aiSilentMode = ref(false)
+// 后台静默模式:开关全局持久化(所有 SSH tab 共享一个 localStorage key)
+const aiSilentMode = usePersistentPanelState('sshAiSilentMode', false)
+/** 静默执行的 cwd 跟踪:每条命令结束后从 marker 解析更新,跨命令保持 cd 语义 */
+const aiSilentCwd = ref<string>('')
+/** 在途静默命令的 exec_id,停止按钮用它调 ssh_exec_abort 中断远端执行 */
+let aiSilentExecId: string | null = null
+/** 静默执行单条命令超时(秒) */
+const AI_SILENT_EXEC_TIMEOUT_S = 120
+/** 静默执行追加到命令末尾的 cwd 上报 marker(从 stdout 解析后剥离) */
+const AI_SILENT_CWD_MARKER = '__SH_CWD__'
+/** 预检:命中这些模式的命令需要交互输入,静默通道没有 PTY/stdin,自动回退到终端执行 */
+const SILENT_INTERACTIVE_CMD_RE = /(?:^|[;&|`(]\s*)(?:sudo\s+)?(?:vi|vim|nvim|nano|emacs|top|htop|atop|less|more|man|passwd|ssh|sftp|ftp|telnet|mysql|mycli|psql|pgcli|redis-cli|sqlite3|mongo|mongosh|watch|crontab|chsh|su)(?:\s|$)|\b(?:rm|mv|cp)\s+-(?:[a-zA-Z]*i|i[a-zA-Z]*)\b|\b(?:bash|zsh|sh|fish|python|python3|node|irb|bc)\s*(?:-i)?\s*(?:$|[;&|>])/i
 const aiSession = computed(() => {
  if (!asset.value) return null
  const session = aiStore.getOrCreateSession(props.id, asset.value.id, 'ssh')
@@ -294,11 +317,18 @@ async function onAiSend(text: string) {
  aiSession.value.loading = true
  aiSession.value.messages.push({ role: 'user', content: text })
  logAudit({ category: 'ai', action: 'ssh_ai_query', target: text.slice(0, 120), sessionId: props.id, assetId: asset.value?.id, success: true })
- // 先获取当前工作目录
+ // 先获取当前工作目录:静默模式优先用已跟踪的 cwd,为空才跑 pwd 并顺带初始化跟踪值
  try {
-   const cwdOutput = await runAiCommandWithPrompt('pwd')
-   const pwdMatch = cwdOutput.match(/\/[\w\-./]+/)
-   if (pwdMatch) sshCwd.value = pwdMatch[0]
+   if (aiSilentMode.value && aiSilentCwd.value) {
+     sshCwd.value = aiSilentCwd.value
+   } else {
+     const cwdOutput = await runAiCommandWithPrompt('pwd')
+     const pwdMatch = cwdOutput.match(/\/[\w\-./]+/)
+     if (pwdMatch) {
+       sshCwd.value = pwdMatch[0]
+       if (aiSilentMode.value && !aiSilentCwd.value) aiSilentCwd.value = pwdMatch[0]
+     }
+   }
  } catch { /* ignore */ }
  await runSshAgent()
  // runAgent 内部 finally 会把 loading 还原
@@ -419,7 +449,11 @@ async function runSshAgent() {
  const basePrompt = sshCwd.value
    ? SSH_SYSTEM_PROMPT.replace('当前已连接到远程服务器', `当前已连接到远程服务器,当前工作目录: ${sshCwd.value}`)
    : SSH_SYSTEM_PROMPT
- const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'ssh')
+ // 静默模式下每次 exec 都是新 channel,export/环境变量跨命令留不住,提前告诉 LLM 别依赖
+ const sysPrompt = aiStore.buildSystemPrompt(
+   aiSilentMode.value ? `${basePrompt}\n${SSH_SILENT_MODE_PROMPT_NOTE}` : basePrompt,
+   'ssh'
+ )
  await aiStore.runAgent(props.id, [...sshTools, ...sftpTools, ...mcpRuntime.tools], toolExec, sysPrompt)
 }
 
@@ -1082,9 +1116,68 @@ function runAiCommandWithPrompt(command: string): Promise<string> {
  }
 
  if (aiSilentMode.value) {
-   return sshExec(props.id, command, 30)
+   if (SILENT_INTERACTIVE_CMD_RE.test(command)) {
+     // 交互式命令在静默通道(无 PTY/stdin)只会干等超时,回退到共享终端执行并在输出里注明原因
+     logAudit({ category: 'ai', action: 'ssh_ai_silent_fallback', target: command.slice(0, 200), sessionId: props.id, assetId: asset.value?.id, success: true })
+     return runPtyAiCommand(command).then(out => `[${t('ssh.aiSilentFallbackNote')}]\n${out}`)
+   }
+   return runSilentAiCommand(command)
  }
 
+ return runPtyAiCommand(command)
+}
+
+/**
+ * 后台静默执行:每条命令在独立的非 PTY exec channel 里跑。
+ * - 用 aiSilentCwd 包装 `cd <cwd> && <cmd>`,末尾追加 marker 上报真实 $PWD 与 exit code,
+ *   从而在跨命令间保持 cd 语义(LLM 以为 cd 成功的目录,下条命令仍在那里)
+ * - export / 环境变量无法跨命令保留(每次新 channel),已在 system prompt 里向 LLM 说明
+ */
+async function runSilentAiCommand(command: string): Promise<string> {
+ const execId = crypto.randomUUID()
+ aiSilentExecId = execId
+ try {
+   const raw = await sshExec(props.id, buildSilentCommand(command), AI_SILENT_EXEC_TIMEOUT_S, execId)
+   const { output, cwd } = parseSilentOutput(raw)
+   if (cwd) aiSilentCwd.value = cwd
+   return output || '(无输出)'
+ } catch (error) {
+   // 非 0 退出码 / 中断时,Rust 侧把已收到的 stdout 拼在错误消息里,同样解析 cwd 后剥离 marker
+   const message = error instanceof Error ? error.message : String(error)
+   const { output, cwd } = parseSilentOutput(message)
+   if (cwd) aiSilentCwd.value = cwd
+   throw new Error(output)
+ } finally {
+   if (aiSilentExecId === execId) aiSilentExecId = null
+ }
+}
+
+/** shell 单引号安全转义:'a'b' → 'a'\''b' */
+function shellQuote(value: string): string {
+ return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+/** 把用户命令包装成带 cwd 跟踪的静默命令:cd 到跟踪目录 → 执行 → 打印 marker(真实 $PWD) → 透传 exit code */
+function buildSilentCommand(command: string): string {
+ const cdPrefix = aiSilentCwd.value ? `cd ${shellQuote(aiSilentCwd.value)} && ` : ''
+ return `${cdPrefix}${command}; __rc=$?; printf '\\n${AI_SILENT_CWD_MARKER}:%s\\n' "$PWD"; exit $__rc`
+}
+
+/** 从静默输出中剥离 marker 行,返回干净输出与解析到的 cwd */
+function parseSilentOutput(raw: string): { output: string; cwd: string | null } {
+ let cwd: string | null = null
+ const kept = raw.split('\n').filter(line => {
+   const match = line.replace(/\r$/, '').match(/^__SH_CWD__:(.*)$/)
+   if (match) {
+     cwd = match[1]
+     return false
+   }
+   return true
+ })
+ return { output: kept.join('\n').replace(/\n$/, ''), cwd }
+}
+
+function runPtyAiCommand(command: string): Promise<string> {
  if (promptCapture) {
   return Promise.reject(new Error('上一条 SSH AI 命令仍在执行,已拒绝并发发送新命令'))
  }
@@ -1129,17 +1222,27 @@ function clearPromptCapture(error?: Error) {
  if (error) current.reject(error)
 }
 
-/** 终止仍占用 PTY 的 AI 命令,并用 Ctrl+C 把共享终端恢复到 shell prompt。 */
+/** 终止仍在执行的 AI 命令:PTY 路径发 Ctrl+C 恢复终端;静默路径调 ssh_exec_abort 关闭远端 channel。 */
 function interruptAiCommand(error: Error): boolean {
- const hadCapture = Boolean(promptCapture)
- if (!hadCapture) return false
- clearPromptCapture(error)
- if (connected.value) {
-  void invoke('ssh_write_binary', { id: props.id, data: [3] }).catch(invokeError => {
-   console.error('Failed to interrupt SSH AI command:', invokeError)
+ let handled = false
+ if (promptCapture) {
+  clearPromptCapture(error)
+  handled = true
+  if (connected.value) {
+   void invoke('ssh_write_binary', { id: props.id, data: [3] }).catch(invokeError => {
+    console.error('Failed to interrupt SSH AI command:', invokeError)
+   })
+  }
+ }
+ if (aiSilentExecId) {
+  const execId = aiSilentExecId
+  aiSilentExecId = null
+  handled = true
+  void sshExecAbort(props.id, execId).catch(abortError => {
+   console.error('Failed to abort silent SSH AI command:', abortError)
   })
  }
- return true
+ return handled
 }
 
 function maybeResolvePromptCapture() {
@@ -2069,7 +2172,16 @@ function handleKbCancelled() {
       >
         <span class="ai-silent-knob" />
       </button>
+      <button
+        class="ai-guide-btn"
+        :title="t('ai.guide.helpButton')"
+        :aria-label="t('ai.guide.helpButton')"
+        @click="aiGuideVisible = true"
+      >
+        <v-icon size="13">mdi-help-circle-outline</v-icon>
+      </button>
     </div>
+    <AiGuideDialog v-model="aiGuideVisible" />
     <AiChat
       v-if="aiSession"
       :session="aiSession"
@@ -2393,6 +2505,25 @@ function handleKbCancelled() {
 .ai-silent-label {
   font-size: 11px;
   color: var(--muted);
+}
+
+.ai-guide-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.ai-guide-btn:hover {
+  color: var(--accent);
+  background: var(--bg-3);
 }
 
 .ai-silent-switch {

@@ -855,6 +855,15 @@ async function doDropTable(db: string, table: string) {
     } else {
       await dbService.mysqlDropTable(connId.value!, table, false, db)
     }
+    logAudit({
+      category: 'db',
+      action: 'drop_table',
+      target: `${db}.${table}`,
+      detail: { table, database: db },
+      sessionId: connId.value,
+      assetId: asset.value?.id,
+      success: true
+    })
     notify.notify({
       title: '删除数据表',
       message: t('db.tableDropped', `表 ${table} 已删除`),
@@ -869,6 +878,15 @@ async function doDropTable(db: string, table: string) {
     await refreshTablesForDb(db)
   } catch (err: unknown) {
     notify.notify({ message: errMsg(err), color: 'error' })
+    logAudit({
+      category: 'db',
+      action: 'drop_table',
+      target: `${db}.${table}`,
+      detail: { table, database: db, error: errMsg(err) },
+      sessionId: connId.value,
+      assetId: asset.value?.id,
+      success: false
+    })
   }
 }
 
@@ -888,6 +906,15 @@ async function doTruncateTable(db: string, table: string) {
     } else {
       await dbService.mysqlTruncateTable(connId.value!, table, db)
     }
+    logAudit({
+      category: 'db',
+      action: 'truncate_table',
+      target: `${db}.${table}`,
+      detail: { table, database: db },
+      sessionId: connId.value,
+      assetId: asset.value?.id,
+      success: true
+    })
     notify.notify({
       title: '清空数据表',
       message: t('db.tableTruncated', `表 ${table} 已清空`),
@@ -902,6 +929,15 @@ async function doTruncateTable(db: string, table: string) {
     await refreshOpenTableTabs(db, table)
   } catch (err: unknown) {
     notify.notify({ message: errMsg(err), color: 'error' })
+    logAudit({
+      category: 'db',
+      action: 'truncate_table',
+      target: `${db}.${table}`,
+      detail: { table, database: db, error: errMsg(err) },
+      sessionId: connId.value,
+      assetId: asset.value?.id,
+      success: false
+    })
   }
 }
 
@@ -914,12 +950,30 @@ async function doRenameTable() {
     } else {
       await dbService.mysqlRenameTable(connId.value!, ctxTable.value, renameTableNewName.value, ctxDb.value)
     }
+    logAudit({
+      category: 'db',
+      action: 'rename_table',
+      target: `${ctxDb.value}.${ctxTable.value}`,
+      detail: { database: ctxDb.value, oldName: ctxTable.value, newName: renameTableNewName.value },
+      sessionId: connId.value,
+      assetId: asset.value?.id,
+      success: true
+    })
     notify.notify({ message: t('db.tableRenamed', `表已重命名为 ${renameTableNewName.value}`), color: 'success' })
     showRenameTable.value = false
     renameOpenTableTab(ctxDb.value, ctxTable.value, renameTableNewName.value)
     await refreshTablesForDb(ctxDb.value)
   } catch (err: unknown) {
     notify.notify({ message: errMsg(err), color: 'error' })
+    logAudit({
+      category: 'db',
+      action: 'rename_table',
+      target: `${ctxDb.value}.${ctxTable.value}`,
+      detail: { database: ctxDb.value, oldName: ctxTable.value, newName: renameTableNewName.value, error: errMsg(err) },
+      sessionId: connId.value,
+      assetId: asset.value?.id,
+      success: false
+    })
   }
 }
 
@@ -1220,6 +1274,23 @@ async function onSaveBatch(changes: Array<{ rowIndex: number; column: string; or
       timeout: 3200,
     })
   }
+  logAudit({
+    category: 'db',
+    action: 'update_rows',
+    target: `${tab.db}.${tab.table}`,
+    detail: {
+      table: tab.table,
+      database: tab.db,
+      primaryKeys: tablePrimaryKeys.value,
+      fields: [...new Set(changes.map(change => change.column))],
+      changed: successfulChanges.length,
+      failed: failCount,
+      error: failureDetails.length > 0 ? failureDetails.join('; ') : null
+    },
+    sessionId: connId.value,
+    assetId: asset.value?.id,
+    success: failCount === 0
+  })
   await loadTableDataFor(tab, true)
 }
 
@@ -1292,6 +1363,22 @@ async function onDeleteRows(rowIndices: number[]) {
       color: 'success',
       timeout: 3500,
     })
+    logAudit({
+      category: 'db',
+      action: 'delete_rows',
+      target: `${tab.db}.${tab.table}`,
+      detail: {
+        table: tab.table,
+        database: tab.db,
+        primaryKeys: tablePrimaryKeys.value,
+        where,
+        rows: targets.length,
+        sql: truncateForAudit(sql)
+      },
+      sessionId: connId.value,
+      assetId: asset.value?.id,
+      success: true
+    })
     await loadTableDataFor(tab, true)
   } catch (err: unknown) {
     notify.notify({
@@ -1300,6 +1387,15 @@ async function onDeleteRows(rowIndices: number[]) {
       details: [`数据库: ${tab.db}`, `表: ${tab.table}`, `SQL:\n${sql}`],
       color: 'error',
       timeout: 5000,
+    })
+    logAudit({
+      category: 'db',
+      action: 'delete_rows',
+      target: `${tab.db}.${tab.table}`,
+      detail: { table: tab.table, database: tab.db, where, sql: truncateForAudit(sql), error: errMsg(err) },
+      sessionId: connId.value,
+      assetId: asset.value?.id,
+      success: false
     })
   }
 }
@@ -1317,6 +1413,28 @@ function formatAuditValue(value: unknown): string {
   if (typeof value === 'object') return JSON.stringify(value)
   if (typeof value === 'string') return JSON.stringify(value)
   return String(value)
+}
+
+/** 审计 detail 中的 SQL/命令统一截断到 2000 字符,防止巨型语句撑爆审计表 */
+function truncateForAudit(text: string): string {
+  return text.length > 2000 ? text.slice(0, 2000) + '…' : text
+}
+
+/** 构建 execute_sql 审计 detail:完整 SQL(截断 2000)+ 数据库 + 耗时 + 行数/错误 */
+function sqlAuditDetail(sql: string, startedAt: number, opts: {
+  database?: string
+  source?: 'manual' | 'ai'
+  result?: QueryResult | null
+  error?: string
+} = {}): Record<string, unknown> {
+  return {
+    sql: truncateForAudit(sql),
+    database: opts.database ?? null,
+    durationMs: Date.now() - startedAt,
+    rows: opts.result ? (opts.result.isSelect ? opts.result.rows.length : opts.result.rowsAffected) : null,
+    source: opts.source ?? 'manual',
+    error: opts.error ?? opts.result?.error ?? null
+  }
 }
 
 function formatSqlValue(v: unknown): string {
@@ -1445,6 +1563,7 @@ async function executeSql(sql: string) {
     isExecutingAny.value = true
 
     const db = editorTab.selectedDb || undefined
+    const startedAt = Date.now()
     try {
       if (isSelectSql(sql)) {
         // SELECT:注入 LIMIT + 并行跑 COUNT
@@ -1478,7 +1597,7 @@ async function executeSql(sql: string) {
         if (editorTab.result?.error) editorTab.error = true
       }
       addHistory(sql, editorTab.selectedDb || '')
-      logAudit({ category: 'db', action: 'execute_sql', target: sql.slice(0, 120), sessionId: connId.value, assetId: asset.value?.id, success: !editorTab.error })
+      logAudit({ category: 'db', action: 'execute_sql', target: sql.slice(0, 120), detail: sqlAuditDetail(sql, startedAt, { database: db, result: editorTab.result }), sessionId: connId.value, assetId: asset.value?.id, success: !editorTab.error })
       if (editorTab.error && editorTab.result?.error) {
         notify.notify({ message: t('db.executeFailed', { msg: editorTab.result.error }), color: 'error', timeout: 5000 })
       } else if (editorTab.result) {
@@ -1502,7 +1621,7 @@ async function executeSql(sql: string) {
       }
       editorTab.error = true
       notify.notify({ message: t('db.executeFailed', { msg: err instanceof Error ? err.message : String(err) }), color: 'error', timeout: 5000 })
-      logAudit({ category: 'db', action: 'execute_sql', target: sql.slice(0, 120), sessionId: connId.value, assetId: asset.value?.id, success: false })
+      logAudit({ category: 'db', action: 'execute_sql', target: sql.slice(0, 120), detail: sqlAuditDetail(sql, startedAt, { database: db, error: errMsg(err) }), sessionId: connId.value, assetId: asset.value?.id, success: false })
     } finally {
       editorTab.loading = false
       isExecutingAny.value = subTabs.value.some(t => (t.kind === 'sql' || t.kind === 'sql-editor') && t.loading)
@@ -1523,12 +1642,13 @@ async function executeSql(sql: string) {
   subTabs.value.push(tab)
   activeSubTabId.value = tab.id
   isExecutingAny.value = true
+  const startedAt = Date.now()
   try {
     tab.result = isClickhouse.value
       ? await dbService.clickhouseExecute(connId.value, sql, selectedDb.value || undefined)
       : await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
     addHistory(sql, selectedDb.value || '')
-    logAudit({ category: 'db', action: 'execute_sql', target: sql.slice(0, 120), sessionId: connId.value, assetId: asset.value?.id, success: !tab.error })
+    logAudit({ category: 'db', action: 'execute_sql', target: sql.slice(0, 120), detail: sqlAuditDetail(sql, startedAt, { database: selectedDb.value || undefined, result: tab.result }), sessionId: connId.value, assetId: asset.value?.id, success: !tab.error })
     if (tab.result?.error) {
       tab.error = true
       notify.notify({ message: t('db.executeFailed', { msg: tab.result.error }), color: 'error', timeout: 5000 })
@@ -1553,7 +1673,7 @@ async function executeSql(sql: string) {
     }
     tab.error = true
     notify.notify({ message: t('db.executeFailed', { msg: err instanceof Error ? err.message : String(err) }), color: 'error', timeout: 5000 })
-    logAudit({ category: 'db', action: 'execute_sql', target: sql.slice(0, 120), sessionId: connId.value, assetId: asset.value?.id, success: false })
+    logAudit({ category: 'db', action: 'execute_sql', target: sql.slice(0, 120), detail: sqlAuditDetail(sql, startedAt, { database: selectedDb.value || undefined, error: errMsg(err) }), sessionId: connId.value, assetId: asset.value?.id, success: false })
   } finally {
     tab.loading = false
     isExecutingAny.value = subTabs.value.some(t => (t.kind === 'sql' || t.kind === 'sql-editor') && t.loading)
@@ -1964,26 +2084,57 @@ const aiSession = computed(() => {
 
 async function executeDbSql(sql: string): Promise<string> {
   if (!connId.value) throw new Error('数据库未连接')
+  const startedAt = Date.now()
   const dbType = asset.value?.config.dbType || 'mysql'
-  if (dbType === 'redis') {
-    const r = await dbService.redisExecute(connId.value, sql)
+  try {
+    if (dbType === 'redis') {
+      const r = await dbService.redisExecute(connId.value, sql)
+      logAudit({
+        category: 'db', action: 'execute_sql', target: sql.slice(0, 120),
+        detail: {
+          sql: truncateForAudit(sql),
+          source: 'ai',
+          durationMs: Date.now() - startedAt,
+          error: r.error ?? null
+        },
+        sessionId: connId.value, assetId: asset.value?.id, success: !r.error
+      })
+      if (r.error) return `[Error] ${r.error}`
+      return r.result == null ? '(无输出)' : (typeof r.result === 'string' ? r.result : JSON.stringify(r.result, null, 2))
+    }
+    const r = isClickhouse.value
+      ? await dbService.clickhouseExecute(connId.value, sql, selectedDb.value || undefined)
+      : await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
+    logAudit({
+      category: 'db', action: 'execute_sql', target: sql.slice(0, 120),
+      detail: sqlAuditDetail(sql, startedAt, { database: selectedDb.value || undefined, source: 'ai', result: r }),
+      sessionId: connId.value, assetId: asset.value?.id, success: !r.error
+    })
     if (r.error) return `[Error] ${r.error}`
-    return r.result == null ? '(无输出)' : (typeof r.result === 'string' ? r.result : JSON.stringify(r.result, null, 2))
+    if (r.rows.length === 0) {
+      return `(0 行${r.rowsAffected ? `, ${r.rowsAffected} 行受影响` : ''})`
+    }
+    // QueryResult.rows 是 unknown[][](行是值的数组),columns 是 ColumnInfo[]
+    const colNames = r.columns.map(c => c.name)
+    const sample = r.rows.slice(0, 20)
+    const formatted = sample.map(row =>
+      row.map((v, i) => `${colNames[i] || i}=${formatVal(v)}`).join(' | ')
+    ).join('\n')
+    return `列: ${colNames.join(', ')}\n${formatted}${r.rows.length > 20 ? `\n… (共 ${r.rows.length} 行)` : ''}`
+  } catch (err: unknown) {
+    logAudit({
+      category: 'db', action: 'execute_sql', target: sql.slice(0, 120),
+      detail: {
+        sql: truncateForAudit(sql),
+        database: selectedDb.value || null,
+        source: 'ai',
+        durationMs: Date.now() - startedAt,
+        error: errMsg(err)
+      },
+      sessionId: connId.value, assetId: asset.value?.id, success: false
+    })
+    throw err
   }
-  const r = isClickhouse.value
-    ? await dbService.clickhouseExecute(connId.value, sql, selectedDb.value || undefined)
-    : await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
-  if (r.error) return `[Error] ${r.error}`
-  if (r.rows.length === 0) {
-    return `(0 行${r.rowsAffected ? `, ${r.rowsAffected} 行受影响` : ''})`
-  }
-  // QueryResult.rows 是 unknown[][](行是值的数组),columns 是 ColumnInfo[]
-  const colNames = r.columns.map(c => c.name)
-  const sample = r.rows.slice(0, 20)
-  const formatted = sample.map(row =>
-    row.map((v, i) => `${colNames[i] || i}=${formatVal(v)}`).join(' | ')
-  ).join('\n')
-  return `列: ${colNames.join(', ')}\n${formatted}${r.rows.length > 20 ? `\n… (共 ${r.rows.length} 行)` : ''}`
 }
 
 function formatVal(v: unknown): string {

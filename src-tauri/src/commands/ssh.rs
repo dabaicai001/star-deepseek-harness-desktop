@@ -74,6 +74,10 @@ pub struct SshManager {
     pub pending_kb: PendingKeyboardResponses,
     pub pending_hostkey: PendingHostKeyResponses,
     attempts: Arc<Mutex<HashMap<String, u64>>>,
+    /// 在途 exec 命令的中断句柄:exec_id → 发送端。
+    /// 放在 manager 层而不是 SshSession 里:exec 期间 session 锁被持有,
+    /// `ssh_exec_abort` 只需要拿这把独立的 map 锁就能中断,不会死锁。
+    exec_aborts: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>>,
 }
 
 impl SshManager {
@@ -84,6 +88,7 @@ impl SshManager {
             pending_kb: Arc::new(Mutex::new(HashMap::new())),
             pending_hostkey: Arc::new(Mutex::new(HashMap::new())),
             attempts: Arc::new(Mutex::new(HashMap::new())),
+            exec_aborts: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -442,12 +447,14 @@ pub async fn test_ssh_connection(
 /// - `id` SshManager 中的 session id(由前端用 `assetId-<instanceId>` 形式)
 /// - `command` 要执行的 shell 命令
 /// - `timeout_sec` 超时秒数,默认 10,内部强制 >=1
+/// - `exec_id` 可选的执行 ID(前端生成);传入后可用 `ssh_exec_abort` 中断本次执行
 #[tauri::command]
 pub async fn ssh_exec(
     manager: State<'_, SshManager>,
     id: String,
     command: String,
     timeout_sec: Option<u64>,
+    exec_id: Option<String>,
 ) -> Result<String, String> {
     // 先从 sessions map 中取出 Arc(只持有主锁一瞬间),然后释放主锁,
     // 再对单个 session 加锁执行命令。这样不同 session 的 exec 和 connect
@@ -461,7 +468,47 @@ pub async fn ssh_exec(
     };
 
     let mut session = session_arc.lock().await;
-    session.exec(&command, timeout_sec.unwrap_or(10)).await
+    match exec_id {
+        Some(eid) => {
+            let (abort_tx, abort_rx) = tokio::sync::oneshot::channel();
+            manager
+                .exec_aborts
+                .lock()
+                .await
+                .insert(eid.clone(), abort_tx);
+            let result = session
+                .exec_abortable(&command, timeout_sec.unwrap_or(10), abort_rx)
+                .await;
+            // 无论结果如何都清理注册,避免 map 泄漏
+            manager.exec_aborts.lock().await.remove(&eid);
+            result
+        }
+        None => session.exec(&command, timeout_sec.unwrap_or(10)).await,
+    }
+}
+
+/// 中断一个仍在执行的 exec 命令(通过 `ssh_exec` 传入的 `exec_id` 定位)。
+/// 关闭对应 channel,使 `ssh_exec` 以 `[EXEC_ABORTED]` 错误返回已收到的部分输出。
+/// 返回是否确实中断了在途命令。
+#[tauri::command]
+pub async fn ssh_exec_abort(
+    manager: State<'_, SshManager>,
+    id: String,
+    exec_id: String,
+) -> Result<bool, String> {
+    // exec_id 由前端按 session 生成且全局唯一(uuid),这里只做防御性的存在性校验
+    {
+        let sessions = manager.sessions.lock().await;
+        if !sessions.contains_key(&id) {
+            return Err(format!("SSH session {} not found", id));
+        }
+    }
+    let tx = manager.exec_aborts.lock().await.remove(&exec_id);
+    match tx {
+        // 发送失败说明接收端(exec)已结束并清理,视为未中断
+        Some(tx) => Ok(tx.send(()).is_ok()),
+        None => Ok(false),
+    }
 }
 
 /// 前端回复 keyboard-interactive 响应

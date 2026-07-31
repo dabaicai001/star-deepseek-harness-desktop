@@ -52,6 +52,13 @@ export const SSH_SYSTEM_PROMPT = `你是一个 SSH 运维助手。当前已连�
 - 如果命令失败或输出异常,先分析原因再行动,不要盲目重试
 - 输出要简洁,把关键字段挑出来呈现`
 
+/**
+ * 后台静默模式的补充限制说明(SshTerminal 在静默模式开启时追加到 SSH_SYSTEM_PROMPT 后面)。
+ * 静默执行每条命令都是独立的非 PTY exec channel:cd 由前端包装跟踪,但 export / 环境变量
+ * 无法跨命令保留,必须提前告知 LLM,避免它依赖上一条命令设置的环境。
+ */
+export const SSH_SILENT_MODE_PROMPT_NOTE = `后台静默模式限制:每条命令在独立通道执行,工作目录已自动跟踪(cd 效果跨命令保留),但 export 设置的环境变量不会跨命令保留;需要环境变量时请写在同一条命令里。`
+
 export const sshTools: LlmTool[] = [
   {
     type: 'function',

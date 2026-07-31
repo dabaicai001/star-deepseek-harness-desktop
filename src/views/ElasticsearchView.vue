@@ -12,6 +12,11 @@ import type { LlmToolCall } from '@/services/ai'
 import { createMcpRuntime } from '@/services/mcp'
 import AiChat from '@/components/ai/AiChat.vue'
 import NewIndexDialog from '@/components/es/NewIndexDialog.vue'
+import EsOverview from '@/components/es/EsOverview.vue'
+import RightPanel from '@/components/layout/RightPanel.vue'
+import type { RightPanelTab } from '@/components/layout/RightPanel.vue'
+import { usePersistentPanelState } from '@/utils/panelState'
+import { logAudit } from '@/services/audit'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import ResizableSidebarHandle from '@/components/layout/ResizableSidebarHandle.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
@@ -41,7 +46,7 @@ const connId = ref<string | null>(session.value?.connId || null)
 const isLoading = ref(false)
 const error = ref<string | null>(null)
 
-const activeTab = ref<'overview' | 'search' | 'index' | 'importexport' | 'ai'>('overview')
+const activeTab = ref<'search' | 'index' | 'importexport'>('search')
 
 const indices = ref<EsIndexInfo[]>([])
 const selectedIndex = ref<string | null>(null)
@@ -92,6 +97,14 @@ function getFieldValue(source: Record<string, unknown>, field: string): string {
   return String(val)
 }
 
+// ====== 右侧 Panel(仪表盘 / AI 切换) ======
+const rightPanelOpen = usePersistentPanelState('es', true)
+const rightActiveTab = ref('dashboard')
+const rightPanelTabs = computed<RightPanelTab[]>(() => [
+  { key: 'dashboard', label: t('db.dashboard'), icon: 'mdi-view-dashboard-outline' },
+  { key: 'ai', label: t('db.aiAssistant'), icon: 'mdi-robot-outline' }
+])
+
 // ====== AI 助手 ======
 const aiSession = computed(() => {
   if (!connId.value) return null
@@ -122,9 +135,18 @@ async function executeEsTool(name: string, args: Record<string, unknown>): Promi
         try { body = JSON.parse(String(args.query)) } catch { return '[Error] Invalid JSON in query DSL' }
         const size = args.size ? Number(args.size) : 20
         const from = args.from ? Number(args.from) : 0
-        const r = await esService.esSearch(connId.value, String(args.index), body, from, size)
-        const hits = r.hits?.map(h => ({ _id: h.id, _index: h.index, _score: h.score, ...h.source })) || []
-        return `总计: ${r.totalHits} 条, 耗时: ${r.took}ms\n${JSON.stringify(hits.slice(0, 20), null, 2)}${r.totalHits > 20 ? `\n... (还有 ${r.totalHits - 20} 条)` : ''}`
+        const index = String(args.index)
+        const startedAt = Date.now()
+        try {
+          const r = await esService.esSearch(connId.value, index, body, from, size)
+          logAudit({ category: 'db', action: 'es_search', target: index, detail: { query: body, index, durationMs: Date.now() - startedAt }, assetId: tab.value?.assetId, success: true })
+          const hits = r.hits?.map(h => ({ _id: h.id, _index: h.index, _score: h.score, ...h.source })) || []
+          return `总计: ${r.totalHits} 条, 耗时: ${r.took}ms\n${JSON.stringify(hits.slice(0, 20), null, 2)}${r.totalHits > 20 ? `\n... (还有 ${r.totalHits - 20} 条)` : ''}`
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e)
+          logAudit({ category: 'db', action: 'es_search', target: index, detail: { query: body, index, durationMs: Date.now() - startedAt, error: msg }, assetId: tab.value?.assetId, success: false })
+          throw e
+        }
       }
       case 'es_get_document': {
         const doc = await esService.esGetDocument(connId.value, String(args.index), String(args.id))
@@ -322,13 +344,19 @@ async function loadMapping(index: string) {
 async function executeSearch() {
   if (!connId.value) return
   searchLoading.value = true
+  const startedAt = Date.now()
   try {
     let body: Record<string, unknown>
     try { body = JSON.parse(dslQuery.value) } catch { error.value = 'Invalid JSON in DSL query'; searchLoading.value = false; return }
     const idx = searchIndex.value || '_all'
     searchResult.value = await esService.esSearch(connId.value, idx, body, searchFrom.value, searchSize.value)
     error.value = null
-  } catch (e: any) { error.value = e?.message || String(e) } finally { searchLoading.value = false }
+    logAudit({ category: 'db', action: 'es_search', target: idx, detail: { query: body, index: idx, durationMs: Date.now() - startedAt }, assetId: tab.value?.assetId, success: true })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    error.value = msg
+    logAudit({ category: 'db', action: 'es_search', target: searchIndex.value || '_all', detail: { query: dslQuery.value, index: searchIndex.value || '_all', durationMs: Date.now() - startedAt, error: msg }, assetId: tab.value?.assetId, success: false })
+  } finally { searchLoading.value = false }
 }
 
 function prevPage() { if (searchFrom.value >= searchSize.value) { searchFrom.value -= searchSize.value; executeSearch() } }
@@ -398,6 +426,14 @@ onMounted(() => initConnection())
       </div>
       <div class="header-right">
         <button class="cyber-btn-secondary" @click="loadIndices"><v-icon size="14">mdi-refresh</v-icon></button>
+        <button
+          class="action-btn"
+          :class="{ active: rightPanelOpen }"
+          title="Toggle Panel"
+          @click="rightPanelOpen = !rightPanelOpen"
+        >
+          <v-icon size="16">mdi-panel-right</v-icon>
+        </button>
       </div>
     </div>
 
@@ -441,24 +477,7 @@ onMounted(() => initConnection())
 
       <div class="es-main">
         <div class="es-tabs">
-          <button v-for="tb in [{ key: 'overview' as const, label: t('home.welcome'), icon: 'mdi-view-dashboard' }, { key: 'search' as const, label: t('db.query'), icon: 'mdi-magnify' }, { key: 'index' as const, label: t('db.index'), icon: 'mdi-file-document' }, { key: 'importexport' as const, label: t('db.export'), icon: 'mdi-import' }, { key: 'ai' as const, label: 'AI', icon: 'mdi-robot' }]" :key="tb.key" :class="['cyber-tab', { active: activeTab === tb.key }]" @click="activeTab = tb.key"><v-icon size="14">{{ tb.icon }}</v-icon>{{ tb.label }}</button>
-        </div>
-
-        <div v-if="activeTab === 'overview'" class="es-tab-content">
-          <div class="overview-grid">
-            <div class="cyber-card cluster-health-card">
-              <div class="card-title"><span class="status-dot" :style="{ backgroundColor: getHealthColor(clusterHealth?.status || 'red') }" />{{ t('db.clusterHealth') }}</div>
-              <div class="health-stats" v-if="clusterHealth">
-                <div class="health-stat"><span class="stat-value" :style="{ color: getHealthColor(clusterHealth.status) }">{{ clusterHealth.status }}</span><span class="stat-label">Status</span></div>
-                <div class="health-stat"><span class="stat-value">{{ clusterHealth.numberOfNodes }}</span><span class="stat-label">Nodes</span></div>
-                <div class="health-stat"><span class="stat-value">{{ clusterHealth.activeShardsPercent.toFixed(1) }}%</span><span class="stat-label">Active Shards</span></div>
-              </div>
-            </div>
-            <div class="cyber-card"><div class="card-title">{{ t('db.indices') }}</div><div class="index-stats-summary"><div class="health-stat"><span class="stat-value">{{ indices.length }}</span><span class="stat-label">Total Indices</span></div><div class="health-stat"><span class="stat-value">{{ indices.reduce((s, i) => s + (i.docsCount || 0), 0).toLocaleString() }}</span><span class="stat-label">Total Docs</span></div></div></div>
-          </div>
-          <div class="indices-table-wrap">
-            <table class="data-table"><thead><tr><th>{{ t('asset.name') }}</th><th>{{ t('db.rows') }}</th><th>Shards</th><th>{{ t('sftp.size') }}</th><th>Health</th><th>Status</th></tr></thead><tbody><tr v-for="idx in indices" :key="idx.name" @click="selectIndex(idx.name)" class="clickable-row"><td class="mono">{{ idx.name }}</td><td class="mono">{{ idx.docsCount?.toLocaleString() }}</td><td class="mono">{{ idx.primaryShards }}P / {{ idx.replicaShards }}R</td><td class="mono">{{ idx.storeSize }}</td><td><span class="status-dot" :style="{ backgroundColor: getHealthColor(idx.health) }" /> {{ idx.health }}</td><td>{{ idx.status }}</td></tr></tbody></table>
-          </div>
+          <button v-for="tb in [{ key: 'search' as const, label: t('db.query'), icon: 'mdi-magnify' }, { key: 'index' as const, label: t('db.index'), icon: 'mdi-file-document' }, { key: 'importexport' as const, label: t('db.export'), icon: 'mdi-import' }]" :key="tb.key" :class="['cyber-tab', { active: activeTab === tb.key }]" @click="activeTab = tb.key"><v-icon size="14">{{ tb.icon }}</v-icon>{{ tb.label }}</button>
         </div>
 
         <div v-if="activeTab === 'search'" class="es-tab-content search-layout">
@@ -495,7 +514,22 @@ onMounted(() => initConnection())
           </div>
         </div>
 
-        <div v-if="activeTab === 'ai'" class="es-tab-content">
+      </div>
+
+      <!-- Right Panel:仪表盘 + AI 助手 -->
+      <RightPanel
+        v-model="rightPanelOpen"
+        v-model:active-tab="rightActiveTab"
+        :tabs="rightPanelTabs"
+      >
+        <template #tab-dashboard>
+          <EsOverview
+            :cluster-health="clusterHealth"
+            :indices="indices"
+            @select-index="selectIndex"
+          />
+        </template>
+        <template #tab-ai>
           <AiChat
             v-if="aiSession"
             :session="aiSession"
@@ -508,8 +542,8 @@ onMounted(() => initConnection())
             @stop="onAiStop"
           />
           <div v-else class="empty-state"><v-icon size="32">mdi-robot-dead</v-icon><span>连接后可使用 AI 助手</span></div>
-        </div>
-      </div>
+        </template>
+      </RightPanel>
     </div>
 
     <div class="es-statusbar"><span class="status-dot" :style="{ backgroundColor: getHealthColor(clusterHealth?.status || 'red') }" /><span class="mono">{{ clusterHealth?.status || 'unknown' }}</span><span class="sep">·</span><span class="mono">{{ clusterHealth?.numberOfNodes || 0 }} nodes</span><span class="sep">·</span><span class="mono">{{ indices.length }} indices</span></div>
@@ -553,17 +587,10 @@ onMounted(() => initConnection())
 .es-tabs { display: flex; gap: 0; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel-solid); }
 .es-tab-content { flex: 1; overflow-y: auto; padding: 16px; }
 .es-statusbar { display: flex; align-items: center; gap: 8px; padding: 4px 16px; border-top: 1px solid var(--line); background: var(--panel-solid); font-size: 11px; color: var(--text-2); }
-.overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-.health-stats, .index-stats-summary { display: flex; gap: 24px; margin-top: 12px; }
-.health-stat { display: flex; flex-direction: column; gap: 4px; }
-.stat-value { font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-.stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
-.indices-table-wrap, .result-table-wrap { overflow-x: auto; margin-top: 8px; }
+.result-table-wrap { overflow-x: auto; margin-top: 8px; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .data-table th { text-align: left; padding: 6px 10px; color: var(--muted); font-weight: 600; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid var(--line); }
 .data-table td { padding: 5px 10px; border-bottom: 1px solid var(--line); font-size: 12px; }
-.clickable-row { cursor: pointer; }
-.clickable-row:hover { background: rgba(0, 240, 255, 0.04); }
 .search-layout { display: flex; gap: 12px; padding: 12px; }
 .dsl-editor-panel { width: 45%; display: flex; flex-direction: column; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .panel-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--text-2); }

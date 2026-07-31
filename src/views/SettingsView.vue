@@ -477,9 +477,21 @@ function formatAuditTime(ts: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-function formatAuditDetail(detail: Record<string, unknown> | null): string {
-  if (!detail) return ''
+function formatAuditDetail(detail: Record<string, unknown> | null, target?: string | null): string {
+  // 历史记录没有 detail,回退显示 target,避免详情列大片 '-'
+  if (!detail) return target ?? ''
   try {
+    // 常见字段渲染成可读单行文本,不认识的字段整体回退 JSON
+    const parts: string[] = []
+    const statement = detail.sql ?? detail.command
+    if (typeof statement === 'string' && statement) parts.push(statement)
+    if (typeof detail.database === 'string' && detail.database) parts.push(`db=${detail.database}`)
+    if (typeof detail.table === 'string' && detail.table) parts.push(`table=${detail.table}`)
+    if (typeof detail.durationMs === 'number') parts.push(`${detail.durationMs}ms`)
+    if (typeof detail.rows === 'number') parts.push(`rows=${detail.rows}`)
+    if (detail.source) parts.push(`source=${String(detail.source)}`)
+    if (detail.error) parts.push(`error: ${String(detail.error)}`)
+    if (parts.length > 0) return parts.join(' · ')
     return JSON.stringify(detail)
   } catch {
     return String(detail)
@@ -1167,7 +1179,7 @@ async function onTestWebhook(url: string) {
                     {{ log.success ? '成功' : '失败' }}
                   </span>
                 </td>
-                <td class="audit-detail" :title="formatAuditDetail(log.detail)">{{ formatAuditDetail(log.detail) || '-' }}</td>
+                <td class="audit-detail" :title="formatAuditDetail(log.detail, log.target)">{{ formatAuditDetail(log.detail, log.target) || '-' }}</td>
               </tr>
             </tbody>
           </table>

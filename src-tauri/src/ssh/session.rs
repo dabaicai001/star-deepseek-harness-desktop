@@ -811,6 +811,26 @@ impl SshSession {
     }
 
     pub async fn exec(&mut self, command: &str, timeout_sec: u64) -> Result<String, String> {
+        self.exec_inner(command, timeout_sec, None).await
+    }
+
+    /// 带中断接收端的 exec:`abort_rx` 触发时关闭 channel,
+    /// 并把已收到的部分输出以 `[EXEC_ABORTED]` 前缀返回。
+    pub async fn exec_abortable(
+        &mut self,
+        command: &str,
+        timeout_sec: u64,
+        abort_rx: oneshot::Receiver<()>,
+    ) -> Result<String, String> {
+        self.exec_inner(command, timeout_sec, Some(abort_rx)).await
+    }
+
+    async fn exec_inner(
+        &mut self,
+        command: &str,
+        timeout_sec: u64,
+        abort_rx: Option<oneshot::Receiver<()>>,
+    ) -> Result<String, String> {
         let handle = self
             .handle
             .as_mut()
@@ -823,27 +843,45 @@ impl SshSession {
             .exec(true, command)
             .await
             .map_err(|e| format!("Failed to exec command: {}", e))?;
+
+        // 无中断接收端时用一对 keepalive channel 顶替:发送端存活到函数结束,
+        // 保证 select 的 abort 分支永远不会因 sender drop 而误触发。
+        let (keepalive_tx, keepalive_rx) = oneshot::channel::<()>();
+        let mut abort_rx = abort_rx.unwrap_or(keepalive_rx);
+        let _keepalive_tx = keepalive_tx;
+
         let mut output = Vec::<u8>::new();
         let mut truncated = false;
         let mut exit_status: Option<u32> = None;
+        let mut aborted = false;
         let collect = async {
-            while let Some(msg) = channel.wait().await {
-                match msg {
-                    ChannelMsg::Data { data } => {
-                        truncated |= append_capped(&mut output, &data, MAX_EXEC_OUTPUT_BYTES);
+            loop {
+                tokio::select! {
+                    msg = channel.wait() => {
+                        match msg {
+                            Some(ChannelMsg::Data { data }) => {
+                                truncated |= append_capped(&mut output, &data, MAX_EXEC_OUTPUT_BYTES);
+                            }
+                            Some(ChannelMsg::ExtendedData { data, .. }) => {
+                                truncated |= append_capped(&mut output, &data, MAX_EXEC_OUTPUT_BYTES);
+                            }
+                            Some(ChannelMsg::ExitStatus { exit_status: code }) => exit_status = Some(code),
+                            Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                            _ => {}
+                        }
                     }
-                    ChannelMsg::ExtendedData { data, .. } => {
-                        truncated |= append_capped(&mut output, &data, MAX_EXEC_OUTPUT_BYTES);
+                    _ = &mut abort_rx => {
+                        aborted = true;
+                        break;
                     }
-                    ChannelMsg::ExitStatus { exit_status: code } => exit_status = Some(code),
-                    ChannelMsg::Eof | ChannelMsg::Close => break,
-                    _ => {}
                 }
             }
         };
         let timeout_sec = timeout_sec.clamp(1, MAX_EXEC_TIMEOUT_SEC);
         let timeout_duration = Duration::from_secs(timeout_sec);
-        if timeout(timeout_duration, collect).await.is_err() {
+        let timed_out = timeout(timeout_duration, collect).await.is_err();
+
+        if timed_out && !aborted {
             let _ = channel.close().await;
             return Err(format!(
                 "[EXEC_TIMEOUT] Command timed out after {}s: {}",
@@ -855,6 +893,19 @@ impl SshSession {
             stdout.push_str(&format!(
                 "\n[OUTPUT_TRUNCATED] output exceeded {} bytes and was truncated",
                 MAX_EXEC_OUTPUT_BYTES
+            ));
+        }
+        if aborted {
+            let _ = channel.close().await;
+            let partial = stdout.trim();
+            return Err(format!(
+                "[EXEC_ABORTED] Command aborted by user: {}{}",
+                command,
+                if partial.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n{}", partial)
+                }
             ));
         }
         match exit_status {
