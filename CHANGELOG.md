@@ -12,6 +12,31 @@
 
 ---
 
+## [0.37.0] - 2026-07-31
+
+### 新增
+- ✨ feat(ssh): Web Access 重做 — 终端工具栏一键开启应用内浏览器子页面(docs/BUG.md 第 4 条)
+  - mdi-web 按钮从快捷命令栏移到终端工具栏 `.actions` 区;点击不再弹窗输入网址、不再开独立 OS 窗口,直接新开 `web/:id` 子页面(地址栏 + Tauri 子 webview 嵌入主窗口,resize 同步/tab 失活 hide/关闭自动回收)
+  - Rust 侧新增 `ssh_add_web_proxy_forward`:转发首包识别 HTTP 请求并把 `Host` 头改写为远程真实 `host:port`,修复虚拟主机 / Ingress 站点经端口转发访问 404 的问题(含 5 个单元测试)
+  - 限制:HTTPS 目标无法改写 TLS 密文,前端提示后降级裸透传直连;子 webview 无前进/后退导航
+- ✨ feat(es): ES 视图接入公共 RightPanel 右侧边栏(docs/BUG.md 第 2 条,EsOverview 集群仪表盘 + AI 助手,与 Db/Redis/Docker/Excel 统一)
+
+### 修复
+- 🐛 fix(audit): 审计日志条数上限 + 全事件详情补全(docs/BUG.md 第 1 条)
+  - `audit_log` 写入后自动修剪,仅保留最新 5000 条,超出删除最早(含单元测试);设置页审计 tab 增加保留策略说明
+  - db connect/disconnect、ssh connect/disconnect/quick_command、docker 容器操作、sftp 失败路径、AI 查询/静默回退等事件补全 `detail`;SFTP 多选上传/拖拽上传补审计埋点
+  - 修复 db connect 审计 target 端口写死 3306(PostgreSQL 等显示错误端口)
+- 🐛 fix(ai): AI 助手面板引导与静默模式修正(docs/BUG.md 第 3 条)
+  - 引导弹窗第 2 步文案改为内嵌面板真实能力(原文案教 @/# 上下文绑定,内嵌 AiChat 并不支持,照做无效)
+  - 空状态快捷问题 chips 消除硬编码中文,全部走 i18n
+  - 「后台静默」开关跨 tab 同步(`usePersistentPanelState` 增加 storage 事件监听)
+  - assistant 消息接入 Markdown 渲染(marked + DOMPurify,复用 AiMessageContent);超 600 字符的工具结果可展开全文
+
+### 构建
+- chore: 版本号同步至 0.37.0;新增依赖 marked / dompurify(AGENTS.md 4.1 既定选型,本次补齐)
+
+---
+
 ## [0.36.5] - 2026-07-31
 
 ### 修复

@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.36.5-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.37.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,12 @@
 ---
 
 ## 当前版本
+
+### v0.37.0 (2026-07-31)
+- ✨ Web Access 重做:终端工具栏一键开启应用内浏览器子页面(地址栏 + 内嵌 webview),转发层改写 Host 头修复虚拟主机站点 404
+- ✨ ES 视图接入公共 RightPanel 右侧边栏(集群仪表盘 + AI 助手)
+- 🐛 审计日志自动保留最新 5000 条,db/ssh/docker/sftp/ai 全事件补全详情
+- 🐛 AI 助手面板:引导文案对齐真实能力、chips 走 i18n、静默开关跨 tab 同步、Markdown 渲染与工具结果展开
 
 ### v0.36.5 (2026-07-31)
 - 🐛 修复筛选后 Ctrl+S 保存导致单元格值丢失为空
