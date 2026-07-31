@@ -22,6 +22,7 @@ import { normalizeDataRowIndices } from '@/utils/dbRowSelection'
 const { t } = useI18n()
 const themeStore = useThemeStore()
 const DbUniverGrid = defineAsyncComponent(() => import('@/components/db/DbUniverGrid.vue'))
+const univerGridRef = ref<{ flushPendingEdit: () => Promise<void> } | null>(null)
 
 const props = withDefaults(defineProps<{
   result: QueryResult | null
@@ -252,9 +253,12 @@ watch(() => props.result, () => {
 })
 
 // ─── Ctrl+S 全局快捷键 ───
-function onKeyDown(e: KeyboardEvent) {
+async function onKeyDown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault()
+    // Force-commit any active cell edit so the typed value
+    // is in Univer's model before we read dirty cells.
+    await univerGridRef.value?.flushPendingEdit()
     saveAll()
   }
 }
@@ -484,6 +488,7 @@ defineExpose({ clearDirty, hasDirty })
     <template v-else>
       <div class="db-grid-stage">
         <DbUniverGrid
+          ref="univerGridRef"
           :columns="columns"
           :rows="pagedRows"
           :page-offset="(page || 0) * (pageSize || 1000)"

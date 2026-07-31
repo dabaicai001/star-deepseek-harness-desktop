@@ -12,6 +12,18 @@
 
 ---
 
+## [0.36.5] - 2026-07-31
+
+### 修复
+- 🐛 fix(db): 筛选后 Ctrl+S 保存导致单元格值丢失为空
+  - 原因:用户在 Univer 单元格编辑器中修改值后直接按 Ctrl+S,此时编辑器尚未 commit,Univer 模型中仍是旧值;syncChangesFromUniver 读到旧值/空值,导致 dirty 记录中的 newValue 不正确
+  - 修复:在 Ctrl+S 保存前先调用 flushPendingEdit(),blur 当前活动编辑器并等待 commit 完成,再同步读取 Univer 模型中的最新值
+
+### 构建
+- chore: 版本号同步至 0.36.5
+
+---
+
 ## [0.36.4] - 2026-07-30
 
 ### 改进

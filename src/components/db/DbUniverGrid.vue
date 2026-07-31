@@ -599,6 +599,32 @@ watch(
   () => props.themeKey,
   () => void renderGrid(),
 )
+
+/**
+ * Force-commit any active cell edit and sync changes from Univer.
+ *
+ * When the user presses Ctrl+S while a cell editor is still open,
+ * the typed value lives only in the editor overlay — Univer's model
+ * still holds the old value.  Blurring the active element triggers
+ * the editor's commit path; we then wait for the commit to land and
+ * read the model synchronously (bypassing the 60 ms debounce).
+ */
+async function flushPendingEdit(): Promise<void> {
+  const active = document.activeElement as HTMLElement | null
+  if (active && containerRef.value?.contains(active)) {
+    active.blur()
+    // Allow the blur → commit → onCommandExecuted chain to finish.
+    await new Promise<void>(r => setTimeout(r, 80))
+  }
+  // Cancel any pending debounced sync and read values now.
+  if (syncTimer !== null) {
+    window.clearTimeout(syncTimer)
+    syncTimer = null
+  }
+  syncChangesFromUniver()
+}
+
+defineExpose({ flushPendingEdit })
 </script>
 
 <template>
