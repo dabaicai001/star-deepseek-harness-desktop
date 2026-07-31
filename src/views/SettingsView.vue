@@ -1152,6 +1152,7 @@ async function onTestWebhook(url: string) {
           </button>
           <span v-if="auditClearResult" class="audit-clear-result">{{ auditClearResult }}</span>
         </div>
+        <p class="audit-retention-hint">{{ t('settings.auditRetentionHint') }}</p>
 
         <div class="audit-table-wrap">
           <table class="audit-table">
@@ -1511,6 +1512,12 @@ async function onTestWebhook(url: string) {
   color: var(--muted);
   margin: 0 0 14px;
   line-height: 1.6;
+}
+
+.audit-retention-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin: -6px 0 10px;
 }
 
 .theme-grid {

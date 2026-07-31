@@ -45,6 +45,20 @@ fn row_to_audit_log(row: &sqlx::sqlite::SqliteRow) -> Result<AuditLogEntry, sqlx
     })
 }
 
+/// 审计日志条数上限:超出后自动删除最早的记录,只保留最新的这么多条
+const MAX_AUDIT_ROWS: i64 = 5000;
+
+/// 修剪审计日志表,只保留最新的 MAX_AUDIT_ROWS 条(按 timestamp、id 倒序)
+async fn trim_audit_log(pool: &sqlx::SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "DELETE FROM audit_log WHERE id NOT IN (SELECT id FROM audit_log ORDER BY timestamp DESC, id DESC LIMIT ?)",
+    )
+    .bind(MAX_AUDIT_ROWS)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// 记录一条审计日志
 #[tauri::command]
 pub async fn audit_log(
@@ -78,6 +92,11 @@ pub async fn audit_log(
     .execute(pool)
     .await
     .map_err(|e| format!("Failed to insert audit log: {}", e))?;
+
+    // 写入成功后自动修剪,超出上限只删最早记录;修剪失败只告警不阻断
+    if let Err(e) = trim_audit_log(pool).await {
+        tracing::warn!("Failed to trim audit log: {}", e);
+    }
 
     Ok(result.last_insert_rowid())
 }
@@ -172,4 +191,69 @@ pub async fn audit_stats() -> Result<Vec<AuditStatItem>, String> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 建立 in-memory SQLite 池并创建 audit_log 表(与 db/schema.rs 结构一致)
+    async fn setup_pool() -> sqlx::SqlitePool {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("connect in-memory sqlite");
+        sqlx::query(
+            "CREATE TABLE audit_log (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              timestamp INTEGER NOT NULL,
+              category TEXT NOT NULL,
+              action TEXT NOT NULL,
+              target TEXT,
+              detail TEXT,
+              session_id TEXT,
+              asset_id TEXT,
+              success INTEGER NOT NULL DEFAULT 1
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create audit_log table");
+        pool
+    }
+
+    #[tokio::test]
+    async fn trims_to_max_rows_keeping_newest() {
+        let pool = setup_pool().await;
+        let base = 1_000_000_i64;
+        // 插入超过上限的 5050 条,timestamp 递增(越新越大)
+        for i in 0..(MAX_AUDIT_ROWS + 50) {
+            sqlx::query(
+                "INSERT INTO audit_log (timestamp, category, action, success) VALUES (?, 'db', 'test', 1)",
+            )
+            .bind(base + i)
+            .execute(&pool)
+            .await
+            .expect("insert audit log");
+        }
+
+        trim_audit_log(&pool).await.expect("trim audit log");
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_log")
+            .fetch_one(&pool)
+            .await
+            .expect("count rows");
+        assert_eq!(count, MAX_AUDIT_ROWS, "修剪后应只剩上限条数");
+
+        let min_ts: i64 = sqlx::query_scalar("SELECT MIN(timestamp) FROM audit_log")
+            .fetch_one(&pool)
+            .await
+            .expect("min timestamp");
+        assert_eq!(min_ts, base + 50, "最早 50 条应被删除,保留最新的");
+
+        let max_ts: i64 = sqlx::query_scalar("SELECT MAX(timestamp) FROM audit_log")
+            .fetch_one(&pool)
+            .await
+            .expect("max timestamp");
+        assert_eq!(max_ts, base + MAX_AUDIT_ROWS + 49, "最新一条必须保留");
+    }
 }

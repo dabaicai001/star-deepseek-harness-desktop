@@ -20,7 +20,7 @@ import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
 import { useThemeStore } from '@/stores/theme'
 import type { Asset } from '@/types/asset'
-import { parseInstanceId, withTabIndexSuffix } from '@/utils/tabId'
+import { parseInstanceId, withTabIndexSuffix, generateInstanceId } from '@/utils/tabId'
 import { formatSize } from '@/services/sftp'
 import { getDetachedInfo, LOCAL_TAB_DETACH_EVENT } from '@/lib/windowDetach'
 import { SSH_SYSTEM_PROMPT, SSH_SILENT_MODE_PROMPT_NOTE, sshTools, makeSshToolCaller } from '@/utils/aiTools'
@@ -316,7 +316,7 @@ async function onAiSend(text: string) {
  if (aiSession.value.loading) return
  aiSession.value.loading = true
  aiSession.value.messages.push({ role: 'user', content: text })
- logAudit({ category: 'ai', action: 'ssh_ai_query', target: text.slice(0, 120), sessionId: props.id, assetId: asset.value?.id, success: true })
+ logAudit({ category: 'ai', action: 'ssh_ai_query', target: text.slice(0, 120), detail: { question: text.length > 500 ? text.slice(0, 500) + '…' : text }, sessionId: props.id, assetId: asset.value?.id, success: true })
  // 先获取当前工作目录:静默模式优先用已跟踪的 cwd,为空才跑 pwd 并顺带初始化跟踪值
  try {
    if (aiSilentMode.value && aiSilentCwd.value) {
@@ -710,7 +710,7 @@ async function connect() {
   reconnectAttempt.value = 0
   terminalRef.value?.writeln('\x1b[32m✓ Connected\x1b[0m')
   startTimer()
-  logAudit({ category: 'ssh', action: 'connect', target: `${asset.value.config.username}@${asset.value.config.host}:${asset.value.config.port || 22}`, sessionId, assetId: asset.value?.id, success: true })
+  logAudit({ category: 'ssh', action: 'connect', target: `${asset.value.config.username}@${asset.value.config.host}:${asset.value.config.port || 22}`, detail: { host: asset.value.config.host ?? null, port: asset.value.config.port || 22, username: asset.value.config.username ?? null }, sessionId, assetId: asset.value?.id, success: true })
 
   setupZmodemSentry()
   await subscribeSessionEvents(sessionId)
@@ -725,7 +725,7 @@ async function connect() {
   }
   lastError.value = msg
   terminalRef.value?.writeln(`\x1b[31m✗ Connection failed: ${msg}\x1b[0m`)
-  logAudit({ category: 'ssh', action: 'connect', target: asset.value ? `${asset.value.config.username}@${asset.value.config.host}:${asset.value.config.port}` : 'unknown', sessionId, assetId: asset.value?.id, success: false })
+  logAudit({ category: 'ssh', action: 'connect', target: asset.value ? `${asset.value.config.username}@${asset.value.config.host}:${asset.value.config.port}` : 'unknown', detail: asset.value ? { host: asset.value.config.host ?? null, port: asset.value.config.port || 22, username: asset.value.config.username ?? null } : null, sessionId, assetId: asset.value?.id, success: false })
   //通知后端清掉可能半初始化的 session(防止 Rust端残留)
   try {
   await invoke('ssh_disconnect', { id: sessionId })
@@ -963,7 +963,7 @@ async function disconnect() {
     }
     connected.value = false
     stopTimer()
-    logAudit({ category: 'ssh', action: 'disconnect', target: asset.value ? `${asset.value.config.username}@${asset.value.config.host}:${asset.value.config.port}` : 'unknown', sessionId: props.id, assetId: asset.value?.id, success: true })
+    logAudit({ category: 'ssh', action: 'disconnect', target: asset.value ? `${asset.value.config.username}@${asset.value.config.host}:${asset.value.config.port}` : 'unknown', detail: asset.value ? { host: asset.value.config.host ?? null, port: asset.value.config.port || 22, username: asset.value.config.username ?? null } : null, sessionId: props.id, assetId: asset.value?.id, success: true })
   }
 }
 
@@ -1118,7 +1118,7 @@ function runAiCommandWithPrompt(command: string): Promise<string> {
  if (aiSilentMode.value) {
    if (SILENT_INTERACTIVE_CMD_RE.test(command)) {
      // 交互式命令在静默通道(无 PTY/stdin)只会干等超时,回退到共享终端执行并在输出里注明原因
-     logAudit({ category: 'ai', action: 'ssh_ai_silent_fallback', target: command.slice(0, 200), sessionId: props.id, assetId: asset.value?.id, success: true })
+     logAudit({ category: 'ai', action: 'ssh_ai_silent_fallback', target: command.slice(0, 200), detail: { command: command.length > 2000 ? command.slice(0, 2000) + '…' : command, reason: 'interactive_command' }, sessionId: props.id, assetId: asset.value?.id, success: true })
      return runPtyAiCommand(command).then(out => `[${t('ssh.aiSilentFallbackNote')}]\n${out}`)
    }
    return runSilentAiCommand(command)
@@ -1576,68 +1576,30 @@ function onQuickCmdDragEnd() {
 async function runQuickCommand(cmd: string) {
   try {
     await writeCommand(cmd)
-    logAudit({ category: 'ssh', action: 'quick_command', target: cmd.slice(0, 200), sessionId: props.id, assetId: asset.value?.id, success: true })
+    logAudit({ category: 'ssh', action: 'quick_command', target: cmd.slice(0, 200), detail: { command: cmd.length > 2000 ? cmd.slice(0, 2000) + '…' : cmd }, sessionId: props.id, assetId: asset.value?.id, success: true })
   } catch (e) {
-    logAudit({ category: 'ssh', action: 'quick_command', target: cmd.slice(0, 200), sessionId: props.id, assetId: asset.value?.id, success: false })
+    logAudit({ category: 'ssh', action: 'quick_command', target: cmd.slice(0, 200), detail: { command: cmd.length > 2000 ? cmd.slice(0, 2000) + '…' : cmd, error: e instanceof Error ? e.message : String(e) }, sessionId: props.id, assetId: asset.value?.id, success: false })
     terminalRef.value?.writeln(`\x1b[31m✗ ${e instanceof Error ? e.message : String(e)}\x1b[0m`)
   }
 }
 
-// ====== Web Access(端口转发 + WebviewWindow) ======
-const showWebAccessDialog = ref(false)
-const webAccessUrl = ref('')
-const webAccessLoading = ref(false)
-
-async function openWebAccess() {
+// ====== Web Access(打开网页浏览子页面 tab) ======
+// 不再弹窗输入 URL:直接按项目 tab 模式新开 web/:id 子页面,
+// 地址栏 + 端口转发 + 内嵌子 webview 都在 WebBrowserView 里完成。
+function openWebBrowserTab() {
   if (!connected.value) return
-  const raw = webAccessUrl.value.trim()
-  if (!raw) {
-    notify.notify({ message: '请输入要访问的网址', color: 'error', timeout: 4000 })
+  // 同一 SSH 会话已有 web tab → 直接激活,不重复开
+  const existing = appStore.tabs.find(tab => tab.type === 'web' && tab.assetId === props.id)
+  if (existing) {
+    appStore.setActiveTab(existing.id)
+    router.push({ name: 'web-browser', params: { id: existing.id }, query: { session: props.id } })
     return
   }
-  let parsed: URL
-  try {
-    parsed = new URL(raw)
-  } catch {
-    // 尝试补上 http:// 前缀
-    try { parsed = new URL('http://' + raw) } catch {
-      notify.notify({ message: '无效的网址，请输入完整的 URL（如 http://10.0.0.5:8080/admin）', color: 'error', timeout: 5000 })
-      return
-    }
-  }
-  const remoteHost = parsed.hostname
-  const remotePort = parseInt(parsed.port, 10) || (parsed.protocol === 'https:' ? 443 : 80)
-  const pathQuery = parsed.pathname + parsed.search + parsed.hash
-
-  webAccessLoading.value = true
-  try {
-    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
-    const { sshAddLocalForward } = await import('@/services/ssh')
-    const localPort = await sshAddLocalForward(props.id, 0, remoteHost, remotePort)
-    const label = `web-${props.id}-${remotePort}-${Date.now()}`
-    const targetUrl = `http://127.0.0.1:${localPort}${pathQuery}`
-    const win = new WebviewWindow(label, {
-      url: targetUrl,
-      title: `${raw} — StarHub`,
-      width: 1024,
-      height: 768,
-      minWidth: 480,
-      minHeight: 360,
-      decorations: true,
-    })
-    void win.once('tauri://error', (error) => {
-      console.error('[web-access] create window failed:', error)
-      notify.notify({ message: `打开网页窗口失败: ${error}`, color: 'error', timeout: 5000 })
-    })
-    logAudit({ category: 'ssh', action: 'web_access', target: raw, detail: { localPort, remoteHost, remotePort }, sessionId: props.id, assetId: asset.value?.id, success: true })
-    showWebAccessDialog.value = false
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    notify.notify({ message: `端口转发失败: ${msg}`, color: 'error', timeout: 5000 })
-    logAudit({ category: 'ssh', action: 'web_access', target: raw, sessionId: props.id, assetId: asset.value?.id, success: false })
-  } finally {
-    webAccessLoading.value = false
-  }
+  const instanceId = generateInstanceId(`web-${props.id}`)
+  const title = `${t('ssh.webAccess.title')} · ${asset.value?.name ?? asset.value?.config.host ?? props.id}`
+  // assetId 存 SSH 会话 id(WebBrowserView 据此建端口转发,审计反解资产)
+  appStore.addTab({ id: instanceId, assetId: props.id, title, type: 'web' })
+  router.push({ name: 'web-browser', params: { id: instanceId }, query: { session: props.id } })
 }
 
 /**
@@ -1913,6 +1875,17 @@ function handleKbCancelled() {
   >
   <v-icon size="14">mdi-broadcast</v-icon>
   </button>
+
+  <button
+  class="action-btn"
+  :data-tooltip="t('ssh.webAccess.title')"
+  :title="t('ssh.webAccess.title')"
+  :aria-label="t('ssh.webAccess.title')"
+  :disabled="!connected || connecting"
+  @click="openWebBrowserTab"
+  >
+  <v-icon size="14">mdi-web</v-icon>
+  </button>
   </div>
  </div>
 
@@ -1981,15 +1954,6 @@ function handleKbCancelled() {
  @click="openQuickCmdEditor"
  >
  <v-icon size="12">mdi-tune</v-icon>
- </button>
- <button
- class="qc-btn qc-web-btn"
- :title="t('ssh.webAccess.title')"
- :aria-label="t('ssh.webAccess.title')"
- :disabled="!connected || connecting"
- @click="showWebAccessDialog = true"
- >
- <v-icon size="12">mdi-web</v-icon>
  </button>
  </div>
 
@@ -2098,38 +2062,6 @@ function handleKbCancelled() {
  </button>
  <button class="cyber-btn qc-editor-action-btn primary" @click="onQuickCmdSave">
  {{ t('ssh.quickCommandEditor.save') }}
- </button>
- </div>
- </div>
- </v-dialog>
-
- <!-- Web Access 端口转发弹窗 -->
- <v-dialog v-model="showWebAccessDialog" max-width="400" transition="cyber-dialog">
- <div class="cyber-panel" style="padding: 24px;">
- <div class="section-header">
- <v-icon size="14" style="color: var(--accent);">mdi-web</v-icon>
- <h3>{{ t('ssh.webAccess.title') }}</h3>
- </div>
- <p style="color: var(--muted); font-size: 11px; margin-bottom: 14px;">
- {{ t('ssh.webAccess.description') }}
- </p>
- <v-text-field
- v-model="webAccessUrl"
- :label="t('ssh.webAccess.url')"
- variant="outlined"
- density="compact"
- hide-details
- class="qc-edit-field"
- :placeholder="t('ssh.webAccess.placeholder')"
- @keydown.enter="openWebAccess"
- />
- <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
- <button class="cyber-btn-secondary" style="font-size: 12px; padding: 6px 14px;" @click="showWebAccessDialog = false">
- {{ t('ssh.quickCommandEditor.cancel') }}
- </button>
- <button class="cyber-btn" style="font-size: 12px; padding: 6px 18px;" :disabled="webAccessLoading" @click="openWebAccess">
- <v-icon size="12" style="margin-right: 4px;">mdi-open-in-new</v-icon>
- {{ t('ssh.webAccess.open') }}
  </button>
  </div>
  </div>

@@ -12,6 +12,7 @@
 import { ref, nextTick, watch, computed } from 'vue'
 import type { AiSession, AiToolCallRecord } from '@/stores/ai'
 import { useI18n } from 'vue-i18n'
+import AiMessageContent from '@/components/ai/AiMessageContent.vue'
 
 const props = defineProps<{
   session: AiSession
@@ -31,50 +32,23 @@ const { t } = useI18n()
 
 const inputText = ref('')
 const messagesRef = ref<HTMLElement | null>(null)
-const expandedThinks = ref<Set<number>>(new Set())
 const devMockToolDismissed = ref(false)
 
-/**
- * 解析消息内容,将 <think>...</think> 标签提取为独立的 think 块
- * 返回 { parts: Array<{ kind: 'text'|'think', content: string }>, hasThink: boolean }
- */
-function parseThinkContent(content: string): { kind: 'text' | 'think'; content: string }[] {
-  const parts: { kind: 'text' | 'think'; content: string }[] = []
-  const thinkRegex = /<think>([\s\S]*?)<\/think>/g
-  let lastIndex = 0
-  let match: RegExpExecArray | null
-  while ((match = thinkRegex.exec(content)) !== null) {
-    // 前面的普通文本
-    if (match.index > lastIndex) {
-      const text = content.slice(lastIndex, match.index)
-      if (text.trim()) parts.push({ kind: 'text', content: text })
-    }
-    // think 块
-    const thinkContent = match[1].trim()
-    if (thinkContent) parts.push({ kind: 'think', content: thinkContent })
-    lastIndex = match.index + match[0].length
-  }
-  // 最后剩余的文本
-  if (lastIndex < content.length) {
-    const text = content.slice(lastIndex)
-    if (text.trim()) parts.push({ kind: 'text', content: text })
-  }
-  // 如果没有 think 标签,整段都是文本
-  if (parts.length === 0) {
-    parts.push({ kind: 'text', content })
-  }
-  return parts
+/** 工具结果展开状态(按 toolCall record id),截断的长结果可展开查看全文 */
+const expandedToolResults = ref<Set<string>>(new Set())
+
+function isToolResultExpanded(recordId: string): boolean {
+  return expandedToolResults.value.has(recordId)
 }
 
-function toggleThink(msgIdx: number) {
-  const key = msgIdx
-  if (expandedThinks.value.has(key)) {
-    expandedThinks.value.delete(key)
+function toggleToolResult(recordId: string) {
+  if (expandedToolResults.value.has(recordId)) {
+    expandedToolResults.value.delete(recordId)
   } else {
-    expandedThinks.value.add(key)
+    expandedToolResults.value.add(recordId)
   }
   // 触发响应式
-  expandedThinks.value = new Set(expandedThinks.value)
+  expandedToolResults.value = new Set(expandedToolResults.value)
 }
 
 const emptyDescription = computed(() => {
@@ -98,31 +72,31 @@ const guidePrompts = computed(() => {
   switch (props.session.assetType) {
     case 'ssh':
       return [
-        { icon: 'mdi-harddisk', text: '查看磁盘使用情况' },
-        { icon: 'mdi-chip', text: '检查 CPU 和内存负载' },
-        { icon: 'mdi-file-document-outline', text: '查看最近的系统日志' },
-        { icon: 'mdi-shield-check-outline', text: '检查防火墙和端口状态' },
-        { icon: 'mdi-docker', text: '列出正在运行的 Docker 容器' },
-        { icon: 'mdi-network-outline', text: '检查网络连接和 DNS 解析' },
+        { icon: 'mdi-harddisk', text: t('ai.guideChips.sshDisk') },
+        { icon: 'mdi-chip', text: t('ai.guideChips.sshCpu') },
+        { icon: 'mdi-file-document-outline', text: t('ai.guideChips.sshLogs') },
+        { icon: 'mdi-shield-check-outline', text: t('ai.guideChips.sshFirewall') },
+        { icon: 'mdi-docker', text: t('ai.guideChips.sshDocker') },
+        { icon: 'mdi-network-outline', text: t('ai.guideChips.sshNetwork') },
       ]
     case 'db':
       return [
-        { icon: 'mdi-table', text: '查看所有表和结构' },
-        { icon: 'mdi-magnify', text: '查询最近 10 条记录' },
-        { icon: 'mdi-chart-bar', text: '统计各状态的数据量' },
-        { icon: 'mdi-clock-outline', text: '查看慢查询' },
+        { icon: 'mdi-table', text: t('ai.guideChips.dbTables') },
+        { icon: 'mdi-magnify', text: t('ai.guideChips.dbRecent') },
+        { icon: 'mdi-chart-bar', text: t('ai.guideChips.dbStats') },
+        { icon: 'mdi-clock-outline', text: t('ai.guideChips.dbSlow') },
       ]
     case 'docker':
       return [
-        { icon: 'mdi-format-list-bulleted', text: '列出所有容器状态' },
-        { icon: 'mdi-file-document-outline', text: '查看最近的应用日志' },
-        { icon: 'mdi-chart-line', text: '检查资源使用情况' },
-        { icon: 'mdi-restart', text: '重启异常容器' },
+        { icon: 'mdi-format-list-bulleted', text: t('ai.guideChips.dockerList') },
+        { icon: 'mdi-file-document-outline', text: t('ai.guideChips.dockerLogs') },
+        { icon: 'mdi-chart-line', text: t('ai.guideChips.dockerResources') },
+        { icon: 'mdi-restart', text: t('ai.guideChips.dockerRestart') },
       ]
     default:
       return [
-        { icon: 'mdi-lightbulb-outline', text: '帮我分析当前状态' },
-        { icon: 'mdi-wrench', text: '排查常见问题' },
+        { icon: 'mdi-lightbulb-outline', text: t('ai.guideChips.genericAnalyze') },
+        { icon: 'mdi-wrench', text: t('ai.guideChips.genericTroubleshoot') },
       ]
   }
 })
@@ -350,18 +324,15 @@ function shortResult(s: string, max = 240): string {
               <pre>{{ shortResult(msg.content ?? '') }}</pre>
             </div>
             <div v-else class="msg-body-content">
-              <template v-for="(part, pi) in parseThinkContent(msg.content ?? '')" :key="pi">
-                <div v-if="part.kind === 'think'" class="think-block" :class="{ expanded: expandedThinks.has(idx) }">
-                  <div class="think-toggle" @click="toggleThink(idx)">
-                    <v-icon size="12">{{ expandedThinks.has(idx) ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
-                    <span>思考过程</span>
-                  </div>
-                  <div class="think-body">
-                    <pre>{{ part.content }}</pre>
-                  </div>
-                </div>
-                <div v-else class="msg-content">{{ part.content }}</div>
-              </template>
+              <!-- user 消息保持纯文本;assistant 走 AiMessageContent(Markdown + think 折叠) -->
+              <div v-if="msg.role === 'user'" class="msg-content">{{ msg.content }}</div>
+              <AiMessageContent
+                v-else
+                :content="msg.content ?? ''"
+                parse-think
+                markdown
+                :think-label="t('ai.thinkingProcess')"
+              />
             </div>
           </div>
         </div>
@@ -386,7 +357,16 @@ function shortResult(s: string, max = 240): string {
               <span class="ai-tool-call-name">{{ rec.name }}</span>
               <pre class="ai-tool-call-summary">{{ toolCallSummary(rec) }}</pre>
             </div>
-            <pre v-if="rec.result" class="tool-result">{{ shortResult(rec.result, 600) }}</pre>
+            <pre v-if="rec.result" class="tool-result">{{ isToolResultExpanded(rec.id) ? rec.result : shortResult(rec.result, 600) }}</pre>
+            <button
+              v-if="rec.result && rec.result.length > 600"
+              type="button"
+              class="tool-result-toggle"
+              @click="toggleToolResult(rec.id)"
+            >
+              <v-icon size="11">{{ isToolResultExpanded(rec.id) ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
+              <span>{{ isToolResultExpanded(rec.id) ? t('ai.collapseToolResult') : t('ai.expandToolResult') }}</span>
+            </button>
             <pre v-if="rec.errorMessage" class="tool-error">{{ rec.errorMessage }}</pre>
           </div>
         </template>
@@ -421,7 +401,16 @@ function shortResult(s: string, max = 240): string {
           <span class="ai-tool-call-name">{{ pendingToolCall.name }}</span>
           <pre class="ai-tool-call-summary">{{ toolCallSummary(pendingToolCall) }}</pre>
         </div>
-        <pre v-if="pendingToolCall.result" class="tool-result">{{ shortResult(pendingToolCall.result, 600) }}</pre>
+        <pre v-if="pendingToolCall.result" class="tool-result">{{ isToolResultExpanded(pendingToolCall.id) ? pendingToolCall.result : shortResult(pendingToolCall.result, 600) }}</pre>
+        <button
+          v-if="pendingToolCall.result && pendingToolCall.result.length > 600"
+          type="button"
+          class="tool-result-toggle"
+          @click="toggleToolResult(pendingToolCall.id)"
+        >
+          <v-icon size="11">{{ isToolResultExpanded(pendingToolCall.id) ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
+          <span>{{ isToolResultExpanded(pendingToolCall.id) ? t('ai.collapseToolResult') : t('ai.expandToolResult') }}</span>
+        </button>
         <pre v-if="pendingToolCall.errorMessage" class="tool-error">{{ pendingToolCall.errorMessage }}</pre>
         <div class="tool-confirm">
           <span class="confirm-hint">执行这条操作?</span>
@@ -891,54 +880,27 @@ function shortResult(s: string, max = 240): string {
   color: var(--cyan);
 }
 
-/* Think 思考过程块 */
-.think-block {
-  border: 1px solid var(--line-2);
-  border-left: 2px solid var(--purple);
-  border-radius: 6px;
-  margin-bottom: 6px;
-  background: var(--panel-solid);
-  overflow: hidden;
-}
-
-.think-toggle {
-  display: flex;
+/* 工具结果展开/收起切换(think 折叠已迁移到 AiMessageContent,样式在 cyber.css) */
+.tool-result-toggle {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: 11px;
-  color: var(--purple);
-  user-select: none;
-  transition: background 0.15s;
-}
-
-.think-toggle:hover {
-  background: var(--hover-cyan-faint);
-}
-
-.think-body {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.3s ease;
-}
-
-.think-block.expanded .think-body {
-  max-height: 600px;
-  overflow-y: auto;
-}
-
-.think-body pre {
-  margin: 0;
-  padding: 8px 12px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  line-height: 1.5;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
   color: var(--muted);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: normal;
-  border-top: 1px solid var(--line-2);
+  font-size: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+
+.tool-result-toggle:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: var(--hover-cyan-soft);
 }
 
 .msg-body-content {

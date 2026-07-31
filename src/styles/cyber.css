@@ -4446,6 +4446,90 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* AiMessageContent markdown 模式:容器本身是 pre-wrap,HTML 块内恢复正常空白折叠 */
+.ai-message-markdown {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.ai-message-markdown > :first-child {
+  margin-top: 0;
+}
+
+.ai-message-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.ai-message-markdown p {
+  margin: 0 0 8px;
+}
+
+.ai-message-markdown ul,
+.ai-message-markdown ol {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.ai-message-markdown h1,
+.ai-message-markdown h2,
+.ai-message-markdown h3,
+.ai-message-markdown h4 {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ai-message-markdown code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.92em;
+  background: var(--bg-2);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.ai-message-markdown pre {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+.ai-message-markdown pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ai-message-markdown a {
+  color: var(--cyan);
+}
+
+.ai-message-markdown blockquote {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line-2);
+  color: var(--text-2);
+}
+
+.ai-message-markdown table {
+  margin: 0 0 8px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ai-message-markdown th,
+.ai-message-markdown td {
+  padding: 3px 8px;
+  border: 1px solid var(--line-2);
+}
+
 /* 连接工作区右栏的 AI 工具调用卡片 */
 .ai-tool-call {
   display: flex;

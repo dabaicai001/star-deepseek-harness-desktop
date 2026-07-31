@@ -168,6 +168,20 @@ export async function sshAddLocalForward(
   return invoke('ssh_add_local_forward', { id, localPort, remoteHost, remotePort })
 }
 
+/**
+ * Web 代理转发:与 sshAddLocalForward 相同建立 127.0.0.1 本地监听,
+ * 但会把首个 HTTP 请求的 Host 头改写为 remoteHost:remotePort,
+ * 修复浏览器经 127.0.0.1 访问虚拟主机 / Ingress 站点返回 404 的问题。
+ */
+export async function sshAddWebProxyForward(
+  id: string,
+  localPort: number,
+  remoteHost: string,
+  remotePort: number
+): Promise<number> {
+  return invoke('ssh_add_web_proxy_forward', { id, localPort, remoteHost, remotePort })
+}
+
 export async function sshAddRemoteForward(
   id: string,
   remotePort: number,

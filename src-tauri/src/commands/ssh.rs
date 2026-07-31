@@ -567,6 +567,28 @@ pub async fn ssh_add_local_forward(
         .await
 }
 
+/// 添加 Web 代理转发(改写 HTTP Host 头,修复经 127.0.0.1 访问虚拟主机站点 404)
+#[tauri::command]
+pub async fn ssh_add_web_proxy_forward(
+    manager: State<'_, SshManager>,
+    id: String,
+    local_port: u16,
+    remote_host: String,
+    remote_port: u16,
+) -> Result<u16, String> {
+    let session_arc = {
+        let sessions = manager.sessions.lock().await;
+        sessions
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| format!("SSH session {} not found", id))?
+    };
+    let mut session = session_arc.lock().await;
+    session
+        .add_web_proxy_forward(local_port, &remote_host, remote_port)
+        .await
+}
+
 /// 添加远程端口转发
 #[tauri::command]
 pub async fn ssh_add_remote_forward(

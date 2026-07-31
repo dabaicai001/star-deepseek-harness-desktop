@@ -1205,6 +1205,171 @@ impl SshSession {
         Ok(actual_port)
     }
 
+    /// 添加 Web 代理转发: 本地 local_port -> 远程 remote_host:remote_port。
+    ///
+    /// 与 add_local_port_forward 的区别:客户端 -> 远端方向会先缓冲首包
+    /// (直到 \r\n\r\n,上限 32KB,单次读带超时),识别为 HTTP 请求时把 Host 头
+    /// 改写为 remote_host:remote_port,修复浏览器经 127.0.0.1 访问虚拟主机 /
+    /// Ingress 站点返回 404 的问题;非 HTTP 流量原样透传。
+    /// HTTPS(TLS 密文)无法改写,请改用 add_local_port_forward 直连。
+    pub async fn add_web_proxy_forward(
+        &mut self,
+        local_port: u16,
+        remote_host: &str,
+        remote_port: u16,
+    ) -> Result<u16, String> {
+        let handle = self.handle.as_ref().ok_or("SSH not connected")?.clone();
+        let remote_host = remote_host.to_string();
+
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", local_port))
+            .await
+            .map_err(|e| format!("Failed to bind local port {}: {}", local_port, e))?;
+
+        let actual_port = listener
+            .local_addr()
+            .map_err(|e| format!("Failed to get local addr: {}", e))?
+            .port();
+
+        let target_host = remote_host.clone();
+        let target_port = remote_port;
+        let host_header = format!("{}:{}", remote_host, remote_port);
+        let connection_handles: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let connection_handles_for_loop = Arc::clone(&connection_handles);
+
+        let task = tokio::spawn(async move {
+            loop {
+                match listener.accept().await {
+                    Ok((tcp_stream, addr)) => {
+                        let handle = handle.clone();
+                        let target_host = target_host.clone();
+                        let host_header = host_header.clone();
+                        let connection_handles_inner = Arc::clone(&connection_handles_for_loop);
+                        let connection_task = tokio::spawn(async move {
+                            match handle
+                                .channel_open_direct_tcpip(
+                                    &target_host,
+                                    target_port as u32,
+                                    &addr.ip().to_string(),
+                                    addr.port() as u32,
+                                )
+                                .await
+                            {
+                                Ok(mut channel) => {
+                                    let channel_writer = channel.make_writer();
+                                    let (mut tcp_reader, mut tcp_writer) =
+                                        tokio::io::split(tcp_stream);
+
+                                    // TCP -> SSH channel(首包缓冲 + Host 头改写)
+                                    let mut writer = channel_writer;
+                                    let upload_task = tokio::spawn(async move {
+                                        let mut buf = [0u8; 8192];
+                                        // 1) 缓冲首包直到头部结束 / 达到上限 / 读超时
+                                        let mut head: Vec<u8> = Vec::new();
+                                        loop {
+                                            if head.len() >= WEB_PROXY_HEAD_MAX
+                                                || find_subslice(&head, b"\r\n\r\n").is_some()
+                                            {
+                                                break;
+                                            }
+                                            match timeout(
+                                                Duration::from_secs(5),
+                                                tokio::io::AsyncReadExt::read(
+                                                    &mut tcp_reader,
+                                                    &mut buf,
+                                                ),
+                                            )
+                                            .await
+                                            {
+                                                Ok(Ok(0)) => break,
+                                                Ok(Ok(n)) => head.extend_from_slice(&buf[..n]),
+                                                // 读超时或出错:按已有数据继续,不阻塞转发
+                                                _ => break,
+                                            }
+                                        }
+                                        if !head.is_empty() {
+                                            let rewritten =
+                                                rewrite_host_header(&head, &host_header);
+                                            if writer.write_all(&rewritten).await.is_err() {
+                                                return;
+                                            }
+                                        }
+                                        // 2) 常规双向 copy
+                                        loop {
+                                            match tokio::io::AsyncReadExt::read(
+                                                &mut tcp_reader,
+                                                &mut buf,
+                                            )
+                                            .await
+                                            {
+                                                Ok(0) => break,
+                                                Ok(n) => {
+                                                    if writer.write_all(&buf[..n]).await.is_err() {
+                                                        break;
+                                                    }
+                                                }
+                                                Err(_) => break,
+                                            }
+                                        }
+                                    });
+
+                                    // SSH channel -> TCP
+                                    let download_task = tokio::spawn(async move {
+                                        loop {
+                                            match channel.wait().await {
+                                                Some(ChannelMsg::Data { data }) => {
+                                                    if tcp_writer.write_all(&data).await.is_err() {
+                                                        break;
+                                                    }
+                                                }
+                                                Some(ChannelMsg::ExtendedData { data, .. }) => {
+                                                    if tcp_writer.write_all(&data).await.is_err() {
+                                                        break;
+                                                    }
+                                                }
+                                                Some(ChannelMsg::Eof)
+                                                | Some(ChannelMsg::Close)
+                                                | None => break,
+                                                _ => {}
+                                            }
+                                        }
+                                    });
+
+                                    // 记录双向拷贝任务的 handle,移除转发时一并终止
+                                    if let Ok(mut handles) = connection_handles_inner.lock() {
+                                        handles.push(upload_task.abort_handle());
+                                        handles.push(download_task.abort_handle());
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Web proxy forward: failed to open channel: {}",
+                                        e
+                                    );
+                                }
+                            }
+                        });
+                        if let Ok(mut handles) = connection_handles_for_loop.lock() {
+                            handles.push(connection_task.abort_handle());
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        self.port_forwards.push(PortForwardEntry {
+            forward_type: "web".to_string(),
+            bound_port: actual_port,
+            target_host: remote_host,
+            target_port: remote_port,
+            abort_handle: task.abort_handle(),
+            connection_handles,
+        });
+
+        Ok(actual_port)
+    }
+
     /// 添加远程端口转发: 远程 remote_port -> 本地 local_host:local_port
     pub async fn add_remote_port_forward(
         &mut self,
@@ -1284,6 +1449,87 @@ impl SshSession {
             })
             .collect()
     }
+}
+
+/// Web 代理转发缓冲首包的上限(32KB):超过即认为不是常规 HTTP 请求头,原样透传。
+const WEB_PROXY_HEAD_MAX: usize = 32 * 1024;
+
+/// 在字节流中查找子串,返回首次出现的下标。
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// 判断缓冲的首包是否像 HTTP 请求(请求行以方法名 + 空格开头)。
+fn looks_like_http_request(head: &[u8]) -> bool {
+    const METHODS: [&[u8]; 9] = [
+        b"GET ",
+        b"POST ",
+        b"PUT ",
+        b"DELETE ",
+        b"HEAD ",
+        b"OPTIONS ",
+        b"PATCH ",
+        b"TRACE ",
+        b"CONNECT ",
+    ];
+    METHODS.iter().any(|m| head.starts_with(m))
+}
+
+/// 把 HTTP 请求头里的 `Host:` 改写为 `host`(没有 Host 头则注入到请求行之后),
+/// 头部之后已缓冲的 body 字节原样保留。
+///
+/// 用途:浏览器经 127.0.0.1:<本地转发端口> 访问远端站点时,Host 头是本地地址,
+/// 按虚拟主机 / Ingress 路由的站点会返回 404;改写成远端真实 host:port 后即可命中。
+/// 非 HTTP 请求、或头部不完整(没有 \r\n\r\n)时原样返回。
+fn rewrite_host_header(head: &[u8], host: &str) -> Vec<u8> {
+    if !looks_like_http_request(head) {
+        return head.to_vec();
+    }
+    let Some(head_end) = find_subslice(head, b"\r\n\r\n") else {
+        return head.to_vec();
+    };
+    // 请求行结束:第一个 \r\n(可能恰好就是空头部时的 \r\n\r\n 起点)
+    let Some(req_line_end) = find_subslice(head, b"\r\n") else {
+        return head.to_vec();
+    };
+    if req_line_end > head_end {
+        return head.to_vec();
+    }
+
+    // 扫描请求行之后的 header 行,找 Host:(大小写不敏感)
+    let mut host_range: Option<(usize, usize)> = None;
+    let mut pos = req_line_end + 2;
+    while pos < head_end {
+        let line_end = find_subslice(&head[pos..head_end], b"\r\n")
+            .map(|i| pos + i)
+            .unwrap_or(head_end);
+        let line = &head[pos..line_end];
+        if line.len() >= 5 && line[..5].eq_ignore_ascii_case(b"host:") {
+            host_range = Some((pos, line_end));
+            break;
+        }
+        pos = line_end + 2;
+    }
+
+    let mut out = Vec::with_capacity(head.len() + host.len() + 8);
+    match host_range {
+        Some((start, end)) => {
+            out.extend_from_slice(&head[..start]);
+            out.extend_from_slice(b"Host: ");
+            out.extend_from_slice(host.as_bytes());
+            out.extend_from_slice(&head[end..]);
+        }
+        None => {
+            out.extend_from_slice(&head[..req_line_end]);
+            out.extend_from_slice(b"\r\nHost: ");
+            out.extend_from_slice(host.as_bytes());
+            out.extend_from_slice(&head[req_line_end..]);
+        }
+    }
+    out
 }
 
 /// 向 buffer 追加数据,总量达到 cap 后丢弃多余部分;返回是否发生了截断。
@@ -1617,6 +1863,51 @@ XQAAAAtzc2gtZWQyNTUxOQAAACCzPq7zfqLffKoBDe/eo04kH2XxtSmk9D7RQyf1xUqrYg
 AAAEC2BsIi0QwW2uFscKTUUXNHLsYX4FxlaSDSblbAj7WR7bM+rvN+ot98qgEN796jTiQf
 ZfG1KaT0PtFDJ/XFSqtiAAAAEHVzZXJAZXhhbXBsZS5jb20BAgMEBQ==
 -----END OPENSSH PRIVATE KEY-----"#;
+
+    #[test]
+    fn rewrite_host_header_replaces_existing_host() {
+        let head =
+            b"GET /admin HTTP/1.1\r\nHost: 127.0.0.1:51234\r\nUser-Agent: x\r\n\r\nbody-bytes";
+        let out = rewrite_host_header(head, "10.0.0.5:8080");
+        assert_eq!(
+            out,
+            b"GET /admin HTTP/1.1\r\nHost: 10.0.0.5:8080\r\nUser-Agent: x\r\n\r\nbody-bytes"
+                .to_vec()
+        );
+    }
+
+    #[test]
+    fn rewrite_host_header_injects_missing_host_after_request_line() {
+        let head = b"GET / HTTP/1.0\r\n\r\n";
+        let out = rewrite_host_header(head, "example.internal:9000");
+        assert_eq!(
+            out,
+            b"GET / HTTP/1.0\r\nHost: example.internal:9000\r\n\r\n".to_vec()
+        );
+    }
+
+    #[test]
+    fn rewrite_host_header_matches_host_case_insensitively() {
+        let head = b"POST /api HTTP/1.1\r\nhost: 127.0.0.1:1\r\nContent-Length: 0\r\n\r\n";
+        let out = rewrite_host_header(head, "a.b:80");
+        assert_eq!(
+            out,
+            b"POST /api HTTP/1.1\r\nHost: a.b:80\r\nContent-Length: 0\r\n\r\n".to_vec()
+        );
+    }
+
+    #[test]
+    fn rewrite_host_header_passes_through_non_http() {
+        let head = b"\x00\x01binary-garbage\r\n\r\nnot http";
+        assert_eq!(rewrite_host_header(head, "a.b:80"), head.to_vec());
+    }
+
+    #[test]
+    fn rewrite_host_header_passes_through_incomplete_header() {
+        // 没有 \r\n\r\n 的不完整头部不改写,避免破坏流式数据
+        let head = b"GET / HTTP/1.1\r\nHost: 127";
+        assert_eq!(rewrite_host_header(head, "a.b:80"), head.to_vec());
+    }
 
     #[test]
     fn private_key_parser_accepts_binary_openssh_comments() {

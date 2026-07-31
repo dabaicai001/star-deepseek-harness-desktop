@@ -240,9 +240,11 @@ async function uploadFiles() {
   try {
     const transferId = await sftpStartUpload(sftpSessionId!, paths, currentPath.value)
     transferStore.registerTask(sftpSessionId!, transferId, 'upload')
+    logAudit({ category: 'sftp', action: 'upload', target: paths.join(', '), detail: { files: paths.length, dest: currentPath.value }, sessionId: sftpSessionId, success: true })
     setTimeout(() => loadDir(currentPath.value), 2000)
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
+    logAudit({ category: 'sftp', action: 'upload', target: paths.join(', '), detail: { error: msg }, sessionId: sftpSessionId, success: false })
     notify.notify({ message: `Upload failed: ${msg}`, color: 'error', timeout: 5000 })
   }
 }
@@ -259,7 +261,7 @@ async function uploadFolder() {
     setTimeout(() => loadDir(currentPath.value), 2000)
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
-    logAudit({ category: 'sftp', action: 'upload_folder', target: paths.join(', '), sessionId: sftpSessionId, success: false })
+    logAudit({ category: 'sftp', action: 'upload_folder', target: paths.join(', '), detail: { error: msg }, sessionId: sftpSessionId, success: false })
     notify.notify({ message: `Upload failed: ${msg}`, color: 'error', timeout: 5000 })
   }
 }
@@ -301,7 +303,7 @@ async function downloadSelected() {
     logAudit({ category: 'sftp', action: 'download', target: remotePaths.join(', '), detail: { dest: dir }, sessionId: sftpSessionId, success: true })
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
-    logAudit({ category: 'sftp', action: 'download', target: remotePaths.join(', '), sessionId: sftpSessionId, success: false })
+    logAudit({ category: 'sftp', action: 'download', target: remotePaths.join(', '), detail: { error: msg }, sessionId: sftpSessionId, success: false })
     notify.notify({ message: `Download failed: ${msg}`, color: 'error', timeout: 5000 })
   }
 }
@@ -428,7 +430,7 @@ async function ctxDownload(entry: SftpEntry | null) {
     logAudit({ category: 'sftp', action: 'download', target: paths.join(', '), detail: { dest: dir }, sessionId: sftpSessionId, success: true })
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
-    logAudit({ category: 'sftp', action: 'download', target: paths.join(', '), sessionId: sftpSessionId, success: false })
+    logAudit({ category: 'sftp', action: 'download', target: paths.join(', '), detail: { error: msg }, sessionId: sftpSessionId, success: false })
     notify.notify({ message: `Download failed: ${msg}`, color: 'error', timeout: 5000 })
   }
 }
@@ -524,10 +526,12 @@ onMounted(async () => {
         sftpStartUpload(sftpSessionId, paths, currentPath.value)
           .then((transferId) => {
             transferStore.registerTask(sftpSessionId!, transferId, 'upload')
+            logAudit({ category: 'sftp', action: 'upload', target: paths.join(', '), detail: { files: paths.length, dest: currentPath.value }, sessionId: sftpSessionId, success: true })
             setTimeout(() => loadDir(currentPath.value), 2000)
           })
           .catch((error) => {
             const msg = error instanceof Error ? error.message : String(error)
+            logAudit({ category: 'sftp', action: 'upload', target: paths.join(', '), detail: { error: msg }, sessionId: sftpSessionId, success: false })
             notify.notify({ message: `Upload failed: ${msg}`, color: 'error', timeout: 5000 })
           })
       }

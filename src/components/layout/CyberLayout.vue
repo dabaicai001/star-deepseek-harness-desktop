@@ -994,6 +994,7 @@ function getIcon(type: string) {
     case 'docker': return 'mdi-docker'
     case 'excel': return 'mdi-file-excel-outline'
     case 'ai': return 'mdi-robot-outline'
+    case 'web': return 'mdi-web'
     case 'settings': return 'mdi-cog-outline'
     default: return 'mdi-file'
   }
@@ -1034,6 +1035,8 @@ function routeNameForAsset(asset: Asset): string {
 
 function routeNameForTab(tab: { assetId?: string; type: string }): string {
   if (tab.type === 'ai') return 'ai'
+  // web tab 的 assetId 存的是 SSH 会话 id(不是资产),不能走资产查找
+  if (tab.type === 'web') return 'web-browser'
   const asset = tab.assetId ? assetStore.assets.find(a => a.id === tab.assetId) : null
   if (asset) return routeNameForAsset(asset)
   if (tab.type === 'ssh') return 'ssh-terminal'

@@ -263,7 +263,7 @@ async function connect() {
       selectedTab.value = 'exec'
       ownedConnIds.add(connId)
       connected.value = true
-      logAudit({ category: 'docker', action: 'connect', target: connId, assetId: asset.value?.id, success: true })
+      logAudit({ category: 'docker', action: 'connect', target: connId, detail: { mock: true }, assetId: asset.value?.id, success: true })
       return
     }
 
@@ -330,7 +330,7 @@ async function connect() {
     }
     ownedConnIds.add(session.connId)
     connected.value = true
-    logAudit({ category: 'docker', action: 'connect', target: session.connId, assetId: asset.value?.id, success: true })
+    logAudit({ category: 'docker', action: 'connect', target: session.connId, detail: { transport }, assetId: asset.value?.id, success: true })
     await dockerStore.loadContainers()
     if (isStaleConnect(attemptId)) return
     await dockerStore.loadImages()
@@ -391,9 +391,15 @@ function formatPorts(ports: ContainerInfo['ports']): string {
     .join(', ')
 }
 
+/** 构建容器操作审计 detail:容器 id + 名称 + 镜像(列表里拿得到时) */
+function containerAuditDetail(id: string): Record<string, unknown> {
+  const c = dockerStore.containers.find(c => c.id === id)
+  return { containerId: id, name: c?.name ?? null, image: c?.image ?? null }
+}
+
 async function doStart(id: string) {
   await dockerStore.startContainer(id)
-  logAudit({ category: 'docker', action: 'start_container', target: id, assetId: asset.value?.id, success: true })
+  logAudit({ category: 'docker', action: 'start_container', target: id, detail: containerAuditDetail(id), assetId: asset.value?.id, success: true })
 }
 
 async function doStop(id: string) {
@@ -404,7 +410,7 @@ async function doStop(id: string) {
     danger: true
   }))) return
   await dockerStore.stopContainer(id)
-  logAudit({ category: 'docker', action: 'stop_container', target: id, assetId: asset.value?.id, success: true })
+  logAudit({ category: 'docker', action: 'stop_container', target: id, detail: containerAuditDetail(id), assetId: asset.value?.id, success: true })
   notify.notify({ title: 'Docker', message: '容器已停止', color: 'success' })
 }
 
@@ -416,7 +422,7 @@ async function doRestart(id: string) {
     danger: true
   }))) return
   await dockerStore.restartContainer(id)
-  logAudit({ category: 'docker', action: 'restart_container', target: id, assetId: asset.value?.id, success: true })
+  logAudit({ category: 'docker', action: 'restart_container', target: id, detail: containerAuditDetail(id), assetId: asset.value?.id, success: true })
   notify.notify({ title: 'Docker', message: '容器已重启', color: 'success' })
 }
 
@@ -428,8 +434,10 @@ async function doRemove(id: string) {
     danger: true,
     requireTyping: 'REMOVE'
   }))) return
+  // 删除后容器已从列表消失,先取 detail 再执行删除
+  const detail = containerAuditDetail(id)
   await dockerStore.removeContainer(id, true)
-  logAudit({ category: 'docker', action: 'remove_container', target: id, assetId: asset.value?.id, success: true })
+  logAudit({ category: 'docker', action: 'remove_container', target: id, detail, assetId: asset.value?.id, success: true })
   notify.notify({ title: 'Docker', message: '容器已删除', color: 'success' })
 }
 

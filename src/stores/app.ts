@@ -7,10 +7,11 @@ import { checkAlerts } from '@/services/alert'
  * Tab 的 type:
  *  - 'ssh' | 'db' | 'docker':真实资产 tab
  *  - 'ai':独立 AI Agent 工作区
+ *  - 'web':SSH 会话衍生出的网页浏览 tab(assetId 存 SSH 会话 id)
  *
  * 注:settings 已改为独立 dialog,不再是 tab 类型
  */
-export type TabType = AssetType | 'ai'
+export type TabType = AssetType | 'ai' | 'web'
 
 export interface Tab {
   id: string

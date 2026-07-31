@@ -78,6 +78,12 @@ const router = createRouter({
           component: () => import('@/views/AiView.vue'),
           props: true,
         },
+        {
+          path: 'web/:id',
+          name: 'web-browser',
+          component: () => import('@/views/WebBrowserView.vue'),
+          props: true,
+        },
       ],
     },
   ],

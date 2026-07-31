@@ -30,6 +30,7 @@ import NewTableDialog from '@/components/db/NewTableDialog.vue'
 import { addHistory } from '@/utils/sqlHistory'
 import * as dbService from '@/services/db'
 import { logAudit } from '@/services/audit'
+import type { AssetConfig } from '@/types/asset'
 import type { TableInfo, ColumnMeta, QueryResult } from '@/types/db'
 
 const { t } = useI18n()
@@ -81,6 +82,22 @@ let connectAttemptId = 0
 let connectStale = false
 const ownedConnIds = new Set<string>()
 
+/** 数据库默认端口(修复审计 target 端口写死 3306 的问题) */
+const DB_DEFAULT_PORTS: Record<string, number> = { mysql: 3306, postgresql: 5432, clickhouse: 9000, redis: 6379 }
+function effectiveDbPort(config: AssetConfig): number {
+  return config.port || DB_DEFAULT_PORTS[config.dbType || 'mysql'] || 3306
+}
+
+/** 构建 db connect/disconnect 审计 detail:dbType + host + 实际端口 + database */
+function dbConnAuditDetail(config: AssetConfig): Record<string, unknown> {
+  return {
+    dbType: config.dbType || 'mysql',
+    host: config.host ?? null,
+    port: effectiveDbPort(config),
+    database: config.database ?? null
+  }
+}
+
 function markStale() {
   if (connectStale) return
   connectStale = true
@@ -97,7 +114,7 @@ function isStaleConnect(attemptId: number): boolean {
 async function disconnectOwnedSessions() {
   for (const id of [...ownedConnIds]) {
     const config = asset.value?.config
-    logAudit({ category: 'db', action: 'disconnect', target: config ? `${config.username}@${config.host}:${config.port || 3306}` : 'unknown', sessionId: id, assetId: asset.value?.id, success: true })
+    logAudit({ category: 'db', action: 'disconnect', target: config ? `${config.username}@${config.host}:${effectiveDbPort(config)}` : 'unknown', detail: config ? dbConnAuditDetail(config) : null, sessionId: id, assetId: asset.value?.id, success: true })
     await dbStore.disconnect(id)
     ownedConnIds.delete(id)
   }
@@ -406,7 +423,7 @@ async function connect() {
     ownedConnIds.add(session.connId)
     connId.value = session.connId
     connected.value = true
-    logAudit({ category: 'db', action: 'connect', target: `${config.username}@${config.host}:${config.port || 3306}`, sessionId: session.connId, assetId: asset.value?.id, success: true })
+    logAudit({ category: 'db', action: 'connect', target: `${config.username}@${config.host}:${effectiveDbPort(config)}`, detail: dbConnAuditDetail(config), sessionId: session.connId, assetId: asset.value?.id, success: true })
     return true
   }
   try {

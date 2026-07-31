@@ -63,6 +63,7 @@ fn main() {
             commands::ssh::ssh_hostkey_response,
             commands::ssh::ssh_get_trusted_host_key,
             commands::ssh::ssh_add_local_forward,
+            commands::ssh::ssh_add_web_proxy_forward,
             commands::ssh::ssh_add_remote_forward,
             commands::ssh::ssh_remove_forward,
             commands::ssh::ssh_list_forwards,
