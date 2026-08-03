@@ -10,6 +10,10 @@
 ### 计划中
 - Settings 补「代理」「安全」2 个 tab
 
+---
+
+## [0.39.0] - 2026-08-03
+
 ### 新增
 - 工作区 3 层对象树重构(v0.39):顶栏常驻搜索框移除,⌘K / Ctrl+K 唤起命令面板(与 Ctrl+P 双入口);资产树顶部新增紧凑过滤输入;状态栏行高 32px→24px、字号 11→10px;routeNameForAsset/openAssetTab 三处重复收敛为 src/utils/assetRouting.ts
 - 全局资产树升级 3 层(实例 → 库 → 表):新增 objectTree store(连接复用 + 懒加载 + 展开持久化)与 AssetTreeNode 递归组件;MySQL/PostgreSQL/ClickHouse 库表树并入,系统库默认过滤,表超过 50 张折叠为 "+ N more";DbView 删除内部库表侧栏,工具栏只留连接身份 + 操作 + 库选择器;树节点右键(库/表菜单)经 starhub:object-contextmenu 事件路由到对应 DbView,表 sub-tab 也可右键唤起同一菜单
