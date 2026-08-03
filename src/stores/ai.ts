@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { ChatMessage, LlmTool, LlmToolCall, NewChatRequest, NewChatResponse } from '@/services/ai'
 import { chatWithTools, chatStream, estimateCost } from '@/services/ai'
 import { decrypt as decryptLegacyKey } from '@/utils/crypto'
-import { compactPersistedMessages, snapshotChatMessages, type StickyContextBinding } from '@/utils/aiContext'
+import { compactPersistedMessages, hasSteerAfter, snapshotChatMessages, type StickyContextBinding } from '@/utils/aiContext'
 
 const KEYRING_MARKER = 'keyring:v1'
 
@@ -615,6 +615,19 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   /**
+   * 运行中插入引导(steering):不打断当前流式输出与在途工具,
+   * 引导语作为 user 消息进入历史,在 runAgent 下一个步骤边界被快照自然带入请求。
+   * 仅在 agent 运行中(loading)有效;绝不在这里再次调用 runAgent(in-flight 串行锁)。
+   */
+  function steer(instanceId: string, text: string): boolean {
+    const session = sessions.value.get(instanceId)
+    if (!session || !session.loading) return false
+    session.messages.push({ role: 'user', content: text, steered: true })
+    schedulePersistSessions()
+    return true
+  }
+
+  /**
    * 清空某个 session 的消息(新建会话)
    */
   function resetSession(instanceId: string) {
@@ -1212,6 +1225,9 @@ export const useAiStore = defineStore('ai', () => {
         }
 
         if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
+          // 末尾续步:流式期间插入的引导(assistant 占位之后的新 steered user 消息)
+          // 不能吞掉——继续循环一步,让下一步快照带上它
+          if (hasSteerAfter(session.messages, assistantIdx + 1)) continue
           return
         }
 
@@ -1372,6 +1388,7 @@ export const useAiStore = defineStore('ai', () => {
     buildSystemPrompt,
     buildAgentPrompt,
     runAgent,
+    steer,
     stopAgent,
     resetSession,
     addConfirmRecord,
