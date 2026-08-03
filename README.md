@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.38.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.38.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,10 @@
 ---
 
 ## 当前版本
+
+### v0.38.1 (2026-08-03)
+- 🐛 AI 运行中引导(Steering)队列化:引导先入待生效队列、步骤边界 flush,修复落在 tool_calls 与 tool 结果之间导致 LLM 400;入队后 UI 渲染「待生效」弱化气泡
+- 🐛 AiView 最后一个计划步期间插入的引导不再被吞掉;自动续跑加深度上限;末尾续步不再造成 "exceeded max steps" 假错误;持久化保留引导标签
 
 ### v0.38.0 (2026-08-03)
 - ✨ AI 运行中引导(Steering):域面板 AI 运行时插入引导语,LLM 步骤边界生效,末尾自动续步,引导气泡带「引导」标签

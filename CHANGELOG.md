@@ -12,6 +12,17 @@
 
 ---
 
+## [0.38.1] - 2026-08-03
+
+### 修复
+- AI 运行中引导(Steering)改为 per-session 待生效队列(`pendingSteers`)+ runAgent 循环顶部步骤边界 flush,修复引导落在 assistant(tool_calls) 与 tool 结果之间导致严格 provider 报 400「tool must follow tool_calls」;入队后 UI(AiChat / AiView)渲染「待生效」弱化气泡
+- AiView 最后一个计划步期间插入的引导不再被静默吞掉:与 store 统一走队列,计划完成后未生效引导 flush 成 steered 历史并自动续跑
+- 引导自动续跑加深度上限(3 次),防止零步骤计划 / 异常 LLM 输出造成无限链式 planner 调用
+- runAgent 末尾续步在剩余步数不足时不再 continue,避免耗尽循环造成 "exceeded max steps" 假错误;引导留队列为下一轮生效
+- 持久化历史保留引导(steered)标签,重启后引导气泡标记不丢失
+
+---
+
 ## [0.38.0] - 2026-08-03
 
 ### 新增
