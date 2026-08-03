@@ -1,0 +1,278 @@
+/**
+ * 全局对象树 store:资产实例 → 分组 → 对象 三级懒加载元数据。
+ *
+ * - 连接复用 dbStore.sessions(按 assetId + dbType 匹配),没有则由本 store
+ *   建立(会话归全局 sessions 管理,视图卸载不影响);
+ * - 选中对象:先存 pendingSelection(晚挂载的视图 onMounted 主动拉),
+ *   再派 starhub:object-selected(已挂载的视图即时响应),双通道不丢;
+ * - 展开状态持久化 localStorage `starhub.objectTree.{assetId}`。
+ */
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import type { Router } from 'vue-router'
+import type { Asset } from '@/types/asset'
+import { useDbStore } from '@/stores/db'
+import * as dbService from '@/services/db'
+import { openAssetTab, dispatchObjectSelection } from '@/utils/assetRouting'
+
+export type ObjectKind =
+  | 'database' | 'table'
+  | 'redis-db' | 'redis-ns' | 'redis-key'
+  | 'es-group' | 'es-index'
+  | 'kafka-topic' | 'nsq-topic' | 'nsq-channel'
+
+export interface ObjectNode {
+  /** 资产内唯一,如 'db:zhht_wx' / 'table:zhht_wx.orders' */
+  key: string
+  kind: ObjectKind
+  label: string
+  /** 子对象数(表数/keyCount/docs) */
+  count?: number
+  /** 次级文本(行数/大小) */
+  meta?: string
+  hasChildren: boolean
+  payload?: Record<string, unknown>
+}
+
+export interface ObjectSelection {
+  kind: ObjectKind
+  payload: Record<string, unknown>
+}
+
+export interface AssetTreeState {
+  status: 'idle' | 'connecting' | 'ready' | 'error'
+  error: string | null
+  connId: string | null
+  rootChildren: ObjectNode[]
+  childrenByKey: Record<string, ObjectNode[]>
+  loadingKeys: string[]
+  errorByKey: Record<string, string>
+  expanded: string[]
+}
+
+/** 各 dbType 的系统库/schema 过滤 */
+const SYSTEM_DATABASES: Record<string, string[]> = {
+  mysql: ['information_schema', 'mysql', 'performance_schema', 'sys'],
+  postgresql: ['pg_catalog', 'information_schema', 'pg_toast'],
+  clickhouse: ['system', 'INFORMATION_SCHEMA', 'information_schema']
+}
+
+/** 表节点截断:每库默认显示前 50 张,追加 '+ N more' 节点 */
+const TABLE_TRUNCATE = 50
+
+function emptyState(): AssetTreeState {
+  return {
+    status: 'idle', error: null, connId: null,
+    rootChildren: [], childrenByKey: {}, loadingKeys: [], errorByKey: {}, expanded: []
+  }
+}
+
+export const useObjectTreeStore = defineStore('objectTree', () => {
+  const states = ref<Record<string, AssetTreeState>>({})
+  const pending = ref<Record<string, ObjectSelection | null>>({})
+
+  function stateOf(assetId: string): AssetTreeState | undefined {
+    return states.value[assetId]
+  }
+  function ensureState(assetId: string): AssetTreeState {
+    if (!states.value[assetId]) states.value[assetId] = emptyState()
+    return states.value[assetId]
+  }
+
+  // ─── 展开状态持久化 ───
+  function persistExpanded(assetId: string) {
+    try {
+      localStorage.setItem(`starhub.objectTree.${assetId}`, JSON.stringify(states.value[assetId]?.expanded ?? []))
+    } catch { /* quota 等忽略 */ }
+  }
+  function restoreExpanded(assetId: string) {
+    try {
+      const raw = localStorage.getItem(`starhub.objectTree.${assetId}`)
+      if (raw) ensureState(assetId).expanded = JSON.parse(raw) as string[]
+    } catch { /* 脏数据忽略 */ }
+  }
+  function isExpanded(assetId: string, key: string): boolean {
+    return states.value[assetId]?.expanded.includes(key) ?? false
+  }
+  function childrenOf(assetId: string, key: string): ObjectNode[] {
+    return states.value[assetId]?.childrenByKey[key] ?? []
+  }
+
+  // ─── 连接(复用 dbStore.sessions) ───
+  async function ensureConnection(asset: Asset): Promise<string> {
+    const dbStore = useDbStore()
+    const dbType = asset.config.dbType || 'mysql'
+    const existing = [...dbStore.sessions.values()].find(
+      s => s.assetId === asset.id && s.dbType === dbType && s.connected
+    )
+    if (existing) return existing.connId
+    const cfg = asset.config as Record<string, unknown>
+    const base = {
+      host: String(cfg.host ?? ''),
+      port: Number(cfg.port ?? 0),
+      username: String(cfg.username ?? ''),
+      password: String(cfg.password ?? ''),
+      database: cfg.database ? String(cfg.database) : undefined,
+      ssl: Boolean(cfg.ssl)
+    }
+    let session
+    if (dbType === 'postgresql') session = await dbStore.connectPostgres(asset.id, asset.name, base)
+    else if (dbType === 'clickhouse') session = await dbStore.connectClickHouse(asset.id, asset.name, base)
+    else if (dbType === 'redis') {
+      session = await dbStore.connectRedis(asset.id, asset.name, {
+        host: base.host, port: base.port, password: base.password || undefined,
+        db: Number(cfg.db ?? 0), ssl: base.ssl
+      })
+    } else if (dbType === 'elasticsearch') {
+      session = await dbStore.connectElasticsearch(asset.id, asset.name, {
+        address: cfg.address ? String(cfg.address) : undefined,
+        host: base.host, port: base.port,
+        username: base.username || undefined, password: base.password || undefined,
+        useSSL: base.ssl, apiKey: cfg.apiKey ? String(cfg.apiKey) : undefined
+      })
+    } else {
+      session = await dbStore.connectMySQL(asset.id, asset.name, base)
+    }
+    return session.connId
+  }
+
+  // ─── L2 分组加载(DB 系:库/schema 列表) ───
+  async function loadRoot(asset: Asset, state: AssetTreeState): Promise<void> {
+    const dbType = asset.config.dbType || 'mysql'
+    if (dbType === 'mysql' || dbType === 'postgresql' || dbType === 'clickhouse') {
+      const connId = state.connId!
+      const dbs = dbType === 'clickhouse'
+        ? await dbService.clickhouseListDatabases(connId)
+        : await dbService.mysqlListDatabases(connId)
+      const filtered = dbs.filter(db => !(SYSTEM_DATABASES[dbType] ?? []).includes(db))
+      state.rootChildren = filtered.map(db => ({
+        key: `db:${db}`, kind: 'database', label: db,
+        hasChildren: true, payload: { db }
+      }))
+      return
+    }
+    // redis / es / broker 分支在后续迭代扩展
+    state.rootChildren = []
+  }
+
+  /** 展开资产节点:连接 + 拉 L2;幂等(已 ready/connecting 直接返回) */
+  async function ensureAsset(asset: Asset): Promise<void> {
+    const state = ensureState(asset.id)
+    if (state.status === 'ready' || state.status === 'connecting') return
+    restoreExpanded(asset.id)
+    state.status = 'connecting'
+    state.error = null
+    try {
+      state.connId = await ensureConnection(asset)
+      await loadRoot(asset, state)
+      state.status = 'ready'
+    } catch (err) {
+      state.status = 'error'
+      state.error = err instanceof Error ? err.message : String(err)
+    }
+  }
+
+  // ─── L3 子级加载 ───
+  async function loadChildren(asset: Asset, state: AssetTreeState, node: ObjectNode): Promise<void> {
+    const dbType = asset.config.dbType || 'mysql'
+    if (node.kind === 'database') {
+      const db = String(node.payload?.db ?? '')
+      const connId = state.connId!
+      const tables = dbType === 'clickhouse'
+        ? await dbService.clickhouseListTables(connId, db)
+        : await dbService.mysqlListTables(connId, db)
+      const shown = tables.slice(0, TABLE_TRUNCATE)
+      const nodes: ObjectNode[] = shown.map(t => ({
+        key: `table:${db}.${t.name}`, kind: 'table', label: t.name,
+        meta: t.rows != null ? String(t.rows) : undefined,
+        hasChildren: false, payload: { db, table: t.name }
+      }))
+      if (tables.length > TABLE_TRUNCATE) {
+        nodes.push({
+          key: `table:${db}.__more`, kind: 'table',
+          label: `+ ${tables.length - TABLE_TRUNCATE} more`,
+          hasChildren: false, payload: { db, table: '', more: true }
+        })
+      }
+      state.childrenByKey[node.key] = nodes
+    }
+  }
+
+  async function toggleNode(asset: Asset, node: ObjectNode): Promise<void> {
+    const state = ensureState(asset.id)
+    // '+ N more' 伪节点:展开成全量
+    if (node.payload?.more) {
+      const db = String(node.payload.db ?? node.payload.database ?? '')
+      const connId = state.connId
+      if (!connId || !db) return
+      const dbType = asset.config.dbType || 'mysql'
+      const tables = dbType === 'clickhouse'
+        ? await dbService.clickhouseListTables(connId, db)
+        : await dbService.mysqlListTables(connId, db)
+      state.childrenByKey[`db:${db}`] = tables.map(t => ({
+        key: `table:${db}.${t.name}`, kind: 'table' as const, label: t.name,
+        meta: t.rows != null ? String(t.rows) : undefined,
+        hasChildren: false, payload: { db, table: t.name }
+      }))
+      return
+    }
+    const idx = state.expanded.indexOf(node.key)
+    if (idx >= 0) {
+      state.expanded.splice(idx, 1)
+      persistExpanded(asset.id)
+      return
+    }
+    state.expanded.push(node.key)
+    persistExpanded(asset.id)
+    if (node.hasChildren && !state.childrenByKey[node.key] && !state.loadingKeys.includes(node.key)) {
+      state.loadingKeys.push(node.key)
+      delete state.errorByKey[node.key]
+      try {
+        await loadChildren(asset, state, node)
+      } catch (err) {
+        state.errorByKey[node.key] = err instanceof Error ? err.message : String(err)
+      } finally {
+        state.loadingKeys = state.loadingKeys.filter(k => k !== node.key)
+      }
+    }
+  }
+
+  // ─── 选中:pending + 开 tab + 事件 双通道 ───
+  function selectObject(asset: Asset, node: ObjectNode, router: Router): void {
+    if (node.payload?.more) return
+    const selection: ObjectSelection = { kind: node.kind, payload: node.payload ?? {} }
+    pending.value[asset.id] = selection
+    openAssetTab(asset, true, router)
+    dispatchObjectSelection(asset.id, selection.kind, selection.payload)
+  }
+
+  /** 视图 onMounted 主动拉取并清除(晚挂载兜底) */
+  function takePendingSelection(assetId: string): ObjectSelection | null {
+    const sel = pending.value[assetId] ?? null
+    pending.value[assetId] = null
+    return sel
+  }
+
+  /** 数据变更后(删 key / flushdb / 删索引 / 刷新)重拉 */
+  async function refreshAsset(assetId: string): Promise<void> {
+    const state = states.value[assetId]
+    if (!state || state.status !== 'ready') return
+    state.childrenByKey = {}
+    const assetStore = (await import('@/stores/asset')).useAssetStore()
+    const asset = assetStore.assets.find(a => a.id === assetId)
+    if (!asset) return
+    await loadRoot(asset, state)
+    // 已展开的组逐个重拉子级
+    for (const key of [...state.expanded]) {
+      const node = state.rootChildren.find(n => n.key === key)
+      if (node) {
+        try { await loadChildren(asset, state, node) } catch { /* 保持旧错误行 */ }
+      }
+    }
+  }
+
+  return {
+    states, stateOf, ensureAsset, toggleNode, selectObject,
+    takePendingSelection, refreshAsset, isExpanded, childrenOf
+  }
+})

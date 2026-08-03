@@ -7,6 +7,8 @@ import { useAppStore } from '@/stores/app'
 import { useNotifyStore } from '@/stores/notify'
 import { useAiStore, type AiAgent, type AiAgentDraft, type AiConversationSummary } from '@/stores/ai'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
+import AssetTreeNode from '@/components/asset/AssetTreeNode.vue'
+import { useObjectTreeStore, type ObjectNode } from '@/stores/objectTree'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import AiAgentDialog from '@/components/ai/AiAgentDialog.vue'
@@ -653,6 +655,42 @@ const filterQuery = computed({
   get: () => assetStore.searchQuery,
   set: (v: string) => assetStore.setSearchQuery(v)
 })
+
+// ====== 对象树(实例 → 分组 → 对象,objectTree store 懒加载) ======
+const objectTree = useObjectTreeStore()
+/** 已展开对象树的资产 id(仅 UI 态,不持久化;展开时触发 ensureAsset 加载) */
+const treeExpandedIds = ref<string[]>([])
+
+async function toggleAssetTree(asset: Asset) {
+  const idx = treeExpandedIds.value.indexOf(asset.id)
+  if (idx >= 0) {
+    treeExpandedIds.value.splice(idx, 1)
+    return
+  }
+  treeExpandedIds.value.push(asset.id)
+  await objectTree.ensureAsset(asset)
+}
+
+function onNodeToggle(asset: Asset, node: ObjectNode) {
+  void objectTree.toggleNode(asset, node)
+}
+
+function onNodeSelect(asset: Asset, node: ObjectNode) {
+  objectTree.selectObject(asset, node, router)
+}
+
+/** 树节点右键:广播给对应工作区视图(DbView 等按 assetId + kind 过滤后弹菜单) */
+function onNodeCtx(asset: Asset, payload: { node: ObjectNode; x: number; y: number }) {
+  window.dispatchEvent(new CustomEvent('starhub:object-contextmenu', {
+    detail: {
+      assetId: asset.id,
+      kind: payload.node.kind,
+      payload: payload.node.payload ?? {},
+      x: payload.x,
+      y: payload.y
+    }
+  }))
+}
 </script>
 
 <template>
@@ -773,9 +811,8 @@ const filterQuery = computed({
       </div>
       <div v-show="isGroupExpanded('db')" class="tree-group-body">
       <TransitionGroup name="cyber-list">
+      <div v-for="asset in dbAssets" :key="asset.id" class="asset-block">
       <div
-        v-for="asset in dbAssets"
-        :key="asset.id"
         class="tree-item"
         :class="{ active: isActive(asset), selected: isSelected(asset) }"
         :data-tooltip="asset.name"
@@ -784,6 +821,11 @@ const filterQuery = computed({
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
+        <v-icon
+          class="chevron asset-chevron" :class="{ open: treeExpandedIds.includes(asset.id) }"
+          size="12"
+          @click.stop="toggleAssetTree(asset)"
+        >mdi-chevron-right</v-icon>
         <span class="db-badge-wrap">
           <ProductIcon :product="asset.config.dbType || 'mysql'" :size="13" />
           <span class="db-type-label" :class="`db-${asset.config.dbType || 'mysql'}`">{{ getDbLabel(asset.config.dbType) }}</span>
@@ -797,6 +839,19 @@ const filterQuery = computed({
         >
           <v-icon size="13">mdi-star-outline</v-icon>
         </button>
+      </div>
+      <!-- 对象树:实例 → 分组 → 对象(objectTree store 懒加载) -->
+      <div v-if="treeExpandedIds.includes(asset.id)" class="asset-children">
+        <div v-if="objectTree.stateOf(asset.id)?.status === 'connecting'" class="tree-empty">连接中…</div>
+        <div v-else-if="objectTree.stateOf(asset.id)?.status === 'error'" class="tree-empty">
+          连接失败 · <a href="javascript:void 0" class="retry-link" @click="objectTree.ensureAsset(asset)">重试</a>
+        </div>
+        <AssetTreeNode
+          v-for="node in objectTree.stateOf(asset.id)?.rootChildren ?? []"
+          :key="node.key" :asset-id="asset.id" :node="node" :depth="1"
+          @toggle="onNodeToggle(asset, $event)" @select="onNodeSelect(asset, $event)" @ctx="onNodeCtx(asset, $event)"
+        />
+      </div>
       </div>
       </TransitionGroup>
       <div v-if="dbAssets.length === 0" class="tree-empty">
@@ -1179,6 +1234,22 @@ const filterQuery = computed({
   font-size: 11px;
   font-family: inherit;
 }
+
+/* 对象树:资产行外包块 + 实例层 chevron */
+.asset-block { display: block; }
+
+.asset-chevron {
+  transition: transform 0.15s;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.asset-chevron.open { transform: rotate(90deg); }
+
+.retry-link {
+  color: var(--cyan);
+  text-decoration: none;
+}
+.retry-link:hover { text-decoration: underline; }
 
 .tree-group { margin-bottom: 4px; }
 

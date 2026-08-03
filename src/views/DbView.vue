@@ -5,14 +5,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useDbStore } from '@/stores/db'
+import { useObjectTreeStore } from '@/stores/objectTree'
 import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
 import { useDialogStore } from '@/stores/dialog'
 import RightPanel from '@/components/layout/RightPanel.vue'
-import ResizableSidebarHandle from '@/components/layout/ResizableSidebarHandle.vue'
+import ProductIcon from '@/components/common/ProductIcon.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
-import ProductIcon from '@/components/common/ProductIcon.vue'
 import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
 import { extractFromTables } from '@/utils/sqlTables'
 import { usePersistentPanelState } from '@/utils/panelState'
@@ -71,9 +71,6 @@ const loadingDatabases = ref(false)
 // 每个 db 加载表的失败原因(用于在树上展示"加载失败 · 重试")
 const loadErrors = ref<Map<string, string>>(new Map())
 const isExecutingAny = ref(false) // 任一 SQL 结果 tab 在加载中
-const sidebarCollapsed = ref(false)
-const sidebarWidth = ref(260)
-const sidebarDragging = ref(false)
 const selectedDb = ref<string>('')
 let connectAttemptId = 0
 // 路由切换或 view 卸载时,把当前正在跑的连接尝试标为 stale,
@@ -318,10 +315,6 @@ watch(() => activeSqlEditorTab.value?.sqlText, (sqlText) => {
   }, 400)
 })
 
-// 表格搜索
-const tableSearch = ref('')
-const expandedDatabases = ref<Set<string>>(new Set())
-
 // ─── 数据库选择记忆 ───
 const dbStateStorageKey = computed(() => assetId.value ? `starhub.db.${assetId.value}` : '')
 
@@ -330,12 +323,11 @@ function saveDbState() {
   try {
     localStorage.setItem(dbStateStorageKey.value, JSON.stringify({
       selectedDb: selectedDb.value,
-      expanded: [...expandedDatabases.value],
     }))
   } catch {}
 }
 
-function restoreDbState(): { selectedDb: string; expanded: string[] } | null {
+function restoreDbState(): { selectedDb: string } | null {
   if (!dbStateStorageKey.value) return null
   try {
     const raw = localStorage.getItem(dbStateStorageKey.value)
@@ -348,19 +340,9 @@ function restoreDatabaseSelection(databaseList: string[], fallbackDb?: string) {
   const existing = new Set(databaseList)
   const saved = restoreDbState()
 
-  if (saved) {
-    for (const db of saved.expanded) {
-      if (existing.has(db)) {
-        expandedDatabases.value.add(db)
-        void loadTablesForDb(db)
-      }
-    }
-    expandedDatabases.value = new Set(expandedDatabases.value)
-
-    if (saved.selectedDb && existing.has(saved.selectedDb)) {
-      selectedDb.value = saved.selectedDb
-      return
-    }
+  if (saved?.selectedDb && existing.has(saved.selectedDb)) {
+    selectedDb.value = saved.selectedDb
+    return
   }
 
   if (fallbackDb && existing.has(fallbackDb)) {
@@ -369,43 +351,6 @@ function restoreDatabaseSelection(databaseList: string[], fallbackDb?: string) {
 }
 
 watch(selectedDb, saveDbState)
-watch(expandedDatabases, saveDbState, { deep: true })
-
-// 搜索时如果 db 没展开，自动展开匹配项所在的 db
-//
-// 关键:库节点列表的来源是 `databases`(connect/refresh 时拿到的库名数组),
-// 而不是 `databaseTables` Map 的 key。否则用户没点开过任何库时,
-// Map 是空的,UI 就显示"没有可用的数据库"——这是误导,因为库其实是存在的。
-// `databaseTables` Map 只用来存"该库的表是否已加载 + 表内容"。
-const filteredDatabaseTables = computed(() => {
-  const q = tableSearch.value.trim().toLowerCase()
-  const map = new Map<string, TableInfo[]>()
-  for (const db of databases.value) {
-    const tbls = databaseTables.value.get(db) || []
-    if (!q) {
-      map.set(db, tbls)
-    } else {
-      const filtered = tbls.filter(t => t.name.toLowerCase().includes(q))
-      if (filtered.length > 0) map.set(db, filtered)
-    }
-  }
-  return map
-})
-
-// 渲染用:Map 转 [db, tables] 元组数组,绕过 v-for 类型推断
-const filteredDatabaseTablesList = computed(() =>
-  Array.from(filteredDatabaseTables.value.entries())
-)
-
-const totalTables = computed(() => {
-  let n = 0
-  for (const arr of databaseTables.value.values()) n += arr.length
-  return n
-})
-
-// 系统库默认隐藏
-const SYSTEM_DATABASES = ['information_schema', 'mysql', 'performance_schema', 'sys']
-const isSystemDb = (db: string) => SYSTEM_DATABASES.includes(db.toLowerCase())
 
 async function connect() {
   if (!asset.value || connected.value) return
@@ -542,8 +487,6 @@ async function refreshDatabases() {
     databaseTables.value = new Map()
     loadingTables.value = new Set()
     loadErrors.value = new Map()
-    // 清空展开态(用户得重新点开才会懒加载)
-    expandedDatabases.value = new Set()
     // 关闭那些所属 db 已经不存在的表 tab
     const stillExists = new Set(list)
     subTabs.value = subTabs.value.filter(t => {
@@ -553,10 +496,9 @@ async function refreshDatabases() {
     if (activeSubTabId.value && !subTabs.value.find(t => t.id === activeSubTabId.value)) {
       activeSubTabId.value = subTabs.value[0]?.id ?? null
     }
-    // 自动展开还存在的表 tab 所在 db
+    // 预载还存在的表 tab 所在 db 的表(供 SQL 补全)
     for (const t of openTableTabs) {
       if (stillExists.has(t.db)) {
-        expandedDatabases.value.add(t.db)
         void loadTablesForDb(t.db)
       }
     }
@@ -600,28 +542,6 @@ async function loadTablesForDb(db: string) {
     loadingTables.value.delete(db)
     databaseTables.value = new Map(databaseTables.value)
   }
-}
-
-/** 重试某个 db 的表加载(从 loadErrors 中清掉,重新走 loadTablesForDb) */
-function retryLoadTablesForDb(db: string) {
-  if (!connId.value) return
-  databaseTables.value.delete(db)
-  databaseTables.value = new Map(databaseTables.value)
-  void loadTablesForDb(db)
-}
-
-function toggleDatabase(db: string) {
-  if (expandedDatabases.value.has(db)) {
-    expandedDatabases.value.delete(db)
-  } else {
-    expandedDatabases.value.add(db)
-    selectedDb.value = db
-    // 懒加载:第一次展开时拉表
-    if (!databaseTables.value.has(db)) {
-      loadTablesForDb(db)
-    }
-  }
-  expandedDatabases.value = new Set(expandedDatabases.value)
 }
 
 async function selectTable(db: string, tableName: string) {
@@ -772,7 +692,7 @@ function closeCtxMenu() {
   ctxMenu.value = null
 }
 
-function onDatabaseContextMenu(e: MouseEvent, db: string) {
+function onDatabaseContextMenu(x: number, y: number, db: string) {
   ctxDb.value = db
   const items: MenuItem[] = []
   items.push({ type: 'header', label: db })
@@ -781,14 +701,13 @@ function onDatabaseContextMenu(e: MouseEvent, db: string) {
   items.push({ type: 'divider' })
   items.push({ type: 'item', label: t('db.newTable'), icon: 'mdi-table-plus', onClick: () => { openNewTableDialog(db) } })
   items.push({ type: 'item', label: t('db.refreshTables'), icon: 'mdi-refresh', onClick: () => { refreshTablesForDb(db) } })
-  ctxMenu.value = { x: e.clientX, y: e.clientY, items }
+  ctxMenu.value = { x, y, items }
 }
 
 async function refreshTablesForDb(db: string) {
   if (!connId.value || !db) return
   databaseTables.value.delete(db)
   databaseTables.value = new Map(databaseTables.value)
-  expandedDatabases.value.add(db)
   await loadTablesForDb(db)
   notify.notify({ message: t('db.tablesRefreshed', { db }), color: 'success', timeout: 1500 })
 }
@@ -834,7 +753,7 @@ function renameOpenTableTab(db: string, oldName: string, newName: string) {
   }
 }
 
-async function onTableContextMenu(e: MouseEvent, db: string, table: string) {
+async function onTableContextMenu(x: number, y: number, db: string, table: string) {
   ctxDb.value = db
   ctxTable.value = table
 
@@ -853,7 +772,13 @@ async function onTableContextMenu(e: MouseEvent, db: string, table: string) {
     items.push({ type: 'item', label: t('db.dropTable'), icon: 'mdi-delete-outline', danger: true, onClick: () => { doDropTable(db, table) } })
   }
 
-  ctxMenu.value = { x: e.clientX, y: e.clientY, items }
+  ctxMenu.value = { x, y, items }
+}
+
+/** 子标签右键:表 tab 复用树节点的表菜单(全局对象树右键经事件也走这里) */
+function onSubTabContextMenu(e: MouseEvent, tab: SubTab) {
+  if (tab.kind !== 'table') return
+  void onTableContextMenu(e.clientX, e.clientY, tab.db, tab.table)
 }
 
 async function doDropTable(db: string, table: string) {
@@ -2053,17 +1978,33 @@ watch(activeSubTabId, () => {
   setTimeout(updateSubTabScrollState, 50)
 })
 
-function insertTableName(name: string) {
-  const tab = activeSqlEditorTab.value
-  if (tab) {
-    tab.sqlText += (tab.sqlText && !tab.sqlText.endsWith(' ') ? ' ' : '') + name
-  } else {
-    // 没有活跃的 SQL 编辑器标签页,自动新建一个
-    newSqlQuery()
-    const newTab = activeSubTab.value as SqlEditorSubTab | null
-    if (newTab && newTab.kind === 'sql-editor') {
-      newTab.sqlText = name
-    }
+// ====== 全局对象树联动(实例 → 库 → 表,选中/右键经 window 事件到达) ======
+const objectTree = useObjectTreeStore()
+
+function applyObjectSelection(kind: string, payload: Record<string, unknown>) {
+  if (kind === 'table') {
+    void selectTable(String(payload.db ?? ''), String(payload.table ?? ''))
+  } else if (kind === 'database') {
+    selectedDb.value = String(payload.db ?? '')
+    void loadTablesForDb(selectedDb.value)
+  }
+}
+
+function onObjectSelected(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: string; payload?: Record<string, unknown> } | undefined
+  if (!detail || detail.assetId !== assetId.value || !detail.kind || !detail.payload) return
+  applyObjectSelection(detail.kind, detail.payload)
+}
+
+function onObjectContextMenu(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: string; payload?: Record<string, unknown>; x?: number; y?: number } | undefined
+  if (!detail || detail.assetId !== assetId.value || !detail.kind || !detail.payload) return
+  const x = detail.x ?? 0
+  const y = detail.y ?? 0
+  if (detail.kind === 'table') {
+    void onTableContextMenu(x, y, String(detail.payload.db ?? ''), String(detail.payload.table ?? ''))
+  } else if (detail.kind === 'database') {
+    onDatabaseContextMenu(x, y, String(detail.payload.db ?? ''))
   }
 }
 
@@ -2080,11 +2021,19 @@ onMounted(() => {
     if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
     router.push('/')
   }
+
+  window.addEventListener('starhub:object-selected', onObjectSelected)
+  window.addEventListener('starhub:object-contextmenu', onObjectContextMenu)
+  // 晚挂载兜底:树上先点了对象、视图后挂载时主动拉取一次
+  const pendingSel = objectTree.takePendingSelection(assetId.value)
+  if (pendingSel) applyObjectSelection(pendingSel.kind, pendingSel.payload)
 })
 
 onBeforeUnmount(() => {
   markStale()
   connecting.value = false
+  window.removeEventListener('starhub:object-selected', onObjectSelected)
+  window.removeEventListener('starhub:object-contextmenu', onObjectContextMenu)
 })
 
 // ====== 右侧 Panel(仪表盘 / AI 切换) ======
@@ -2269,165 +2218,15 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 <template>
   <div class="db-view-with-panel">
     <div class="db-view">
-    <!-- Sidebar -->
-    <div
-      class="db-sidebar"
-      :class="{ collapsed: sidebarCollapsed, dragging: sidebarDragging }"
-      :style="{
-        width: sidebarCollapsed ? '40px' : `${sidebarWidth}px`,
-        minWidth: sidebarCollapsed ? '40px' : `${sidebarWidth}px`
-      }"
-    >
-      <div class="sidebar-header">
-        <template v-if="!sidebarCollapsed">
-          <span class="sidebar-title">{{ t('db.title') }}</span>
-          <div class="sidebar-header-actions">
-            <button
-              v-if="connected"
-              class="action-btn"
-              :title="t('db.refreshDbList')"
-              :disabled="loadingDatabases"
-              @click="refreshDatabases()"
-            >
-              <v-icon size="14" :class="{ spin: loadingDatabases }">mdi-refresh</v-icon>
-            </button>
-            <button class="action-btn" @click="sidebarCollapsed = true">
-              <v-icon size="14">mdi-chevron-left</v-icon>
-            </button>
-          </div>
-        </template>
-        <button v-else class="action-btn expand-btn" @click="sidebarCollapsed = false">
-          <v-icon size="14">mdi-chevron-right</v-icon>
-        </button>
-      </div>
-
-      <template v-if="!sidebarCollapsed">
-        <!-- Connection status -->
-        <div class="conn-status" :class="{ connected, connecting }">
-          <span class="status-dot" :class="{ online: connected, connecting }"></span>
-          <ProductIcon :product="asset?.config.dbType || 'mysql'" :size="14" />
-          <span class="conn-name">{{ asset?.name || '...' }}</span>
-        </div>
-
-        <!-- Search row -->
-        <div class="search-row">
-          <div class="cyber-search">
-            <v-icon size="14">mdi-magnify</v-icon>
-            <input
-              v-model="tableSearch"
-              type="text"
-              :placeholder="t('db.searchTables')"
-              spellcheck="false"
-            />
-            <kbd v-if="!tableSearch">{{ modKey }}K</kbd>
-            <button
-              v-else
-              class="action-btn-sm"
-              :title="t('ssh.clear')"
-              @click="tableSearch = ''"
-            >
-              <v-icon size="10">mdi-close</v-icon>
-            </button>
-          </div>
-        </div>
-
-        <!-- Tables tree (all databases) -->
-        <div class="tables-tree">
-          <div
-            v-for="[db, tbls] in filteredDatabaseTablesList"
-            :key="db"
-            class="tree-group db"
-          >
-            <!-- DB header (expand/collapse) -->
-            <div class="tree-group-head db-head" @click="toggleDatabase(db)" @contextmenu.prevent="onDatabaseContextMenu($event, db)">
-              <v-icon size="11" class="type-icon">
-                {{ expandedDatabases.has(db) ? 'mdi-chevron-down' : 'mdi-chevron-right' }}
-              </v-icon>
-              <v-icon size="12" class="type-icon">mdi-database</v-icon>
-              <span class="label">{{ db }}</span>
-              <!-- 已加载显示数量;未加载显示个明显的「未加载」标记 -->
-              <span v-if="databaseTables.has(db)" class="count">{{ tbls.length }}</span>
-              <span v-else class="count unloaded" :title="t('db.clickToExpand')">—</span>
-            </div>
-
-            <!-- Tables list (only when expanded) -->
-            <template v-if="expandedDatabases.has(db)">
-              <div
-                v-for="tbl in tbls"
-                :key="`${db}.${tbl.name}`"
-                class="tree-item"
-                :class="{
-                  active: activeTableTab?.db === db && activeTableTab?.table === tbl.name
-                }"
-                @click="selectTable(db, tbl.name)"
-                @dblclick="insertTableName(tbl.name)"
-                @contextmenu.prevent="onTableContextMenu($event, db, tbl.name)"
-              >
-                <v-icon size="11" color="cyan">mdi-table</v-icon>
-                <span class="item-name">{{ tbl.name }}</span>
-                <span v-if="tbl.rows != null" class="item-meta">{{ tbl.rows }}</span>
-              </div>
-              <!-- 展开但还在加载中 -->
-              <div v-if="loadingTables.has(db)" class="empty-search">
-                <v-icon size="10" class="spin">mdi-loading</v-icon>
-                {{ t('common.loading') }}
-              </div>
-              <!-- 加载失败(优先于「空目录」,方便用户看到错误) -->
-              <div v-else-if="loadErrors.has(db)" class="empty-search error">
-                <v-icon size="10" color="red">mdi-alert-circle-outline</v-icon>
-                <span class="error-text" :title="loadErrors.get(db)">
-                  {{ t('db.loadFailed') }}: {{ loadErrors.get(db) }}
-                </span>
-                <button class="retry-btn" :title="t('db.retry')" @click.stop="retryLoadTablesForDb(db)">
-                  <v-icon size="11">mdi-refresh</v-icon>
-                </button>
-              </div>
-              <!-- 已加载但没表(用户能看到这库是空的,不是「没有数据库」) -->
-              <div v-else-if="databaseTables.has(db) && tbls.length === 0" class="empty-search">
-                {{ t('db.empty') }}
-              </div>
-            </template>
-          </div>
-
-          <div v-if="connectError" class="empty-search error">
-            <v-icon size="10" color="red">mdi-alert-circle-outline</v-icon>
-            <span class="error-text" :title="connectError">{{ connectError }}</span>
-            <button class="retry-btn" :title="t('db.retry')" @click="connect()">
-              <v-icon size="11">mdi-refresh</v-icon>
-            </button>
-          </div>
-          <!-- 真正"0 个库"的情况(已连上但 SHOW DATABASES 返回空,
-              通常是权限不足 / 用户被限制到 0 个库) -->
-          <div v-else-if="databases.length === 0 && connected" class="empty-search">
-            <v-icon size="10" color="muted">mdi-database-off-outline</v-icon>
-            <span class="error-text">{{ t('db.noDatabases') }}</span>
-          </div>
-          <!-- 库节点从 databases 数组渲染,只要有库就不会走到这里;
-              保留这个分支是兜底(比如 databases 数组意外被清空) -->
-          <div v-else-if="filteredDatabaseTablesList.length === 0 && connected" class="empty-search">
-            <v-icon size="10" color="muted">mdi-database-off-outline</v-icon>
-            <span class="error-text">{{ t('db.noDatabases') }}</span>
-          </div>
-        </div>
-      </template>
-      <ResizableSidebarHandle
-        :open="!sidebarCollapsed"
-        :width="sidebarWidth"
-        :min="200"
-        :max="420"
-        :default-width="260"
-        :collapse-threshold="160"
-        aria-label="Resize database sidebar"
-        @update:open="sidebarCollapsed = !$event"
-        @update:width="sidebarWidth = $event"
-        @dragging="sidebarDragging = $event"
-      />
-    </div>
-
     <!-- Main content -->
     <div class="db-main">
       <!-- 工具栏:新建查询按钮 -->
       <div class="db-toolbar">
+        <span class="conn-status">
+          <ProductIcon :product="asset?.config.dbType || 'mysql'" :size="14" />
+          <span class="conn-name">{{ asset?.name }}</span>
+          <span class="conn-dot" :class="{ online: connected }" />
+        </span>
         <button class="cyber-btn cyber-btn-sm" @click="newSqlQuery" :disabled="!connected">
           <v-icon size="14">mdi-plus</v-icon>
           {{ t('db.newQuery', '新建查询') }}
@@ -2487,6 +2286,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
             }"
             :title="tab.subtitle"
             @click="selectSubTab(tab.id)"
+            @contextmenu.prevent="onSubTabContextMenu($event, tab)"
           >
             <span class="sub-tab-title">{{ tab.title }}</span>
             <span v-if="tab.loading" class="sub-tab-spin">
@@ -2833,55 +2633,6 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   overflow: hidden;
 }
 
-.db-sidebar {
-  position: relative;
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  transition: width 0.25s, min-width 0.25s;
-}
-
-.db-sidebar.dragging {
-  transition: none;
-}
-
-.db-sidebar.collapsed {
-  width: 40px;
-  min-width: 40px;
-}
-
-.sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-}
-
-.db-sidebar.collapsed .sidebar-header {
-  justify-content: center;
-  padding: 10px 0;
-}
-
-.expand-btn {
-  margin: 0 auto;
-}
-
-.sidebar-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.sidebar-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
 .spin {
   animation: spin 1s linear infinite;
 }
@@ -2894,185 +2645,26 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 .conn-status {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 11px;
   color: var(--text-2);
-  border-bottom: 1px solid var(--line);
 }
 
-.conn-status.connecting {
-  color: var(--cyan);
+.conn-name {
+  font-weight: 600;
+  color: var(--text);
 }
 
-.conn-status.connected .status-dot {
+.conn-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.conn-dot.online {
   background: var(--green);
   box-shadow: 0 0 6px var(--green);
-}
-
-.db-selector {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
-}
-
-.cyber-select {
-  width: 100%;
-  padding: 6px 8px;
-  background: var(--panel-solid-2);
-  border: 1px solid var(--line-2);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 12px;
-  font-family: 'JetBrains Mono', monospace;
-  outline: none;
-}
-
-.cyber-select:focus {
-  border-color: var(--purple);
-}
-
-.tables-tree {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 0;
-}
-
-.tree-subgroup {
-  /* 嵌套分组,缩进 */
-}
-
-.tree-group-head.subgroup-head {
-  cursor: pointer;
-  padding: 4px 14px 4px 24px;
-  user-select: none;
-}
-
-.tree-group-head.subgroup-head:hover {
-  color: var(--text-2);
-}
-
-.tree-group-head.subgroup-head .label {
-  font-weight: 600;
-  color: var(--text-2);
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 11px;
-}
-
-.tree-group-head .label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-}
-
-.tree-subgroup .tree-item {
-  padding-left: 40px;
-}
-
-.empty-search {
-  padding: 8px 14px 8px 40px;
-  font-size: 11px;
-  color: var(--muted);
-  font-style: italic;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.empty-search.error {
-  color: var(--red);
-  font-style: normal;
-}
-
-.error-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-}
-
-.retry-btn {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--line-2);
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.15s;
-  margin-left: 4px;
-}
-
-.retry-btn:hover {
-  background: rgba(0, 240, 255, 0.1);
-  border-color: var(--cyan);
-  color: var(--cyan);
-}
-
-.action-btn-sm {
-  width: 18px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  border-radius: 3px;
-  transition: all 0.15s;
-}
-
-.action-btn-sm:hover {
-  background: rgba(0, 240, 255, 0.08);
-  color: var(--cyan);
-}
-
-.tree-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px 5px 20px;
-  font-size: 12px;
-  color: var(--text-2);
-  cursor: pointer;
-  transition: all 0.15s;
-  border-left: 2px solid transparent;
-}
-
-.tree-item:hover {
-  background: rgba(0, 240, 255, 0.04);
-  color: var(--text);
-}
-
-.tree-item.active {
-  background: rgba(0, 240, 255, 0.08);
-  border-left-color: var(--cyan);
-  color: var(--cyan);
-}
-
-.item-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-}
-
-.item-meta {
-  font-size: 10px;
-  color: var(--muted);
-  font-family: 'JetBrains Mono', monospace;
 }
 
 .db-main {
@@ -3676,23 +3268,8 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   color: var(--cyan);
 }
 
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-  background: var(--muted);
-}
-
-.status-dot.online {
-  background: var(--green);
-  box-shadow: 0 0 8px var(--green);
+.conn-dot.online {
   animation: pulse 2s infinite;
-}
-
-.status-dot.connecting {
-  background: var(--cyan);
-  animation: pulse 1s infinite;
 }
 
 @keyframes pulse {
