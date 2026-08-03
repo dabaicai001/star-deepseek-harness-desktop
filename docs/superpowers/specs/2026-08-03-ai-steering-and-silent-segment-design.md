@@ -37,6 +37,8 @@
 1. **末尾续步**:runAgent 在「本步无 tool_calls 准备 return」前,检查快照之后 `session.messages` 是否新增 user 消息(流式期间插入的引导)——有则继续循环再走一步,否则才 return。否则"AI 最后一步时插入的引导"会被吞掉。
 2. **串行锁**:steering 不得再次调用 `runAgent`(`_inflightPromises` 串行锁是为防并发污染 messages 顺序设计的),只做 `push` + 持久化。
 
+**实现约束(v0.38.1 修正)**:实现上 steer 先入 per-session 待生效队列(`pendingSteers`),runAgent 循环顶部(上一步 tool 结果落位后)才 flush 进 messages,保证 tool 消息序恒合法——若引导直接插入 messages,会落在 `assistant(tool_calls)` 与该步 tool 结果之间,严格 provider 直接 400「tool must follow tool_calls」;UI 从队列渲染「待生效」弱化气泡,flush 后转为正式 steered 消息。
+
 ## 3. 设计
 
 ### 3.1 Store 层(`src/stores/ai.ts`)

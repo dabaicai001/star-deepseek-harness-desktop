@@ -79,13 +79,16 @@ export function snapshotChatMessages(messages: ChatMessage[]): ChatMessage[] {
   })
 }
 
-/** 判断 fromIndex 之后是否有运行中插入的引导消息(供 runAgent 末尾续步判断)。 */
-export function hasSteerAfter(messages: ChatMessage[], fromIndex: number): boolean {
-  for (let index = Math.max(0, fromIndex); index < messages.length; index++) {
-    const message = messages[index]
-    if (message.role === 'user' && message.steered) return true
+/**
+ * 步骤边界 flush:把待生效引导追加为 steered user 消息并清空队列。
+ * 调用点在 runAgent 循环顶部(上一步 tool 结果已全部落位),消息序恒合法。
+ */
+export function drainPendingSteers(messages: ChatMessage[], pendingSteers: string[]): number {
+  const drained = pendingSteers.splice(0).filter(text => text.trim().length > 0)
+  for (const text of drained) {
+    messages.push({ role: 'user', content: text, steered: true })
   }
-  return false
+  return drained.length
 }
 
 export interface StickyContextBinding {
@@ -160,7 +163,8 @@ export function compactPersistedMessages(
       role: message.role,
       content: truncateText(message.content.trim(), MAX_PERSISTED_MESSAGE_CHARS),
       ...(message.id ? { id: message.id } : {}),
-      ...(message.agentName ? { agentName: message.agentName } : {})
+      ...(message.agentName ? { agentName: message.agentName } : {}),
+      ...(message.steered ? { steered: true } : {})
     } satisfies ChatMessage))
 
   const selected: ChatMessage[] = []

@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { ChatMessage, LlmTool, LlmToolCall, NewChatRequest, NewChatResponse } from '@/services/ai'
 import { chatWithTools, chatStream, estimateCost } from '@/services/ai'
 import { decrypt as decryptLegacyKey } from '@/utils/crypto'
-import { compactPersistedMessages, hasSteerAfter, snapshotChatMessages, type StickyContextBinding } from '@/utils/aiContext'
+import { compactPersistedMessages, drainPendingSteers, snapshotChatMessages, type StickyContextBinding } from '@/utils/aiContext'
 
 const KEYRING_MARKER = 'keyring:v1'
 
@@ -269,6 +269,8 @@ export interface AiSession {
   executionPlan?: AiExecutionPlan
   /** 独立 AI 工作区在当前会话内沿用的 # 目标；重启后不会恢复授权。 */
   contextBinding?: AiContextBinding
+  /** 运行中插入、待下一步边界生效的引导队列(runAgent 循环顶部 flush 进 messages)。 */
+  pendingSteers: string[]
 }
 
 export type AiContextBinding = StickyContextBinding
@@ -310,7 +312,8 @@ function parsePersistedMessage(value: unknown): ChatMessage | null {
     role: record.role,
     content: record.content,
     ...(typeof record.id === 'string' ? { id: record.id } : {}),
-    ...(typeof record.agentName === 'string' ? { agentName: record.agentName } : {})
+    ...(typeof record.agentName === 'string' ? { agentName: record.agentName } : {}),
+    ...(record.steered === true ? { steered: true } : {})
   }
 }
 
@@ -512,7 +515,8 @@ export const useAiStore = defineStore('ai', () => {
           messages,
           loading: false,
           error: null,
-          toolCalls: []
+          toolCalls: [],
+          pendingSteers: []
         })
       }
     } catch {
@@ -572,7 +576,8 @@ export const useAiStore = defineStore('ai', () => {
         messages: [],
         loading: false,
         error: null,
-        toolCalls: []
+        toolCalls: [],
+        pendingSteers: []
       }
       sessions.value.set(instanceId, s)
     } else {
@@ -616,13 +621,16 @@ export const useAiStore = defineStore('ai', () => {
 
   /**
    * 运行中插入引导(steering):不打断当前流式输出与在途工具,
-   * 引导语作为 user 消息进入历史,在 runAgent 下一个步骤边界被快照自然带入请求。
+   * 引导语先入 per-session 待生效队列,runAgent 循环顶部(上一步 tool 结果落位后)
+   * 才 flush 进 messages,保证 tool 消息序恒合法(tool result 必须紧跟 assistant tool_calls)。
    * 仅在 agent 运行中(loading)有效;绝不在这里再次调用 runAgent(in-flight 串行锁)。
    */
   function steer(instanceId: string, text: string): boolean {
     const session = sessions.value.get(instanceId)
     if (!session || !session.loading) return false
-    session.messages.push({ role: 'user', content: text, steered: true })
+    const trimmed = text.trim()
+    if (!trimmed) return false
+    session.pendingSteers.push(trimmed)
     schedulePersistSessions()
     return true
   }
@@ -641,6 +649,7 @@ export const useAiStore = defineStore('ai', () => {
       session.loading = false
       session.executionPlan = undefined
       session.contextBinding = undefined
+      session.pendingSteers = []
     }
     conversationSummaries.value = conversationSummaries.value.filter(summary => summary.id !== instanceId)
   }
@@ -1169,6 +1178,10 @@ export const useAiStore = defineStore('ai', () => {
           return
         }
 
+        // 步骤边界 flush 待生效引导:上一步 tool 结果已全部落位,
+        // steered user 只会追加在末尾,消息序恒合法(避免 steer 插在 tool_calls 与 tool 结果之间导致 LLM 400)。
+        drainPendingSteers(session.messages, session.pendingSteers)
+
         const apiKey = await getApiKey()
         const request: NewChatRequest = {
           baseUrl: settings.value.baseUrl,
@@ -1225,9 +1238,11 @@ export const useAiStore = defineStore('ai', () => {
         }
 
         if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
-          // 末尾续步:流式期间插入的引导(assistant 占位之后的新 steered user 消息)
-          // 不能吞掉——继续循环一步,让下一步快照带上它
-          if (hasSteerAfter(session.messages, assistantIdx + 1)) continue
+          // 末尾续步:流式期间入队的引导不能吞掉——继续循环一步,
+          // 循环顶部 drainPendingSteers 会把它 flush 进快照。
+          // 步数不够时不 continue 直接 return:否则耗尽循环造成 "exceeded max steps" 假错误,
+          // 引导留队列为下一轮(用户下条消息触发的 runAgent)生效。
+          if (session.pendingSteers.length > 0 && step + 1 < maxSteps) continue
           return
         }
 

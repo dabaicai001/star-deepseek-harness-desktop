@@ -779,6 +779,7 @@ export default {
     retry: '重试',
     steerButton: '引导',
     steerTag: '引导',
+    steerPending: '待生效',
     steerPlaceholder: '输入引导语,将在当前步骤后生效…',
     stop: '停止',
     composerPlaceholder: "输入问题;使用 {'@'}Agent 协作,使用 #LOCAL / #SSH / #DB / #Docker / #Excel 绑定目标...",

@@ -35,6 +35,7 @@ import { extractWhitelistPrefix } from '@/utils/commandGuard'
 import {
   buildCompletedStepContext,
   buildConversationContext,
+  drainPendingSteers,
   resolveStickyContextBinding
 } from '@/utils/aiContext'
 import { captureScrollAnchor, resolveScrollTop, type ScrollAnchor } from '@/utils/scrollPosition'
@@ -54,6 +55,8 @@ const showAgentDialog = ref(false)
 const planning = ref(false)
 const executing = ref(false)
 const stopRequested = ref(false)
+// 引导自动续跑深度上限(每 tab 实例独立):防止零步骤计划 / 怪癖 LLM 输出无限链式 planner 调用
+let steerContinuationDepth = 0
 const currentExecutionSessionIds = ref<Set<string>>(new Set())
 const pendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
 const runningAgentNames = ref<Set<string>>(new Set())
@@ -547,6 +550,8 @@ function toolCallSummary(record: AiToolCallRecord): string {
 
 async function runPlanStep(plan: AiExecutionPlan, step: AiPlanStep): Promise<boolean> {
   if (stopRequested.value) return false
+  // 步骤边界 flush 待生效引导进主 session,当前步的 buildConversationContext 立即带上
+  drainPendingSteers(session.value.messages, session.value.pendingSteers)
   const agent = agentForStep(plan, step)
   step.status = 'running'
   plan.currentStepId = step.id
@@ -711,10 +716,19 @@ async function planAndExecute(text: string, decision?: string) {
     planning.value = false
     if (plan.status !== 'awaiting-choice') {
       await executePlan(plan)
-      // 末尾续跑:编排期间插入但未被回应的引导,自动作为新一轮发起
-      const pendingSteers = takePendingSteerTexts()
-      if (plan.status === 'completed' && pendingSteers.length > 0 && !stopRequested.value) {
-        await planAndExecute(pendingSteers.join('\n'))
+      // 末尾续跑:编排期间入队但未被步骤 flush 的引导,flush 成 steered 历史后自动作为新一轮发起。
+      // steerContinuationDepth 上限防止零步骤计划 / 怪癖 LLM 输出无限链式 planner 调用;
+      // 不续跑时引导留在队列,由下一轮(用户新消息触发的 runPlanStep / runAgent)生效。
+      if (
+        plan.status === 'completed'
+        && session.value.pendingSteers.length > 0
+        && !stopRequested.value
+        && steerContinuationDepth < 3
+      ) {
+        steerContinuationDepth++
+        const texts = [...session.value.pendingSteers]
+        drainPendingSteers(session.value.messages, session.value.pendingSteers)
+        await planAndExecute(texts.join('\n'))
       }
     }
   } catch (error) {
@@ -746,32 +760,20 @@ function stopOrchestration() {
   session.value.error = '已停止'
 }
 
-/**
- * 取编排期间插入、但直到计划完成都未被 assistant 回应的引导语(末尾连续 steered user 消息)。
- * 每个计划步完成后 assistant 回复会合并进主 session,所以末尾仍是 steered user 说明没被回应。
- */
-function takePendingSteerTexts(): string[] {
-  const messages = session.value.messages
-  const texts: string[] = []
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index]
-    if (message.role !== 'user' || !message.steered) break
-    texts.unshift(message.content)
-  }
-  return texts
-}
-
 async function send() {
   const text = inputText.value.trim()
   if (!text) return
   if (orchestrationBusy.value) {
-    // 运行中:插入 steering 引导。下一计划步骤的 buildConversationContext 会带上它;
-    // 若直到计划完成都未被回应,planAndExecute 末尾会自动以引导语续跑一轮。
-    session.value.messages.push({ role: 'user', content: text, steered: true })
+    // 运行中:引导语入待生效队列(UI 立即渲染「待生效」气泡);
+    // 下一计划步骤 runPlanStep 开头 flush 进 messages 即生效,
+    // 若直到计划完成都未生效,planAndExecute 末尾会自动以引导语续跑一轮(深度上限 3)。
+    session.value.pendingSteers.push(text)
     inputText.value = ''
     scrollToBottom(true)
     return
   }
+  // 用户主动新回合:引导续跑深度归零
+  steerContinuationDepth = 0
   inputText.value = ''
   lastUserText.value = text
   session.value.messages.push({ role: 'user', content: text })
@@ -1121,6 +1123,27 @@ function shortResult(value: string, max = 600) {
               </div>
             </div>
           </template>
+
+          <!-- 待生效引导:已入队,下一计划步骤边界 flush 进 messages -->
+          <div
+            v-for="(text, index) in session.pendingSteers"
+            :key="`pending-steer-${index}`"
+            class="ai-workspace-message user ai-steer-pending"
+          >
+            <span class="ai-message-avatar">
+              <v-icon size="14">mdi-account-outline</v-icon>
+            </span>
+            <div class="ai-message-body">
+              <span class="ai-message-role">{{ t('ai.you') }}</span>
+              <span class="ai-steer-tag">{{ t('ai.steerTag') }}</span>
+              <span class="ai-steer-tag">{{ t('ai.steerPending') }}</span>
+              <AiMessageContent
+                :content="text"
+                :parse-think="false"
+                :think-label="t('ai.thinkingProcess')"
+              />
+            </div>
+          </div>
 
           <div v-if="orchestrationBusy" class="ai-workspace-thinking">
             <v-icon size="14">mdi-loading mdi-spin</v-icon>

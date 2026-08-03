@@ -778,6 +778,7 @@ export default {
     retry: 'Retry',
     steerButton: 'Steer',
     steerTag: 'Steered',
+    steerPending: 'Pending',
     steerPlaceholder: 'Type to steer the AI; takes effect after the current step…',
     stop: 'Stop',
     composerPlaceholder: "Ask a question; use {'@'}Agent to collaborate and #LOCAL / #SSH / #DB / #Docker / #Excel to bind targets...",

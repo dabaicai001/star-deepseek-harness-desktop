@@ -11,7 +11,7 @@ const transpiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
 }).outputText
 const contextModule = await import(`data:text/javascript;base64,${Buffer.from(transpiled).toString('base64')}`)
-const { hasSteerAfter, snapshotChatMessages } = contextModule
+const { drainPendingSteers, snapshotChatMessages } = contextModule
 
 test('request snapshot strips the steered marker before hitting the LLM API', () => {
   const messages = [
@@ -25,22 +25,36 @@ test('request snapshot strips the steered marker before hitting the LLM API', ()
   ])
 })
 
-test('hasSteerAfter detects steering messages inserted after the snapshot point', () => {
+test('drainPendingSteers appends steered user messages after existing assistant(tool_calls) + tool pairs', () => {
   const messages = [
-    { role: 'user', content: '原始问题' },
-    { role: 'assistant', content: '' },
-    { role: 'user', content: '换个方向', steered: true }
+    { role: 'user', content: '检查状态' },
+    { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'ssh_exec', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', name: 'ssh_exec', content: 'ok' }
   ]
-  assert.equal(hasSteerAfter(messages, 2), true)
-  assert.equal(hasSteerAfter(messages, 3), false)
+  const pendingSteers = ['只看错误日志']
+  const flushed = drainPendingSteers(messages, pendingSteers)
+
+  assert.equal(flushed, 1)
+  // 消息序断言:tool 结果之后才是 steered user,tool result 紧跟 assistant tool_calls 不变
+  assert.deepEqual(
+    messages.map(message => message.role),
+    ['user', 'assistant', 'tool', 'user']
+  )
+  const steered = messages[messages.length - 1]
+  assert.equal(steered.content, '只看错误日志')
+  assert.equal(steered.steered, true)
 })
 
-test('hasSteerAfter ignores plain user messages and non-user roles', () => {
-  const messages = [
-    { role: 'user', content: '原始问题' },
-    { role: 'assistant', content: '' },
-    { role: 'user', content: '普通消息' },
-    { role: 'tool', content: 'x', steered: true }
-  ]
-  assert.equal(hasSteerAfter(messages, 2), false)
+test('drainPendingSteers drains the queue, filters blank texts and returns the appended count', () => {
+  const messages = [{ role: 'user', content: '原始问题' }]
+  const pendingSteers = ['换个方向', '   ', '', '再多看一台']
+  const flushed = drainPendingSteers(messages, pendingSteers)
+
+  assert.equal(flushed, 2)
+  assert.deepEqual(pendingSteers, [])
+  assert.deepEqual(
+    messages.slice(1).map(message => message.content),
+    ['换个方向', '再多看一台']
+  )
+  assert.ok(messages.slice(1).every(message => message.role === 'user' && message.steered === true))
 })

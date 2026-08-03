@@ -373,6 +373,25 @@ function shortResult(s: string, max = 240): string {
         </template>
       </template>
 
+      <!-- 待生效引导:已入队,runAgent 下一步骤边界 flush 进 messages -->
+      <div
+        v-for="(text, idx) in session.pendingSteers"
+        :key="`pending-steer-${idx}`"
+        class="msg user steer-pending"
+      >
+        <div class="msg-avatar">
+          <v-icon size="14">mdi-account</v-icon>
+        </div>
+        <div class="msg-body">
+          <div class="msg-meta">
+            <span class="msg-role">你</span>
+            <span class="steer-tag">{{ t('ai.steerTag') }}</span>
+            <span class="steer-tag">{{ t('ai.steerPending') }}</span>
+          </div>
+          <div class="msg-content">{{ text }}</div>
+        </div>
+      </div>
+
       <!-- 加载指示 -->
       <div v-if="sending" class="msg assistant">
         <div class="msg-avatar">
@@ -622,6 +641,11 @@ function shortResult(s: string, max = 240): string {
   border-radius: 4px;
   padding: 0 4px;
   margin-left: 6px;
+}
+
+/* 已入队、待步骤边界生效的引导气泡:弱化表示尚未进入 LLM 上下文 */
+.steer-pending {
+  opacity: 0.6;
 }
 
 .msg-content {

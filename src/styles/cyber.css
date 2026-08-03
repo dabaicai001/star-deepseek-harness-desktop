@@ -4775,6 +4775,11 @@ body {
   margin-left: 6px;
 }
 
+/* 已入队、待步骤边界生效的引导气泡:弱化表示尚未进入 LLM 上下文 */
+.ai-steer-pending {
+  opacity: 0.6;
+}
+
 .ai-mention-menu {
   position: absolute;
   right: 96px;
