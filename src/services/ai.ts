@@ -27,6 +27,8 @@ export interface ChatMessage {
   tool_calls?: LlmToolCall[]
   /** 用户消息附带的图片(base64 data URL,如 data:image/png;base64,...);发送给 LLM 时转为 OpenAI 多模态 content 数组 */
   images?: string[]
+  /** 运行中插入的引导(steering)标记;仅 UI 展示用,发给 LLM 前由 snapshotChatMessages 剥离 */
+  steered?: boolean
 }
 
 /** OpenAI 兼容多模态 content 数组中的单个部分 */

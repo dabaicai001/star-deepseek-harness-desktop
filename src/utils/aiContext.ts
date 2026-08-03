@@ -61,19 +61,31 @@ export function buildConversationContext(
   return selected.join('\n\n')
 }
 
-/** 创建不会被后续流式占位消息污染的请求快照。 */
+/** 创建不会被后续流式占位消息污染的请求快照;steered 等纯 UI 标记在此剥离。 */
 export function snapshotChatMessages(messages: ChatMessage[]): ChatMessage[] {
-  return messages.map(message => ({
-    ...message,
-    ...(message.tool_calls
-      ? {
-          tool_calls: message.tool_calls.map(call => ({
-            ...call,
-            function: { ...call.function }
-          }))
-        }
-      : {})
-  }))
+  return messages.map(message => {
+    const { steered: _steered, ...rest } = message
+    return {
+      ...rest,
+      ...(rest.tool_calls
+        ? {
+            tool_calls: rest.tool_calls.map(call => ({
+              ...call,
+              function: { ...call.function }
+            }))
+          }
+        : {})
+    }
+  })
+}
+
+/** 判断 fromIndex 之后是否有运行中插入的引导消息(供 runAgent 末尾续步判断)。 */
+export function hasSteerAfter(messages: ChatMessage[], fromIndex: number): boolean {
+  for (let index = Math.max(0, fromIndex); index < messages.length; index++) {
+    const message = messages[index]
+    if (message.role === 'user' && message.steered) return true
+  }
+  return false
 }
 
 export interface StickyContextBinding {

@@ -10,6 +10,7 @@
     "test:watch": "vitest",
     "test:ai-context": "node --test tests/ai-context.test.mjs",
     "test:ai-scroll": "node --test tests/ai-scroll-position.test.mjs",
+    "test:ai-steering": "node --test tests/ai-steering.test.mjs",
     "test:utils": "node --test tests/utils/crypto.test.mjs tests/utils/ddlGenerator.test.mjs tests/utils/sqlHistory.test.mjs tests/utils/commandGuard.test.mjs tests/utils/sqlTables.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
