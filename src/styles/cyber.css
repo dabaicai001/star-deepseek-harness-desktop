@@ -735,6 +735,41 @@ body {
   text-transform: uppercase;
 }
 
+/* 分段选择器:两格互斥切换(如 SSH AI 面板的 终端/静默 模式)。 */
+.cyber-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+}
+
+.cyber-segment button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cyber-segment button:hover {
+  color: var(--cyan);
+}
+
+.cyber-segment button.active {
+  background: var(--hover-cyan);
+  color: var(--cyan);
+  box-shadow: inset 0 0 0 1px var(--cyan);
+}
+
 /* Auth chip — 互斥单选组(SSH/DB 认证方式等) */
 .auth-chip-group {
   display: flex;

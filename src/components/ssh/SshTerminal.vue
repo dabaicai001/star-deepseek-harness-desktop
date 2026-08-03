@@ -2098,16 +2098,22 @@ function handleKbCancelled() {
     <div class="ai-silent-toggle">
       <v-icon size="12" :color="aiSilentMode ? 'var(--accent)' : 'var(--muted)'">mdi-run-fast</v-icon>
       <span class="ai-silent-label">{{ t('ssh.aiSilentMode') }}</span>
-      <button
-        class="ai-silent-switch"
-        :class="{ active: aiSilentMode }"
-        role="switch"
-        :aria-checked="aiSilentMode"
-        :title="t('ssh.aiSilentModeHint')"
-        @click="aiSilentMode = !aiSilentMode"
-      >
-        <span class="ai-silent-knob" />
-      </button>
+      <div class="cyber-segment" role="group" :aria-label="t('ssh.aiSilentMode')" :title="t('ssh.aiSilentModeHint')">
+        <button
+          :class="{ active: !aiSilentMode }"
+          :aria-pressed="!aiSilentMode"
+          @click="aiSilentMode = false"
+        >
+          <v-icon size="11">mdi-console</v-icon>{{ t('ssh.aiSilentSegmentTerminal') }}
+        </button>
+        <button
+          :class="{ active: aiSilentMode }"
+          :aria-pressed="aiSilentMode"
+          @click="aiSilentMode = true"
+        >
+          <v-icon size="11">mdi-run-fast</v-icon>{{ t('ssh.aiSilentSegmentSilent') }}
+        </button>
+      </div>
       <button
         class="ai-guide-btn"
         :title="t('ai.guide.helpButton')"
@@ -2460,38 +2466,5 @@ function handleKbCancelled() {
 .ai-guide-btn:hover {
   color: var(--accent);
   background: var(--bg-3);
-}
-
-.ai-silent-switch {
-  position: relative;
-  width: 30px;
-  height: 16px;
-  border-radius: 8px;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  margin-left: auto;
-}
-
-.ai-silent-switch.active {
-  background: color-mix(in srgb, var(--accent) 30%, var(--bg-3));
-  border-color: var(--accent);
-}
-
-.ai-silent-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--muted);
-  transition: all 0.2s ease;
-}
-
-.ai-silent-switch.active .ai-silent-knob {
-  left: 16px;
-  background: var(--accent);
 }
 </style>

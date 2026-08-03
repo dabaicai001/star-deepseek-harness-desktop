@@ -248,6 +248,8 @@ export default {
     },
     aiSilentMode: 'Silent',
     aiSilentModeHint: 'When enabled, AI commands run in background without echoing to terminal',
+    aiSilentSegmentTerminal: 'Terminal',
+    aiSilentSegmentSilent: 'Silent',
     aiSilentFallbackNote: 'This command needs interactive input, so it was run in the terminal instead (silent background mode does not support interaction)',
     webAccess: {
       title: 'Access Server Web Page',

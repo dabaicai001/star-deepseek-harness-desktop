@@ -248,6 +248,8 @@ export default {
     },
     aiSilentMode: '后台静默',
     aiSilentModeHint: '开启后 AI 命令不回显到终端，直接在后台执行',
+    aiSilentSegmentTerminal: '终端',
+    aiSilentSegmentSilent: '静默',
     aiSilentFallbackNote: '该命令需要交互输入，已自动回退到终端执行(后台静默通道不支持交互)',
     webAccess: {
       title: '访问服务器网页',
