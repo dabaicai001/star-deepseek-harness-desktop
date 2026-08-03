@@ -14,11 +14,12 @@ import { useDialogStore } from '@/stores/dialog'
 import { REDIS_SYSTEM_PROMPT, redisTools, makeRedisToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
 import { createMcpRuntime } from '@/services/mcp'
-import KeyBrowser from '@/components/redis/KeyBrowser.vue'
+import { useObjectTreeStore } from '@/stores/objectTree'
 import RedisValueEditor from '@/components/redis/RedisValueEditor.vue'
 import RedisCli from '@/components/redis/RedisCli.vue'
 import RedisTools from '@/components/redis/RedisTools.vue'
 import NewKeyDialog from '@/components/redis/NewKeyDialog.vue'
+import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
 import AiChat from '@/components/ai/AiChat.vue'
@@ -48,9 +49,8 @@ const connectError = ref<string | null>(null)
 const connId = ref<string | null>(null)
 const currentDb = ref(0)
 const dbsize = ref(0)
-const dbSizes = ref<Record<number, number>>({})
 
-const keyBrowserRef = ref<InstanceType<typeof KeyBrowser> | null>(null)
+const objectTree = useObjectTreeStore()
 const valueEditorRef = ref<InstanceType<typeof RedisValueEditor> | null>(null)
 let connectAttemptId = 0
 // 路由切换或 view 卸载时,把当前正在跑的连接尝试标为 stale,
@@ -231,8 +231,6 @@ async function connect() {
     connId.value = session.connId
     connected.value = true
     await refreshDBSize()
-    if (isStaleConnect(attemptId)) return
-    await refreshAllDBSizes()
   } catch (err) {
     if (isStaleConnect(attemptId)) return
     const msg = err instanceof Error ? err.message : String(err)
@@ -252,23 +250,9 @@ async function refreshDBSize() {
   } catch { /* ignore */ }
 }
 
-async function refreshAllDBSizes() {
-  if (!connId.value) return
-  try {
-    const raw = await dbService.redisInfo(connId.value, 'keyspace')
-    const sizes: Record<number, number> = {}
-    for (const line of raw.split('\n')) {
-      const m = line.match(/^db(\d+):keys=(\d+)/)
-      if (m) {
-        sizes[Number(m[1])] = Number(m[2])
-      }
-    }
-    dbSizes.value = sizes
-  } catch { /* ignore */ }
-}
-
-function getDbSize(db: number): number {
-  return dbSizes.value[db] ?? -1
+/** 数据变更后刷新全局对象树(库 keyCount / key 列表) */
+function refreshObjectTree() {
+  void objectTree.refreshAsset(assetId.value)
 }
 
 async function onSwitchDb(db: number) {
@@ -277,7 +261,6 @@ async function onSwitchDb(db: number) {
     await dbService.redisSelect(connId.value, db)
     currentDb.value = db
     await refreshDBSize()
-    await refreshAllDBSizes()
   } catch (err) {
     notify.notify({ title: 'Redis 切换 DB 失败', message: err instanceof Error ? err.message : String(err), color: 'error' })
   }
@@ -288,8 +271,7 @@ async function onDeleteKey(key: string) {
   try {
     await dbService.redisDel(connId.value, [key])
     await refreshDBSize()
-    await refreshAllDBSizes()
-    keyBrowserRef.value?.loadKeys()
+    refreshObjectTree()
   } catch (err) {
     notify.notify({ title: '删除 Key 失败', message: err instanceof Error ? err.message : String(err), color: 'error' })
   }
@@ -310,7 +292,7 @@ async function onFlushDb() {
   try {
     await dbService.redisFlushDB(connId.value)
     dbsize.value = 0
-    keyBrowserRef.value?.loadKeys()
+    refreshObjectTree()
     notify.notify({ title: 'Redis', message: `db${currentDb.value} 已清空`, color: 'success' })
   } catch (err) {
     notify.notify({ title: '清空 DB 失败', message: err instanceof Error ? err.message : String(err), color: 'error' })
@@ -322,16 +304,9 @@ function onNewKey(db: number) {
   showNewKey.value = true
 }
 
-function onKeyCreated(key: string, type: string) {
+function onKeyCreated(_key: string, _type: string) {
   refreshDBSize()
-  refreshAllDBSizes()
-  keyBrowserRef.value?.loadKeys()
-}
-
-async function onRefreshKeys(db: number) {
-  keyBrowserRef.value?.loadKeys()
-  await refreshDBSize()
-  await refreshAllDBSizes()
+  refreshObjectTree()
 }
 
 async function onFlushDbFromBrowser(db: number) {
@@ -347,8 +322,7 @@ async function onFlushDbFromBrowser(db: number) {
     await dbService.redisFlushDB(connId.value)
     currentDb.value = db
     dbsize.value = 0
-    await refreshAllDBSizes()
-    keyBrowserRef.value?.loadKeys()
+    refreshObjectTree()
     notify.notify({ title: 'Redis', message: `db${db} 已清空`, color: 'success' })
   } catch (err) {
     notify.notify({ title: '清空 DB 失败', message: err instanceof Error ? err.message : String(err), color: 'error' })
@@ -367,11 +341,67 @@ async function doRenameKey() {
     await dbService.redisRename(connId.value, renameKeyOld.value, renameKeyNew.value)
     showRenameKey.value = false
     await refreshDBSize()
-    await refreshAllDBSizes()
-    keyBrowserRef.value?.loadKeys()
+    refreshObjectTree()
     notify.notify({ title: 'Redis', message: 'Key 已重命名', color: 'success' })
   } catch (err) {
     notify.notify({ title: '重命名 Key 失败', message: err instanceof Error ? err.message : String(err), color: 'error' })
+  }
+}
+
+// ====== 全局对象树联动(db → namespace → key,选中/右键经 window 事件到达) ======
+function applyObjectSelection(kind: string, payload: Record<string, unknown>) {
+  if (kind === 'redis-db') {
+    void onSwitchDb(Number(payload.db ?? 0))
+  } else if (kind === 'redis-key') {
+    const db = Number(payload.db ?? 0)
+    const open = () => onSelectKey(String(payload.key ?? ''), String(payload.type ?? ''))
+    if (db !== currentDb.value) void onSwitchDb(db).then(open)
+    else open()
+  }
+}
+
+function onObjectSelected(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: string; payload?: Record<string, unknown> } | undefined
+  if (!detail || detail.assetId !== assetId.value || !detail.kind || !detail.payload) return
+  applyObjectSelection(detail.kind, detail.payload)
+}
+
+// 树节点右键:redis-db(刷新/新建 Key/FLUSHDB)、redis-key(重命名/删除)
+const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
+
+function onObjectContextMenu(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: string; payload?: Record<string, unknown>; x?: number; y?: number } | undefined
+  if (!detail || detail.assetId !== assetId.value || !detail.kind || !detail.payload) return
+  const x = detail.x ?? 0
+  const y = detail.y ?? 0
+  if (detail.kind === 'redis-db') {
+    const db = Number(detail.payload.db ?? 0)
+    ctxMenu.value = {
+      x, y,
+      items: [
+        { type: 'header', label: `db${db}` },
+        { type: 'divider' },
+        { type: 'item', label: t('common.refresh'), icon: 'mdi-refresh', onClick: () => { void onSwitchDb(db).then(refreshObjectTree) } },
+        { type: 'item', label: t('redis.newKey', '新建 Key'), icon: 'mdi-plus', onClick: () => onNewKey(db) },
+        { type: 'divider' },
+        { type: 'item', label: 'FLUSHDB', icon: 'mdi-alert-octagon', danger: true, onClick: () => { void onFlushDbFromBrowser(db) } }
+      ]
+    }
+  } else if (detail.kind === 'redis-key') {
+    const key = String(detail.payload.key ?? '')
+    const type = String(detail.payload.type ?? '')
+    if (!key) return
+    ctxMenu.value = {
+      x, y,
+      items: [
+        { type: 'header', label: key },
+        { type: 'divider' },
+        { type: 'item', label: t('common.open', '打开'), icon: 'mdi-open-in-new', onClick: () => onSelectKey(key, type) },
+        { type: 'item', label: t('redis.rename', '重命名'), icon: 'mdi-rename-outline', onClick: () => onRenameKey(key) },
+        { type: 'divider' },
+        { type: 'item', label: t('common.delete'), icon: 'mdi-delete-outline', danger: true, onClick: () => { void onDeleteKey(key) } }
+      ]
+    }
   }
 }
 
@@ -380,33 +410,23 @@ onMounted(() => {
   if (asset.value && asset.value.type === 'db' && asset.value.config.dbType === 'redis') {
     connect()
   }
+  window.addEventListener('starhub:object-selected', onObjectSelected)
+  window.addEventListener('starhub:object-contextmenu', onObjectContextMenu)
+  // 晚挂载兜底:树上先点了对象、视图后挂载时主动拉取一次
+  const pendingSel = objectTree.takePendingSelection(assetId.value)
+  if (pendingSel) applyObjectSelection(pendingSel.kind, pendingSel.payload)
 })
 
 onBeforeUnmount(() => {
   markStale()
   connecting.value = false
+  window.removeEventListener('starhub:object-selected', onObjectSelected)
+  window.removeEventListener('starhub:object-contextmenu', onObjectContextMenu)
 })
 </script>
 
 <template>
   <div class="redis-view">
-    <!-- Left: Key Browser -->
-    <KeyBrowser
-      v-if="connId"
-      ref="keyBrowserRef"
-      :conn-id="connId"
-      :current-db="currentDb"
-      :total-keys="dbsize"
-      :db-sizes="dbSizes"
-      @select-key="onSelectKey"
-      @delete-key="onDeleteKey"
-      @switch-db="onSwitchDb"
-      @new-key="onNewKey"
-      @refresh-keys="onRefreshKeys"
-      @flush-db="onFlushDbFromBrowser"
-      @rename-key="onRenameKey"
-    />
-
     <!-- Center -->
     <div class="redis-center">
       <!-- Header bar -->
@@ -418,6 +438,13 @@ onBeforeUnmount(() => {
           <span class="key-count">{{ dbsize.toLocaleString() }} keys</span>
         </div>
         <div class="header-actions">
+          <button
+            class="action-btn"
+            :title="t('redis.newKey')"
+            @click="onNewKey(currentDb)"
+          >
+            <v-icon size="16">mdi-plus</v-icon>
+          </button>
           <button
             class="action-btn"
             title="Flush DB"
@@ -499,6 +526,15 @@ onBeforeUnmount(() => {
         />
       </template>
     </RightPanel>
+
+    <!-- 树节点右键菜单(redis-db / redis-key) -->
+    <ContextMenu
+      v-if="ctxMenu"
+      :x="ctxMenu.x"
+      :y="ctxMenu.y"
+      :items="ctxMenu.items"
+      @close="ctxMenu = null"
+    />
 
     <!-- New Key Dialog -->
     <NewKeyDialog

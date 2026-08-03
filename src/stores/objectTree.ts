@@ -14,6 +14,7 @@ import type { Asset } from '@/types/asset'
 import { useDbStore } from '@/stores/db'
 import * as dbService from '@/services/db'
 import { openAssetTab, dispatchObjectSelection } from '@/utils/assetRouting'
+import { buildRedisNamespaceTree, type RedisTreeNode } from '@/utils/redisKeys'
 
 export type ObjectKind =
   | 'database' | 'table'
@@ -65,6 +66,20 @@ function emptyState(): AssetTreeState {
     status: 'idle', error: null, connId: null,
     rootChildren: [], childrenByKey: {}, loadingKeys: [], errorByKey: {}, expanded: []
   }
+}
+
+/** Redis trie → ObjectNode,递归把 ns 子级预填进 byKey(无需再请求) */
+function redisTrieToNodes(db: number, t: RedisTreeNode, byKey: Record<string, ObjectNode[]>): ObjectNode {
+  const node: ObjectNode = {
+    key: t.isLeaf ? `rkey:${db}:${t.fullKey}` : `rns:${db}:${t.fullKey}`,
+    kind: t.isLeaf ? 'redis-key' : 'redis-ns',
+    label: t.name,
+    count: t.isLeaf ? undefined : t.keyCount,
+    hasChildren: !t.isLeaf && t.children.length > 0,
+    payload: t.isLeaf ? { db, key: t.fullKey, type: t.keyType } : { db, ns: t.fullKey }
+  }
+  if (!t.isLeaf) byKey[node.key] = t.children.map(c => redisTrieToNodes(db, c, byKey))
+  return node
 }
 
 export const useObjectTreeStore = defineStore('objectTree', () => {
@@ -151,7 +166,23 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       }))
       return
     }
-    // redis / es / broker 分支在后续迭代扩展
+    if (dbType === 'redis') {
+      const connId = state.connId!
+      const raw = await dbService.redisInfo(connId, 'keyspace')
+      const sizes: Record<number, number> = {}
+      for (const line of raw.split('\n')) {
+        const m = line.match(/^db(\d+):keys=(\d+)/)
+        if (m) sizes[Number(m[1])] = Number(m[2])
+      }
+      state.rootChildren = Array.from({ length: 16 }, (_, db) => ({
+        key: `rdb:${db}`, kind: 'redis-db' as const, label: `db${db}`,
+        count: sizes[db] ?? 0,
+        hasChildren: (sizes[db] ?? 0) > 0,
+        payload: { db }
+      }))
+      return
+    }
+    // es / broker 分支在后续迭代扩展
     state.rootChildren = []
   }
 
@@ -196,12 +227,40 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       }
       state.childrenByKey[node.key] = nodes
     }
+    if (node.kind === 'redis-db') {
+      const db = Number(node.payload?.db ?? 0)
+      const connId = state.connId!
+      await dbService.redisSelect(connId, db)
+      const collected: { key: string; type: string; ttl: number }[] = []
+      let cursor = 0
+      let rounds = 0
+      do {
+        const result = await dbService.redisScan(connId, cursor, '*', 200)
+        collected.push(...result.keys)
+        cursor = result.cursor
+        rounds++
+      } while (cursor !== 0 && rounds < 3 && collected.length < 500)
+      const trie = buildRedisNamespaceTree(collected)
+      const byKey: Record<string, ObjectNode[]> = {}
+      const nodes = trie.map(t => redisTrieToNodes(db, t, byKey))
+      if (cursor !== 0) {
+        nodes.push({
+          key: `rdb:${db}.__more`, kind: 'redis-key',
+          label: '(仅前 500 个 key,用 Redis CLI SCAN 查看更多)',
+          hasChildren: false, payload: { db, key: '', type: '', more: true }
+        })
+      }
+      state.childrenByKey[node.key] = nodes
+      // ns 子级预填(trie 已在内存,无需再请求)
+      Object.assign(state.childrenByKey, byKey)
+    }
   }
 
   async function toggleNode(asset: Asset, node: ObjectNode): Promise<void> {
     const state = ensureState(asset.id)
-    // '+ N more' 伪节点:展开成全量
+    // '+ N more' 伪节点:展开成全量(仅 DB 系表;redis 的提示节点不可展开)
     if (node.payload?.more) {
+      if (node.kind !== 'table') return
       const db = String(node.payload.db ?? node.payload.database ?? '')
       const connId = state.connId
       if (!connId || !db) return
