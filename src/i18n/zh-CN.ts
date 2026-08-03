@@ -379,6 +379,7 @@ export default {
     viewDDL: '查看建表语句',
     generatedDDL: '生成的 DDL',
     elasticsearch: 'Elasticsearch',
+    overview: '概览',
     indices: '索引列表',
     search: '搜索',
     dslQuery: 'DSL 查询',

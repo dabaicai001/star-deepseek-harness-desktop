@@ -14,6 +14,7 @@
 - 工作区 3 层对象树重构(v0.39):顶栏常驻搜索框移除,⌘K / Ctrl+K 唤起命令面板(与 Ctrl+P 双入口);资产树顶部新增紧凑过滤输入;状态栏行高 32px→24px、字号 11→10px;routeNameForAsset/openAssetTab 三处重复收敛为 src/utils/assetRouting.ts
 - 全局资产树升级 3 层(实例 → 库 → 表):新增 objectTree store(连接复用 + 懒加载 + 展开持久化)与 AssetTreeNode 递归组件;MySQL/PostgreSQL/ClickHouse 库表树并入,系统库默认过滤,表超过 50 张折叠为 "+ N more";DbView 删除内部库表侧栏,工具栏只留连接身份 + 操作 + 库选择器;树节点右键(库/表菜单)经 starhub:object-contextmenu 事件路由到对应 DbView,表 sub-tab 也可右键唤起同一菜单
 - Redis 对象树并入资产树:db0-15(带 keyCount,空库无子级)→ 命名空间 trie(: 前缀,目录按 keyCount 降序)→ key;单次展开最多扫 500 key,超出给提示节点;RedisView 删除内部 KeyBrowser 侧栏(逻辑抽为 src/utils/redisKeys.ts 纯函数并配单测),删 key/FLUSHDB/重命名后自动刷新树;树右键支持 redis-db(刷新/新建 Key/FLUSHDB)与 redis-key(打开/重命名/删除),header 加新建 Key 按钮
+- ES 索引树并入资产树:按 业务 / metricbeat-* / 系统 三组组织,系统索引(.monitoring-*、.kibana_* 等 . 开头)默认折叠隐藏并标注数量;ElasticsearchView 删除内部索引侧栏(新建/刷新挪到 header),ES 概览面板改 概览/索引 两 tab,索引大表不再挤概览首屏;树右键 es-index 复用原索引菜单(复制名/查看 Mapping/删除)
 
 ---
 

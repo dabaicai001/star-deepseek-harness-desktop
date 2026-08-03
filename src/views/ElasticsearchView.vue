@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useDbStore } from '@/stores/db'
 import { useAppStore } from '@/stores/app'
@@ -18,8 +18,8 @@ import type { RightPanelTab } from '@/components/layout/RightPanel.vue'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { logAudit } from '@/services/audit'
 import ContextMenu from '@/components/common/ContextMenu.vue'
-import ResizableSidebarHandle from '@/components/layout/ResizableSidebarHandle.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
+import { useObjectTreeStore } from '@/stores/objectTree'
 import type { EsIndexInfo, EsSearchResult } from '@/types/db'
 import ProductIcon from '@/components/common/ProductIcon.vue'
 
@@ -50,10 +50,8 @@ const activeTab = ref<'search' | 'index' | 'importexport'>('search')
 
 const indices = ref<EsIndexInfo[]>([])
 const selectedIndex = ref<string | null>(null)
-const indexSearch = ref('')
-const sidebarOpen = ref(true)
-const sidebarWidth = ref(240)
-const sidebarDragging = ref(false)
+
+const objectTree = useObjectTreeStore()
 
 const clusterHealth = ref<{ status: string; numberOfNodes: number; activeShardsPercent: number } | null>(null)
 
@@ -70,12 +68,6 @@ const settings = ref<Record<string, unknown> | null>(null)
 
 const showNewIndex = ref(false)
 const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
-
-const filteredIndices = computed(() => {
-  if (!indexSearch.value) return indices.value
-  const q = indexSearch.value.toLowerCase()
-  return indices.value.filter(i => i.name.toLowerCase().includes(q))
-})
 
 const searchColumns = computed(() => {
   if (!searchResult.value?.hits?.length) return []
@@ -374,7 +366,7 @@ function getFieldTypeColor(type: string): string { if (type === 'text') return '
 // ─── Context Menus ───
 function closeCtxMenu() { ctxMenu.value = null }
 
-function onIndexContextMenu(e: MouseEvent, index: EsIndexInfo) {
+function onIndexContextMenu(x: number, y: number, index: EsIndexInfo) {
   const items: MenuItem[] = [
     { type: 'header', label: index.name },
     { type: 'divider' },
@@ -385,15 +377,7 @@ function onIndexContextMenu(e: MouseEvent, index: EsIndexInfo) {
     { type: 'divider' },
     { type: 'item', label: t('es.deleteIndex'), icon: 'mdi-delete-outline', danger: true, onClick: () => { doDeleteIndex(index.name) } },
   ]
-  ctxMenu.value = { x: e.clientX, y: e.clientY, items }
-}
-
-function onSidebarContextMenu(e: MouseEvent) {
-  const items: MenuItem[] = [
-    { type: 'item', label: t('es.newIndex'), icon: 'mdi-database-plus', onClick: () => { showNewIndex.value = true } },
-    { type: 'item', label: t('es.refreshIndices'), icon: 'mdi-refresh', onClick: () => { loadIndices() } },
-  ]
-  ctxMenu.value = { x: e.clientX, y: e.clientY, items }
+  ctxMenu.value = { x, y, items }
 }
 
 async function doDeleteIndex(name: string) {
@@ -402,16 +386,56 @@ async function doDeleteIndex(name: string) {
     await esService.esDeleteIndex(connId.value, name)
     if (selectedIndex.value === name) { selectedIndex.value = null; mapping.value = null; settings.value = null }
     await loadIndices()
+    refreshObjectTree()
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : String(e)
   }
 }
 
-function onIndexCreated(name: string) {
+function onIndexCreated(_name: string) {
   loadIndices()
+  refreshObjectTree()
 }
 
-onMounted(() => initConnection())
+// ====== 全局对象树联动(分组 → 索引,选中/右键经 window 事件到达) ======
+function refreshObjectTree() {
+  const id = tab.value?.assetId
+  if (id) void objectTree.refreshAsset(id)
+}
+
+function applyObjectSelection(kind: string, payload: Record<string, unknown>) {
+  if (kind === 'es-index') selectIndex(String(payload.index ?? ''))
+}
+
+function onObjectSelected(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: string; payload?: Record<string, unknown> } | undefined
+  if (!detail || detail.assetId !== tab.value?.assetId || !detail.kind || !detail.payload) return
+  applyObjectSelection(detail.kind, detail.payload)
+}
+
+function onObjectContextMenu(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: string; payload?: Record<string, unknown>; x?: number; y?: number } | undefined
+  if (!detail || detail.assetId !== tab.value?.assetId || detail.kind !== 'es-index' || !detail.payload) return
+  const idx = indices.value.find(i => i.name === String(detail.payload!.index ?? ''))
+  if (idx) onIndexContextMenu(detail.x ?? 0, detail.y ?? 0, idx)
+}
+
+onMounted(() => {
+  initConnection()
+  window.addEventListener('starhub:object-selected', onObjectSelected)
+  window.addEventListener('starhub:object-contextmenu', onObjectContextMenu)
+  // 晚挂载兜底:树上先点了索引、视图后挂载时主动拉取一次
+  const id = tab.value?.assetId
+  if (id) {
+    const pendingSel = objectTree.takePendingSelection(id)
+    if (pendingSel) applyObjectSelection(pendingSel.kind, pendingSel.payload)
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('starhub:object-selected', onObjectSelected)
+  window.removeEventListener('starhub:object-contextmenu', onObjectContextMenu)
+})
 </script>
 
 <template>
@@ -429,7 +453,8 @@ onMounted(() => initConnection())
         </template>
       </div>
       <div class="header-right">
-        <button class="cyber-btn-secondary" @click="loadIndices"><v-icon size="14">mdi-refresh</v-icon></button>
+        <button class="cyber-btn-secondary" :title="t('es.newIndex')" @click="showNewIndex = true"><v-icon size="14">mdi-database-plus</v-icon></button>
+        <button class="cyber-btn-secondary" :title="t('es.refreshIndices')" @click="loadIndices"><v-icon size="14">mdi-refresh</v-icon></button>
         <button
           class="action-btn"
           :class="{ active: rightPanelOpen }"
@@ -442,43 +467,6 @@ onMounted(() => initConnection())
     </div>
 
     <div class="es-body">
-      <div
-        class="es-sidebar"
-        :class="{ collapsed: !sidebarOpen, dragging: sidebarDragging }"
-        :style="{
-          width: sidebarOpen ? `${sidebarWidth}px` : '40px',
-          minWidth: sidebarOpen ? `${sidebarWidth}px` : '40px'
-        }"
-        @contextmenu.prevent="onSidebarContextMenu"
-      >
-        <template v-if="sidebarOpen">
-          <div class="sidebar-search">
-            <input v-model="indexSearch" type="text" class="cyber-input" :placeholder="t('common.search') + ' ' + t('db.index') + '...'" />
-            <button class="action-btn" title="Collapse" @click="sidebarOpen = false"><v-icon size="14">mdi-chevron-left</v-icon></button>
-          </div>
-          <div class="index-list">
-            <div v-for="idx in filteredIndices" :key="idx.name" class="tree-item" :class="{ active: selectedIndex === idx.name }" @click="selectIndex(idx.name)" @contextmenu.prevent="onIndexContextMenu($event, idx)">
-              <div class="tree-item-icon"><span class="status-dot" :style="{ backgroundColor: getHealthColor(idx.health) }" /></div>
-              <div class="tree-item-content"><span class="tree-item-label">{{ idx.name }}</span><span class="tree-item-meta">{{ idx.docsCount?.toLocaleString() }} docs</span></div>
-            </div>
-            <div v-if="filteredIndices.length === 0 && !isLoading" class="empty-state"><v-icon size="32">mdi-database-off</v-icon><span>{{ t('common.noData') }}</span></div>
-          </div>
-        </template>
-        <button v-else class="action-btn es-expand-btn" title="Expand" @click="sidebarOpen = true"><v-icon size="14">mdi-chevron-right</v-icon></button>
-        <ResizableSidebarHandle
-          :open="sidebarOpen"
-          :width="sidebarWidth"
-          :min="190"
-          :max="380"
-          :default-width="240"
-          :collapse-threshold="150"
-          aria-label="Resize Elasticsearch sidebar"
-          @update:open="sidebarOpen = $event"
-          @update:width="sidebarWidth = $event"
-          @dragging="sidebarDragging = $event"
-        />
-      </div>
-
       <div class="es-main">
         <div class="es-tabs">
           <button v-for="tb in [{ key: 'search' as const, label: t('db.query'), icon: 'mdi-magnify' }, { key: 'index' as const, label: t('db.index'), icon: 'mdi-file-document' }, { key: 'importexport' as const, label: t('db.export'), icon: 'mdi-import' }]" :key="tb.key" :class="['cyber-tab', { active: activeTab === tb.key }]" @click="activeTab = tb.key"><v-icon size="14">{{ tb.icon }}</v-icon>{{ tb.label }}</button>
@@ -580,13 +568,6 @@ onMounted(() => initConnection())
 .header-host { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2); }
 .header-right { display: flex; gap: 8px; }
 .es-body { display: flex; flex: 1; overflow: hidden; }
-.es-sidebar { position: relative; border-right: 1px solid var(--line); background: var(--panel-solid); display: flex; flex-direction: column; overflow: hidden; transition: width 0.25s, min-width 0.25s; }
-.es-sidebar.dragging { transition: none; }
-.es-sidebar.collapsed { align-items: center; }
-.sidebar-search { display: flex; align-items: center; gap: 8px; padding: 10px; border-bottom: 1px solid var(--line); }
-.sidebar-search .cyber-input { height: 28px; font-size: 12px; }
-.es-expand-btn { margin-top: 10px; }
-.index-list { flex: 1; overflow-y: auto; padding: 6px 0; }
 .es-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .es-tabs { display: flex; gap: 0; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel-solid); }
 .es-tab-content { flex: 1; overflow-y: auto; padding: 16px; }
@@ -639,11 +620,4 @@ onMounted(() => initConnection())
 .cyber-tab { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border: none; background: none; color: var(--text-2); cursor: pointer; font-size: 12px; font-family: inherit; border-bottom: 2px solid transparent; transition: all 0.2s; }
 .cyber-tab:hover { color: var(--text); }
 .cyber-tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
-.tree-item { display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; transition: all 0.15s; border-left: 2px solid transparent; }
-.tree-item:hover { background: rgba(0, 240, 255, 0.04); }
-.tree-item.active { border-left-color: var(--cyan); background: rgba(0, 240, 255, 0.06); }
-.tree-item-icon { flex-shrink: 0; }
-.tree-item-content { flex: 1; min-width: 0; }
-.tree-item-label { font-size: 12px; font-family: 'JetBrains Mono', monospace; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree-item-meta { font-size: 10px; color: var(--muted); }
 </style>

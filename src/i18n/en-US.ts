@@ -378,6 +378,7 @@ export default {
     viewDDL: 'View CREATE TABLE',
     generatedDDL: 'Generated DDL',
     elasticsearch: 'Elasticsearch',
+    overview: 'Overview',
     indices: 'Indices',
     search: 'Search',
     dslQuery: 'DSL Query',

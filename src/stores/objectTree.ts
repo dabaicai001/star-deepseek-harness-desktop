@@ -15,6 +15,7 @@ import { useDbStore } from '@/stores/db'
 import * as dbService from '@/services/db'
 import { openAssetTab, dispatchObjectSelection } from '@/utils/assetRouting'
 import { buildRedisNamespaceTree, type RedisTreeNode } from '@/utils/redisKeys'
+import { groupEsIndices } from '@/utils/esIndexGroups'
 
 export type ObjectKind =
   | 'database' | 'table'
@@ -66,6 +67,13 @@ function emptyState(): AssetTreeState {
     status: 'idle', error: null, connId: null,
     rootChildren: [], childrenByKey: {}, loadingKeys: [], errorByKey: {}, expanded: []
   }
+}
+
+/** docs 数紧凑格式化:1234 → 1.2K,5678901 → 5.7M */
+function compactDocs(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return String(n)
 }
 
 /** Redis trie → ObjectNode,递归把 ns 子级预填进 byKey(无需再请求) */
@@ -182,7 +190,28 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       }))
       return
     }
-    // es / broker 分支在后续迭代扩展
+    if (dbType === 'elasticsearch') {
+      const connId = state.connId!
+      const indices = await dbService.esListIndices(connId)
+      const groups = groupEsIndices(indices)
+      state.rootChildren = groups.map(g => ({
+        key: `esg:${g.key}`, kind: 'es-group' as const,
+        label: g.hidden ? `${g.label}(${g.indices.length} 隐藏)` : g.label,
+        count: g.indices.length,
+        hasChildren: true,
+        payload: { group: g.key }
+      }))
+      // 各组子级预填(索引列表已在内存,无需再请求);系统组默认不展开
+      for (const g of groups) {
+        state.childrenByKey[`esg:${g.key}`] = g.indices.map(idx => ({
+          key: `esi:${idx.name}`, kind: 'es-index' as const, label: idx.name,
+          meta: compactDocs(idx.docsCount),
+          hasChildren: false, payload: { index: idx.name }
+        }))
+      }
+      return
+    }
+    // broker 分支在后续迭代扩展
     state.rootChildren = []
   }
 
