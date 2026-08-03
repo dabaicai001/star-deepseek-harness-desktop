@@ -749,6 +749,8 @@ async function choosePlanOption(issue: AiPlanIssue, option: AiPlanOption) {
     plan.status = 'planned'
     return
   }
+  // 用户做选择等同于发起新回合:引导续跑深度归零,避免历史链式续跑残留导致过早封顶
+  steerContinuationDepth = 0
   await planAndExecute(plan.request, `${issue.question}\n用户选择: ${option.label}\n${option.description}`)
 }
 

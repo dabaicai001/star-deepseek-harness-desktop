@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.38.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.38.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.38.2 (2026-08-03)
+- 🐛 AI 计划「awaiting-choice」分支做选择续跑时重置引导续跑深度计数,避免历史链式续跑残留导致引导过早封顶
 
 ### v0.38.1 (2026-08-03)
 - 🐛 AI 运行中引导(Steering)队列化:引导先入待生效队列、步骤边界 flush,修复落在 tool_calls 与 tool 结果之间导致 LLM 400;入队后 UI 渲染「待生效」弱化气泡
