@@ -16,6 +16,7 @@
 - Redis 对象树并入资产树:db0-15(带 keyCount,空库无子级)→ 命名空间 trie(: 前缀,目录按 keyCount 降序)→ key;单次展开最多扫 500 key,超出给提示节点;RedisView 删除内部 KeyBrowser 侧栏(逻辑抽为 src/utils/redisKeys.ts 纯函数并配单测),删 key/FLUSHDB/重命名后自动刷新树;树右键支持 redis-db(刷新/新建 Key/FLUSHDB)与 redis-key(打开/重命名/删除),header 加新建 Key 按钮
 - ES 索引树并入资产树:按 业务 / metricbeat-* / 系统 三组组织,系统索引(.monitoring-*、.kibana_* 等 . 开头)默认折叠隐藏并标注数量;ElasticsearchView 删除内部索引侧栏(新建/刷新挪到 header),ES 概览面板改 概览/索引 两 tab,索引大表不再挤概览首屏;树右键 es-index 复用原索引菜单(复制名/查看 Mapping/删除)
 - Kafka/NSQ topic 树并入资产树:Kafka topic(分区数)直挂实例;NSQ topic → channel 二级(sidecar NSQOverview 扩展返回 channel 明细:名称/深度/积压/累计消息,parseNsqStats 抽取并配 Go 单测);broker 无会话直连 overview,topic 积压深度内联标注
+- DbDashboard 指标卡改 tab 分组:MySQL 概览(4)/性能(4)/网络(2),PostgreSQL 概览(4)/性能(4),Redis 概览(4)/性能(4),单屏不再堆 8-9 张卡;数据加载逻辑不变
 
 ---
 

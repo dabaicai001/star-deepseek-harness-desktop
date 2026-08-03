@@ -7,6 +7,7 @@
  */
 import { ref, onMounted, computed, watch } from 'vue'
 import DashboardCard from './DashboardCard.vue'
+import { useI18n } from 'vue-i18n'
 import { usePolling } from '@/composables/usePolling'
 import { redisInfo, redisDBSize, mysqlExecute } from '@/services/db'
 import {
@@ -30,6 +31,22 @@ const props = defineProps<{
   connected: boolean
   database?: string
 }>()
+
+const { t } = useI18n()
+
+// ─── 指标卡 tab 分组(概览/性能/网络,单屏不再堆 8-10 张卡) ───
+type DashTab = 'overview' | 'performance' | 'network'
+const dashTab = ref<DashTab>('overview')
+const dashTabs = computed<DashTab[]>(() => {
+  if (props.dbType === 'mysql') return ['overview', 'performance', 'network']
+  if (props.dbType === 'postgresql' || props.dbType === 'redis') return ['overview', 'performance']
+  return ['overview']
+})
+const dashTabLabel = computed<Record<DashTab, string>>(() => ({
+  overview: t('db.dashOverview'),
+  performance: t('db.dashPerformance'),
+  network: t('db.dashNetwork')
+}))
 
 const loading = ref(true)
 const refreshing = ref(false)
@@ -436,10 +453,20 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
       <span>数据库未连接,等待连接后自动采集</span>
     </div>
 
+    <!-- 指标卡分组 tab(仅 mysql/postgresql/redis) -->
+    <div v-if="dbType === 'mysql' || dbType === 'postgresql' || dbType === 'redis'" class="dash-tabs">
+      <button
+        v-for="tab in dashTabs" :key="tab"
+        class="dash-tab" :class="{ active: dashTab === tab }"
+        @click="dashTab = tab"
+      >{{ dashTabLabel[tab] }}</button>
+    </div>
+
     <!-- Redis 真实指标 -->
     <template v-if="dbType === 'redis'">
       <div class="dashboard-grid">
         <DashboardCard
+          v-show="dashTab === 'overview'"
           title="运行时间"
           icon="mdi-clock-outline"
           :value="redis.uptimePretty"
@@ -452,6 +479,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'overview'"
           title="已用内存"
           icon="mdi-memory"
           :value="redis.usedMemoryHuman"
@@ -465,6 +493,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'overview'"
           title="总键数"
           icon="mdi-key"
           :value="redis.totalKeys"
@@ -475,6 +504,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'overview'"
           title="客户端连接"
           icon="mdi-connection"
           :value="redis.connectedClients"
@@ -486,6 +516,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'performance'"
           title="命中率"
           icon="mdi-target"
           :value="redis.hitRate.toFixed(2) + '%'"
@@ -498,6 +529,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'performance'"
           title="峰值内存"
           icon="mdi-chart-areaspline"
           :value="formatDbBytes(redis.usedMemoryPeak)"
@@ -508,6 +540,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'performance'"
           title="累计命令数"
           icon="mdi-console"
           :value="redis.totalCommandsProcessed.toLocaleString()"
@@ -518,6 +551,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'performance'"
           title="每秒操作数"
           icon="mdi-flash"
           :value="redis.instantaneousOpsPerSec"
@@ -534,6 +568,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
     <template v-else-if="dbType === 'mysql'">
       <div class="dashboard-grid">
         <DashboardCard
+          v-show="dashTab === 'overview'"
           title="运行时间"
           icon="mdi-clock-outline"
           :value="mysql.uptimePretty"
@@ -545,6 +580,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'overview'"
           title="连接数"
           icon="mdi-connection"
           :value="mysql.threadsConnected"
@@ -559,6 +595,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'performance'"
           title="累计查询"
           icon="mdi-database-search"
           :value="mysql.queries.toLocaleString()"
@@ -571,6 +608,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'performance'"
           title="慢查询"
           icon="mdi-turtle"
           :value="mysql.slowQueries"
@@ -583,6 +621,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'performance'"
           title="缓冲池命中率"
           icon="mdi-buffer"
           :value="mysql.bufferPoolHitRate.toFixed(2) + '%'"
@@ -596,6 +635,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'overview'"
           title="数据大小"
           icon="mdi-database-arrow-down"
           :value="formatDbBytes(mysql.dataSize)"
@@ -613,6 +653,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'overview'"
           title="表数量"
           icon="mdi-table"
           :value="mysql.tableCount"
@@ -624,6 +665,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'performance'"
           title="活跃线程"
           icon="mdi-application-cog"
           :value="mysql.threadsRunning"
@@ -637,6 +679,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'network'"
           title="网络接收"
           icon="mdi-download-network"
           :value="formatDbBytes(mysql.bytesReceived)"
@@ -647,6 +690,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
         />
 
         <DashboardCard
+          v-show="dashTab === 'network'"
           title="网络发送"
           icon="mdi-upload-network"
           :value="formatDbBytes(mysql.bytesSent)"
@@ -662,6 +706,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
     <template v-else-if="dbType === 'postgresql'">
       <div class="dashboard-grid">
         <DashboardCard
+          v-show="dashTab === 'overview'"
           title="运行时间"
           icon="mdi-clock-outline"
           :value="formatDbUptime(postgres.uptimeSeconds)"
@@ -672,6 +717,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
           :sample-key="sampleKey"
         />
         <DashboardCard
+          v-show="dashTab === 'overview'"
           title="连接数"
           icon="mdi-connection"
           :value="postgres.connections"
@@ -685,6 +731,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
           description="pg_stat_activity 会话明细，展示客户端 IP、账号、应用、等待事件与当前 SQL。"
         />
         <DashboardCard
+          v-show="dashTab === 'performance'"
           title="活跃会话"
           icon="mdi-application-cog"
           :value="postgres.activeConnections"
@@ -695,6 +742,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
           :detail-table="postgresConnectionTable"
         />
         <DashboardCard
+          v-show="dashTab === 'performance'"
           title="慢语句"
           icon="mdi-turtle"
           :value="postgresSlowStatements.length"
@@ -706,6 +754,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
           description="优先读取 pg_stat_statements 的具体 SQL 和累计耗时；扩展不可用时展示当前运行超过 1 秒的语句及客户端 IP。"
         />
         <DashboardCard
+          v-show="dashTab === 'performance'"
           title="缓存命中率"
           icon="mdi-buffer"
           :value="postgres.cacheHitRate.toFixed(2) + '%'"
@@ -716,6 +765,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
           :sample-key="sampleKey"
         />
         <DashboardCard
+          v-show="dashTab === 'overview'"
           title="数据库大小"
           icon="mdi-database-arrow-down"
           :value="formatDbBytes(postgres.databaseSize)"
@@ -725,6 +775,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
           :sample-key="sampleKey"
         />
         <DashboardCard
+          v-show="dashTab === 'overview'"
           title="当前 Schema 表数"
           icon="mdi-table"
           :value="postgres.tableCount"
@@ -734,6 +785,7 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
           :sample-key="sampleKey"
         />
         <DashboardCard
+          v-show="dashTab === 'performance'"
           title="累计事务"
           icon="mdi-swap-horizontal"
           :value="postgres.transactions.toLocaleString()"
@@ -761,6 +813,10 @@ watch(() => [props.connId, props.dbType, props.connected, props.database], () =>
   height: 100%;
   overflow-y: auto;
 }
+
+.dash-tabs { display: flex; gap: 2px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+.dash-tab { padding: 6px 12px; font-size: 11px; color: var(--text-2); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-family: inherit; }
+.dash-tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
 
 .dashboard-header {
   display: flex;
