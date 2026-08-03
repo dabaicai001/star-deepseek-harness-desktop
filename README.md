@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.37.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.38.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,11 @@
 ---
 
 ## 当前版本
+
+### v0.38.0 (2026-08-03)
+- ✨ AI 运行中引导(Steering):域面板 AI 运行时插入引导语,LLM 步骤边界生效,末尾自动续步,引导气泡带「引导」标签
+- ✨ AiView 编排中插入引导(计划步骤边界生效,未回应自动续跑);「引导」按钮专职运行中引导,原模板弹层移除
+- 🎨 SSH AI 面板「后台静默」改为分段按钮(终端/静默)
 
 ### v0.37.0 (2026-07-31)
 - ✨ Web Access 重做:终端工具栏一键开启应用内浏览器子页面(地址栏 + 内嵌 webview),转发层改写 Host 头修复虚拟主机站点 404
