@@ -14,6 +14,7 @@ import type { Asset } from '@/types/asset'
 import { useDbStore } from '@/stores/db'
 import * as dbService from '@/services/db'
 import { openAssetTab, dispatchObjectSelection } from '@/utils/assetRouting'
+import { loadBrokerOverview } from '@/services/broker'
 import { buildRedisNamespaceTree, type RedisTreeNode } from '@/utils/redisKeys'
 import { groupEsIndices } from '@/utils/esIndexGroups'
 
@@ -162,6 +163,40 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
   // ─── L2 分组加载(DB 系:库/schema 列表) ───
   async function loadRoot(asset: Asset, state: AssetTreeState): Promise<void> {
     const dbType = asset.config.dbType || 'mysql'
+    if (dbType === 'kafka' || dbType === 'nsq') {
+      const cfg = asset.config as Record<string, unknown>
+      const overview = await loadBrokerOverview(dbType, {
+        host: String(cfg.host ?? ''),
+        port: Number(cfg.port ?? 0),
+        username: cfg.username ? String(cfg.username) : undefined,
+        password: cfg.password ? String(cfg.password) : undefined,
+        ssl: Boolean(cfg.ssl)
+      })
+      if (dbType === 'kafka') {
+        state.rootChildren = overview.resources.map(r => ({
+          key: `kt:${r.name}`, kind: 'kafka-topic' as const, label: r.name,
+          count: r.partitions, hasChildren: false, payload: { topic: r.name }
+        }))
+      } else {
+        state.rootChildren = overview.resources.map(r => ({
+          key: `nt:${r.name}`, kind: 'nsq-topic' as const, label: r.name,
+          count: r.channels,
+          meta: r.depth != null && r.depth > 0 ? `积压 ${r.depth}` : undefined,
+          hasChildren: (r.channelList?.length ?? 0) > 0,
+          payload: { topic: r.name }
+        }))
+        for (const r of overview.resources) {
+          if (r.channelList?.length) {
+            state.childrenByKey[`nt:${r.name}`] = r.channelList.map(ch => ({
+              key: `nc:${r.name}/${ch.name}`, kind: 'nsq-channel' as const, label: ch.name,
+              meta: ch.backlog != null && ch.backlog > 0 ? `积压 ${ch.backlog}` : undefined,
+              hasChildren: false, payload: { topic: r.name, channel: ch.name }
+            }))
+          }
+        }
+      }
+      return
+    }
     if (dbType === 'mysql' || dbType === 'postgresql' || dbType === 'clickhouse') {
       const connId = state.connId!
       const dbs = dbType === 'clickhouse'
@@ -223,7 +258,13 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     state.status = 'connecting'
     state.error = null
     try {
-      state.connId = await ensureConnection(asset)
+      const dbType = asset.config.dbType || 'mysql'
+      if (dbType === 'kafka' || dbType === 'nsq') {
+        // broker 无会话,loadRoot 直连 overview
+        state.connId = null
+      } else {
+        state.connId = await ensureConnection(asset)
+      }
       await loadRoot(asset, state)
       state.status = 'ready'
     } catch (err) {

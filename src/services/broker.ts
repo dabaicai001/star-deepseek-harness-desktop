@@ -11,6 +11,13 @@ export interface BrokerConnectParams {
   ssl?: boolean
 }
 
+export interface BrokerChannel {
+  name: string
+  depth?: number
+  backlog?: number
+  messages?: number
+}
+
 export interface BrokerResource {
   name: string
   partitions?: number
@@ -18,6 +25,7 @@ export interface BrokerResource {
   depth?: number
   messages?: number
   leader?: string
+  channelList?: BrokerChannel[]
 }
 
 export interface BrokerOverview {

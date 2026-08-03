@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"sort"
@@ -23,13 +24,21 @@ type BrokerConnInfo struct {
 	SSL      bool   `json:"ssl,omitempty"`
 }
 
+type NSQChannel struct {
+	Name     string `json:"name"`
+	Depth    int64  `json:"depth,omitempty"`
+	Backlog  int64  `json:"backlog,omitempty"`
+	Messages int64  `json:"messages,omitempty"`
+}
+
 type BrokerResource struct {
-	Name       string `json:"name"`
-	Partitions int    `json:"partitions,omitempty"`
-	Channels   int    `json:"channels,omitempty"`
-	Depth      int64  `json:"depth,omitempty"`
-	Messages   int64  `json:"messages,omitempty"`
-	Leader     string `json:"leader,omitempty"`
+	Name        string       `json:"name"`
+	Partitions  int          `json:"partitions,omitempty"`
+	Channels    int          `json:"channels,omitempty"`
+	Depth       int64        `json:"depth,omitempty"`
+	Messages    int64        `json:"messages,omitempty"`
+	Leader      string       `json:"leader,omitempty"`
+	ChannelList []NSQChannel `json:"channelList,omitempty"`
 }
 
 type BrokerOverview struct {
@@ -156,27 +165,10 @@ func NSQOverview(info BrokerConnInfo) (*BrokerOverview, error) {
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("nsqd stats returned HTTP %d", response.StatusCode)
 	}
-	var payload struct {
-		Topics []struct {
-			Name         string `json:"topic_name"`
-			Depth        int64  `json:"depth"`
-			MessageCount int64  `json:"message_count"`
-			Channels     []any  `json:"channels"`
-		} `json:"topics"`
+	resources, err := parseNsqStats(response.Body)
+	if err != nil {
+		return nil, err
 	}
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode nsqd stats: %w", err)
-	}
-	resources := make([]BrokerResource, 0, len(payload.Topics))
-	for _, topic := range payload.Topics {
-		resources = append(resources, BrokerResource{
-			Name:     topic.Name,
-			Channels: len(topic.Channels),
-			Depth:    topic.Depth,
-			Messages: topic.MessageCount,
-		})
-	}
-	sort.Slice(resources, func(i, j int) bool { return resources[i].Name < resources[j].Name })
 	return &BrokerOverview{
 		Kind:       "nsq",
 		Status:     "online",
@@ -185,6 +177,47 @@ func NSQOverview(info BrokerConnInfo) (*BrokerOverview, error) {
 		Resources:  resources,
 		ObservedAt: time.Now().UnixMilli(),
 	}, nil
+}
+
+// parseNsqStats 解析 nsqd /stats?format=json 响应,返回按 name 排序的 topic 列表(含 channel 明细)。
+func parseNsqStats(body io.Reader) ([]BrokerResource, error) {
+	var payload struct {
+		Topics []struct {
+			Name         string `json:"topic_name"`
+			Depth        int64  `json:"depth"`
+			MessageCount int64  `json:"message_count"`
+			Channels     []struct {
+				Name         string `json:"channel_name"`
+				Depth        int64  `json:"depth"`
+				Backlog      int64  `json:"backlog_count"`
+				MessageCount int64  `json:"message_count"`
+			} `json:"channels"`
+		} `json:"topics"`
+	}
+	if err := json.NewDecoder(body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode nsqd stats: %w", err)
+	}
+	resources := make([]BrokerResource, 0, len(payload.Topics))
+	for _, topic := range payload.Topics {
+		channels := make([]NSQChannel, 0, len(topic.Channels))
+		for _, ch := range topic.Channels {
+			channels = append(channels, NSQChannel{
+				Name:     ch.Name,
+				Depth:    ch.Depth,
+				Backlog:  ch.Backlog,
+				Messages: ch.MessageCount,
+			})
+		}
+		resources = append(resources, BrokerResource{
+			Name:        topic.Name,
+			Channels:    len(topic.Channels),
+			Depth:       topic.Depth,
+			Messages:    topic.MessageCount,
+			ChannelList: channels,
+		})
+	}
+	sort.Slice(resources, func(i, j int) bool { return resources[i].Name < resources[j].Name })
+	return resources, nil
 }
 
 func defaultBrokerPort(port, fallback int) int {
