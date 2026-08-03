@@ -4704,82 +4704,6 @@ body {
   gap: 4px;
 }
 
-.ai-composer-guide {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  background: var(--panel-solid-2);
-}
-
-.ai-composer-guide-head,
-.ai-composer-guide-head > span,
-.ai-composer-guide-steps,
-.ai-composer-guide-templates {
-  display: flex;
-  align-items: center;
-}
-
-.ai-composer-guide-head {
-  justify-content: space-between;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.ai-composer-guide-head > span {
-  gap: 6px;
-}
-
-.ai-composer-guide-head .v-icon {
-  color: var(--cyan);
-}
-
-.ai-composer-guide-steps {
-  gap: 8px;
-}
-
-.ai-composer-guide-steps span {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  gap: 6px;
-  min-width: 0;
-  color: var(--text-2);
-  font-size: 10px;
-}
-
-.ai-composer-guide-steps b {
-  color: var(--cyan);
-  font: 10px 'Orbitron', sans-serif;
-}
-
-.ai-composer-guide-templates {
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.ai-composer-guide-templates button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 8px;
-  color: var(--text-2);
-  background: transparent;
-  border: 1px solid var(--line-2);
-  border-radius: 6px;
-  font-size: 10px;
-  cursor: pointer;
-  transition: all 0.2s var(--ease-standard);
-}
-
-.ai-composer-guide-templates button:hover,
-.ai-composer-guide-templates button:focus-visible {
-  color: var(--cyan);
-  border-color: var(--cyan);
-  outline: none;
-}
-
 .ai-composer-input {
   position: relative;
   display: flex;
@@ -4804,6 +4728,16 @@ body {
 .ai-composer-hint {
   color: var(--muted);
   font: 9px 'JetBrains Mono', monospace;
+}
+
+.ai-steer-tag {
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--cyan);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  padding: 0 4px;
+  margin-left: 6px;
 }
 
 .ai-mention-menu {

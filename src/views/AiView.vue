@@ -51,7 +51,6 @@ const lastUserText = ref('')
 const messagesRef = ref<HTMLElement | null>(null)
 const mentionIndex = ref(0)
 const showAgentDialog = ref(false)
-const showPromptGuide = ref(false)
 const planning = ref(false)
 const executing = ref(false)
 const stopRequested = ref(false)
@@ -254,20 +253,6 @@ function selectMention(suggestion: MentionSuggestion) {
 function appendToken(token: string) {
   const spacer = inputText.value && !inputText.value.endsWith(' ') ? ' ' : ''
   inputText.value += `${spacer}${token} `
-}
-
-type PromptGuideKind = 'triage' | 'change' | 'transfer' | 'mcp'
-
-function applyPromptGuide(kind: PromptGuideKind) {
-  const agentToken = selectedAgents.value.length > 0 ? '' : `@${agentHandle(activeAgent.value)} `
-  const templates: Record<PromptGuideKind, string> = {
-    triage: `${agentToken}#SSH 请先只读检查【目标主机/服务】的【现象】。请给出证据、可能原因和下一步验证,暂不修改配置。`,
-    change: `${agentToken}#SSH 请在【目标工作区】完成【期望变更】。执行前说明影响范围、备份/回滚方案,所有写操作等我确认。`,
-    transfer: `${agentToken}#SSH 请通过 SFTP 将【本机完整路径】上传到【远端目录】/将【远端完整路径】下载到【本机目录】,传输前让我确认路径。`,
-    mcp: `${agentToken}请使用已配置的 MCP 工具完成【目标】。先说明要调用的 Server、工具和参数,等我确认后再执行。`
-  }
-  inputText.value = templates[kind]
-  showPromptGuide.value = false
 }
 
 function clearInheritedContext() {
@@ -724,7 +709,14 @@ async function planAndExecute(text: string, decision?: string) {
     }
     session.value.executionPlan = plan
     planning.value = false
-    if (plan.status !== 'awaiting-choice') await executePlan(plan)
+    if (plan.status !== 'awaiting-choice') {
+      await executePlan(plan)
+      // 末尾续跑:编排期间插入但未被回应的引导,自动作为新一轮发起
+      const pendingSteers = takePendingSteerTexts()
+      if (plan.status === 'completed' && pendingSteers.length > 0 && !stopRequested.value) {
+        await planAndExecute(pendingSteers.join('\n'))
+      }
+    }
   } catch (error) {
     const plan = session.value.executionPlan
     if (plan) plan.status = 'failed'
@@ -754,9 +746,32 @@ function stopOrchestration() {
   session.value.error = '已停止'
 }
 
+/**
+ * 取编排期间插入、但直到计划完成都未被 assistant 回应的引导语(末尾连续 steered user 消息)。
+ * 每个计划步完成后 assistant 回复会合并进主 session,所以末尾仍是 steered user 说明没被回应。
+ */
+function takePendingSteerTexts(): string[] {
+  const messages = session.value.messages
+  const texts: string[] = []
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message.role !== 'user' || !message.steered) break
+    texts.unshift(message.content)
+  }
+  return texts
+}
+
 async function send() {
   const text = inputText.value.trim()
-  if (!text || orchestrationBusy.value) return
+  if (!text) return
+  if (orchestrationBusy.value) {
+    // 运行中:插入 steering 引导。下一计划步骤的 buildConversationContext 会带上它;
+    // 若直到计划完成都未被回应,planAndExecute 末尾会自动以引导语续跑一轮。
+    session.value.messages.push({ role: 'user', content: text, steered: true })
+    inputText.value = ''
+    scrollToBottom(true)
+    return
+  }
   inputText.value = ''
   lastUserText.value = text
   session.value.messages.push({ role: 'user', content: text })
@@ -1084,6 +1099,7 @@ function shortResult(value: string, max = 600) {
               </span>
               <div class="ai-message-body">
                 <span class="ai-message-role">{{ message.role === 'user' ? t('ai.you') : (message.agentName || activeAgent.name) }}</span>
+                <span v-if="message.steered" class="ai-steer-tag">{{ t('ai.steerTag') }}</span>
                 <AiMessageContent
                   :content="message.content || ''"
                   :parse-think="message.role === 'assistant'"
@@ -1132,31 +1148,12 @@ function shortResult(value: string, max = 600) {
               <v-icon size="12">mdi-close</v-icon>
             </button>
           </div>
-          <div v-if="showPromptGuide" class="ai-composer-guide cyber-panel">
-            <div class="ai-composer-guide-head">
-              <span><v-icon size="14">mdi-compass-outline</v-icon>{{ t('ai.promptGuideTitle') }}</span>
-              <button class="action-btn" :aria-label="t('common.close')" @click="showPromptGuide = false">
-                <v-icon size="13">mdi-close</v-icon>
-              </button>
-            </div>
-            <div class="ai-composer-guide-steps">
-              <span><b>01</b>{{ t('ai.promptGuideAgent') }}</span>
-              <span><b>02</b>{{ t('ai.promptGuideWorkspace') }}</span>
-              <span><b>03</b>{{ t('ai.promptGuideGoal') }}</span>
-            </div>
-            <div class="ai-composer-guide-templates">
-              <button @click="applyPromptGuide('triage')"><v-icon size="13">mdi-stethoscope</v-icon>{{ t('ai.promptGuideTriage') }}</button>
-              <button @click="applyPromptGuide('change')"><v-icon size="13">mdi-shield-edit-outline</v-icon>{{ t('ai.promptGuideChange') }}</button>
-              <button @click="applyPromptGuide('transfer')"><v-icon size="13">mdi-folder-swap-outline</v-icon>{{ t('ai.promptGuideTransfer') }}</button>
-              <button @click="applyPromptGuide('mcp')"><v-icon size="13">mdi-connection</v-icon>{{ t('ai.promptGuideMcp') }}</button>
-            </div>
-          </div>
           <div class="ai-composer-input">
             <textarea
               v-model="inputText"
               class="cyber-input"
               rows="3"
-              :placeholder="t('ai.composerPlaceholder')"
+              :placeholder="orchestrationBusy ? t('ai.steerPlaceholder') : t('ai.composerPlaceholder')"
               @keydown="onKeydown"
             />
             <div v-if="mentionSuggestions.length" class="ai-mention-menu cyber-panel">
@@ -1170,16 +1167,14 @@ function shortResult(value: string, max = 600) {
                 <span><strong>{{ suggestion.label }}</strong><small>{{ suggestion.detail }}</small></span>
               </button>
             </div>
-            <button
-              class="cyber-btn-secondary"
-              :aria-expanded="showPromptGuide"
-              @click="showPromptGuide = !showPromptGuide"
-            >
-              <v-icon size="14">mdi-compass-outline</v-icon>{{ t('ai.promptGuide') }}
-            </button>
-            <button v-if="orchestrationBusy" class="cyber-btn-secondary" @click="stopOrchestration">
-              <v-icon size="14">mdi-stop</v-icon>{{ t('ai.stop') }}
-            </button>
+            <template v-if="orchestrationBusy">
+              <button class="cyber-btn" :disabled="!inputText.trim()" @click="send">
+                <v-icon size="14">mdi-compass-outline</v-icon>{{ t('ai.steerButton') }}
+              </button>
+              <button class="cyber-btn-secondary" @click="stopOrchestration">
+                <v-icon size="14">mdi-stop</v-icon>{{ t('ai.stop') }}
+              </button>
+            </template>
             <button v-else class="cyber-btn" :disabled="!inputText.trim()" @click="send">
               <v-icon size="14">mdi-send-outline</v-icon>{{ t('ai.send') }}
             </button>
