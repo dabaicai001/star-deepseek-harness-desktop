@@ -12,6 +12,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import AiAgentDialog from '@/components/ai/AiAgentDialog.vue'
 import ProductIcon from '@/components/common/ProductIcon.vue'
 import { generateInstanceId } from '@/utils/tabId'
+import { routeNameForAsset, getDbLabel, openAssetTab as openAssetTabRouting } from '@/utils/assetRouting'
 import type { Asset, CreateAssetDto } from '@/types/asset'
 
 const { t } = useI18n()
@@ -92,20 +93,6 @@ function getIcon(type: string, dbType?: string) {
   }
 }
 
-function getDbLabel(dbType?: string): string {
-  switch (dbType) {
-    case 'redis': return 'REDIS'
-    case 'postgresql': return 'PG'
-    case 'sqlite': return 'SQLITE'
-    case 'elasticsearch': return 'ES'
-    case 'clickhouse': return 'CLICKHOUSE'
-    case 'kafka': return 'KAFKA'
-    case 'nsq': return 'NSQ'
-    case 'mysql':
-    default: return 'MYSQL'
-  }
-}
-
 function getStatus(asset: Asset): 'never' | 'recent' | 'stale' {
   // 区分三种状态,比单纯 online/offline 表达更多信息:
   //  - never:  从未连接过(灰,无光晕)
@@ -144,36 +131,9 @@ function isSelected(asset: Asset) {
 // 成功开 tab / 删除资产后清掉选中态,免得视觉残留
 watch(() => appStore.activeTab, () => { selectedAssetId.value = null })
 
-function routeNameForAsset(asset: Asset): string {
-  if (asset.type === 'ssh') return 'ssh-terminal'
-  if (asset.type === 'docker') return 'docker'
-  if (asset.type === 'excel') return 'excel'
-  const dbType = asset.config.dbType || 'mysql'
-  if (dbType === 'redis') return 'db-redis'
-  if (dbType === 'elasticsearch') return 'db-elasticsearch'
-  if (dbType === 'clickhouse') return 'db-clickhouse'
-  if (dbType === 'postgresql') return 'db-postgresql'
-  if (dbType === 'kafka' || dbType === 'nsq') return 'db-broker'
-  return 'db-mysql'
-}
-
+// 薄封装:路由/开 tab 统一走 @/utils/assetRouting(三处重复已收敛)
 function openAssetTab(asset: Asset, reuseExisting: boolean) {
-  if (isCollapsed.value) appStore.sidebarOpen = true
-
-  if (reuseExisting) {
-    const existing = appStore.tabs.find(t => t.assetId === asset.id)
-    if (existing) {
-      appStore.setActiveTab(existing.id)
-      router.push({ name: routeNameForAsset(asset), params: { id: existing.id } })
-      assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-      return
-    }
-  }
-
-  const instanceId = generateInstanceId(asset.id)
-  appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: asset.type })
-  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-  router.push({ name: routeNameForAsset(asset), params: { id: instanceId } })
+  openAssetTabRouting(asset, reuseExisting, router)
 }
 
 function connectToAsset(asset: Asset) {
@@ -687,10 +647,21 @@ function toggleGroup(id: string) {
 function isGroupExpanded(id: string) {
   return expandedGroups.value[id] !== false  // 默认 true
 }
+
+/** 树顶过滤输入:直通 assetStore.searchQuery(顶栏搜索框移除后,这里承接过滤) */
+const filterQuery = computed({
+  get: () => assetStore.searchQuery,
+  set: (v: string) => assetStore.setSearchQuery(v)
+})
 </script>
 
 <template>
   <div class="asset-tree" :class="{ collapsed: !appStore.sidebarOpen }">
+    <!-- 树顶过滤(承接原顶栏搜索对 assetStore.searchQuery 的写入) -->
+    <div v-if="appStore.sidebarOpen" class="tree-filter">
+      <v-icon size="12">mdi-magnify</v-icon>
+      <input v-model="filterQuery" type="text" :placeholder="t('common.search') + '...'" />
+    </div>
     <!-- 收藏分组 -->
     <div v-if="assetStore.favoriteAssets.length > 0" class="tree-group favorite">
       <div
@@ -1185,6 +1156,28 @@ function isGroupExpanded(id: string) {
 
 .asset-tree.collapsed .tree-empty {
   display: none;
+}
+
+.tree-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 8px;
+  padding: 0 8px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+}
+.tree-filter input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
 }
 
 .tree-group { margin-bottom: 4px; }

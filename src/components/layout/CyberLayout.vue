@@ -29,6 +29,7 @@ import {
   LOCAL_TAB_DETACH_EVENT,
 } from '@/lib/windowDetach'
 import { generateInstanceId } from '@/utils/tabId'
+import { routeNameForAsset, getDbLabel, openAssetTab as openAssetTabRouting } from '@/utils/assetRouting'
 import { version as appVersion } from '~package.json'
 import logoUrl from '@/assets/logo-star.png'
 import type { Asset } from '@/types/asset'
@@ -57,21 +58,6 @@ const showWelcomeDecor = computed(() => bp.width.value >= 1280)
 // tab-strip 的左边距要减去这个,才能正好对齐到 workspace 左边缘
 const MENUBAR_PADDING_X = 12
 
-const searchQuery = computed({
-  get: () => assetStore.searchQuery,
-  set: (v: string) => assetStore.setSearchQuery(v)
-})
-const searchInputRef = ref<HTMLInputElement | null>(null)
-
-/** 顶栏搜索框快捷键:⌘K / Ctrl+K 聚焦 */
-function onSearchShortcut(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-    e.preventDefault()
-    closeFloatingSurfaces()
-    searchInputRef.value?.focus()
-    searchInputRef.value?.select()
-  }
-}
 const showNewConnection = ref(false)
 const showSettings = ref(false)
 type SettingsTabKey = 'general' | 'appearance' | 'ai' | 'about'
@@ -94,7 +80,6 @@ vueWatch2(showNewConnection, (open) => {
 const isMac = ref(false)
 const isLinux = ref(false)
 const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
-const searchShortcut = computed(() => `${modKey.value}K`)
 
 // 快捷键:⌘+B / Ctrl+B 折叠/展开 sidebar
 // 快捷键:⌘+Shift+B / Ctrl+Shift+B 折叠/展开右侧面板
@@ -144,7 +129,6 @@ function isEditableEventTarget(target: EventTarget | null): boolean {
 
 function closeFloatingSurfaces() {
   userMenuOpen.value = false
-  searchOpen.value = false
   closeNewTabPicker()
   closeTabBarContextMenu()
   closeTabContextMenu()
@@ -208,7 +192,7 @@ function onTitlebarMousedown(e: MouseEvent) {
   // 排除交互元素及其子元素
   if (target.closest(
     'button, input, textarea, select, a, [role="button"], ' +
-    '.window-controls, .top-search, .top-actions, .logo, .user-menu, .search-dropdown'
+    '.window-controls, .top-actions, .logo, .user-menu'
   )) return
   e.preventDefault()
   appWindow.startDragging().catch(() => {})
@@ -498,7 +482,6 @@ onMounted(async () => {
 
   triggerWelcomeStagger()
   window.addEventListener('keydown', onKeydown)
-  window.addEventListener('keydown', onSearchShortcut)
   window.addEventListener('keydown', onGlobalKeydown)
   updateClock()
   clockTimer = window.setInterval(updateClock, 1000)
@@ -537,7 +520,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   appStore.stopAlertCheck()
   window.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('keydown', onSearchShortcut)
   window.removeEventListener('keydown', onGlobalKeydown)
   if (clockTimer !== null) {
     window.clearInterval(clockTimer)
@@ -866,8 +848,9 @@ onMounted(() => window.addEventListener('starhub:open-ai-settings', onOpenAiSett
 onBeforeUnmount(() => window.removeEventListener('starhub:open-ai-settings', onOpenAiSettingsEvent))
 
 const filteredAssets = computed(() => {
-  if (!searchQuery.value) return assetStore.assets
-  const query = searchQuery.value.toLowerCase()
+  const raw = assetStore.searchQuery
+  if (!raw) return assetStore.assets
+  const query = raw.toLowerCase()
   return assetStore.assets.filter(asset =>
     asset.name.toLowerCase().includes(query) ||
     asset.config.host?.toLowerCase().includes(query)
@@ -930,54 +913,6 @@ const dbAssets = computed(() => filteredAssets.value.filter(a => a.type === 'db'
 const dockerAssets = computed(() => filteredAssets.value.filter(a => a.type === 'docker'))
 const excelAssets = computed(() => filteredAssets.value.filter(a => a.type === 'excel'))
 
-
-/** 顶栏搜索下拉:实时显示匹配资产(最多 8 个) */
-const searchOpen = ref(false)
-const searchSelectedIdx = ref(0)
-const searchResults = computed(() => {
-  if (!searchQuery.value) return []
-  return filteredAssets.value.slice(0, 8)
-})
-function onSearchInput() {
-  searchOpen.value = searchQuery.value.length > 0 && searchResults.value.length > 0
-  searchSelectedIdx.value = 0
-}
-function onSearchFocus() {
-  if (searchQuery.value && searchResults.value.length > 0) searchOpen.value = true
-}
-function onSearchBlur() {
-  // 延迟关闭,让点击有时间触发
-  setTimeout(() => { searchOpen.value = false }, 150)
-}
-function onSearchKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    searchOpen.value = false
-    ;(e.target as HTMLInputElement).blur()
-  } else if (e.key === 'ArrowDown') {
-    e.preventDefault()
-    searchSelectedIdx.value = Math.min(searchResults.value.length - 1, searchSelectedIdx.value + 1)
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault()
-    searchSelectedIdx.value = Math.max(0, searchSelectedIdx.value - 1)
-  } else if (e.key === 'Enter') {
-    e.preventDefault()
-    const a = searchResults.value[searchSelectedIdx.value]
-    if (a) openAsset(a)
-  }
-}
-function assetIcon(type: string) {
-  return type === 'ssh' ? 'mdi-console' : type === 'db' ? 'mdi-database' : type === 'docker' ? 'mdi-docker' : 'mdi-file-excel-outline'
-}
-function assetIconColor(type: string) {
-  return type === 'ssh' ? 'cyan' : type === 'db' ? 'purple' : type === 'docker' ? 'green' : 'green'
-}
-function openAsset(asset: Asset) {
-  openAssetTab(asset, true)
-  searchOpen.value = false
-  searchQuery.value = ''
-  ;(searchInputRef.value as HTMLInputElement | null)?.blur()
-}
-
 // 时钟(每秒更新)
 const clockText = ref('')
 let clockTimer: number | null = null
@@ -1000,37 +935,9 @@ function getIcon(type: string) {
   }
 }
 
-/** DB 类型徽章文本:REDIS / PG / SQLITE / MYSQL,跟侧边栏一致 */
-function getDbLabel(dbType?: string): string {
-  switch (dbType) {
-    case 'redis': return 'REDIS'
-    case 'postgresql': return 'PG'
-    case 'sqlite': return 'SQLITE'
-    case 'elasticsearch': return 'ES'
-    case 'clickhouse': return 'CLICKHOUSE'
-    case 'kafka': return 'KAFKA'
-    case 'nsq': return 'NSQ'
-    case 'mysql':
-    default: return 'MYSQL'
-  }
-}
-
+/** DB 类型徽章文本 / 资产路由名 / 开 tab:统一走 @/utils/assetRouting */
 function getStatusColor(asset: Asset) {
   return asset.lastUsedAt ? 'online' : 'offline'
-}
-
-function routeNameForAsset(asset: Asset): string {
-  if (asset.type === 'ssh') return 'ssh-terminal'
-  if (asset.type === 'docker') return 'docker'
-  if (asset.type === 'excel') return 'excel'
-
-  const dbType = asset.config.dbType || 'mysql'
-  if (dbType === 'redis') return 'db-redis'
-  if (dbType === 'elasticsearch') return 'db-elasticsearch'
-  if (dbType === 'clickhouse') return 'db-clickhouse'
-  if (dbType === 'postgresql') return 'db-postgresql'
-  if (dbType === 'kafka' || dbType === 'nsq') return 'db-broker'
-  return 'db-mysql'
 }
 
 function routeNameForTab(tab: { assetId?: string; type: string }): string {
@@ -1100,20 +1007,7 @@ function openAiAgentTab(agent: AiAgent, reuseExisting = true) {
 }
 
 function openAssetTab(asset: Asset, reuseExisting = true) {
-  if (reuseExisting) {
-    const existing = appStore.tabs.find(t => t.assetId === asset.id)
-    if (existing) {
-      appStore.setActiveTab(existing.id)
-      router.push({ name: routeNameForAsset(asset), params: { id: existing.id } })
-      assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-      return
-    }
-  }
-
-  const instanceId = generateInstanceId(asset.id)
-  appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: asset.type })
-  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-  router.push({ name: routeNameForAsset(asset), params: { id: instanceId } })
+  openAssetTabRouting(asset, reuseExisting, router)
 }
 
 function _placeholder() {}
@@ -1543,42 +1437,6 @@ vueWatch(() => appStore.tabs.length, () => {
     <div class="titlebar" data-tauri-drag-region @dblclick="onTitlebarDblclick" @mousedown="onTitlebarMousedown">
       <div class="logo" aria-label="StarHub">
         <img :src="logoUrl" alt="StarHub" class="logo-img" />
-      </div>
-
-      <div class="top-search">
-        <v-icon size="14" color="muted">mdi-magnify</v-icon>
-        <input
-          ref="searchInputRef"
-          v-model="searchQuery"
-          type="text"
-          :placeholder="t('common.search') + '...'"
-          class="search-input"
-          @input="onSearchInput"
-          @focus="onSearchFocus"
-          @blur="onSearchBlur"
-          @keydown="onSearchKeydown"
-        />
-        <kbd>{{ searchShortcut }}</kbd>
-
-        <!-- 搜索结果下拉(最多 8 项) -->
-        <div v-if="searchOpen && searchResults.length > 0" class="search-dropdown">
-          <div
-            v-for="(a, idx) in searchResults"
-            :key="a.id"
-            class="search-result"
-            :class="{ selected: idx === searchSelectedIdx }"
-            @mousedown.prevent="openAsset(a)"
-            @mouseenter="searchSelectedIdx = idx"
-          >
-            <ProductIcon v-if="a.type === 'db'" :product="a.config.dbType || 'mysql'" :size="14" />
-            <v-icon v-else size="14" :color="assetIconColor(a.type)">{{ assetIcon(a.type) }}</v-icon>
-            <div class="search-result-info">
-              <div class="search-result-name">{{ a.name }}</div>
-              <div class="search-result-host">{{ a.config.host || a.config.dbType || a.type.toUpperCase() }}</div>
-            </div>
-            <kbd v-if="idx === searchSelectedIdx" class="search-result-kbd">↵</kbd>
-          </div>
-        </div>
       </div>
 
       <div class="top-actions">
@@ -2123,111 +1981,6 @@ vueWatch(() => appStore.tabs.length, () => {
   user-select: none;
 }
 
-.top-search {
-  flex: 1;
-  min-width: 0;
-  max-width: 720px;
-  background: var(--bg-input);
-  border: 1px solid var(--line-2);
-  border-radius: 8px;
-  padding: 5px 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 12px;
-  transition: all 0.3s;
-  position: relative; /* 让 .search-dropdown 绝对定位锚定 */
-}
-
-.top-search:hover {
-  border-color: var(--focus-cyan);
-}
-
-.top-search:focus-within {
-  border-color: var(--cyan);
-  box-shadow: 0 0 0 3px var(--focus-cyan);
-}
-
-.search-input {
-  min-width: 0;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text);
-  font-size: 12px;
-  width: 100%;
-}
-
-.search-input::placeholder {
-  color: var(--muted);
-}
-
-/* ====== 顶栏搜索下拉 ====== */
-.search-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  background: var(--panel-solid);
-  border: 1px solid var(--focus-cyan);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
-  padding: 4px;
-  z-index: 99;
-  animation: searchDropdownIn 0.12s ease;
-}
-@keyframes searchDropdownIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.search-result {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--text-2);
-  font-size: 13px;
-  transition: all 0.1s;
-}
-.search-result.selected {
-  background: var(--icon-bg-cyan);
-  color: var(--cyan);
-}
-.search-result-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.search-result-name {
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.search-result-host {
-  font-size: 10px;
-  color: var(--muted);
-  font-family: 'JetBrains Mono', monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.search-result-kbd {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  padding: 1px 6px;
-  background: var(--cyan);
-  color: var(--bg);
-  border-radius: 4px;
-  font-weight: 700;
-}
-
 kbd {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
@@ -2270,20 +2023,9 @@ kbd {
   }
 
   .logo-wordmark,
-  .top-search kbd,
   .top-action-group,
   .user-menu,
   .top-action-divider {
-    display: none;
-  }
-
-  .top-search {
-    padding: 5px 8px;
-  }
-}
-
-@media (max-width: 420px) {
-  .top-search {
     display: none;
   }
 }
@@ -2846,7 +2588,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 16px;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
   backdrop-filter: blur(10px);
   font-family: 'JetBrains Mono', monospace;
@@ -2889,10 +2631,6 @@ kbd {
     display: none;
   }
 
-  .top-search {
-    max-width: none;
-  }
-
   .top-action-group {
     gap: 4px;
   }
@@ -2904,7 +2642,6 @@ kbd {
     gap: 8px;
   }
 
-  .top-search kbd,
   .user-menu,
   .statusbar .sb-item:nth-child(n + 3) {
     display: none;

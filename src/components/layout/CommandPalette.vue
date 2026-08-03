@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 全局命令面板(Ctrl/Cmd + P)
+ * 全局命令面板(Ctrl/Cmd + P 或 Ctrl/Cmd + K)
  *  - 列资产、当前 tabs、动作
  *  - 模糊匹配,键盘上下选,Enter 执行
  *  - 浮在窗口中央,带 backdrop
@@ -11,7 +11,7 @@ import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useThemeStore } from '@/stores/theme'
 import { useI18n } from 'vue-i18n'
-import { generateInstanceId } from '@/utils/tabId'
+import { routeNameForAsset, openAssetTab as openAssetTabRouting } from '@/utils/assetRouting'
 import type { Asset } from '@/types/asset'
 
 const { t, locale } = useI18n()
@@ -39,20 +39,6 @@ interface Command {
   run: () => void
 }
 
-function routeNameForAsset(asset: Asset): string {
-  if (asset.type === 'ssh') return 'ssh-terminal'
-  if (asset.type === 'docker') return 'docker'
-  if (asset.type === 'excel') return 'excel'
-
-  const dbType = asset.config.dbType || 'mysql'
-  if (dbType === 'redis') return 'db-redis'
-  if (dbType === 'elasticsearch') return 'db-elasticsearch'
-  if (dbType === 'clickhouse') return 'db-clickhouse'
-  if (dbType === 'postgresql') return 'db-postgresql'
-  if (dbType === 'kafka' || dbType === 'nsq') return 'db-broker'
-  return 'db-mysql'
-}
-
 function routeNameForTab(tab: { assetId?: string; type: string }): string {
   const asset = tab.assetId ? assetStore.assets.find(a => a.id === tab.assetId) : null
   if (asset) return routeNameForAsset(asset)
@@ -63,18 +49,7 @@ function routeNameForTab(tab: { assetId?: string; type: string }): string {
 }
 
 function openAssetTab(asset: Asset) {
-  const existing = appStore.tabs.find(t => t.assetId === asset.id)
-  if (existing) {
-    appStore.setActiveTab(existing.id)
-    router.push({ name: routeNameForAsset(asset), params: { id: existing.id } })
-    assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-    return
-  }
-
-  const instanceId = generateInstanceId(asset.id)
-  appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: asset.type })
-  assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() })
-  router.push({ name: routeNameForAsset(asset), params: { id: instanceId } })
+  openAssetTabRouting(asset, true, router)
 }
 
 const commands = computed<Command[]>(() => {
@@ -265,6 +240,13 @@ function runCommand(cmd: Command) {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // Ctrl/Cmd + K 同样唤起(与 Ctrl+P 双入口)
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    if (open.value) hide()
+    else show()
+    return
+  }
   // Ctrl/Cmd + P 触发
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
     e.preventDefault()

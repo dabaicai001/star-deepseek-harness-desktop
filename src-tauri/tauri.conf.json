@@ -1,6 +1,6 @@
 {
   "productName": "StarHub",
- "version": "0.38.2",
+ "version": "0.39.0",
   "identifier": "com.starhub.app",
  "build": {
     "frontendDist": "../dist",

@@ -10,6 +10,9 @@
 ### 计划中
 - Settings 补「代理」「安全」2 个 tab
 
+### 新增
+- 工作区 3 层对象树重构(v0.39):顶栏常驻搜索框移除,⌘K / Ctrl+K 唤起命令面板(与 Ctrl+P 双入口);资产树顶部新增紧凑过滤输入;状态栏行高 32px→24px、字号 11→10px;routeNameForAsset/openAssetTab 三处重复收敛为 src/utils/assetRouting.ts
+
 ---
 
 ## [0.38.2] - 2026-08-03
