@@ -313,7 +313,11 @@ async function onAiSend(text: string) {
  // 2) 即使用户在 pwd/agent 启动间隙连点 send 也会被守卫拦掉
  // 不这么做会触发 pwd 抢占 promptCapture(Superseded)、
  // messages 数组被并发 push 污染(LLM 400 tool call 错位)
- if (aiSession.value.loading) return
+ if (aiSession.value.loading) {
+   // 运行中:作为 steering 引导注入历史,runAgent 下一步边界生效
+   aiStore.steer(props.id, text)
+   return
+ }
  aiSession.value.loading = true
  aiSession.value.messages.push({ role: 'user', content: text })
  logAudit({ category: 'ai', action: 'ssh_ai_query', target: text.slice(0, 120), detail: { question: text.length > 500 ? text.slice(0, 500) + '…' : text }, sessionId: props.id, assetId: asset.value?.id, success: true })

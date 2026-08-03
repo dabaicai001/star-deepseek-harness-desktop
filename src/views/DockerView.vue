@@ -518,7 +518,11 @@ async function onAiSend(text: string) {
   if (!aiSession.value) return
   // 防并发 send:loading 在 runAgent 之前立刻设,挡住重复点击,
   // 否则两个 runAgent 并发跑会污染 messages(LLM 报 400 tool call 错位)
-  if (aiSession.value.loading) return
+  if (aiSession.value.loading) {
+    // 运行中:作为 steering 引导注入历史,runAgent 下一步边界生效
+    aiStore.steer(instanceId.value, text)
+    return
+  }
   aiSession.value.loading = true
   aiSession.value.messages.push({ role: 'user', content: text })
 
