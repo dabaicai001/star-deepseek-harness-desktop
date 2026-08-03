@@ -141,7 +141,7 @@ function scrollToBottom(force = false) {
 
 function onSend() {
   const text = inputText.value.trim()
-  if (!text || props.sending) return
+  if (!text) return
   inputText.value = ''
   emit('send', text)
 }
@@ -319,6 +319,7 @@ function shortResult(s: string, max = 240): string {
               <span class="msg-role">
                 {{ msg.role === 'user' ? '你' : msg.role === 'tool' ? '工具' : 'AI' }}
               </span>
+              <span v-if="msg.steered" class="steer-tag">{{ t('ai.steerTag') }}</span>
             </div>
             <div v-if="msg.role === 'tool'" class="msg-content tool-content">
               <pre>{{ shortResult(msg.content ?? '') }}</pre>
@@ -443,17 +444,16 @@ function shortResult(s: string, max = 240): string {
         v-model="inputText"
         class="cyber-input"
         rows="2"
-        :placeholder="placeholder ?? '问我关于这个连接的任何事…'"
-        :disabled="sending"
+        :placeholder="sending ? t('ai.steerPlaceholder') : (placeholder ?? '问我关于这个连接的任何事…')"
         @keydown="onKeydown"
       />
       <button v-if="sending" class="cyber-btn-secondary stop-btn" @click="emit('stop')">
         <v-icon size="14">mdi-stop</v-icon>
         停止
       </button>
-      <button v-else class="cyber-btn send-btn" :disabled="!inputText.trim()" @click="onSend">
-        <v-icon size="14">mdi-send</v-icon>
-        发送
+      <button class="cyber-btn send-btn" :disabled="!inputText.trim()" @click="onSend">
+        <v-icon size="14">{{ sending ? 'mdi-compass-outline' : 'mdi-send' }}</v-icon>
+        {{ sending ? t('ai.steerButton') : '发送' }}
       </button>
     </div>
   </div>
@@ -612,6 +612,16 @@ function shortResult(s: string, max = 240): string {
   margin-bottom: 2px;
   font-family: 'JetBrains Mono', monospace;
   letter-spacing: 0.04em;
+}
+
+.steer-tag {
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--cyan);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  padding: 0 4px;
+  margin-left: 6px;
 }
 
 .msg-content {
