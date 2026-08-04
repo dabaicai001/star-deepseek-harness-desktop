@@ -682,9 +682,11 @@ function onNodeSelect(asset: Asset, node: ObjectNode) {
 /** 连接内对象过滤(仅组件态,不进 store;只过滤已加载子树,不写 expanded) */
 const connFilter = ref<Record<string, string>>({})
 
-/** label 命中(大小写不敏感)或任一已加载后代命中 */
+/** label 命中(大小写不敏感)或任一已加载后代命中;redis 叶子 label 是相对名,需用 payload.key 全键名匹配 */
 function connNodeMatches(assetId: string, node: ObjectNode, q: string): boolean {
   if (node.label.toLowerCase().includes(q)) return true
+  const fullKey = String(node.payload?.key ?? '').toLowerCase()
+  if (fullKey && fullKey.includes(q)) return true
   return objectTree.childrenOf(assetId, node.key).some(c => connNodeMatches(assetId, c, q))
 }
 
@@ -699,6 +701,26 @@ function connRoots(asset: Asset): ObjectNode[] {
 function connFilterActive(asset: Asset): boolean {
   return Boolean((connFilter.value[asset.id] ?? '').trim())
 }
+
+/**
+ * Redis 过滤词变更:防抖后走服务端 SCAN MATCH(objectTree.searchRedis),
+ * 清空时恢复原子树。key 可能数百万,不能只过滤已加载的前 500 个。
+ */
+const redisSearchTimers = new Map<string, ReturnType<typeof setTimeout>>()
+watch(connFilter, (v) => {
+  for (const asset of dbAssets.value) {
+    if ((asset.config.dbType ?? 'mysql') !== 'redis') continue
+    const q = (v[asset.id] ?? '').trim()
+    const prev = redisSearchTimers.get(asset.id)
+    if (prev) clearTimeout(prev)
+    if (!q) {
+      objectTree.clearRedisSearch(asset.id)
+      continue
+    }
+    redisSearchTimers.set(asset.id, setTimeout(() => { void objectTree.searchRedis(asset, q) }, 300))
+  }
+}, { deep: true })
+onBeforeUnmount(() => { for (const timer of redisSearchTimers.values()) clearTimeout(timer) })
 
 /** 树节点右键:广播给对应工作区视图(DbView 等按 assetId + kind 过滤后弹菜单) */
 function onNodeCtx(asset: Asset, payload: { node: ObjectNode; x: number; y: number }) {

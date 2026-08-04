@@ -51,6 +51,14 @@ export interface AssetTreeState {
   loadingKeys: string[]
   errorByKey: Record<string, string>
   expanded: string[]
+  /** Redis SCAN 续传游标(rdb 节点 key → cursor),点击 '+ 加载更多' 续扫 */
+  scanCursor: Record<string, number>
+  /** Redis 已收集 key(rdb 节点 key → 列表),续扫后与新增合并重建 trie */
+  scanCollected: Record<string, { key: string; type: string; ttl: number }[]>
+  /** Redis 连接内过滤:SCAN MATCH 前的 childrenByKey 备份,清空过滤时恢复 */
+  searchBackup: Record<string, ObjectNode[]> | null
+  /** Redis 过滤搜索代次:防止迟到的搜索结果覆盖已恢复的树 */
+  searchSeq: number
 }
 
 /** 各 dbType 的系统库/schema 过滤 */
@@ -60,13 +68,14 @@ const SYSTEM_DATABASES: Record<string, string[]> = {
   clickhouse: ['system', 'INFORMATION_SCHEMA', 'information_schema']
 }
 
-/** 表节点截断:每库默认显示前 50 张,追加 '+ N more' 节点 */
-const TABLE_TRUNCATE = 50
+/** 表节点截断:全量表都入树(保证连接内过滤命中全部),AssetTreeNode 渲染层默认只显示前 50 张 */
+export const TABLE_TRUNCATE = 50
 
 function emptyState(): AssetTreeState {
   return {
     status: 'idle', error: null, connId: null,
-    rootChildren: [], childrenByKey: {}, loadingKeys: [], errorByKey: {}, expanded: []
+    rootChildren: [], childrenByKey: {}, loadingKeys: [], errorByKey: {}, expanded: [],
+    scanCursor: {}, scanCollected: {}, searchBackup: null, searchSeq: 0
   }
 }
 
@@ -266,11 +275,59 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
         state.connId = await ensureConnection(asset)
       }
       await loadRoot(asset, state)
+      // 重启恢复:expanded 从 localStorage 还原后,补齐各展开节点的子级(否则会显示已展开但无数据)
+      for (const key of [...state.expanded]) {
+        const node = state.rootChildren.find(n => n.key === key)
+        if (!node?.hasChildren || state.childrenByKey[key]) continue
+        state.loadingKeys.push(key)
+        delete state.errorByKey[key]
+        try {
+          await loadChildren(asset, state, node)
+        } catch (err) {
+          state.errorByKey[key] = err instanceof Error ? err.message : String(err)
+        } finally {
+          state.loadingKeys = state.loadingKeys.filter(k => k !== key)
+        }
+      }
       state.status = 'ready'
     } catch (err) {
       state.status = 'error'
       state.error = err instanceof Error ? err.message : String(err)
     }
+  }
+
+  /** 由已收集 key 重建某 redis-db 的 trie 子树;游标未耗尽时追加可点击的 '+ 加载更多' 节点 */
+  function renderRedisDb(state: AssetTreeState, rdbKey: string, db: number): void {
+    const collected = state.scanCollected[rdbKey] ?? []
+    const trie = buildRedisNamespaceTree(collected)
+    const byKey: Record<string, ObjectNode[]> = {}
+    const nodes = trie.map(t => redisTrieToNodes(db, t, byKey))
+    if ((state.scanCursor[rdbKey] ?? 0) !== 0) {
+      nodes.push({
+        key: `${rdbKey}.__more`, kind: 'redis-key',
+        label: `+ 加载更多(已显示 ${collected.length} 个 key)`,
+        hasChildren: false, payload: { db, rdb: rdbKey, more: true }
+      })
+    }
+    state.childrenByKey[rdbKey] = nodes
+    // ns 子级预填(trie 已在内存,无需再请求)
+    Object.assign(state.childrenByKey, byKey)
+  }
+
+  /** SCAN 一批 key(初扫/续扫共用):最多 3 轮或 500 个 */
+  async function scanRedisBatch(
+    connId: string, cursor: number, collected: { key: string; type: string; ttl: number }[]
+  ): Promise<number> {
+    let rounds = 0
+    let added = 0
+    do {
+      const result = await dbService.redisScan(connId, cursor, '*', 200)
+      collected.push(...result.keys)
+      added += result.keys.length
+      cursor = result.cursor
+      rounds++
+    } while (cursor !== 0 && rounds < 3 && added < 500)
+    return cursor
   }
 
   // ─── L3 子级加载 ───
@@ -282,19 +339,12 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       const tables = dbType === 'clickhouse'
         ? await dbService.clickhouseListTables(connId, db)
         : await dbService.mysqlListTables(connId, db)
-      const shown = tables.slice(0, TABLE_TRUNCATE)
-      const nodes: ObjectNode[] = shown.map(t => ({
+      // 全量入树(连接内过滤需命中全部表);截断展示由 AssetTreeNode 渲染层负责
+      const nodes: ObjectNode[] = tables.map(t => ({
         key: `table:${db}.${t.name}`, kind: 'table', label: t.name,
         meta: t.rows != null ? String(t.rows) : undefined,
         hasChildren: false, payload: { db, table: t.name }
       }))
-      if (tables.length > TABLE_TRUNCATE) {
-        nodes.push({
-          key: `table:${db}.__more`, kind: 'table',
-          label: `+ ${tables.length - TABLE_TRUNCATE} more`,
-          hasChildren: false, payload: { db, table: '', more: true }
-        })
-      }
       state.childrenByKey[node.key] = nodes
     }
     if (node.kind === 'redis-db') {
@@ -302,47 +352,35 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
       const connId = state.connId!
       await dbService.redisSelect(connId, db)
       const collected: { key: string; type: string; ttl: number }[] = []
-      let cursor = 0
-      let rounds = 0
-      do {
-        const result = await dbService.redisScan(connId, cursor, '*', 200)
-        collected.push(...result.keys)
-        cursor = result.cursor
-        rounds++
-      } while (cursor !== 0 && rounds < 3 && collected.length < 500)
-      const trie = buildRedisNamespaceTree(collected)
-      const byKey: Record<string, ObjectNode[]> = {}
-      const nodes = trie.map(t => redisTrieToNodes(db, t, byKey))
-      if (cursor !== 0) {
-        nodes.push({
-          key: `rdb:${db}.__more`, kind: 'redis-key',
-          label: '(仅前 500 个 key,用 Redis CLI SCAN 查看更多)',
-          hasChildren: false, payload: { db, key: '', type: '', more: true }
-        })
-      }
-      state.childrenByKey[node.key] = nodes
-      // ns 子级预填(trie 已在内存,无需再请求)
-      Object.assign(state.childrenByKey, byKey)
+      const cursor = await scanRedisBatch(connId, 0, collected)
+      state.scanCollected[node.key] = collected
+      state.scanCursor[node.key] = cursor
+      renderRedisDb(state, node.key, db)
     }
   }
 
   async function toggleNode(asset: Asset, node: ObjectNode): Promise<void> {
     const state = ensureState(asset.id)
-    // '+ N more' 伪节点:展开成全量(仅 DB 系表;redis 的提示节点不可展开)
+    // '+ 加载更多' 伪节点:Redis 从上次游标续扫下一批(表截断是渲染层行为,见 AssetTreeNode)
     if (node.payload?.more) {
-      if (node.kind !== 'table') return
-      const db = String(node.payload.db ?? node.payload.database ?? '')
-      const connId = state.connId
-      if (!connId || !db) return
-      const dbType = asset.config.dbType || 'mysql'
-      const tables = dbType === 'clickhouse'
-        ? await dbService.clickhouseListTables(connId, db)
-        : await dbService.mysqlListTables(connId, db)
-      state.childrenByKey[`db:${db}`] = tables.map(t => ({
-        key: `table:${db}.${t.name}`, kind: 'table' as const, label: t.name,
-        meta: t.rows != null ? String(t.rows) : undefined,
-        hasChildren: false, payload: { db, table: t.name }
-      }))
+      if (node.payload.hint) return
+      const rdbKey = String(node.payload.rdb ?? '')
+      const db = Number(node.payload.db ?? 0)
+      if (!rdbKey || !state.connId) return
+      state.loadingKeys.push(node.key)
+      delete state.errorByKey[node.key]
+      try {
+        await dbService.redisSelect(state.connId, db)
+        const collected = state.scanCollected[rdbKey] ?? []
+        const cursor = await scanRedisBatch(state.connId, state.scanCursor[rdbKey] ?? 0, collected)
+        state.scanCollected[rdbKey] = collected
+        state.scanCursor[rdbKey] = cursor
+        renderRedisDb(state, rdbKey, db)
+      } catch (err) {
+        state.errorByKey[node.key] = err instanceof Error ? err.message : String(err)
+      } finally {
+        state.loadingKeys = state.loadingKeys.filter(k => k !== node.key)
+      }
       return
     }
     const idx = state.expanded.indexOf(node.key)
@@ -382,11 +420,75 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return sel
   }
 
+  // ─── 表截断展示(渲染层;全量已入树,连接内过滤始终命中全部表) ───
+  const fullTableLists = ref<Record<string, true>>({})
+  function isTableListFull(assetId: string, key: string): boolean {
+    return Boolean(fullTableLists.value[`${assetId}|${key}`])
+  }
+  function showAllTables(assetId: string, key: string): void {
+    fullTableLists.value[`${assetId}|${key}`] = true
+  }
+
+  // ─── Redis 连接内过滤:SCAN MATCH 服务端过滤 ───
+  // 注意:SCAN glob 大小写敏感,与 UI 过滤的大小写不敏感略有差异;glob 元字符需转义
+  async function searchRedis(asset: Asset, q: string): Promise<void> {
+    const state = states.value[asset.id]
+    if (!state || state.status !== 'ready' || !state.connId) return
+    if (!state.searchBackup) state.searchBackup = state.childrenByKey
+    const seq = ++state.searchSeq
+    const connId = state.connId
+    const pattern = `*${q.replace(/[\\*?[\]]/g, m => `\\${m}`)}*`
+    for (const rdb of state.rootChildren) {
+      if (rdb.kind !== 'redis-db' || (rdb.count ?? 0) <= 0) continue
+      if (state.searchSeq !== seq) return
+      const db = Number(rdb.payload?.db ?? 0)
+      try {
+        await dbService.redisSelect(connId, db)
+        const collected: { key: string; type: string; ttl: number }[] = []
+        let cursor = 0
+        let rounds = 0
+        do {
+          const result = await dbService.redisScan(connId, cursor, pattern, 200)
+          collected.push(...result.keys)
+          cursor = result.cursor
+          rounds++
+        } while (cursor !== 0 && rounds < 25 && collected.length < 1000)
+        if (state.searchSeq !== seq) return
+        const trie = buildRedisNamespaceTree(collected)
+        const byKey: Record<string, ObjectNode[]> = {}
+        const nodes = trie.map(t => redisTrieToNodes(db, t, byKey))
+        if (cursor !== 0) {
+          nodes.push({
+            key: `${rdb.key}.__search_hint`, kind: 'redis-key',
+            label: `(仅显示前 ${collected.length} 个匹配)`,
+            hasChildren: false, payload: { db, more: true, hint: true }
+          })
+        }
+        state.childrenByKey = { ...state.childrenByKey, [rdb.key]: nodes, ...byKey }
+      } catch { /* 单库搜索失败不影响其他库 */ }
+    }
+  }
+
+  /** 清空 Redis 过滤:恢复搜索前备份的子树 */
+  function clearRedisSearch(assetId: string): void {
+    const state = states.value[assetId]
+    if (!state) return
+    state.searchSeq++
+    if (state.searchBackup) {
+      state.childrenByKey = state.searchBackup
+      state.searchBackup = null
+    }
+  }
+
   /** 数据变更后(删 key / flushdb / 删索引 / 刷新)重拉 */
   async function refreshAsset(assetId: string): Promise<void> {
     const state = states.value[assetId]
     if (!state || state.status !== 'ready') return
     state.childrenByKey = {}
+    state.searchBackup = null
+    state.searchSeq++
+    state.scanCursor = {}
+    state.scanCollected = {}
     const assetStore = (await import('@/stores/asset')).useAssetStore()
     const asset = assetStore.assets.find(a => a.id === assetId)
     if (!asset) return
@@ -402,6 +504,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
 
   return {
     states, stateOf, ensureAsset, toggleNode, selectObject,
-    takePendingSelection, refreshAsset, isExpanded, childrenOf
+    takePendingSelection, refreshAsset, isExpanded, childrenOf,
+    isTableListFull, showAllTables, searchRedis, clearRedisSearch
   }
 })

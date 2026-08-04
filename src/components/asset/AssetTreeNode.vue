@@ -4,7 +4,7 @@
  * 数据全部来自 objectTree store,本组件只负责渲染与事件上抛。
  */
 import { computed } from 'vue'
-import { useObjectTreeStore, type ObjectNode } from '@/stores/objectTree'
+import { useObjectTreeStore, TABLE_TRUNCATE, type ObjectNode } from '@/stores/objectTree'
 
 const props = withDefaults(defineProps<{
   assetId: string
@@ -42,20 +42,34 @@ const guides = computed(() => {
   }
 })
 
-/** label 命中(大小写不敏感)或任一已加载后代命中 */
+/** label 命中(大小写不敏感)或任一已加载后代命中;redis 叶子 label 是相对名,需用 payload.key 全键名匹配 */
 function nodeMatches(n: ObjectNode, q: string): boolean {
   if (n.label.toLowerCase().includes(q)) return true
+  const fullKey = String(n.payload?.key ?? '').toLowerCase()
+  if (fullKey && fullKey.includes(q)) return true
   return tree.childrenOf(props.assetId, n.key).some(c => nodeMatches(c, q))
 }
 
-/** 过滤态下只渲染命中路径上的子级;否则渲染全部已加载子级 */
+/** 表列表渲染截断:全量已在 store(过滤始终命中全部表);非过滤态默认只渲染前 TABLE_TRUNCATE 张 */
+const truncatedCount = computed(() => {
+  if (props.node.kind !== 'database') return 0
+  if (props.filter.trim()) return 0
+  if (tree.isTableListFull(props.assetId, props.node.key)) return 0
+  const extra = children.value.length - TABLE_TRUNCATE
+  return extra > 0 ? extra : 0
+})
+
+/** 过滤态下只渲染命中路径上的子级;否则渲染全部已加载子级(表列表按 TABLE_TRUNCATE 截断) */
 const visibleChildren = computed(() => {
   const q = props.filter.trim().toLowerCase()
-  if (!q) return children.value
+  if (!q) {
+    return truncatedCount.value > 0 ? children.value.slice(0, TABLE_TRUNCATE) : children.value
+  }
   return children.value.filter(c => nodeMatches(c, q))
 })
 
 function icon(n: ObjectNode): string {
+  if (n.payload?.more) return 'mdi-dots-horizontal'
   switch (n.kind) {
     case 'database': return 'mdi-database-outline'
     case 'table': return 'mdi-table'
@@ -76,6 +90,11 @@ function onLabelClick() {
   // 中间层只展开/收起;末层才选中(拉起工作区 tab)
   if (props.node.hasChildren) { emit('toggle', props.node); return }
   emit('select', props.node)
+}
+
+/** '+ N more' 行:纯渲染层截断,点击展示全部表(无异步、无连接依赖) */
+function onShowAllTables() {
+  tree.showAllTables(props.assetId, props.node.key)
 }
 </script>
 
@@ -107,6 +126,15 @@ function onLabelClick() {
       :force-expand="forceExpand" :filter="filter"
       @toggle="emit('toggle', $event)" @select="emit('select', $event)" @ctx="emit('ctx', $event)"
     />
+    <div
+      v-if="truncatedCount > 0"
+      class="obj-node more" :style="{ paddingLeft: childPad }"
+      @click="onShowAllTables"
+    >
+      <span class="obj-chevron-spacer" />
+      <v-icon size="12" class="obj-icon">mdi-dots-horizontal</v-icon>
+      <span class="obj-label">+ {{ truncatedCount }} more</span>
+    </div>
   </template>
 </template>
 
