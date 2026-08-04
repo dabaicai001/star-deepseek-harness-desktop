@@ -81,6 +81,9 @@ function icon(n: ObjectNode): string {
     case 'kafka-topic': return 'mdi-view-list-outline'
     case 'nsq-topic': return 'mdi-view-list-outline'
     case 'nsq-channel': return 'mdi-arrow-right-bold-outline'
+    case 'docker-group': return n.payload?.group === 'images' ? 'mdi-package-variant-closed' : 'mdi-cube-outline'
+    case 'docker-container': return 'mdi-cube'
+    case 'docker-image': return 'mdi-package-variant'
     default: return 'mdi-circle-small'
   }
 }

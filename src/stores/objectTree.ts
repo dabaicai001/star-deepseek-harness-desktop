@@ -12,8 +12,12 @@ import { ref } from 'vue'
 import type { Router } from 'vue-router'
 import type { Asset } from '@/types/asset'
 import { useDbStore } from '@/stores/db'
+import { useDockerStore } from '@/stores/docker'
 import * as dbService from '@/services/db'
+import * as dockerService from '@/services/docker'
 import { openAssetTab, dispatchObjectSelection } from '@/utils/assetRouting'
+import { buildDockerConnectParams } from '@/utils/dockerConnect'
+import { formatBytes } from '@/utils/sshMetrics'
 import { loadBrokerOverview } from '@/services/broker'
 import { buildRedisNamespaceTree, type RedisTreeNode } from '@/utils/redisKeys'
 import { groupEsIndices } from '@/utils/esIndexGroups'
@@ -23,6 +27,7 @@ export type ObjectKind =
   | 'redis-db' | 'redis-ns' | 'redis-key'
   | 'es-group' | 'es-index'
   | 'kafka-topic' | 'nsq-topic' | 'nsq-channel'
+  | 'docker-group' | 'docker-container' | 'docker-image'
 
 export interface ObjectNode {
   /** 资产内唯一,如 'db:zhht_wx' / 'table:zhht_wx.orders' */
@@ -131,8 +136,24 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return states.value[assetId]?.childrenByKey[key] ?? []
   }
 
-  // ─── 连接(复用 dbStore.sessions) ───
+  // ─── 连接(复用 dbStore/dockerStore.sessions) ───
   async function ensureConnection(asset: Asset): Promise<string> {
+    // Docker 资产:复用 dockerStore 会话,没有则按资产配置建连(socket/tcp/ssh)
+    if (asset.type === 'docker') {
+      const dockerStore = useDockerStore()
+      const existingDocker = [...dockerStore.sessions.values()].find(
+        s => s.assetId === asset.id && s.connected
+      )
+      if (existingDocker) return existingDocker.connId
+      const assetStore = (await import('@/stores/asset')).useAssetStore()
+      const sshAssetId = asset.config.dockerSshAssetId
+      const sshAsset = sshAssetId
+        ? assetStore.assets.find(a => a.id === sshAssetId && a.type === 'ssh') ?? null
+        : null
+      const params = await buildDockerConnectParams(asset, sshAsset)
+      const session = await dockerStore.connect(asset.id, asset.name, params)
+      return session.connId
+    }
     const dbStore = useDbStore()
     const dbType = asset.config.dbType || 'mysql'
     const existing = [...dbStore.sessions.values()].find(
@@ -169,8 +190,40 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return session.connId
   }
 
-  // ─── L2 分组加载(DB 系:库/schema 列表) ───
+  // ─── L2 分组加载(DB 系:库/schema 列表;Docker:容器/镜像) ───
   async function loadRoot(asset: Asset, state: AssetTreeState): Promise<void> {
+    // Docker 资产:容器 / 镜像 两个固定分组,子级一次性预填
+    if (asset.type === 'docker') {
+      const connId = state.connId!
+      const [containers, images] = await Promise.all([
+        dockerService.listContainers(connId, true),
+        dockerService.listImages(connId, false)
+      ])
+      state.rootChildren = [
+        {
+          key: 'dkg:containers', kind: 'docker-group' as const, label: '容器',
+          count: containers.length, hasChildren: containers.length > 0,
+          payload: { group: 'containers' }
+        },
+        {
+          key: 'dkg:images', kind: 'docker-group' as const, label: '镜像',
+          count: images.length, hasChildren: images.length > 0,
+          payload: { group: 'images' }
+        }
+      ]
+      state.childrenByKey['dkg:containers'] = containers.map(c => ({
+        key: `dkc:${c.id}`, kind: 'docker-container' as const, label: c.name,
+        meta: c.state === 'running' ? '运行中' : (c.status || c.state),
+        hasChildren: false, payload: { containerId: c.id, name: c.name, state: c.state }
+      }))
+      state.childrenByKey['dkg:images'] = images.map(img => ({
+        key: `dki:${img.id}`, kind: 'docker-image' as const,
+        label: img.tags[0] ?? img.id.replace(/^sha256:/, '').slice(0, 12),
+        meta: formatBytes(img.size),
+        hasChildren: false, payload: { imageId: img.id }
+      }))
+      return
+    }
     const dbType = asset.config.dbType || 'mysql'
     if (dbType === 'kafka' || dbType === 'nsq') {
       const cfg = asset.config as Record<string, unknown>

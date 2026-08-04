@@ -7,6 +7,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useDockerStore } from '@/stores/docker'
+import { useObjectTreeStore } from '@/stores/objectTree'
 import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
 import { useDialogStore } from '@/stores/dialog'
@@ -18,6 +19,7 @@ import HostKeyConfirmDialog, { type HostKeyInfo } from '@/components/ssh/HostKey
 import KbInteractiveDialog from '@/components/ssh/KbInteractiveDialog.vue'
 import DockerExecTerminal from '@/components/docker/DockerExecTerminal.vue'
 import { parseInstanceId } from '@/utils/tabId'
+import { buildDockerConnectParams } from '@/utils/dockerConnect'
 import { logAudit } from '@/services/audit'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller } from '@/utils/aiTools'
@@ -26,7 +28,7 @@ import { assetConfigToSshConfig, type KbInteractiveEvent } from '@/services/ssh'
 import type { LlmToolCall } from '@/services/ai'
 import { createMcpRuntime } from '@/services/mcp'
 import type { Asset } from '@/types/asset'
-import type { ContainerInfo, DockerConnectParams } from '@/types/docker'
+import type { ContainerInfo } from '@/types/docker'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -34,6 +36,7 @@ const router = useRouter()
 const assetStore = useAssetStore()
 const appStore = useAppStore()
 const dockerStore = useDockerStore()
+const objectTree = useObjectTreeStore()
 const aiStore = useAiStore()
 const rightPanelOpen = usePersistentPanelState('docker', true)
 const notify = useNotifyStore()
@@ -269,60 +272,7 @@ async function connect() {
 
     const config = asset.value.config
     const transport = config.dockerTransport || (config.remoteHost ? 'tcp' : 'socket')
-    let params: DockerConnectParams
-    if (transport === 'ssh') {
-      const sshAsset = dockerSshAsset.value
-      if (!sshAsset?.config.host || !sshAsset.config.username) {
-        throw new Error('所选 SSH 资产不存在或配置不完整')
-      }
-      const sshPort = sshAsset.config.port || 22
-      const knownHostKey = await invoke<string | null>('ssh_get_trusted_host_key', {
-        host: sshAsset.config.host,
-        port: sshPort,
-      })
-      if (!knownHostKey) {
-        throw new Error(`尚未信任 ${sshAsset.config.host}:${sshPort}，请先打开该 SSH 连接并确认主机密钥`)
-      }
-      let jumpKnownHostKey: string | undefined
-      if (sshAsset.config.jumpHost) {
-        jumpKnownHostKey = await invoke<string | null>('ssh_get_trusted_host_key', {
-          host: sshAsset.config.jumpHost,
-          port: sshAsset.config.jumpPort || 22,
-        }) || undefined
-        if (!jumpKnownHostKey) {
-          throw new Error(`尚未信任跳板机 ${sshAsset.config.jumpHost}:${sshAsset.config.jumpPort || 22}`)
-        }
-      }
-      params = {
-        transport: 'ssh',
-        socketPath: config.socketPath || '/var/run/docker.sock',
-        ssh: {
-          host: sshAsset.config.host,
-          port: sshPort,
-          username: sshAsset.config.username,
-          password: sshAsset.config.password,
-          privateKey: sshAsset.config.privateKey,
-          passphrase: sshAsset.config.passphrase,
-          knownHostKey,
-          jumpHost: sshAsset.config.jumpHost,
-          jumpPort: sshAsset.config.jumpPort,
-          jumpUsername: sshAsset.config.jumpUsername,
-          jumpPassword: sshAsset.config.jumpPassword,
-          jumpPrivateKey: sshAsset.config.jumpPrivateKey,
-          jumpPassphrase: sshAsset.config.jumpPassphrase,
-          jumpKnownHostKey,
-          protocol: config.dockerSshProtocol || 'unix-over-nc-sudo',
-        },
-      }
-    } else if (transport === 'tcp') {
-      params = { transport: 'tcp', host: config.remoteHost || 'tcp://127.0.0.1:2375' }
-    } else {
-      const socketPath = config.socketPath || '/var/run/docker.sock'
-      params = {
-        transport: 'socket',
-        host: socketPath.includes('://') ? socketPath : `unix://${socketPath}`,
-      }
-    }
+    const params = await buildDockerConnectParams(asset.value, dockerSshAsset.value)
     const session = await dockerStore.connect(assetId.value, asset.value.name, params)
     if (isStaleConnect(attemptId)) {
       await dockerStore.disconnect(session.connId)
@@ -441,8 +391,28 @@ async function doRemove(id: string) {
   notify.notify({ title: 'Docker', message: '容器已删除', color: 'success' })
 }
 
+// 资产树对象选中:容器 → 切到容器列表并选中;镜像 → 切到镜像列表
+function applyObjectSelection(kind: string, payload: Record<string, unknown>): void {
+  if (kind === 'docker-container') {
+    activeTab.value = 'containers'
+    dockerStore.selectContainer(String(payload.containerId ?? ''))
+    return
+  }
+  if (kind === 'docker-image') activeTab.value = 'images'
+}
+
+function onObjectSelected(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: string; payload?: Record<string, unknown> } | undefined
+  if (!detail || detail.assetId !== assetId.value || !detail.kind || !detail.payload) return
+  applyObjectSelection(detail.kind, detail.payload)
+}
+
 onMounted(() => {
   connectStale = false
+  window.addEventListener('starhub:object-selected', onObjectSelected)
+  // 晚挂载兜底:资产树点击发生在视图挂载前,主动拉取挂起选中
+  const pending = objectTree.takePendingSelection(assetId.value)
+  if (pending) applyObjectSelection(pending.kind, pending.payload)
   if (asset.value && asset.value.type === 'docker') {
     connect()
   } else if (!asset.value) {
@@ -453,6 +423,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(async () => {
+  window.removeEventListener('starhub:object-selected', onObjectSelected)
   await markStale()
   connecting.value = false
 })

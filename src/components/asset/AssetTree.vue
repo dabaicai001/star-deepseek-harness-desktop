@@ -933,18 +933,26 @@ function onNodeCtx(asset: Asset, payload: { node: ObjectNode; x: number; y: numb
       </div>
       <div v-show="isGroupExpanded('docker')" class="tree-group-body">
       <TransitionGroup name="cyber-list">
+      <div v-for="asset in dockerAssets" :key="asset.id" class="asset-block">
       <div
-        v-for="asset in dockerAssets"
-        :key="asset.id"
         class="tree-item"
         :class="{ active: isActive(asset), selected: isSelected(asset) }"
         :data-tooltip="asset.name"
         tabindex="0"
-        @click="handleAssetClick(asset)"
+        @click="toggleAssetTree(asset)"
+        @dblclick="handleAssetClick(asset)"
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
-        <v-icon size="13" :class="asset.type">{{ getIcon(asset.type) }}</v-icon>
+        <v-icon
+          class="chevron asset-chevron" :class="{ open: treeExpandedIds.includes(asset.id) }"
+          size="12"
+          @click.stop="toggleAssetTree(asset)"
+        >mdi-chevron-right</v-icon>
+        <span class="db-badge-wrap">
+          <ProductIcon product="docker" :size="13" />
+          <span class="db-type-label db-docker">DCKR</span>
+        </span>
         <span class="name">{{ asset.name }}</span>
         <span class="status-dot" :class="getStatus(asset)" />
         <button
@@ -954,6 +962,30 @@ function onNodeCtx(asset: Asset, payload: { node: ObjectNode; x: number; y: numb
         >
           <v-icon size="13">mdi-star-outline</v-icon>
         </button>
+      </div>
+      <!-- 对象树:Docker 实例 → 容器/镜像分组 → 对象(objectTree store 懒加载) -->
+      <div v-if="treeExpandedIds.includes(asset.id)" class="asset-children">
+        <div
+          v-if="objectTree.stateOf(asset.id)?.status === 'ready' && (objectTree.stateOf(asset.id)?.rootChildren.length ?? 0) > 0"
+          class="tree-filter conn-filter"
+        >
+          <v-icon size="11">mdi-magnify</v-icon>
+          <input v-model="connFilter[asset.id]" type="text" :placeholder="t('asset.filterObjects')" />
+        </div>
+        <div v-if="objectTree.stateOf(asset.id)?.status === 'connecting'" class="tree-empty">连接中…</div>
+        <div v-else-if="objectTree.stateOf(asset.id)?.status === 'error'" class="tree-empty">
+          连接失败 · <a href="javascript:void 0" class="retry-link" @click="objectTree.ensureAsset(asset)">重试</a>
+        </div>
+        <div v-else-if="connFilterActive(asset) && connRoots(asset).length === 0" class="tree-empty">
+          {{ t('asset.filterNoMatch') }}
+        </div>
+        <AssetTreeNode
+          v-for="node in connRoots(asset)"
+          :key="node.key" :asset-id="asset.id" :node="node" :depth="1"
+          :force-expand="connFilterActive(asset)" :filter="connFilter[asset.id] ?? ''"
+          @toggle="onNodeToggle(asset, $event)" @select="onNodeSelect(asset, $event)" @ctx="onNodeCtx(asset, $event)"
+        />
+      </div>
       </div>
       </TransitionGroup>
       <div v-if="dockerAssets.length === 0" class="tree-empty">

@@ -6,6 +6,7 @@ import redisIcon from 'simple-icons/icons/redis.svg'
 import elasticsearchIcon from 'simple-icons/icons/elasticsearch.svg'
 import clickhouseIcon from 'simple-icons/icons/clickhouse.svg'
 import kafkaIcon from 'simple-icons/icons/apachekafka.svg'
+import dockerIcon from 'simple-icons/icons/docker.svg'
 
 const props = withDefaults(defineProps<{
   product?: string
@@ -22,6 +23,7 @@ const icons: Record<string, string> = {
   elasticsearch: elasticsearchIcon,
   clickhouse: clickhouseIcon,
   kafka: kafkaIcon,
+  docker: dockerIcon,
 }
 const iconUrl = computed(() => icons[props.product.toLowerCase()] || '')
 const style = computed(() => ({

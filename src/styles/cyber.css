@@ -76,6 +76,8 @@ html.v-theme--darkTheme {
   --db-kafka-bg: rgba(169, 182, 198, 0.12);
   --db-nsq: #5dd6d6;
   --db-nsq-bg: rgba(93, 214, 214, 0.12);
+  --db-docker: #6fa8d8;
+  --db-docker-bg: rgba(111, 168, 216, 0.12);
   --grad-primary: linear-gradient(135deg, #5dd6d6 0%, #8f7bd8 100%);
   --grad-accent: linear-gradient(135deg, #d46aa3 0%, #d89b65 100%);
   --grad-cool: linear-gradient(135deg, #5dd6d6 0%, #7297e8 100%);
@@ -247,6 +249,8 @@ html.v-theme--lightTheme {
   --db-kafka-bg: rgba(79, 94, 109, 0.1);
   --db-nsq: #3f6f7a;
   --db-nsq-bg: rgba(63, 111, 122, 0.1);
+  --db-docker: #4a7196;
+  --db-docker-bg: rgba(74, 113, 150, 0.1);
   --grad-primary: linear-gradient(135deg, #536a78 0%, #6d6598 100%);
   --grad-accent: linear-gradient(135deg, #aa617f 0%, #b0744d 100%);
   --grad-cool: linear-gradient(135deg, #536a78 0%, #55729f 100%);
@@ -2949,6 +2953,7 @@ body {
 .product-icon.product-clickhouse { color: var(--db-clickhouse); }
 .product-icon.product-kafka { color: var(--db-kafka); }
 .product-icon.product-nsq { color: var(--db-nsq); }
+.product-icon.product-docker { color: var(--db-docker); }
 
 .product-icon.product-icon-text {
   -webkit-mask: none;
@@ -3003,6 +3008,7 @@ body {
 .db-type-label.db-elasticsearch { color: var(--db-elasticsearch); background: var(--db-elasticsearch-bg); }
 .db-type-label.db-kafka { color: var(--db-kafka); background: var(--db-kafka-bg); }
 .db-type-label.db-nsq { color: var(--db-nsq); background: var(--db-nsq-bg); }
+.db-type-label.db-docker { color: var(--db-docker); background: var(--db-docker-bg); }
 
 /* Kafka / NSQ 状态工作台。 */
 .broker-view {

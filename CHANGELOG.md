@@ -12,6 +12,17 @@
 
 ---
 
+## [0.40.0] - 2026-08-04
+
+### 新增
+- Docker 资产树 DB 化:Docker 分组改为与数据库一致的展现形式(DCKR 徽章 + Docker 品牌图标),单击展开对象树(容器/镜像分组 → 容器、镜像,含状态/大小 meta),双击打开工作区,支持连接内过滤
+- 资产树点击容器/镜像联动 Docker 工作区:容器自动切到容器列表并选中,镜像切到镜像列表
+
+### 重构
+- Docker 连接参数构建抽取为 `src/utils/dockerConnect.ts`,DockerView 与 objectTree 资产树共用(socket/tcp/ssh 三种 transport)
+
+---
+
 ## [0.39.4] - 2026-08-04
 
 ### 修复

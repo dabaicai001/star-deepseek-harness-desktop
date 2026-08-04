@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.39.4-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.40.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.40.0 (2026-08-04)
+- ✨ Docker 资产树 DB 化:DCKR 徽章 + 品牌图标,单击展开容器/镜像对象树、连接内过滤、点击容器/镜像联动工作区;连接参数构建抽取共用
 
 ### v0.39.4 (2026-08-04)
 - 🐛 dbType 徽章 >5 字符缩写(CLICKHOUSE→CH、SQLITE→SQLT,补 MSSQL);MySQL 图标改为官方海豚(simple-icons 文字 logo 小尺寸不可读)
