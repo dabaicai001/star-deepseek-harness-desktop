@@ -6,11 +6,15 @@
 import { computed } from 'vue'
 import { useObjectTreeStore, type ObjectNode } from '@/stores/objectTree'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   assetId: string
   node: ObjectNode
   depth: number
-}>()
+  /** 过滤态:忽略 store expanded,强制展示命中路径上的子级(不污染持久化展开态) */
+  forceExpand?: boolean
+  /** 连接内过滤词(非空时只渲染 label 命中或后代命中的已加载子节点) */
+  filter?: string
+}>(), { forceExpand: false, filter: '' })
 const emit = defineEmits<{
   toggle: [node: ObjectNode]
   select: [node: ObjectNode]
@@ -18,13 +22,38 @@ const emit = defineEmits<{
 }>()
 
 const tree = useObjectTreeStore()
-const expanded = computed(() => tree.isExpanded(props.assetId, props.node.key))
+const expanded = computed(() => props.forceExpand || tree.isExpanded(props.assetId, props.node.key))
 const loading = computed(() => tree.stateOf(props.assetId)?.loadingKeys.includes(props.node.key) ?? false)
 const error = computed(() => tree.stateOf(props.assetId)?.errorByKey[props.node.key] ?? null)
 const children = computed(() => tree.childrenOf(props.assetId, props.node.key))
-const pad = computed(() => `${10 + props.depth * 14}px`)
-const childPad = computed(() => `${10 + (props.depth + 1) * 14}px`)
+const pad = computed(() => `${18 + props.depth * 14}px`)
+const childPad = computed(() => `${18 + (props.depth + 1) * 14}px`)
 const isMore = computed(() => Boolean(props.node.payload?.more))
+
+/** 层级引导线:每层祖先一条 1px 竖线(背景渐变实现),与 chevron 中心对齐,随缩进退位 */
+const guides = computed(() => {
+  const n = props.depth - 1
+  if (n <= 0) return null
+  return {
+    backgroundImage: Array(n).fill('linear-gradient(var(--line-2), var(--line-2))').join(', '),
+    backgroundSize: Array(n).fill('1px 100%').join(', '),
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: Array.from({ length: n }, (_, i) => `${18 + (i + 1) * 14 + 5}px 0`).join(', ')
+  }
+})
+
+/** label 命中(大小写不敏感)或任一已加载后代命中 */
+function nodeMatches(n: ObjectNode, q: string): boolean {
+  if (n.label.toLowerCase().includes(q)) return true
+  return tree.childrenOf(props.assetId, n.key).some(c => nodeMatches(c, q))
+}
+
+/** 过滤态下只渲染命中路径上的子级;否则渲染全部已加载子级 */
+const visibleChildren = computed(() => {
+  const q = props.filter.trim().toLowerCase()
+  if (!q) return children.value
+  return children.value.filter(c => nodeMatches(c, q))
+})
 
 function icon(n: ObjectNode): string {
   switch (n.kind) {
@@ -44,14 +73,15 @@ function icon(n: ObjectNode): string {
 
 function onLabelClick() {
   if (isMore.value) { emit('toggle', props.node); return }
-  if (props.node.hasChildren) emit('toggle', props.node)
+  // 中间层只展开/收起;末层才选中(拉起工作区 tab)
+  if (props.node.hasChildren) { emit('toggle', props.node); return }
   emit('select', props.node)
 }
 </script>
 
 <template>
   <div
-    class="obj-node" :class="{ more: isMore }" :style="{ paddingLeft: pad }"
+    class="obj-node" :class="{ more: isMore }" :style="{ paddingLeft: pad, ...(guides ?? {}) }"
     @contextmenu.prevent.stop="!isMore && emit('ctx', { node, x: $event.clientX, y: $event.clientY })"
   >
     <v-icon
@@ -72,8 +102,9 @@ function onLabelClick() {
   </div>
   <template v-if="expanded && !loading">
     <AssetTreeNode
-      v-for="child in children" :key="child.key"
+      v-for="child in visibleChildren" :key="child.key"
       :asset-id="assetId" :node="child" :depth="depth + 1"
+      :force-expand="forceExpand" :filter="filter"
       @toggle="emit('toggle', $event)" @select="emit('select', $event)" @ctx="emit('ctx', $event)"
     />
   </template>
@@ -83,7 +114,7 @@ function onLabelClick() {
 .obj-node { display: flex; align-items: center; gap: 5px; padding-top: 3px; padding-bottom: 3px; padding-right: 10px; font-size: 11px; color: var(--text-2); cursor: pointer; user-select: none; }
 .obj-node:hover { background: var(--hover-cyan-faint, rgba(127, 127, 127, 0.08)); color: var(--text); }
 .obj-node.more { color: var(--muted); font-style: italic; }
-.obj-chevron { color: var(--muted); transition: transform 0.15s; flex-shrink: 0; }
+.obj-chevron { color: var(--muted); transition: transform 0.15s; flex-shrink: 0; width: 10px; }
 .obj-chevron.open { transform: rotate(90deg); }
 .obj-chevron-spacer { width: 10px; flex-shrink: 0; }
 .obj-icon { color: var(--muted); flex-shrink: 0; }

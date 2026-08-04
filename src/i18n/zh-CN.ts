@@ -117,7 +117,9 @@ export default {
     placeholderHost: '192.168.1.10  或  dev.example.com',
     placeholderUser: 'root  /  ubuntu  /  deploy',
     placeholderDb: 'db.example.com',
-    placeholderDatabase: 'myapp'
+    placeholderDatabase: 'myapp',
+    filterObjects: '过滤…',
+    filterNoMatch: '无匹配节点(仅搜索已加载的节点)'
   },
   sidebar: {
     collapse: '收起侧边栏',

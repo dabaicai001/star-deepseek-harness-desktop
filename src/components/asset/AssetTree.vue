@@ -679,6 +679,27 @@ function onNodeSelect(asset: Asset, node: ObjectNode) {
   objectTree.selectObject(asset, node, router)
 }
 
+/** 连接内对象过滤(仅组件态,不进 store;只过滤已加载子树,不写 expanded) */
+const connFilter = ref<Record<string, string>>({})
+
+/** label 命中(大小写不敏感)或任一已加载后代命中 */
+function connNodeMatches(assetId: string, node: ObjectNode, q: string): boolean {
+  if (node.label.toLowerCase().includes(q)) return true
+  return objectTree.childrenOf(assetId, node.key).some(c => connNodeMatches(assetId, c, q))
+}
+
+/** 过滤词非空时返回命中节点(保留祖先链由 AssetTreeNode 的 filter prop 负责) */
+function connRoots(asset: Asset): ObjectNode[] {
+  const roots = objectTree.stateOf(asset.id)?.rootChildren ?? []
+  const q = (connFilter.value[asset.id] ?? '').trim().toLowerCase()
+  if (!q) return roots
+  return roots.filter(n => connNodeMatches(asset.id, n, q))
+}
+
+function connFilterActive(asset: Asset): boolean {
+  return Boolean((connFilter.value[asset.id] ?? '').trim())
+}
+
 /** 树节点右键:广播给对应工作区视图(DbView 等按 assetId + kind 过滤后弹菜单) */
 function onNodeCtx(asset: Asset, payload: { node: ObjectNode; x: number; y: number }) {
   window.dispatchEvent(new CustomEvent('starhub:object-contextmenu', {
@@ -817,7 +838,8 @@ function onNodeCtx(asset: Asset, payload: { node: ObjectNode; x: number; y: numb
         :class="{ active: isActive(asset), selected: isSelected(asset) }"
         :data-tooltip="asset.name"
         tabindex="0"
-        @click="handleAssetClick(asset)"
+        @click="toggleAssetTree(asset)"
+        @dblclick="handleAssetClick(asset)"
         @contextmenu="openContextMenu($event, asset)"
         @keydown="onAssetKeydown($event, asset)"
       >
@@ -842,13 +864,24 @@ function onNodeCtx(asset: Asset, payload: { node: ObjectNode; x: number; y: numb
       </div>
       <!-- 对象树:实例 → 分组 → 对象(objectTree store 懒加载) -->
       <div v-if="treeExpandedIds.includes(asset.id)" class="asset-children">
+        <div
+          v-if="objectTree.stateOf(asset.id)?.status === 'ready' && (objectTree.stateOf(asset.id)?.rootChildren.length ?? 0) > 0"
+          class="tree-filter conn-filter"
+        >
+          <v-icon size="11">mdi-magnify</v-icon>
+          <input v-model="connFilter[asset.id]" type="text" :placeholder="t('asset.filterObjects')" />
+        </div>
         <div v-if="objectTree.stateOf(asset.id)?.status === 'connecting'" class="tree-empty">连接中…</div>
         <div v-else-if="objectTree.stateOf(asset.id)?.status === 'error'" class="tree-empty">
           连接失败 · <a href="javascript:void 0" class="retry-link" @click="objectTree.ensureAsset(asset)">重试</a>
         </div>
+        <div v-else-if="connFilterActive(asset) && connRoots(asset).length === 0" class="tree-empty">
+          {{ t('asset.filterNoMatch') }}
+        </div>
         <AssetTreeNode
-          v-for="node in objectTree.stateOf(asset.id)?.rootChildren ?? []"
+          v-for="node in connRoots(asset)"
           :key="node.key" :asset-id="asset.id" :node="node" :depth="1"
+          :force-expand="connFilterActive(asset)" :filter="connFilter[asset.id] ?? ''"
           @toggle="onNodeToggle(asset, $event)" @select="onNodeSelect(asset, $event)" @ctx="onNodeCtx(asset, $event)"
         />
       </div>
@@ -1234,6 +1267,14 @@ function onNodeCtx(asset: Asset, payload: { node: ObjectNode; x: number; y: numb
   font-size: 11px;
   font-family: inherit;
 }
+
+/* 连接内对象过滤:复用 tree-filter 结构,尺寸更小,左缩进与库节点(32px)对齐 */
+.conn-filter {
+  height: 22px;
+  margin: 2px 8px 4px 32px;
+  padding: 0 6px;
+}
+.conn-filter input { font-size: 10.5px; }
 
 /* 对象树:资产行外包块 + 实例层 chevron */
 .asset-block { display: block; }

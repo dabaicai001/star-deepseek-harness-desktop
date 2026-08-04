@@ -117,7 +117,9 @@ export default {
     placeholderHost: '192.168.1.10  or  dev.example.com',
     placeholderUser: 'root  /  ubuntu  /  deploy',
     placeholderDb: 'db.example.com',
-    placeholderDatabase: 'myapp'
+    placeholderDatabase: 'myapp',
+    filterObjects: 'Filter…',
+    filterNoMatch: 'No matching nodes (only loaded nodes are searched)'
   },
   sidebar: {
     collapse: 'Collapse sidebar',
