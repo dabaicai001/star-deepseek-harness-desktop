@@ -17,7 +17,6 @@ import NotificationCenter from '@/components/layout/NotificationCenter.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import TransferDock from '@/components/transfer/TransferDock.vue'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
-import ProductIcon from '@/components/common/ProductIcon.vue'
 import * as tauriWindowApi from '@tauri-apps/api/window'
 import { WebviewWindow, getAllWebviewWindows } from '@tauri-apps/api/webviewWindow'
 import { emitTo, listen as tauriListen } from '@tauri-apps/api/event'
@@ -29,7 +28,7 @@ import {
   LOCAL_TAB_DETACH_EVENT,
 } from '@/lib/windowDetach'
 import { generateInstanceId } from '@/utils/tabId'
-import { routeNameForAsset, getDbLabel, openAssetTab as openAssetTabRouting } from '@/utils/assetRouting'
+import { routeNameForAsset, openAssetTab as openAssetTabRouting } from '@/utils/assetRouting'
 import { version as appVersion } from '~package.json'
 import logoUrl from '@/assets/logo-star.png'
 import type { Asset } from '@/types/asset'
@@ -53,10 +52,6 @@ aiStore.ensureAgentsShape()
 // P1 §A:欢迎页装饰层在 < 1280px 窗口下整体关闭(只剩栅格遮罩),
 // 极光 + 漂浮粒子 GPU 渲染开销大,小窗口视觉抢戏
 const showWelcomeDecor = computed(() => bp.width.value >= 1280)
-
-// menubar 水平 padding(.menubar 上写的 0 12px),
-// tab-strip 的左边距要减去这个,才能正好对齐到 workspace 左边缘
-const MENUBAR_PADDING_X = 12
 
 const showNewConnection = ref(false)
 const showSettings = ref(false)
@@ -192,7 +187,7 @@ function onTitlebarMousedown(e: MouseEvent) {
   // 排除交互元素及其子元素
   if (target.closest(
     'button, input, textarea, select, a, [role="button"], ' +
-    '.window-controls, .top-actions, .logo, .user-menu'
+    '.window-controls, .top-actions, .logo, .user-menu, .tab-strip-wrap, .tab'
   )) return
   e.preventDefault()
   appWindow.startDragging().catch(() => {})
@@ -534,7 +529,7 @@ onBeforeUnmount(() => {
 const newTabPicker = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 function closeNewTabPicker() { newTabPicker.value = null }
 
-// ====== 标签栏空隙右键菜单(空 tab 区 / menubar 区域) ======
+// ====== 标签栏空隙右键菜单(空 tab 区) ======
 const tabBarCtxMenu = ref<{ x: number; y: number } | null>(null)
 function closeTabBarContextMenu() { tabBarCtxMenu.value = null }
 
@@ -695,7 +690,7 @@ const tabBarCtxItems = computed<MenuItem[]>(() => {
   ]
 })
 
-/** 标签栏空隙右键 / menubar 右键统一入口 */
+/** 标签栏空隙右键统一入口 */
 function openTabBarContextMenu(e: MouseEvent) {
   e.preventDefault()
   e.stopPropagation()
@@ -1348,7 +1343,7 @@ const welcomeParticles = [
   { id: 5, x: '42%', y: '90%', d: '5.4s' }
 ]
 
-/** 紧凑时间标签(用于 quick-start-bar) */
+/** 紧凑时间标签(用于欢迎页最近使用面板) */
 function shortTimeAgo(ts: number | null | undefined): string {
   if (!ts) return ''
   const diff = Date.now() - ts
@@ -1439,6 +1434,61 @@ vueWatch(() => appStore.tabs.length, () => {
         <img :src="logoUrl" alt="StarHub" class="logo-img" />
       </div>
 
+      <!-- 标签栏(原 menubar 横条已并入标题栏,logo 右侧) -->
+      <div class="tab-strip-wrap">
+        <button
+          v-show="canScrollLeft"
+          class="tab-scroll-btn left"
+          @click="scrollTabs(-1)"
+        >
+          <v-icon size="12">mdi-chevron-left</v-icon>
+        </button>
+        <div
+          ref="tabStripRef"
+          class="tab-strip"
+          data-tauri-drag-region
+          @scroll="onTabStripScroll"
+          @contextmenu="openTabBarContextMenu"
+        >
+          <div
+            v-for="tab in appStore.tabs"
+            :key="tab.id"
+            class="tab"
+            :class="{
+              active: appStore.activeTab === tab.id,
+              dragging: tabDragState?.tabId === tab.id && tabDragState?.dragging,
+              'drag-armed': tabDragState?.tabId === tab.id && tabDragState?.detachArmed
+            }"
+            @click="onTabClick(tab)"
+            @contextmenu="openTabContextMenu($event, tab)"
+            @auxclick.middle.prevent="closeTab(tab.id)"
+            @pointerdown="onTabPointerDown($event, tab)"
+            @dblclick.stop
+          >
+            <v-icon size="12">{{ getIcon(tab.type) }}</v-icon>
+            <span class="tab-title">{{ getTabDisplayTitle(tab) }}</span>
+            <span class="tab-close" @click.stop="closeTab(tab.id)">
+              <v-icon size="10">mdi-close</v-icon>
+            </span>
+          </div>
+        </div>
+        <button
+          v-show="canScrollRight"
+          class="tab-scroll-btn right"
+          @click="scrollTabs(1)"
+        >
+          <v-icon size="12">mdi-chevron-right</v-icon>
+        </button>
+        <!-- 标签栏尾部 + 按钮:快速新建 tab -->
+        <button
+          class="tab-new-btn"
+          :data-tooltip="t('common.new') + ' tab'"
+          @click="openNewTabFromCurrent"
+        >
+          <v-icon size="13">mdi-plus</v-icon>
+        </button>
+      </div>
+
       <div class="top-actions">
         <div class="top-action-group">
           <button class="action-btn" @click="openSettings()" :data-tooltip="t('settings.title')">
@@ -1515,101 +1565,6 @@ vueWatch(() => appStore.tabs.length, () => {
             <v-icon size="14">mdi-window-close</v-icon>
           </button>
         </div>
-      </div>
-    </div>
-
-    <!-- Menu Bar (只放 tab 条,顶部导航按钮已删除) -->
-    <div class="menubar" :class="{ 'menubar--empty': appStore.tabs.length === 0 }">
-      <div
-        class="tab-strip-wrap"
-        :style="{
-          // tab 条与 workspace 左边缘对齐,而不是贴 sidebar 边
-          // (展开态 260 / 折叠态 60,减去 menubar 自身的 12px padding)
-          marginLeft: ((appStore.sidebarOpen ? appStore.sidebarWidth : SIDEBAR_COLLAPSED_WIDTH) - MENUBAR_PADDING_X) + 'px'
-        }"
-      >
-        <button
-          v-show="canScrollLeft"
-          class="tab-scroll-btn left"
-          @click="scrollTabs(-1)"
-        >
-          <v-icon size="12">mdi-chevron-left</v-icon>
-        </button>
-        <div
-          ref="tabStripRef"
-          class="tab-strip"
-          @scroll="onTabStripScroll"
-          @contextmenu="openTabBarContextMenu"
-        >
-          <div
-            v-for="tab in appStore.tabs"
-            :key="tab.id"
-            class="tab"
-            :class="{
-              active: appStore.activeTab === tab.id,
-              dragging: tabDragState?.tabId === tab.id && tabDragState?.dragging,
-              'drag-armed': tabDragState?.tabId === tab.id && tabDragState?.detachArmed
-            }"
-            @click="onTabClick(tab)"
-            @contextmenu="openTabContextMenu($event, tab)"
-            @auxclick.middle.prevent="closeTab(tab.id)"
-            @pointerdown="onTabPointerDown($event, tab)"
-          >
-            <v-icon size="12">{{ getIcon(tab.type) }}</v-icon>
-            <span class="tab-title">{{ getTabDisplayTitle(tab) }}</span>
-            <span class="tab-close" @click.stop="closeTab(tab.id)">
-              <v-icon size="10">mdi-close</v-icon>
-            </span>
-          </div>
-        </div>
-        <button
-          v-show="canScrollRight"
-          class="tab-scroll-btn right"
-          @click="scrollTabs(1)"
-        >
-          <v-icon size="12">mdi-chevron-right</v-icon>
-        </button>
-        <!-- 标签栏尾部 + 按钮:快速新建 tab -->
-        <button
-          class="tab-new-btn"
-          :data-tooltip="t('common.new') + ' tab'"
-          @click="openNewTabFromCurrent"
-        >
-          <v-icon size="13">mdi-plus</v-icon>
-        </button>
-      </div>
-
-      <!-- 无 tab 时:tab 栏居中显示"最近用过"快速启动条,填充空白 -->
-      <div v-if="appStore.tabs.length === 0" class="quick-start-bar">
-        <template v-if="recentAssets.length > 0">
-          <span class="qs-label">最近</span>
-          <button
-            v-for="a in recentAssets"
-            :key="a.id"
-            class="qs-chip"
-            :data-tooltip="`${a.config.host || a.config.dbType || ''} · ${shortTimeAgo(a.lastUsedAt)}`"
-            @click="connectToAsset(a)"
-          >
-            <!-- DB 类型:与侧边栏一致,用 db-badge-wrap(图标 + 类型徽章),区分 mysql/redis/pg/sqlite -->
-            <span v-if="a.type === 'db'" class="db-badge-wrap">
-              <ProductIcon :product="a.config.dbType || 'mysql'" :size="13" />
-              <span class="db-type-label" :class="`db-${a.config.dbType || 'mysql'}`">{{ getDbLabel(a.config.dbType) }}</span>
-            </span>
-            <!-- SSH / Docker:裸图标,与侧边栏一致 -->
-            <v-icon v-else size="13" :class="a.type">{{ getIcon(a.type) }}</v-icon>
-            <span class="qs-name">{{ a.name }}</span>
-            <span class="qs-time">{{ shortTimeAgo(a.lastUsedAt) }}</span>
-          </button>
-          <span class="qs-hint">点 + 创建新连接,或点上方按钮快速打开</span>
-        </template>
-        <template v-else>
-          <span class="qs-empty">
-            <v-icon size="14" color="muted">mdi-rocket-launch-outline</v-icon>
-            还没有任何连接 — 点右上角
-            <v-icon size="12" color="cyan">mdi-plus</v-icon>
-            创建第一个
-          </span>
-        </template>
       </div>
     </div>
 
@@ -1854,7 +1809,7 @@ vueWatch(() => appStore.tabs.length, () => {
       @close="closeTabContextMenu"
     />
 
-    <!-- 标签栏空隙 / menubar 右键菜单 -->
+    <!-- 标签栏空隙右键菜单 -->
     <ContextMenu
       v-if="tabBarCtxMenu"
       :x="tabBarCtxMenu.x"
@@ -1914,11 +1869,10 @@ vueWatch(() => appStore.tabs.length, () => {
   height: 100vh;
   display: grid;
   /* P1 §A:布局尺寸 token 化引用,改 token 一处全站生效
-   * --layout-titlebar-h / --layout-menubar-h / --layout-statusbar-h 来源:cyber.css */
-  grid-template-rows: var(--layout-titlebar-h) var(--layout-menubar-h) 1fr var(--layout-statusbar-h);
+   * --layout-titlebar-h / --layout-statusbar-h 来源:cyber.css */
+  grid-template-rows: var(--layout-titlebar-h) 1fr var(--layout-statusbar-h);
   grid-template-areas:
     "titlebar"
-    "menubar"
     "content"
     "statusbar";
   background: var(--bg);
@@ -1949,7 +1903,7 @@ vueWatch(() => appStore.tabs.length, () => {
   min-width: 0;
   backdrop-filter: blur(20px);
   position: relative;
-  /* 保持高栈,搜索下拉 (z:99) 和用户菜单 (z:100) 才能盖在 menubar (z:0) 上面 */
+  /* 保持高栈,搜索下拉 (z:99) 和用户菜单 (z:100) 才能盖在下方内容区 (z:0/1) 上面 */
   z-index: 100;
 }
 
@@ -2169,26 +2123,6 @@ kbd {
   color: var(--muted);
 }
 
-.menubar {
-  grid-area: menubar;
-  background: var(--chrome-glass);
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  gap: 2px;
-  min-width: 0;
-  overflow: hidden;
-  font-size: 12px;
-  color: var(--text-2);
-  backdrop-filter: blur(10px);
-  /* 在栈底:让 titlebar 的子元素(搜索下拉、用户菜单)以及 v-dialog 都能盖在它上面。
-     backdrop-filter 会创建独立的 stacking context,
-     所以必须显式降到比 titlebar (10) 更低,否则同级 DOM 后置会盖住上面所有的弹层。 */
-  z-index: 0;
-  position: relative;
-}
-
 .menu-item {
   padding: 5px 10px;
   border-radius: 6px;
@@ -2253,17 +2187,10 @@ kbd {
   display: flex;
   align-items: center;
   gap: 2px;
-  /* margin-left 由 :style 动态绑定(跟随 sidebar 宽度),不要在这里写死 */
+  /* 标题栏中段:占据 logo 与右侧按钮之间的空间,可收缩,tab 溢出走滚动按钮 */
   flex: 1;
   min-width: 0;
   position: relative;
-  /* 宽度跟随 sidebar 变化时给个缓动,免得拖拽时生硬 */
-  transition: margin-left 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* 无 tab 时,tab-strip-wrap 不要吃满空间,让 quick-start-bar 紧贴「+」按钮 */
-.menubar--empty .tab-strip-wrap {
-  flex: 0 0 auto;
 }
 
 .tab-scroll-btn {
@@ -2301,7 +2228,6 @@ kbd {
   border: 1px solid var(--line-2);
   cursor: pointer;
   margin-left: 6px;
-  margin-right: 12px;
   transition: all 0.15s;
 }
 .tab-new-btn:hover {
@@ -2309,94 +2235,6 @@ kbd {
   background: var(--active-cyan);
   border-color: var(--status-connecting-border);
   box-shadow: var(--glow-soft);
-}
-
-/* 无 tab 时,tab 栏居中显示"最近用过"快速启动条 */
-.quick-start-bar {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.quick-start-bar::-webkit-scrollbar { display: none; }
-.quick-start-bar .qs-label {
-  font-size: 9px;
-  font-weight: 700;
-  font-family: 'Orbitron', sans-serif;
-  color: var(--muted);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  flex-shrink: 0;
-  margin-right: 4px;
-}
-.quick-start-bar .qs-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: 260px;
-  padding: 3px 8px 3px 6px;
-  background: var(--hover-cyan-faint);
-  border: 1px solid var(--line-2);
-  border-radius: 14px;
-  color: var(--text-2);
-  font-size: 11px;
-  font-family: inherit;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: all 0.15s;
-}
-.quick-start-bar .qs-chip:hover {
-  background: var(--active-cyan);
-  border-color: var(--status-connecting-border);
-  color: var(--cyan);
-  transform: translateY(-1px);
-}
-.quick-start-bar .qs-chip .v-icon.ssh { color: var(--cyan); }
-.quick-start-bar .qs-chip .v-icon.db { color: var(--purple); }
-.quick-start-bar .qs-chip .v-icon.docker { color: var(--green); }
-/* chip 内的 DB 类型徽章:复用侧边栏 .db-badge-wrap 的色板,但改成水平排版以适配 chip 高度 */
-.quick-start-bar .qs-chip .db-badge-wrap {
-  flex-direction: row;
-  gap: 3px;
-}
-.quick-start-bar .qs-chip .db-badge-wrap .v-icon { margin-bottom: 0; }
-.quick-start-bar .qs-chip .db-type-label { font-size: 8px; padding: 1px 4px; }
-.quick-start-bar .qs-name {
-  font-weight: 500;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.quick-start-bar .qs-time {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  color: var(--muted);
-  padding-left: 4px;
-  border-left: 1px solid var(--line-2);
-  margin-left: 2px;
-  flex-shrink: 0;
-}
-.quick-start-bar .qs-hint {
-  font-size: 10px;
-  color: var(--muted);
-  font-style: italic;
-  flex-shrink: 0;
-}
-.quick-start-bar .qs-empty {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--muted);
-  font-style: italic;
-  width: 100%;
-  justify-content: center;
 }
 
 .tab {
@@ -2592,7 +2430,7 @@ kbd {
   color: var(--muted);
   backdrop-filter: blur(10px);
   font-family: 'JetBrains Mono', monospace;
-  /* 跟 .menubar 一致,保持栈底,避免覆盖 v-dialog 等弹层 */
+  /* 保持栈底,避免覆盖 v-dialog 等弹层 */
   z-index: 0;
   position: relative;
 }
@@ -2626,7 +2464,6 @@ kbd {
 
 @media (max-width: 900px) {
   .logo-wordmark,
-  .quick-start-bar .qs-hint,
   .statusbar .sb-item:nth-child(n + 4) {
     display: none;
   }
