@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.39.3-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.39.4-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.39.4 (2026-08-04)
+- 🐛 dbType 徽章 >5 字符缩写(CLICKHOUSE→CH、SQLITE→SQLT,补 MSSQL);MySQL 图标改为官方海豚(simple-icons 文字 logo 小尺寸不可读)
 
 ### v0.39.3 (2026-08-04)
 - 🐛 资产树:连接内过滤命中全部表(截断移到渲染层)、'+ N more' 可点击展开;Redis '+ 加载更多' 点击续扫、过滤走 SCAN MATCH;重启后自动展开的库自动加载子级

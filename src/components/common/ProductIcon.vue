@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import mysqlIcon from 'simple-icons/icons/mysql.svg'
+import mysqlIcon from '@/assets/icons/mysql.svg'
 import postgresIcon from 'simple-icons/icons/postgresql.svg'
 import redisIcon from 'simple-icons/icons/redis.svg'
 import elasticsearchIcon from 'simple-icons/icons/elasticsearch.svg'

@@ -23,14 +23,15 @@ export function routeNameForAsset(asset: Asset): string {
   return 'db-mysql'
 }
 
-/** dbType → 侧栏等宽小徽章文案 */
+/** dbType → 侧栏等宽小徽章文案(>5 字符的一律缩写,避免溢出 64px 徽章) */
 export function getDbLabel(dbType?: string): string {
   switch (dbType) {
     case 'redis': return 'REDIS'
     case 'postgresql': return 'PG'
-    case 'sqlite': return 'SQLITE'
+    case 'sqlite': return 'SQLT'
     case 'elasticsearch': return 'ES'
-    case 'clickhouse': return 'CLICKHOUSE'
+    case 'clickhouse': return 'CH'
+    case 'mssql': return 'MSSQL'
     case 'kafka': return 'KAFKA'
     case 'nsq': return 'NSQ'
     case 'mysql':

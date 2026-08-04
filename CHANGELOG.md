@@ -12,6 +12,14 @@
 
 ---
 
+## [0.39.4] - 2026-08-04
+
+### 修复
+- dbType 徽章超过 5 字符一律缩写,避免溢出 64px 徽章:CLICKHOUSE→CH、SQLITE→SQLT;补 MSSQL 徽章(此前错误回退显示 MYSQL)
+- MySQL 品牌图标修复:simple-icons 的 mysql.svg 是文字 logo,小尺寸糊成一团;改为本地提取的官方海豚图标(`src/assets/icons/mysql.svg`)
+
+---
+
 ## [0.39.3] - 2026-08-04
 
 ### 修复
