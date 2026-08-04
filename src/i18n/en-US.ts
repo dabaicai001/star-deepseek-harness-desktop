@@ -12,6 +12,7 @@ export default {
     new: 'New',
     open: 'Open',
     recent: 'Recent',
+    refresh: 'Refresh',
     noData: 'No data',
     confirm: 'Confirm',
     soon: 'Coming soon',

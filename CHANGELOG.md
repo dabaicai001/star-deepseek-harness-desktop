@@ -12,6 +12,13 @@
 
 ---
 
+## [0.39.2] - 2026-08-04
+
+### 修复
+- i18n 补齐 `common.refresh` 中英 key,修复 DbView 空状态刷新按钮 / DataGrid 工具栏 / RedisView 右键菜单显示原始 key「common.refresh」
+
+---
+
 ## [0.39.1] - 2026-08-04
 
 ### 修复

@@ -12,6 +12,7 @@ export default {
     new: '新建',
     open: '打开',
     recent: '最近',
+    refresh: '刷新',
     noData: '暂无数据',
     confirm: '确认',
     soon: '即将推出',
