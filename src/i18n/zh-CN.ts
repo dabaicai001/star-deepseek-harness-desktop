@@ -144,6 +144,10 @@ export default {
     closeOtherTabs: '关闭其他标签页',
     closeSameAssetTabs: '关闭同一资产的其他标签页',
     closeRightTabs: '关闭右侧标签页',
+    closeLeftTabs: '关闭左侧标签页',
+    reconnectAssetTab: '重新连接',
+    disconnectAsset: '断开连接',
+    refreshAssetTree: '刷新资产树',
     closeAllTabs: '关闭所有',
     copyTabTitle: '复制标签标题',
     detachTab: '在独立窗口打开',
@@ -535,6 +539,7 @@ export default {
     viewMapping: '查看映射',
     viewSettings: '查看设置',
     refreshIndices: '刷新索引列表',
+    deleteIndex: '删除索引',
   },
   redis: {
     newKey: '新建 Key...',
@@ -716,8 +721,6 @@ export default {
     execQuickFiles: '文件',
     execQuickDisk: '磁盘',
     execQuickNetwork: '网络',
-    sidebarCollapse: '收起 Docker 容器侧栏',
-    sidebarExpand: '展开 Docker 容器侧栏',
     pull: '拉取',
     push: '推送',
     build: '构建'

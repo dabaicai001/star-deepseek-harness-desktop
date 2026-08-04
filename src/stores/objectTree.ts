@@ -47,6 +47,13 @@ export interface ObjectSelection {
   payload: Record<string, unknown>
 }
 
+/** 树右键菜单动作:kind + 动作名 + 节点 payload,由对应工作区视图消费执行 */
+export interface ObjectAction {
+  kind: ObjectKind
+  action: string
+  payload: Record<string, unknown>
+}
+
 export interface AssetTreeState {
   status: 'idle' | 'connecting' | 'ready' | 'error'
   error: string | null
@@ -473,6 +480,23 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
     return sel
   }
 
+  // ─── 右键动作:pending + 事件 双通道(开 tab 由调用方负责) ───
+  const pendingAction = ref<Record<string, ObjectAction | null>>({})
+
+  function dispatchObjectAction(assetId: string, action: ObjectAction): void {
+    pendingAction.value[assetId] = action
+    window.dispatchEvent(new CustomEvent('starhub:object-action', {
+      detail: { assetId, kind: action.kind, action: action.action, payload: action.payload }
+    }))
+  }
+
+  /** 视图 onMounted 主动拉取并清除(晚挂载兜底) */
+  function takePendingAction(assetId: string): ObjectAction | null {
+    const act = pendingAction.value[assetId] ?? null
+    pendingAction.value[assetId] = null
+    return act
+  }
+
   // ─── 表截断展示(渲染层;全量已入树,连接内过滤始终命中全部表) ───
   const fullTableLists = ref<Record<string, true>>({})
   function isTableListFull(assetId: string, key: string): boolean {
@@ -558,6 +582,7 @@ export const useObjectTreeStore = defineStore('objectTree', () => {
   return {
     states, stateOf, ensureAsset, toggleNode, selectObject,
     takePendingSelection, refreshAsset, isExpanded, childrenOf,
-    isTableListFull, showAllTables, searchRedis, clearRedisSearch
+    isTableListFull, showAllTables, searchRedis, clearRedisSearch,
+    dispatchObjectAction, takePendingAction
   }
 })

@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick, cloneVNode, define
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
+import { useObjectTreeStore } from '@/stores/objectTree'
 import { useAppStore, SIDEBAR_COLLAPSED_WIDTH, type Tab } from '@/stores/app'
 import { useThemeStore } from '@/stores/theme'
 import { useDialogStore } from '@/stores/dialog'
@@ -41,6 +42,7 @@ const route = useRoute()
 // 仅用于真实布局下的视觉与性能回归,生产构建恒为 false。
 const devMockWorkspace = computed(() => import.meta.env.DEV && route.query.mock === '1')
 const assetStore = useAssetStore()
+const objectTree = useObjectTreeStore()
 const appStore = useAppStore()
 const themeStore = useThemeStore()
 const dlg = useDialogStore()
@@ -1026,6 +1028,16 @@ function connectToAsset(asset: Asset) {
   openAssetTab(asset, true)
 }
 
+/** 标签右键「重新连接」:关闭该资产的所有 tab 再重新打开,各视图 onMounted 会重新发起连接 */
+function reconnectTabAsset(assetId: string) {
+  const asset = assetStore.assets.find(a => a.id === assetId)
+  if (!asset) return
+  for (const tab of appStore.tabs.filter(t => t.assetId === assetId)) {
+    appStore.removeTab(tab.id)
+  }
+  openAssetTab(asset, false)
+}
+
 // `openSftpForAsset` 已迁移到 AssetTree.vue 的右键菜单
 // (SFTP拆为独立工具后,逻辑跟着 UI走),这里不再保留死代码。
 
@@ -1138,6 +1150,51 @@ const tabCtxItems = computed<MenuItem[]>(() => {
         if (activeId && !appStore.tabs.find(t => t.id === activeId)) {
           selectTab(tab as any)
         }
+      }
+    },
+    {
+      type: 'item',
+      icon: 'mdi-arrow-collapse-left',
+      label: t('layout.closeLeftTabs'),
+      disabled: !hasLeft,
+      onClick: () => {
+        const left = appStore.tabs.slice(0, idx)
+        for (const t of left) appStore.removeTab(t.id)
+        // 如果 active 在被关的里面,跳回当前
+        if (activeId && !appStore.tabs.find(t => t.id === activeId)) {
+          selectTab(tab as any)
+        }
+      }
+    },
+    { type: 'divider' },
+    {
+      type: 'item',
+      icon: 'mdi-restart',
+      label: t('layout.reconnectAssetTab'),
+      disabled: !currentTab?.assetId,
+      onClick: () => {
+        if (currentTab?.assetId) reconnectTabAsset(currentTab.assetId)
+      }
+    },
+    {
+      type: 'item',
+      icon: 'mdi-lan-disconnect',
+      label: t('layout.disconnectAsset'),
+      disabled: !currentTab?.assetId,
+      onClick: () => {
+        if (!currentTab?.assetId) return
+        // 各域视图(Db/Redis/ES/Docker)监听此事件,按 assetId 断开自己持有的会话
+        window.dispatchEvent(new CustomEvent('starhub:tab-disconnect', { detail: { assetId: currentTab.assetId } }))
+      }
+    },
+    {
+      type: 'item',
+      icon: 'mdi-refresh',
+      label: t('layout.refreshAssetTree'),
+      disabled: !currentTab?.assetId,
+      onClick: () => {
+        // 资产树无该资产状态(如 SSH 资产)时 refreshAsset 内部 no-op
+        if (currentTab?.assetId) void objectTree.refreshAsset(currentTab.assetId)
       }
     },
     { type: 'divider' },

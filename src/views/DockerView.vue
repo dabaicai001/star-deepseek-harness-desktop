@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { invoke } from '@tauri-apps/api/core'
@@ -12,7 +12,6 @@ import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
 import { useDialogStore } from '@/stores/dialog'
 import RightPanel from '@/components/layout/RightPanel.vue'
-import ResizableSidebarHandle from '@/components/layout/ResizableSidebarHandle.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import DockerDashboard from '@/components/dashboard/DockerDashboard.vue'
 import HostKeyConfirmDialog, { type HostKeyInfo } from '@/components/ssh/HostKeyConfirmDialog.vue'
@@ -69,9 +68,6 @@ const connecting = ref(false)
 const connectError = ref<string | null>(null)
 const activeTab = ref<'containers' | 'images'>('containers')
 const selectedTab = ref<'logs' | 'stats' | 'exec'>('logs')
-const sidebarCollapsed = ref(false)
-const sidebarWidth = ref(260)
-const sidebarDragging = ref(false)
 const repairingHostKey = ref(false)
 const trustSessionId = ref('')
 const hostKeyDialogRef = ref<InstanceType<typeof HostKeyConfirmDialog>>()
@@ -84,10 +80,6 @@ let connectAttemptId = 0
 // 名称易误导,这里改名 connectStale 更准确。
 let connectStale = false
 const ownedConnIds = new Set<string>()
-
-watch(selectedTab, (tab) => {
-  if (tab === 'exec') sidebarCollapsed.value = true
-})
 
 async function markStale() {
   if (connectStale) return
@@ -391,11 +383,16 @@ async function doRemove(id: string) {
   notify.notify({ title: 'Docker', message: '容器已删除', color: 'success' })
 }
 
-// 资产树对象选中:容器 → 切到容器列表并选中;镜像 → 切到镜像列表
+// 资产树对象选中:容器 → 切到容器列表、选中并加载日志;镜像 → 切到镜像列表
 function applyObjectSelection(kind: string, payload: Record<string, unknown>): void {
   if (kind === 'docker-container') {
     activeTab.value = 'containers'
-    dockerStore.selectContainer(String(payload.containerId ?? ''))
+    const containerId = String(payload.containerId ?? '')
+    dockerStore.selectContainer(containerId)
+    if (containerId) {
+      selectedTab.value = 'logs'
+      void dockerStore.loadContainerLogs(containerId, '200')
+    }
     return
   }
   if (kind === 'docker-image') activeTab.value = 'images'
@@ -407,9 +404,18 @@ function onObjectSelected(e: Event) {
   applyObjectSelection(detail.kind, detail.payload)
 }
 
+// 标签右键「断开连接」:断开本视图持有的会话并更新 connected 状态(不走 markStale,视图保持挂载可重连)
+function onTabDisconnect(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string } | undefined
+  if (!detail || detail.assetId !== assetId.value) return
+  connected.value = false
+  void disconnectOwnedSessions()
+}
+
 onMounted(() => {
   connectStale = false
   window.addEventListener('starhub:object-selected', onObjectSelected)
+  window.addEventListener('starhub:tab-disconnect', onTabDisconnect)
   // 晚挂载兜底:资产树点击发生在视图挂载前,主动拉取挂起选中
   const pending = objectTree.takePendingSelection(assetId.value)
   if (pending) applyObjectSelection(pending.kind, pending.payload)
@@ -424,6 +430,7 @@ onMounted(() => {
 
 onBeforeUnmount(async () => {
   window.removeEventListener('starhub:object-selected', onObjectSelected)
+  window.removeEventListener('starhub:tab-disconnect', onTabDisconnect)
   await markStale()
   connecting.value = false
 })
@@ -588,105 +595,6 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
 <template>
   <div class="docker-view-with-panel">
     <div class="docker-view">
-    <!-- Sidebar -->
-    <div
-      class="docker-sidebar"
-      :class="{ collapsed: sidebarCollapsed, dragging: sidebarDragging }"
-      :style="{
-        width: sidebarCollapsed ? '40px' : `${sidebarWidth}px`,
-        minWidth: sidebarCollapsed ? '40px' : `${sidebarWidth}px`
-      }"
-    >
-      <div class="sidebar-header">
-        <template v-if="!sidebarCollapsed">
-          <span class="sidebar-title">Docker</span>
-          <button
-            class="action-btn"
-            :aria-label="t('docker.sidebarCollapse')"
-            :title="t('docker.sidebarCollapse')"
-            @click="sidebarCollapsed = true"
-          >
-            <v-icon size="14">mdi-chevron-left</v-icon>
-          </button>
-        </template>
-        <button
-          v-else
-          class="action-btn expand-btn"
-          :aria-label="t('docker.sidebarExpand')"
-          :title="t('docker.sidebarExpand')"
-          @click="sidebarCollapsed = false"
-        >
-          <v-icon size="14">mdi-chevron-right</v-icon>
-        </button>
-      </div>
-
-      <template v-if="!sidebarCollapsed">
-        <!-- Connection status -->
-        <div class="conn-status" :class="{ connected }">
-          <span class="status-dot" :class="{ online: connected, connecting }"></span>
-          <span class="conn-name">{{ asset?.name || '...' }}</span>
-        </div>
-
-        <!-- Container list -->
-        <div class="sidebar-section">
-          <div class="section-label">
-            <v-icon size="12" color="green">mdi-docker</v-icon>
-            <span>{{ t('docker.containers') }} ({{ dockerStore.containers.length }})</span>
-            <button class="action-btn-sm" @click="dockerStore.loadContainers()" :title="t('sftp.refresh')">
-              <v-icon size="10">mdi-refresh</v-icon>
-            </button>
-          </div>
-
-          <!-- Running -->
-          <div v-if="dockerStore.runningContainers.length > 0" class="sub-label">
-            <span class="status-dot online" style="width:6px;height:6px"></span>
-            Running ({{ dockerStore.runningContainers.length }})
-          </div>
-          <div
-            v-for="c in dockerStore.runningContainers"
-            :key="c.id"
-            class="container-item"
-            :class="{ active: dockerStore.selectedContainerId === c.id }"
-            @click="selectContainer(c)"
-          >
-            <v-icon size="12" :color="getStateColor(c.state)">{{ getStateIcon(c.state) }}</v-icon>
-            <span class="item-name">{{ c.name }}</span>
-            <span class="item-meta">{{ c.image.split(':').pop() }}</span>
-          </div>
-
-          <!-- Stopped -->
-          <div v-if="dockerStore.stoppedContainers.length > 0" class="sub-label">
-            <span class="status-dot offline" style="width:6px;height:6px"></span>
-            Stopped ({{ dockerStore.stoppedContainers.length }})
-          </div>
-          <div
-            v-for="c in dockerStore.stoppedContainers"
-            :key="c.id"
-            class="container-item"
-            :class="{ active: dockerStore.selectedContainerId === c.id }"
-            @click="selectContainer(c)"
-          >
-            <v-icon size="12" :color="getStateColor(c.state)">{{ getStateIcon(c.state) }}</v-icon>
-            <span class="item-name">{{ c.name }}</span>
-            <span class="item-meta">{{ c.image.split(':').pop() }}</span>
-          </div>
-        </div>
-
-      </template>
-      <ResizableSidebarHandle
-        :open="!sidebarCollapsed"
-        :width="sidebarWidth"
-        :min="200"
-        :max="420"
-        :default-width="260"
-        :collapse-threshold="160"
-        aria-label="Resize Docker sidebar"
-        @update:open="sidebarCollapsed = !$event"
-        @update:width="sidebarWidth = $event"
-        @dragging="sidebarDragging = $event"
-      />
-    </div>
-
     <!-- Main content -->
     <div class="docker-main">
       <!-- Toolbar -->
@@ -1001,133 +909,6 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
   min-height: 0;
   height: 100%;
   overflow: hidden;
-}
-
-.docker-sidebar {
-  position: relative;
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  transition: width 0.25s, min-width 0.25s;
-}
-
-.docker-sidebar.dragging {
-  transition: none;
-}
-
-.docker-sidebar.collapsed {
-  width: 40px;
-  min-width: 40px;
-}
-
-.sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-}
-
-.docker-sidebar.collapsed .sidebar-header {
-  justify-content: center;
-  padding: 10px 0;
-}
-
-.expand-btn {
-  margin: 0 auto;
-}
-
-.sidebar-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.conn-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
-  color: var(--text-2);
-  border-bottom: 1px solid var(--line);
-}
-
-.conn-status.connected .status-dot {
-  background: var(--green);
-  box-shadow: 0 0 6px var(--green);
-}
-
-.sidebar-section {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 0;
-}
-
-.section-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.section-label .action-btn-sm {
-  margin-left: auto;
-}
-
-.sub-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px 4px 20px;
-  font-size: 10px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.container-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px 5px 20px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  border-left: 2px solid transparent;
-}
-
-.container-item:hover {
-  background: rgba(74, 222, 128, 0.04);
-}
-
-.container-item.active {
-  background: rgba(74, 222, 128, 0.08);
-  border-left-color: var(--green);
-}
-
-.item-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: var(--text);
-}
-
-.item-meta {
-  font-size: 9px;
-  color: var(--muted);
-  font-family: 'JetBrains Mono', monospace;
 }
 
 .docker-main {

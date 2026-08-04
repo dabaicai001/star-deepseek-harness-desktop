@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useDbStore } from '@/stores/db'
 import { useAppStore } from '@/stores/app'
@@ -17,9 +17,7 @@ import RightPanel from '@/components/layout/RightPanel.vue'
 import type { RightPanelTab } from '@/components/layout/RightPanel.vue'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { logAudit } from '@/services/audit'
-import ContextMenu from '@/components/common/ContextMenu.vue'
-import type { MenuItem } from '@/components/common/ContextMenu.vue'
-import { useObjectTreeStore } from '@/stores/objectTree'
+import { useObjectTreeStore, type ObjectAction, type ObjectKind } from '@/stores/objectTree'
 import type { EsIndexInfo, EsSearchResult } from '@/types/db'
 import ProductIcon from '@/components/common/ProductIcon.vue'
 
@@ -67,7 +65,6 @@ const mapping = ref<{ indexName: string; fields: { name: string; type: string; c
 const settings = ref<Record<string, unknown> | null>(null)
 
 const showNewIndex = ref(false)
-const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 
 const searchColumns = computed(() => {
   if (!searchResult.value?.hits?.length) return []
@@ -364,21 +361,7 @@ function getHealthColor(status: string): string { if (status === 'green') return
 function getFieldTypeColor(type: string): string { if (type === 'text') return 'var(--cyan)'; if (type === 'keyword') return 'var(--green)'; if (type === 'long' || type === 'integer' || type === 'short' || type === 'byte' || type === 'double' || type === 'float') return 'var(--yellow)'; if (type === 'date') return 'var(--purple)'; if (type === 'boolean') return 'var(--muted)'; if (type === 'nested' || type === 'object') return 'var(--pink)'; return 'var(--text-2)' }
 
 // ─── Context Menus ───
-function closeCtxMenu() { ctxMenu.value = null }
-
-function onIndexContextMenu(x: number, y: number, index: EsIndexInfo) {
-  const items: MenuItem[] = [
-    { type: 'header', label: index.name },
-    { type: 'divider' },
-    { type: 'item', label: t('common.copyName'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(index.name).catch(() => {}) } },
-    { type: 'divider' },
-    { type: 'item', label: t('es.viewMapping'), icon: 'mdi-file-tree', onClick: () => { selectIndex(index.name) } },
-    { type: 'item', label: t('es.viewSettings'), icon: 'mdi-cog', onClick: () => { selectIndex(index.name) } },
-    { type: 'divider' },
-    { type: 'item', label: t('es.deleteIndex'), icon: 'mdi-delete-outline', danger: true, onClick: () => { doDeleteIndex(index.name) } },
-  ]
-  ctxMenu.value = { x, y, items }
-}
+// (索引右键菜单已移至资产树侧,见 AssetTree.nodeCtxItems)
 
 async function doDeleteIndex(name: string) {
   if (!connId.value) return
@@ -413,28 +396,71 @@ function onObjectSelected(e: Event) {
   applyObjectSelection(detail.kind, detail.payload)
 }
 
-function onObjectContextMenu(e: Event) {
-  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: string; payload?: Record<string, unknown>; x?: number; y?: number } | undefined
-  if (!detail || detail.assetId !== tab.value?.assetId || detail.kind !== 'es-index' || !detail.payload) return
-  const idx = indices.value.find(i => i.name === String(detail.payload!.index ?? ''))
-  if (idx) onIndexContextMenu(detail.x ?? 0, detail.y ?? 0, idx)
+// ====== 树右键动作(菜单在树侧弹出,动作经双通道到达;连接就绪后才执行) ======
+// es-index:view-mapping / view-settings / delete
+const queuedAction = ref<ObjectAction | null>(null)
+
+function applyObjectAction(kind: ObjectKind, action: string, payload: Record<string, unknown>) {
+  if (kind !== 'es-index') return
+  const name = String(payload.index ?? '')
+  if (!name) return
+  if (action === 'view-mapping' || action === 'view-settings') selectIndex(name)
+  else if (action === 'delete') void doDeleteIndex(name)
+}
+
+/** 连接未就绪时先缓存,connId 就绪后补执行(右键 → 自动开 tab → 连接完成 → 动作执行) */
+function runObjectAction(act: ObjectAction) {
+  if (!connId.value) {
+    queuedAction.value = act
+    return
+  }
+  applyObjectAction(act.kind, act.action, act.payload)
+}
+
+watch(connId, (v) => {
+  if (!v || !queuedAction.value) return
+  const act = queuedAction.value
+  queuedAction.value = null
+  applyObjectAction(act.kind, act.action, act.payload)
+})
+
+function onObjectAction(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: ObjectKind; action?: string; payload?: Record<string, unknown> } | undefined
+  if (!detail || detail.assetId !== tab.value?.assetId || !detail.kind || !detail.action || !detail.payload) return
+  runObjectAction({ kind: detail.kind, action: detail.action, payload: detail.payload })
+}
+
+// 标签右键「断开连接」:断开该资产的 ES 会话,状态点变灰
+function onTabDisconnect(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string } | undefined
+  if (!detail || detail.assetId !== tab.value?.assetId) return
+  for (const [cid, s] of dbStore.sessions) {
+    if (s.assetId === detail.assetId && s.dbType === 'elasticsearch') {
+      void dbStore.disconnect(cid)
+    }
+  }
+  connId.value = null
 }
 
 onMounted(() => {
   initConnection()
   window.addEventListener('starhub:object-selected', onObjectSelected)
-  window.addEventListener('starhub:object-contextmenu', onObjectContextMenu)
+  window.addEventListener('starhub:object-action', onObjectAction)
+  window.addEventListener('starhub:tab-disconnect', onTabDisconnect)
   // 晚挂载兜底:树上先点了索引、视图后挂载时主动拉取一次
   const id = tab.value?.assetId
   if (id) {
     const pendingSel = objectTree.takePendingSelection(id)
     if (pendingSel) applyObjectSelection(pendingSel.kind, pendingSel.payload)
+    const pendingAct = objectTree.takePendingAction(id)
+    if (pendingAct) runObjectAction(pendingAct)
   }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('starhub:object-selected', onObjectSelected)
-  window.removeEventListener('starhub:object-contextmenu', onObjectContextMenu)
+  window.removeEventListener('starhub:object-action', onObjectAction)
+  window.removeEventListener('starhub:tab-disconnect', onTabDisconnect)
 })
 </script>
 
@@ -546,15 +572,6 @@ onBeforeUnmount(() => {
       v-model="showNewIndex"
       :conn-id="connId"
       @created="onIndexCreated"
-    />
-
-    <!-- Context Menu -->
-    <ContextMenu
-      v-if="ctxMenu"
-      :x="ctxMenu.x"
-      :y="ctxMenu.y"
-      :items="ctxMenu.items"
-      @close="closeCtxMenu"
     />
   </div>
 </template>

@@ -722,17 +722,92 @@ watch(connFilter, (v) => {
 }, { deep: true })
 onBeforeUnmount(() => { for (const timer of redisSearchTimers.values()) clearTimeout(timer) })
 
-/** 树节点右键:广播给对应工作区视图(DbView 等按 assetId + kind 过滤后弹菜单) */
+/** 树节点右键菜单状态(树侧直接弹出;docker/kafka/nsq 节点不弹) */
+const nodeCtxMenu = ref<{ x: number; y: number; asset: Asset; node: ObjectNode } | null>(null)
+
+/**
+ * 树节点右键菜单项:复制名称树侧直接完成;其余动作开 tab 后经
+ * objectTree 双通道(pending + starhub:object-action)派给对应工作区视图执行。
+ * 菜单清单忠实还原 DbView / RedisView / ElasticsearchView 原右键菜单。
+ */
+const nodeCtxItems = computed<MenuItem[]>(() => {
+  if (!nodeCtxMenu.value) return []
+  const { asset, node } = nodeCtxMenu.value
+  const copyName = () => { navigator.clipboard.writeText(node.label).catch(() => {}) }
+  const dispatch = (action: string) => () => {
+    openAssetTab(asset, true)
+    objectTree.dispatchObjectAction(asset.id, { kind: node.kind, action, payload: node.payload ?? {} })
+  }
+  if (node.kind === 'database') {
+    return [
+      { type: 'header', label: node.label },
+      { type: 'divider' },
+      { type: 'item', label: t('db.copyName'), icon: 'mdi-content-copy', onClick: copyName },
+      { type: 'divider' },
+      { type: 'item', label: t('db.newTable'), icon: 'mdi-table-plus', onClick: dispatch('new-table') },
+      { type: 'item', label: t('db.refreshTables'), icon: 'mdi-refresh', onClick: dispatch('refresh-tables') }
+    ]
+  }
+  if (node.kind === 'table') {
+    return [
+      { type: 'header', label: node.label },
+      { type: 'divider' },
+      { type: 'item', label: t('db.copyName'), icon: 'mdi-content-copy', onClick: copyName },
+      { type: 'divider' },
+      { type: 'item', label: t('db.viewFields'), icon: 'mdi-table-column', onClick: dispatch('columns') },
+      { type: 'item', label: t('db.viewDDL'), icon: 'mdi-code-tags', onClick: dispatch('ddl') },
+      { type: 'item', label: t('db.viewIndexes'), icon: 'mdi-key-variant', onClick: dispatch('indexes') },
+      { type: 'divider' },
+      { type: 'item', label: t('db.renameTable'), icon: 'mdi-rename-outline', onClick: dispatch('rename') },
+      { type: 'item', label: t('db.truncateTable'), icon: 'mdi-eraser', onClick: dispatch('truncate') },
+      { type: 'item', label: t('db.dropTable'), icon: 'mdi-delete-outline', danger: true, onClick: dispatch('drop') }
+    ]
+  }
+  if (node.kind === 'redis-db') {
+    return [
+      { type: 'header', label: node.label },
+      { type: 'divider' },
+      { type: 'item', label: t('common.refresh'), icon: 'mdi-refresh', onClick: dispatch('refresh') },
+      { type: 'item', label: t('redis.newKey'), icon: 'mdi-plus', onClick: dispatch('new-key') },
+      { type: 'divider' },
+      { type: 'item', label: 'FLUSHDB', icon: 'mdi-alert-octagon', danger: true, onClick: dispatch('flushdb') }
+    ]
+  }
+  if (node.kind === 'redis-key') {
+    return [
+      { type: 'header', label: node.label },
+      { type: 'divider' },
+      { type: 'item', label: t('common.open'), icon: 'mdi-open-in-new', onClick: dispatch('open') },
+      { type: 'item', label: t('redis.rename'), icon: 'mdi-rename-outline', onClick: dispatch('rename') },
+      { type: 'divider' },
+      { type: 'item', label: t('common.delete'), icon: 'mdi-delete-outline', danger: true, onClick: dispatch('delete') }
+    ]
+  }
+  if (node.kind === 'es-index') {
+    return [
+      { type: 'header', label: node.label },
+      { type: 'divider' },
+      { type: 'item', label: t('common.copyName'), icon: 'mdi-content-copy', onClick: copyName },
+      { type: 'divider' },
+      { type: 'item', label: t('es.viewMapping'), icon: 'mdi-file-tree', onClick: dispatch('view-mapping') },
+      { type: 'item', label: t('es.viewSettings'), icon: 'mdi-cog', onClick: dispatch('view-settings') },
+      { type: 'divider' },
+      { type: 'item', label: t('es.deleteIndex'), icon: 'mdi-delete-outline', danger: true, onClick: dispatch('delete') }
+    ]
+  }
+  return []
+})
+
+/** 树节点右键:树侧弹菜单(docker/kafka/nsq、redis-ns、es-group 与伪节点本次不做,不弹菜单) */
+const NODE_CTX_KINDS: ObjectNode['kind'][] = ['database', 'table', 'redis-db', 'redis-key', 'es-index']
 function onNodeCtx(asset: Asset, payload: { node: ObjectNode; x: number; y: number }) {
-  window.dispatchEvent(new CustomEvent('starhub:object-contextmenu', {
-    detail: {
-      assetId: asset.id,
-      kind: payload.node.kind,
-      payload: payload.node.payload ?? {},
-      x: payload.x,
-      y: payload.y
-    }
-  }))
+  if (payload.node.payload?.more) return
+  if (!NODE_CTX_KINDS.includes(payload.node.kind)) return
+  nodeCtxMenu.value = { x: payload.x, y: payload.y, asset, node: payload.node }
+}
+
+function closeNodeCtxMenu() {
+  nodeCtxMenu.value = null
 }
 </script>
 
@@ -1215,6 +1290,15 @@ function onNodeCtx(asset: Asset, payload: { node: ObjectNode; x: number; y: numb
     :y="agentCtxMenu.y"
     :items="agentCtxItems"
     @close="closeAgentContextMenu"
+  />
+
+  <!-- 对象树节点右键菜单(库/表/Redis/ES) -->
+  <ContextMenu
+    v-if="nodeCtxMenu"
+    :x="nodeCtxMenu.x"
+    :y="nodeCtxMenu.y"
+    :items="nodeCtxItems"
+    @close="closeNodeCtxMenu"
   />
 
   <AiAgentDialog

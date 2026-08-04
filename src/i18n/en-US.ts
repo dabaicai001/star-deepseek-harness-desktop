@@ -144,6 +144,10 @@ export default {
     closeOtherTabs: 'Close Other Tabs',
     closeSameAssetTabs: 'Close Other Tabs for Same Asset',
     closeRightTabs: 'Close Tabs to the Right',
+    closeLeftTabs: 'Close Tabs to the Left',
+    reconnectAssetTab: 'Reconnect',
+    disconnectAsset: 'Disconnect',
+    refreshAssetTree: 'Refresh Asset Tree',
     closeAllTabs: 'Close All',
     copyTabTitle: 'Copy Tab Title',
     detachTab: 'Open in New Window',
@@ -534,6 +538,7 @@ export default {
     viewMapping: 'View Mapping',
     viewSettings: 'View Settings',
     refreshIndices: 'Refresh Indices',
+    deleteIndex: 'Delete Index',
   },
   redis: {
     newKey: 'New Key...',
@@ -715,8 +720,6 @@ export default {
     execQuickFiles: 'Files',
     execQuickDisk: 'Disk',
     execQuickNetwork: 'Network',
-    sidebarCollapse: 'Collapse Docker container sidebar',
-    sidebarExpand: 'Expand Docker container sidebar',
     pull: 'Pull',
     push: 'Push',
     build: 'Build'

@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useDbStore } from '@/stores/db'
-import { useObjectTreeStore } from '@/stores/objectTree'
+import { useObjectTreeStore, type ObjectAction, type ObjectKind } from '@/stores/objectTree'
 import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
 import { useDialogStore } from '@/stores/dialog'
@@ -690,18 +690,6 @@ async function reloadActiveTable() {
 
 function closeCtxMenu() {
   ctxMenu.value = null
-}
-
-function onDatabaseContextMenu(x: number, y: number, db: string) {
-  ctxDb.value = db
-  const items: MenuItem[] = []
-  items.push({ type: 'header', label: db })
-  items.push({ type: 'divider' })
-  items.push({ type: 'item', label: t('db.copyName'), icon: 'mdi-content-copy', onClick: () => { navigator.clipboard.writeText(db).catch(() => {}) } })
-  items.push({ type: 'divider' })
-  items.push({ type: 'item', label: t('db.newTable'), icon: 'mdi-table-plus', onClick: () => { openNewTableDialog(db) } })
-  items.push({ type: 'item', label: t('db.refreshTables'), icon: 'mdi-refresh', onClick: () => { refreshTablesForDb(db) } })
-  ctxMenu.value = { x, y, items }
 }
 
 async function refreshTablesForDb(db: string) {
@@ -1996,16 +1984,59 @@ function onObjectSelected(e: Event) {
   applyObjectSelection(detail.kind, detail.payload)
 }
 
-function onObjectContextMenu(e: Event) {
-  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: string; payload?: Record<string, unknown>; x?: number; y?: number } | undefined
-  if (!detail || detail.assetId !== assetId.value || !detail.kind || !detail.payload) return
-  const x = detail.x ?? 0
-  const y = detail.y ?? 0
-  if (detail.kind === 'table') {
-    void onTableContextMenu(x, y, String(detail.payload.db ?? ''), String(detail.payload.table ?? ''))
-  } else if (detail.kind === 'database') {
-    onDatabaseContextMenu(x, y, String(detail.payload.db ?? ''))
+// ====== 树右键动作(菜单在树侧弹出,动作经双通道到达;连接就绪后才执行) ======
+const queuedAction = ref<ObjectAction | null>(null)
+
+function applyObjectAction(kind: ObjectKind, action: string, payload: Record<string, unknown>) {
+  if (kind === 'database') {
+    const db = String(payload.db ?? '')
+    if (!db) return
+    if (action === 'new-table') openNewTableDialog(db)
+    else if (action === 'refresh-tables') void refreshTablesForDb(db)
+  } else if (kind === 'table') {
+    const db = String(payload.db ?? '')
+    const table = String(payload.table ?? '')
+    if (!db || !table) return
+    ctxDb.value = db
+    ctxTable.value = table
+    if (action === 'columns') showColumnList.value = true
+    else if (action === 'ddl') showCreateTableDDL.value = true
+    else if (action === 'indexes') showIndexList.value = true
+    else if (action === 'rename') { renameTableNewName.value = table; showRenameTable.value = true }
+    else if (action === 'truncate') void doTruncateTable(db, table)
+    else if (action === 'drop') void doDropTable(db, table)
   }
+}
+
+/** 连接未就绪时先缓存,connId 就绪后补执行(右键 → 自动开 tab → 连接完成 → 动作执行) */
+function runObjectAction(act: ObjectAction) {
+  if (!connId.value) {
+    queuedAction.value = act
+    return
+  }
+  applyObjectAction(act.kind, act.action, act.payload)
+}
+
+watch(connId, (v) => {
+  if (!v || !queuedAction.value) return
+  const act = queuedAction.value
+  queuedAction.value = null
+  applyObjectAction(act.kind, act.action, act.payload)
+})
+
+function onObjectAction(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: ObjectKind; action?: string; payload?: Record<string, unknown> } | undefined
+  if (!detail || detail.assetId !== assetId.value || !detail.kind || !detail.action || !detail.payload) return
+  runObjectAction({ kind: detail.kind, action: detail.action, payload: detail.payload })
+}
+
+// 标签右键「断开连接」:断开本视图持有的会话并更新 connected 状态(不走 markStale,视图保持挂载可重连)
+function onTabDisconnect(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string } | undefined
+  if (!detail || detail.assetId !== assetId.value) return
+  connected.value = false
+  connId.value = null
+  void disconnectOwnedSessions()
 }
 
 onMounted(() => {
@@ -2023,17 +2054,21 @@ onMounted(() => {
   }
 
   window.addEventListener('starhub:object-selected', onObjectSelected)
-  window.addEventListener('starhub:object-contextmenu', onObjectContextMenu)
+  window.addEventListener('starhub:object-action', onObjectAction)
+  window.addEventListener('starhub:tab-disconnect', onTabDisconnect)
   // 晚挂载兜底:树上先点了对象、视图后挂载时主动拉取一次
   const pendingSel = objectTree.takePendingSelection(assetId.value)
   if (pendingSel) applyObjectSelection(pendingSel.kind, pendingSel.payload)
+  const pendingAct = objectTree.takePendingAction(assetId.value)
+  if (pendingAct) runObjectAction(pendingAct)
 })
 
 onBeforeUnmount(() => {
   markStale()
   connecting.value = false
   window.removeEventListener('starhub:object-selected', onObjectSelected)
-  window.removeEventListener('starhub:object-contextmenu', onObjectContextMenu)
+  window.removeEventListener('starhub:object-action', onObjectAction)
+  window.removeEventListener('starhub:tab-disconnect', onTabDisconnect)
 })
 
 // ====== 右侧 Panel(仪表盘 / AI 切换) ======

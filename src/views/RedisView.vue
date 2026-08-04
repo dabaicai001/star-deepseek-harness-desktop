@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
@@ -14,12 +14,11 @@ import { useDialogStore } from '@/stores/dialog'
 import { REDIS_SYSTEM_PROMPT, redisTools, makeRedisToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
 import { createMcpRuntime } from '@/services/mcp'
-import { useObjectTreeStore } from '@/stores/objectTree'
+import { useObjectTreeStore, type ObjectAction, type ObjectKind } from '@/stores/objectTree'
 import RedisValueEditor from '@/components/redis/RedisValueEditor.vue'
 import RedisCli from '@/components/redis/RedisCli.vue'
 import RedisTools from '@/components/redis/RedisTools.vue'
 import NewKeyDialog from '@/components/redis/NewKeyDialog.vue'
-import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
 import AiChat from '@/components/ai/AiChat.vue'
@@ -366,43 +365,55 @@ function onObjectSelected(e: Event) {
   applyObjectSelection(detail.kind, detail.payload)
 }
 
-// 树节点右键:redis-db(刷新/新建 Key/FLUSHDB)、redis-key(重命名/删除)
-const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
+// ====== 树右键动作(菜单在树侧弹出,动作经双通道到达;连接就绪后才执行) ======
+// redis-db:refresh / new-key / flushdb;redis-key:open / rename / delete
+const queuedAction = ref<ObjectAction | null>(null)
 
-function onObjectContextMenu(e: Event) {
-  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: string; payload?: Record<string, unknown>; x?: number; y?: number } | undefined
-  if (!detail || detail.assetId !== assetId.value || !detail.kind || !detail.payload) return
-  const x = detail.x ?? 0
-  const y = detail.y ?? 0
-  if (detail.kind === 'redis-db') {
-    const db = Number(detail.payload.db ?? 0)
-    ctxMenu.value = {
-      x, y,
-      items: [
-        { type: 'header', label: `db${db}` },
-        { type: 'divider' },
-        { type: 'item', label: t('common.refresh'), icon: 'mdi-refresh', onClick: () => { void onSwitchDb(db).then(refreshObjectTree) } },
-        { type: 'item', label: t('redis.newKey', '新建 Key'), icon: 'mdi-plus', onClick: () => onNewKey(db) },
-        { type: 'divider' },
-        { type: 'item', label: 'FLUSHDB', icon: 'mdi-alert-octagon', danger: true, onClick: () => { void onFlushDbFromBrowser(db) } }
-      ]
-    }
-  } else if (detail.kind === 'redis-key') {
-    const key = String(detail.payload.key ?? '')
-    const type = String(detail.payload.type ?? '')
+function applyObjectAction(kind: ObjectKind, action: string, payload: Record<string, unknown>) {
+  if (kind === 'redis-db') {
+    const db = Number(payload.db ?? 0)
+    if (action === 'refresh') void onSwitchDb(db).then(refreshObjectTree)
+    else if (action === 'new-key') onNewKey(db)
+    else if (action === 'flushdb') void onFlushDbFromBrowser(db)
+  } else if (kind === 'redis-key') {
+    const key = String(payload.key ?? '')
+    const type = String(payload.type ?? '')
     if (!key) return
-    ctxMenu.value = {
-      x, y,
-      items: [
-        { type: 'header', label: key },
-        { type: 'divider' },
-        { type: 'item', label: t('common.open', '打开'), icon: 'mdi-open-in-new', onClick: () => onSelectKey(key, type) },
-        { type: 'item', label: t('redis.rename', '重命名'), icon: 'mdi-rename-outline', onClick: () => onRenameKey(key) },
-        { type: 'divider' },
-        { type: 'item', label: t('common.delete'), icon: 'mdi-delete-outline', danger: true, onClick: () => { void onDeleteKey(key) } }
-      ]
-    }
+    if (action === 'open') onSelectKey(key, type)
+    else if (action === 'rename') onRenameKey(key)
+    else if (action === 'delete') void onDeleteKey(key)
   }
+}
+
+/** 连接未就绪时先缓存,connId 就绪后补执行(右键 → 自动开 tab → 连接完成 → 动作执行) */
+function runObjectAction(act: ObjectAction) {
+  if (!connId.value) {
+    queuedAction.value = act
+    return
+  }
+  applyObjectAction(act.kind, act.action, act.payload)
+}
+
+watch(connId, (v) => {
+  if (!v || !queuedAction.value) return
+  const act = queuedAction.value
+  queuedAction.value = null
+  applyObjectAction(act.kind, act.action, act.payload)
+})
+
+function onObjectAction(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string; kind?: ObjectKind; action?: string; payload?: Record<string, unknown> } | undefined
+  if (!detail || detail.assetId !== assetId.value || !detail.kind || !detail.action || !detail.payload) return
+  runObjectAction({ kind: detail.kind, action: detail.action, payload: detail.payload })
+}
+
+// 标签右键「断开连接」:断开本视图持有的会话并更新 connected 状态(不走 markStale,视图保持挂载可重连)
+function onTabDisconnect(e: Event) {
+  const detail = (e as CustomEvent).detail as { assetId?: string } | undefined
+  if (!detail || detail.assetId !== assetId.value) return
+  connected.value = false
+  connId.value = null
+  void disconnectOwnedSessions()
 }
 
 onMounted(() => {
@@ -411,17 +422,21 @@ onMounted(() => {
     connect()
   }
   window.addEventListener('starhub:object-selected', onObjectSelected)
-  window.addEventListener('starhub:object-contextmenu', onObjectContextMenu)
+  window.addEventListener('starhub:object-action', onObjectAction)
+  window.addEventListener('starhub:tab-disconnect', onTabDisconnect)
   // 晚挂载兜底:树上先点了对象、视图后挂载时主动拉取一次
   const pendingSel = objectTree.takePendingSelection(assetId.value)
   if (pendingSel) applyObjectSelection(pendingSel.kind, pendingSel.payload)
+  const pendingAct = objectTree.takePendingAction(assetId.value)
+  if (pendingAct) runObjectAction(pendingAct)
 })
 
 onBeforeUnmount(() => {
   markStale()
   connecting.value = false
   window.removeEventListener('starhub:object-selected', onObjectSelected)
-  window.removeEventListener('starhub:object-contextmenu', onObjectContextMenu)
+  window.removeEventListener('starhub:object-action', onObjectAction)
+  window.removeEventListener('starhub:tab-disconnect', onTabDisconnect)
 })
 </script>
 
@@ -526,15 +541,6 @@ onBeforeUnmount(() => {
         />
       </template>
     </RightPanel>
-
-    <!-- 树节点右键菜单(redis-db / redis-key) -->
-    <ContextMenu
-      v-if="ctxMenu"
-      :x="ctxMenu.x"
-      :y="ctxMenu.y"
-      :items="ctxMenu.items"
-      @close="ctxMenu = null"
-    />
 
     <!-- New Key Dialog -->
     <NewKeyDialog

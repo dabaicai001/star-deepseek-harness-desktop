@@ -12,6 +12,20 @@
 
 ---
 
+## [0.41.0] - 2026-08-04
+
+### 修复
+- 恢复资产树库/表/Redis/ES 节点右键菜单:v0.39 起菜单由 DbView 等视图挂载时监听,单击连接只展开树不开 tab 后事件无人接收导致菜单不弹;改为树侧(AssetTree)直接持有菜单,动作经 objectTree `starhub:object-action` 双通道(pending + 事件)派发给视图,连接就绪后执行
+
+### 新增
+- 标签页右键菜单新增 4 项:关闭左侧标签页、重新连接(关同资产 tab 重开)、断开连接(派 `starhub:tab-disconnect`,Db/Redis/ES/Docker 视图各自断开)、刷新该连接资产树(复用 objectTree.refreshAsset);仅资产 tab 可用
+- 资产树点选 Docker 容器时同步加载日志并切到 logs tab(与被删面板行为对齐)
+
+### 移除
+- 删除 Docker 视图中间容器列表面板(.docker-sidebar):与 v0.40.0 左栏 Docker 资产树功能重复,选中/打开联动统一走资产树路径
+
+---
+
 ## [0.40.0] - 2026-08-04
 
 ### 新增
