@@ -33,11 +33,11 @@ async function toggleDir(entry: LocalFileEntry) {
   if (!entry.children || entry.children.length === 0) {
     loadingDirs.value.add(p)
     try {
-      const result = await invoke<any>('local_list_directory', { path: p, depth: 1 })
-      const children: LocalFileEntry[] = (result.entries || []).map((e: any) => ({
+      const result = await invoke<any[]>('local_list_directory', { path: p, maxEntries: 200 })
+      const children: LocalFileEntry[] = result.map((e) => ({
         name: e.name,
         path: e.path,
-        isDir: e.is_dir || e.isDir || false,
+        isDir: e.kind === 'directory' || e.is_dir || e.isDir || false,
         size: e.size || 0,
         modifiedAt: e.modified_at || e.modifiedAt || 0,
       }))

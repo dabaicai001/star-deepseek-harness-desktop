@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.42.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.42.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -106,7 +106,7 @@
 
 ## 当前版本
 
-### v0.42.0 (2026-08-05)
+### v0.42.1 (2026-08-05)
 - ✨ 左侧 Excel 标签→本地工作区:导入文件夹/文件,目录树懒加载,Excel 文件复用现有编辑器,文本文件内置编辑器
 - ✨ AI 助手全局感知本地工作区文件
 - ✨ 设置 AI 助手多模型配置,支持 ClawHub trending skills 一键导入

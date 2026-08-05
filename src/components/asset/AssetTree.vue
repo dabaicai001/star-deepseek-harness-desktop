@@ -1109,13 +1109,13 @@ function closeNodeCtxMenu() {
       <div v-show="isGroupExpanded('local')" class="tree-group-body">
       <!-- 快捷导入按钮 -->
       <div class="local-import-row">
-        <button class="local-import-btn" @click.stop="$emit('import-folder')">
+        <button class="local-import-btn primary" @click.stop="$emit('import-folder')">
           <v-icon size="11">mdi-folder-plus-outline</v-icon>
-          导入文件夹
+          <span>导入文件夹</span>
         </button>
         <button class="local-import-btn" @click.stop="$emit('import-file')">
           <v-icon size="11">mdi-file-plus-outline</v-icon>
-          导入文件
+          <span>导入文件</span>
         </button>
       </div>
       <TransitionGroup name="cyber-list">
@@ -1710,25 +1710,37 @@ function closeNodeCtxMenu() {
 /* 本地工作区导入按钮 */
 .local-import-row {
   display: flex;
-  gap: 4px;
-  padding: 6px 14px;
+  gap: 6px;
+  padding: 8px 12px 6px;
 }
 .local-import-btn {
+  min-width: 0;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 3px 8px;
+  flex: 1;
+  padding: 5px 6px;
   font-size: 11px;
   color: var(--text-2);
-  background: var(--hover-cyan-faint);
+  background: var(--panel-solid-2);
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
 }
 .local-import-btn:hover {
   color: var(--text-1);
   background: var(--hover-cyan);
+  border-color: var(--cyan);
+  transform: translateY(-1px);
+}
+.local-import-btn.primary {
+  color: var(--text-1);
+  background: var(--hover-cyan);
+  border-color: var(--line-2);
+}
+.local-import-btn.primary:hover {
   border-color: var(--cyan);
 }
 </style>

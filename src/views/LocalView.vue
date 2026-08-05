@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAssetStore } from '@/stores/asset'
+import { useDialogStore } from '@/stores/dialog'
 import { useLocalViewStore, type LocalFileEntry } from '@/stores/localView'
 import { generateInstanceId } from '@/utils/tabId'
 import { invoke } from '@tauri-apps/api/core'
@@ -14,6 +15,7 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const assetStore = useAssetStore()
+const dlg = useDialogStore()
 const localStore = useLocalViewStore()
 
 const props = defineProps<{ id: string }>()
@@ -65,11 +67,11 @@ async function loadDirectory(dirPath: string) {
   loading.value = true
   error.value = ''
   try {
-    const result = await invoke<any>('local_list_directory', { path: dirPath, depth: 1 })
-    const entries: LocalFileEntry[] = (result.entries || []).map((e: any) => ({
+    const result = await invoke<any[]>('local_list_directory', { path: dirPath, maxEntries: 200 })
+    const entries: LocalFileEntry[] = result.map((e) => ({
       name: e.name,
       path: e.path,
-      isDir: e.is_dir || e.isDir || false,
+      isDir: e.kind === 'directory' || e.is_dir || e.isDir || false,
       size: e.size || 0,
       modifiedAt: e.modified_at || e.modifiedAt || 0,
     }))
@@ -151,8 +153,9 @@ async function onOpenExcel(entry: LocalFileEntry) {
 // 导入文件夹
 async function importFolder() {
   try {
-    const path = await invoke<string>('local_select_folder')
-    if (!path) return
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const path = await open({ directory: true, multiple: false, title: '选择文件夹' })
+    if (!path || typeof path !== 'string') return
     localStore.setRootPath(path)
     await loadDirectory(path)
     // 保存/更新 local asset
@@ -161,15 +164,20 @@ async function importFolder() {
     }
   } catch (err) {
     console.error('Import folder failed:', err)
+    await dlg.alert({
+      title: '无法选择文件夹',
+      message: '文件夹选择器仅可在 StarHub 桌面应用中使用。',
+      color: 'warning',
+    })
   }
 }
 
 // 导入文件
 async function importFile() {
   try {
-    const files = await invoke<string[]>('local_select_files')
-    if (!files || files.length === 0) return
-    const file = files[0]
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const file = await open({ directory: false, multiple: false, title: '选择文件' })
+    if (!file || typeof file !== 'string') return
     // 提取目录路径
     const dirPath = file.replace(/\\/g, '/').split('/').slice(0, -1).join('/')
     localStore.setRootPath(dirPath)
@@ -179,6 +187,11 @@ async function importFile() {
     }
   } catch (err) {
     console.error('Import file failed:', err)
+    await dlg.alert({
+      title: '无法选择文件',
+      message: '文件选择器仅可在 StarHub 桌面应用中使用。',
+      color: 'warning',
+    })
   }
 }
 
