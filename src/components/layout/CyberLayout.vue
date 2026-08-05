@@ -65,7 +65,7 @@ function openSettings(tab: SettingsTabKey = 'general') {
   showSettings.value = true
 }
 // 从顶栏菜单"快速新建"入口传入,弹 dialog 时直接跳过 type 选择
-const newConnectionInitialType = ref<'ssh' | 'db' | 'docker' | 'excel' | undefined>(undefined)
+const newConnectionInitialType = ref<'ssh' | 'db' | 'docker' | 'excel' | 'local' | undefined>(undefined)
 
 // dialog 关闭时清掉 initialType,下次开 + 按钮回到正常 type 选择页
 import { watch as vueWatch2 } from 'vue'

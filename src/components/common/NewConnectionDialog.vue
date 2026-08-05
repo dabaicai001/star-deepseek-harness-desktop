@@ -12,7 +12,7 @@ const assetStore = useAssetStore()
 const props = defineProps<{
   modelValue: boolean
   asset?: Asset | null
-  initialType?: 'ssh' | 'db' | 'docker' | 'excel'
+  initialType?: 'ssh' | 'db' | 'docker' | 'excel' | 'local'
 }>()
 
 const emit = defineEmits<{
