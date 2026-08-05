@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAssetStore } from '@/stores/asset'
-import { useDialogStore } from '@/stores/dialog'
 import { useLocalViewStore, type LocalFileEntry } from '@/stores/localView'
 import { generateInstanceId } from '@/utils/tabId'
 import { invoke } from '@tauri-apps/api/core'
@@ -15,7 +14,6 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const assetStore = useAssetStore()
-const dlg = useDialogStore()
 const localStore = useLocalViewStore()
 
 const props = defineProps<{ id: string }>()
@@ -150,51 +148,6 @@ async function onOpenExcel(entry: LocalFileEntry) {
   }
 }
 
-// 导入文件夹
-async function importFolder() {
-  try {
-    const { open } = await import('@tauri-apps/plugin-dialog')
-    const path = await open({ directory: true, multiple: false, title: '选择文件夹' })
-    if (!path || typeof path !== 'string') return
-    localStore.setRootPath(path)
-    await loadDirectory(path)
-    // 保存/更新 local asset
-    if (asset.value) {
-      await assetStore.updateAsset(asset.value.id, { config: { rootPath: path } })
-    }
-  } catch (err) {
-    console.error('Import folder failed:', err)
-    await dlg.alert({
-      title: '无法选择文件夹',
-      message: '文件夹选择器仅可在 StarHub 桌面应用中使用。',
-      color: 'warning',
-    })
-  }
-}
-
-// 导入文件
-async function importFile() {
-  try {
-    const { open } = await import('@tauri-apps/plugin-dialog')
-    const file = await open({ directory: false, multiple: false, title: '选择文件' })
-    if (!file || typeof file !== 'string') return
-    // 提取目录路径
-    const dirPath = file.replace(/\\/g, '/').split('/').slice(0, -1).join('/')
-    localStore.setRootPath(dirPath)
-    await loadDirectory(dirPath)
-    if (asset.value) {
-      await assetStore.updateAsset(asset.value.id, { config: { rootPath: dirPath } })
-    }
-  } catch (err) {
-    console.error('Import file failed:', err)
-    await dlg.alert({
-      title: '无法选择文件',
-      message: '文件选择器仅可在 StarHub 桌面应用中使用。',
-      color: 'warning',
-    })
-  }
-}
-
 // 编辑器保存
 async function saveEditorTab() {
   const tab = localStore.activeEditorTab
@@ -249,16 +202,6 @@ function formatSize(bytes: number): string {
             @click="navigateToSegment(idx)"
           >{{ seg }}</span>
         </template>
-      </div>
-      <div class="local-actions">
-        <button class="cyber-btn-secondary" @click="importFolder">
-          <v-icon size="13">mdi-folder-plus-outline</v-icon>
-          导入文件夹
-        </button>
-        <button class="cyber-btn-secondary" @click="importFile">
-          <v-icon size="13">mdi-file-plus-outline</v-icon>
-          导入文件
-        </button>
       </div>
     </div>
 

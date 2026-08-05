@@ -707,45 +707,9 @@ function openNewConnectionWithType(type: 'ssh' | 'db' | 'docker' | 'excel' | 'lo
   showNewConnection.value = true
 }
 
-/** 本地工作区:导入文件夹 */
 function normalizeLocalPath(path: string): string {
   const normalized = path.replace(/\\/g, '/')
   return normalized.length > 3 ? normalized.replace(/\/+$/, '') : normalized
-}
-
-async function onImportFolder() {
-  try {
-    const { open } = await import('@tauri-apps/plugin-dialog')
-    const path = await open({ directory: true, multiple: false, title: '选择文件夹' })
-    if (!path || typeof path !== 'string') return
-    await openLocalWorkspace(path)
-  } catch (err) {
-    console.error('Import folder failed:', err)
-    await dlg.alert({
-      title: '无法选择文件夹',
-      message: '文件夹选择器仅可在 StarHub 桌面应用中使用。请通过 npm run tauri:dev 或已安装的应用打开。',
-      color: 'warning',
-    })
-  }
-}
-
-/** 本地工作区:导入文件 */
-async function onImportFile() {
-  try {
-    const { open } = await import('@tauri-apps/plugin-dialog')
-    const path = await open({ directory: false, multiple: false, title: '选择文件' })
-    if (!path || typeof path !== 'string') return
-    const normalizedFile = normalizeLocalPath(path)
-    const dirPath = normalizedFile.substring(0, normalizedFile.lastIndexOf('/'))
-    await openLocalWorkspace(dirPath)
-  } catch (err) {
-    console.error('Import file failed:', err)
-    await dlg.alert({
-      title: '无法选择文件',
-      message: '文件选择器仅可在 StarHub 桌面应用中使用。请通过 npm run tauri:dev 或已安装的应用打开。',
-      color: 'warning',
-    })
-  }
 }
 
 /** 打开本地工作区 tab */
@@ -1715,8 +1679,6 @@ vueWatch(() => appStore.tabs.length, () => {
         <AssetTree
           @new-connection="openNewConnection"
           @new-connection-type="openNewConnectionWithType"
-          @import-folder="onImportFolder"
-          @import-file="onImportFile"
         />
         <SidebarHandle />
       </div>

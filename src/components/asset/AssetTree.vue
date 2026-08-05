@@ -39,8 +39,6 @@ function expandIfCollapsed(): boolean {
 const emit = defineEmits<{
   'new-connection': []
   'new-connection-type': [type: 'ssh' | 'db' | 'docker' | 'excel' | 'local']
-  'import-folder': []
-  'import-file': []
 }>()
 
 const sshAssets = computed(() =>
@@ -375,8 +373,6 @@ const groupCtxItems = computed<MenuItem[]>(() => {
   const baseItems: MenuItem[] = [{ type: 'header' as const, icon, label }]
   if (gt === 'local') {
     baseItems.push(
-      { type: 'item' as const, icon: 'mdi-folder-plus-outline', label: '导入文件夹', onClick: () => emit('import-folder') },
-      { type: 'item' as const, icon: 'mdi-file-plus-outline', label: '导入文件', onClick: () => emit('import-file') },
       { type: 'item' as const, icon: 'mdi-plus', label: t('asset.create'), onClick: () => emit('new-connection-type', gt) }
     )
   } else {
@@ -1107,17 +1103,6 @@ function closeNodeCtxMenu() {
         <span class="count">{{ localAssets.length }}</span>
       </div>
       <div v-show="isGroupExpanded('local')" class="tree-group-body">
-      <!-- 快捷导入按钮 -->
-      <div class="local-import-row">
-        <button class="local-import-btn primary" @click.stop="$emit('import-folder')">
-          <v-icon size="11">mdi-folder-plus-outline</v-icon>
-          <span>导入文件夹</span>
-        </button>
-        <button class="local-import-btn" @click.stop="$emit('import-file')">
-          <v-icon size="11">mdi-file-plus-outline</v-icon>
-          <span>导入文件</span>
-        </button>
-      </div>
       <TransitionGroup name="cyber-list">
       <div
         v-for="asset in localAssets"
