@@ -12,6 +12,22 @@
 
 ---
 
+## [0.42.0] - 2026-08-05
+
+### 新增
+- 左侧 Excel 标签升级为「本地工作区」:支持导入文件夹/文件,目录树懒加载展示,双击 Excel 文件复用现有 ExcelView 编辑,文本文件内置编辑器查看
+- 本地工作区分组支持收藏 (favorite) 管理,右键菜单支持导入/创建
+- AI 助手全局感知本地工作区文件:导入的文件夹/文件自动作为 AI 上下文引用
+- 设置 AI 助手新增「多模型」:可配置多个模型(独立 Base URL / API Key / 温度 / Max Tokens),一键切换激活
+- SKILL 导入支持 ClawHub 一键导入:点击按钮即从 https://clawhub.ai/skills?tab=trending 拉取并导入 trending skills
+- 新增 `local` 资产类型(type/路由/view/store),后端 `local_*` Tauri commands 已就绪
+
+### 变更
+- 侧边栏分组重排:本地工作区置顶 → Excel(有历史数据时显示) → SSH → DB → Docker → AI
+- `AssetType` 扩展为 `'ssh' | 'db' | 'docker' | 'excel' | 'local'`
+
+---
+
 ## [0.41.0] - 2026-08-04
 
 ### 修复

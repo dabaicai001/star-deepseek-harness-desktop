@@ -175,12 +175,24 @@ const DEFAULT_COMMAND_WHITELIST = [
   ...LOCAL_COMMAND_WHITELIST_V3,
 ]
 
+export interface AiModelConfig {
+  id: string
+  name: string
+  baseUrl: string
+  apiKey: string
+  model: string
+  temperature: number
+  maxTokens: number
+}
+
 /**
  * AI 全局配置(持久化到 localStorage)
  *  - provider: 'openai-compatible'(当前只支持 OpenAI 兼容协议,Anthropic 原生协议暂走 ai_chat 后端)
  *  - baseUrl:  自定义 API base,比如 https://api.openai.com/v1
  *  - apiKey:  API key
- *  - model:   模型名
+ *  - model:   默认模型名
+ *  - models:  多模型配置列表
+ *  - activeModelId: 当前激活的模型 ID
  */
 export interface AiSettings {
   provider: 'openai-compatible'
@@ -189,6 +201,10 @@ export interface AiSettings {
   model: string
   temperature: number
   maxTokens: number
+  /** 多模型配置 */
+  models: AiModelConfig[]
+  /** 当前激活的模型 ID(空字符串表示使用默认 model 配置) */
+  activeModelId: string
   /**
    * 旧版命令超时配置,保留用于兼容历史持久化数据。
    * SSH AI 命令现在通过 shell prompt 监听收口。
@@ -380,6 +396,8 @@ export const useAiStore = defineStore('ai', () => {
     enabledSkillIds: [...DEFAULT_ENABLED_SKILL_IDS],
     customSkills: [],
     mcpServers: [],
+    models: [],
+    activeModelId: '',
     commandWhitelist: [...DEFAULT_COMMAND_WHITELIST],
     // 初始值保留在上一版,确保首次创建和旧持久化状态都执行一次 v3 跨平台预设迁移。
     commandWhitelistVersion: 2
@@ -411,6 +429,30 @@ export const useAiStore = defineStore('ai', () => {
   /** 是否为 AI 配置完整 */
   function isAiConfigured(): boolean {
     return aiHealthStatus() === 'ready'
+  }
+
+  /** 获取当前激活的模型配置 */
+  function getActiveModelConfig(): { baseUrl: string; apiKey: string; model: string; temperature: number; maxTokens: number } {
+    const s = settings.value
+    if (s.activeModelId && s.models.length > 0) {
+      const active = s.models.find(m => m.id === s.activeModelId)
+      if (active) {
+        return {
+          baseUrl: active.baseUrl || s.baseUrl,
+          apiKey: active.apiKey || _unlockedApiKey.value || s.apiKey,
+          model: active.model || s.model,
+          temperature: active.temperature ?? s.temperature,
+          maxTokens: active.maxTokens || s.maxTokens,
+        }
+      }
+    }
+    return {
+      baseUrl: s.baseUrl,
+      apiKey: _unlockedApiKey.value || s.apiKey,
+      model: s.model,
+      temperature: s.temperature,
+      maxTokens: s.maxTokens,
+    }
   }
 
   function ensureSettingsShape() {
@@ -462,6 +504,12 @@ export const useAiStore = defineStore('ai', () => {
       }))
     if (!Number.isFinite(s.commandTimeoutSec)) {
       s.commandTimeoutSec = 3
+    }
+    if (!Array.isArray(s.models)) {
+      s.models = []
+    }
+    if (typeof s.activeModelId !== 'string') {
+      s.activeModelId = ''
     }
   }
 
@@ -989,12 +1037,13 @@ export const useAiStore = defineStore('ai', () => {
         }
       }
     }
+    const activeCfg = getActiveModelConfig()
     const response = await chatWithTools({
-      baseUrl: settings.value.baseUrl,
-      apiKey: _unlockedApiKey.value,
-      model: settings.value.model,
-      temperature: Math.min(settings.value.temperature, 0.3),
-      maxTokens: Math.min(settings.value.maxTokens, 2400),
+      baseUrl: activeCfg.baseUrl,
+      apiKey: activeCfg.apiKey,
+      model: activeCfg.model,
+      temperature: Math.min(activeCfg.temperature, 0.3),
+      maxTokens: Math.min(activeCfg.maxTokens, 2400),
       tools: [plannerTool],
       toolChoice: { type: 'function', function: { name: 'starhub_submit_plan' } },
       system: `你是 StarHub Planner Agent。你只负责把用户目标拆成短小、可验证的计划,不直接执行任务。
@@ -1183,14 +1232,15 @@ export const useAiStore = defineStore('ai', () => {
         drainPendingSteers(session.messages, session.pendingSteers)
 
         const apiKey = await getApiKey()
+        const activeCfg = getActiveModelConfig()
         const request: NewChatRequest = {
-          baseUrl: settings.value.baseUrl,
-          apiKey,
-          model: settings.value.model,
+          baseUrl: activeCfg.baseUrl,
+          apiKey: activeCfg.apiKey,
+          model: activeCfg.model,
           // 必须先拍快照；下面追加的流式 assistant 占位不能进入本次请求。
           messages: snapshotChatMessages(session.messages),
-          temperature: settings.value.temperature,
-          maxTokens: settings.value.maxTokens,
+          temperature: activeCfg.temperature,
+          maxTokens: activeCfg.maxTokens,
           system: systemPrompt,
           tools,
           signal: ac.signal
@@ -1376,6 +1426,7 @@ export const useAiStore = defineStore('ai', () => {
     ensureAgentsShape,
     aiHealthStatus,
     isAiConfigured,
+    getActiveModelConfig,
     getAgent,
     createAgent,
     updateAgent,

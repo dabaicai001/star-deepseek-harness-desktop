@@ -702,9 +702,62 @@ function openTabBarContextMenu(e: MouseEvent) {
 }
 
 /** 预设类型打开新建连接弹窗 */
-function openNewConnectionWithType(type: 'ssh' | 'db' | 'docker' | 'excel') {
+function openNewConnectionWithType(type: 'ssh' | 'db' | 'docker' | 'excel' | 'local') {
   newConnectionInitialType.value = type
   showNewConnection.value = true
+}
+
+/** 本地工作区:导入文件夹 */
+async function onImportFolder() {
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const path = await open({ directory: true, multiple: false, title: '选择文件夹' })
+    if (!path || typeof path !== 'string') return
+    await openLocalWorkspace(path)
+  } catch (err) {
+    console.error('Import folder failed:', err)
+  }
+}
+
+/** 本地工作区:导入文件 */
+async function onImportFile() {
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const path = await open({ directory: false, multiple: false, title: '选择文件' })
+    if (!path || typeof path !== 'string') return
+    const dirPath = path.replace(/\\/g, '/').split('/').slice(0, -1).join('/')
+    await openLocalWorkspace(dirPath)
+  } catch (err) {
+    console.error('Import file failed:', err)
+  }
+}
+
+/** 打开本地工作区 tab */
+async function openLocalWorkspace(rootPath: string) {
+  const assetStore = useAssetStore()
+  const existingAsset = assetStore.assets.find(
+    a => a.type === 'local' && a.config.rootPath === rootPath
+  )
+  let assetId: string
+  let assetName: string
+  if (existingAsset) {
+    assetId = existingAsset.id
+    assetName = existingAsset.name
+  } else {
+    const name = rootPath.split(/[/\\]/).pop() || rootPath
+    const newAsset = await assetStore.createAsset({
+      type: 'local',
+      name,
+      config: { rootPath }
+    })
+    assetId = newAsset.id
+    assetName = newAsset.name
+  }
+  const instanceId = generateInstanceId(assetId)
+  appStore.addTab({
+    id: instanceId, assetId, title: assetName, type: 'local'
+  })
+  router.push({ name: 'local', params: { id: instanceId } })
 }
 
 function openNewTabFromCurrent(e: MouseEvent) {
@@ -925,6 +978,7 @@ function getIcon(type: string) {
     case 'db': return 'mdi-database'
     case 'docker': return 'mdi-docker'
     case 'excel': return 'mdi-file-excel-outline'
+    case 'local': return 'mdi-folder-outline'
     case 'ai': return 'mdi-robot-outline'
     case 'web': return 'mdi-web'
     case 'settings': return 'mdi-cog-outline'
@@ -946,6 +1000,7 @@ function routeNameForTab(tab: { assetId?: string; type: string }): string {
   if (tab.type === 'ssh') return 'ssh-terminal'
   if (tab.type === 'docker') return 'docker'
   if (tab.type === 'excel') return 'excel'
+  if (tab.type === 'local') return 'local'
   return 'db-mysql'
 }
 
@@ -1643,6 +1698,8 @@ vueWatch(() => appStore.tabs.length, () => {
         <AssetTree
           @new-connection="openNewConnection"
           @new-connection-type="openNewConnectionWithType"
+          @import-folder="onImportFolder"
+          @import-file="onImportFile"
         />
         <SidebarHandle />
       </div>

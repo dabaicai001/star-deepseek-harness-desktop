@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.41.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.42.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -106,133 +106,16 @@
 
 ## 当前版本
 
+### v0.42.0 (2026-08-05)
+- ✨ 左侧 Excel 标签→本地工作区:导入文件夹/文件,目录树懒加载,Excel 文件复用现有编辑器,文本文件内置编辑器
+- ✨ AI 助手全局感知本地工作区文件
+- ✨ 设置 AI 助手多模型配置,支持 ClawHub trending skills 一键导入
+
 ### v0.41.0 (2026-08-04)
 - ✨ 恢复资产树库/表/Redis/ES 节点右键菜单(树侧持有,不开 tab 直接弹);标签页右键新增关闭左侧/重新连接/断开连接/刷新资产树;删除与资产树重复的 Docker 中间容器列表面板
 
 ### v0.40.0 (2026-08-04)
 - ✨ Docker 资产树 DB 化:DCKR 徽章 + 品牌图标,单击展开容器/镜像对象树、连接内过滤、点击容器/镜像联动工作区;连接参数构建抽取共用
-
-### v0.39.4 (2026-08-04)
-- 🐛 dbType 徽章 >5 字符缩写(CLICKHOUSE→CH、SQLITE→SQLT,补 MSSQL);MySQL 图标改为官方海豚(simple-icons 文字 logo 小尺寸不可读)
-
-### v0.39.3 (2026-08-04)
-- 🐛 资产树:连接内过滤命中全部表(截断移到渲染层)、'+ N more' 可点击展开;Redis '+ 加载更多' 点击续扫、过滤走 SCAN MATCH;重启后自动展开的库自动加载子级
-
-### v0.39.2 (2026-08-04)
-- 🐛 i18n 补齐 `common.refresh`,修复刷新按钮/右键菜单显示原始 key
-
-### v0.39.1 (2026-08-04)
-- 🐛 首页欢迎页样式恢复(cyber.css 误删区块回捞)、DbDashboard 性能/网络 tab 修复(v-show 上移容器)
-- ✨ 标签栏并入标题栏(删除 menubar 横条);DB 树单击展开/末层开 tab/双击直达;连接内过滤框;树层级引导线
-
-### v0.39.0 (2026-08-03)
-- ✨ 工作区 3 层对象树重构:对象树并入全局资产树、视图去内部侧栏、Dashboard tab 分组、⌘K 命令面板、状态栏紧凑
-
-### v0.38.2 (2026-08-03)
-- 🐛 AI 计划「awaiting-choice」分支做选择续跑时重置引导续跑深度计数,避免历史链式续跑残留导致引导过早封顶
-
-### v0.38.1 (2026-08-03)
-- 🐛 AI 运行中引导(Steering)队列化:引导先入待生效队列、步骤边界 flush,修复落在 tool_calls 与 tool 结果之间导致 LLM 400;入队后 UI 渲染「待生效」弱化气泡
-- 🐛 AiView 最后一个计划步期间插入的引导不再被吞掉;自动续跑加深度上限;末尾续步不再造成 "exceeded max steps" 假错误;持久化保留引导标签
-
-### v0.38.0 (2026-08-03)
-- ✨ AI 运行中引导(Steering):域面板 AI 运行时插入引导语,LLM 步骤边界生效,末尾自动续步,引导气泡带「引导」标签
-- ✨ AiView 编排中插入引导(计划步骤边界生效,未回应自动续跑);「引导」按钮专职运行中引导,原模板弹层移除
-- 🎨 SSH AI 面板「后台静默」改为分段按钮(终端/静默)
-
-### v0.37.0 (2026-07-31)
-- ✨ Web Access 重做:终端工具栏一键开启应用内浏览器子页面(地址栏 + 内嵌 webview),转发层改写 Host 头修复虚拟主机站点 404
-- ✨ ES 视图接入公共 RightPanel 右侧边栏(集群仪表盘 + AI 助手)
-- 🐛 审计日志自动保留最新 5000 条,db/ssh/docker/sftp/ai 全事件补全详情
-- 🐛 AI 助手面板:引导文案对齐真实能力、chips 走 i18n、静默开关跨 tab 同步、Markdown 渲染与工具结果展开
-
-### v0.36.5 (2026-07-31)
-- 🐛 修复筛选后 Ctrl+S 保存导致单元格值丢失为空
-
-### v0.36.4 (2026-07-30)
-- ✨ 快捷命令编辑器图标下拉选择、拖拽手柄触发、删除持久化修复
-- ✨ AI 助手面板引导提示(chips,按资源类型推荐问题)
-- ✨ SSH AI「后台静默」开关——命令后台执行不回显终端
-- ✨ SSH「访问服务器网页」——端口转发 + WebviewWindow 内嵌渲染
-- ✨ 审计日志接入业务操作(SSH/DB/SFTP/Docker) + 告警规则定时检查
-- 🐛 快捷命令删除/排序相关 bug 修复
-
-### v0.35.0 (2026-07-27)
-- 🐛 修复索引管理器新建索引报 MySQL Error 1091:新索引标记 `isNew`,不再对其生成 `DROP INDEX`
-- 🎨 欢迎页全面重构:背景极光 / 栅格 / 漂浮粒子,标题渐变流光,标语打字机,指标数字滚动,模块卡片光带扫过,全区块交错入场;样式收口 `cyber.css` 并兼容深浅双主题
-
-### v0.34.6 (2026-07-24)
-- 🐛 新建表修复 MySQL Error 1064:新增「长度/精度」列,VARCHAR 缺省补 255、DECIMAL 支持精度;DDL 按方言生成(PG 双引号 + COMMENT ON,ClickHouse Nullable + MergeTree ORDER BY)
-- 🐛 ClickHouse 表数据标签页支持行编辑(标记主键列,走 mutation 批量保存)
-- 🌐 Redis 右侧边栏与各类型值编辑器汉化收尾
-- 🎨 首页欢迎区统一优化:紧凑模块卡片、最近工作列表、按钮 kbd 提示与 `N` 快捷键
-
-### v0.34.5 (2026-07-23)
-- 🐛 fix(multi-tab): 修复同一资产开多个标签页时第一个页面连接被断开、数据丢失的问题(Redis/DB/ES/Docker/Broker/Excel 共 6 个视图)
-
-### v0.34.2 (2026-07-21)
-- 📝 新增「AI 运维剧本引擎」设计文档(`docs/superpowers/specs/2026-07-21-ai-playbook-engine-design.md`):跨 SSH/DB/SFTP/Docker 的多步自动化剧本,AI 生成 + 审批门 + 结构化回放
-
-### v0.34.1 (2026-07-21)
-- 🎨 style(design-system): 面板/卡片/资产卡片/ZMODEM 传输条顶部高光改为液体流动灯带(青紫渐变左右流动 + 光晕晃动),所有 `.cyber-panel` / `.cyber-card` / `.connection-card` / `.zmodem-transfer-bar` 统一生效
-
-### v0.34.0 (2026-07-21)
-- ✨ SQL 编辑器和表数据视图 WHERE 筛选条新增字段名模糊补全:自动根据 FROM/JOIN 表推断列,支持 WHERE/AND/OR/ON/SET/BY 等上下文
-
-### v0.33.1 (2026-07-21)
-- ✨ 传输任务条 TransferDock 可拖动换位(Pointer Events 手势,位置持久化,双击复位),不再遮挡 AI 发送按钮
-- 🐛 修复 Redis SSL 开关实际走明文、Excel/CSV 并发写数据竞争、Docker 日志静默截断、命令广播弹窗文字几乎不可见
-- ⚡ 关闭标签页立即释放 SSH 会话与 xterm 实例;终端 AI 缓冲改环形上限;Sidecar 崩溃自动重连;全链路补超时与背压(30+ 项稳定性/性能修复)
-- 完整演进见 [CHANGELOG.md](./CHANGELOG.md)
-
-### v0.32.6 (2026-07-20)
-- 🐛 修复标签页拖出独立窗口后白屏:修正 WebviewWindow URL 为 `/` 避免 vue-router 初始路径 `/index.html` 不匹配;独立窗口挂载工作区前等待资产列表加载,避免组件误判资产已删除把路由推回 `/`
-- 完整演进见 [CHANGELOG.md](./CHANGELOG.md)
-
-### v0.32.5 (2026-07-20)
-- 📝 `AGENTS.md` 整体优化:目录结构 / 关键命令 / 依赖表对齐实际代码,踩坑详情索引化至 `docs/踩坑记录.md`
-- 完整演进见 [CHANGELOG.md](./CHANGELOG.md)
-
-### v0.32.0 ~ v0.32.4 (2026-07-17 ~ 2026-07-20)
-- ✨ 标签页拖出为独立窗口;全局传输任务条 TransferDock(限速 / 取消 / 聚合 SFTP 任务)
-- 🐛 Windows 拖拽手势改用 Pointer Events 自实现,与系统级文件拖入兼容;危险命令确认框显示完整命令行
-
-### v0.29.3 (2026-07-14)
-- ✨ AI 可确认后通过 SFTP 上传/下载,并等待现有传输队列完成
-- ✨ 最近对话常驻列表支持恢复与删除;发送区新增三步提问引导
-- ✨ MCP 支持 stdio、Streamable HTTP、兼容 SSE,鉴权值保存在系统 Keyring
-
-### v0.28.7 (2026-07-14)
-- 🐛 SSH/DB/Docker/Excel 工作区 AI 确认卡固定在输入框上方,StarHub AI 规划与选择移动到长对话末端
-- 🐛 Linux 外部文件打开支持 `xdg-open` → `gio open` 回退,密钥优先持久化到 Secret Service
-- 🔧 Ubuntu 22.04 原生 x86_64 / ARM64 双架构生成 AppImage、DEB、RPM,自动审计 sidecar、包依赖和动态库缺口
-- 🔧 Rust HTTP 改用 rustls,移除 Linux 对系统 OpenSSL 动态库的额外依赖
-
-### v0.28.6 (2026-07-14)
-- 🐛 修复 SSH 终端提示符紧贴底部边框的问题
-
-### v0.28.1 (2026-07-13)
-- 🐛 修复 MySQL 表格 Shift 多选批量删除与复制 INSERT 语句
-
-### v0.28.0 (2026-07-13)
-- ✨ SFTP 启动策略:自动诊断 subsystem,异常时探测 `sftp-server` 并受控降级
-- 🐛 SFTP 建链错误完整展示远端 stderr / exit status,不再误报 Timeout
-
-### v0.27.0 (2026-07-13)
-- ✨ Docker Exec 改为可持续读写的交互式 TTY 会话
-- 🎨 资产树数据库类型徽章统一 64px 宽度对齐
-
-### v0.26.4 (2026-07-13)
-- 🐛 SSH 私钥兼容非 UTF-8 OpenSSH comment、UTF-8 BOM、UTF-16 编码
-- ⬆️ `russh` 升级到 0.62.2
-
-### v0.26.x ~ v0.18.x (历史)
-- SFTP 三栏文件传输、AI Agent 工作区、Kafka/NSQ 状态页
-- PostgreSQL 适配器、Redis 键浏览增强
-- Univer 0.25.1 深度集成、Excel 工具完善
-
-### v0.17.x (历史)
-
 ---
 
 ## 技术栈

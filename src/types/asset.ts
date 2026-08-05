@@ -1,4 +1,4 @@
-export type AssetType = 'ssh' | 'db' | 'docker' | 'excel'
+export type AssetType = 'ssh' | 'db' | 'docker' | 'excel' | 'local'
 
 export type DatabaseType = 'mysql' | 'postgresql' | 'sqlite' | 'redis' | 'elasticsearch' | 'clickhouse' | 'kafka' | 'nsq' | 'mssql'
 export type SftpLaunchMode = 'auto' | 'subsystem' | 'custom'
@@ -78,6 +78,12 @@ export interface AssetConfig {
   frozenRows?: number
   frozenCols?: number
   columnWidths?: Record<number, number>
+
+  // Local Workspace 配置
+  rootPath?: string
+  lastCwd?: string
+  view?: 'tree' | 'grid'
+  aiAllowRead?: boolean
 }
 
 export interface CreateAssetDto {

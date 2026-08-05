@@ -73,6 +73,12 @@ const router = createRouter({
           props: true,
         },
         {
+          path: 'local/:id',
+          name: 'local',
+          component: () => import('@/views/LocalView.vue'),
+          props: true,
+        },
+        {
           path: 'ai/:id?',
           name: 'ai',
           component: () => import('@/views/AiView.vue'),

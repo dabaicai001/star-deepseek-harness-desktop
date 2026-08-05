@@ -38,7 +38,9 @@ function expandIfCollapsed(): boolean {
 
 const emit = defineEmits<{
   'new-connection': []
-  'new-connection-type': [type: 'ssh' | 'db' | 'docker' | 'excel']
+  'new-connection-type': [type: 'ssh' | 'db' | 'docker' | 'excel' | 'local']
+  'import-folder': []
+  'import-file': []
 }>()
 
 const sshAssets = computed(() =>
@@ -52,6 +54,9 @@ const dockerAssets = computed(() =>
 )
 const excelAssets = computed(() =>
   assetStore.filteredAssets.filter(a => a.type === 'excel' && !a.favorite)
+)
+const localAssets = computed(() =>
+  assetStore.filteredAssets.filter(a => a.type === 'local' && !a.favorite)
 )
 const aiAgents = computed(() => aiStore.agents)
 
@@ -77,7 +82,7 @@ const activeWorkspaceType = computed(() => {
   const tab = appStore.tabs.find(t => t.id === appStore.activeTab)
   if (!tab) return null
   if (tab.type === 'ai') return null
-  return tab.type as 'ssh' | 'db' | 'docker' | 'excel'
+  return tab.type as 'ssh' | 'db' | 'docker' | 'excel' | 'local'
 })
 
 function getIcon(type: string, dbType?: string) {
@@ -91,6 +96,7 @@ function getIcon(type: string, dbType?: string) {
     case 'ssh': return 'mdi-console'
     case 'docker': return 'mdi-docker'
     case 'excel': return 'mdi-file-excel-outline'
+    case 'local': return 'mdi-folder-outline'
     default: return 'mdi-file-outline'
   }
 }
@@ -323,7 +329,7 @@ function closeContextMenu() {
 }
 
 // ====== 分组标题右键菜单(SSH / DB / Docker / Excel / AI) ======
-type TreeGroupType = 'ssh' | 'db' | 'docker' | 'excel' | 'ai'
+type TreeGroupType = 'ssh' | 'db' | 'docker' | 'local' | 'excel' | 'ai'
 const groupCtxMenu = ref<{ x: number; y: number; type: TreeGroupType } | null>(null)
 
 const groupCtxItems = computed<MenuItem[]>(() => {
@@ -356,17 +362,32 @@ const groupCtxItems = computed<MenuItem[]>(() => {
       }
     ]
   }
-  const label = gt === 'ssh' ? t('asset.groupSsh') : gt === 'db' ? t('asset.groupDb') : gt === 'docker' ? t('asset.groupDocker') : t('asset.groupExcel')
-  const icon = gt === 'ssh' ? 'mdi-console' : gt === 'db' ? 'mdi-database-outline' : gt === 'docker' ? 'mdi-docker' : 'mdi-file-excel-outline'
-  return [
-    { type: 'header', icon, label },
-    {
-      type: 'item',
+  const labelMap: Record<string, string> = {
+    ssh: t('asset.groupSsh'), db: t('asset.groupDb'), docker: t('asset.groupDocker'),
+    excel: t('asset.groupExcel'), local: '本地工作区', ai: 'AI'
+  }
+  const iconMap: Record<string, string> = {
+    ssh: 'mdi-console', db: 'mdi-database-outline', docker: 'mdi-docker',
+    excel: 'mdi-file-excel-outline', local: 'mdi-folder-outline', ai: 'mdi-robot-outline'
+  }
+  const label = labelMap[gt] || gt
+  const icon = iconMap[gt] || 'mdi-file-outline'
+  const baseItems: MenuItem[] = [{ type: 'header' as const, icon, label }]
+  if (gt === 'local') {
+    baseItems.push(
+      { type: 'item' as const, icon: 'mdi-folder-plus-outline', label: '导入文件夹', onClick: () => emit('import-folder') },
+      { type: 'item' as const, icon: 'mdi-file-plus-outline', label: '导入文件', onClick: () => emit('import-file') },
+      { type: 'item' as const, icon: 'mdi-plus', label: t('asset.create'), onClick: () => emit('new-connection-type', gt) }
+    )
+  } else {
+    baseItems.push({
+      type: 'item' as const,
       icon: 'mdi-plus',
       label: t('asset.create'),
       onClick: () => emit('new-connection-type', gt)
-    }
-  ]
+    })
+  }
+  return baseItems
 })
 
 function openGroupContextMenu(e: MouseEvent, type: TreeGroupType) {
@@ -619,7 +640,7 @@ const GROUP_DEFAULTS: Record<string, boolean> = {
   ssh: true,
   db: true,
   docker: true,
-  excel: true,
+  local: true,
   ai: true
 }
 
@@ -1070,8 +1091,67 @@ function closeNodeCtxMenu() {
       </div>
     </div>
 
-    <!-- Excel 分组 -->
-    <div class="tree-group excel">
+    <!-- 本地工作区分组 -->
+    <div class="tree-group local">
+      <div
+        class="tree-group-head collapsible"
+        :class="{ collapsed: !isGroupExpanded('local') }"
+        role="button"
+        :aria-expanded="isGroupExpanded('local')"
+        @click="toggleGroup('local')"
+        @contextmenu="openGroupContextMenu($event, 'local')"
+      >
+        <v-icon class="chevron" size="12">mdi-chevron-down</v-icon>
+        <v-icon class="type-icon" size="11">mdi-folder-outline</v-icon>
+        <span class="label">本地工作区</span>
+        <span class="count">{{ localAssets.length }}</span>
+      </div>
+      <div v-show="isGroupExpanded('local')" class="tree-group-body">
+      <!-- 快捷导入按钮 -->
+      <div class="local-import-row">
+        <button class="local-import-btn" @click.stop="$emit('import-folder')">
+          <v-icon size="11">mdi-folder-plus-outline</v-icon>
+          导入文件夹
+        </button>
+        <button class="local-import-btn" @click.stop="$emit('import-file')">
+          <v-icon size="11">mdi-file-plus-outline</v-icon>
+          导入文件
+        </button>
+      </div>
+      <TransitionGroup name="cyber-list">
+      <div
+        v-for="asset in localAssets"
+        :key="asset.id"
+        class="tree-item"
+        :class="{ active: isActive(asset), selected: isSelected(asset) }"
+        :data-tooltip="asset.name"
+        tabindex="0"
+        @click="handleAssetClick(asset)"
+        @dblclick="handleAssetClick(asset)"
+        @contextmenu="openContextMenu($event, asset)"
+        @keydown="onAssetKeydown($event, asset)"
+      >
+        <v-icon size="13" class="local">mdi-folder-outline</v-icon>
+        <span class="name">{{ asset.name }}</span>
+        <span class="status-dot" :class="getStatus(asset)" />
+        <button
+          class="action-btn"
+          @click.stop="assetStore.toggleFavorite(asset.id)"
+          :data-tooltip="t('asset.favorite')"
+        >
+          <v-icon size="13">mdi-star-outline</v-icon>
+        </button>
+      </div>
+      </TransitionGroup>
+      <div v-if="localAssets.length === 0" class="tree-empty">
+        <v-icon size="11">mdi-circle-small</v-icon>
+        <span>暂无本地工作区</span>
+      </div>
+      </div>
+    </div>
+
+    <!-- Excel 分组(保留以兼容已有 Excel 资产) -->
+    <div v-if="excelAssets.length > 0" class="tree-group excel">
       <div
         class="tree-group-head collapsible"
         :class="{ collapsed: !isGroupExpanded('excel') }"
@@ -1625,5 +1705,30 @@ function closeNodeCtxMenu() {
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* 本地工作区导入按钮 */
+.local-import-row {
+  display: flex;
+  gap: 4px;
+  padding: 6px 14px;
+}
+.local-import-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--hover-cyan-faint);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.local-import-btn:hover {
+  color: var(--text-1);
+  background: var(--hover-cyan);
+  border-color: var(--cyan);
 }
 </style>

@@ -14,6 +14,7 @@ export function routeNameForAsset(asset: Asset): string {
   if (asset.type === 'ssh') return 'ssh-terminal'
   if (asset.type === 'docker') return 'docker'
   if (asset.type === 'excel') return 'excel'
+  if (asset.type === 'local') return 'local'
   const dbType = asset.config.dbType || 'mysql'
   if (dbType === 'redis') return 'db-redis'
   if (dbType === 'elasticsearch') return 'db-elasticsearch'

@@ -92,7 +92,9 @@ function cloneAiSettings(settings: AiSettings): AiSettings {
       args: [...server.args],
       env: server.env.map(item => ({ ...item })),
       headers: server.headers.map(item => ({ ...item }))
-    }))
+    })),
+    models: (settings.models || []).map(m => ({ ...m })),
+    activeModelId: settings.activeModelId || '',
   }
 }
 
@@ -421,6 +423,77 @@ const PRESET_MODELS = [
   { id: 'deepseek-chat', label: 'DeepSeek (deepseek-chat)' },
   { id: 'qwen-turbo', label: '通义千问 Qwen Turbo (阿里)' }
 ]
+
+// ====== 多模型管理 ======
+const newModelName = ref('')
+const newModelId = ref('')
+
+function addModel() {
+  const name = newModelName.value.trim()
+  const model = newModelId.value.trim()
+  if (!name || !model) return
+  if (!aiLocal.value.models) aiLocal.value.models = []
+  const id = `model-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  aiLocal.value.models.push({ id, name, baseUrl: '', apiKey: '', model, temperature: 0.3, maxTokens: 4096 })
+  newModelName.value = ''
+  newModelId.value = ''
+}
+
+function removeModel(id: string) {
+  if (!aiLocal.value.models) return
+  aiLocal.value.models = aiLocal.value.models.filter(m => m.id !== id)
+  if (aiLocal.value.activeModelId === id) {
+    aiLocal.value.activeModelId = ''
+  }
+}
+
+// ====== ClawHub SKILL 导入 ======
+const clawhubLoading = ref(false)
+
+async function importFromClawhub() {
+  clawhubLoading.value = true
+  skillImportResult.value = null
+  try {
+    const res = await fetch('https://clawhub.ai/api/skills?tab=trending&limit=20', {
+      headers: { 'Accept': 'application/json' }
+    })
+    if (!res.ok) {
+      skillImportResult.value = `ClawHub 请求失败: HTTP ${res.status}`
+      return
+    }
+    const data = await res.json()
+    const skills = Array.isArray(data) ? data : (data.skills || data.data || [])
+    if (!Array.isArray(skills) || skills.length === 0) {
+      skillImportResult.value = 'ClawHub 未返回可用 SKILL'
+      return
+    }
+    let imported = 0
+    let skipped = 0
+    for (const item of skills) {
+      const name = String(item.name || item.title || '').trim()
+      const prompt = String(item.prompt || item.instructions || item.content || item.description || '').trim()
+      if (!name || !prompt) { skipped++; continue }
+      const duplicate = aiLocal.value.customSkills.some(skill => skill.name === name && skill.prompt === prompt)
+      if (duplicate) { skipped++; continue }
+      const id = `clawhub-${Date.now()}-${imported}-${Math.random().toString(36).slice(2, 6)}`
+      aiLocal.value.customSkills.push({
+        id, name,
+        description: String(item.description || '').trim(),
+        prompt,
+        assetTypes: normalizeImportedAssetTypes(item.assetTypes ?? item.scopes ?? item.tags)
+      })
+      toggleSkill(id, true)
+      imported++
+    }
+    skillImportResult.value = imported > 0
+      ? `已从 ClawHub 导入 ${imported} 个 Skill${skipped ? `,跳过 ${skipped} 个` : ''};点击"保存"后生效`
+      : 'ClawHub 返回的数据中没有可导入的 Skill'
+  } catch (err) {
+    skillImportResult.value = `ClawHub 导入失败: ${err instanceof Error ? err.message : String(err)}`
+  } finally {
+    clawhubLoading.value = false
+  }
+}
 
 // ====== 审计日志 ======
 const auditLogs = ref<AuditLogEntry[]>([])
@@ -883,9 +956,66 @@ async function onTestWebhook(url: string) {
         </div>
       </div>
 
+      <!-- 多模型配置 -->
       <div class="section">
         <div class="section-header">
           <span class="section-number">02</span>
+          <span class="section-title">多模型</span>
+        </div>
+        <p class="section-desc">
+          可配置多个模型用于不同的 AI Agent。激活的模型将在 AI 对话中使用。
+        </p>
+
+        <div v-if="aiLocal.models.length > 0" class="model-list">
+          <div v-for="m in aiLocal.models" :key="m.id" class="model-card" :class="{ active: aiLocal.activeModelId === m.id }">
+            <div class="model-card-head">
+              <span class="model-name">{{ m.name }}</span>
+              <code class="model-id">{{ m.model }}</code>
+              <button class="action-btn" @click="aiLocal.activeModelId = m.id" :data-tooltip="'激活此模型'">
+                <v-icon size="14">{{ aiLocal.activeModelId === m.id ? 'mdi-check-circle' : 'mdi-circle-outline' }}</v-icon>
+              </button>
+              <button class="action-btn model-delete" @click="removeModel(m.id)" :data-tooltip="'删除模型'">
+                <v-icon size="13">mdi-delete-outline</v-icon>
+              </button>
+            </div>
+            <div class="model-card-body">
+              <div class="model-field">
+                <span class="model-label">Base URL</span>
+                <input v-model="m.baseUrl" class="cyber-input model-input" placeholder="继承默认" />
+              </div>
+              <div class="model-field">
+                <span class="model-label">API Key</span>
+                <input v-model="m.apiKey" class="cyber-input model-input" type="password" placeholder="继承默认" />
+              </div>
+              <div class="model-field">
+                <span class="model-label">温度</span>
+                <input v-model.number="m.temperature" class="cyber-input model-input" type="number" min="0" max="1" step="0.1" placeholder="0.3" />
+              </div>
+              <div class="model-field">
+                <span class="model-label">Max Tokens</span>
+                <input v-model.number="m.maxTokens" class="cyber-input model-input" type="number" min="256" max="32000" placeholder="4096" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="add-model-form">
+          <input v-model="newModelName" class="cyber-input" placeholder="模型显示名称(如: DeepSeek 生产)" style="flex:1" />
+          <input v-model="newModelId" class="cyber-input" placeholder="模型 ID(如: deepseek-chat)" style="flex:1" />
+          <button class="cyber-btn-secondary" :disabled="!newModelName.trim() || !newModelId.trim()" @click="addModel">
+            <v-icon size="13">mdi-plus</v-icon>
+            添加模型
+          </button>
+        </div>
+
+        <p class="section-desc" style="margin-top:8px">
+          默认模型在 LLM 服务中配置。新增模型可覆盖 Base URL、API Key、温度和 Max Tokens。
+        </p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">03</span>
           <span class="section-title">SKILLS</span>
         </div>
         <p class="section-desc">
@@ -954,6 +1084,10 @@ async function onTestWebhook(url: string) {
               <v-icon size="14">mdi-import</v-icon>
               外部导入
             </button>
+            <button class="cyber-btn-secondary" :disabled="clawhubLoading" @click="importFromClawhub">
+              <v-icon size="14">{{ clawhubLoading ? 'mdi-loading mdi-spin' : 'mdi-cloud-download-outline' }}</v-icon>
+              ClawHub 导入
+            </button>
             <input
               ref="skillImportInput"
               hidden
@@ -985,7 +1119,7 @@ async function onTestWebhook(url: string) {
 
       <div class="section">
         <div class="section-header">
-          <span class="section-number">03</span>
+          <span class="section-number">04</span>
           <span class="section-title">MCP Servers</span>
         </div>
         <p class="section-desc">
@@ -1102,7 +1236,7 @@ async function onTestWebhook(url: string) {
 
       <div class="section">
         <div class="section-header">
-          <span class="section-number">04</span>
+          <span class="section-number">05</span>
           <span class="section-title">命令白名单</span>
         </div>
         <p class="section-desc">
@@ -2112,5 +2246,70 @@ async function onTestWebhook(url: string) {
   font-family: 'JetBrains Mono', monospace;
   letter-spacing: 0.05em;
   position: relative;
+}
+
+/* ====== 多模型卡片 ====== */
+.model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+.model-card {
+  background: var(--panel-solid);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 10px 12px;
+  transition: border-color 0.15s;
+}
+.model-card.active {
+  border-color: var(--cyan);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.1);
+}
+.model-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.model-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+.model-id {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--muted);
+}
+.model-delete {
+  margin-left: auto;
+}
+.model-card-body {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.model-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 120px;
+}
+.model-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.model-input {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.add-model-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: center;
 }
 </style>
