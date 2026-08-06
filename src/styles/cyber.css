@@ -3953,6 +3953,27 @@ body {
   white-space: nowrap;
 }
 
+.ai-model-selector {
+  flex-shrink: 0;
+}
+
+.ai-model-badge {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.ai-model-badge:hover {
+  background: var(--hover-bg);
+  border-color: var(--cyan);
+}
+
+.ai-model-list .v-list-item {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
 .ai-workspace-body {
   position: relative;
   z-index: 1;

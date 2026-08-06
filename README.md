@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.44.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.46.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,19 @@
 ---
 
 ## 当前版本
+
+### v0.46.0 (2026-08-06)
+- ✨ AI 助手多模型选择:对话页头新增模型切换下拉菜单,列出所有已配置模型(含 baseUrl / 模型 ID),一键切换;无多模型时显示默认模型名;底部「添加模型」快捷入口直达 Settings
+- ✨ SSH「服务器网页访问」重构为 Web 网关:输入公网/内网地址后由 reqwest 抓取,经本地 HTTP 代理重组,内嵌 webview 渲染;支持 HTTPS(正确 SNI/证书)、HTML 内 URL 自动改写让子资源也走网关
+- 🔧 SSH 终端工具栏按钮 alt 文案由"访问服务器网页"改为"服务器网页访问",强调由服务器视角发起
+- ✨ 本地工作区:支持导入文件夹 / 文件作为工作目录,目录树浏览、文本文件查看编辑(Ctrl+S / Cmd+S 保存)、新建文件 / 文件夹、重命名、删除、刷新(右键菜单 + 工具栏);导入单个文件时以所在目录为工作区并直接打开,.xlsx / .csv 自动用 Excel 工具打开
+- ✨ 新建连接对话框新增「本地工作区」类型(文件夹 / 文件选择器,按规范化路径去重,已存在则复用打开)
+- 🔧 Excel 工具入口全面替换为本地工作区:欢迎页模块卡 / 指标 / 状态栏、工作区与标签栏右键菜单;新建连接类型网格中的 Excel 卡片替换为本地工作区(存量 Excel 资产编辑表单保留)
+- 🔧 侧边栏「本地工作区」分组右键菜单改为「导入文件夹… / 导入文件…」,空态新增两个导入按钮
+- 🐛 修复侧边栏「本地工作区」分组右键新建弹出错误对话框的问题(此前落到通用新建连接类型选择页)
+- 🐛 修复复制本地工作区资产后标签页不跳转路由的问题
+- 🐛 修复 GitHub Actions Windows tag 构建失败:放宽 local shell 单测超时 (5s → 30s),避免 CI runner PowerShell 冷启动 flaky
+- 🐛 移除浏览器环境不可用的本地工作区导入文件夹/文件入口
 
 ### v0.44.0 (2026-08-06)
 - ✨ SSH「服务器网页访问」重构为 Web 网关:输入公网/内网地址后由 reqwest 抓取,经本地 HTTP 代理重组,内嵌 webview 渲染;支持 HTTPS(正确 SNI/证书)、HTML 内 URL 自动改写让子资源也走网关
