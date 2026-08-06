@@ -259,7 +259,7 @@ export default {
     aiSilentSegmentSilent: 'Silent',
     aiSilentFallbackNote: 'This command needs interactive input, so it was run in the terminal instead (silent background mode does not support interaction)',
     webAccess: {
-      title: 'Access Server Web Page',
+      title: 'Server Web Access',
     },
     mfa: {
       title: 'MFA Verification',
@@ -270,15 +270,14 @@ export default {
   },
   web: {
     browser: {
-      addressPlaceholder: 'Enter an intranet address, e.g. http://127.0.0.1:8080',
+      addressPlaceholder: 'Enter a URL, e.g. www.baidu.com or http://intranet:8080',
       go: 'Go',
       reload: 'Reload',
-      hint: 'Enter a URL and press Enter. The page opens in the embedded browser via SSH port forwarding.',
-      loading: 'Establishing SSH port forwarding…',
+      hint: 'Enter a URL and press Enter. The page will load via the server and render in the embedded browser.',
+      loading: 'Establishing web gateway via server…',
       emptyUrl: 'Please enter a URL',
-      invalidUrl: 'Invalid URL. Enter a full URL (e.g. http://10.0.0.5:8080/admin)',
-      httpsUnsupported: 'HTTPS targets are not supported yet. Please use an HTTP port; a direct connection will still be attempted (it may fail due to untrusted certificate)',
-      forwardFailed: 'Port forwarding failed',
+      invalidUrl: 'Invalid URL. Enter a full URL (e.g. https://www.baidu.com)',
+      forwardFailed: 'Web gateway startup failed',
       webviewFailed: 'Failed to create the embedded browser view',
       tauriRequired: 'Web access requires the StarHub desktop app',
       noSession: 'No associated SSH session found. Open this page from the SSH terminal toolbar.',

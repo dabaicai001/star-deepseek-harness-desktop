@@ -259,7 +259,7 @@ export default {
     aiSilentSegmentSilent: '静默',
     aiSilentFallbackNote: '该命令需要交互输入，已自动回退到终端执行(后台静默通道不支持交互)',
     webAccess: {
-      title: '访问服务器网页',
+      title: '服务器网页访问',
     },
     mfa: {
       title: 'MFA 验证',
@@ -270,15 +270,14 @@ export default {
   },
   web: {
     browser: {
-      addressPlaceholder: '输入服务器内网地址，如 http://127.0.0.1:8080',
+      addressPlaceholder: '输入网址，如 www.baidu.com 或 http://内网:8080',
       go: '访问',
       reload: '重新加载',
-      hint: '输入网址后回车，将通过 SSH 端口转发在内置浏览器中打开',
-      loading: '正在建立 SSH 端口转发…',
+      hint: '输入网址后回车，将通过服务器中转访问并在内置浏览器中渲染',
+      loading: '正在通过服务器建立网关…',
       emptyUrl: '请输入要访问的网址',
-      invalidUrl: '无效的网址，请输入完整的 URL（如 http://10.0.0.5:8080/admin）',
-      httpsUnsupported: '暂不支持 HTTPS 目标，请使用 HTTP 端口；仍将尝试直连（可能因证书不受信失败）',
-      forwardFailed: '端口转发失败',
+      invalidUrl: '无效的网址，请输入完整的 URL（如 https://www.baidu.com）',
+      forwardFailed: '网页网关启动失败',
       webviewFailed: '创建内置浏览器视图失败',
       tauriRequired: '网页访问需要在 StarHub 桌面应用中使用',
       noSession: '未找到关联的 SSH 会话，请从 SSH 终端工具栏打开',

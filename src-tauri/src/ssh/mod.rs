@@ -3,6 +3,7 @@ pub mod known_hosts;
 pub mod session;
 pub mod sftp;
 mod sftp_transport;
+pub mod web_gateway;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

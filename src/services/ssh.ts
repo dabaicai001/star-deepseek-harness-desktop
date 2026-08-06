@@ -203,6 +203,20 @@ export async function sshListForwards(id: string): Promise<PortForwardInfo[]> {
   return invoke('ssh_list_forwards', { id })
 }
 
+// ─── Web 网关(经服务器访问网页) ───
+
+export async function sshStartWebGateway(id: string): Promise<number> {
+  return invoke('ssh_start_web_gateway', { sessionId: id })
+}
+
+export async function sshStopWebGateway(id: string): Promise<void> {
+  return invoke('ssh_stop_web_gateway', { sessionId: id })
+}
+
+export async function sshWebGatewayPort(id: string): Promise<number | null> {
+  return invoke('ssh_web_gateway_port', { sessionId: id })
+}
+
 // ─── SSH Config 导入 ───
 
 export interface SshConfigHost {

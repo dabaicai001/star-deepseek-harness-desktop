@@ -128,6 +128,8 @@ pub struct SshSession {
     resize_tx: Option<watch::Sender<(u32, u32)>>,
     remote_forwards: RemoteForwards,
     port_forwards: Vec<PortForwardEntry>,
+    /// Web 网关:本地 HTTP 代理,上游由 reqwest 转发。
+    web_gateway: Option<super::web_gateway::GatewayHandle>,
     /// 浏览类 SFTP 操作(list/stat/remove/mkdir/rename/read/write)复用的通道,
     /// 避免每个操作都重新 channel open + subsystem 协商。断线或操作失败时失效重建。
     browse_sftp: Option<russh_sftp::client::SftpSession>,
@@ -141,6 +143,7 @@ impl SshSession {
             resize_tx: None,
             remote_forwards: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             port_forwards: Vec::new(),
+            web_gateway: None,
             browse_sftp: None,
         }
     }
@@ -1066,6 +1069,15 @@ impl SshSession {
     pub fn disconnect(&mut self) {
         self.resize_tx = None;
         self.browse_sftp = None;
+        // 停止 Web 网关
+        if let Some(gw) = self.web_gateway.take() {
+            gw.abort.abort();
+            if let Ok(conns) = gw.connections.lock() {
+                for c in conns.iter() {
+                    c.abort();
+                }
+            }
+        }
         // 停止所有端口转发任务及其存量连接
         for pf in self.port_forwards.drain(..) {
             pf.abort_all();
@@ -1448,6 +1460,34 @@ impl SshSession {
                 target_port: f.target_port,
             })
             .collect()
+    }
+
+    /// 启动 Web 网关:本地 HTTP 监听,上游由 reqwest 转发。幂等。
+    pub async fn start_web_gateway(&mut self) -> Result<u16, String> {
+        if let Some(ref gw) = self.web_gateway {
+            return Ok(gw.port);
+        }
+        let gw = super::web_gateway::start(0).await?;
+        let port = gw.port;
+        self.web_gateway = Some(gw);
+        Ok(port)
+    }
+
+    /// 停止 Web 网关。
+    pub fn stop_web_gateway(&mut self) {
+        if let Some(gw) = self.web_gateway.take() {
+            gw.abort.abort();
+            if let Ok(conns) = gw.connections.lock() {
+                for c in conns.iter() {
+                    c.abort();
+                }
+            }
+        }
+    }
+
+    /// 返回当前 Web 网关监听端口(无网关时返回 None)。
+    pub fn web_gateway_port(&self) -> Option<u16> {
+        self.web_gateway.as_ref().map(|gw| gw.port)
     }
 }
 

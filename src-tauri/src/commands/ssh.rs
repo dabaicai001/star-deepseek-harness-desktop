@@ -741,6 +741,45 @@ fn home_dir() -> Result<std::path::PathBuf, String> {
     Err("Could not determine home directory".to_string())
 }
 
+// ── Web 网关 Tauri commands ──
+
+#[tauri::command]
+pub async fn ssh_start_web_gateway(
+    session_id: String,
+    state: tauri::State<'_, crate::SshManager>,
+) -> Result<u16, String> {
+    let mut sessions = state.sessions.lock().await;
+    let s = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    s.start_web_gateway().await
+}
+
+#[tauri::command]
+pub async fn ssh_stop_web_gateway(
+    session_id: String,
+    state: tauri::State<'_, crate::SshManager>,
+) -> Result<(), String> {
+    let mut sessions = state.sessions.lock().await;
+    let s = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    s.stop_web_gateway();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ssh_web_gateway_port(
+    session_id: String,
+    state: tauri::State<'_, crate::SshManager>,
+) -> Result<Option<u16>, String> {
+    let sessions = state.sessions.lock().await;
+    let s = sessions
+        .get(&session_id)
+        .ok_or_else(|| "Session not found".to_string())?;
+    Ok(s.web_gateway_port())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
