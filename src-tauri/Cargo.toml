@@ -1,6 +1,6 @@
 [package]
 name = "starhub"
-version = "0.46.3"
+version = "0.46.4"
 edition = "2021"
 
 [dependencies]
@@ -24,7 +24,7 @@ russh-sftp = "2"
 glob-match = "0.2"
 tokio-util = "0.7"
 chrono = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "gzip", "brotli", "deflate"] }
 futures = "0.3"
 bytes = "1"
 keyring-core = "1.0.0"

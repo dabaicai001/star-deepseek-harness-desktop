@@ -143,7 +143,7 @@ async fn read_request_body(
 
 fn should_forward_request_header(name: &str) -> bool {
     ![
-        "connection", "content-length", "host", "keep-alive", "proxy-authenticate",
+        "accept-encoding", "connection", "content-length", "host", "keep-alive", "proxy-authenticate",
         "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade",
     ]
     .iter()
@@ -427,6 +427,7 @@ mod tests {
         assert!(!should_forward_request_header("Host"));
         assert!(!should_forward_request_header("Connection"));
         assert!(!should_forward_request_header("Content-Length"));
+        assert!(!should_forward_request_header("Accept-Encoding"));
     }
 
     #[test]

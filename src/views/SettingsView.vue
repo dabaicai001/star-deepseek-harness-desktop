@@ -3,7 +3,7 @@ import { ref, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { BUILTIN_AI_SKILLS, useAiStore } from '@/stores/ai'
-import type { AiAssetType, AiSettings, McpKeyValue, McpServerConfig } from '@/stores/ai'
+import type { AiAssetType, AiModelConfig, AiSettings, McpKeyValue, McpServerConfig } from '@/stores/ai'
 import { listMcpTools } from '@/services/mcp'
 import { checkForUpdates, downloadAndInstall } from '@/services/updater'
 import type { UpdateInfo } from '@/services/updater'
@@ -78,6 +78,7 @@ onMounted(async () => {
     console.warn('[settings] AI API key is unavailable outside Tauri:', error)
     aiLocal.value.apiKey = ''
   }
+  ensureDefaultModelInList()
   aiLocal.value.mcpServers = await aiStore.getMcpServers()
 })
 
@@ -164,6 +165,16 @@ const accentOptions = [
 ]
 
 async function onSave() {
+  const activeModel = aiLocal.value.models.find(model => model.id === aiLocal.value.activeModelId)
+    ?? aiLocal.value.models[0]
+  if (activeModel) {
+    aiLocal.value.activeModelId = activeModel.id
+    aiLocal.value.baseUrl = activeModel.baseUrl
+    aiLocal.value.apiKey = activeModel.apiKey
+    aiLocal.value.model = activeModel.model
+    aiLocal.value.temperature = activeModel.temperature
+    aiLocal.value.maxTokens = activeModel.maxTokens
+  }
   // apiKey 单独处理(走加密通道),其他字段用 updateSettings
   const { apiKey, mcpServers, ...rest } = aiLocal.value
   await aiStore.updateSettings(rest)
@@ -428,19 +439,52 @@ const PRESET_MODELS = [
   { id: 'qwen-turbo', label: '通义千问 Qwen Turbo (阿里)' }
 ]
 
-// ====== 多模型管理 ======
-const newModelName = ref('')
-const newModelId = ref('')
+// ====== 模型管理 ======
+const modelDialog = ref(false)
+const newModel = ref<Omit<AiModelConfig, 'id'>>({
+  name: '',
+  baseUrl: '',
+  apiKey: '',
+  model: '',
+  temperature: 0.3,
+  maxTokens: 4096
+})
+
+function ensureDefaultModelInList() {
+  if (aiLocal.value.models.length > 0) return
+  const id = 'default-model'
+  aiLocal.value.models.push({
+    id,
+    name: '默认模型',
+    baseUrl: aiLocal.value.baseUrl,
+    apiKey: aiLocal.value.apiKey,
+    model: aiLocal.value.model,
+    temperature: aiLocal.value.temperature,
+    maxTokens: aiLocal.value.maxTokens
+  })
+  aiLocal.value.activeModelId = id
+}
+
+function openAddModel() {
+  newModel.value = {
+    name: '',
+    baseUrl: aiLocal.value.baseUrl,
+    apiKey: aiLocal.value.apiKey,
+    model: '',
+    temperature: aiLocal.value.temperature,
+    maxTokens: aiLocal.value.maxTokens
+  }
+  modelDialog.value = true
+}
 
 function addModel() {
-  const name = newModelName.value.trim()
-  const model = newModelId.value.trim()
+  const name = newModel.value.name.trim()
+  const model = newModel.value.model.trim()
   if (!name || !model) return
-  if (!aiLocal.value.models) aiLocal.value.models = []
   const id = `model-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-  aiLocal.value.models.push({ id, name, baseUrl: '', apiKey: '', model, temperature: 0.3, maxTokens: 4096 })
-  newModelName.value = ''
-  newModelId.value = ''
+  aiLocal.value.models.push({ ...newModel.value, id, name, model })
+  aiLocal.value.activeModelId = id
+  modelDialog.value = false
 }
 
 function removeModel(id: string) {
@@ -890,85 +934,13 @@ async function onTestWebhook(url: string) {
       <div class="section">
         <div class="section-header">
           <span class="section-number">01</span>
-          <span class="section-title">默认模型</span>
-        </div>
-        <p class="section-desc">默认 LLM 服务的连接配置。在 AI 对话中可随时切换到下方配置的其他模型。</p>
-
-        <div class="form-grid">
-          <div class="form-field">
-            <label class="field-label">Provider</label>
-            <select v-model="aiLocal.provider" class="cyber-input">
-              <option value="openai-compatible">OpenAI 兼容协议</option>
-            </select>
-          </div>
-
-          <div class="form-field">
-            <label class="field-label">Base URL</label>
-            <input v-model="aiLocal.baseUrl" class="cyber-input" placeholder="https://api.openai.com/v1" />
-            <div class="field-hint">只填到 /v1 即可,后面的 /chat/completions 会自动拼接</div>
-          </div>
-
-          <div class="form-field">
-            <label class="field-label">API Key</label>
-            <input v-model="aiLocal.apiKey" class="cyber-input" type="password" placeholder="sk-..." />
-            <div class="field-hint">密钥保存在系统 Keyring,仅在请求所配置的 LLM 服务时使用</div>
-          </div>
-
-          <div class="form-field">
-            <label class="field-label">模型</label>
-            <input v-model="aiLocal.model" class="cyber-input" placeholder="gpt-4o-mini" />
-            <div class="field-hint">
-              常用:
-              <a v-for="m in PRESET_MODELS" :key="m.id" class="preset-link" @click.prevent="aiLocal.model = m.id">{{ m.label }}</a>
-            </div>
-          </div>
-
-          <div class="form-field">
-            <label class="field-label">温度 ({{ aiLocal.temperature }})</label>
-            <input v-model.number="aiLocal.temperature" type="range" min="0" max="1" step="0.1" class="cyber-range" />
-            <div class="field-hint">运维场景建议 0.2-0.4,创意场景 0.7+</div>
-          </div>
-
-          <div class="form-field">
-            <label class="field-label">单次最大 tokens</label>
-            <input v-model.number="aiLocal.maxTokens" class="cyber-input" type="number" min="256" max="32000" />
-          </div>
-
-          <div class="form-field">
-            <label class="field-label">命令完成检测</label>
-            <div class="prompt-listener-card">
-              <v-icon size="15">mdi-console-line</v-icon>
-              <div>
-                <strong>Prompt 监听</strong>
-                <span>SSH 命令输出会等 shell prompt 返回后收集完成</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="action-row">
-          <button class="cyber-btn-secondary" :disabled="testing" @click="onTestConnection">
-            <v-icon size="14">{{ testing ? 'mdi-loading mdi-spin' : 'mdi-lan-pending' }}</v-icon>
-            {{ testing ? '测试中…' : '测试连接' }}
+          <span class="section-title">模型列表</span>
+          <button class="cyber-btn-secondary" @click="openAddModel">
+            <v-icon size="13">mdi-plus</v-icon>
+            新增模型
           </button>
-          <button class="cyber-btn" @click="onSave">
-            <v-icon size="14">mdi-content-save-outline</v-icon>
-            保存
-          </button>
-          <span v-if="testResult" class="test-result" :class="{ ok: testResult.startsWith('✓') }">{{ testResult }}</span>
-          <span v-if="saved" class="save-hint">✓ 已保存</span>
         </div>
-      </div>
-
-      <!-- 多模型配置 -->
-      <div class="section">
-        <div class="section-header">
-          <span class="section-number">02</span>
-          <span class="section-title">更多模型</span>
-        </div>
-        <p class="section-desc">
-          添加其他模型(不同厂商/不同 endpoint),每个模型可配置独立的 API Key 与 Base URL。在 AI 对话顶栏可随时切换。
-        </p>
+        <p class="section-desc">每个模型拥有独立的连接参数。保存后将当前激活模型同步为默认模型，可在 AI 对话中随时切换。</p>
 
         <div v-if="aiLocal.models.length > 0" class="model-list">
           <div v-for="m in aiLocal.models" :key="m.id" class="model-card" :class="{ active: aiLocal.activeModelId === m.id }">
@@ -984,8 +956,16 @@ async function onTestWebhook(url: string) {
             </div>
             <div class="model-card-body">
               <div class="model-field">
+                <span class="model-label">显示名称</span>
+                <input v-model="m.name" class="cyber-input model-input" placeholder="例如: MiniMax M3" />
+              </div>
+              <div class="model-field">
+                <span class="model-label">模型 ID</span>
+                <input v-model="m.model" class="cyber-input model-input" placeholder="例如: MiniMax-M3" />
+              </div>
+              <div class="model-field">
                 <span class="model-label">Base URL</span>
-                <input v-model="m.baseUrl" class="cyber-input model-input" placeholder="继承默认" />
+                <input v-model="m.baseUrl" class="cyber-input model-input" placeholder="https://api.openai.com/v1" />
               </div>
               <div class="model-field">
                 <span class="model-label">API Key</span>
@@ -1003,23 +983,23 @@ async function onTestWebhook(url: string) {
           </div>
         </div>
 
-        <div class="add-model-form">
-          <input v-model="newModelName" class="cyber-input" placeholder="模型显示名称(如: DeepSeek 生产)" style="flex:1" />
-          <input v-model="newModelId" class="cyber-input" placeholder="模型 ID(如: deepseek-chat)" style="flex:1" />
-          <button class="cyber-btn-secondary" :disabled="!newModelName.trim() || !newModelId.trim()" @click="addModel">
-            <v-icon size="13">mdi-plus</v-icon>
-            添加模型
+        <div class="action-row">
+          <button class="cyber-btn-secondary" :disabled="testing" @click="onTestConnection">
+            <v-icon size="14">{{ testing ? 'mdi-loading mdi-spin' : 'mdi-lan-pending' }}</v-icon>
+            {{ testing ? '测试中…' : '测试连接' }}
           </button>
+          <button class="cyber-btn" @click="onSave">
+            <v-icon size="14">mdi-content-save-outline</v-icon>
+            保存模型列表
+          </button>
+          <span v-if="testResult" class="test-result" :class="{ ok: testResult.startsWith('✓') }">{{ testResult }}</span>
+          <span v-if="saved" class="save-hint">✓ 已保存</span>
         </div>
-
-        <p class="section-desc" style="margin-top:8px">
-          默认模型在 LLM 服务中配置。新增模型可覆盖 Base URL、API Key、温度和 Max Tokens。
-        </p>
       </div>
 
       <div class="section">
         <div class="section-header">
-          <span class="section-number">03</span>
+          <span class="section-number">02</span>
           <span class="section-title">SKILLS</span>
         </div>
         <p class="section-desc">
@@ -1507,6 +1487,53 @@ async function onTestWebhook(url: string) {
         <p class="about-license">{{ t('settings.aboutLicense') }}</p>
       </div>
     </div>
+
+    <v-dialog v-model="modelDialog" max-width="680" persistent>
+      <div class="cyber-dialog model-dialog">
+        <div class="dialog-header">
+          <div>
+            <span class="dialog-kicker">AI MODEL</span>
+            <h3>新增模型</h3>
+          </div>
+          <button class="action-btn" data-tooltip="关闭" @click="modelDialog = false">
+            <v-icon size="18">mdi-close</v-icon>
+          </button>
+        </div>
+        <div class="form-grid">
+          <div class="form-field">
+            <label class="field-label">显示名称</label>
+            <input v-model="newModel.name" class="cyber-input" placeholder="例如: MiniMax M3" autofocus />
+          </div>
+          <div class="form-field">
+            <label class="field-label">模型 ID</label>
+            <input v-model="newModel.model" class="cyber-input" placeholder="例如: MiniMax-M3" />
+          </div>
+          <div class="form-field">
+            <label class="field-label">Base URL</label>
+            <input v-model="newModel.baseUrl" class="cyber-input" placeholder="https://api.openai.com/v1" />
+          </div>
+          <div class="form-field">
+            <label class="field-label">API Key</label>
+            <input v-model="newModel.apiKey" class="cyber-input" type="password" placeholder="sk-..." />
+          </div>
+          <div class="form-field">
+            <label class="field-label">温度 ({{ newModel.temperature }})</label>
+            <input v-model.number="newModel.temperature" type="range" min="0" max="1" step="0.1" class="cyber-range" />
+          </div>
+          <div class="form-field">
+            <label class="field-label">单次最大 tokens</label>
+            <input v-model.number="newModel.maxTokens" class="cyber-input" type="number" min="256" max="32000" />
+          </div>
+        </div>
+        <div class="action-row">
+          <button class="cyber-btn-secondary" @click="modelDialog = false">取消</button>
+          <button class="cyber-btn" :disabled="!newModel.name.trim() || !newModel.model.trim()" @click="addModel">
+            <v-icon size="14">mdi-plus</v-icon>
+            添加模型
+          </button>
+        </div>
+      </div>
+    </v-dialog>
   </div>
 </template>
 
