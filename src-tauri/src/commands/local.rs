@@ -448,7 +448,8 @@ mod tests {
 
     #[tokio::test]
     async fn executes_non_interactive_shell() {
-        let result = local_shell_exec("echo starhub-local-test".to_string(), None, Some(5))
+        // CI runner 上 PowerShell 冷启动可能超过 5 秒,放宽到 30 秒避免 flaky。
+        let result = local_shell_exec("echo starhub-local-test".to_string(), None, Some(30))
             .await
             .expect("shell output");
         assert_eq!(result.exit_code, Some(0));

@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.42.2(移除浏览器环境不可用的本地导入入口) |
+| 当前版本 | v0.42.3(修复 GitHub Actions Windows tag 构建失败:放宽 local shell 单测超时 (5s → 30s),避免 CI runner PowerShell 冷启动 flaky) |
 
 ---
 
@@ -498,4 +498,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-05 (v0.42.2)*
+*最后更新: 2026-08-06 (v0.42.3)*

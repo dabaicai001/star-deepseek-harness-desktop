@@ -1,8 +1,8 @@
 {
   "productName": "StarHub",
-  "version": "0.42.2",
+  "version": "0.42.3",
   "identifier": "com.starhub.app",
- "build": {
+  "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "npm run sidecar:build && npm run dev",
