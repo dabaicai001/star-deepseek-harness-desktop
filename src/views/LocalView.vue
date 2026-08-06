@@ -5,9 +5,12 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAssetStore } from '@/stores/asset'
 import { useLocalViewStore, type LocalFileEntry } from '@/stores/localView'
+import { useDialogStore } from '@/stores/dialog'
+import { useNotifyStore } from '@/stores/notify'
 import { generateInstanceId } from '@/utils/tabId'
 import { invoke } from '@tauri-apps/api/core'
 import DirTree from '@/components/local/DirTree.vue'
+import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -15,6 +18,8 @@ const router = useRouter()
 const appStore = useAppStore()
 const assetStore = useAssetStore()
 const localStore = useLocalViewStore()
+const dlg = useDialogStore()
+const notify = useNotifyStore()
 
 const props = defineProps<{ id: string }>()
 
@@ -60,23 +65,115 @@ function navigateToSegment(idx: number) {
   loadDirectory(target)
 }
 
+/** dirTree 当前对应的目录(面包屑/树可能把 currentPath 改成文件路径,这里单独记录) */
+const listedPath = ref('')
+
+// ====== 路径工具 ======
+function normPath(p: string): string {
+  const n = p.replace(/\\/g, '/')
+  return n.length > 3 ? n.replace(/\/+$/, '') : n
+}
+
+/** Windows 路径大小写不敏感,其余平台保持原样比较 */
+function samePath(a: string, b: string): boolean {
+  const na = normPath(a)
+  const nb = normPath(b)
+  if (/^[A-Za-z]:\//.test(na) || /^[A-Za-z]:\//.test(nb)) {
+    return na.toLowerCase() === nb.toLowerCase()
+  }
+  return na === nb
+}
+
+function sepOf(p: string): string {
+  return p.includes('\\') && !p.includes('/') ? '\\' : '/'
+}
+
+function parentOf(p: string): string {
+  const n = normPath(p)
+  const idx = n.lastIndexOf('/')
+  if (idx <= 0) return n
+  // Windows 盘符根("C:/")不能再往上
+  if (idx === 2 && /^[A-Za-z]:\//.test(n)) return n.substring(0, 3)
+  return n.substring(0, idx)
+}
+
+function joinLocalPath(parent: string, name: string): string {
+  const sep = sepOf(parent)
+  return parent.replace(/[/\\]+$/, '') + sep + name
+}
+
+// ====== 目录读取与树维护 ======
+async function listDir(dirPath: string): Promise<LocalFileEntry[]> {
+  const result = await invoke<any[]>('local_list_directory', { path: dirPath, maxEntries: 200 })
+  const entries: LocalFileEntry[] = result.map((e) => ({
+    name: e.name,
+    path: e.path,
+    isDir: e.kind === 'directory' || e.is_dir || e.isDir || false,
+    size: e.size || 0,
+    modifiedAt: e.modified_at || e.modifiedAt || 0,
+  }))
+  entries.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+  return entries
+}
+
+/** 在树中按路径查找节点 */
+function findEntry(entries: LocalFileEntry[], path: string): LocalFileEntry | null {
+  for (const e of entries) {
+    if (samePath(e.path, path)) return e
+    if (e.children) {
+      const hit = findEntry(e.children, path)
+      if (hit) return hit
+    }
+  }
+  return null
+}
+
+/** 查找包含指定路径节点的父列表(根列表或某个节点的 children) */
+function findParentList(entries: LocalFileEntry[], path: string): LocalFileEntry[] | null {
+  for (const e of entries) {
+    if (samePath(e.path, path)) return entries
+    if (e.children) {
+      const hit = findParentList(e.children, path)
+      if (hit) return hit
+    }
+  }
+  return null
+}
+
+/** 刷新后保留已展开目录的 children 缓存(按路径匹配) */
+function carryChildCache(oldEntries: LocalFileEntry[], newEntries: LocalFileEntry[]) {
+  const oldMap = new Map(oldEntries.map(e => [normPath(e.path).toLowerCase(), e]))
+  for (const e of newEntries) {
+    const old = oldMap.get(normPath(e.path).toLowerCase())
+    if (old?.children?.length) e.children = old.children
+  }
+}
+
+/** 重新读取某个目录并就地更新树(根列表或子节点),不折叠已展开目录 */
+async function refreshChildren(dirPath: string) {
+  const children = await listDir(dirPath)
+  if (samePath(dirPath, listedPath.value)) {
+    carryChildCache(localStore.dirTree, children)
+    localStore.setDirTree(children)
+    return
+  }
+  const entry = findEntry(localStore.dirTree, dirPath)
+  if (entry) {
+    carryChildCache(entry.children ?? [], children)
+    entry.children = children
+  }
+}
+
 // 加载目录
 async function loadDirectory(dirPath: string) {
   loading.value = true
   error.value = ''
   try {
-    const result = await invoke<any[]>('local_list_directory', { path: dirPath, maxEntries: 200 })
-    const entries: LocalFileEntry[] = result.map((e) => ({
-      name: e.name,
-      path: e.path,
-      isDir: e.kind === 'directory' || e.is_dir || e.isDir || false,
-      size: e.size || 0,
-      modifiedAt: e.modified_at || e.modifiedAt || 0,
-    }))
-    entries.sort((a, b) => {
-      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
-      return a.name.localeCompare(b.name)
-    })
+    const entries = await listDir(dirPath)
+    listedPath.value = dirPath
     localStore.setDirTree(entries)
   } catch (err: any) {
     error.value = String(err)
@@ -86,11 +183,54 @@ async function loadDirectory(dirPath: string) {
   }
 }
 
+/** 打开文本文件到编辑器 */
+async function openFileInEditor(entry: LocalFileEntry) {
+  try {
+    const result = await invoke<any>('local_read_text_file', { path: entry.path, offset: 0, maxBytes: 1048576 })
+    const content = result.content || result || ''
+    localStore.openEditorTab({
+      id: `editor-${entry.path}`,
+      path: entry.path,
+      name: entry.name,
+      content,
+      dirty: false,
+      language: localStore.getLanguage(entry.name),
+    })
+  } catch (err: any) {
+    notify.notify({ message: `打开文件失败: ${String(err)}`, color: 'error', timeout: 3000 })
+  }
+}
+
 // 初始加载
 onMounted(async () => {
-  if (asset.value?.config?.rootPath) {
-    localStore.setRootPath(asset.value.config.rootPath)
-    await loadDirectory(asset.value.config.rootPath)
+  const root = asset.value?.config?.rootPath
+  if (root) {
+    // 导入的是单个文件时:以所在目录为工作区根,并直接打开该文件
+    try {
+      const info = await invoke<any>('local_stat_path', { path: root })
+      if (info.kind && info.kind !== 'directory') {
+        const parent = parentOf(root)
+        localStore.setRootPath(parent)
+        await loadDirectory(parent)
+        const fileEntry: LocalFileEntry = {
+          name: info.name || root.split(/[/\\]/).pop() || root,
+          path: root,
+          isDir: false,
+          size: info.size ?? 0,
+          modifiedAt: info.modifiedAt ?? info.modified_at ?? 0,
+        }
+        if (localStore.isExcelFile(fileEntry.name)) {
+          await onOpenExcel(fileEntry)
+        } else {
+          await openFileInEditor(fileEntry)
+        }
+        return
+      }
+    } catch {
+      // stat 失败则按目录处理,错误会在 loadDirectory 里呈现
+    }
+    localStore.setRootPath(root)
+    await loadDirectory(root)
   } else {
     // 默认打开用户目录
     const home = await invoke<string>('local_system_info').then(
@@ -112,23 +252,199 @@ async function onSelectFile(entry: LocalFileEntry) {
     onOpenExcel(entry)
     return
   }
-  // 打开文本文件到编辑器
-  try {
-    const result = await invoke<any>('local_read_text_file', { path: entry.path, offset: 0, maxBytes: 1048576 })
-    const content = result.content || result || ''
-    const tabEntry = {
-      id: `editor-${entry.path}`,
-      path: entry.path,
-      name: entry.name,
-      content,
-      dirty: false,
-      language: localStore.getLanguage(entry.name),
+  await openFileInEditor(entry)
+}
+
+// ====== 文件操作(右键菜单 + 工具栏) ======
+const ctxMenu = ref<{ x: number; y: number; entry: LocalFileEntry } | null>(null)
+
+function onEntryCtx(payload: { event: MouseEvent; entry: LocalFileEntry }) {
+  ctxMenu.value = { x: payload.event.clientX, y: payload.event.clientY, entry: payload.entry }
+}
+
+function closeCtxMenu() {
+  ctxMenu.value = null
+}
+
+const ctxItems = computed<MenuItem[]>(() => {
+  if (!ctxMenu.value) return []
+  const entry = ctxMenu.value.entry
+  const items: MenuItem[] = [
+    { type: 'header', icon: entry.isDir ? 'mdi-folder-outline' : getFileIcon(entry.name), label: entry.name },
+    {
+      type: 'item',
+      icon: 'mdi-open-in-new',
+      label: '打开',
+      onClick: () => onSelectFile(entry)
     }
-    localStore.openEditorTab(tabEntry)
-  } catch (err) {
-    console.error('Failed to read file:', err)
+  ]
+  if (!entry.isDir && localStore.isExcelFile(entry.name)) {
+    items.push({
+      type: 'item',
+      icon: 'mdi-file-excel-outline',
+      label: '用 Excel 工具打开',
+      onClick: () => onOpenExcel(entry)
+    })
+  }
+  if (entry.isDir) {
+    items.push(
+      { type: 'divider' },
+      {
+        type: 'item',
+        icon: 'mdi-file-plus-outline',
+        label: '新建文件',
+        onClick: () => ctxNewFile(entry.path)
+      },
+      {
+        type: 'item',
+        icon: 'mdi-folder-plus-outline',
+        label: '新建文件夹',
+        onClick: () => ctxNewFolder(entry.path)
+      },
+      {
+        type: 'item',
+        icon: 'mdi-refresh',
+        label: '刷新',
+        onClick: () => refreshChildren(entry.path)
+      }
+    )
+  }
+  items.push(
+    { type: 'divider' },
+    {
+      type: 'item',
+      icon: 'mdi-pencil-outline',
+      label: '重命名',
+      shortcut: 'F2',
+      onClick: () => ctxRename(entry)
+    },
+    {
+      type: 'item',
+      icon: 'mdi-delete-outline',
+      label: '删除',
+      shortcut: 'Del',
+      danger: true,
+      onClick: () => ctxDelete(entry)
+    }
+  )
+  return items
+})
+
+async function ctxNewFile(dirPath: string) {
+  const name = await dlg.prompt({
+    message: `在 ${dirPath} 下新建文件`,
+    placeholder: 'new-file.txt',
+    requireNonEmpty: true,
+  })
+  if (!name) return
+  const full = joinLocalPath(dirPath, name)
+  try {
+    await invoke('local_write_text_file', { path: full, content: '', createParents: false })
+    await refreshChildren(dirPath)
+    notify.notify({ message: `已创建 ${name}`, color: 'success', timeout: 2000 })
+    await openFileInEditor({ name, path: full, isDir: false, size: 0, modifiedAt: 0 })
+  } catch (err: any) {
+    notify.notify({ message: `新建文件失败: ${String(err)}`, color: 'error', timeout: 3000 })
   }
 }
+
+async function ctxNewFolder(dirPath: string) {
+  const name = await dlg.prompt({
+    message: `在 ${dirPath} 下新建文件夹`,
+    placeholder: 'new-folder',
+    requireNonEmpty: true,
+  })
+  if (!name) return
+  const full = joinLocalPath(dirPath, name)
+  try {
+    await invoke('local_create_directory', { path: full, recursive: true })
+    await refreshChildren(dirPath)
+    notify.notify({ message: `已创建文件夹 ${name}`, color: 'success', timeout: 2000 })
+  } catch (err: any) {
+    notify.notify({ message: `新建文件夹失败: ${String(err)}`, color: 'error', timeout: 3000 })
+  }
+}
+
+/** 重命名后同步修正节点自身及后代的路径前缀 */
+function rewriteEntryPaths(entry: LocalFileEntry, oldPath: string, newPath: string, newName: string) {
+  entry.name = newName
+  entry.path = newPath
+  const walk = (e: LocalFileEntry) => {
+    if (!e.children) return
+    for (const child of e.children) {
+      child.path = newPath + child.path.slice(oldPath.length)
+      walk(child)
+    }
+  }
+  walk(entry)
+}
+
+async function ctxRename(entry: LocalFileEntry) {
+  const newName = await dlg.prompt({
+    message: `重命名 ${entry.name}`,
+    defaultValue: entry.name,
+    requireNonEmpty: true,
+  })
+  if (!newName || newName === entry.name) return
+  const oldPath = entry.path
+  const newPath = joinLocalPath(parentOf(oldPath), newName)
+  try {
+    await invoke('local_move_path', { source: oldPath, destination: newPath })
+  } catch (err: any) {
+    notify.notify({ message: `重命名失败: ${String(err)}`, color: 'error', timeout: 3000 })
+    return
+  }
+  rewriteEntryPaths(entry, oldPath, newPath, newName)
+  // 同步编辑器 tab 与被重命名目录下的 currentPath
+  for (const tab of localStore.editorTabs) {
+    if (samePath(tab.path, oldPath) || normPath(tab.path).startsWith(normPath(oldPath) + '/')) {
+      tab.path = newPath + tab.path.slice(oldPath.length)
+      tab.id = `editor-${tab.path}`
+      if (samePath(tab.path, newPath)) tab.name = newName
+    }
+  }
+  if (samePath(localStore.currentPath, oldPath) || normPath(localStore.currentPath).startsWith(normPath(oldPath) + '/')) {
+    localStore.setCurrentPath(newPath + localStore.currentPath.slice(oldPath.length))
+  }
+  notify.notify({ message: `已重命名为 ${newName}`, color: 'success', timeout: 2000 })
+}
+
+async function ctxDelete(entry: LocalFileEntry) {
+  const ok = await dlg.confirm({
+    message: entry.isDir
+      ? `确定删除文件夹 ${entry.name} 吗?将递归删除其中所有内容,此操作不可恢复。`
+      : `确定删除文件 ${entry.name} 吗?此操作不可恢复。`,
+    confirmText: '删除',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await invoke('local_remove_path', { path: entry.path, recursive: true })
+  } catch (err: any) {
+    notify.notify({ message: `删除失败: ${String(err)}`, color: 'error', timeout: 3000 })
+    return
+  }
+  // 从树中移除节点
+  const list = findParentList(localStore.dirTree, entry.path)
+  if (list) {
+    const idx = list.findIndex(e => samePath(e.path, entry.path))
+    if (idx >= 0) list.splice(idx, 1)
+  }
+  // 关闭指向已删除路径的编辑器 tab
+  const oldPrefix = normPath(entry.path)
+  for (const tab of [...localStore.editorTabs]) {
+    const tp = normPath(tab.path)
+    if (tp === oldPrefix || tp.startsWith(oldPrefix + '/')) {
+      localStore.closeEditorTab(tab.id)
+    }
+  }
+  notify.notify({ message: `已删除 ${entry.name}`, color: 'success', timeout: 2000 })
+}
+
+/** 工具栏:当前浏览目录下新建文件 / 文件夹、刷新 */
+function toolbarNewFile() { ctxNewFile(listedPath.value || localStore.currentPath) }
+function toolbarNewFolder() { ctxNewFolder(listedPath.value || localStore.currentPath) }
+function toolbarRefresh() { if (listedPath.value) refreshChildren(listedPath.value) }
 
 // Excel 文件:复用 ExcelView
 async function onOpenExcel(entry: LocalFileEntry) {
@@ -203,6 +519,17 @@ function formatSize(bytes: number): string {
           >{{ seg }}</span>
         </template>
       </div>
+      <div class="local-actions">
+        <button class="action-btn" :data-tooltip="'新建文件'" @click="toolbarNewFile">
+          <v-icon size="14">mdi-file-plus-outline</v-icon>
+        </button>
+        <button class="action-btn" :data-tooltip="'新建文件夹'" @click="toolbarNewFolder">
+          <v-icon size="14">mdi-folder-plus-outline</v-icon>
+        </button>
+        <button class="action-btn" :data-tooltip="'刷新'" @click="toolbarRefresh">
+          <v-icon size="14">mdi-refresh</v-icon>
+        </button>
+      </div>
     </div>
 
     <!-- 主内容 -->
@@ -220,6 +547,7 @@ function formatSize(bytes: number): string {
           :depth="0"
           @select-file="onSelectFile"
           @open-excel="onOpenExcel"
+          @ctx="onEntryCtx"
         />
         <div v-else-if="loading" class="local-empty">
           <v-icon size="18" class="mdi-spin">mdi-loading</v-icon>
@@ -265,6 +593,8 @@ function formatSize(bytes: number): string {
               class="local-editor-textarea cyber-input"
               :value="localStore.activeEditorTab.content"
               @input="(e) => localStore.updateEditorContent(localStore.activeEditorTab!.id, (e.target as HTMLTextAreaElement).value)"
+              @keydown.ctrl.s.prevent="saveEditorTab"
+              @keydown.meta.s.prevent="saveEditorTab"
               spellcheck="false"
             />
           </div>
@@ -279,6 +609,7 @@ function formatSize(bytes: number): string {
               class="local-file-card"
               @dblclick="onSelectFile(entry)"
               @click="onSelectFile(entry)"
+              @contextmenu="onEntryCtx({ event: $event, entry })"
             >
               <v-icon size="28" :color="entry.isDir ? 'var(--color-accent-secondary)' : undefined">
                 {{ entry.isDir ? 'mdi-folder-outline' : getFileIcon(entry.name) }}
@@ -300,6 +631,15 @@ function formatSize(bytes: number): string {
       <v-icon size="13">mdi-alert-circle-outline</v-icon>
       <span>{{ error }}</span>
     </div>
+
+    <!-- 文件 / 目录右键菜单 -->
+    <ContextMenu
+      v-if="ctxMenu"
+      :x="ctxMenu.x"
+      :y="ctxMenu.y"
+      :items="ctxItems"
+      @close="closeCtxMenu"
+    />
   </div>
 </template>
 

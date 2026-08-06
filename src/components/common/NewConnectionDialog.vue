@@ -21,7 +21,7 @@ const emit = defineEmits<{
   update: [payload: { id: string; dto: CreateAssetDto }]
 }>()
 
-const step = ref<'type' | 'ssh' | 'db' | 'docker' | 'excel'>('type')
+const step = ref<'type' | 'ssh' | 'db' | 'docker' | 'excel' | 'local'>('type')
 const dockerName = ref('')
 const dockerSocket = ref('')
 const dockerTransport = ref<'socket' | 'tcp' | 'ssh'>('socket')
@@ -31,6 +31,8 @@ const excelName = ref('')
 const excelFilePath = ref('')
 const excelFormat = ref<'xlsx' | 'csv'>('xlsx')
 const excelDropActive = ref(false)
+const localName = ref('')
+const localPath = ref('')
 const sshFormGeneration = ref(0)
 let unlistenExcelDrop: (() => void) | null = null
 
@@ -47,6 +49,8 @@ function selectType(type: string) {
     step.value = 'docker'
   } else if (type === 'excel') {
     step.value = 'excel'
+  } else if (type === 'local') {
+    step.value = 'local'
   }
 }
 
@@ -66,6 +70,34 @@ function syncExcelFromAsset() {
   excelName.value = props.asset.name
   excelFilePath.value = props.asset.config.filePath || ''
   excelFormat.value = props.asset.config.format || 'xlsx'
+}
+
+function syncLocalFromAsset() {
+  if (!props.asset || props.asset.type !== 'local') return
+  localName.value = props.asset.name
+  localPath.value = props.asset.config.rootPath || ''
+}
+
+/** 选中本地路径后自动带出工作区名称(文件夹名 / 文件名) */
+function setLocalPath(path: string) {
+  localPath.value = path
+  if (!localName.value) {
+    localName.value = path.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || path
+  }
+}
+
+async function pickLocalFolder() {
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const selected = await open({ directory: true, multiple: false })
+  if (!selected) return
+  setLocalPath(selected as string)
+}
+
+async function pickLocalFile() {
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const selected = await open({ multiple: false })
+  if (!selected) return
+  setLocalPath(selected as string)
 }
 
 function excelFileFormat(path: string): 'xlsx' | 'csv' | null {
@@ -145,6 +177,9 @@ watch(
     } else if (asset && asset.type === 'excel') {
       step.value = 'excel'
       syncExcelFromAsset()
+    } else if (asset && asset.type === 'local') {
+      step.value = 'local'
+      syncLocalFromAsset()
     } else if (props.initialType) {
       // 从顶栏菜单快捷入口进入,跳过 type 选择
       selectType(props.initialType)
@@ -201,6 +236,15 @@ function handleExcelSubmit(dto: CreateAssetDto) {
   close()
 }
 
+function handleLocalSubmit(dto: CreateAssetDto) {
+  if (mode.value === 'edit' && props.asset) {
+    emit('update', { id: props.asset.id, dto })
+  } else {
+    emit('submit', dto)
+  }
+  close()
+}
+
 function close() {
   cleanupExcelDropListener()
   step.value = 'type'
@@ -212,6 +256,8 @@ function close() {
   excelName.value = ''
   excelFilePath.value = ''
   excelFormat.value = 'xlsx'
+  localName.value = ''
+  localPath.value = ''
   emit('update:modelValue', false)
 }
 
@@ -315,16 +361,16 @@ onBeforeUnmount(cleanupExcelDropListener)
               class="type-card"
               role="button"
               tabindex="0"
-              @click="selectType('excel')"
-              @keydown.enter.prevent="selectType('excel')"
-              @keydown.space.prevent="selectType('excel')"
+              @click="selectType('local')"
+              @keydown.enter.prevent="selectType('local')"
+              @keydown.space.prevent="selectType('local')"
             >
-              <div class="type-icon excel">
-                <v-icon size="26">mdi-file-excel-outline</v-icon>
+              <div class="type-icon local">
+                <v-icon size="26">mdi-folder-outline</v-icon>
               </div>
               <div class="type-meta">
-                <span class="type-name">Excel</span>
-                <span class="type-desc">.xlsx · .csv · 编辑 / 导入导出</span>
+                <span class="type-name">本地工作区</span>
+                <span class="type-desc">导入文件夹 / 文件 · 查看 / 编辑 / 管理</span>
               </div>
               <v-icon class="arrow" size="14">mdi-arrow-right</v-icon>
             </div>
@@ -602,6 +648,76 @@ onBeforeUnmount(cleanupExcelDropListener)
           </form>
         </div>
       </template>
+
+      <!-- Local Workspace Form -->
+      <template v-else-if="step === 'local'">
+        <div class="modal-header">
+          <button class="action-btn" @click="goBackOrClose" style="margin-right: -4px;" :data-tooltip="canGoBackToType ? t('common.back') : t('common.close')">
+            <v-icon size="14">{{ canGoBackToType ? 'mdi-arrow-left' : 'mdi-close' }}</v-icon>
+          </button>
+          <div class="icon-box local">
+            <v-icon size="14">mdi-folder-outline</v-icon>
+          </div>
+          <h3>
+            {{ mode === 'edit' ? t('asset.edit') : t('asset.create') }} · 本地工作区
+            <span v-if="mode === 'edit' && asset" class="edit-hint">{{ asset.name }}</span>
+          </h3>
+          <button class="action-btn" @click="close">
+            <v-icon size="14">mdi-close</v-icon>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form
+            class="local-form"
+            @submit.prevent="handleLocalSubmit({
+              type: 'local',
+              name: localName,
+              config: { rootPath: localPath }
+            })"
+          >
+            <div class="form-field">
+              <label class="field-label">
+                <v-icon size="12">mdi-tag-outline</v-icon>
+                {{ t('asset.name') }}
+                <span class="required">*</span>
+              </label>
+              <input v-model="localName" type="text" class="cyber-input" :placeholder="t('asset.placeholderName')" autofocus required />
+            </div>
+            <div class="form-field">
+              <label class="field-label">
+                <v-icon size="12">mdi-folder-outline</v-icon>
+                工作目录
+                <span class="required">*</span>
+              </label>
+              <div class="file-pick-row">
+                <input v-model="localPath" type="text" class="cyber-input" placeholder="选择文件夹或文件作为工作目录..." readonly />
+                <button type="button" class="cyber-btn-secondary file-pick-btn" @click="pickLocalFolder">
+                  <v-icon size="14">mdi-folder-open-outline</v-icon>
+                  文件夹
+                </button>
+                <button type="button" class="cyber-btn-secondary file-pick-btn" @click="pickLocalFile">
+                  <v-icon size="14">mdi-file-outline</v-icon>
+                  文件
+                </button>
+              </div>
+              <div class="field-hint">导入文件夹可浏览整个目录树;导入单个文件则以所在目录为工作区并直接打开该文件(.xlsx / .csv 会用 Excel 工具打开)</div>
+            </div>
+            <div class="form-footer">
+              <div></div>
+              <div class="footer-right">
+                <button type="button" class="cyber-btn-secondary" @click="close">
+                  <v-icon size="14">mdi-close</v-icon>
+                  {{ t('common.cancel') }}
+                </button>
+                <button type="submit" class="cyber-btn" :disabled="!localName || !localPath">
+                  <v-icon size="14">mdi-content-save-outline</v-icon>
+                  {{ t('common.save') }}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </template>
     </div>
   </v-dialog>
 </template>
@@ -759,10 +875,10 @@ onBeforeUnmount(cleanupExcelDropListener)
   border: 1px solid var(--status-online-border);
 }
 
-.type-icon.excel {
-  background: var(--icon-bg-green);
-  color: var(--green);
-  border: 1px solid var(--status-online-border);
+.type-icon.local {
+  background: var(--icon-bg-cyan);
+  color: var(--cyan);
+  border: 1px solid var(--status-connecting-border);
 }
 
 .type-meta {

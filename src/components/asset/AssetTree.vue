@@ -373,7 +373,18 @@ const groupCtxItems = computed<MenuItem[]>(() => {
   const baseItems: MenuItem[] = [{ type: 'header' as const, icon, label }]
   if (gt === 'local') {
     baseItems.push(
-      { type: 'item' as const, icon: 'mdi-plus', label: t('asset.create'), onClick: () => emit('new-connection-type', gt) }
+      {
+        type: 'item' as const,
+        icon: 'mdi-folder-plus-outline',
+        label: '导入文件夹…',
+        onClick: () => importLocalWorkspace('dir')
+      },
+      {
+        type: 'item' as const,
+        icon: 'mdi-file-plus-outline',
+        label: '导入文件…',
+        onClick: () => importLocalWorkspace('file')
+      }
     )
   } else {
     baseItems.push({
@@ -385,6 +396,35 @@ const groupCtxItems = computed<MenuItem[]>(() => {
   }
   return baseItems
 })
+
+function normalizeLocalPath(path: string): string {
+  const normalized = path.replace(/\\/g, '/')
+  return normalized.length > 3 ? normalized.replace(/\/+$/, '') : normalized
+}
+
+/** 导入本地文件夹 / 文件为工作区(按规范化路径去重,已存在则直接打开) */
+async function importLocalWorkspace(kind: 'dir' | 'file') {
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const selected = await open(
+    kind === 'dir' ? { directory: true, multiple: false } : { multiple: false }
+  )
+  if (!selected || typeof selected !== 'string') return
+  const rootPath = normalizeLocalPath(selected)
+  const existing = assetStore.assets.find(
+    a => a.type === 'local' && normalizeLocalPath(String(a.config.rootPath ?? '')) === rootPath
+  )
+  if (existing) {
+    openAssetTab(existing, true)
+    return
+  }
+  const name = rootPath.split('/').pop() || rootPath
+  const asset = await assetStore.createAsset({
+    type: 'local',
+    name,
+    config: { rootPath }
+  })
+  openAssetTab(asset, false)
+}
 
 function openGroupContextMenu(e: MouseEvent, type: TreeGroupType) {
   e.preventDefault()
@@ -610,6 +650,8 @@ async function duplicateAsset(asset: Asset) {
     router.push({ name: routeNameForAsset(newAsset), params: { id: instanceId } })
   } else if (newAsset.type === 'excel') {
     router.push({ name: 'excel', params: { id: instanceId } })
+  } else if (newAsset.type === 'local') {
+    router.push({ name: 'local', params: { id: instanceId } })
   }
 }
 
@@ -1131,6 +1173,16 @@ function closeNodeCtxMenu() {
       <div v-if="localAssets.length === 0" class="tree-empty">
         <v-icon size="11">mdi-circle-small</v-icon>
         <span>暂无本地工作区</span>
+      </div>
+      <div class="local-import-row">
+        <button class="local-import-btn primary" @click.stop="importLocalWorkspace('dir')">
+          <v-icon size="12">mdi-folder-plus-outline</v-icon>
+          导入文件夹
+        </button>
+        <button class="local-import-btn" @click.stop="importLocalWorkspace('file')">
+          <v-icon size="12">mdi-file-plus-outline</v-icon>
+          导入文件
+        </button>
       </div>
       </div>
     </div>

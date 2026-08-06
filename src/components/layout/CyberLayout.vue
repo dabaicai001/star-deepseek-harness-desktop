@@ -536,10 +536,10 @@ const tabBarCtxMenu = ref<{ x: number; y: number } | null>(null)
 function closeTabBarContextMenu() { tabBarCtxMenu.value = null }
 
 // ====== 工作区右键菜单(空白区 / 欢迎页 / 模块卡片) ======
-const workspaceCtxMenu = ref<{ x: number; y: number; preferredType?: 'ssh' | 'db' | 'docker' | 'excel' } | null>(null)
+const workspaceCtxMenu = ref<{ x: number; y: number; preferredType?: 'ssh' | 'db' | 'docker' | 'local' } | null>(null)
 function closeWorkspaceContextMenu() { workspaceCtxMenu.value = null }
 
-function openWorkspaceContextMenu(e: MouseEvent, preferredType?: 'ssh' | 'db' | 'docker' | 'excel') {
+function openWorkspaceContextMenu(e: MouseEvent, preferredType?: 'ssh' | 'db' | 'docker' | 'local') {
   e.preventDefault()
   e.stopPropagation()
   closeFloatingSurfaces()
@@ -551,11 +551,11 @@ function openCommandPalette() {
   window.dispatchEvent(new CustomEvent('starhub:open-command-palette'))
 }
 
-function preferredTypeLabel(type: 'ssh' | 'db' | 'docker' | 'excel') {
+function preferredTypeLabel(type: 'ssh' | 'db' | 'docker' | 'local') {
   if (type === 'ssh') return 'SSH 连接'
   if (type === 'db') return '数据库连接'
   if (type === 'docker') return 'Docker 主机'
-  return 'Excel 文件'
+  return '本地工作区'
 }
 
 const workspaceCtxItems = computed<MenuItem[]>(() => {
@@ -603,9 +603,9 @@ const workspaceCtxItems = computed<MenuItem[]>(() => {
     },
     {
       type: 'item',
-      icon: 'mdi-file-excel-outline',
-      label: '新建 Excel 文件…',
-      onClick: () => openNewConnectionWithType('excel')
+      icon: 'mdi-folder-outline',
+      label: '导入本地工作区…',
+      onClick: () => openNewConnectionWithType('local')
     },
     { type: 'divider' },
     {
@@ -665,9 +665,9 @@ const tabBarCtxItems = computed<MenuItem[]>(() => {
     },
     {
       type: 'item',
-      icon: 'mdi-file-excel-outline',
-      label: '新建 Excel 文件…',
-      onClick: () => openNewConnectionWithType('excel')
+      icon: 'mdi-folder-outline',
+      label: '导入本地工作区…',
+      onClick: () => openNewConnectionWithType('local')
     },
     { type: 'divider' },
     {
@@ -766,10 +766,11 @@ function openNewTabFromCurrent(e: MouseEvent) {
     newTabPicker.value = { x: rect.left, y: rect.bottom + 4, items }
     return
   }
-  let assetType: 'ssh' | 'db' | 'docker' | 'excel' = 'ssh'
+  let assetType: 'ssh' | 'db' | 'docker' | 'excel' | 'local' = 'ssh'
   if (active?.type === 'db') assetType = 'db'
   else if (active?.type === 'docker') assetType = 'docker'
   else if (active?.type === 'excel') assetType = 'excel'
+  else if (active?.type === 'local') assetType = 'local'
 
   const list = assetStore.assets.filter(a => a.type === assetType)
   if (list.length === 0) {
@@ -781,6 +782,7 @@ function openNewTabFromCurrent(e: MouseEvent) {
   const headerLabel = assetType === 'ssh' ? '打开 SSH 终端'
     : assetType === 'db' ? '打开数据库连接'
     : assetType === 'docker' ? '打开 Docker 主机'
+    : assetType === 'local' ? '打开本地工作区'
     : '打开 Excel 文件'
   const items: MenuItem[] = [
     { type: 'header', icon: getIcon(assetType), label: headerLabel },
@@ -834,7 +836,7 @@ function onUserMenuAction(action: 'settings' | 'theme' | 'lang' | 'about' | 'qui
 }
 
 /** 欢迎页 CAPABILITIES 卡片点击:有同类资产跳最近一条,没有弹新建 dialog(预设类型) */
-function onWelcomeQuickAction(type: 'ssh' | 'db' | 'docker' | 'excel') {
+function onWelcomeQuickAction(type: 'ssh' | 'db' | 'docker' | 'local') {
   const sameType = assetStore.assets.filter(a => a.type === type)
   if (sameType.length > 0) {
     // 跳最近用过的一条,优先激活已有标签
@@ -942,7 +944,7 @@ function openAssetPicker(e: MouseEvent, assetType: 'ssh' | 'db' | 'docker' | 'ex
 const sshAssets = computed(() => filteredAssets.value.filter(a => a.type === 'ssh'))
 const dbAssets = computed(() => filteredAssets.value.filter(a => a.type === 'db'))
 const dockerAssets = computed(() => filteredAssets.value.filter(a => a.type === 'docker'))
-const excelAssets = computed(() => filteredAssets.value.filter(a => a.type === 'excel'))
+const localAssets = computed(() => filteredAssets.value.filter(a => a.type === 'local'))
 
 // 时钟(每秒更新)
 const clockText = ref('')
@@ -1082,6 +1084,11 @@ function openNewConnection() {
 }
 
 async function handleNewConnection(dto: CreateAssetDto) {
+  // 本地工作区按路径去重,已存在则直接复用打开
+  if (dto.type === 'local' && dto.config.rootPath) {
+    await openLocalWorkspace(dto.config.rootPath)
+    return
+  }
   const asset = await assetStore.createAsset(dto)
   openAssetTab(asset, false)
 }
@@ -1298,7 +1305,7 @@ const onboardingSteps = computed(() => [
   {
     icon: 'mdi-plus-circle-outline',
     title: '创建第一个连接',
-    desc: 'SSH、数据库、Docker 或 Excel 文件都可以作为起点',
+    desc: 'SSH、数据库、Docker 或本地文件夹都可以作为起点',
     done: assetStore.assets.length > 0,
     action: () => openNewConnection()
   },
@@ -1312,13 +1319,13 @@ const onboardingSteps = computed(() => [
   {
     icon: 'mdi-robot-outline',
     title: '让 AI 接管上下文',
-    desc: '进入 DB / Docker / Excel 后,右侧 AI 会带上当前上下文',
+    desc: '进入 DB / Docker / 本地工作区后,右侧 AI 会带上当前上下文',
     done: false,
     action: () => { appStore.rightPanelOpen = true }
   }
 ])
 
-type WelcomeModuleType = 'ssh' | 'db' | 'docker' | 'excel'
+type WelcomeModuleType = 'ssh' | 'db' | 'docker' | 'local'
 
 const welcomeModules: Array<{
   type: WelcomeModuleType
@@ -1353,17 +1360,17 @@ const welcomeModules: Array<{
     detail: '容器 / 镜像 / 资源概览'
   },
   {
-    type: 'excel',
-    icon: 'mdi-file-excel-outline',
-    iconClass: 'excel',
-    title: 'Excel 工具',
-    desc: '处理表格、导入导出数据库结果和运维清单',
-    detail: '编辑 / 导入 / 导出'
+    type: 'local',
+    icon: 'mdi-folder-outline',
+    iconClass: 'local',
+    title: '本地工作区',
+    desc: '导入本地文件夹或文件,直接查看、编辑与管理文件',
+    detail: '目录树 / 编辑 / Excel 预览'
   }
 ]
 
 function maturityLabel(type: WelcomeModuleType) {
-  if (type === 'excel') return 'Stable'
+  if (type === 'local') return 'Stable'
   if (type === 'db') return 'P0 Core'
   return 'Beta'
 }
@@ -1372,7 +1379,7 @@ function moduleAssetCount(type: WelcomeModuleType) {
   if (type === 'ssh') return sshAssets.value.length
   if (type === 'db') return dbAssets.value.length
   if (type === 'docker') return dockerAssets.value.length
-  return excelAssets.value.length
+  return localAssets.value.length
 }
 
 // ====== 欢迎页动效:指标数字滚动 + 标语打字机 + 漂浮粒子 ======
@@ -1380,7 +1387,7 @@ const welcomeMetrics = computed(() => [
   { icon: 'mdi-console', label: 'SSH', value: sshAssets.value.length },
   { icon: 'mdi-database', label: 'Database', value: dbAssets.value.length },
   { icon: 'mdi-docker', label: 'Docker', value: dockerAssets.value.length },
-  { icon: 'mdi-file-excel-outline', label: 'Excel', value: excelAssets.value.length }
+  { icon: 'mdi-folder-outline', label: 'Workspace', value: localAssets.value.length }
 ])
 const welcomeMetricDisplay = ref<number[]>([0, 0, 0, 0])
 let welcomeCountRaf = 0
@@ -1849,8 +1856,8 @@ vueWatch(() => appStore.tabs.length, () => {
         <span>{{ dockerAssets.length }} Docker</span>
       </div>
       <div class="sb-item">
-        <v-icon size="10">mdi-file-excel-outline</v-icon>
-        <span>{{ excelAssets.length }} Excel</span>
+        <v-icon size="10">mdi-folder-outline</v-icon>
+        <span>{{ localAssets.length }} 工作区</span>
       </div>
       <div class="sb-item">
         <v-icon size="10">mdi-robot-outline</v-icon>

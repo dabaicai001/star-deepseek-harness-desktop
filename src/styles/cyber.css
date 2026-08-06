@@ -6305,8 +6305,7 @@ body.tab-dragging {
   color: var(--purple);
 }
 
-.fc-icon.docker,
-.fc-icon.excel {
+.fc-icon.docker {
   background: var(--icon-bg-green);
   color: var(--green);
 }

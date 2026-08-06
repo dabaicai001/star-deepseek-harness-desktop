@@ -18,6 +18,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'select-file': [entry: LocalFileEntry]
   'open-excel': [entry: LocalFileEntry]
+  'ctx': [payload: { event: MouseEvent; entry: LocalFileEntry }]
 }>()
 
 const loadingDirs = ref<Set<string>>(new Set())
@@ -52,6 +53,13 @@ async function toggleDir(entry: LocalFileEntry) {
       loadingDirs.value.delete(p)
     }
   }
+}
+
+function onRowCtx(event: MouseEvent, entry: LocalFileEntry) {
+  event.preventDefault()
+  event.stopPropagation()
+  store.setCurrentPath(entry.path)
+  emit('ctx', { event, entry })
 }
 
 function onFileClick(entry: LocalFileEntry) {
@@ -120,6 +128,7 @@ function formatSize(bytes: number): string {
         :style="{ paddingLeft: `${props.depth * 16 + 4}px` }"
         @click="onFileClick(entry)"
         @dblclick="onFileDblClick(entry)"
+        @contextmenu="onRowCtx($event, entry)"
       >
         <v-icon
           v-if="entry.isDir"
@@ -145,6 +154,7 @@ function formatSize(bytes: number): string {
           :depth="props.depth + 1"
           @select-file="(e) => emit('select-file', e)"
           @open-excel="(e) => emit('open-excel', e)"
+          @ctx="(p) => emit('ctx', p)"
         />
       </template>
     </div>
