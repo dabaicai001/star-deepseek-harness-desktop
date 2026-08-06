@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.46.2-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.46.3-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,12 @@
 ---
 
 ## 当前版本
+
+### v0.46.3 (2026-08-06)
+
+- 修复资产表 CHECK 约束缺失 'local' 类型导致导入本地文件夹报错
+- 修复 SSH 网页访问创建内置浏览器失败，改用 iframe + CSP frame-src
+- 改进 AI 模型选择器，支持默认模型与多模型即时切换
 
 ### v0.46.2 (2026-08-06)
 

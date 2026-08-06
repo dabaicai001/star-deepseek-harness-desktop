@@ -890,9 +890,9 @@ async function onTestWebhook(url: string) {
       <div class="section">
         <div class="section-header">
           <span class="section-number">01</span>
-          <span class="section-title">LLM 服务</span>
+          <span class="section-title">默认模型</span>
         </div>
-        <p class="section-desc">支持任何 OpenAI 兼容 /chat/completions 协议的 API(GPT、Claude 代理、DeepSeek、Qwen 等)。</p>
+        <p class="section-desc">默认 LLM 服务的连接配置。在 AI 对话中可随时切换到下方配置的其他模型。</p>
 
         <div class="form-grid">
           <div class="form-field">
@@ -964,10 +964,10 @@ async function onTestWebhook(url: string) {
       <div class="section">
         <div class="section-header">
           <span class="section-number">02</span>
-          <span class="section-title">多模型</span>
+          <span class="section-title">更多模型</span>
         </div>
         <p class="section-desc">
-          可配置多个模型用于不同的 AI Agent。激活的模型将在 AI 对话中使用。
+          添加其他模型(不同厂商/不同 endpoint),每个模型可配置独立的 API Key 与 Base URL。在 AI 对话顶栏可随时切换。
         </p>
 
         <div v-if="aiLocal.models.length > 0" class="model-list">

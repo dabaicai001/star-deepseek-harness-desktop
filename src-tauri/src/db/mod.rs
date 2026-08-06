@@ -37,7 +37,7 @@ pub async fn init_database(app_handle: &AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("Failed to create tables: {}", e))?;
 
-    // 迁移:assets 表 CHECK 约束加入 'excel'
+    // 迁移:assets 表 CHECK 约束加入 'excel' 与 'local'
     migrate_assets_type_check(&pool).await?;
     migrate_asset_credentials(&pool).await?;
 
@@ -86,10 +86,10 @@ pub fn get_pool() -> Result<&'static SqlitePool, String> {
         .ok_or_else(|| "Database not initialized".to_string())
 }
 
-/// 迁移:给 assets 表的 type CHECK 约束加入 'excel'
+/// 迁移:给 assets 表的 type CHECK 约束加入 'excel' 与 'local'
 /// SQLite 不支持 ALTER CHECK,只能重建表
 async fn migrate_assets_type_check(pool: &SqlitePool) -> Result<(), String> {
-    // 检查是否已经包含 'excel'(用旧表插入一条再删掉来检测)
+    // 检查是否已经包含 'excel' 和 'local'(用旧表插入一条再删掉来检测)
     let check = sqlx::query_scalar::<_, String>(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='assets'",
     )
@@ -98,20 +98,20 @@ async fn migrate_assets_type_check(pool: &SqlitePool) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
 
     if let Some(ddl) = check {
-        if ddl.contains("'excel'") {
+        if ddl.contains("'excel'") && ddl.contains("'local'") {
             return Ok(()); // 已迁移
         }
     } else {
-        return Ok(()); // 表还不存在(全新安装),schema 已包含 excel
+        return Ok(()); // 表还不存在(全新安装),schema 已包含 excel 与 local
     }
 
-    tracing::info!("Migrating assets table to add 'excel' type...");
+    tracing::info!("Migrating assets table to add 'excel' and 'local' types...");
 
     sqlx::raw_sql(
         "BEGIN;
          CREATE TABLE assets_new (
            id TEXT PRIMARY KEY,
-           type TEXT NOT NULL CHECK(type IN ('ssh', 'db', 'docker', 'excel')),
+           type TEXT NOT NULL CHECK(type IN ('ssh', 'db', 'docker', 'excel', 'local')),
            name TEXT NOT NULL,
            group_id INTEGER,
            config_json TEXT NOT NULL DEFAULT '{}',

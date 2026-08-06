@@ -15,7 +15,6 @@ import { useNotifyStore } from '@/stores/notify'
 import { sshStartWebGateway, sshStopWebGateway } from '@/services/ssh'
 import { logAudit } from '@/services/audit'
 import { parseInstanceId } from '@/utils/tabId'
-import type { Webview } from '@tauri-apps/api/webview'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -45,8 +44,7 @@ const loadedUrl = ref('')
 const errorText = ref('')
 
 const hostRef = ref<HTMLElement | null>(null)
-let childWebview: Webview | null = null
-let webviewSeq = 0
+const iframeRef = ref<HTMLIFrameElement | null>(null)
 let resizeObserver: ResizeObserver | null = null
 
 /** 网关监听端口:由 sshStartWebGateway 返回,同一个 sessionId 幂等 */
@@ -67,46 +65,6 @@ function normalize(input: string): { scheme: string; hostport: string; pathQuery
   if (port !== defaultPort) hostport += `:${port}`
   const pathQuery = url.pathname + url.search + url.hash
   return { scheme, hostport, pathQuery: pathQuery || '/', href: url.href }
-}
-
-async function closeChildWebview() {
-  const wv = childWebview
-  childWebview = null
-  if (wv) {
-    try { await wv.close() } catch { /* 已关闭 */ }
-  }
-}
-
-async function syncBounds() {
-  if (!childWebview || !hostRef.value) return
-  const rect = hostRef.value.getBoundingClientRect()
-  if (rect.width < 2 || rect.height < 2) return
-  try {
-    const { LogicalPosition, LogicalSize } = await import('@tauri-apps/api/dpi')
-    await childWebview.setPosition(new LogicalPosition(Math.round(rect.left), Math.round(rect.top)))
-    await childWebview.setSize(new LogicalSize(Math.round(rect.width), Math.round(rect.height)))
-  } catch { /* 静默 */ }
-}
-
-async function spawnWebview(targetUrl: string) {
-  await closeChildWebview()
-  const { getCurrentWindow } = await import('@tauri-apps/api/window')
-  const { Webview } = await import('@tauri-apps/api/webview')
-  const rect = hostRef.value?.getBoundingClientRect()
-  webviewSeq += 1
-  const label = `web-${props.id}-${webviewSeq}`.replace(/[^a-zA-Z0-9\-/:_]/g, '-')
-  const wv = new Webview(getCurrentWindow(), label, {
-    url: targetUrl,
-    x: Math.round(rect?.left ?? 0),
-    y: Math.round(rect?.top ?? 0),
-    width: Math.max(Math.round(rect?.width ?? 800), 100),
-    height: Math.max(Math.round(rect?.height ?? 600), 100),
-  })
-  void wv.once('tauri://error', (error) => {
-    console.error('[web-gateway] create webview failed:', error)
-    errorText.value = t('web.browser.webviewFailed')
-  })
-  childWebview = wv
 }
 
 async function navigate() {
@@ -135,7 +93,10 @@ async function navigate() {
       gatewayPort = await sshStartWebGateway(sessionId.value)
     }
     const proxyUrl = `http://127.0.0.1:${gatewayPort}/__proxy__/${target.scheme}/${target.hostport}${target.pathQuery}`
-    await spawnWebview(proxyUrl)
+    // 使用 iframe 渲染(内嵌,不需要创建额外 Webview 窗口)
+    if (iframeRef.value) {
+      iframeRef.value.src = proxyUrl
+    }
     loadedUrl.value = target.href
     logAudit({
       category: 'ssh', action: 'web_access', target: target.href,
@@ -161,35 +122,21 @@ function reload() {
   void navigate()
 }
 
-function onWindowResize() { void syncBounds() }
+function onIframeError() {
+  errorText.value = t('web.browser.forwardFailed')
+}
 
 onMounted(() => {
-  if (hostRef.value) {
-    resizeObserver = new ResizeObserver(() => { void syncBounds() })
-    resizeObserver.observe(hostRef.value)
-  }
-  window.addEventListener('resize', onWindowResize)
+  window.addEventListener('resize', () => { /* iframe 自适应 */ })
 })
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   resizeObserver = null
-  window.removeEventListener('resize', onWindowResize)
-  void closeChildWebview()
+  window.removeEventListener('resize', () => {})
   if (gatewayPort && sessionId.value) {
     sshStopWebGateway(sessionId.value).catch(() => {})
     gatewayPort = 0
-  }
-})
-
-onDeactivated(() => {
-  if (childWebview) childWebview.hide().catch(() => {})
-})
-
-onActivated(() => {
-  if (childWebview) {
-    childWebview.show().catch(() => {})
-    void nextTick(() => { void syncBounds() })
   }
 })
 </script>
@@ -229,6 +176,13 @@ onActivated(() => {
         <v-icon size="28">mdi-earth</v-icon>
         <p>{{ t('web.browser.hint') }}</p>
       </div>
+      <iframe
+        v-show="loadedUrl && !errorText"
+        ref="iframeRef"
+        class="wb-iframe"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        @error="onIframeError"
+      />
       <div v-if="loading" class="wb-status">{{ t('web.browser.loading') }}</div>
       <div v-if="errorText" class="wb-status wb-status-error">{{ errorText }}</div>
     </div>
@@ -279,6 +233,15 @@ onActivated(() => {
   background: var(--bg-2);
 }
 
+.wb-iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+}
+
 .wb-overlay {
   position: absolute;
   inset: 0;
@@ -299,6 +262,7 @@ onActivated(() => {
   bottom: 10px;
   font-size: 11px;
   color: var(--text-2);
+  z-index: 1;
 }
 
 .wb-status-error {

@@ -71,9 +71,11 @@ const activeAgent = computed(() =>
   aiStore.getAgent(activeTab.value?.assetId || '') || aiStore.agents[0]
 )
 const activeModelDisplayName = computed(() => {
-  const active = aiStore.settings.models.find(m => m.id === aiStore.settings.activeModelId)
-  if (active) return active.name
-  // 无多模型时显示默认模型名
+  if (aiStore.settings.activeModelId) {
+    const active = aiStore.settings.models.find(m => m.id === aiStore.settings.activeModelId)
+    if (active) return active.name
+  }
+  // 未选择模型或模型不存在时,显示默认模型名
   return aiStore.settings.model || t('ai.defaultModel')
 })
 const session = computed(() =>
@@ -826,10 +828,19 @@ function openGlobalAiSettings() {
 }
 
 function selectModel(modelId: string) {
+  if (!modelId) {
+    // 选择默认模型:清除 activeModelId,回退到 LLM 服务的默认配置
+    aiStore.settings.activeModelId = ''
+    notifyStore.notify({
+      message: `${t('ai.modelSwitched')}: ${aiStore.settings.model || t('ai.defaultModel')}`,
+      color: 'info',
+      timeout: 2500,
+    })
+    return
+  }
   const model = aiStore.settings.models.find(m => m.id === modelId)
   if (model) {
     aiStore.settings.activeModelId = modelId
-    // 如果是不同的 baseUrl / apiKey,通知用户切换了配置
     notifyStore.notify({
       message: `${t('ai.modelSwitched')}: ${model.name} (${model.model})`,
       color: 'info',
@@ -968,6 +979,23 @@ function shortResult(value: string, max = 600) {
               </button>
             </template>
             <v-list class="cyber-panel ai-model-list" density="compact" max-height="320" style="overflow-y:auto; min-width:260px">
+              <!-- 默认模型 -->
+              <v-list-item
+                :active="!aiStore.settings.activeModelId"
+                :title="`${t('ai.defaultModel')} (${aiStore.settings.model || '—'})`"
+                :subtitle="aiStore.settings.baseUrl"
+                @click="selectModel('')"
+              >
+                <template #prepend>
+                  <v-icon size="14" :color="!aiStore.settings.activeModelId ? 'var(--cyan)' : 'var(--muted)'">
+                    {{ !aiStore.settings.activeModelId ? 'mdi-check-circle' : 'mdi-circle-outline' }}
+                  </v-icon>
+                </template>
+                <template #append>
+                  <span class="ai-model-mini" style="font-size:10px; color:var(--muted)">{{ t('ai.defaultModel') }}</span>
+                </template>
+              </v-list-item>
+              <v-divider v-if="aiStore.settings.models.length" class="my-1" />
               <v-list-item
                 v-for="m in aiStore.settings.models"
                 :key="m.id"
@@ -985,7 +1013,7 @@ function shortResult(value: string, max = 600) {
                   <span class="ai-model-mini" style="font-size:10px; color:var(--muted)">{{ m.model }}</span>
                 </template>
               </v-list-item>
-              <v-divider v-if="aiStore.settings.models.length" class="my-1" />
+              <v-divider class="my-1" />
               <v-list-item @click="openGlobalAiSettings" prepend-icon="mdi-plus-circle-outline">
                 <v-list-item-title style="font-size:12px; color:var(--cyan)">
                   {{ t('ai.addModel') }}
