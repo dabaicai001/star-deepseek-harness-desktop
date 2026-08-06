@@ -338,6 +338,7 @@ export const useAiStore = defineStore('ai', () => {
   // ====== 敏感字段加密 ======
   // settings.apiKey 只保存 Keyring 标记,明文仅在运行时内存中缓存。
   const _unlockedApiKey = ref<string>('')
+  const _unlockedModelApiKeys = new Map<string, string>()
 
   // ====== Agent 中断控制 ======
   // key = instanceId, value = AbortController
@@ -385,6 +386,21 @@ export const useAiStore = defineStore('ai', () => {
     return _unlockedApiKey.value
   }
 
+  async function getModelApiKey(id: string): Promise<string> {
+    if (_unlockedModelApiKeys.has(id)) return _unlockedModelApiKeys.get(id) || ''
+    if (typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)) return ''
+    const value = await invoke<string>('get_ai_model_api_key', { id })
+    _unlockedModelApiKeys.set(id, value)
+    return value
+  }
+
+  async function setModelApiKey(id: string, value: string) {
+    _unlockedModelApiKeys.set(id, value)
+    if (typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)) return
+    if (value) await invoke('set_ai_model_api_key', { id, value })
+    else await invoke('delete_ai_model_api_key', { id })
+  }
+
   const settings = ref<AiSettings>({
     provider: 'openai-compatible',
     baseUrl: 'https://api.openai.com/v1',
@@ -420,9 +436,11 @@ export const useAiStore = defineStore('ai', () => {
 
   /** AI 健康状态(基于 LLM 配置完整度) */
   function aiHealthStatus(): AiHealthStatus {
-    if (!settings.value.baseUrl) return 'unconfigured'
+    const active = settings.value.models.find(model => model.id === settings.value.activeModelId)
+    if (!(active?.baseUrl || settings.value.baseUrl)) return 'unconfigured'
+    if (!(active?.model || settings.value.model)) return 'unconfigured'
+    if (active?.apiKey === KEYRING_MARKER || _unlockedModelApiKeys.get(active?.id || '')) return 'ready'
     if (settings.value.apiKey !== KEYRING_MARKER && !_unlockedApiKey.value) return 'unconfigured'
-    if (!settings.value.model) return 'unconfigured'
     return 'ready'
   }
 
@@ -432,14 +450,16 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   /** 获取当前激活的模型配置 */
-  function getActiveModelConfig(): { baseUrl: string; apiKey: string; model: string; temperature: number; maxTokens: number } {
+  async function getActiveModelConfig(): Promise<{ baseUrl: string; apiKey: string; model: string; temperature: number; maxTokens: number }> {
     const s = settings.value
     if (s.activeModelId && s.models.length > 0) {
       const active = s.models.find(m => m.id === s.activeModelId)
       if (active) {
         return {
           baseUrl: active.baseUrl || s.baseUrl,
-          apiKey: active.apiKey || _unlockedApiKey.value || s.apiKey,
+          apiKey: active.apiKey === KEYRING_MARKER
+            ? await getModelApiKey(active.id)
+            : await getApiKey(),
           model: active.model || s.model,
           temperature: active.temperature ?? s.temperature,
           maxTokens: active.maxTokens || s.maxTokens,
@@ -448,7 +468,7 @@ export const useAiStore = defineStore('ai', () => {
     }
     return {
       baseUrl: s.baseUrl,
-      apiKey: _unlockedApiKey.value || s.apiKey,
+      apiKey: await getApiKey(),
       model: s.model,
       temperature: s.temperature,
       maxTokens: s.maxTokens,
@@ -505,12 +525,24 @@ export const useAiStore = defineStore('ai', () => {
     if (!Number.isFinite(s.commandTimeoutSec)) {
       s.commandTimeoutSec = 3
     }
-    if (!Array.isArray(s.models)) {
-      s.models = []
-    }
+    if (!Array.isArray(s.models)) s.models = []
+    s.models = s.models
+      .filter(model => model && typeof model.id === 'string' && typeof model.name === 'string')
+      .map(model => ({
+        ...model,
+        baseUrl: typeof model.baseUrl === 'string' ? model.baseUrl : '',
+        // Clear plaintext keys from prior versions. The settings view migrates them to Keyring on save.
+        apiKey: typeof model.apiKey === 'string' ? model.apiKey : '',
+        model: typeof model.model === 'string' ? model.model : '',
+        temperature: Number.isFinite(model.temperature) ? model.temperature : s.temperature,
+        maxTokens: Number.isFinite(model.maxTokens) ? model.maxTokens : s.maxTokens
+      }))
     if (typeof s.activeModelId !== 'string') {
       s.activeModelId = ''
     }
+    void migrateModelApiKeys().catch(error => {
+      console.error('Failed to migrate model API keys:', error)
+    })
   }
 
   function ensureAgentsShape() {
@@ -909,22 +941,37 @@ export const useAiStore = defineStore('ai', () => {
     return configs
   }
 
-  function updateSettings(partial: Partial<AiSettings>) {
+  async function updateSettings(partial: Partial<AiSettings>) {
     ensureSettingsShape()
+    const { models, ...settingsWithoutModels } = partial
+    const persistedModels = models ? await persistModelApiKeys(models) : undefined
     // apiKey 不允许通过 updateSettings 直接赋值(必须用 setApiKey 加密)
-    if ('apiKey' in partial) {
-      const { apiKey: _, ...rest } = partial
-      Object.assign(settings.value, rest)
+    if ('apiKey' in settingsWithoutModels) {
+      const { apiKey: _, ...rest } = settingsWithoutModels
+      Object.assign(settings.value, { ...rest, ...(persistedModels ? { models: persistedModels } : {}) })
       // setApiKey 是 async,这里 fire-and-forget
-      if (typeof partial.apiKey === 'string') {
-        setApiKey(partial.apiKey).catch(err => {
+      if (typeof settingsWithoutModels.apiKey === 'string') {
+        setApiKey(settingsWithoutModels.apiKey).catch(err => {
           console.error('Failed to set apiKey:', err)
         })
       }
     } else {
-      Object.assign(settings.value, partial)
+      Object.assign(settings.value, { ...settingsWithoutModels, ...(persistedModels ? { models: persistedModels } : {}) })
     }
     ensureSettingsShape()
+  }
+
+  async function persistModelApiKeys(models: AiModelConfig[]): Promise<AiModelConfig[]> {
+    return Promise.all(models.map(async model => {
+      if (!model.apiKey || model.apiKey === KEYRING_MARKER) return { ...model }
+      await setModelApiKey(model.id, model.apiKey)
+      return { ...model, apiKey: KEYRING_MARKER }
+    }))
+  }
+
+  async function migrateModelApiKeys() {
+    const migrated = await persistModelApiKeys(settings.value.models)
+    settings.value.models = migrated
   }
 
   function addToWhitelist(command: string) {
@@ -1037,7 +1084,7 @@ export const useAiStore = defineStore('ai', () => {
         }
       }
     }
-    const activeCfg = getActiveModelConfig()
+    const activeCfg = await getActiveModelConfig()
     const response = await chatWithTools({
       baseUrl: activeCfg.baseUrl,
       apiKey: activeCfg.apiKey,
@@ -1231,8 +1278,7 @@ export const useAiStore = defineStore('ai', () => {
         // steered user 只会追加在末尾,消息序恒合法(避免 steer 插在 tool_calls 与 tool 结果之间导致 LLM 400)。
         drainPendingSteers(session.messages, session.pendingSteers)
 
-        const apiKey = await getApiKey()
-        const activeCfg = getActiveModelConfig()
+        const activeCfg = await getActiveModelConfig()
         const request: NewChatRequest = {
           baseUrl: activeCfg.baseUrl,
           apiKey: activeCfg.apiKey,
@@ -1460,7 +1506,9 @@ export const useAiStore = defineStore('ai', () => {
     addConfirmRecord,
     resolveConfirm,
     setApiKey,
-    getApiKey
+    getApiKey,
+    getModelApiKey,
+    migrateModelApiKeys
   }
 }, {
   persist: {

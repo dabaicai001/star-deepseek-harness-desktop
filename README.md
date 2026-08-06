@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.46.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.46.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,14 @@
 ---
 
 ## 当前版本
+
+### v0.46.2 (2026-08-06)
+
+- 修复 SSH Web 网关未透传请求头与 POST/PUT/PATCH 请求体的问题
+
+### v0.46.1 (2026-08-06)
+
+- 修复多模型 API Key 明文持久化与 SSH Web 网关编译问题
 
 ### v0.46.0 (2026-08-06)
 - ✨ AI 助手多模型选择:对话页头新增模型切换下拉菜单,列出所有已配置模型(含 baseUrl / 模型 ID),一键切换;无多模型时显示默认模型名;底部「添加模型」快捷入口直达 Settings

@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 const SERVICE: &str = "com.starhub.app.assets";
 const AI_SERVICE: &str = "com.starhub.app.ai";
 const AI_API_KEY: &str = "default";
+const AI_MODEL_API_KEY_PREFIX: &str = "model:";
 const MCP_SERVICE: &str = "com.starhub.app.mcp";
 // Windows Credential Manager limits the UTF-16 encoded credential blob to
 // 2560 bytes. Keep a safety margin for native-store implementation details.
@@ -299,6 +300,43 @@ pub async fn delete_ai_api_key() -> Result<(), String> {
             Err(error) => Err(format!("Failed to delete AI API key: {error}")),
         },
     )
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn ai_model_api_key_id(id: &str) -> String {
+    format!("{AI_MODEL_API_KEY_PREFIX}{id}")
+}
+
+pub async fn store_ai_model_api_key(id: String, value: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        entry(AI_SERVICE, &ai_model_api_key_id(&id))?
+            .set_password(&value)
+            .map_err(|e| format!("Failed to store AI model API key: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub async fn load_ai_model_api_key(id: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        match entry(AI_SERVICE, &ai_model_api_key_id(&id))?.get_password() {
+            Ok(value) => Ok(value),
+            Err(Error::NoEntry) => Ok(String::new()),
+            Err(error) => Err(format!("Failed to load AI model API key: {error}")),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub async fn delete_ai_model_api_key(id: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        match entry(AI_SERVICE, &ai_model_api_key_id(&id))?.delete_credential() {
+            Ok(()) | Err(Error::NoEntry) => Ok(()),
+            Err(error) => Err(format!("Failed to delete AI model API key: {error}")),
+        }
+    })
     .await
     .map_err(|e| e.to_string())?
 }

@@ -748,11 +748,15 @@ pub async fn ssh_start_web_gateway(
     session_id: String,
     state: tauri::State<'_, crate::SshManager>,
 ) -> Result<u16, String> {
-    let mut sessions = state.sessions.lock().await;
-    let s = sessions
-        .get_mut(&session_id)
-        .ok_or_else(|| "Session not found".to_string())?;
-    s.start_web_gateway().await
+    let session = {
+        let sessions = state.sessions.lock().await;
+        sessions
+            .get(&session_id)
+            .cloned()
+            .ok_or_else(|| "Session not found".to_string())?
+    };
+    let mut session = session.lock().await;
+    session.start_web_gateway().await
 }
 
 #[tauri::command]
@@ -760,11 +764,14 @@ pub async fn ssh_stop_web_gateway(
     session_id: String,
     state: tauri::State<'_, crate::SshManager>,
 ) -> Result<(), String> {
-    let mut sessions = state.sessions.lock().await;
-    let s = sessions
-        .get_mut(&session_id)
-        .ok_or_else(|| "Session not found".to_string())?;
-    s.stop_web_gateway();
+    let session = {
+        let sessions = state.sessions.lock().await;
+        sessions
+            .get(&session_id)
+            .cloned()
+            .ok_or_else(|| "Session not found".to_string())?
+    };
+    session.lock().await.stop_web_gateway();
     Ok(())
 }
 
@@ -773,11 +780,15 @@ pub async fn ssh_web_gateway_port(
     session_id: String,
     state: tauri::State<'_, crate::SshManager>,
 ) -> Result<Option<u16>, String> {
-    let sessions = state.sessions.lock().await;
-    let s = sessions
-        .get(&session_id)
-        .ok_or_else(|| "Session not found".to_string())?;
-    Ok(s.web_gateway_port())
+    let session = {
+        let sessions = state.sessions.lock().await;
+        sessions
+            .get(&session_id)
+            .cloned()
+            .ok_or_else(|| "Session not found".to_string())?
+    };
+    let session = session.lock().await;
+    Ok(session.web_gateway_port())
 }
 
 #[cfg(test)]

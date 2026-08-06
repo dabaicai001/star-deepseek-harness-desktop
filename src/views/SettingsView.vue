@@ -66,9 +66,13 @@ function saveGeneral() {
 onMounted(async () => {
   loadGeneral()
   aiStore.ensureSettingsShape()
+  await aiStore.migrateModelApiKeys()
   aiLocal.value = cloneAiSettings(aiStore.settings)
   try {
     aiLocal.value.apiKey = await aiStore.getApiKey()
+    await Promise.all(aiLocal.value.models.map(async model => {
+      if (model.apiKey) model.apiKey = await aiStore.getModelApiKey(model.id)
+    }))
   } catch (error) {
     // 纯浏览器预览没有 Tauri invoke;保留空值即可,桌面端仍从系统 Keyring 解锁。
     console.warn('[settings] AI API key is unavailable outside Tauri:', error)
@@ -162,7 +166,7 @@ const accentOptions = [
 async function onSave() {
   // apiKey 单独处理(走加密通道),其他字段用 updateSettings
   const { apiKey, mcpServers, ...rest } = aiLocal.value
-  aiStore.updateSettings(rest)
+  await aiStore.updateSettings(rest)
   await Promise.all([
     aiStore.setApiKey(apiKey),
     aiStore.setMcpServers(mcpServers)

@@ -14,6 +14,21 @@ pub async fn delete_ai_api_key() -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn set_ai_model_api_key(id: String, value: String) -> Result<(), String> {
+    crate::keyring::store_ai_model_api_key(id, value).await
+}
+
+#[tauri::command]
+pub async fn get_ai_model_api_key(id: String) -> Result<String, String> {
+    crate::keyring::load_ai_model_api_key(id).await
+}
+
+#[tauri::command]
+pub async fn delete_ai_model_api_key(id: String) -> Result<(), String> {
+    crate::keyring::delete_ai_model_api_key(id).await
+}
+
+#[tauri::command]
 pub async fn set_mcp_server_secrets(id: String, secrets: serde_json::Value) -> Result<(), String> {
     crate::keyring::store_mcp_server_secrets(id, secrets).await
 }

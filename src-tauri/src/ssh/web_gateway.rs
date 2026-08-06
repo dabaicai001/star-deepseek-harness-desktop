@@ -14,6 +14,7 @@ use tokio::time::{timeout, Duration};
 use reqwest::Client;
 
 const MAX_REQUEST_HEAD_BYTES: usize = 64 * 1024;
+const MAX_REQUEST_BODY_BYTES: usize = 24 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
 const UPSTREAM_TIMEOUT_SEC: u64 = 30;
 
@@ -87,6 +88,68 @@ async fn read_request_head(stream: &mut TcpStream) -> Result<(Vec<u8>, Vec<u8>),
     }
 }
 
+fn parse_request_headers(head: &str) -> Result<Vec<(String, String)>, String> {
+    head.split("\r\n")
+        .skip(1)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let (name, value) = line
+                .split_once(':')
+                .ok_or_else(|| "invalid request header".to_string())?;
+            Ok((name.trim().to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+fn request_content_length(headers: &[(String, String)]) -> Result<usize, String> {
+    let Some(value) = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .map(|(_, value)| value)
+    else {
+        return Ok(0);
+    };
+    let length = value
+        .parse::<usize>()
+        .map_err(|_| "invalid content-length".to_string())?;
+    if length > MAX_REQUEST_BODY_BYTES {
+        return Err("request body too large".to_string());
+    }
+    Ok(length)
+}
+
+async fn read_request_body(
+    stream: &mut TcpStream,
+    mut body: Vec<u8>,
+    content_length: usize,
+) -> Result<Vec<u8>, String> {
+    if body.len() > content_length {
+        body.truncate(content_length);
+    }
+    while body.len() < content_length {
+        let remaining = content_length - body.len();
+        let mut chunk = vec![0u8; remaining.min(8192)];
+        let n = stream
+            .read(&mut chunk)
+            .await
+            .map_err(|e| format!("read request body failed: {e}"))?;
+        if n == 0 {
+            return Err("connection closed before request body".to_string());
+        }
+        body.extend_from_slice(&chunk[..n]);
+    }
+    Ok(body)
+}
+
+fn should_forward_request_header(name: &str) -> bool {
+    ![
+        "connection", "content-length", "host", "keep-alive", "proxy-authenticate",
+        "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade",
+    ]
+    .iter()
+    .any(|skip| name.eq_ignore_ascii_case(skip))
+}
+
 async fn respond_text(stream: &mut TcpStream, status: &str, message: &str) {
     let body = message.as_bytes();
     let head = format!(
@@ -98,13 +161,28 @@ async fn respond_text(stream: &mut TcpStream, status: &str, message: &str) {
 }
 
 async fn handle_conn(mut stream: TcpStream) -> Result<(), String> {
-    let (head_bytes, _leftover) = read_request_head(&mut stream).await?;
+    let (head_bytes, leftover) = read_request_head(&mut stream).await?;
     let head_text = String::from_utf8_lossy(&head_bytes).to_string();
     let mut lines = head_text.split("\r\n");
     let request_line = lines.next().unwrap_or_default();
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("GET").to_ascii_uppercase();
     let raw_path = parts.next().unwrap_or_default().to_string();
+    let request_headers = parse_request_headers(&head_text)?;
+    if request_headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("transfer-encoding") && !value.eq_ignore_ascii_case("identity")
+    }) {
+        respond_text(&mut stream, "501 Not Implemented", "web gateway: chunked requests are not supported").await;
+        return Ok(());
+    }
+    let content_length = match request_content_length(&request_headers) {
+        Ok(length) => length,
+        Err(error) => {
+            respond_text(&mut stream, "413 Payload Too Large", &format!("web gateway: {error}")).await;
+            return Ok(());
+        }
+    };
+    let request_body = read_request_body(&mut stream, leftover, content_length).await?;
 
     // 解析 /__proxy__/<scheme>/<hostport>/<path>?<query>
     let Some(rest) = raw_path.strip_prefix(GATEWAY_PATH_PREFIX) else {
@@ -138,19 +216,28 @@ async fn handle_conn(mut stream: TcpStream) -> Result<(), String> {
         .build()
         .map_err(|e| format!("build reqwest client failed: {e}"))?;
 
+    let mut upstream_request = client.request(
+        reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET),
+        &target_url,
+    );
+    for (name, value) in &request_headers {
+        if should_forward_request_header(name) {
+            upstream_request = upstream_request.header(name, value);
+        }
+    }
+    if !request_body.is_empty() {
+        upstream_request = upstream_request.body(request_body);
+    }
+
     let resp = timeout(
         Duration::from_secs(UPSTREAM_TIMEOUT_SEC),
-        client.request(
-            reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET),
-            &target_url,
-        ),
+        upstream_request.send(),
     )
     .await
     .map_err(|_| "upstream timed out".to_string())?
-    .and_then(|r| {
-        r.error_for_status()
-            .map_err(|e| format!("upstream status: {e}"))
-    })?;
+    .map_err(|e| format!("upstream request: {e}"))?
+    .error_for_status()
+    .map_err(|e| format!("upstream status: {e}"))?;
 
     // 收集响应,限制大小
     let status = resp.status().as_u16();
@@ -168,8 +255,6 @@ async fn handle_conn(mut stream: TcpStream) -> Result<(), String> {
 
     let mut body = Vec::new();
     {
-        let mut chunk = [0u8; 32768];
-        let mut total = 0usize;
         // reqwest 0.12 的 IntoAsyncRead 需要 boxed,这里简化用 bytes()
         let full = resp.bytes().await.map_err(|e| format!("read upstream body: {e}"))?;
         let slice = if full.len() > MAX_RESPONSE_BYTES {
@@ -328,5 +413,25 @@ mod tests {
             rewrite_location("https://a.com/login", "http", "b.com"),
             "/__proxy__/https/a.com/login"
         );
+    }
+
+    #[test]
+    fn preserves_end_to_end_request_headers_and_body_length() {
+        let headers = parse_request_headers(
+            "POST /__proxy__/https/example.com/login HTTP/1.1\r\nHost: localhost\r\nCookie: sid=abc\r\nAuthorization: Bearer token\r\nContent-Length: 12\r\nConnection: keep-alive\r\n\r\n",
+        )
+        .expect("headers should parse");
+        assert_eq!(request_content_length(&headers).expect("length should parse"), 12);
+        assert!(should_forward_request_header("Cookie"));
+        assert!(should_forward_request_header("Authorization"));
+        assert!(!should_forward_request_header("Host"));
+        assert!(!should_forward_request_header("Connection"));
+        assert!(!should_forward_request_header("Content-Length"));
+    }
+
+    #[test]
+    fn rejects_oversized_request_bodies() {
+        let headers = vec![("Content-Length".to_string(), (MAX_REQUEST_BODY_BYTES + 1).to_string())];
+        assert_eq!(request_content_length(&headers), Err("request body too large".to_string()));
     }
 }
