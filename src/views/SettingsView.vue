@@ -1489,7 +1489,7 @@ async function onTestWebhook(url: string) {
     </div>
 
     <v-dialog v-model="modelDialog" max-width="680" persistent>
-      <div class="cyber-dialog model-dialog">
+      <div class="cyber-panel model-dialog">
         <div class="dialog-header">
           <div>
             <span class="dialog-kicker">AI MODEL</span>
@@ -2342,5 +2342,8 @@ async function onTestWebhook(url: string) {
   gap: 8px;
   margin-top: 10px;
   align-items: center;
+}
+.model-dialog {
+  padding: 24px;
 }
 </style>
