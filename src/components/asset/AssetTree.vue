@@ -1174,16 +1174,6 @@ function closeNodeCtxMenu() {
         <v-icon size="11">mdi-circle-small</v-icon>
         <span>暂无本地工作区</span>
       </div>
-      <div class="local-import-row">
-        <button class="local-import-btn primary" @click.stop="importLocalWorkspace('dir')">
-          <v-icon size="12">mdi-folder-plus-outline</v-icon>
-          导入文件夹
-        </button>
-        <button class="local-import-btn" @click.stop="importLocalWorkspace('file')">
-          <v-icon size="12">mdi-file-plus-outline</v-icon>
-          导入文件
-        </button>
-      </div>
       </div>
     </div>
 
@@ -1744,40 +1734,4 @@ function closeNodeCtxMenu() {
   50% { opacity: 0.4; transform: scale(0.7); }
 }
 
-/* 本地工作区导入按钮 */
-.local-import-row {
-  display: flex;
-  gap: 6px;
-  padding: 8px 12px 6px;
-}
-.local-import-btn {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  flex: 1;
-  padding: 5px 6px;
-  font-size: 11px;
-  color: var(--text-2);
-  background: var(--panel-solid-2);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
-}
-.local-import-btn:hover {
-  color: var(--text-1);
-  background: var(--hover-cyan);
-  border-color: var(--cyan);
-  transform: translateY(-1px);
-}
-.local-import-btn.primary {
-  color: var(--text-1);
-  background: var(--hover-cyan);
-  border-color: var(--line-2);
-}
-.local-import-btn.primary:hover {
-  border-color: var(--cyan);
-}
 </style>
