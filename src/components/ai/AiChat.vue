@@ -461,7 +461,7 @@ function shortResult(s: string, max = 240): string {
     <div class="chat-input">
       <textarea
         v-model="inputText"
-        class="cyber-input"
+        class="cyber-input cyber-input-glow"
         rows="2"
         :placeholder="sending ? t('ai.steerPlaceholder') : (placeholder ?? '问我关于这个连接的任何事…')"
         @keydown="onKeydown"
@@ -846,10 +846,6 @@ function shortResult(s: string, max = 240): string {
   transition: border-color 0.2s;
 }
 
-.chat-input textarea:focus {
-  border-color: var(--cyan);
-  box-shadow: 0 0 0 2px var(--focus-cyan);
-}
 
 .send-btn {
   padding: 6px 12px !important;

@@ -638,6 +638,18 @@ body {
   box-shadow: 0 0 0 3px var(--focus-cyan);
 }
 
+.cyber-input.cyber-input-glow:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px var(--focus-cyan), 0 0 16px rgba(93, 214, 214, 0.28);
+  animation: cyber-input-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes cyber-input-glow {
+  0%, 100% { box-shadow: 0 0 0 2px var(--focus-cyan), 0 0 10px rgba(93, 214, 214, 0.18); }
+  50%       { box-shadow: 0 0 0 2px var(--focus-cyan), 0 0 24px rgba(93, 214, 214, 0.40); }
+}
+
 .cyber-input::placeholder {
   color: var(--muted);
 }

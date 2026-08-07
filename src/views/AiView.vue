@@ -325,6 +325,7 @@ function assetSummary(asset: Asset) {
   if (asset.type === 'ssh') return `${asset.config.host || '-'}:${asset.config.port || 22}`
   if (asset.type === 'db') return `${asset.config.dbType || 'mysql'} · ${asset.config.address || asset.config.host || '-'}`
   if (asset.type === 'docker') return asset.config.dockerTransport || asset.config.remoteHost || 'local'
+  if (asset.type === 'local') return asset.config.rootPath || asset.name || '-'
   return asset.config.format || 'xlsx'
 }
 
@@ -351,7 +352,7 @@ const workspaceTools: LlmTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          type: { type: 'string', description: '可选: ssh、db、docker 或 excel', enum: ['ssh', 'db', 'docker', 'excel'] }
+          type: { type: 'string', description: '可选: ssh、db、docker、local 或 excel', enum: ['ssh', 'db', 'docker', 'local', 'excel'] }
         }
       }
     }
@@ -434,7 +435,7 @@ function buildPrompt(text: string, primaryAgent: AiAgent = activeAgent.value) {
   session.value.contextBinding = resolvedContext.binding
   const boundAssetIds = new Set(resolvedContext.binding?.assetIds || [])
   const assets = assetStore.assets.filter(asset => boundAssetIds.has(asset.id))
-  const localAuthorized = resolvedContext.binding?.local || false
+  const localAuthorized = resolvedContext.binding?.local || assets.some(asset => asset.type === 'local')
   const contextTokens = resolvedContext.binding?.tokens || []
   const inheritedContext = resolvedContext.inherited
 
@@ -1265,7 +1266,7 @@ function shortResult(value: string, max = 600) {
           <div class="ai-composer-input">
             <textarea
               v-model="inputText"
-              class="cyber-input"
+              class="cyber-input cyber-input-glow"
               rows="3"
               :placeholder="orchestrationBusy ? t('ai.steerPlaceholder') : t('ai.composerPlaceholder')"
               @keydown="onKeydown"
