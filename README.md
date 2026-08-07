@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.46.5-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.46.6-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -33,11 +33,11 @@
 | 平台 | 文件格式 | 安装方式 |
 |---|---|---|
 | **Windows** | `.msi` | 双击安装 |
-| **Linux** (Debian/Ubuntu) | `.deb` | `sudo apt install ./StarHub_0.28.7_amd64.deb` |
-| **Linux** (Fedora 38+ 等 glibc 2.35+ RPM 系) | `.rpm` | `sudo dnf install ./StarHub-0.28.7-1.x86_64.rpm` |
-| **Linux** (通用) | `.AppImage` | `chmod +x StarHub_0.28.7_amd64.AppImage && ./StarHub_0.28.7_amd64.AppImage` |
+| **Linux** (Debian/Ubuntu) | `.deb` | `sudo apt install ./StarHub_0.46.6_amd64.deb` |
+| **Linux** (Fedora 38+ 等 glibc 2.35+ RPM 系) | `.rpm` | `sudo dnf install ./StarHub-0.46.6-1.x86_64.rpm` |
+| **Linux** (通用) | `.AppImage` | `chmod +x StarHub_0.46.6_amd64.AppImage && ./StarHub_0.46.6_amd64.AppImage` |
 
-> Linux 同时发布 x86_64 (`amd64`) 与 ARM64 (`arm64` / `aarch64`)。产物固定在 Ubuntu 22.04 原生 runner 构建,兼容 Ubuntu 22.04+ / Debian 12+ / Fedora 38+ 等主流 glibc 桌面发行版。AppImage 已携带 WebKitGTK、GTK 和静态 Go sidecar;无 FUSE 环境可使用 `./StarHub_0.28.7_amd64.AppImage --appimage-extract-and-run`。Alpine(musl)与无 FHS 兼容层的 NixOS 不属于直接兼容范围。
+> Linux 同时发布 x86_64 (`amd64`) 与 ARM64 (`arm64` / `aarch64`)。产物固定在 Ubuntu 22.04 原生 runner 构建,兼容 Ubuntu 22.04+ / Debian 12+ / Fedora 38+ 等主流 glibc 桌面发行版。AppImage 已携带 WebKitGTK、GTK 和静态 Go sidecar;无 FUSE 环境可使用 `./StarHub_0.46.6_amd64.AppImage --appimage-extract-and-run`。Alpine(musl)与无 FHS 兼容层的 NixOS 不属于直接兼容范围。
 
 ---
 
@@ -105,6 +105,21 @@
 ---
 
 ## 当前版本
+
+### v0.46.6 (2026-08-07)
+
+- 服务器网页访问走真正的 SSH `direct-tcpip` 隧道，从服务器侧出口
+- 修复重定向/相对链接改写，新增 iframe 右键菜单（后退/前进/刷新/复制地址/外部浏览器打开）
+
+### v0.46.5 (2026-08-07)
+
+- AI 本地工作区上下文不再错误显示为 `xlsx`，支持通过 `#LOCAL-xxx` 绑定后调用本地文件/Shell 工具
+- 设置页「新增模型」弹窗背景改为不透明面板
+- 移除本地工作区树底部的全局「导入文件夹/导入文件」按钮，保留右键菜单导入
+- AI 助手与 AI 运行时输入框增加聚焦环绕光效
+- 修复 AI 视图右侧多余纵向滚动条
+- 数据库视图点击表后若连接尚未就绪会自动排队，连接完成后直接打开表数据页
+- 修复 MySQL 单元格编辑时前导零被吃掉的问题（如 `00000123`）
 
 ### v0.46.4 (2026-08-06)
 

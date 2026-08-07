@@ -281,6 +281,12 @@ export default {
       webviewFailed: '创建内置浏览器视图失败',
       tauriRequired: '网页访问需要在 StarHub 桌面应用中使用',
       noSession: '未找到关联的 SSH 会话，请从 SSH 终端工具栏打开',
+      menuBack: '后退',
+      menuForward: '前进',
+      menuReload: '刷新',
+      menuCopyAddress: '复制地址',
+      menuOpenExternal: '在外部浏览器打开',
+      copySuccess: '地址已复制',
     },
   },
   sftp: {

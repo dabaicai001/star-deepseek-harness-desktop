@@ -1,6 +1,6 @@
 [package]
 name = "starhub"
-version = "0.46.5"
+version = "0.46.6"
 edition = "2021"
 
 [dependencies]
@@ -25,6 +25,9 @@ glob-match = "0.2"
 tokio-util = "0.7"
 chrono = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "gzip", "brotli", "deflate"] }
+# Web 网关上游 HTTPS:经 SSH direct-tcpip 通道之上的端到端 TLS(版本与 reqwest 锁定的一致)
+tokio-rustls = "0.26"
+webpki-roots = "1"
 futures = "0.3"
 bytes = "1"
 keyring-core = "1.0.0"

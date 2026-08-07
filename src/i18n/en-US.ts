@@ -281,6 +281,12 @@ export default {
       webviewFailed: 'Failed to create the embedded browser view',
       tauriRequired: 'Web access requires the StarHub desktop app',
       noSession: 'No associated SSH session found. Open this page from the SSH terminal toolbar.',
+      menuBack: 'Back',
+      menuForward: 'Forward',
+      menuReload: 'Reload',
+      menuCopyAddress: 'Copy address',
+      menuOpenExternal: 'Open in external browser',
+      copySuccess: 'Address copied',
     },
   },
   sftp: {

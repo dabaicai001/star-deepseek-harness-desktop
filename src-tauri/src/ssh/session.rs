@@ -128,7 +128,7 @@ pub struct SshSession {
     resize_tx: Option<watch::Sender<(u32, u32)>>,
     remote_forwards: RemoteForwards,
     port_forwards: Vec<PortForwardEntry>,
-    /// Web 网关:本地 HTTP 代理,上游由 reqwest 转发。
+    /// Web 网关:本地 HTTP 代理,上游经 SSH direct-tcpip 通道转发。
     web_gateway: Option<super::web_gateway::GatewayHandle>,
     /// 浏览类 SFTP 操作(list/stat/remove/mkdir/rename/read/write)复用的通道,
     /// 避免每个操作都重新 channel open + subsystem 协商。断线或操作失败时失效重建。
@@ -1462,12 +1462,17 @@ impl SshSession {
             .collect()
     }
 
-    /// 启动 Web 网关:本地 HTTP 监听,上游由 reqwest 转发。幂等。
+    /// 启动 Web 网关:本地 HTTP 监听,上游经 SSH direct-tcpip 通道从服务器侧出口。幂等。
     pub async fn start_web_gateway(&mut self) -> Result<u16, String> {
         if let Some(ref gw) = self.web_gateway {
             return Ok(gw.port);
         }
-        let gw = super::web_gateway::start(0).await?;
+        let handle = self
+            .handle
+            .as_ref()
+            .ok_or("SSH not connected: web gateway requires an active SSH connection")?
+            .clone();
+        let gw = super::web_gateway::start(0, handle).await?;
         let port = gw.port;
         self.web_gateway = Some(gw);
         Ok(port)

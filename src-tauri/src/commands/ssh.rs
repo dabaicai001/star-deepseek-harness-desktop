@@ -743,6 +743,18 @@ fn home_dir() -> Result<std::path::PathBuf, String> {
 
 // ── Web 网关 Tauri commands ──
 
+/// 在系统默认浏览器中打开外部 URL(网页网关右键菜单「在外部浏览器打开」)。
+#[tauri::command]
+pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_shell::ShellExt;
+    // shell open 已标 deprecated(官方建议改用 opener 插件),但项目未引入
+    // tauri-plugin-opener,为最小改动继续复用已注册的 shell 插件。
+    #[allow(deprecated)]
+    app.shell()
+        .open(&url, None)
+        .map_err(|e| format!("open external url failed: {e}"))
+}
+
 #[tauri::command]
 pub async fn ssh_start_web_gateway(
     session_id: String,

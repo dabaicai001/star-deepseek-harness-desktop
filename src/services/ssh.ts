@@ -217,6 +217,11 @@ export async function sshWebGatewayPort(id: string): Promise<number | null> {
   return invoke('ssh_web_gateway_port', { sessionId: id })
 }
 
+/** 在系统默认浏览器中打开外部 URL */
+export async function openExternalUrl(url: string): Promise<void> {
+  return invoke('open_external_url', { url })
+}
+
 // ─── SSH Config 导入 ───
 
 export interface SshConfigHost {

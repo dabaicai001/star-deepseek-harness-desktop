@@ -2,9 +2,9 @@
 /**
  * 服务器网页访问(Web Gateway)
  *
- * 通过 SSH 会话在服务器侧发起 HTTP/HTTPS 请求,经本地网关 HTTP 代理回传,
- * 前端 webview 以纯 HTTP 方式渲染,HTTPS 在 Rust TLS 层终止,无证书问题。
- * 方案:全流量经 SSH direct-tcpip 通道中转(等同服务器网络视角)。
+ * 前端 iframe 加载本地 HTTP 网关;网关解析目标后经 SSH direct-tcpip 通道
+ * 从服务器侧出口发起 HTTP/HTTPS 请求(等同服务器网络视角,可达内网与服务器
+ * localhost 服务)。HTTPS 在网关 rustls 层端到端终止,前端只见本地明文 HTTP。
  */
 import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -12,9 +12,11 @@ import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAssetStore } from '@/stores/asset'
 import { useNotifyStore } from '@/stores/notify'
-import { sshStartWebGateway, sshStopWebGateway } from '@/services/ssh'
+import { sshStartWebGateway, sshStopWebGateway, openExternalUrl } from '@/services/ssh'
 import { logAudit } from '@/services/audit'
 import { parseInstanceId } from '@/utils/tabId'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import type { MenuItem } from '@/components/common/ContextMenu.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -126,6 +128,86 @@ function onIframeError() {
   errorText.value = t('web.browser.forwardFailed')
 }
 
+// ── iframe 右键菜单(与网关同源,可直接访问 contentDocument) ──
+
+const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
+
+/** 把 iframe 当前的 /__proxy__/{scheme}/{hostport}/path 还原为原始 URL */
+function currentOriginalUrl(): string {
+  try {
+    const loc = iframeRef.value?.contentWindow?.location
+    if (!loc) return loadedUrl.value
+    const prefix = '/__proxy__/'
+    if (!loc.pathname.startsWith(prefix)) return loadedUrl.value
+    const rest = loc.pathname.slice(prefix.length)
+    const parts = rest.split('/')
+    if (parts.length < 2) return loadedUrl.value
+    const scheme = parts[0]
+    const hostport = parts[1]
+    const path = '/' + parts.slice(2).join('/')
+    return `${scheme}://${hostport}${path}${loc.search}${loc.hash}`
+  } catch {
+    return loadedUrl.value
+  }
+}
+
+function buildIframeMenuItems(): MenuItem[] {
+  const win = iframeRef.value?.contentWindow
+  return [
+    {
+      type: 'item', icon: 'mdi-arrow-left', label: t('web.browser.menuBack'),
+      onClick: () => { try { win?.history.back() } catch { /* noop */ } },
+    },
+    {
+      type: 'item', icon: 'mdi-arrow-right', label: t('web.browser.menuForward'),
+      onClick: () => { try { win?.history.forward() } catch { /* noop */ } },
+    },
+    {
+      type: 'item', icon: 'mdi-refresh', label: t('web.browser.menuReload'),
+      onClick: () => { try { win?.location.reload() } catch { /* noop */ } },
+    },
+    { type: 'divider' },
+    {
+      type: 'item', icon: 'mdi-content-copy', label: t('web.browser.menuCopyAddress'),
+      onClick: () => {
+        const url = currentOriginalUrl()
+        if (!url) return
+        navigator.clipboard.writeText(url)
+          .then(() => notify.notify({ message: t('web.browser.copySuccess'), color: 'success', timeout: 2000 }))
+          .catch(() => {})
+      },
+    },
+    {
+      type: 'item', icon: 'mdi-open-in-new', label: t('web.browser.menuOpenExternal'),
+      onClick: () => {
+        const url = currentOriginalUrl()
+        if (!url) return
+        openExternalUrl(url).catch(e => {
+          const msg = e instanceof Error ? e.message : String(e)
+          notify.notify({ message: msg, color: 'error', timeout: 4000 })
+        })
+      },
+    },
+  ]
+}
+
+/** iframe 每次加载完挂 contextmenu 监听(新 document 需要重新挂) */
+function onIframeLoad() {
+  const iframe = iframeRef.value
+  const doc = iframe?.contentDocument
+  if (!iframe || !doc) return
+  doc.addEventListener('contextmenu', (e: Event) => {
+    e.preventDefault()
+    const me = e as MouseEvent
+    const rect = iframe.getBoundingClientRect()
+    ctxMenu.value = {
+      x: rect.left + me.clientX,
+      y: rect.top + me.clientY,
+      items: buildIframeMenuItems(),
+    }
+  })
+}
+
 onMounted(() => {
   window.addEventListener('resize', () => { /* iframe 自适应 */ })
 })
@@ -181,7 +263,15 @@ onBeforeUnmount(() => {
         ref="iframeRef"
         class="wb-iframe"
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        @load="onIframeLoad"
         @error="onIframeError"
+      />
+      <ContextMenu
+        v-if="ctxMenu"
+        :x="ctxMenu.x"
+        :y="ctxMenu.y"
+        :items="ctxMenu.items"
+        @close="ctxMenu = null"
       />
       <div v-if="loading" class="wb-status">{{ t('web.browser.loading') }}</div>
       <div v-if="errorText" class="wb-status wb-status-error">{{ errorText }}</div>

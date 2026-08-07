@@ -68,6 +68,7 @@ fn main() {
             commands::ssh::ssh_remove_forward,
             commands::ssh::ssh_list_forwards,
             commands::ssh::ssh_start_web_gateway,
+            commands::ssh::open_external_url,
             commands::ssh::ssh_stop_web_gateway,
             commands::ssh::ssh_web_gateway_port,
             commands::ssh::ssh_parse_config_file,

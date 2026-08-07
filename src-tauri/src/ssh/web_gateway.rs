@@ -1,24 +1,35 @@
-//! Web 网关:本地 HTTP 代理,全流量经 reqwest 转发。
+//! Web 网关:本地 HTTP 代理,上游流量经 SSH direct-tcpip 通道从服务器侧出口。
 //!
-//! 与旧版区别:HTTPS 在 reqwest 的 rustls 层正确终止(SNI/证书验证),
-//! 前端 webview 全程只见本地明文 HTTP,无证书问题。
-//! HTML 响应做 URL 改写,让子资源也走同一条中转链路。
+//! 每条上游请求在已认证的 SSH 连接上开一个 direct-tcpip 通道到目标 host:port,
+//! 由最终 SSH 服务器(跳板机场景为最内层服务器)的网络视角发出,可访问内网站点
+//! 与服务器 localhost 服务。
 //!
-//! 注意:上游请求由 reqwest 在本机发出(非经 SSH 服务器中转);
-//! 若需纯内网从服务器视角访问,请在 SSH 终端使用 curl。
+//! HTTPS:在 direct-tcpip 通道流之上用 tokio-rustls 做客户端 TLS(SNI = 目标 host,
+//! webpki 根证书校验真实服务器证书),TLS 在网关端到端终止;前端 webview 全程只见
+//! 本地明文 HTTP,无证书问题。不做 MITM、不用自签 CA。
+//!
+//! HTML 响应做 URL 改写并注入 <base>,让子资源与相对链接也走同一条代理链路;
+//! 3xx 重定向不自动跟随,Location 原样改写成 /__proxy__/ 形式交给浏览器处理。
 
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{timeout, Duration};
-use reqwest::Client;
+use tokio_rustls::rustls::pki_types::ServerName;
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+
+use super::auth::SshHandler;
 
 const MAX_REQUEST_HEAD_BYTES: usize = 64 * 1024;
 const MAX_REQUEST_BODY_BYTES: usize = 24 * 1024 * 1024;
+const MAX_RESPONSE_HEAD_BYTES: usize = 64 * 1024;
 const MAX_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
 const UPSTREAM_TIMEOUT_SEC: u64 = 30;
 
 pub const GATEWAY_PATH_PREFIX: &str = "/__proxy__/";
+
+/// 已认证 SSH 连接的 client handle(direct-tcpip 从最终服务器出口)。
+pub type SshClientHandle = Arc<russh::client::Handle<SshHandler>>;
 
 pub struct GatewayHandle {
     pub port: u16,
@@ -26,7 +37,8 @@ pub struct GatewayHandle {
     pub connections: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>>,
 }
 
-pub async fn start(local_port: u16) -> Result<GatewayHandle, String> {
+/// 启动 Web 网关:本地 HTTP 监听,上游经 SSH direct-tcpip 通道转发。
+pub async fn start(local_port: u16, ssh: SshClientHandle) -> Result<GatewayHandle, String> {
     let listener = TcpListener::bind(("127.0.0.1", local_port))
         .await
         .map_err(|e| format!("web gateway bind failed: {e}"))?;
@@ -41,8 +53,9 @@ pub async fn start(local_port: u16) -> Result<GatewayHandle, String> {
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
+                    let ssh = Arc::clone(&ssh);
                     let conn = tokio::spawn(async move {
-                        if let Err(e) = handle_conn(stream).await {
+                        if let Err(e) = handle_conn(stream, ssh).await {
                             tracing::debug!("web gateway conn closed: {e}");
                         }
                     });
@@ -160,7 +173,340 @@ async fn respond_text(stream: &mut TcpStream, status: &str, message: &str) {
     let _ = stream.write_all(body).await;
 }
 
-async fn handle_conn(mut stream: TcpStream) -> Result<(), String> {
+/// 友好的 HTML 错误页:说明问题并给出「返回上一页」链接。
+fn error_page_html(title: &str, message: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{title}</title>
+<style>
+body {{ font-family: system-ui, sans-serif; background: #f6f7f9; color: #333; display: flex; justify-content: center; padding-top: 12vh; }}
+.card {{ max-width: 560px; background: #fff; border: 1px solid #e2e4e9; border-radius: 8px; padding: 28px 32px; }}
+h1 {{ font-size: 17px; margin: 0 0 12px; }}
+p {{ font-size: 13px; line-height: 1.7; margin: 0 0 16px; word-break: break-all; }}
+a {{ color: #2563eb; text-decoration: none; font-size: 13px; }}
+a:hover {{ text-decoration: underline; }}
+</style></head>
+<body><div class="card"><h1>{title}</h1><p>{message}</p>
+<p><a href="javascript:history.back()">&larr; Back to previous page</a></p>
+</div></body></html>"#
+    )
+}
+
+async fn respond_html(stream: &mut TcpStream, status: &str, html: &str) {
+    let body = html.as_bytes();
+    let head = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(head.as_bytes()).await;
+    let _ = stream.write_all(body).await;
+}
+
+/// 上游字节流:direct-tcpip 通道流,或在其上完成 TLS 握手的加密流。
+trait UpstreamIo: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> UpstreamIo for T {}
+
+/// 共享的 TLS connector(webpki 根证书,只构建一次)。
+fn tls_connector() -> tokio_rustls::TlsConnector {
+    static CONNECTOR: once_cell::sync::OnceCell<tokio_rustls::TlsConnector> =
+        once_cell::sync::OnceCell::new();
+    CONNECTOR
+        .get_or_init(|| {
+            let mut roots = RootCertStore::empty();
+            roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let config = ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            tokio_rustls::TlsConnector::from(Arc::new(config))
+        })
+        .clone()
+}
+
+/// 经 SSH direct-tcpip 通道连到目标 host:port;https 时在通道流上做端到端 TLS。
+async fn open_upstream(
+    ssh: &SshClientHandle,
+    scheme: &str,
+    host: &str,
+    port: u16,
+) -> Result<Box<dyn UpstreamIo>, String> {
+    let channel = ssh
+        .channel_open_direct_tcpip(host, port as u32, "127.0.0.1", 0)
+        .await
+        .map_err(|e| format!("open direct-tcpip channel to {host}:{port} failed: {e}"))?;
+    let stream = channel.into_stream();
+    if scheme == "https" {
+        let server_name = match host.parse::<std::net::IpAddr>() {
+            Ok(ip) => ServerName::from(ip),
+            Err(_) => ServerName::try_from(host.to_string())
+                .map_err(|e| format!("invalid TLS server name {host}: {e}"))?,
+        };
+        let tls = tls_connector()
+            .connect(server_name, stream)
+            .await
+            .map_err(|e| format!("TLS handshake with {host}:{port} failed: {e}"))?;
+        Ok(Box::new(tls))
+    } else {
+        Ok(Box::new(stream))
+    }
+}
+
+/// 从上游流读响应头(到 \r\n\r\n),返回头部文本与已读出的 body 前缀。
+async fn read_response_head(
+    stream: &mut (impl AsyncRead + Unpin),
+) -> Result<(String, Vec<u8>), String> {
+    let mut buf = Vec::with_capacity(8192);
+    let mut chunk = [0u8; 8192];
+    loop {
+        if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
+            let head = String::from_utf8_lossy(&buf[..pos]).to_string();
+            return Ok((head, buf[pos + 4..].to_vec()));
+        }
+        if buf.len() >= MAX_RESPONSE_HEAD_BYTES {
+            return Err("response head too large".to_string());
+        }
+        let n = stream
+            .read(&mut chunk)
+            .await
+            .map_err(|e| format!("read upstream response failed: {e}"))?;
+        if n == 0 {
+            return Err("upstream closed before response head".to_string());
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    }
+}
+
+/// 读定长 body,总量封顶 MAX_RESPONSE_BYTES。
+async fn read_body_fixed(
+    stream: &mut (impl AsyncRead + Unpin),
+    mut body: Vec<u8>,
+    content_length: usize,
+) -> Result<Vec<u8>, String> {
+    let wanted = content_length.min(MAX_RESPONSE_BYTES);
+    if body.len() > wanted {
+        body.truncate(wanted);
+    }
+    while body.len() < wanted {
+        let remaining = wanted - body.len();
+        let mut chunk = vec![0u8; remaining.min(16384)];
+        let n = stream
+            .read(&mut chunk)
+            .await
+            .map_err(|e| format!("read upstream body failed: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        body.extend_from_slice(&chunk[..n]);
+    }
+    Ok(body)
+}
+
+/// 解码 chunked body,总量封顶 MAX_RESPONSE_BYTES。
+async fn read_body_chunked(
+    stream: &mut (impl AsyncRead + Unpin),
+    mut pending: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    let mut body = Vec::new();
+    let mut chunk_buf = [0u8; 16384];
+    // 确保 pending 至少 n 字节,不够则从流里补读
+    async fn fill(
+        stream: &mut (impl AsyncRead + Unpin),
+        pending: &mut Vec<u8>,
+        n: usize,
+    ) -> Result<(), String> {
+        while pending.len() < n {
+            let mut tmp = [0u8; 8192];
+            let r = stream
+                .read(&mut tmp)
+                .await
+                .map_err(|e| format!("read upstream body failed: {e}"))?;
+            if r == 0 {
+                return Err("upstream closed in chunked body".to_string());
+            }
+            pending.extend_from_slice(&tmp[..r]);
+        }
+        Ok(())
+    }
+    loop {
+        // 读 chunk size 行
+        loop {
+            if let Some(pos) = find_subslice(&pending, b"\r\n") {
+                let size_line = String::from_utf8_lossy(&pending[..pos]).to_string();
+                let size_str = size_line.split(';').next().unwrap_or("").trim();
+                let size = usize::from_str_radix(size_str, 16)
+                    .map_err(|_| "invalid chunk size".to_string())?;
+                pending.drain(..pos + 2);
+                if size == 0 {
+                    // 末尾 trailer 一并丢弃(读到空行为止,尽力而为)
+                    return Ok(body);
+                }
+                fill(stream, &mut pending, size + 2).await?;
+                body.extend_from_slice(&pending[..size]);
+                pending.drain(..size + 2); // 含结尾 \r\n
+                break;
+            }
+            if pending.len() > 8192 {
+                return Err("chunk size line too long".to_string());
+            }
+            let n = stream
+                .read(&mut chunk_buf)
+                .await
+                .map_err(|e| format!("read upstream body failed: {e}"))?;
+            if n == 0 {
+                return Err("upstream closed in chunked body".to_string());
+            }
+            pending.extend_from_slice(&chunk_buf[..n]);
+        }
+        if body.len() >= MAX_RESPONSE_BYTES {
+            body.truncate(MAX_RESPONSE_BYTES);
+            return Ok(body);
+        }
+    }
+}
+
+/// 读到 EOF(Connection: close 场景),总量封顶 MAX_RESPONSE_BYTES。
+async fn read_body_to_eof(
+    stream: &mut (impl AsyncRead + Unpin),
+    mut body: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    let mut chunk = [0u8; 16384];
+    while body.len() < MAX_RESPONSE_BYTES {
+        let n = stream
+            .read(&mut chunk)
+            .await
+            .map_err(|e| format!("read upstream body failed: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        body.extend_from_slice(&chunk[..n]);
+    }
+    if body.len() > MAX_RESPONSE_BYTES {
+        body.truncate(MAX_RESPONSE_BYTES);
+    }
+    Ok(body)
+}
+
+struct UpstreamResponse {
+    status: u16,
+    status_text: String,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+/// 解析 hostport 为 (host, port);无端口时按 scheme 默认 80/443。
+fn split_host_port(hostport: &str, scheme: &str) -> Result<(String, u16), String> {
+    let default_port = if scheme == "https" { 443 } else { 80 };
+    if let Some(rest) = hostport.strip_prefix('[') {
+        // IPv6: [::1] 或 [::1]:8080
+        let end = rest
+            .find(']')
+            .ok_or_else(|| "invalid IPv6 host".to_string())?;
+        let host = &rest[..end];
+        let port = match rest[end + 1..].strip_prefix(':') {
+            Some(p) => p
+                .parse::<u16>()
+                .map_err(|_| "invalid port".to_string())?,
+            None => default_port,
+        };
+        return Ok((host.to_string(), port));
+    }
+    if let Some((host, port)) = hostport.rsplit_once(':') {
+        if !host.contains(':') {
+            let port = port
+                .parse::<u16>()
+                .map_err(|_| "invalid port".to_string())?;
+            return Ok((host.to_string(), port));
+        }
+    }
+    Ok((hostport.to_string(), default_port))
+}
+
+/// 经 SSH 隧道执行一次上游 HTTP 请求并收集完整响应。
+async fn fetch_upstream(
+    ssh: &SshClientHandle,
+    scheme: &str,
+    hostport: &str,
+    path_query: &str,
+    method: &str,
+    request_headers: &[(String, String)],
+    request_body: &[u8],
+) -> Result<UpstreamResponse, String> {
+    let (host, port) = split_host_port(hostport, scheme)?;
+    let mut stream = open_upstream(ssh, scheme, &host, port).await?;
+
+    // 写 HTTP/1.1 请求:Accept-Encoding 固定 identity(不做解压),Connection: close
+    // 让无 Content-Length 的响应可以读到 EOF 为止。
+    let mut req = format!(
+        "{method} {path_query} HTTP/1.1\r\nHost: {hostport}\r\nUser-Agent: Mozilla/5.0 (StarHub Web Gateway)\r\nAccept-Encoding: identity\r\nConnection: close\r\n"
+    );
+    for (name, value) in request_headers {
+        if should_forward_request_header(name) {
+            req.push_str(&format!("{name}: {value}\r\n"));
+        }
+    }
+    if !request_body.is_empty() {
+        req.push_str(&format!("Content-Length: {}\r\n", request_body.len()));
+    }
+    req.push_str("\r\n");
+    stream
+        .write_all(req.as_bytes())
+        .await
+        .map_err(|e| format!("write upstream request failed: {e}"))?;
+    if !request_body.is_empty() {
+        stream
+            .write_all(request_body)
+            .await
+            .map_err(|e| format!("write upstream body failed: {e}"))?;
+    }
+
+    let (head, leftover) = read_response_head(&mut stream).await?;
+    let mut lines = head.split("\r\n");
+    let status_line = lines.next().unwrap_or_default();
+    let mut status_parts = status_line.splitn(3, ' ');
+    let _http_version = status_parts.next();
+    let status: u16 = status_parts
+        .next()
+        .unwrap_or("502")
+        .parse()
+        .map_err(|_| "invalid upstream status line".to_string())?;
+    let status_text = status_parts.next().unwrap_or("").to_string();
+    let headers: Vec<(String, String)> = lines
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| {
+            line.split_once(':')
+                .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        })
+        .collect();
+
+    let is_chunked = headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("transfer-encoding")
+            && value.to_ascii_lowercase().contains("chunked")
+    });
+    let content_length = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .and_then(|(_, value)| value.parse::<usize>().ok());
+
+    // HEAD / 204 / 304 无 body
+    let no_body = method == "HEAD" || status == 204 || status == 304 || (100..200).contains(&status);
+    let body = if no_body {
+        Vec::new()
+    } else if is_chunked {
+        read_body_chunked(&mut stream, leftover).await?
+    } else if let Some(length) = content_length {
+        read_body_fixed(&mut stream, leftover, length).await?
+    } else {
+        read_body_to_eof(&mut stream, leftover).await?
+    };
+
+    Ok(UpstreamResponse {
+        status,
+        status_text,
+        headers,
+        body,
+    })
+}
+
+async fn handle_conn(mut stream: TcpStream, ssh: SshClientHandle) -> Result<(), String> {
     let (head_bytes, leftover) = read_request_head(&mut stream).await?;
     let head_text = String::from_utf8_lossy(&head_bytes).to_string();
     let mut lines = head_text.split("\r\n");
@@ -186,10 +532,13 @@ async fn handle_conn(mut stream: TcpStream) -> Result<(), String> {
 
     // 解析 /__proxy__/<scheme>/<hostport>/<path>?<query>
     let Some(rest) = raw_path.strip_prefix(GATEWAY_PATH_PREFIX) else {
-        respond_text(
+        respond_html(
             &mut stream,
             "404 Not Found",
-            "web gateway: expect /__proxy__/<scheme>/<host>/<path>",
+            &error_page_html(
+                "StarHub Web Gateway — link cannot be proxied",
+                "This link does not point to a proxied page, so it cannot be opened through the SSH web gateway. Go back and reload the page to continue browsing via the proxy.",
+            ),
         )
         .await;
         return Ok(());
@@ -204,74 +553,85 @@ async fn handle_conn(mut stream: TcpStream) -> Result<(), String> {
         format!("/{tail}")
     };
     if (scheme != "http" && scheme != "https") || hostport.is_empty() {
-        respond_text(&mut stream, "400 Bad Request", "web gateway: bad proxy path").await;
+        respond_html(
+            &mut stream,
+            "400 Bad Request",
+            &error_page_html(
+                "StarHub Web Gateway — bad proxy URL",
+                "The proxy URL is malformed (expect /__proxy__/<http|https>/<host>/<path>). Go back and reload the page.",
+            ),
+        )
+        .await;
         return Ok(());
     }
 
-    let target_url = format!("{scheme}://{hostport}{path_query}");
-
-    let client = Client::builder()
-        .user_agent("Mozilla/5.0 (StarHub Web Gateway)")
-        .redirect(reqwest::redirect::Policy::limited(5))
-        .build()
-        .map_err(|e| format!("build reqwest client failed: {e}"))?;
-
-    let mut upstream_request = client.request(
-        reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET),
-        &target_url,
-    );
-    for (name, value) in &request_headers {
-        if should_forward_request_header(name) {
-            upstream_request = upstream_request.header(name, value);
-        }
-    }
-    if !request_body.is_empty() {
-        upstream_request = upstream_request.body(request_body);
-    }
-
-    let resp = timeout(
+    // 经 SSH 隧道向上游发请求;通道打不开/超时/目标不可达时给友好错误页
+    let upstream_result = timeout(
         Duration::from_secs(UPSTREAM_TIMEOUT_SEC),
-        upstream_request.send(),
+        fetch_upstream(
+            &ssh,
+            &scheme,
+            &hostport,
+            &path_query,
+            &method,
+            &request_headers,
+            &request_body,
+        ),
     )
-    .await
-    .map_err(|_| "upstream timed out".to_string())?
-    .map_err(|e| format!("upstream request: {e}"))?
-    .error_for_status()
-    .map_err(|e| format!("upstream status: {e}"))?;
+    .await;
+    let resp = match upstream_result {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(error)) => {
+            respond_html(
+                &mut stream,
+                "502 Bad Gateway",
+                &error_page_html(
+                    "StarHub Web Gateway — cannot reach target via SSH tunnel",
+                    &format!(
+                        "Failed to reach {scheme}://{hostport} through the SSH tunnel (the request would exit from the SSH server side). The server may have TCP forwarding disabled (AllowTcpForwarding), or the target is unreachable from the server.<br><br><code>{error}</code>",
+                    ),
+                ),
+            )
+            .await;
+            return Ok(());
+        }
+        Err(_) => {
+            respond_html(
+                &mut stream,
+                "504 Gateway Timeout",
+                &error_page_html(
+                    "StarHub Web Gateway — upstream timed out",
+                    &format!(
+                        "The request to {scheme}://{hostport} via the SSH tunnel timed out after {UPSTREAM_TIMEOUT_SEC}s.",
+                    ),
+                ),
+            )
+            .await;
+            return Ok(());
+        }
+    };
 
-    // 收集响应,限制大小
-    let status = resp.status().as_u16();
-    let resp_headers: Vec<(String, String)> = resp
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect();
-    let status_text = resp.status().canonical_reason().unwrap_or("Unknown");
-    let content_type = resp_headers
+    let status = resp.status;
+    let status_text = if resp.status_text.is_empty() {
+        "OK"
+    } else {
+        resp.status_text.as_str()
+    };
+    let content_type = resp
+        .headers
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
         .map(|(_, v)| v.to_ascii_lowercase())
         .unwrap_or_default();
 
-    let mut body = Vec::new();
-    {
-        // reqwest 0.12 的 IntoAsyncRead 需要 boxed,这里简化用 bytes()
-        let full = resp.bytes().await.map_err(|e| format!("read upstream body: {e}"))?;
-        let slice = if full.len() > MAX_RESPONSE_BYTES {
-            &full[..MAX_RESPONSE_BYTES]
-        } else {
-            &full
-        };
-        body.extend_from_slice(slice);
-    }
-
-    // HTML 改写
+    let mut body = resp.body;
+    // HTML 改写(注入 <base> + URL 改写)
     if content_type.contains("text/html") {
         let html = String::from_utf8_lossy(&body);
         body = rewrite_html(&html, &scheme, &hostport).into_bytes();
     }
 
-    // 回写响应
+    // 回写响应:3xx 原样返回(不跟随),Location/Refresh 改写成代理形式
     const SKIP_HEADERS: &[&str] = &[
         "content-length",
         "transfer-encoding",
@@ -283,13 +643,23 @@ async fn handle_conn(mut stream: TcpStream) -> Result<(), String> {
         "access-control-allow-headers",
     ];
     let mut out = format!("HTTP/1.1 {status} {status_text}\r\n");
-    for (k, v) in &resp_headers {
+    for (k, v) in &resp.headers {
         let lower = k.to_ascii_lowercase();
         if SKIP_HEADERS.contains(&lower.as_str()) {
             continue;
         }
         if lower == "location" {
-            out.push_str(&format!("Location: {}\r\n", rewrite_location(v, &scheme, &hostport)));
+            out.push_str(&format!(
+                "Location: {}\r\n",
+                rewrite_location(v, &scheme, &hostport, &path_query)
+            ));
+            continue;
+        }
+        if lower == "refresh" {
+            out.push_str(&format!(
+                "Refresh: {}\r\n",
+                rewrite_refresh_header(v, &scheme, &hostport, &path_query)
+            ));
             continue;
         }
         out.push_str(&format!("{k}: {v}\r\n"));
@@ -335,6 +705,135 @@ fn replace_root_relative(
     out
 }
 
+/// 注入 <base href="/__proxy__/{scheme}/{hostport}/">:紧跟 <head...> 之后;
+/// 无 head 则插到文档最前;已有 <base> 则不重复注入。
+fn inject_base(html: &str, scheme: &str, hostport: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    if lower.contains("<base") {
+        return html.to_string();
+    }
+    let base = format!("<base href=\"{GATEWAY_PATH_PREFIX}{scheme}/{hostport}/\">");
+    if let Some(head_idx) = lower.find("<head") {
+        if let Some(gt) = html[head_idx..].find('>') {
+            let at = head_idx + gt + 1;
+            return format!("{}{}{}", &html[..at], base, &html[at..]);
+        }
+    }
+    format!("{base}{html}")
+}
+
+/// 改写单个 URL(用于 meta refresh / srcset 候选):绝对、协议相对、根相对
+/// 都改写成代理形式;裸相对路径交给注入的 <base> 解析,保持不变。
+fn rewrite_url_token(url: &str, scheme: &str, hostport: &str) -> String {
+    if url.starts_with("/__proxy__/") {
+        return url.to_string();
+    }
+    if let Some(rest) = url.strip_prefix("https://") {
+        return format!("{GATEWAY_PATH_PREFIX}https/{rest}");
+    }
+    if let Some(rest) = url.strip_prefix("http://") {
+        return format!("{GATEWAY_PATH_PREFIX}http/{rest}");
+    }
+    if let Some(rest) = url.strip_prefix("//") {
+        return format!("{GATEWAY_PATH_PREFIX}{scheme}/{rest}");
+    }
+    if url.starts_with('/') {
+        return format!("{GATEWAY_PATH_PREFIX}{scheme}/{hostport}{url}");
+    }
+    url.to_string()
+}
+
+/// 改写 srcset 值:逗号分隔的候选,每个候选为「URL + 可选描述符」。
+fn rewrite_srcset_value(value: &str, scheme: &str, hostport: &str) -> String {
+    value
+        .split(',')
+        .map(|candidate| {
+            let trimmed = candidate.trim_start();
+            let mut parts = trimmed.splitn(2, char::is_whitespace);
+            let url = parts.next().unwrap_or_default();
+            let descriptor = parts.next().unwrap_or_default();
+            if url.is_empty() {
+                return candidate.to_string();
+            }
+            let rewritten = rewrite_url_token(url, scheme, hostport);
+            if descriptor.is_empty() {
+                rewritten
+            } else {
+                format!("{rewritten} {}", descriptor.trim_end())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// 改写属性值形式的 srcset(srcset="..."),保持引号不变。
+fn rewrite_srcset_attrs(html: &str, scheme: &str, hostport: &str) -> String {
+    let mut out = String::with_capacity(html.len() + html.len() / 8);
+    let mut rest = html;
+    while let Some(idx) = rest.find("srcset=") {
+        out.push_str(&rest[..idx + "srcset=".len()]);
+        rest = &rest[idx + "srcset=".len()..];
+        let Some(q) = rest.chars().next().filter(|c| *c == '"' || *c == '\'') else {
+            continue;
+        };
+        out.push(q);
+        rest = &rest[q.len_utf8()..];
+        let end = rest.find(q).unwrap_or(rest.len());
+        out.push_str(&rewrite_srcset_value(&rest[..end], scheme, hostport));
+        if end < rest.len() {
+            out.push(q);
+            rest = &rest[end + q.len_utf8()..];
+        } else {
+            rest = &rest[end..];
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// 改写 <meta http-equiv="refresh" content="N;url=..."> 里的 url。
+/// 识别依据:content 属性值中出现「;url=」或「; url=」(大小写不敏感)。
+fn rewrite_meta_refresh(html: &str, scheme: &str, hostport: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let mut out = String::with_capacity(html.len() + html.len() / 8);
+    let mut cursor = 0;
+    let mut search_from = 0;
+    while let Some(rel) = lower[search_from..].find("url=") {
+        let idx = search_from + rel;
+        // 仅当同一标签内前方有 refresh 字样时认为是 meta refresh
+        let window_start = lower[..idx].rfind('<').unwrap_or(0);
+        let tag_so_far = &lower[window_start..idx];
+        let is_refresh = tag_so_far.contains("refresh") && !tag_so_far.contains('>');
+        if !is_refresh {
+            search_from = idx + 4;
+            continue;
+        }
+        out.push_str(&html[cursor..idx + 4]);
+        let after = idx + 4;
+        let rest = &html[after..];
+        // url 值:可能带引号,也可能到空白/引号/>为止
+        if let Some(q) = rest.chars().next().filter(|c| *c == '"' || *c == '\'') {
+            let inner = &rest[q.len_utf8()..];
+            let end = inner.find(q).unwrap_or(inner.len());
+            out.push(q);
+            out.push_str(&rewrite_url_token(&inner[..end], scheme, hostport));
+            if end < inner.len() {
+                out.push(q);
+            }
+            cursor = after + q.len_utf8() + end + if end < inner.len() { q.len_utf8() } else { 0 };
+        } else {
+            let end = rest
+                .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == '>')
+                .unwrap_or(rest.len());
+            out.push_str(&rewrite_url_token(&rest[..end], scheme, hostport));
+            cursor = after + end;
+        }
+        search_from = cursor;
+    }
+    out.push_str(&html[cursor..]);
+    out
+}
+
 fn rewrite_html(html: &str, scheme: &str, hostport: &str) -> String {
     let page_prefix = format!("{GATEWAY_PATH_PREFIX}{scheme}/{hostport}");
     let scheme_prefix = format!("{GATEWAY_PATH_PREFIX}{scheme}/");
@@ -361,7 +860,7 @@ fn rewrite_html(html: &str, scheme: &str, hostport: &str) -> String {
         s = s.replace(&format!("{q}//"), &format!("{q}{scheme_prefix}"));
     }
     s = s.replace("(//", &format!("({scheme_prefix}"));
-    for attr in ["href", "src", "action", "poster", "formaction"] {
+    for attr in ["href", "src", "action", "poster", "formaction", "data-src", "data-href"] {
         for q in ['"', '\''] {
             s = replace_root_relative(&s, &format!("{attr}={q}"), &page_prefix, &scheme_prefix);
         }
@@ -369,10 +868,49 @@ fn rewrite_html(html: &str, scheme: &str, hostport: &str) -> String {
     for needle in ["url(", "url(\"", "url('"] {
         s = replace_root_relative(&s, needle, &page_prefix, &scheme_prefix);
     }
-    s
+    s = rewrite_srcset_attrs(&s, scheme, hostport);
+    s = rewrite_meta_refresh(&s, scheme, hostport);
+    inject_base(&s, scheme, hostport)
 }
 
-fn rewrite_location(value: &str, scheme: &str, hostport: &str) -> String {
+/// 把相对 Location 基于当前页面 path_query 解析为绝对路径(RFC 3986 简版)。
+fn resolve_relative_path(current_path_query: &str, rel: &str) -> String {
+    // 纯查询串/锚点:基于当前路径替换
+    if rel.starts_with('?') || rel.starts_with('#') {
+        let base_path = current_path_query
+            .split(['?', '#'])
+            .next()
+            .unwrap_or("/");
+        return format!("{base_path}{rel}");
+    }
+    let base_dir = {
+        let p = current_path_query.split(['?', '#']).next().unwrap_or("/");
+        match p.rfind('/') {
+            Some(i) => &p[..=i],
+            None => "/",
+        }
+    };
+    let suffix_start = rel
+        .find(['?', '#'])
+        .unwrap_or(rel.len());
+    let (rel_path, suffix) = rel.split_at(suffix_start);
+    let joined = format!("{base_dir}{rel_path}");
+    let mut segments: Vec<&str> = Vec::new();
+    for seg in joined.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            s => segments.push(s),
+        }
+    }
+    format!("/{}{suffix}", segments.join("/"))
+}
+
+/// 改写 3xx 的 Location 头:绝对/协议相对/根相对直接改写;
+/// 裸相对路径先基于当前页面解析成绝对路径再改写。
+fn rewrite_location(value: &str, scheme: &str, hostport: &str, current_path_query: &str) -> String {
     if let Some(rest) = value.strip_prefix("https://") {
         return format!("{GATEWAY_PATH_PREFIX}https/{rest}");
     }
@@ -385,7 +923,24 @@ fn rewrite_location(value: &str, scheme: &str, hostport: &str) -> String {
     if value.starts_with('/') {
         return format!("{GATEWAY_PATH_PREFIX}{scheme}/{hostport}{value}");
     }
-    value.to_string()
+    let resolved = resolve_relative_path(current_path_query, value);
+    format!("{GATEWAY_PATH_PREFIX}{scheme}/{hostport}{resolved}")
+}
+
+/// 改写 Refresh 响应头(格式:`N; url=...`)。
+fn rewrite_refresh_header(value: &str, scheme: &str, hostport: &str, current_path_query: &str) -> String {
+    let Some(semi) = value.find(';') else {
+        return value.to_string();
+    };
+    let (delay, rest) = value.split_at(semi);
+    let rest = &rest[1..];
+    let trimmed = rest.trim_start();
+    if trimmed.len() < 4 || !trimmed[..4].eq_ignore_ascii_case("url=") {
+        return value.to_string();
+    }
+    let url = trimmed[4..].trim_matches(|c| c == '"' || c == '\'');
+    let rewritten = rewrite_location(url, scheme, hostport, current_path_query);
+    format!("{delay}; url={rewritten}")
 }
 
 #[cfg(test)]
@@ -408,11 +963,112 @@ mod tests {
     }
 
     #[test]
+    fn injects_base_after_head() {
+        let out = rewrite_html(r#"<html><head lang="en"><title>t</title></head><body></body></html>"#, "https", "a.com");
+        let head_end = out.find("<head lang=\"en\">").unwrap() + "<head lang=\"en\">".len();
+        assert!(out[head_end..].starts_with(r#"<base href="/__proxy__/https/a.com/">"#));
+    }
+
+    #[test]
+    fn injects_base_at_front_without_head() {
+        let out = rewrite_html(r#"<div>hi</div>"#, "http", "a.com:8080");
+        assert!(out.starts_with(r#"<base href="/__proxy__/http/a.com:8080/">"#));
+    }
+
+    #[test]
+    fn does_not_duplicate_existing_base() {
+        let out = rewrite_html(r#"<html><head><base href="https://a.com/x/"></head></html>"#, "https", "a.com");
+        assert_eq!(out.matches("<base").count(), 1);
+    }
+
+    #[test]
+    fn rewrites_meta_refresh_url() {
+        let html = r#"<html><head><meta http-equiv="refresh" content="5;url=/login"><meta http-equiv="refresh" content="0; URL=https://other.com/x"></head></html>"#;
+        let out = rewrite_html(html, "https", "a.com");
+        assert!(out.contains("url=/__proxy__/https/a.com/login"));
+        assert!(out.contains("URL=/__proxy__/https/other.com/x"));
+    }
+
+    #[test]
+    fn leaves_non_refresh_url_equals_alone() {
+        // script 里的 url= 不是 meta refresh,不应改写
+        let html = r#"<html><head></head><body><script>var x = "a?url=/keep";</script></body></html>"#;
+        let out = rewrite_html(html, "https", "a.com");
+        assert!(out.contains("url=/keep"));
+    }
+
+    #[test]
+    fn rewrites_srcset_candidates() {
+        let html = r#"<img srcset="/a.png 1x, https://cdn.com/b.png 2x, //m.com/c.png 3x, relative.png 4x">"#;
+        let out = rewrite_html(html, "https", "a.com");
+        assert!(out.contains(r#"srcset="/__proxy__/https/a.com/a.png 1x, /__proxy__/https/cdn.com/b.png 2x, /__proxy__/https/m.com/c.png 3x, relative.png 4x""#));
+    }
+
+    #[test]
+    fn rewrites_data_src_and_data_href() {
+        let html = r#"<img data-src="/lazy/a.png"><a data-href='/go'>x</a>"#;
+        let out = rewrite_html(html, "http", "a.com");
+        assert!(out.contains(r#"data-src="/__proxy__/http/a.com/lazy/a.png""#));
+        assert!(out.contains(r#"data-href='/__proxy__/http/a.com/go'"#));
+    }
+
+    #[test]
     fn rewrites_redirect_locations() {
         assert_eq!(
-            rewrite_location("https://a.com/login", "http", "b.com"),
+            rewrite_location("https://a.com/login", "http", "b.com", "/"),
             "/__proxy__/https/a.com/login"
         );
+        assert_eq!(
+            rewrite_location("//cdn.com/x", "https", "b.com", "/"),
+            "/__proxy__/https/cdn.com/x"
+        );
+        assert_eq!(
+            rewrite_location("/top", "https", "b.com", "/a/b"),
+            "/__proxy__/https/b.com/top"
+        );
+    }
+
+    #[test]
+    fn resolves_relative_locations_against_current_page() {
+        assert_eq!(
+            rewrite_location("login", "https", "a.com", "/dir/page"),
+            "/__proxy__/https/a.com/dir/login"
+        );
+        assert_eq!(
+            rewrite_location("../x", "https", "a.com", "/dir/sub/page?q=1"),
+            "/__proxy__/https/a.com/dir/x"
+        );
+        assert_eq!(
+            rewrite_location("./y?z=2", "https", "a.com", "/dir/"),
+            "/__proxy__/https/a.com/dir/y?z=2"
+        );
+        assert_eq!(
+            rewrite_location("?page=2", "https", "a.com", "/list?old=1"),
+            "/__proxy__/https/a.com/list?page=2"
+        );
+    }
+
+    #[test]
+    fn rewrites_refresh_header() {
+        assert_eq!(
+            rewrite_refresh_header("5; url=/login", "https", "a.com", "/"),
+            "5; url=/__proxy__/https/a.com/login"
+        );
+        assert_eq!(
+            rewrite_refresh_header("0;URL=https://other.com/x", "http", "a.com", "/"),
+            "0; url=/__proxy__/https/other.com/x"
+        );
+        // 无 url 部分时原样返回
+        assert_eq!(rewrite_refresh_header("5", "https", "a.com", "/"), "5");
+    }
+
+    #[test]
+    fn splits_host_port_with_defaults() {
+        assert_eq!(split_host_port("a.com", "https").unwrap(), ("a.com".to_string(), 443));
+        assert_eq!(split_host_port("a.com", "http").unwrap(), ("a.com".to_string(), 80));
+        assert_eq!(split_host_port("a.com:8080", "http").unwrap(), ("a.com".to_string(), 8080));
+        assert_eq!(split_host_port("[::1]:9000", "http").unwrap(), ("::1".to_string(), 9000));
+        assert_eq!(split_host_port("[::1]", "https").unwrap(), ("::1".to_string(), 443));
     }
 
     #[test]
