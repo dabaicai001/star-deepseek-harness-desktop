@@ -1968,8 +1968,13 @@ watch(activeSubTabId, () => {
 
 // ====== 全局对象树联动(实例 → 库 → 表,选中/右键经 window 事件到达) ======
 const objectTree = useObjectTreeStore()
+const queuedSelection = ref<{ kind: string; payload: Record<string, unknown> } | null>(null)
 
 function applyObjectSelection(kind: string, payload: Record<string, unknown>) {
+  if (!connId.value) {
+    queuedSelection.value = { kind, payload }
+    return
+  }
   if (kind === 'table') {
     void selectTable(String(payload.db ?? ''), String(payload.table ?? ''))
   } else if (kind === 'database') {
@@ -2018,10 +2023,17 @@ function runObjectAction(act: ObjectAction) {
 }
 
 watch(connId, (v) => {
-  if (!v || !queuedAction.value) return
-  const act = queuedAction.value
-  queuedAction.value = null
-  applyObjectAction(act.kind, act.action, act.payload)
+  if (!v) return
+  if (queuedAction.value) {
+    const act = queuedAction.value
+    queuedAction.value = null
+    applyObjectAction(act.kind, act.action, act.payload)
+  }
+  if (queuedSelection.value) {
+    const sel = queuedSelection.value
+    queuedSelection.value = null
+    applyObjectSelection(sel.kind, sel.payload)
+  }
 })
 
 function onObjectAction(e: Event) {

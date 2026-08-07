@@ -257,8 +257,9 @@ function coerceValue(value: unknown, original: unknown, column: ColumnInfo): unk
 
   const type = column.type.toLowerCase()
   if (/int|decimal|numeric|float|double|real/.test(type) && value.trim() !== '') {
-    const numberValue = Number(value)
-    if (!Number.isNaN(numberValue)) return numberValue
+    const trimmed = value.trim()
+    const numberValue = Number(trimmed)
+    if (!Number.isNaN(numberValue) && String(numberValue) === trimmed) return numberValue
   }
   if (/bool|tinyint\(1\)/.test(type)) {
     if (value === 'true' || value === '1') return true
