@@ -2515,7 +2515,7 @@ kbd {
 
 .workspace-content {
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .statusbar {
