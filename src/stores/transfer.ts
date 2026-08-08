@@ -3,6 +3,8 @@ import { ref, reactive, computed } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import {
   sftpCancelTransfer,
+  sftpPauseTransfer,
+  sftpResumeTransfer,
   sftpRetryTransfer,
   sftpSetSpeedLimit,
   type TransferDirection,
@@ -76,7 +78,12 @@ export const useTransferStore = defineStore('transfer', () => {
     return count
   })
 
-  const finishedCount = computed(() => taskList.value.length - activeCount.value)
+  /** 终态(历史区)判定:done/failed/cancelled;paused 可继续,不算终态 */
+  function isFinished(status: TransferStatus): boolean {
+    return status === 'done' || status === 'failed' || status === 'cancelled'
+  }
+
+  const finishedCount = computed(() => taskList.value.filter(i => isFinished(i.status)).length)
 
   /** 进行中任务的聚合进度(0-100),任务条上展示 */
   const aggregatePercent = computed(() => {
@@ -150,6 +157,11 @@ export const useTransferStore = defineStore('transfer', () => {
         item.error = error ?? null
         if (status === 'done' || status === 'failed' || status === 'cancelled') {
           item.finishTime = Date.now()
+          speedSnapshots.delete(transferId)
+          speedDisplay.value.delete(transferId)
+        }
+        // 暂停:worker 已停,清掉速度显示但保留断点进度(可继续,不算终态)
+        if (status === 'paused') {
           speedSnapshots.delete(transferId)
           speedDisplay.value.delete(transferId)
         }
@@ -242,6 +254,16 @@ export const useTransferStore = defineStore('transfer', () => {
     await sftpCancelTransfer(item.sessionId, item.transferId)
   }
 
+  async function pause(item: DockTransferItem) {
+    await sftpPauseTransfer(item.sessionId, item.transferId)
+  }
+
+  async function resume(item: DockTransferItem) {
+    speedSnapshots.delete(item.transferId)
+    speedDisplay.value.delete(item.transferId)
+    await sftpResumeTransfer(item.sessionId, item.transferId)
+  }
+
   async function retry(item: DockTransferItem) {
     speedSnapshots.delete(item.transferId)
     speedDisplay.value.delete(item.transferId)
@@ -264,7 +286,7 @@ export const useTransferStore = defineStore('transfer', () => {
   const MAX_FINISHED_TASKS = 100
 
   function evictFinishedOverflow() {
-    const finished = [...tasks.values()].filter(i => i.status !== 'running' && i.status !== 'queued')
+    const finished = [...tasks.values()].filter(i => isFinished(i.status))
     if (finished.length <= MAX_FINISHED_TASKS) return
     finished.sort((a, b) => (a.finishTime ?? a.startTime) - (b.finishTime ?? b.startTime))
     for (const item of finished.slice(0, finished.length - MAX_FINISHED_TASKS)) {
@@ -274,10 +296,10 @@ export const useTransferStore = defineStore('transfer', () => {
     }
   }
 
-  /** 清理所有终态任务(历史区) */
+  /** 清理所有终态任务(历史区);已暂停任务保留,可继续 */
   function clearFinished() {
     for (const [id, item] of tasks) {
-      if (item.status !== 'running' && item.status !== 'queued') {
+      if (isFinished(item.status)) {
         tasks.delete(id)
         speedSnapshots.delete(id)
         speedDisplay.value.delete(id)
@@ -303,6 +325,8 @@ export const useTransferStore = defineStore('transfer', () => {
     progressPercent,
     speedOf,
     cancel,
+    pause,
+    resume,
     retry,
     applySpeedLimit,
     clearFinished,

@@ -13,7 +13,7 @@ use super::ops::{download_file, mkdir, stat, upload_file};
 use super::{TransferDirection, TransferFile, TransferProgress, TransferStatus, TransferTask};
 
 /// 终态任务(Done/Failed/Cancelled)保留上限,超出后按插入顺序淘汰最旧的,
-/// 避免 tasks map 只增不减。进行中的任务永远保留,不影响现有查询 API。
+/// 避免 tasks map 只增不减。进行中 / 已暂停的任务永远保留,不影响现有查询 API。
 const MAX_RETAINED_TERMINAL_TASKS: usize = 100;
 
 fn is_terminal(status: &TransferStatus) -> bool {
@@ -32,6 +32,28 @@ pub struct TransferStatusEvent {
     pub direction: TransferDirection,
     pub status: TransferStatus,
     pub error: Option<String>,
+}
+
+/// 每个传输任务的控制令牌。
+/// - cancel:取消(终态,任务不可再恢复)
+/// - pause:暂停(worker 在块边界退出,任务与断点偏移保留,可 resume 继续)
+#[derive(Clone)]
+struct TransferControl {
+    cancel: CancellationToken,
+    pause: CancellationToken,
+}
+
+impl TransferControl {
+    fn new() -> Self {
+        Self {
+            cancel: CancellationToken::new(),
+            pause: CancellationToken::new(),
+        }
+    }
+
+    fn interrupted(&self) -> bool {
+        self.cancel.is_cancelled() || self.pause.is_cancelled()
+    }
 }
 
 /// Recursively collect all files under `path`, returning `(local_path, remote_relative_path, size)` tuples.
@@ -99,7 +121,7 @@ pub struct TransferManager {
     /// 任务插入顺序,用于终态任务的滚动淘汰
     task_order: Arc<Mutex<std::collections::VecDeque<String>>>,
     sftp_sessions: Arc<Mutex<HashMap<String, Arc<Mutex<SftpSession>>>>>,
-    cancel_tokens: Arc<Mutex<HashMap<String, CancellationToken>>>,
+    controls: Arc<Mutex<HashMap<String, TransferControl>>>,
     app_handle: AppHandle,
 }
 
@@ -109,7 +131,7 @@ impl TransferManager {
             tasks: Arc::new(Mutex::new(HashMap::new())),
             task_order: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             sftp_sessions: Arc::new(Mutex::new(HashMap::new())),
-            cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
+            controls: Arc::new(Mutex::new(HashMap::new())),
             app_handle,
         }
     }
@@ -195,7 +217,6 @@ impl TransferManager {
         };
 
         let transfer_id = Uuid::new_v4().to_string();
-        let cancel_token = CancellationToken::new();
 
         let mut files = Vec::new();
         let mut total_bytes: u64 = 0;
@@ -232,6 +253,7 @@ impl TransferManager {
             upload_remote_dir: Some(remote_dir.clone()),
             download_remote_paths: None,
             download_local_dir: None,
+            upload_all_files: Some(all_files.clone()),
         };
 
         {
@@ -241,16 +263,32 @@ impl TransferManager {
             order.push_back(transfer_id.clone());
             Self::prune_terminal_tasks(&mut tasks, &mut order);
         }
+
+        let control = TransferControl::new();
         {
-            let mut tokens = self.cancel_tokens.lock().await;
-            tokens.insert(transfer_id.clone(), cancel_token.clone());
+            let mut controls = self.controls.lock().await;
+            controls.insert(transfer_id.clone(), control.clone());
         }
 
+        self.spawn_upload_worker(transfer_id.clone(), session_id, sftp, all_files, remote_dir, control);
+
+        Ok(transfer_id)
+    }
+
+    /// 上传 worker:逐文件传输,响应取消/暂停;暂停后任务与断点偏移保留,可 resume 再进本 worker。
+    fn spawn_upload_worker(
+        &self,
+        tid: String,
+        session_id: String,
+        sftp: Arc<Mutex<SftpSession>>,
+        all_files: Vec<(String, String, u64)>,
+        remote_dir: String,
+        control: TransferControl,
+    ) {
         let tasks = self.tasks.clone();
-        let cancel_tokens = self.cancel_tokens.clone();
+        let controls = self.controls.clone();
         let app_handle = self.app_handle.clone();
-        let tid = transfer_id.clone();
-        let session_id_for_emit = session_id.clone();
+        let session_id_for_emit = session_id;
 
         tokio::spawn(async move {
             tracing::info!("[TransferManager::upload] spawned task {} starting", tid);
@@ -276,12 +314,20 @@ impl TransferManager {
             let mut final_status: Option<(TransferStatus, Option<String>)> = None;
 
             for (i, (local_path, relative_path, _size)) in all_files.iter().enumerate() {
-                if cancel_token.is_cancelled() {
+                if control.cancel.is_cancelled() {
                     let mut tasks = tasks.lock().await;
                     if let Some(t) = tasks.get_mut(&tid) {
                         t.status = TransferStatus::Cancelled;
                     }
                     final_status = Some((TransferStatus::Cancelled, None));
+                    break;
+                }
+                if control.pause.is_cancelled() {
+                    let mut tasks = tasks.lock().await;
+                    if let Some(t) = tasks.get_mut(&tid) {
+                        t.status = TransferStatus::Paused;
+                    }
+                    final_status = Some((TransferStatus::Paused, None));
                     break;
                 }
 
@@ -324,7 +370,7 @@ impl TransferManager {
                         .unwrap_or(0)
                 };
 
-                // Skip already-completed files (retry scenario)
+                // Skip already-completed files (resume/retry scenario)
                 let file_size = {
                     let tasks_guard = tasks.lock().await;
                     tasks_guard
@@ -347,7 +393,7 @@ impl TransferManager {
                     continue;
                 }
 
-                let cancel_check = cancel_token.clone();
+                let control_for_check = control.clone();
                 let result = upload_file(
                     &sftp,
                     local_path,
@@ -381,11 +427,21 @@ impl TransferManager {
                             .and_then(|g| g.get(&tid_for_speed).map(|t| t.speed_limit))
                             .unwrap_or(0)
                     },
-                    move || cancel_check.is_cancelled(),
+                    move || control_for_check.interrupted(),
                 )
                 .await;
 
-                if result.is_err() && cancel_token.is_cancelled() {
+                if result.is_err() && control.pause.is_cancelled() {
+                    tracing::info!("[TransferManager::upload] task {} paused", tid);
+                    let mut tasks = tasks.lock().await;
+                    if let Some(t) = tasks.get_mut(&tid) {
+                        t.status = TransferStatus::Paused;
+                    }
+                    final_status = Some((TransferStatus::Paused, None));
+                    break;
+                }
+
+                if result.is_err() && control.cancel.is_cancelled() {
                     tracing::info!("[TransferManager::upload] task {} cancelled", tid);
                     let mut tasks = tasks.lock().await;
                     if let Some(t) = tasks.get_mut(&tid) {
@@ -424,34 +480,42 @@ impl TransferManager {
                 }
             }
 
-            if final_status.is_none() && !cancel_token.is_cancelled() {
-                tracing::info!("[TransferManager::upload] task {} completed", tid);
+            if final_status.is_none() {
+                let status = if control.cancel.is_cancelled() {
+                    TransferStatus::Cancelled
+                } else if control.pause.is_cancelled() {
+                    TransferStatus::Paused
+                } else {
+                    TransferStatus::Done
+                };
+                tracing::info!("[TransferManager::upload] task {} finished: {:?}", tid, status);
                 let mut tasks = tasks.lock().await;
                 if let Some(t) = tasks.get_mut(&tid) {
-                    t.status = TransferStatus::Done;
+                    t.status = status.clone();
                 }
-                final_status = Some((TransferStatus::Done, None));
+                final_status = Some((status, None));
             }
 
-            // 通知前端:终态
-            if let Some((status, error)) = final_status {
+            // 通知前端:终态 / 暂停
+            if let Some((status, error)) = &final_status {
                 let _ = app_handle.emit(
                     "sftp://transfer-status",
                     TransferStatusEvent {
                         transfer_id: tid.clone(),
                         session_id: session_id_for_emit.clone(),
                         direction: TransferDirection::Upload,
-                        status,
-                        error,
+                        status: status.clone(),
+                        error: error.clone(),
                     },
                 );
             }
 
-            let mut tokens = cancel_tokens.lock().await;
-            tokens.remove(&tid);
+            // 暂停的任务保留 control(resume 时会换新);其余状态清理
+            if !matches!(final_status, Some((TransferStatus::Paused, _))) {
+                let mut controls = controls.lock().await;
+                controls.remove(&tid);
+            }
         });
-
-        Ok(transfer_id)
     }
 
     pub async fn download(
@@ -473,7 +537,6 @@ impl TransferManager {
         };
 
         let transfer_id = Uuid::new_v4().to_string();
-        let cancel_token = CancellationToken::new();
 
         let mut files = Vec::new();
         let mut total_bytes: u64 = 0;
@@ -506,6 +569,7 @@ impl TransferManager {
             upload_remote_dir: None,
             download_remote_paths: Some(remote_paths.clone()),
             download_local_dir: Some(local_dir.clone()),
+            upload_all_files: None,
         };
 
         {
@@ -515,16 +579,32 @@ impl TransferManager {
             order.push_back(transfer_id.clone());
             Self::prune_terminal_tasks(&mut tasks, &mut order);
         }
+
+        let control = TransferControl::new();
         {
-            let mut tokens = self.cancel_tokens.lock().await;
-            tokens.insert(transfer_id.clone(), cancel_token.clone());
+            let mut controls = self.controls.lock().await;
+            controls.insert(transfer_id.clone(), control.clone());
         }
 
+        self.spawn_download_worker(transfer_id.clone(), session_id, sftp, remote_paths, local_dir, control);
+
+        Ok(transfer_id)
+    }
+
+    /// 下载 worker:语义同 spawn_upload_worker,暂停后保留任务与断点偏移。
+    fn spawn_download_worker(
+        &self,
+        tid: String,
+        session_id: String,
+        sftp: Arc<Mutex<SftpSession>>,
+        remote_paths: Vec<String>,
+        local_dir: String,
+        control: TransferControl,
+    ) {
         let tasks = self.tasks.clone();
-        let cancel_tokens = self.cancel_tokens.clone();
+        let controls = self.controls.clone();
         let app_handle = self.app_handle.clone();
-        let tid = transfer_id.clone();
-        let session_id_for_emit = session_id.clone();
+        let session_id_for_emit = session_id;
 
         tokio::spawn(async move {
             {
@@ -549,12 +629,20 @@ impl TransferManager {
             let mut final_status: Option<(TransferStatus, Option<String>)> = None;
 
             for (i, remote_path) in remote_paths.iter().enumerate() {
-                if cancel_token.is_cancelled() {
+                if control.cancel.is_cancelled() {
                     let mut tasks = tasks.lock().await;
                     if let Some(t) = tasks.get_mut(&tid) {
                         t.status = TransferStatus::Cancelled;
                     }
                     final_status = Some((TransferStatus::Cancelled, None));
+                    break;
+                }
+                if control.pause.is_cancelled() {
+                    let mut tasks = tasks.lock().await;
+                    if let Some(t) = tasks.get_mut(&tid) {
+                        t.status = TransferStatus::Paused;
+                    }
+                    final_status = Some((TransferStatus::Paused, None));
                     break;
                 }
 
@@ -586,7 +674,7 @@ impl TransferManager {
                         .unwrap_or(0)
                 };
 
-                // Skip already-completed files (retry scenario)
+                // Skip already-completed files (resume/retry scenario)
                 let file_size = {
                     let tasks_guard = tasks.lock().await;
                     tasks_guard
@@ -609,7 +697,7 @@ impl TransferManager {
                     continue;
                 }
 
-                let cancel_check = cancel_token.clone();
+                let control_for_check = control.clone();
                 let result = download_file(
                     &sftp,
                     remote_path,
@@ -643,11 +731,20 @@ impl TransferManager {
                             .and_then(|g| g.get(&tid_for_speed).map(|t| t.speed_limit))
                             .unwrap_or(0)
                     },
-                    move || cancel_check.is_cancelled(),
+                    move || control_for_check.interrupted(),
                 )
                 .await;
 
-                if result.is_err() && cancel_token.is_cancelled() {
+                if result.is_err() && control.pause.is_cancelled() {
+                    let mut tasks = tasks.lock().await;
+                    if let Some(t) = tasks.get_mut(&tid) {
+                        t.status = TransferStatus::Paused;
+                    }
+                    final_status = Some((TransferStatus::Paused, None));
+                    break;
+                }
+
+                if result.is_err() && control.cancel.is_cancelled() {
                     let mut tasks = tasks.lock().await;
                     if let Some(t) = tasks.get_mut(&tid) {
                         t.status = TransferStatus::Cancelled;
@@ -680,40 +777,144 @@ impl TransferManager {
                 }
             }
 
-            if final_status.is_none() && !cancel_token.is_cancelled() {
+            if final_status.is_none() {
+                let status = if control.cancel.is_cancelled() {
+                    TransferStatus::Cancelled
+                } else if control.pause.is_cancelled() {
+                    TransferStatus::Paused
+                } else {
+                    TransferStatus::Done
+                };
                 let mut tasks = tasks.lock().await;
                 if let Some(t) = tasks.get_mut(&tid) {
-                    t.status = TransferStatus::Done;
+                    t.status = status.clone();
                 }
-                final_status = Some((TransferStatus::Done, None));
+                final_status = Some((status, None));
             }
 
-            // 通知前端:终态
-            if let Some((status, error)) = final_status {
+            // 通知前端:终态 / 暂停
+            if let Some((status, error)) = &final_status {
                 let _ = app_handle.emit(
                     "sftp://transfer-status",
                     TransferStatusEvent {
                         transfer_id: tid.clone(),
                         session_id: session_id_for_emit.clone(),
                         direction: TransferDirection::Download,
-                        status,
-                        error,
+                        status: status.clone(),
+                        error: error.clone(),
                     },
                 );
             }
 
-            let mut tokens = cancel_tokens.lock().await;
-            tokens.remove(&tid);
+            // 暂停的任务保留 control(resume 时会换新);其余状态清理
+            if !matches!(final_status, Some((TransferStatus::Paused, _))) {
+                let mut controls = controls.lock().await;
+                controls.remove(&tid);
+            }
         });
-
-        Ok(transfer_id)
     }
 
+    /// 取消一个传输。运行中的由 worker 在块边界退出;
+    /// 已暂停的任务没有 worker 在监听令牌,这里直接落终态并通知前端。
     pub async fn cancel(&self, transfer_id: &str) {
-        let tokens = self.cancel_tokens.lock().await;
-        if let Some(token) = tokens.get(transfer_id) {
-            token.cancel();
+        {
+            let controls = self.controls.lock().await;
+            if let Some(c) = controls.get(transfer_id) {
+                c.cancel.cancel();
+            }
         }
+
+        let paused_info = {
+            let mut tasks = self.tasks.lock().await;
+            tasks.get_mut(transfer_id).and_then(|t| {
+                if t.status == TransferStatus::Paused {
+                    t.status = TransferStatus::Cancelled;
+                    Some((t.session_id.clone(), t.direction.clone()))
+                } else {
+                    None
+                }
+            })
+        };
+
+        if let Some((session_id, direction)) = paused_info {
+            let _ = self.app_handle.emit(
+                "sftp://transfer-status",
+                TransferStatusEvent {
+                    transfer_id: transfer_id.to_string(),
+                    session_id,
+                    direction,
+                    status: TransferStatus::Cancelled,
+                    error: None,
+                },
+            );
+            let mut controls = self.controls.lock().await;
+            controls.remove(transfer_id);
+        }
+    }
+
+    /// 暂停一个运行中的传输:worker 在块边界退出,任务与断点偏移保留
+    pub async fn pause(&self, transfer_id: &str) {
+        let controls = self.controls.lock().await;
+        if let Some(c) = controls.get(transfer_id) {
+            c.pause.cancel();
+        }
+    }
+
+    /// 继续一个已暂停的传输:换新控制令牌,重新 spawn worker,从断点偏移续传
+    pub async fn resume(&self, transfer_id: &str) -> Result<()> {
+        let (session_id, direction, all_files, remote_dir, remote_paths, local_dir) = {
+            let mut tasks = self.tasks.lock().await;
+            let task = tasks
+                .get_mut(transfer_id)
+                .ok_or_else(|| anyhow::anyhow!("Transfer not found: {}", transfer_id))?;
+            if task.status != TransferStatus::Paused {
+                return Err(anyhow::anyhow!("Can only resume paused transfers"));
+            }
+            task.status = TransferStatus::Queued;
+            (
+                task.session_id.clone(),
+                task.direction.clone(),
+                task.upload_all_files.clone(),
+                task.upload_remote_dir.clone(),
+                task.download_remote_paths.clone(),
+                task.download_local_dir.clone(),
+            )
+        };
+
+        let sftp = {
+            let sessions = self.sftp_sessions.lock().await;
+            sessions
+                .get(&session_id)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("SFTP session not found: {}", session_id))?
+        };
+
+        let control = TransferControl::new();
+        {
+            let mut controls = self.controls.lock().await;
+            controls.insert(transfer_id.to_string(), control.clone());
+        }
+
+        match direction {
+            TransferDirection::Upload => self.spawn_upload_worker(
+                transfer_id.to_string(),
+                session_id,
+                sftp,
+                all_files.unwrap_or_default(),
+                remote_dir.unwrap_or_default(),
+                control,
+            ),
+            TransferDirection::Download => self.spawn_download_worker(
+                transfer_id.to_string(),
+                session_id,
+                sftp,
+                remote_paths.unwrap_or_default(),
+                local_dir.unwrap_or_default(),
+                control,
+            ),
+        }
+
+        Ok(())
     }
 
     /// Retry a failed transfer — creates a new transfer that resumes from per-file offsets

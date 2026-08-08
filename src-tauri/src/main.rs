@@ -86,6 +86,8 @@ fn main() {
             commands::sftp::sftp_start_upload,
             commands::sftp::sftp_start_download,
             commands::sftp::sftp_cancel_transfer,
+            commands::sftp::sftp_pause_transfer,
+            commands::sftp::sftp_resume_transfer,
             commands::sftp::sftp_list_transfers,
             commands::sftp::sftp_set_speed_limit,
             commands::sftp::sftp_retry_transfer,

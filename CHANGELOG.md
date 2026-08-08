@@ -14,6 +14,11 @@
 
 ---
 
+## [0.47.0] - 2026-08-08
+
+### 新增
+- SFTP 传输暂停/继续:TransferDock 运行中任务新增「暂停」按钮(⏸),已暂停任务可「继续」(▶)或「取消」;后端 `TransferControl` 双令牌(cancel/pause),暂停时 worker 在 64KB 块边界退出并保留任务与逐文件断点偏移,继续时换新令牌重新 spawn worker 从断点续传;新增 `sftp_pause_transfer`/`sftp_resume_transfer` 命令与 `TransferStatus::Paused` 状态(进度条黄色,「清理已完成」不清除已暂停任务)
+
 ## [0.46.10] - 2026-08-08
 
 ### 修复

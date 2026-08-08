@@ -93,7 +93,7 @@ export interface TransferFile {
 }
 
 export type TransferDirection = 'upload' | 'download'
-export type TransferStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+export type TransferStatus = 'queued' | 'running' | 'paused' | 'done' | 'failed' | 'cancelled'
 
 export interface TransferTask {
   id: string
@@ -165,12 +165,30 @@ export async function sftpStartDownload(
   }
 }
 
-/** 取消一个传输 */
+/** 取消一个传输(运行中或已暂停都适用) */
 export async function sftpCancelTransfer(id: string, transferId: string): Promise<void> {
   try {
     return await invoke('sftp_cancel_transfer', { id, transferId })
   } catch (error) {
     wrapInvokeError('sftp_cancel_transfer', error)
+  }
+}
+
+/** 暂停一个运行中的传输(保留断点偏移,可继续) */
+export async function sftpPauseTransfer(id: string, transferId: string): Promise<void> {
+  try {
+    return await invoke('sftp_pause_transfer', { id, transferId })
+  } catch (error) {
+    wrapInvokeError('sftp_pause_transfer', error)
+  }
+}
+
+/** 继续一个已暂停的传输(从断点偏移续传) */
+export async function sftpResumeTransfer(id: string, transferId: string): Promise<void> {
+  try {
+    return await invoke('sftp_resume_transfer', { id, transferId })
+  } catch (error) {
+    wrapInvokeError('sftp_resume_transfer', error)
   }
 }
 

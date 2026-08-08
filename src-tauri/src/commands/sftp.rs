@@ -316,7 +316,8 @@ pub async fn sftp_start_download(
         .map_err(map_err)
 }
 
-/// 取消一个传输(设置 cancellation token,正在跑的循环检测到后退出)
+/// 取消一个传输(设置 cancellation token,正在跑的循环检测到后退出;
+/// 已暂停的任务直接落终态)
 #[tauri::command]
 pub async fn sftp_cancel_transfer(
     transfer_manager: State<'_, TransferManager>,
@@ -325,6 +326,27 @@ pub async fn sftp_cancel_transfer(
 ) -> Result<(), String> {
     transfer_manager.cancel(&transfer_id).await;
     Ok(())
+}
+
+/// 暂停一个运行中的传输(保留断点偏移,可 resume 继续)
+#[tauri::command]
+pub async fn sftp_pause_transfer(
+    transfer_manager: State<'_, TransferManager>,
+    _id: String,
+    transfer_id: String,
+) -> Result<(), String> {
+    transfer_manager.pause(&transfer_id).await;
+    Ok(())
+}
+
+/// 继续一个已暂停的传输(从断点偏移续传)
+#[tauri::command]
+pub async fn sftp_resume_transfer(
+    transfer_manager: State<'_, TransferManager>,
+    _id: String,
+    transfer_id: String,
+) -> Result<(), String> {
+    transfer_manager.resume(&transfer_id).await.map_err(map_err)
 }
 
 /// 动态修改传输速度限制(bytes/sec, 0 = 不限)

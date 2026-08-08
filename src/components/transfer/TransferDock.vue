@@ -247,9 +247,30 @@ onBeforeUnmount(() => {
               <span v-if="item.status === 'running'" class="transfer-speed">
                 {{ transferStore.speedOf(item) }}
               </span>
+              <span v-else-if="item.status === 'paused'" class="transfer-speed paused">
+                {{ t('sftp.transferPaused') }}
+              </span>
               <span class="transfer-percent">{{ transferStore.progressPercent(item) }}%</span>
               <button
-                v-if="item.status === 'running' || item.status === 'queued'"
+                v-if="item.status === 'running'"
+                class="action-btn transfer-item-btn"
+                :data-tooltip="t('sftp.pauseTransfer')"
+                :aria-label="t('sftp.pauseTransfer')"
+                @click="transferStore.pause(item)"
+              >
+                <v-icon size="12">mdi-pause</v-icon>
+              </button>
+              <button
+                v-if="item.status === 'paused'"
+                class="action-btn transfer-item-btn resume"
+                :data-tooltip="t('sftp.resumeTransfer')"
+                :aria-label="t('sftp.resumeTransfer')"
+                @click="transferStore.resume(item)"
+              >
+                <v-icon size="12">mdi-play</v-icon>
+              </button>
+              <button
+                v-if="item.status === 'running' || item.status === 'queued' || item.status === 'paused'"
                 class="action-btn transfer-item-btn"
                 :data-tooltip="t('sftp.cancelTransfer')"
                 :aria-label="t('sftp.cancelTransfer')"

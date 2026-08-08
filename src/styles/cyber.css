@@ -5425,6 +5425,10 @@ body {
   color: var(--yellow);
 }
 
+.transfer-item-btn.resume {
+  color: var(--green);
+}
+
 .transfer-progress-bar {
   height: 3px;
   overflow: hidden;
@@ -5442,6 +5446,9 @@ body {
 .transfer-progress-fill.done { background: var(--green); }
 .transfer-progress-fill.failed { background: var(--red); }
 .transfer-progress-fill.cancelled { background: var(--muted); }
+.transfer-progress-fill.paused { background: var(--yellow); }
+
+.transfer-speed.paused { color: var(--yellow); }
 
 .transfer-error {
   margin-top: 4px;

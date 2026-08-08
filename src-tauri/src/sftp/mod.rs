@@ -35,6 +35,8 @@ pub enum TransferDirection {
 pub enum TransferStatus {
     Queued,
     Running,
+    /// 已暂停:worker 已退出但任务与断点偏移保留,可 resume 继续
+    Paused,
     Done,
     Failed,
     Cancelled,
@@ -56,6 +58,10 @@ pub struct TransferTask {
     pub upload_remote_dir: Option<String>,
     pub download_remote_paths: Option<Vec<String>>,
     pub download_local_dir: Option<String>,
+    /// 上传任务的完整文件清单(本地路径, 远程相对路径, 大小),暂停后恢复用;
+    /// 不序列化到前端(list_tasks 事件不携带)
+    #[serde(skip)]
+    pub upload_all_files: Option<Vec<(String, String, u64)>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.46.10(SFTP 取消(暂停)传输对单个大文件失效:取消令牌只在文件之间检查,`upload_file`/`download_file` 的 64KB 块读写循环内不检查,点击 ✕ 后当前文件仍会传完才停止;在循环内每块检查一次取消标记并中断,取消立即生效且保留断点续传偏移) |
+| 当前版本 | v0.47.0(SFTP 传输暂停/继续:TransferDock 运行中任务新增「暂停」按钮(⏸),已暂停任务可「继续」(▶)或「取消」;后端 `TransferControl` 双令牌(cancel/pause),暂停时 worker 在 64KB 块边界退出并保留任务与逐文件断点偏移,继续时换新令牌重新 spawn worker 从断点续传;新增 `sftp_pause_transfer`/`sftp_resume_transfer` 命令与 `TransferStatus::Paused` 状态(进度条黄色,「清理已完成」不清除已暂停任务)) |
 
 ---
 
@@ -442,7 +442,7 @@ npm run tauri:build
 
 - 数据库:ClickHouse / SQL Server / Elasticsearch、备份恢复、审计与告警
 - SSH:跳板机、端口转发、分屏、命令广播、危险命令拦截
-- SFTP:断点续传、全局传输任务条(TransferDock)
+- SFTP:断点续传、暂停/继续、全局传输任务条(TransferDock)
 - Docker:Compose、SSH 通道连远程
 - AI:Planner → Executor、MCP Server、工作区内嵌确认卡、@/# 上下文绑定
 - 应用:标签页拖出独立窗口、深浅双主题、自动更新
@@ -478,4 +478,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-08 (v0.46.10)*
+*最后更新: 2026-08-08 (v0.47.0)*
