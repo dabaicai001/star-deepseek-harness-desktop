@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.46.9(修复「服务器网页访问」HTTPS 站点报「127.0.0.1 未发送任何数据」:rustls 双 CryptoProvider(reqwest 的 ring + tokio-rustls 默认的 aws-lc-rs)使 `ClientConfig::builder()` panic、连接被静默断开,改为显式 `builder_with_provider(ring)`) |
+| 当前版本 | v0.46.10(SFTP 取消(暂停)传输对单个大文件失效:取消令牌只在文件之间检查,`upload_file`/`download_file` 的 64KB 块读写循环内不检查,点击 ✕ 后当前文件仍会传完才停止;在循环内每块检查一次取消标记并中断,取消立即生效且保留断点续传偏移) |
 
 ---
 
@@ -478,4 +478,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-08 (v0.46.9)*
+*最后更新: 2026-08-08 (v0.46.10)*

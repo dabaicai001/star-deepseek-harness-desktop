@@ -137,17 +137,19 @@ pub async fn set_permissions(
     Ok(())
 }
 
-pub async fn upload_file<F, G>(
+pub async fn upload_file<F, G, H>(
     sftp: &Arc<Mutex<SftpSession>>,
     local_path: &str,
     remote_path: &str,
     resume_from: u64,
     on_progress: F,
     get_speed_limit: G,
+    is_cancelled: H,
 ) -> Result<()>
 where
     F: Fn(u64, u64) + Send + 'static,
     G: Fn() -> u64 + Send + 'static,
+    H: Fn() -> bool + Send + 'static,
 {
     tracing::info!(
         "[upload_file] start: local={}, remote={}, resume_from={}",
@@ -226,6 +228,11 @@ where
     let start_time = std::time::Instant::now();
 
     loop {
+        // 取消检查:每 64KB 块一次,保证取消/暂停能中断单个大文件的传输
+        if is_cancelled() {
+            anyhow::bail!("transfer cancelled");
+        }
+
         let n = local_file
             .read(&mut buf)
             .await
@@ -279,17 +286,19 @@ where
     Ok(())
 }
 
-pub async fn download_file<F, G>(
+pub async fn download_file<F, G, H>(
     sftp: &Arc<Mutex<SftpSession>>,
     remote_path: &str,
     local_path: &str,
     resume_from: u64,
     on_progress: F,
     get_speed_limit: G,
+    is_cancelled: H,
 ) -> Result<()>
 where
     F: Fn(u64, u64) + Send + 'static,
     G: Fn() -> u64 + Send + 'static,
+    H: Fn() -> bool + Send + 'static,
 {
     let mut remote_file = {
         let sftp = sftp.lock().await;
@@ -350,6 +359,11 @@ where
     let start_time = std::time::Instant::now();
 
     loop {
+        // 取消检查:每 64KB 块一次,保证取消/暂停能中断单个大文件的传输
+        if is_cancelled() {
+            anyhow::bail!("transfer cancelled");
+        }
+
         let n = remote_file
             .read(&mut buf)
             .await

@@ -347,6 +347,7 @@ impl TransferManager {
                     continue;
                 }
 
+                let cancel_check = cancel_token.clone();
                 let result = upload_file(
                     &sftp,
                     local_path,
@@ -380,6 +381,7 @@ impl TransferManager {
                             .and_then(|g| g.get(&tid_for_speed).map(|t| t.speed_limit))
                             .unwrap_or(0)
                     },
+                    move || cancel_check.is_cancelled(),
                 )
                 .await;
 
@@ -607,6 +609,7 @@ impl TransferManager {
                     continue;
                 }
 
+                let cancel_check = cancel_token.clone();
                 let result = download_file(
                     &sftp,
                     remote_path,
@@ -640,6 +643,7 @@ impl TransferManager {
                             .and_then(|g| g.get(&tid_for_speed).map(|t| t.speed_limit))
                             .unwrap_or(0)
                     },
+                    move || cancel_check.is_cancelled(),
                 )
                 .await;
 

@@ -90,8 +90,11 @@ function firstSummary(content, version) {
 function readmeEntries(content, version) {
   const start = content.indexOf(`## [${version}] - `);
   if (start === -1) return [];
-  const end = content.indexOf("\n---\n", start);
-  const body = content.slice(start, end === -1 ? undefined : end);
+  // 以「下一个版本标题」或 `---` 分隔线为界,取先出现者(相邻版本区块之间可能没有 `---`)
+  const nextHeader = content.indexOf("\n## [", start + 1);
+  const divider = content.indexOf("\n---\n", start);
+  const end = [nextHeader, divider].filter((i) => i !== -1).sort((a, b) => a - b)[0];
+  const body = content.slice(start, end === undefined ? undefined : end);
 
   const lines = [];
   let emoji = "🔧";
