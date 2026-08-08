@@ -542,17 +542,28 @@ impl TransferManager {
         let mut total_bytes: u64 = 0;
 
         for remote_path in &remote_paths {
-            let entry = stat(&sftp, remote_path).await?;
+            // stat 失败时不直接抛错,让 worker 尝试 open;某些远端/FUSE stat 不可用但可读。
+            let entry_size = match stat(&sftp, remote_path).await {
+                Ok(entry) => entry.size,
+                Err(e) => {
+                    tracing::warn!(
+                        "[TransferManager::download] stat failed for {}: {}; will try open",
+                        remote_path,
+                        e
+                    );
+                    0
+                }
+            };
             let name = Path::new(remote_path)
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| remote_path.clone());
             files.push(TransferFile {
                 name,
-                size: entry.size,
+                size: entry_size,
                 transferred: 0,
             });
-            total_bytes += entry.size;
+            total_bytes += entry_size;
         }
 
         let task = TransferTask {
@@ -763,15 +774,18 @@ impl TransferManager {
                     break;
                 }
 
-                let entry_size = stat(&sftp, remote_path).await.map(|e| e.size).unwrap_or(0);
-                cumulative_transferred += entry_size;
+                let file_size = result.unwrap();
+                cumulative_transferred += file_size;
 
                 {
                     let mut tasks = tasks.lock().await;
                     if let Some(t) = tasks.get_mut(&tid) {
+                        let old_size = t.files.get(i).map(|f| f.size).unwrap_or(0);
+                        t.total_bytes = t.total_bytes.saturating_sub(old_size).saturating_add(file_size);
                         t.transferred_bytes = cumulative_transferred;
                         if let Some(f) = t.files.get_mut(i) {
-                            f.transferred = entry_size;
+                            f.size = file_size;
+                            f.transferred = file_size;
                         }
                     }
                 }

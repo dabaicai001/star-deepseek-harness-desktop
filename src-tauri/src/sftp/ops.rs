@@ -294,7 +294,7 @@ pub async fn download_file<F, G, H>(
     on_progress: F,
     get_speed_limit: G,
     is_cancelled: H,
-) -> Result<()>
+) -> Result<u64>
 where
     F: Fn(u64, u64) + Send + 'static,
     G: Fn() -> u64 + Send + 'static,
@@ -311,18 +311,19 @@ where
         })?
     };
 
-    let total_size = remote_file
-        .metadata()
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "stat remote file failed: {} (SFTP error: {})",
+    // 某些远端存储/FUSE 在 open 后 fstat 仍可能失败,这里降级为 0 继续传输,
+    // 最终返回实际读取到的字节数作为文件大小。
+    let total_size = match remote_file.metadata().await {
+        Ok(meta) => meta.size.unwrap_or(0),
+        Err(e) => {
+            tracing::warn!(
+                "[download_file] fstat failed for {} after open: {}; continuing without total size",
                 remote_path,
                 e
-            )
-        })?
-        .size
-        .unwrap_or(0);
+            );
+            0
+        }
+    };
 
     let open_opts = if resume_from > 0 {
         let mut opts = tokio::fs::OpenOptions::new();
@@ -397,7 +398,7 @@ where
         .await
         .with_context(|| "flush local file failed")?;
 
-    Ok(())
+    Ok(total_size.max(transferred))
 }
 
 #[allow(dead_code)]
