@@ -27,6 +27,12 @@ import { getDetachedInfo, LOCAL_TAB_DETACH_EVENT } from '@/lib/windowDetach'
 import { SSH_SYSTEM_PROMPT, SSH_SILENT_MODE_PROMPT_NOTE, sshTools, makeSshToolCaller } from '@/utils/aiTools'
 import { makeSftpToolCaller, sftpTools } from '@/utils/aiSftpTools'
 import { checkCommand, extractWhitelistPrefix, stripShellPrompt } from '@/utils/commandGuard'
+import {
+  cleanPromptCapturedOutput,
+  hasReturnedPrompt,
+  isShellPromptLine,
+  normalizeTerminalText
+} from '@/utils/sshPromptCapture'
 import type { LlmToolCall } from '@/services/ai'
 import { createMcpRuntime } from '@/services/mcp'
 import { logAudit } from '@/services/audit'
@@ -1201,7 +1207,7 @@ function runPtyAiCommand(command: string): Promise<string> {
  const current = promptCapture
  if (!current) return
  const raw = sliceBufferFrom(current.baseline)
- const partial = cleanPromptCapturedOutput(raw, current.command)
+ const partial = cleanPromptCapturedOutput(raw, current.command, aiSensitiveInputs)
  interruptAiCommand(new Error(`等待 shell prompt 返回超时,已发送 Ctrl+C 恢复终端。已收到输出:\n${partial || '(无输出)'}`))
  }, AI_PROMPT_CAPTURE_SAFETY_MS)
 
@@ -1258,14 +1264,14 @@ function maybeResolvePromptCapture() {
   // 先检测是否需要交互输入
   if (detectInteractivePrompt(raw)) return
   
-  if (hasReturnedPrompt(raw, current.expectedPrompt)) {
+  if (hasReturnedPrompt(raw, current.expectedPrompt, current.command)) {
     if (current.settleTimer) window.clearTimeout(current.settleTimer)
     current.settleTimer = window.setTimeout(() => {
       const latest = promptCapture
       if (!latest) return
       const output = sliceBufferFrom(latest.baseline)
-      if (!hasReturnedPrompt(output, latest.expectedPrompt)) return
-      const cleaned = cleanPromptCapturedOutput(output, latest.command)
+      if (!hasReturnedPrompt(output, latest.expectedPrompt, latest.command)) return
+      const cleaned = cleanPromptCapturedOutput(output, latest.command, aiSensitiveInputs)
       if (latest.safetyTimer) window.clearTimeout(latest.safetyTimer)
       if (latest.settleTimer) window.clearTimeout(latest.settleTimer)
       if (latest.idleTimer) window.clearTimeout(latest.idleTimer)
@@ -1276,14 +1282,18 @@ function maybeResolvePromptCapture() {
 }
 
 /**
- * 数据流 idle 兜底:当 shell prompt 无法被识别(自定义 PS1 / fish / zsh / 带 ❯➜ 的提示符等)时,
- * 只要数据流连续 AI_PROMPT_IDLE_FALLBACK_MS 没有新内容,就认为命令已经结束,直接收口已收到的输出,
- * 避免一直等到 safetyTimer 超时再发 Ctrl+C 报错。每次收到新数据都会重置计时。
+ * 数据流 idle 兜底:仅当 shell prompt 无法被识别(自定义 PS1 / fish / zsh / 带 ❯➜ 的
+ * 提示符等,getCurrentPromptLine 抓不到)时启用 — 此时数据流连续 AI_PROMPT_IDLE_FALLBACK_MS
+ * 没有新内容就认为命令已结束,避免一直等到 safetyTimer 超时再发 Ctrl+C 报错。
+ *
+ * prompt 可识别时绝不能用它:sleep、下载、编译等命令会长时间静默,
+ * 提前收口会把"命令还在跑"误判成"无输出"返回给 AI。
  */
 function armPromptCaptureIdleFallback() {
   const current = promptCapture
   if (!current) return
   if (current.idleTimer) window.clearTimeout(current.idleTimer)
+  if (current.expectedPrompt) return
   current.idleTimer = window.setTimeout(() => {
     const latest = promptCapture
     if (!latest) return
@@ -1291,7 +1301,7 @@ function armPromptCaptureIdleFallback() {
     if (aiInputDialogVisible.value) return
     const raw = sliceBufferFrom(latest.baseline)
     if (detectInteractivePrompt(raw)) return
-    const cleaned = cleanPromptCapturedOutput(raw, latest.command)
+    const cleaned = cleanPromptCapturedOutput(raw, latest.command, aiSensitiveInputs)
     if (latest.safetyTimer) window.clearTimeout(latest.safetyTimer)
     if (latest.settleTimer) window.clearTimeout(latest.settleTimer)
     promptCapture = null
@@ -1354,7 +1364,7 @@ function onAiInputSubmit(input: string) {
     const pc = promptCapture
     if (!pc) return
     const raw2 = sliceBufferFrom(pc.baseline)
-    const partial = cleanPromptCapturedOutput(raw2, pc.command)
+    const partial = cleanPromptCapturedOutput(raw2, pc.command, aiSensitiveInputs)
     interruptAiCommand(new Error(`等待 shell prompt 返回超时,已发送 Ctrl+C 恢复终端。已收到输出:\n${partial || '(无输出)'}`))
   }, AI_PROMPT_CAPTURE_SAFETY_MS)
 }
@@ -1368,18 +1378,6 @@ function onAiInputCancel() {
   interruptAiCommand(new Error('用户取消了交互输入'))
 }
 
-function stripTerminalControl(input: string): string {
- return input
-   .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, '')
-   .replace(/\x07/g, '')
-}
-
-function normalizeTerminalText(input: string): string {
- return stripTerminalControl(input)
-   .replace(/\r\n/g, '\n')
-   .replace(/\r/g, '\n')
-}
-
 function getCurrentPromptLine(): string | null {
  const text = normalizeTerminalText(dataBuffer.value.slice(-200).join('')).slice(-1200)
  const lines = text.split('\n').map(line => line.trimEnd()).filter(line => line.trim().length > 0)
@@ -1387,50 +1385,6 @@ function getCurrentPromptLine(): string | null {
  if (!last || last.length > 180) return null
  if (isShellPromptLine(last) || /(?:[$#%>]|❯|➜)\s*$/.test(last)) return last
  return null
-}
-
-function hasReturnedPrompt(raw: string, expectedPrompt: string | null): boolean {
- const text = normalizeTerminalText(raw).slice(-1200)
- const lines = text.split('\n').map(line => line.trimEnd()).filter(line => line.trim().length > 0)
- const last = lines[lines.length - 1] || ''
- if (expectedPrompt && last === expectedPrompt) return true
- return isShellPromptLine(last)
-}
-
-function isShellPromptLine(line: string): boolean {
- const trimmed = line.trimEnd()
- if (!trimmed || trimmed.length > 180) return false
- if (/^[#$%>]\s*$/.test(trimmed)) return true
- if (/^\[[^\]\n]{1,140}\]\s*[#$%>]\s*$/.test(trimmed)) return true
- if (/^[\w.-]+@[\w.-]+(?::[^\n]{0,120})?\s*[#$%>]\s*$/.test(trimmed)) return true
- if (/^(?:~|\/[\w./-]*|\.\.?)(?:\s+[^\n]{0,80})?\s*[#$%>]\s*$/.test(trimmed)) return true
- if (/(?:❯|➜)\s*$/.test(trimmed)) return true
- return false
-}
-
-function cleanPromptCapturedOutput(raw: string, command: string): string {
- const commandText = command.trim()
- const lines = normalizeTerminalText(raw)
-   .split('\n')
-   .map(line => line.trimEnd())
-
- while (lines.length && !lines[0].trim()) lines.shift()
- if (lines.length && commandText) {
-   const first = lines[0].trim()
-   if (first === commandText || first.endsWith(commandText)) {
-     lines.shift()
-   }
- }
- while (lines.length && !lines[lines.length - 1].trim()) lines.pop()
- if (lines.length && isShellPromptLine(lines[lines.length - 1])) {
-   lines.pop()
- }
- let output = lines.join('\n').trim()
- for (const secret of aiSensitiveInputs) {
-   if (secret) output = output.split(secret).join('[REDACTED]')
- }
- aiSensitiveInputs.clear()
- return output
 }
 
 // ======快速命令栏(连接后顶部一条小横条) ======
