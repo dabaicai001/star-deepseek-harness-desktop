@@ -214,7 +214,14 @@ fn tls_connector() -> tokio_rustls::TlsConnector {
         .get_or_init(|| {
             let mut roots = RootCertStore::empty();
             roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            let config = ClientConfig::builder()
+            // 必须显式指定 CryptoProvider:reqwest(rustls-tls → ring)与
+            // tokio-rustls(默认 → aws-lc-rs)在同一 rustls 构建里启用了两个 provider,
+            // ClientConfig::builder() 无法自动抉择会直接 panic;panic 发生在连接 task
+            // 内,TCP 流被静默断开,浏览器表现为「127.0.0.1 未发送任何数据」。
+            let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
+            let config = ClientConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .expect("ring provider supports the default TLS protocol versions")
                 .with_root_certificates(roots)
                 .with_no_client_auth();
             tokio_rustls::TlsConnector::from(Arc::new(config))

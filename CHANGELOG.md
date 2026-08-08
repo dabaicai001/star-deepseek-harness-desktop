@@ -14,6 +14,16 @@
 
 ---
 
+## [0.46.9] - 2026-08-08
+
+### 修复
+- 服务器网页访问 HTTPS 站点(如 www.baidu.com)报「127.0.0.1 未发送任何数据」:reqwest(`rustls-tls` → ring)与 tokio-rustls(默认 → aws-lc-rs)使 rustls 0.23 同时携带两个 CryptoProvider,`ClientConfig::builder()` 无法自动抉择,在首个 HTTPS 请求时 panic,连接 task 被打死导致浏览器收到空响应;改为 `builder_with_provider(ring)` 显式指定 provider,并在 `Cargo.toml` 显式启用 tokio-rustls 的 `ring` feature
+
+## [0.46.8] - 2026-08-08
+
+### 修复
+- SSH AI 工具执行 `sleep 5; ps ...` 等长时间静默的复合命令时不再提前返回空输出:prompt 可识别时停用 2s 数据流 idle 兜底,并排除折行命令回显被误判为 shell prompt 的情况;prompt 捕获纯函数抽至 `src/utils/sshPromptCapture.ts` 并补 node --test 单测
+
 ## [0.46.7] - 2026-08-07
 
 ### 文档

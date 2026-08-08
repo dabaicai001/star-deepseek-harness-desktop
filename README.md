@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.46.7-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.46.9-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,14 @@
 ---
 
 ## 当前版本
+
+### v0.46.9 (2026-08-08)
+
+- 🐛 修复「服务器网页访问」HTTPS 站点（如 www.baidu.com）报「127.0.0.1 未发送任何数据」：rustls 双 CryptoProvider（reqwest 的 ring + tokio-rustls 默认的 aws-lc-rs）导致 `ClientConfig::builder()` panic、连接被静默断开，改为显式 `builder_with_provider(ring)`
+
+### v0.46.8 (2026-08-08)
+- 🐛 SSH AI 工具执行 `sleep 5; ps ...` 等长时间静默的复合命令时不再提前返回空输出:prompt 可识别时停用 2s 数据流 idle 兜底,并排除折行命令回显被误判为 shell prompt 的情况;prompt 捕获纯函数抽至 `src/utils/sshPromptCapture.ts` 并补 node --test 单测
+- 📝 在 `docs/BUG-K3.md` 中标注「服务器网页访问」项已完成（v0.46.6），数据库查询结果可编辑与本地工作区改进仍为待办
 
 ### v0.46.7 (2026-08-07)
 

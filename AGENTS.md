@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.46.7(BUG-K3 状态标注同步) |
+| 当前版本 | v0.46.9(修复「服务器网页访问」HTTPS 站点报「127.0.0.1 未发送任何数据」:rustls 双 CryptoProvider(reqwest 的 ring + tokio-rustls 默认的 aws-lc-rs)使 `ClientConfig::builder()` panic、连接被静默断开,改为显式 `builder_with_provider(ring)`) |
 
 ---
 
@@ -478,4 +478,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-07 (v0.46.7)*
+*最后更新: 2026-08-08 (v0.46.9)*
