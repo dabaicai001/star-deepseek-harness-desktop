@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.47.1(SFTP 下载文件时 `sftp_start_download` 因预检 `stat` 失败直接报错:改为 `stat` 失败不阻塞,worker 直接尝试 `open` 下载;`download_file` 返回实际文件大小并回写任务总字节数,兼容远端/FUSE 等 `stat`/`fstat` 不可靠的场景) |
+| 当前版本 | v0.47.2(SSH AI 多行命令「prompt 返回超时」:追加不可见 OSC 完成哨兵精确判定命令结束并取退出码,哨兵被吞退回 prompt 识别;AiView / SSH 内嵌 StarAI 面板切页「回到开头」:keep-alive 离屏时不再用归零 scrollTop 覆盖滚动锚点) |
 
 ---
 
@@ -478,4 +478,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-08 (v0.47.1)*
+*最后更新: 2026-08-09 (v0.47.2)*

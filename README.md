@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.47.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.47.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,10 @@
 ---
 
 ## 当前版本
+
+### v0.47.2 (2026-08-09)
+- 🐛 SSH AI 工具执行多行命令偶发「等待 shell prompt 返回超时」(命令秒回却等满 60s):借鉴 OpenHands / Roo Code 的哨兵思路,AI 命令后追加不可见 OSC 完成标记(`printf '\033]777;starhub;ai-done;<ID>;<退出码>\007' "$?"`),命中即收口并附退出码,哨兵被吞时退回原 prompt 识别;修复末行输出无换行导致 prompt 与输出粘连、永远匹配不上的问题
+- 🐛 AI 助手(AiView)与 SSH 终端内嵌 StarAI 面板切换标签页后滚动位置「回到开头」:keep-alive 失活时 DOM 先离屏、deactivated 钩子后触发,capture 到归零的 scrollTop 覆盖了正确锚点;改为已离屏时保留最后锚点,AiChat 补齐锚点保存/恢复
 
 ### v0.47.1 (2026-08-08)
 - 🐛 SFTP 下载文件时 `sftp_start_download` 因预检 `stat` 失败直接报错:改为 `stat` 失败不阻塞,worker 直接尝试 `open` 下载;`download_file` 返回实际文件大小并回写任务总字节数,兼容远端/FUSE 等 `stat`/`fstat` 不可靠的场景

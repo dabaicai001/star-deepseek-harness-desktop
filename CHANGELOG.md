@@ -14,6 +14,14 @@
 
 ---
 
+## [0.47.2] - 2026-08-09
+
+### 修复
+- SSH AI 工具执行多行命令(for/if 循环等)偶发「等待 shell prompt 返回超时」:命令其实秒回,但末行输出无换行时返回的 prompt 与输出粘连,`hasReturnedPrompt` 永远匹配不上,且 prompt 可识别时 2s idle 兜底被禁用,只能等满 60s 发 Ctrl+C;借鉴 OpenHands / Roo Code 的哨兵思路,AI 命令后追加一行 `printf '\033]777;starhub;ai-done;<ID>;<退出码>\007' "$?"` 完成标记(自定义 OSC 序列,xterm 不渲染、终端无噪音;唯一 ID 防止误命中日志内容),命中哨兵即收口并附退出码,哨兵被吞(csh / PowerShell 无 printf 等)自动退回原 prompt 识别 + 安全超时;新增 10 个 node --test 单测覆盖哨兵解析与用户报告的多行循环场景
+- AI 助手(AiView)与 SSH 终端内嵌 StarAI 面板切换标签页后滚动位置「回到开头」:Vue keep-alive 失活时先把 DOM 移入离屏容器再触发 deactivated 钩子,此时 scrollTop 已归零,`onDeactivated` 里的 capture 用 0 覆盖了 @scroll 记录的正确锚点;改为已离屏(`isConnected === false`)时保留最后锚点,AiChat 补齐同样的锚点保存/恢复,恢复时同步执行 + rAF 校正双保险(后台窗口 rAF 不触发也能恢复)
+
+---
+
 ## [0.47.1] - 2026-08-08
 
 ### 修复
