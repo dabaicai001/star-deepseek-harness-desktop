@@ -28,9 +28,13 @@ import { SSH_SYSTEM_PROMPT, SSH_SILENT_MODE_PROMPT_NOTE, sshTools, makeSshToolCa
 import { makeSftpToolCaller, sftpTools } from '@/utils/aiSftpTools'
 import { checkCommand, extractWhitelistPrefix, stripShellPrompt } from '@/utils/commandGuard'
 import {
+  buildCompletionMarkerCommand,
   cleanPromptCapturedOutput,
+  findCompletionMarker,
   hasReturnedPrompt,
+  isCompletionMarkerEchoLine,
   isShellPromptLine,
+  newCompletionMarkerId,
   normalizeTerminalText
 } from '@/utils/sshPromptCapture'
 import type { LlmToolCall } from '@/services/ai'
@@ -164,6 +168,8 @@ interface PromptCapture {
   command: string
   /** 命令发送前终端最后一行的 prompt,用于识别自定义 PS1 / fish / zsh prompt */
   expectedPrompt: string | null
+  /** 本次命令的完成哨兵 ID(追加的 printf 行输出的 OSC 标记,见 sshPromptCapture.ts) */
+  markerId: string
   resolve: (s: string) => void
   reject: (e: Error) => void
   safetyTimer: number | null
@@ -173,6 +179,8 @@ interface PromptCapture {
 let promptCapture: PromptCapture | null = null
 const AI_PROMPT_CAPTURE_SAFETY_MS = 60 * 1000
 const AI_PROMPT_IDLE_FALLBACK_MS = 2000
+/** 哨兵 ID 递增序号(拼接随机串保证单次命令唯一) */
+let aiCompletionMarkerSeq = 0
 
 // SSH AI interactive input dialog
 const aiInputDialogVisible = ref(false)
@@ -1193,10 +1201,12 @@ function runPtyAiCommand(command: string): Promise<string> {
   return Promise.reject(new Error('上一条 SSH AI 命令仍在执行,已拒绝并发发送新命令'))
  }
  return new Promise((resolve, reject) => {
+  const markerId = newCompletionMarkerId(++aiCompletionMarkerSeq)
   promptCapture = {
   baseline: dataBufferTotalPushed,
   command,
   expectedPrompt: getCurrentPromptLine(),
+  markerId,
   resolve,
   reject,
   safetyTimer: null,
@@ -1211,7 +1221,9 @@ function runPtyAiCommand(command: string): Promise<string> {
  interruptAiCommand(new Error(`等待 shell prompt 返回超时,已发送 Ctrl+C 恢复终端。已收到输出:\n${partial || '(无输出)'}`))
  }, AI_PROMPT_CAPTURE_SAFETY_MS)
 
- writeCommand(command).catch(error => {
+ // 命令之后追加一行哨兵 printf(独立一行,多行命令也能正常排队执行):
+ // 命中哨兵即判定完成,不再只靠 prompt 识别;哨兵被吞时退回 prompt 检测
+ writeCommand(`${command}\n${buildCompletionMarkerCommand(markerId)}`).catch(error => {
  const current = promptCapture
  if (!current) {
  reject(error instanceof Error ? error : new Error(String(error)))
@@ -1260,10 +1272,24 @@ function maybeResolvePromptCapture() {
   const current = promptCapture
   if (!current) return
   const raw = sliceBufferFrom(current.baseline)
-  
+
   // 先检测是否需要交互输入
   if (detectInteractivePrompt(raw)) return
-  
+
+  // 主通道:命中完成哨兵。哨兵 printf 在命令输出之后执行,字节序保证
+  // 它之前的输出已经全部到达,可以直接收口,无需 settle 等待
+  const marker = findCompletionMarker(raw, current.markerId)
+  if (marker) {
+    const cleaned = cleanMarkerCapturedOutput(raw.slice(0, marker.start), current.command, marker.exitCode)
+    if (current.safetyTimer) window.clearTimeout(current.safetyTimer)
+    if (current.settleTimer) window.clearTimeout(current.settleTimer)
+    if (current.idleTimer) window.clearTimeout(current.idleTimer)
+    promptCapture = null
+    current.resolve(cleaned || '(无输出)')
+    return
+  }
+
+  // 兜底通道:哨兵行被吞(引号未闭合 / csh / PowerShell 等)时退回 prompt 识别
   if (hasReturnedPrompt(raw, current.expectedPrompt, current.command)) {
     if (current.settleTimer) window.clearTimeout(current.settleTimer)
     current.settleTimer = window.setTimeout(() => {
@@ -1279,6 +1305,21 @@ function maybeResolvePromptCapture() {
       latest.resolve(cleaned || '(无输出)')
     }, 80)
   }
+}
+
+/**
+ * 清理哨兵通道捕获的输出:
+ * 截取到哨兵之前(命令输出完整,不含返回的 prompt 行),
+ * 剥掉命令回显与哨兵命令本身的回显行,非 0 退出码时附上 exit code 提示。
+ */
+function cleanMarkerCapturedOutput(rawBeforeMarker: string, command: string, exitCode: number | null): string {
+  const cleaned = cleanPromptCapturedOutput(rawBeforeMarker, command, aiSensitiveInputs)
+  const lines = cleaned.split('\n').filter(line => !isCompletionMarkerEchoLine(line))
+  let output = lines.join('\n').trim()
+  if (exitCode !== null && exitCode !== 0) {
+    output = `${output}\n[exit code: ${exitCode}]`.trim()
+  }
+  return output
 }
 
 /**

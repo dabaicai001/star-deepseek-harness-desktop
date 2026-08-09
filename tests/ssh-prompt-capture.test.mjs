@@ -11,7 +11,8 @@ const transpiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
 }).outputText
 const mod = await import(`data:text/javascript;base64,${Buffer.from(transpiled).toString('base64')}`)
-const { hasReturnedPrompt, cleanPromptCapturedOutput, isCommandEchoFragment, isShellPromptLine } = mod
+const { hasReturnedPrompt, cleanPromptCapturedOutput, isCommandEchoFragment, isShellPromptLine,
+  buildCompletionMarkerCommand, findCompletionMarker, isCompletionMarkerEchoLine, newCompletionMarkerId } = mod
 
 const PROMPT = 'root@autodl-container-06c7:~#'
 const COMMAND =
@@ -72,4 +73,87 @@ test('isShellPromptLine 常见 prompt 与非 prompt', () => {
   assert.equal(isShellPromptLine('root@host:~#'), true)
   assert.equal(isShellPromptLine('[user@host /var/log]$'), true)
   assert.equal(isShellPromptLine('downloaded 10/12'), false)
+})
+
+// ====== 命令完成哨兵(printf OSC 标记) ======
+
+const MARKER_ID = 't1abc'
+const MARKER_CMD = buildCompletionMarkerCommand(MARKER_ID)
+
+test('buildCompletionMarkerCommand 生成 printf 哨兵命令', () => {
+  assert.equal(MARKER_CMD, `printf '\\033]777;starhub;ai-done;${MARKER_ID};%s\\007' "$?"`)
+})
+
+test('newCompletionMarkerId 每次生成不同 ID', () => {
+  assert.notEqual(newCompletionMarkerId(1), newCompletionMarkerId(1))
+})
+
+test('findCompletionMarker 命中真实哨兵输出并解析退出码', () => {
+  const raw =
+    `${PROMPT} ls\r\n` +
+    `file1\r\nfile2\r\n` +
+    `\x1b]777;starhub;ai-done;${MARKER_ID};0\x07\r\n` +
+    `${PROMPT} `
+  const match = findCompletionMarker(raw, MARKER_ID)
+  assert.ok(match)
+  assert.equal(match.exitCode, 0)
+  // start 指向 ESC 字节,slice(0, start) 正好是完整命令输出
+  assert.equal(raw.slice(match.start).startsWith('\x1b]777;'), true)
+  assert.equal(raw.slice(0, match.start).endsWith('file2\r\n'), true)
+})
+
+test('findCompletionMarker 解析非 0 退出码', () => {
+  const raw = `boom\r\n\x1b]777;starhub;ai-done;${MARKER_ID};127\x07`
+  assert.equal(findCompletionMarker(raw, MARKER_ID)?.exitCode, 127)
+})
+
+test('findCompletionMarker 支持 ESC\\ (ST) 结尾', () => {
+  const raw = `out\r\n\x1b]777;starhub;ai-done;${MARKER_ID};3\x1b\\`
+  assert.equal(findCompletionMarker(raw, MARKER_ID)?.exitCode, 3)
+})
+
+test('findCompletionMarker 退出码为空(fish 不展开 $?)时退化为 null', () => {
+  const raw = `out\r\n\x1b]777;starhub;ai-done;${MARKER_ID};\x07`
+  const match = findCompletionMarker(raw, MARKER_ID)
+  assert.ok(match)
+  assert.equal(match.exitCode, null)
+})
+
+test('findCompletionMarker 不匹配哨兵命令的回显文本', () => {
+  // 回显只有字面字符 `\033]777;...`(没有 ESC 字节),绝不能误判为命令完成
+  const raw = `${PROMPT} ${MARKER_CMD}\r\n`
+  assert.equal(findCompletionMarker(raw, MARKER_ID), null)
+})
+
+test('findCompletionMarker 不匹配其他命令的哨兵 ID', () => {
+  const raw = `out\r\n\x1b]777;starhub;ai-done;other9;0\x07`
+  assert.equal(findCompletionMarker(raw, MARKER_ID), null)
+})
+
+test('多行 for 循环 + 末行无换行:prompt 识别失败但哨兵命中(用户报告场景)', () => {
+  const loopCmd =
+    'for n in unet te mmproj vae; do\n' +
+    '  echo "--- $n ---"\n' +
+    '  tail -3 /root/autodl-tmp/hfd_logs/dl_$n.log 2>/dev/null\n' +
+    'done'
+  // tail 的末行日志不带换行,返回的 prompt 经哨兵后与输出粘连成一行,
+  // hasReturnedPrompt 永远为 false;哨兵是独立字节序列,不受粘连影响
+  const raw =
+    `${PROMPT} ${loopCmd.split('\n')[0]}\r\n` +
+    `>   echo "--- $n ---"\r\n` +
+    `>   tail -3 /root/autodl-tmp/hfd_logs/dl_$n.log 2>/dev/null\r\n` +
+    `> done\r\n` +
+    `--- unet ---\r\nlog-a\r\n--- te ---\r\nlog-b\r\n--- mmproj ---\r\n--- vae ---\r\n` +
+    `2026-08-09 partial-log-no-newline` +
+    `\x1b]777;starhub;ai-done;${MARKER_ID};0\x07` +
+    `${PROMPT} `
+  assert.equal(hasReturnedPrompt(raw, PROMPT, loopCmd), false)
+  const match = findCompletionMarker(raw, MARKER_ID)
+  assert.ok(match)
+  assert.equal(match.exitCode, 0)
+})
+
+test('isCompletionMarkerEchoLine 识别哨兵回显行', () => {
+  assert.equal(isCompletionMarkerEchoLine(`${PROMPT} ${MARKER_CMD}`), true)
+  assert.equal(isCompletionMarkerEchoLine('--- unet ---'), false)
 })
