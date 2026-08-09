@@ -9,10 +9,11 @@
  *  - onRetry(): 重试(在出错时)
  *  - toolConfirm: 等待确认的 tool call(展示 + 用户决策)
  */
-import { ref, nextTick, watch, computed } from 'vue'
+import { ref, nextTick, watch, computed, onMounted, onActivated, onDeactivated } from 'vue'
 import type { AiSession, AiToolCallRecord } from '@/stores/ai'
 import { useI18n } from 'vue-i18n'
 import AiMessageContent from '@/components/ai/AiMessageContent.vue'
+import { captureScrollAnchor, resolveScrollTop, type ScrollAnchor } from '@/utils/scrollPosition'
 
 const props = defineProps<{
   session: AiSession
@@ -138,6 +139,43 @@ function scrollToBottom(force = false) {
     }
   })
 }
+
+// ====== keep-alive 滚动锚点(切页回来不「回到开头」) ======
+// 宿主(如 SshTerminal)被 keep-alive 缓存/恢复时,Vue 会把 DOM 移入离屏容器,
+// scrollTop 归零;靠 @scroll 持续记录锚点,激活时恢复。
+let savedScrollAnchor: ScrollAnchor | null = null
+
+function captureScrollPosition() {
+  const container = messagesRef.value
+  if (!container) return
+  savedScrollAnchor = captureScrollAnchor(container)
+}
+
+async function restoreScrollPosition() {
+  await nextTick()
+  const apply = () => {
+    const container = messagesRef.value
+    if (!container) return
+    // 锚点为空(首次/重挂载)→ resolveScrollTop 落到最新消息
+    container.scrollTop = resolveScrollTop(savedScrollAnchor, container)
+    captureScrollPosition()
+  }
+  // 先同步恢复一次(后台窗口 rAF 可能不触发),rAF 再校正一次(异步渲染后高度可能变化)
+  apply()
+  window.requestAnimationFrame(apply)
+}
+
+onMounted(() => {
+  void restoreScrollPosition()
+})
+onActivated(() => {
+  void restoreScrollPosition()
+})
+onDeactivated(() => {
+  // deactivated 钩子触发时 DOM 已被移入离屏容器,scrollTop 读数为 0,
+  // 直接 capture 会覆盖正确锚点;已离屏就保留 @scroll 记录的锚点
+  if (messagesRef.value?.isConnected) captureScrollPosition()
+})
 
 function onSend() {
   const text = inputText.value.trim()
@@ -286,7 +324,7 @@ function shortResult(s: string, max = 240): string {
     </div>
 
     <!-- 消息流 -->
-    <div ref="messagesRef" class="chat-messages">
+    <div ref="messagesRef" class="chat-messages" @scroll.passive="captureScrollPosition">
       <!-- 空状态 -->
       <div v-if="session.messages.length === 0" class="empty-state">
         <v-icon size="36" color="muted">mdi-robot-outline</v-icon>

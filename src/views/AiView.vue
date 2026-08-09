@@ -248,12 +248,16 @@ function scrollToBottom(force = false) {
 
 async function restoreScrollPosition() {
   await nextTick()
-  window.requestAnimationFrame(() => {
+  const apply = () => {
     const container = messagesRef.value
     if (!container || !viewActive) return
     container.scrollTop = resolveScrollTop(savedScrollAnchor, container)
     captureScrollPosition()
-  })
+  }
+  // 先同步恢复一次(后台窗口 rAF 可能不触发,这次兜底),
+  // rAF 再校正一次(图片 / markdown 异步渲染后高度可能变化)
+  apply()
+  window.requestAnimationFrame(apply)
 }
 
 function selectMention(suggestion: MentionSuggestion) {
@@ -927,13 +931,18 @@ function applyDevMockState() {
 onMounted(() => {
   window.addEventListener('starhub:ai-quick-analyze', onQuickAnalyze)
   applyDevMockState()
+  // 非 keep-alive 重挂载(如独立窗口)没有缓存 DOM,锚点为空 → 落到最新消息
+  void restoreScrollPosition()
 })
 onActivated(() => {
   viewActive = true
   void restoreScrollPosition()
 })
 onDeactivated(() => {
-  captureScrollPosition()
+  // Vue 先把 DOM 移入离屏容器再触发 deactivated 钩子(见 runtime-core deactivate),
+  // 此时 scrollTop 已被重置为 0,直接 capture 会用 0 覆盖 @scroll 记录的正确锚点;
+  // 已离屏就保留最后一次滚动时记录的锚点
+  if (messagesRef.value?.isConnected) captureScrollPosition()
   viewActive = false
 })
 onBeforeUnmount(() => {
