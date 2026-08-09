@@ -18,8 +18,6 @@ use tokio::time::{timeout, Duration};
 use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
-use super::auth::SshHandler;
-
 const MAX_REQUEST_HEAD_BYTES: usize = 64 * 1024;
 const MAX_REQUEST_BODY_BYTES: usize = 24 * 1024 * 1024;
 const MAX_RESPONSE_HEAD_BYTES: usize = 64 * 1024;
@@ -28,9 +26,6 @@ const UPSTREAM_TIMEOUT_SEC: u64 = 30;
 
 pub const GATEWAY_PATH_PREFIX: &str = "/__proxy__/";
 
-/// 已认证 SSH 连接的 client handle(direct-tcpip 从最终服务器出口)。
-pub type SshClientHandle = Arc<russh::client::Handle<SshHandler>>;
-
 pub struct GatewayHandle {
     pub port: u16,
     pub abort: tokio::task::AbortHandle,
@@ -38,7 +33,15 @@ pub struct GatewayHandle {
 }
 
 /// 启动 Web 网关:本地 HTTP 监听,上游经 SSH direct-tcpip 通道转发。
-pub async fn start(local_port: u16, ssh: SshClientHandle) -> Result<GatewayHandle, String> {
+/// 泛型化 handler 以便测试用 trust-all handler 直连本地 SSH 测试服务器。
+pub async fn start<H>(
+    local_port: u16,
+    ssh: Arc<russh::client::Handle<H>>,
+) -> Result<GatewayHandle, String>
+where
+    H: russh::client::Handler + Send + Sync + 'static,
+    H::Error: Into<anyhow::Error> + Send,
+{
     let listener = TcpListener::bind(("127.0.0.1", local_port))
         .await
         .map_err(|e| format!("web gateway bind failed: {e}"))?;
@@ -63,7 +66,12 @@ pub async fn start(local_port: u16, ssh: SshClientHandle) -> Result<GatewayHandl
                         v.push(conn.abort_handle());
                     }
                 }
-                Err(_) => break,
+                Err(e) => {
+                    // 瞬时 accept 失败(如 fd 耗尽)不能退出循环:一旦 break,监听器
+                    // 永久死亡但网关句柄还在,前端会一直拿到「127.0.0.1 拒绝连接」。
+                    tracing::warn!("web gateway accept failed, retrying: {e}");
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
             }
         }
     });
@@ -230,12 +238,16 @@ fn tls_connector() -> tokio_rustls::TlsConnector {
 }
 
 /// 经 SSH direct-tcpip 通道连到目标 host:port;https 时在通道流上做端到端 TLS。
-async fn open_upstream(
-    ssh: &SshClientHandle,
+async fn open_upstream<H>(
+    ssh: &Arc<russh::client::Handle<H>>,
     scheme: &str,
     host: &str,
     port: u16,
-) -> Result<Box<dyn UpstreamIo>, String> {
+) -> Result<Box<dyn UpstreamIo>, String>
+where
+    H: russh::client::Handler,
+    H::Error: Into<anyhow::Error> + Send,
+{
     let channel = ssh
         .channel_open_direct_tcpip(host, port as u32, "127.0.0.1", 0)
         .await
@@ -428,15 +440,19 @@ fn split_host_port(hostport: &str, scheme: &str) -> Result<(String, u16), String
 }
 
 /// 经 SSH 隧道执行一次上游 HTTP 请求并收集完整响应。
-async fn fetch_upstream(
-    ssh: &SshClientHandle,
+async fn fetch_upstream<H>(
+    ssh: &Arc<russh::client::Handle<H>>,
     scheme: &str,
     hostport: &str,
     path_query: &str,
     method: &str,
     request_headers: &[(String, String)],
     request_body: &[u8],
-) -> Result<UpstreamResponse, String> {
+) -> Result<UpstreamResponse, String>
+where
+    H: russh::client::Handler,
+    H::Error: Into<anyhow::Error> + Send,
+{
     let (host, port) = split_host_port(hostport, scheme)?;
     let mut stream = open_upstream(ssh, scheme, &host, port).await?;
 
@@ -513,7 +529,11 @@ async fn fetch_upstream(
     })
 }
 
-async fn handle_conn(mut stream: TcpStream, ssh: SshClientHandle) -> Result<(), String> {
+async fn handle_conn<H>(mut stream: TcpStream, ssh: Arc<russh::client::Handle<H>>) -> Result<(), String>
+where
+    H: russh::client::Handler,
+    H::Error: Into<anyhow::Error> + Send,
+{
     let (head_bytes, leftover) = read_request_head(&mut stream).await?;
     let head_text = String::from_utf8_lossy(&head_bytes).to_string();
     let mut lines = head_text.split("\r\n");
@@ -1097,5 +1117,89 @@ mod tests {
     fn rejects_oversized_request_bodies() {
         let headers = vec![("Content-Length".to_string(), (MAX_REQUEST_BODY_BYTES + 1).to_string())];
         assert_eq!(request_content_length(&headers), Err("request body too large".to_string()));
+    }
+
+    // ── 端到端:经本地 SSH 测试服务器(test-sftp/direct_tcpip_server.py,127.0.0.1:2223)
+    // 的 direct-tcpip 通道访问真实站点,验证网关全链路(通道 + TLS + 改写)。 ──
+
+    struct TrustAllHandler;
+
+    impl russh::client::Handler for TrustAllHandler {
+        type Error = anyhow::Error;
+
+        async fn check_server_key(
+            &mut self,
+            _server_public_key: &russh::keys::PublicKey,
+        ) -> Result<bool, Self::Error> {
+            Ok(true)
+        }
+    }
+
+    async fn connect_test_server() -> Option<Arc<russh::client::Handle<TrustAllHandler>>> {
+        let config = Arc::new(russh::client::Config::default());
+        let connect = russh::client::connect(config, ("127.0.0.1", 2223), TrustAllHandler);
+        let mut handle = timeout(Duration::from_secs(5), connect).await.ok()?.ok()?;
+        let authed = timeout(
+            Duration::from_secs(5),
+            handle.authenticate_password("testuser", "testpass"),
+        )
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+        .map(|r| r.success())
+        .unwrap_or(false);
+        authed.then(|| Arc::new(handle))
+    }
+
+    /// 向网关发一个原始 GET,读取完整响应文本。
+    async fn gateway_get(port: u16, path: &str) -> String {
+        let mut stream = timeout(
+            Duration::from_secs(5),
+            TcpStream::connect(("127.0.0.1", port)),
+        )
+        .await
+        .expect("gateway port should accept connections")
+        .expect("connect to gateway");
+        let req = format!(
+            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+        );
+        stream.write_all(req.as_bytes()).await.expect("write request");
+        let mut buf = Vec::new();
+        timeout(Duration::from_secs(40), stream.read_to_end(&mut buf))
+            .await
+            .expect("gateway should respond within timeout")
+            .expect("read response");
+        String::from_utf8_lossy(&buf).to_string()
+    }
+
+    /// 运行前需先启动:python test-sftp/direct_tcpip_server.py
+    #[tokio::test]
+    #[ignore = "requires test-sftp/direct_tcpip_server.py on 127.0.0.1:2223"]
+    async fn gateway_fetches_baidu_over_direct_tcpip() {
+        let Some(ssh) = connect_test_server().await else {
+            eprintln!("skip: direct-tcpip test server not reachable on 127.0.0.1:2223");
+            return;
+        };
+        let gw = start(0, ssh).await.expect("gateway should start");
+
+        // HTTPS 站点:通道 + TLS + HTML 改写全链路
+        let resp = gateway_get(gw.port, "/__proxy__/https/www.baidu.com/").await;
+        let status_line = resp.lines().next().unwrap_or_default().to_string();
+        assert!(
+            status_line.contains("200"),
+            "expected 200 from baidu via tunnel, got: {status_line}\n{}",
+            &resp[..resp.len().min(600)]
+        );
+        assert!(
+            resp.contains("<base href=\"/__proxy__/https/www.baidu.com/\""),
+            "rewritten HTML should inject proxy <base>"
+        );
+
+        // 非 /__proxy__/ 路径:返回友好错误页而非裸 404
+        let resp = gateway_get(gw.port, "/favicon.ico").await;
+        assert!(resp.starts_with("HTTP/1.1 404"), "unexpected status: {}", resp.lines().next().unwrap_or_default());
+        assert!(resp.contains("StarHub Web Gateway"), "expected friendly error page");
+
+        gw.abort.abort();
     }
 }

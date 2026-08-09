@@ -12,7 +12,7 @@ import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAssetStore } from '@/stores/asset'
 import { useNotifyStore } from '@/stores/notify'
-import { sshStartWebGateway, sshStopWebGateway, openExternalUrl } from '@/services/ssh'
+import { sshStartWebGateway, sshStopWebGateway, sshWebGatewayPort, openExternalUrl } from '@/services/ssh'
 import { logAudit } from '@/services/audit'
 import { parseInstanceId } from '@/utils/tabId'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -91,6 +91,13 @@ async function navigate() {
   loading.value = true
   errorText.value = ''
   try {
+    if (gatewayPort) {
+      // 缓存端口可能已失效(SSH 重连后 disconnect 会停掉网关、其他同会话标签页
+      // 关闭时也会停掉共享网关),直接复用会得到「127.0.0.1 拒绝连接」;
+      // 先以后端真实状态校验,不一致则重启网关。
+      const alive = await sshWebGatewayPort(sessionId.value).catch(() => null)
+      if (alive !== gatewayPort) gatewayPort = 0
+    }
     if (!gatewayPort) {
       gatewayPort = await sshStartWebGateway(sessionId.value)
     }
