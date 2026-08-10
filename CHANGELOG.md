@@ -14,6 +14,11 @@
 
 ---
 
+## [0.48.1] - 2026-08-10
+
+### 修复
+- 服务器网页访问 tab 切回后变成空白初始页(地址栏清空、需重新输入网址):web tab 首次打开时路由带 query(SSH 入口带 `?session=`、_blank 新开带 `?session=&url=`),而 tab 条点击切换的 `selectTab` 是不带 query 的 push——keep-alive 以 `route.fullPath` 为 key,两种 fullPath 各产生一个组件实例,带 query 的实例又不在 include 名单里被立即裁剪,`loadedUrl` 等浏览状态随之销毁(v0.47.10 的恢复机制因此只在第二次切换后才生效);修复:打开 web tab 一律不带 query(session 由 `tab.assetId` 反解),_blank 新开的初始 URL 改走 `src/utils/webTabNav.ts` 一次性暂存,新实例 onMounted 取走后自动导航
+
 ## [0.48.0] - 2026-08-10
 
 ### 新增

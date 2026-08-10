@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.48.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.48.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.48.1 (2026-08-10)
+- 🐛 服务器网页访问 tab 切回后变成空白初始页(地址栏清空、需重新输入网址):web tab 首次打开时路由带 query(SSH 入口带 `?session=`、_blank 新开带 `?session=&url=`),而 tab 条点击切换的 `selectTab` 是不带 query 的 push——keep-alive 以 `route.fullPath` 为 key,两种 fullPath 各产生一个组件实例,带 query 的实例又不在 include 名单里被立即裁剪,`loadedUrl` 等浏览状态随之销毁(v0.47.10 的恢复机制因此只在第二次切换后才生效);修复:打开 web tab 一律不带 query(session 由 `tab.assetId` 反解),_blank 新开的初始 URL 改走 `src/utils/webTabNav.ts` 一次性暂存,新实例 onMounted 取走后自动导航
 
 ### v0.48.0 (2026-08-10)
 - ✨ SSH 快捷命令(QUICK)支持导入 Xshell 导出的快速命令集(.qbl):编辑器新增「导入 Xshell (.qbl)」按钮,解析 INI 结构 `[QuickButton]` 节的 `Button_N=标签\n[1]命令` 条目(多段 `\n[N]` 拼多行命令、按序号排序、UTF-8 解码失败回退 GBK),导入后追加到当前列表(icon 默认 `mdi-script-text-outline`),保存后生效;解析器沉淀为纯函数 `src/utils/xshellQuickCommand.ts` 并配 node --test 单测

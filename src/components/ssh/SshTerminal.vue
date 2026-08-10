@@ -1622,20 +1622,23 @@ async function runQuickCommand(cmd: string) {
 // ====== Web Access(打开网页浏览子页面 tab) ======
 // 不再弹窗输入 URL:直接按项目 tab 模式新开 web/:id 子页面,
 // 地址栏 + 端口转发 + 内嵌子 webview 都在 WebBrowserView 里完成。
+// 注意:路由不带 query(session 由 tab.assetId 反解)—— keep-alive 以
+// route.fullPath 为 key,带 query 的 push 与 tab 切换时的无 query push
+// 会产生两个实例,浏览状态全丢。
 function openWebBrowserTab() {
   if (!connected.value) return
   // 同一 SSH 会话已有 web tab → 直接激活,不重复开
   const existing = appStore.tabs.find(tab => tab.type === 'web' && tab.assetId === props.id)
   if (existing) {
     appStore.setActiveTab(existing.id)
-    router.push({ name: 'web-browser', params: { id: existing.id }, query: { session: props.id } })
+    router.push({ name: 'web-browser', params: { id: existing.id } })
     return
   }
   const instanceId = generateInstanceId(`web-${props.id}`)
   const title = `${t('ssh.webAccess.title')} · ${asset.value?.name ?? asset.value?.config.host ?? props.id}`
   // assetId 存 SSH 会话 id(WebBrowserView 据此建端口转发,审计反解资产)
   appStore.addTab({ id: instanceId, assetId: props.id, title, type: 'web' })
-  router.push({ name: 'web-browser', params: { id: instanceId }, query: { session: props.id } })
+  router.push({ name: 'web-browser', params: { id: instanceId } })
 }
 
 /**

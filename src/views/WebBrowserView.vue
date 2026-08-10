@@ -15,6 +15,7 @@ import { useNotifyStore } from '@/stores/notify'
 import { sshStartWebGateway, sshStopWebGateway, sshWebGatewayPort, openExternalUrl } from '@/services/ssh'
 import { logAudit } from '@/services/audit'
 import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
+import { stashWebNavUrl, takeWebNavUrl } from '@/utils/webTabNav'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 
@@ -181,10 +182,12 @@ function openLinkInNewTab(originalUrl: string) {
   try { host = new URL(originalUrl).hostname || originalUrl } catch { /* noop */ }
   const title = `${t('web.browser.newTabTitle')} · ${host}`
   appStore.addTab({ id: instanceId, assetId: sessionId.value, title, type: 'web' })
+  // 初始 URL 不进路由 query(keep-alive 以 fullPath 为 key,query 会
+  // 让同一 tab 出现两个缓存实例),暂存后由新实例 onMounted 取走
+  stashWebNavUrl(instanceId, originalUrl)
   router.push({
     name: 'web-browser',
     params: { id: instanceId },
-    query: { session: sessionId.value, url: originalUrl },
   })
 }
 
@@ -316,9 +319,13 @@ onActivated(() => {
 onMounted(() => {
   window.addEventListener('resize', () => { /* iframe 自适应 */ })
   window.addEventListener('message', onGatewayMessage)
-  // 从其他标签页带 URL 跳转过来(_blank 新开 tab)时自动导航
-  const initial = route.query.url
-  if (typeof initial === 'string' && initial) {
+  // 从其他标签页带 URL 跳转过来(_blank 新开 tab)时自动导航:
+  // 初始 URL 走 webTabNav 暂存(不进路由 query,避免 keep-alive key 漂移);
+  // route.query.url 仅为兼容旧链接保留
+  const stashed = takeWebNavUrl(props.id)
+  const queryUrl = route.query.url
+  const initial = stashed ?? (typeof queryUrl === 'string' && queryUrl ? queryUrl : undefined)
+  if (initial) {
     urlInput.value = initial
     void nextTick(() => navigate())
   }
