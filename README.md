@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.47.3-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.47.4-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.47.4 (2026-08-10)
+- 🐛 服务器网页访问 iframe 报「127.0.0.1 拒绝连接」的真根因:并非端口失效,而是网关把上游站点的 `X-Frame-Options` / `Content-Security-Policy`(含 `frame-ancestors 'self'`)原样透传,webview 拒绝把页面渲染进 iframe(`ERR_BLOCKED_BY_RESPONSE`,错误文案恰好是「127.0.0.1 拒绝连接」,同一时刻 curl 直连网关端口完全正常,导致此前数版修复都在排查端口存活、方向全错);回写响应统一经 `should_skip_response_header` 剥离 XFO / CSP / CSP-Report-Only(整 CSP 一并剥离,否则上游 script-src/img-src 同样拦截改写产物);网关启动、上游失败、上游超时补 `tracing` 日志;新增头部过滤单测,端到端用例补 frame-ancestors 剥离断言(百度实测会发该头)
 
 ### v0.47.3 (2026-08-09)
 - 🐛 服务器网页访问「127.0.0.1 拒绝连接」:前端缓存的网关端口在 SSH 重连(`disconnect` 停网关)或同会话其他网页标签页关闭后已失效,`navigate` 只在端口为 0 时才重启网关,刷新/跳转一直打到死端口;改为复用前先调 `ssh_web_gateway_port` 校验后端真实状态,不一致即重启;后端 accept 循环遇瞬时错误不再 `break` 永久退出(监听器死了但句柄还在,前端同样表现为拒绝连接),改为告警后短暂退避继续监听;`web_gateway::start` 泛型化 handler 以便测试直连,新增端到端用例(经 `test-sftp/direct_tcpip_server.py` 的 direct-tcpip 通道真实访问 www.baidu.com,验证 TLS + HTML 改写全链路)
