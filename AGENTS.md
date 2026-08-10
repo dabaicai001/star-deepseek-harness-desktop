@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.47.4(服务器网页访问 iframe 报「127.0.0.1 拒绝连接」的真根因:并非端口失效,而是网关把上游站点的 `X-Frame-Options` / `Content-Security-Policy`(含 `frame-ancestors 'self'`)原样透传,webview 拒绝把页面渲染进 iframe(`ERR_BLOCKED_BY_RESPONSE`,错误文案恰好是「127.0.0.1 拒绝连接」,同一时刻 curl 直连网关端口完全正常,导致此前数版修复都在排查端口存活、方向全错);回写响应统一经 `should_skip_response_header` 剥离 XFO / CSP / CSP-Report-Only(整 CSP 一并剥离,否则上游 script-src/img-src 同样拦截改写产物);网关启动、上游失败、上游超时补 `tracing` 日志;新增头部过滤单测,端到端用例补 frame-ancestors 剥离断言(百度实测会发该头)) |
+| 当前版本 | v0.47.5(服务器网页访问百度搜索输入关键词回车后报「link cannot be proxied」:搜索提交由页面 JS 驱动(`location.href = "/s?wd=..."` 等根相对跳转),HTML 改写覆盖不到 JS,根相对路径相对网关源解析成 `http://127.0.0.1:<port>/s?wd=...`,丢掉 `/__proxy__/` 前缀落入 404 错误页;新增 `recover_proxy_redirect`——无前缀请求用 Referer(仍为代理 URL)找回上游 scheme/host,307 重定向回代理形式(307 保持方法与请求体,导航与 XHR 通用),恢复不了才回错误页;新增恢复逻辑单测(百度实测复现场景)) |
 
 ---
 
@@ -478,4 +478,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-10 (v0.47.4)*
+*最后更新: 2026-08-10 (v0.47.5)*

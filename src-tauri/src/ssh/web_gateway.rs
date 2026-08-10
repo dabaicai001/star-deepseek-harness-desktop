@@ -211,6 +211,37 @@ async fn respond_html(stream: &mut TcpStream, status: &str, html: &str) {
     let _ = stream.write_all(body).await;
 }
 
+/// 307 重定向(保持请求方法与请求体)。
+async fn respond_redirect(stream: &mut TcpStream, location: &str) {
+    let head = format!(
+        "HTTP/1.1 307 Temporary Redirect\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    );
+    let _ = stream.write_all(head.as_bytes()).await;
+}
+
+/// 为丢失 /__proxy__/ 前缀的根相对请求(多半是页面 JS 的 location 跳转或
+/// 未改写到的根相对 URL)从 Referer 恢复代理目标。Referer 仍是代理 URL,
+/// 可解析出上游 scheme/host;恢复不了则返回 None,由调用方回错误页。
+fn recover_proxy_redirect(raw_path: &str, headers: &[(String, String)]) -> Option<String> {
+    if !raw_path.starts_with('/') || raw_path.starts_with("//") {
+        return None;
+    }
+    let referer = headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("referer"))?
+        .1
+        .as_str();
+    let idx = referer.find(GATEWAY_PATH_PREFIX)? + GATEWAY_PATH_PREFIX.len();
+    let rest = &referer[idx..];
+    let mut seg = rest.splitn(3, '/');
+    let scheme = seg.next().unwrap_or_default();
+    let hostport = seg.next().unwrap_or_default();
+    if (scheme != "http" && scheme != "https") || hostport.is_empty() {
+        return None;
+    }
+    Some(format!("{GATEWAY_PATH_PREFIX}{scheme}/{hostport}{raw_path}"))
+}
+
 /// 上游字节流:direct-tcpip 通道流,或在其上完成 TLS 握手的加密流。
 trait UpstreamIo: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> UpstreamIo for T {}
@@ -585,6 +616,14 @@ where
 
     // 解析 /__proxy__/<scheme>/<hostport>/<path>?<query>
     let Some(rest) = raw_path.strip_prefix(GATEWAY_PATH_PREFIX) else {
+        // JS 驱动的根相对导航(如百度搜索回车后 location.href="/s?wd=...")会把
+        // 网关联源根路径直接打过来,丢掉 /__proxy__/ 前缀;HTML 改写覆盖不到 JS。
+        // 此时用 Referer(仍为代理 URL)找回上游 scheme/host,307 重定向回代理形式。
+        // 307 保持方法与请求体,导航与 XHR 都适用。
+        if let Some(target) = recover_proxy_redirect(&raw_path, &request_headers) {
+            respond_redirect(&mut stream, &target).await;
+            return Ok(());
+        }
         respond_html(
             &mut stream,
             "404 Not Found",
@@ -1162,6 +1201,39 @@ mod tests {
         assert!(!should_skip_response_header("content-type"));
         assert!(!should_skip_response_header("set-cookie"));
         assert!(!should_skip_response_header("cache-control"));
+    }
+
+    #[test]
+    fn recovers_proxy_redirect_from_referer() {
+        // JS 根相对导航(如百度搜索回车)丢掉 /__proxy__/ 前缀时,
+        // 用 Referer 中的代理 URL 找回上游 scheme/host
+        let headers = vec![(
+            "Referer".to_string(),
+            "http://127.0.0.1:9123/__proxy__/https/www.baidu.com/".to_string(),
+        )];
+        assert_eq!(
+            recover_proxy_redirect("/s?wd=IP", &headers),
+            Some("/__proxy__/https/www.baidu.com/s?wd=IP".to_string())
+        );
+        // 带端口的上游
+        let headers = vec![(
+            "referer".to_string(),
+            "http://127.0.0.1:9123/__proxy__/http/192.168.1.10:8080/admin/index".to_string(),
+        )];
+        assert_eq!(
+            recover_proxy_redirect("/api/list?page=1", &headers),
+            Some("/__proxy__/http/192.168.1.10:8080/api/list?page=1".to_string())
+        );
+        // 无 Referer / Referer 不是代理 URL / 路径非法时不恢复
+        assert_eq!(recover_proxy_redirect("/s?wd=IP", &[]), None);
+        let headers = vec![("Referer".to_string(), "https://www.baidu.com/".to_string())];
+        assert_eq!(recover_proxy_redirect("/s?wd=IP", &headers), None);
+        let headers = vec![(
+            "Referer".to_string(),
+            "http://127.0.0.1:9123/__proxy__/https/www.baidu.com/".to_string(),
+        )];
+        assert_eq!(recover_proxy_redirect("//evil.com/x", &headers), None);
+        assert_eq!(recover_proxy_redirect("not-a-path", &headers), None);
     }
 
     // ── 端到端:经本地 SSH 测试服务器(test-sftp/direct_tcpip_server.py,127.0.0.1:2223)
