@@ -177,6 +177,37 @@ fn should_forward_request_header(name: &str) -> bool {
     .any(|skip| name.eq_ignore_ascii_case(skip))
 }
 
+/// RFC 7230 校验:头名必须是 token,头值只允许可见 ASCII + Tab。
+/// 浏览器经网关转发的头值若带非 ASCII 原始字节(如个别站点种的 GBK cookie,
+/// 经 from_utf8_lossy 已损坏),IIS/Http.sys 会直接 400「invalid header name」,
+/// 这类头必须丢弃而不是原样转发。
+fn is_valid_header(name: &str, value: &str) -> bool {
+    fn is_token_char(c: u8) -> bool {
+        c.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&c)
+    }
+    !name.is_empty()
+        && name.bytes().all(is_token_char)
+        && value.bytes().all(|c| c == b'\t' || (0x20..=0x7e).contains(&c))
+}
+
+/// Referer 回写:浏览器送来的 Referer 是网关 URL
+/// (http://127.0.0.1:<port>/__proxy__/<scheme>/<host>/<path>),原样转发会让上游
+/// 看到莫名其妙的 127.0.0.1 引用页,且带防盗链的站点(图片/视频)会拒绝;
+/// 能解析出代理前缀就回写成原始站形式,否则原样保留。
+fn rewrite_referer(value: &str) -> String {
+    let Some(idx) = value.find(GATEWAY_PATH_PREFIX) else {
+        return value.to_string();
+    };
+    let rest = &value[idx + GATEWAY_PATH_PREFIX.len()..];
+    let mut seg = rest.splitn(2, '/');
+    let scheme = seg.next().unwrap_or_default();
+    let tail = seg.next().unwrap_or_default();
+    if (scheme != "http" && scheme != "https") || tail.is_empty() {
+        return value.to_string();
+    }
+    format!("{scheme}://{tail}")
+}
+
 async fn respond_text(stream: &mut TcpStream, status: &str, message: &str) {
     let body = message.as_bytes();
     let head = format!(
@@ -533,14 +564,33 @@ where
     let mut stream = open_upstream(ssh, scheme, &host, port).await?;
 
     // 写 HTTP/1.1 请求:Accept-Encoding 固定 identity(不做解压),Connection: close
-    // 让无 Content-Length 的响应可以读到 EOF 为止。
+    // 让无 Content-Length 的响应可以读到 EOF 为止。User-Agent 优先透传浏览器的,
+    // 浏览器没送才用网关默认 UA(避免重复 UA 头)。
     let mut req = format!(
-        "{method} {path_query} HTTP/1.1\r\nHost: {hostport}\r\nUser-Agent: Mozilla/5.0 (StarHub Web Gateway)\r\nAccept-Encoding: identity\r\nConnection: close\r\n"
+        "{method} {path_query} HTTP/1.1\r\nHost: {hostport}\r\nAccept-Encoding: identity\r\nConnection: close\r\n"
     );
+    let mut has_user_agent = false;
     for (name, value) in request_headers {
-        if should_forward_request_header(name) {
-            req.push_str(&format!("{name}: {value}\r\n"));
+        if !should_forward_request_header(name) {
+            continue;
         }
+        if !is_valid_header(name, value) {
+            // 非法头(非 ASCII 值等)原样转发会被严格的上游(IIS/Http.sys)
+            // 整单 400 拒掉,丢弃比失败好;留 warn 日志便于排查
+            tracing::warn!("web gateway dropping invalid header {name} for {hostport}{path_query}");
+            continue;
+        }
+        if name.eq_ignore_ascii_case("user-agent") {
+            has_user_agent = true;
+        }
+        if name.eq_ignore_ascii_case("referer") {
+            req.push_str(&format!("Referer: {}\r\n", rewrite_referer(value)));
+            continue;
+        }
+        req.push_str(&format!("{name}: {value}\r\n"));
+    }
+    if !has_user_agent {
+        req.push_str("User-Agent: Mozilla/5.0 (StarHub Web Gateway)\r\n");
     }
     if !request_body.is_empty() {
         req.push_str(&format!("Content-Length: {}\r\n", request_body.len()));
@@ -1182,6 +1232,36 @@ mod tests {
         let out = rewrite_html(html, "http", "a.com");
         assert!(out.contains(r#"data-src="/__proxy__/http/a.com/lazy/a.png""#));
         assert!(out.contains(r#"data-href='/__proxy__/http/a.com/go'"#));
+    }
+
+    #[test]
+    fn validates_header_names_and_values() {
+        // 常规头放行
+        assert!(is_valid_header("sec-ch-ua", "\"Chromium\";v=\"126\""));
+        assert!(is_valid_header("Cookie", "a=b; c=d"));
+        // 头名非法(空格 / 非 token 字符 / 空名)
+        assert!(!is_valid_header("bad name", "v"));
+        assert!(!is_valid_header("", "v"));
+        // 头值带非 ASCII(GBK cookie 等场景,IIS/Http.sys 会整单 400)
+        assert!(!is_valid_header("Cookie", "last=中文"));
+        assert!(!is_valid_header("Referer", "https://a.com/中文"));
+        // 控制字符同样拒绝,Tab 例外(RFC 允许)
+        assert!(!is_valid_header("X-Test", "a\u{7}b"));
+        assert!(is_valid_header("X-Test", "a\tb"));
+    }
+
+    #[test]
+    fn rewrites_proxied_referer_back_to_origin() {
+        assert_eq!(
+            rewrite_referer("http://127.0.0.1:9123/__proxy__/https/www.baidu.com/s?wd=IP"),
+            "https://www.baidu.com/s?wd=IP"
+        );
+        assert_eq!(
+            rewrite_referer("http://127.0.0.1:9123/__proxy__/http/192.168.1.10:8080/admin"),
+            "http://192.168.1.10:8080/admin"
+        );
+        // 非代理 Referer 原样保留
+        assert_eq!(rewrite_referer("https://other.com/x"), "https://other.com/x");
     }
 
     #[test]

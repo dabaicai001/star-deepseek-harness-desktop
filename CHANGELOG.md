@@ -14,6 +14,12 @@
 
 ---
 
+## [0.47.10] - 2026-08-10
+
+### 修复
+- 服务器网页访问部分站点(IIS/Http.sys)整单报「400 invalid header name」:网关原样转发浏览器请求头,头值带非 ASCII 原始字节(如个别站点种的 GBK cookie,经 `from_utf8_lossy` 已损坏)会被 Http.sys 拒;新增 `is_valid_header` 校验——头名非 token 或头值含非可见 ASCII 的头丢弃并 `tracing::warn` 留痕;顺带:Referer 由网关 URL 回写成原始站形式(`rewrite_referer`,兼容防盗链站点)、User-Agent 优先透传浏览器的(此前固定网关 UA 与浏览器 UA 重复)
+- 服务器网页访问切换 StarHub 标签页后页面状态丢失(回到初始地址):keep-alive 失活时 iframe 被移入离屏容器,浏览器对重新挂载的 iframe 按 src 属性重新导航;激活时按桥接脚本上报维护的当前真实地址重新加载(`ensureGateway`/`proxyUrlOf` 从 navigate 抽出复用),恢复期间忽略初始 src 竞态产生的旧地址上报(滚动位置等 DOM 级状态受浏览器限制无法保留)
+
 ## [0.47.9] - 2026-08-10
 
 ### 修复

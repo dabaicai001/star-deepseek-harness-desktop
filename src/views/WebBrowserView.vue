@@ -70,6 +70,26 @@ function normalize(input: string): { scheme: string; hostport: string; pathQuery
   return { scheme, hostport, pathQuery: pathQuery || '/', href: url.href }
 }
 
+/** 确保网关存活:缓存端口可能已失效(SSH 重连后 disconnect 会停掉网关、
+ * 其他同会话标签页关闭时也会停掉共享网关),先以后端真实状态校验,不一致则重启。 */
+async function ensureGateway(): Promise<number> {
+  if (gatewayPort) {
+    const alive = await sshWebGatewayPort(sessionId.value).catch(() => null)
+    if (alive !== gatewayPort) gatewayPort = 0
+  }
+  if (!gatewayPort) {
+    gatewayPort = await sshStartWebGateway(sessionId.value)
+  }
+  return gatewayPort
+}
+
+/** 由原始 URL 构造网关代理 URL(网关未启动时返回 null) */
+function proxyUrlOf(original: string): string | null {
+  const target = normalize(original)
+  if (!target || !gatewayPort) return null
+  return `http://127.0.0.1:${gatewayPort}/__proxy__/${target.scheme}/${target.hostport}${target.pathQuery}`
+}
+
 async function navigate() {
   if (loading.value) return
   const target = normalize(urlInput.value)
@@ -92,19 +112,10 @@ async function navigate() {
   loading.value = true
   errorText.value = ''
   try {
-    if (gatewayPort) {
-      // 缓存端口可能已失效(SSH 重连后 disconnect 会停掉网关、其他同会话标签页
-      // 关闭时也会停掉共享网关),直接复用会得到「127.0.0.1 拒绝连接」;
-      // 先以后端真实状态校验,不一致则重启网关。
-      const alive = await sshWebGatewayPort(sessionId.value).catch(() => null)
-      if (alive !== gatewayPort) gatewayPort = 0
-    }
-    if (!gatewayPort) {
-      gatewayPort = await sshStartWebGateway(sessionId.value)
-    }
-    const proxyUrl = `http://127.0.0.1:${gatewayPort}/__proxy__/${target.scheme}/${target.hostport}${target.pathQuery}`
+    await ensureGateway()
+    const proxyUrl = proxyUrlOf(target.href)
     // 使用 iframe 渲染(内嵌,不需要创建额外 Webview 窗口)
-    if (iframeRef.value) {
+    if (proxyUrl && iframeRef.value) {
       iframeRef.value.src = proxyUrl
     }
     loadedUrl.value = target.href
@@ -191,6 +202,11 @@ function onGatewayMessage(e: MessageEvent) {
   if (!d || d.__starhub !== 1) return
   if (gatewayPort && e.origin !== `http://127.0.0.1:${gatewayPort}`) return
   if (d.type === 'navigated' && d.href) {
+    // 切 tab 恢复期间,只接受恢复目标的上报,忽略初始 src 竞态产生的旧地址
+    if (restoring) {
+      if (d.href !== restoring) return
+      restoring = null
+    }
     try {
       const original = proxyToOriginal(new URL(d.href))
       if (original) {
@@ -263,6 +279,35 @@ function goBack() {
 function goForward() {
   sendCmd('cmd-forward')
 }
+
+// ── keep-alive 状态恢复:切 tab 失活时 iframe 被移入离屏容器,浏览器对
+// 重新挂载的 iframe 会按 src 属性重新导航(回退到首次设置的初始地址),
+// 激活时按当前真实地址重新加载,保住浏览位置(URL 级状态)。 ──
+let iframeEvicted = false
+/** 恢复导航的目标代理 URL:竞态期间忽略其他 navigated 上报 */
+let restoring: string | null = null
+
+onDeactivated(() => {
+  iframeEvicted = true
+})
+
+onActivated(() => {
+  if (!iframeEvicted) return
+  iframeEvicted = false
+  if (!loadedUrl.value) return
+  void (async () => {
+    try {
+      await ensureGateway()
+      const url = proxyUrlOf(loadedUrl.value)
+      if (url && iframeRef.value) {
+        restoring = url
+        iframeRef.value.src = url
+        // 兜底:恢复失败(网关异常等)时解除 navigated 屏蔽
+        setTimeout(() => { restoring = null }, 8000)
+      }
+    } catch { /* 网关不可达时用户可手动刷新 */ }
+  })()
+})
 
 onMounted(() => {
   window.addEventListener('resize', () => { /* iframe 自适应 */ })

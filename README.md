@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.47.9-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.47.10-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,10 @@
 ---
 
 ## 当前版本
+
+### v0.47.10 (2026-08-10)
+- 🐛 服务器网页访问部分站点(IIS/Http.sys)整单报「400 invalid header name」:网关原样转发浏览器请求头,头值带非 ASCII 原始字节(如个别站点种的 GBK cookie,经 `from_utf8_lossy` 已损坏)会被 Http.sys 拒;新增 `is_valid_header` 校验——头名非 token 或头值含非可见 ASCII 的头丢弃并 `tracing::warn` 留痕;顺带:Referer 由网关 URL 回写成原始站形式(`rewrite_referer`,兼容防盗链站点)、User-Agent 优先透传浏览器的(此前固定网关 UA 与浏览器 UA 重复)
+- 🐛 服务器网页访问切换 StarHub 标签页后页面状态丢失(回到初始地址):keep-alive 失活时 iframe 被移入离屏容器,浏览器对重新挂载的 iframe 按 src 属性重新导航;激活时按桥接脚本上报维护的当前真实地址重新加载(`ensureGateway`/`proxyUrlOf` 从 navigate 抽出复用),恢复期间忽略初始 src 竞态产生的旧地址上报(滚动位置等 DOM 级状态受浏览器限制无法保留)
 
 ### v0.47.9 (2026-08-10)
 - 🐛 桌面端窗口右侧常驻一条空白竖条(AI 视图右侧"多出来一块",此前按「`.workspace-content` 多余滚动条」修过未根治):真根因是 Vuetify reset(`vuetify/styles`)给 `html` 写了 `overflow-y: scroll`,与 cyber.css 全局 `overflow: hidden` 同优先级且注入更晚,Windows 经典(非 overlay)滚动条下视口右侧常驻一条空白滚动条轨道;overlay/headless 滚动条不占布局空间,纯浏览器预览回归全程看不出来;cyber.css 对 `html` 显式 `overflow-y: hidden !important` 压掉
