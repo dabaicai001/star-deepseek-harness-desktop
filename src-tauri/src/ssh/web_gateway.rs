@@ -994,7 +994,55 @@ fn rewrite_html(html: &str, scheme: &str, hostport: &str) -> String {
     }
     s = rewrite_srcset_attrs(&s, scheme, hostport);
     s = rewrite_meta_refresh(&s, scheme, hostport);
-    inject_base(&s, scheme, hostport)
+    inject_bridge(&inject_base(&s, scheme, hostport))
+}
+
+/// 桥接脚本:注入到每个代理 HTML 页面,在页面内部完成外层(跨源)做不到的事——
+/// _blank/中键/Ctrl 点击拦截、右键菜单、导航上报,统一 postMessage 给外层
+/// WebBrowserView;同时接收外层的 back/forward/reload 命令。
+/// 桌面应用源(tauri.localhost)与网关源(127.0.0.1:port)跨源,外层碰不到
+/// iframe 的 document,只能靠注入脚本 + postMessage 通信。
+const BRIDGE_SCRIPT: &str = r#"<script>(function(){
+if(window.__starhubBridge)return;window.__starhubBridge=true;
+function send(m){try{parent.postMessage(Object.assign({__starhub:1},m),'*')}catch(e){}}
+document.addEventListener('click',onClick,true);
+document.addEventListener('auxclick',onClick,true);
+function onClick(e){
+var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;
+if(!a)return;
+var href='';try{href=new URL(a.getAttribute('href'),location.href).href}catch(x){}
+if(!href)return;
+var bt='';var b=document.querySelector('base[target]');
+if(b)bt=(b.getAttribute('target')||'').toLowerCase();
+var t=(a.target||bt).toLowerCase();
+if(!(t==='_blank'||e.button===1||e.ctrlKey||e.metaKey))return;
+e.preventDefault();e.stopPropagation();
+send({type:'open-in-new-tab',url:href});
+}
+document.addEventListener('contextmenu',function(e){
+e.preventDefault();send({type:'contextmenu',x:e.clientX,y:e.clientY});
+},true);
+window.addEventListener('message',function(e){
+var d=e.data;if(!d||d.__starhub!==1)return;
+if(d.type==='cmd-back')history.back();
+else if(d.type==='cmd-forward')history.forward();
+else if(d.type==='cmd-reload')location.reload();
+});
+function nav(){send({type:'navigated',href:location.href,title:document.title||''});}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',nav);
+nav();
+})();</script>"#;
+
+/// 在注入的 <base> 之后(或文档最前)插入桥接脚本,尽早执行以挂捕获监听。
+fn inject_bridge(html: &str) -> String {
+    let marker = "<base href=\"";
+    if let Some(idx) = html.find(marker) {
+        if let Some(gt) = html[idx..].find('>') {
+            let at = idx + gt + 1;
+            return format!("{}{}{}", &html[..at], BRIDGE_SCRIPT, &html[at..]);
+        }
+    }
+    format!("{BRIDGE_SCRIPT}{html}")
 }
 
 /// 把相对 Location 基于当前页面 path_query 解析为绝对路径(RFC 3986 简版)。
@@ -1134,6 +1182,19 @@ mod tests {
         let out = rewrite_html(html, "http", "a.com");
         assert!(out.contains(r#"data-src="/__proxy__/http/a.com/lazy/a.png""#));
         assert!(out.contains(r#"data-href='/__proxy__/http/a.com/go'"#));
+    }
+
+    #[test]
+    fn injects_bridge_script_into_html() {
+        // 桥接脚本必须随改写产物注入:外层(跨源)碰不到 iframe document,
+        // _blank 拦截 / 右键菜单 / 导航上报全靠它
+        let out = rewrite_html(r#"<html><head><title>t</title></head><body></body></html>"#, "https", "a.com");
+        assert!(out.contains("__starhubBridge"));
+        assert!(out.contains("open-in-new-tab"));
+        assert!(out.contains("navigated"));
+        // 无 head 的文档也能注入(插到最前)
+        let out = rewrite_html(r#"<div>hi</div>"#, "http", "a.com:8080");
+        assert!(out.contains("__starhubBridge"));
     }
 
     #[test]

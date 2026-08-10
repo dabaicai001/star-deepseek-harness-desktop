@@ -89,6 +89,11 @@ export const useAppStore = defineStore('app', () => {
     activeTab.value = tabId
   }
 
+  function updateTabTitle(tabId: string, title: string) {
+    const tab = tabs.value.find(t => t.id === tabId)
+    if (tab) tab.title = title
+  }
+
   function startAlertCheck(intervalMs = 60_000) {
     if (alertTimer) return
     alertTimer = setInterval(async () => {
@@ -118,6 +123,7 @@ export const useAppStore = defineStore('app', () => {
     addTab,
     removeTab,
     setActiveTab,
+    updateTabTitle,
     startAlertCheck,
     stopAlertCheck
   }

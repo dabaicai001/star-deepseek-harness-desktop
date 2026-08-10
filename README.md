@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.47.7-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.47.8-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.47.8 (2026-08-10)
+- 🐛 服务器网页访问 v0.47.7 的 _blank 拦截 / 自定义右键菜单 / 地址栏同步在桌面应用里全部静默失效:应用源(`http://tauri.localhost`)与网关源(`127.0.0.1:<port>`)跨源,`iframe.contentDocument` 为 null,外层 JS 根本碰不到 iframe 文档(此前纯浏览器预览的同源假象掩盖);改为网关在改写 HTML 时注入桥接脚本(`BRIDGE_SCRIPT`),在页面内部完成 _blank / 中键 / Ctrl+点击拦截(新开 tab)、右键菜单拦截、导航与页面标题上报,统一 `postMessage` 与外层通信,并接收外层 back / forward / reload 命令;tab 标题跟随页面 `<title>` 更新(`appStore.updateTabTitle`)
 
 ### v0.47.7 (2026-08-10)
 - 🐛 服务器网页访问点击百度搜索结果等 `target="_blank"` 链接无反应:sandbox iframe 内 _blank 弹窗被 webview 吞掉;改为前端在 iframe(与网关同源)挂 capture 点击拦截,`_blank` 链接(含 `<base target="_blank">` 场景)、中键 / Ctrl+点击统一还原出原始 URL 后按项目 tab 模式新开一个 WebBrowserView(`query.url` 自动导航),普通链接仍在 iframe 内跳转

@@ -136,7 +136,9 @@ function onIframeError() {
   errorText.value = t('web.browser.forwardFailed')
 }
 
-// ── iframe 右键菜单(与网关同源,可直接访问 contentDocument) ──
+// ── iframe 通信(桌面应用源 tauri.localhost 与网关源 127.0.0.1:port 跨源,
+// 外层碰不到 iframe document;网关在改写 HTML 时注入桥接脚本,页面内部完成
+// 点击拦截/右键/导航上报,统一 postMessage 与本视图通信) ──
 
 const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 
@@ -154,15 +156,9 @@ function proxyToOriginal(url: URL): string | null {
   return `${scheme}://${hostport}${path}${url.search}${url.hash}`
 }
 
-/** 把 iframe 当前的 /__proxy__/{scheme}/{hostport}/path 还原为原始 URL */
+/** 当前页面原始 URL:由桥接脚本的 navigated 消息维护,跨源安全 */
 function currentOriginalUrl(): string {
-  try {
-    const loc = iframeRef.value?.contentWindow?.location
-    if (!loc) return loadedUrl.value
-    return proxyToOriginal(new URL(loc.href)) ?? loadedUrl.value
-  } catch {
-    return loadedUrl.value
-  }
+  return loadedUrl.value
 }
 
 /** 在新 StarHub web 标签页打开链接(对应页面里 target=_blank 的链接):
@@ -181,40 +177,59 @@ function openLinkInNewTab(originalUrl: string) {
   })
 }
 
-/** 点击拦截:_blank 链接(或 <base target="_blank"> 下的普通链接)新开 tab;
- * 中键/Ctrl+点击同样视为新开 tab;其余保持默认(iframe 内跳转)。 */
-function onIframeClick(e: Event) {
-  const me = e as MouseEvent
-  const doc = iframeRef.value?.contentDocument
-  const anchor = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
-  if (!anchor || !doc) return
-  let url: URL
-  try { url = new URL(anchor.href) } catch { return }
-  const original = proxyToOriginal(url)
-  if (!original) return
-  const baseTarget = doc.querySelector('base[target]')?.getAttribute('target')?.toLowerCase() ?? ''
-  const target = (anchor.target || baseTarget).toLowerCase()
-  const newTab = target === '_blank' || me.button === 1 || me.ctrlKey || me.metaKey
-  if (!newTab) return
-  e.preventDefault()
-  e.stopPropagation()
-  openLinkInNewTab(original)
+/** 向 iframe 内的桥接脚本发命令(back/forward/reload) */
+function sendCmd(type: string) {
+  if (!gatewayPort) return
+  try {
+    iframeRef.value?.contentWindow?.postMessage({ __starhub: 1, type }, `http://127.0.0.1:${gatewayPort}`)
+  } catch { /* noop */ }
+}
+
+/** 桥接脚本上报:导航(地址栏/tab 标题同步)、_blank 新开 tab、右键菜单 */
+function onGatewayMessage(e: MessageEvent) {
+  const d = e.data as { __starhub?: number; type?: string; href?: string; url?: string; title?: string; x?: number; y?: number } | null
+  if (!d || d.__starhub !== 1) return
+  if (gatewayPort && e.origin !== `http://127.0.0.1:${gatewayPort}`) return
+  if (d.type === 'navigated' && d.href) {
+    try {
+      const original = proxyToOriginal(new URL(d.href))
+      if (original) {
+        loadedUrl.value = original
+        urlInput.value = original
+      }
+    } catch { /* noop */ }
+    if (d.title) {
+      appStore.updateTabTitle(props.id, `${t('web.browser.newTabTitle')} · ${d.title}`)
+    }
+  } else if (d.type === 'open-in-new-tab' && d.url) {
+    try {
+      const original = proxyToOriginal(new URL(d.url))
+      if (original) openLinkInNewTab(original)
+    } catch { /* noop */ }
+  } else if (d.type === 'contextmenu') {
+    const rect = iframeRef.value?.getBoundingClientRect()
+    if (!rect) return
+    ctxMenu.value = {
+      x: rect.left + (d.x ?? 0),
+      y: rect.top + (d.y ?? 0),
+      items: buildIframeMenuItems(),
+    }
+  }
 }
 
 function buildIframeMenuItems(): MenuItem[] {
-  const win = iframeRef.value?.contentWindow
   return [
     {
       type: 'item', icon: 'mdi-arrow-left', label: t('web.browser.menuBack'),
-      onClick: () => { try { win?.history.back() } catch { /* noop */ } },
+      onClick: () => sendCmd('cmd-back'),
     },
     {
       type: 'item', icon: 'mdi-arrow-right', label: t('web.browser.menuForward'),
-      onClick: () => { try { win?.history.forward() } catch { /* noop */ } },
+      onClick: () => sendCmd('cmd-forward'),
     },
     {
       type: 'item', icon: 'mdi-refresh', label: t('web.browser.menuReload'),
-      onClick: () => { try { win?.location.reload() } catch { /* noop */ } },
+      onClick: () => sendCmd('cmd-reload'),
     },
     { type: 'divider' },
     {
@@ -241,41 +256,17 @@ function buildIframeMenuItems(): MenuItem[] {
   ]
 }
 
-/** iframe 每次加载完挂 contextmenu / 点击拦截监听(新 document 需要重新挂),
- * 并同步地址栏为当前真实页面地址(iframe 内跳转后地址栏不再停留在初始 URL)。 */
-function onIframeLoad() {
-  const iframe = iframeRef.value
-  const doc = iframe?.contentDocument
-  if (!iframe || !doc) return
-  const original = currentOriginalUrl()
-  if (original) {
-    loadedUrl.value = original
-    urlInput.value = original
-  }
-  doc.addEventListener('click', onIframeClick, true)
-  doc.addEventListener('auxclick', onIframeClick, true)
-  doc.addEventListener('contextmenu', (e: Event) => {
-    e.preventDefault()
-    const me = e as MouseEvent
-    const rect = iframe.getBoundingClientRect()
-    ctxMenu.value = {
-      x: rect.left + me.clientX,
-      y: rect.top + me.clientY,
-      items: buildIframeMenuItems(),
-    }
-  })
-}
-
 function goBack() {
-  try { iframeRef.value?.contentWindow?.history.back() } catch { /* noop */ }
+  sendCmd('cmd-back')
 }
 
 function goForward() {
-  try { iframeRef.value?.contentWindow?.history.forward() } catch { /* noop */ }
+  sendCmd('cmd-forward')
 }
 
 onMounted(() => {
   window.addEventListener('resize', () => { /* iframe 自适应 */ })
+  window.addEventListener('message', onGatewayMessage)
   // 从其他标签页带 URL 跳转过来(_blank 新开 tab)时自动导航
   const initial = route.query.url
   if (typeof initial === 'string' && initial) {
@@ -288,6 +279,7 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   resizeObserver = null
   window.removeEventListener('resize', () => {})
+  window.removeEventListener('message', onGatewayMessage)
   if (gatewayPort && sessionId.value) {
     sshStopWebGateway(sessionId.value).catch(() => {})
     gatewayPort = 0
@@ -353,7 +345,6 @@ onBeforeUnmount(() => {
         ref="iframeRef"
         class="wb-iframe"
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        @load="onIframeLoad"
         @error="onIframeError"
       />
       <ContextMenu
