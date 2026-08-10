@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.47.11(服务器网页访问同时开多个 web tab 时标题/地址互相污染(第一个 tab 标题被后开的页面覆盖),且切回上一个 tab 偶发报错:多个 tab 共享同一 SSH 网关端口,每个 keep-alive 的 WebBrowserView 都在 window 上监听 `message`,此前只按 `e.origin` 过滤,同端口下无法区分来源 iframe,B tab 页面的 navigated/title 上报被 A tab 一并处理;`onGatewayMessage` 增加 `e.source === iframeRef.contentWindow` 归属判断,只处理本视图 iframe 的消息) |
+| 当前版本 | v0.48.0(SSH 快捷命令(QUICK)支持导入 Xshell 导出的快速命令集(.qbl):编辑器新增「导入 Xshell (.qbl)」按钮,解析 INI 结构 `[QuickButton]` 节的 `Button_N=标签\n[1]命令` 条目(多段 `\n[N]` 拼多行命令、按序号排序、UTF-8 解码失败回退 GBK),导入后追加到当前列表(icon 默认 `mdi-script-text-outline`),保存后生效;解析器沉淀为纯函数 `src/utils/xshellQuickCommand.ts` 并配 node --test 单测) |
 
 ---
 
@@ -478,4 +478,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-10 (v0.47.11)*
+*最后更新: 2026-08-10 (v0.48.0)*

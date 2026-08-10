@@ -14,6 +14,11 @@
 
 ---
 
+## [0.48.0] - 2026-08-10
+
+### 新增
+- SSH 快捷命令(QUICK)支持导入 Xshell 导出的快速命令集(.qbl):编辑器新增「导入 Xshell (.qbl)」按钮,解析 INI 结构 `[QuickButton]` 节的 `Button_N=标签\n[1]命令` 条目(多段 `\n[N]` 拼多行命令、按序号排序、UTF-8 解码失败回退 GBK),导入后追加到当前列表(icon 默认 `mdi-script-text-outline`),保存后生效;解析器沉淀为纯函数 `src/utils/xshellQuickCommand.ts` 并配 node --test 单测
+
 ## [0.47.11] - 2026-08-10
 
 ### 修复

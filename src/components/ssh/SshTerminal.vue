@@ -22,6 +22,7 @@ import { useDialogStore } from '@/stores/dialog'
 import { useThemeStore } from '@/stores/theme'
 import type { Asset } from '@/types/asset'
 import { parseInstanceId, withTabIndexSuffix, generateInstanceId } from '@/utils/tabId'
+import { parseXshellQbl, decodeQblText } from '@/utils/xshellQuickCommand'
 import { formatSize } from '@/services/sftp'
 import { getDetachedInfo, LOCAL_TAB_DETACH_EVENT } from '@/lib/windowDetach'
 import { SSH_SYSTEM_PROMPT, SSH_SILENT_MODE_PROMPT_NOTE, sshTools, makeSshToolCaller } from '@/utils/aiTools'
@@ -1542,6 +1543,41 @@ function onQuickCmdResetDefaults() {
   quickCommands.value = DEFAULT_QUICK_COMMANDS.map(q => ({ ...q }))
 }
 
+// ====== 导入 Xshell 快速命令集(.qbl) ======
+const qblFileInput = ref<HTMLInputElement | null>(null)
+const qcImportMsg = ref('')
+const qcImportMsgError = ref(false)
+let qcImportMsgTimer: ReturnType<typeof setTimeout> | null = null
+
+function showQcImportMsg(msg: string, isError: boolean) {
+  qcImportMsg.value = msg
+  qcImportMsgError.value = isError
+  if (qcImportMsgTimer) clearTimeout(qcImportMsgTimer)
+  qcImportMsgTimer = setTimeout(() => { qcImportMsg.value = '' }, 4000)
+}
+
+function triggerQblImport() {
+  qblFileInput.value?.click()
+}
+
+async function onQblFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  try {
+    const parsed = parseXshellQbl(decodeQblText(await file.arrayBuffer()))
+    if (parsed.length === 0) {
+      showQcImportMsg(t('ssh.quickCommandEditor.importFailed'), true)
+      return
+    }
+    quickCommands.value.push(...parsed.map(p => ({ ...p, icon: 'mdi-script-text-outline', isDefault: false })))
+    showQcImportMsg(t('ssh.quickCommandEditor.importSuccess', { n: parsed.length }), false)
+  } catch {
+    showQcImportMsg(t('ssh.quickCommandEditor.importFailed'), true)
+  }
+}
+
 // ====== 拖拽排序 ======
 function onQuickCmdDragStart(e: DragEvent, idx: number) {
   if (!qcDragEnabled.value) { e.preventDefault(); return }
@@ -1967,6 +2003,9 @@ function handleKbCancelled() {
  <p class="quick-command-editor-description">
  {{ t('ssh.quickCommandEditor.description') }}
  </p>
+ <p v-if="qcImportMsg" class="qc-import-msg" :class="{ 'qc-import-msg-error': qcImportMsgError }">
+ {{ qcImportMsg }}
+ </p>
  <div class="qc-editor-list">
  <div
  v-for="(qc, idx) in quickCommands"
@@ -2056,6 +2095,17 @@ function handleKbCancelled() {
  <v-icon size="14">mdi-restore</v-icon>
  {{ t('ssh.quickCommandEditor.resetDefaults') }}
  </button>
+ <button class="cyber-btn-secondary qc-editor-action-btn" @click="triggerQblImport">
+ <v-icon size="14">mdi-import</v-icon>
+ {{ t('ssh.quickCommandEditor.importXshell') }}
+ </button>
+ <input
+ ref="qblFileInput"
+ type="file"
+ accept=".qbl"
+ style="display: none"
+ @change="onQblFileChange"
+ />
  <div class="qc-editor-action-spacer" />
  <button class="cyber-btn-secondary qc-editor-action-btn" @click="cancelQuickCmdEditor">
  {{ t('ssh.quickCommandEditor.cancel') }}

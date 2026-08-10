@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.47.11-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.48.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.48.0 (2026-08-10)
+- ✨ SSH 快捷命令(QUICK)支持导入 Xshell 导出的快速命令集(.qbl):编辑器新增「导入 Xshell (.qbl)」按钮,解析 INI 结构 `[QuickButton]` 节的 `Button_N=标签\n[1]命令` 条目(多段 `\n[N]` 拼多行命令、按序号排序、UTF-8 解码失败回退 GBK),导入后追加到当前列表(icon 默认 `mdi-script-text-outline`),保存后生效;解析器沉淀为纯函数 `src/utils/xshellQuickCommand.ts` 并配 node --test 单测
 
 ### v0.47.11 (2026-08-10)
 - 🐛 服务器网页访问同时开多个 web tab 时标题/地址互相污染(第一个 tab 标题被后开的页面覆盖),且切回上一个 tab 偶发报错:多个 tab 共享同一 SSH 网关端口,每个 keep-alive 的 WebBrowserView 都在 window 上监听 `message`,此前只按 `e.origin` 过滤,同端口下无法区分来源 iframe,B tab 页面的 navigated/title 上报被 A tab 一并处理;`onGatewayMessage` 增加 `e.source === iframeRef.contentWindow` 归属判断,只处理本视图 iframe 的消息

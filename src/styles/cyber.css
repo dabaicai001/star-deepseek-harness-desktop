@@ -1807,6 +1807,16 @@ body {
   line-height: 1.5;
 }
 
+.qc-import-msg {
+  margin: -8px 0 12px;
+  font-size: 12px;
+  color: var(--green);
+}
+
+.qc-import-msg-error {
+  color: var(--red);
+}
+
 .qc-editor-list {
   display: flex;
   flex-direction: column;
