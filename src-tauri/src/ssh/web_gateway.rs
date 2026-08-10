@@ -49,6 +49,7 @@ where
         .local_addr()
         .map_err(|e| format!("web gateway local addr failed: {e}"))?
         .port();
+    tracing::info!("web gateway listening on 127.0.0.1:{port}");
     let connections: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
     let connections_loop = Arc::clone(&connections);
@@ -411,6 +412,31 @@ struct UpstreamResponse {
     body: Vec<u8>,
 }
 
+/// 回写响应时要剥离的上游头(入参须已转小写)。
+///
+/// 除 hop-by-hop 与长度类头外,x-frame-options / CSP 必须剥离:上游站点(如百度)
+/// 用 frame-ancestors / X-Frame-Options 禁止被 iframe 嵌入,webview 会直接渲染
+/// 错误页「127.0.0.1 拒绝连接」(ERR_BLOCKED_BY_RESPONSE)——不是 TCP 层的连接
+/// 拒绝,极易误判为网关没监听。整个 CSP 一并剥离:改写后的页面经 127.0.0.1 源
+/// 加载,上游 CSP 的 script-src / img-src / frame-ancestors 等指令都会拦截
+/// 改写产物与代理子资源。
+fn should_skip_response_header(lower_name: &str) -> bool {
+    const SKIP_HEADERS: &[&str] = &[
+        "content-length",
+        "transfer-encoding",
+        "content-encoding",
+        "connection",
+        "keep-alive",
+        "access-control-allow-origin",
+        "access-control-allow-methods",
+        "access-control-allow-headers",
+        "x-frame-options",
+        "content-security-policy",
+        "content-security-policy-report-only",
+    ];
+    SKIP_HEADERS.contains(&lower_name)
+}
+
 /// 解析 hostport 为 (host, port);无端口时按 scheme 默认 80/443。
 fn split_host_port(hostport: &str, scheme: &str) -> Result<(String, u16), String> {
     let default_port = if scheme == "https" { 443 } else { 80 };
@@ -592,6 +618,8 @@ where
         return Ok(());
     }
 
+    tracing::debug!("web gateway request: {method} {scheme}://{hostport}{path_query}");
+
     // 经 SSH 隧道向上游发请求;通道打不开/超时/目标不可达时给友好错误页
     let upstream_result = timeout(
         Duration::from_secs(UPSTREAM_TIMEOUT_SEC),
@@ -609,6 +637,9 @@ where
     let resp = match upstream_result {
         Ok(Ok(resp)) => resp,
         Ok(Err(error)) => {
+            tracing::warn!(
+                "web gateway upstream error for {scheme}://{hostport}{path_query}: {error}"
+            );
             respond_html(
                 &mut stream,
                 "502 Bad Gateway",
@@ -623,6 +654,9 @@ where
             return Ok(());
         }
         Err(_) => {
+            tracing::warn!(
+                "web gateway upstream timeout for {scheme}://{hostport}{path_query} after {UPSTREAM_TIMEOUT_SEC}s"
+            );
             respond_html(
                 &mut stream,
                 "504 Gateway Timeout",
@@ -657,22 +691,16 @@ where
         let html = String::from_utf8_lossy(&body);
         body = rewrite_html(&html, &scheme, &hostport).into_bytes();
     }
+    tracing::debug!(
+        "web gateway response: {status} for {scheme}://{hostport}{path_query} ({} bytes)",
+        body.len()
+    );
 
     // 回写响应:3xx 原样返回(不跟随),Location/Refresh 改写成代理形式
-    const SKIP_HEADERS: &[&str] = &[
-        "content-length",
-        "transfer-encoding",
-        "content-encoding",
-        "connection",
-        "keep-alive",
-        "access-control-allow-origin",
-        "access-control-allow-methods",
-        "access-control-allow-headers",
-    ];
     let mut out = format!("HTTP/1.1 {status} {status_text}\r\n");
     for (k, v) in &resp.headers {
         let lower = k.to_ascii_lowercase();
-        if SKIP_HEADERS.contains(&lower.as_str()) {
+        if should_skip_response_header(&lower) {
             continue;
         }
         if lower == "location" {
@@ -1119,6 +1147,23 @@ mod tests {
         assert_eq!(request_content_length(&headers), Err("request body too large".to_string()));
     }
 
+    #[test]
+    fn strips_frame_embedding_blockers_from_response_headers() {
+        // x-frame-options / CSP(frame-ancestors) 会让 webview 拒绝渲染 iframe,
+        // 报「127.0.0.1 拒绝连接」(ERR_BLOCKED_BY_RESPONSE),必须剥离
+        assert!(should_skip_response_header("x-frame-options"));
+        assert!(should_skip_response_header("content-security-policy"));
+        assert!(should_skip_response_header("content-security-policy-report-only"));
+        assert!(should_skip_response_header("content-length"));
+        assert!(should_skip_response_header("transfer-encoding"));
+        assert!(should_skip_response_header("content-encoding"));
+        assert!(should_skip_response_header("connection"));
+        // 其余业务头正常透传
+        assert!(!should_skip_response_header("content-type"));
+        assert!(!should_skip_response_header("set-cookie"));
+        assert!(!should_skip_response_header("cache-control"));
+    }
+
     // ── 端到端:经本地 SSH 测试服务器(test-sftp/direct_tcpip_server.py,127.0.0.1:2223)
     // 的 direct-tcpip 通道访问真实站点,验证网关全链路(通道 + TLS + 改写)。 ──
 
@@ -1193,6 +1238,13 @@ mod tests {
         assert!(
             resp.contains("<base href=\"/__proxy__/https/www.baidu.com/\""),
             "rewritten HTML should inject proxy <base>"
+        );
+        // 上游的 frame-ancestors / X-Frame-Options 必须剥离,否则 webview 拒绝
+        // 把页面渲染进 iframe,报「127.0.0.1 拒绝连接」(ERR_BLOCKED_BY_RESPONSE)
+        let head = resp.split("\r\n\r\n").next().unwrap_or_default().to_lowercase();
+        assert!(
+            !head.contains("frame-ancestors") && !head.contains("x-frame-options"),
+            "frame-embedding blockers should be stripped, got head:\n{head}"
         );
 
         // 非 /__proxy__/ 路径:返回友好错误页而非裸 404

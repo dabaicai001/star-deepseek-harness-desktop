@@ -8,6 +8,7 @@
 
 > **状态**：`已完成`（v0.46.6）。已改为经 SSH `direct-tcpip` 隧道从服务器侧出口，并修复重定向/改写、增加 iframe 右键菜单。
 > **追加修复**（v0.47.3）：SSH 重连或同会话其他网页标签页关闭后，前端缓存的网关端口失效仍被复用导致「127.0.0.1 拒绝连接」；改为复用前调 `ssh_web_gateway_port` 校验，失效即重启；后端 accept 循环遇瞬时错误不再永久退出。
+> **真根因修复**（v0.47.4）：「127.0.0.1 拒绝连接」实为 `ERR_BLOCKED_BY_RESPONSE`——网关原样透传上游 `X-Frame-Options` / `Content-Security-Policy`（frame-ancestors），webview 拒绝把页面渲染进 iframe（curl 直连网关完全正常，极具误导性）；回写响应统一剥离 XFO/CSP/CSP-Report-Only。详见 `docs/踩坑记录.md` 第 16 节。
 
 ### 现象
 - 在 StarHub 的网页访问功能里输入 `www.baidu.com` 能加载首页。
