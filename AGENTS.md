@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.47.6(服务器网页访问百度搜索回车仍报「link cannot be proxied」(v0.47.5 的 Referer 恢复未生效):网关 iframe 带 `sandbox` 属性,JS 根相对导航的请求可能不带可用 Referer,仅靠 Referer 恢复不可靠;新增 `fallback_proxy_redirect` 兜底——网关记录最近一次成功代理 HTML 文档的上游(scheme/host),无前缀请求在 Referer 恢复失败后用该上游 307 回代理形式(单站点浏览可靠;多标签异站点时 Referer 路径优先,兜底可能指错站点但严格好于错误页);端到端用例改为先断言未代理任何页面时无前缀请求仍回错误页,代理百度后再断言 `/s?wd=IP` 与 favicon 均收到 307 恢复重定向) |
+| 当前版本 | v0.47.7(服务器网页访问点击百度搜索结果等 `target="_blank"` 链接无反应:sandbox iframe 内 _blank 弹窗被 webview 吞掉;改为前端在 iframe(与网关同源)挂 capture 点击拦截,`_blank` 链接(含 `<base target="_blank">` 场景)、中键 / Ctrl+点击统一还原出原始 URL 后按项目 tab 模式新开一个 WebBrowserView(`query.url` 自动导航),普通链接仍在 iframe 内跳转) |
 
 ---
 
@@ -478,4 +478,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-10 (v0.47.6)*
+*最后更新: 2026-08-10 (v0.47.7)*

@@ -8,18 +8,19 @@
  */
 import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAssetStore } from '@/stores/asset'
 import { useNotifyStore } from '@/stores/notify'
 import { sshStartWebGateway, sshStopWebGateway, sshWebGatewayPort, openExternalUrl } from '@/services/ssh'
 import { logAudit } from '@/services/audit'
-import { parseInstanceId } from '@/utils/tabId'
+import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const appStore = useAppStore()
 const assetStore = useAssetStore()
 const notify = useNotifyStore()
@@ -139,23 +140,65 @@ function onIframeError() {
 
 const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 
+/** 把 /__proxy__/{scheme}/{hostport}/path 形式的网关 URL 还原为原始 URL */
+function proxyToOriginal(url: URL): string | null {
+  const prefix = '/__proxy__/'
+  if (!url.pathname.startsWith(prefix)) return null
+  const rest = url.pathname.slice(prefix.length)
+  const parts = rest.split('/')
+  if (parts.length < 2) return null
+  const scheme = parts[0]
+  const hostport = parts[1]
+  if (!scheme || !hostport) return null
+  const path = '/' + parts.slice(2).join('/')
+  return `${scheme}://${hostport}${path}${url.search}${url.hash}`
+}
+
 /** 把 iframe 当前的 /__proxy__/{scheme}/{hostport}/path 还原为原始 URL */
 function currentOriginalUrl(): string {
   try {
     const loc = iframeRef.value?.contentWindow?.location
     if (!loc) return loadedUrl.value
-    const prefix = '/__proxy__/'
-    if (!loc.pathname.startsWith(prefix)) return loadedUrl.value
-    const rest = loc.pathname.slice(prefix.length)
-    const parts = rest.split('/')
-    if (parts.length < 2) return loadedUrl.value
-    const scheme = parts[0]
-    const hostport = parts[1]
-    const path = '/' + parts.slice(2).join('/')
-    return `${scheme}://${hostport}${path}${loc.search}${loc.hash}`
+    return proxyToOriginal(new URL(loc.href)) ?? loadedUrl.value
   } catch {
     return loadedUrl.value
   }
+}
+
+/** 在新 StarHub web 标签页打开链接(对应页面里 target=_blank 的链接):
+ * sandbox iframe 内 _blank 弹窗会被 webview 吞掉,点击无反应;
+ * 改为按项目 tab 模式新开一个 WebBrowserView 并自动导航。 */
+function openLinkInNewTab(originalUrl: string) {
+  const instanceId = generateInstanceId(`web-${sessionId.value}`)
+  let host = originalUrl
+  try { host = new URL(originalUrl).hostname || originalUrl } catch { /* noop */ }
+  const title = `${t('web.browser.newTabTitle')} · ${host}`
+  appStore.addTab({ id: instanceId, assetId: sessionId.value, title, type: 'web' })
+  router.push({
+    name: 'web-browser',
+    params: { id: instanceId },
+    query: { session: sessionId.value, url: originalUrl },
+  })
+}
+
+/** 点击拦截:_blank 链接(或 <base target="_blank"> 下的普通链接)新开 tab;
+ * 中键/Ctrl+点击同样视为新开 tab;其余保持默认(iframe 内跳转)。 */
+function onIframeClick(e: Event) {
+  const me = e as MouseEvent
+  const doc = iframeRef.value?.contentDocument
+  const anchor = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+  if (!anchor || !doc) return
+  let url: URL
+  try { url = new URL(anchor.href) } catch { return }
+  const original = proxyToOriginal(url)
+  if (!original) return
+  const baseTarget = doc.querySelector('base[target]')?.getAttribute('target')?.toLowerCase() ?? ''
+  const target = (anchor.target || baseTarget).toLowerCase()
+  const newTab = target === '_blank' || me.button === 1 || me.ctrlKey || me.metaKey
+  if (!newTab) return
+  e.preventDefault()
+  e.stopPropagation()
+  openLinkInNewTab(original)
 }
 
 function buildIframeMenuItems(): MenuItem[] {
@@ -198,11 +241,19 @@ function buildIframeMenuItems(): MenuItem[] {
   ]
 }
 
-/** iframe 每次加载完挂 contextmenu 监听(新 document 需要重新挂) */
+/** iframe 每次加载完挂 contextmenu / 点击拦截监听(新 document 需要重新挂),
+ * 并同步地址栏为当前真实页面地址(iframe 内跳转后地址栏不再停留在初始 URL)。 */
 function onIframeLoad() {
   const iframe = iframeRef.value
   const doc = iframe?.contentDocument
   if (!iframe || !doc) return
+  const original = currentOriginalUrl()
+  if (original) {
+    loadedUrl.value = original
+    urlInput.value = original
+  }
+  doc.addEventListener('click', onIframeClick, true)
+  doc.addEventListener('auxclick', onIframeClick, true)
   doc.addEventListener('contextmenu', (e: Event) => {
     e.preventDefault()
     const me = e as MouseEvent
@@ -215,8 +266,22 @@ function onIframeLoad() {
   })
 }
 
+function goBack() {
+  try { iframeRef.value?.contentWindow?.history.back() } catch { /* noop */ }
+}
+
+function goForward() {
+  try { iframeRef.value?.contentWindow?.history.forward() } catch { /* noop */ }
+}
+
 onMounted(() => {
   window.addEventListener('resize', () => { /* iframe 自适应 */ })
+  // 从其他标签页带 URL 跳转过来(_blank 新开 tab)时自动导航
+  const initial = route.query.url
+  if (typeof initial === 'string' && initial) {
+    urlInput.value = initial
+    void nextTick(() => navigate())
+  }
 })
 
 onBeforeUnmount(() => {
@@ -234,6 +299,24 @@ onBeforeUnmount(() => {
   <div class="web-browser-view">
     <div class="wb-toolbar">
       <v-icon size="14" class="wb-toolbar-icon">mdi-web</v-icon>
+      <button
+        class="action-btn"
+        :title="t('web.browser.menuBack')"
+        :aria-label="t('web.browser.menuBack')"
+        :disabled="!loadedUrl"
+        @click="goBack"
+      >
+        <v-icon size="14">mdi-arrow-left</v-icon>
+      </button>
+      <button
+        class="action-btn"
+        :title="t('web.browser.menuForward')"
+        :aria-label="t('web.browser.menuForward')"
+        :disabled="!loadedUrl"
+        @click="goForward"
+      >
+        <v-icon size="14">mdi-arrow-right</v-icon>
+      </button>
       <input
         v-model="urlInput"
         class="cyber-input wb-address"

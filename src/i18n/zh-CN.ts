@@ -287,6 +287,7 @@ export default {
       menuCopyAddress: '复制地址',
       menuOpenExternal: '在外部浏览器打开',
       copySuccess: '地址已复制',
+      newTabTitle: '网页访问',
     },
   },
   sftp: {

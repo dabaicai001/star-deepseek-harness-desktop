@@ -287,6 +287,7 @@ export default {
       menuCopyAddress: 'Copy address',
       menuOpenExternal: 'Open in external browser',
       copySuccess: 'Address copied',
+      newTabTitle: 'Web Access',
     },
   },
   sftp: {

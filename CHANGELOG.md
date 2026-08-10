@@ -14,6 +14,14 @@
 
 ---
 
+## [0.47.7] - 2026-08-10
+
+### 修复
+- 服务器网页访问点击百度搜索结果等 `target="_blank"` 链接无反应:sandbox iframe 内 _blank 弹窗被 webview 吞掉;改为前端在 iframe(与网关同源)挂 capture 点击拦截,`_blank` 链接(含 `<base target="_blank">` 场景)、中键 / Ctrl+点击统一还原出原始 URL 后按项目 tab 模式新开一个 WebBrowserView(`query.url` 自动导航),普通链接仍在 iframe 内跳转
+
+### 变更
+- 服务器网页访问工具栏补齐浏览器导航:新增回退 / 前进按钮(`contentWindow.history`),iframe 每次加载后地址栏同步为当前真实页面地址(此前 iframe 内跳转后地址栏停留在初始 URL,刷新会退回首页)
+
 ## [0.47.6] - 2026-08-10
 
 ### 修复
