@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.47.5-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.47.6-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.47.6 (2026-08-10)
+- 🐛 服务器网页访问百度搜索回车仍报「link cannot be proxied」(v0.47.5 的 Referer 恢复未生效):网关 iframe 带 `sandbox` 属性,JS 根相对导航的请求可能不带可用 Referer,仅靠 Referer 恢复不可靠;新增 `fallback_proxy_redirect` 兜底——网关记录最近一次成功代理 HTML 文档的上游(scheme/host),无前缀请求在 Referer 恢复失败后用该上游 307 回代理形式(单站点浏览可靠;多标签异站点时 Referer 路径优先,兜底可能指错站点但严格好于错误页);端到端用例改为先断言未代理任何页面时无前缀请求仍回错误页,代理百度后再断言 `/s?wd=IP` 与 favicon 均收到 307 恢复重定向
 
 ### v0.47.5 (2026-08-10)
 - 🐛 服务器网页访问百度搜索输入关键词回车后报「link cannot be proxied」:搜索提交由页面 JS 驱动(`location.href = "/s?wd=..."` 等根相对跳转),HTML 改写覆盖不到 JS,根相对路径相对网关源解析成 `http://127.0.0.1:<port>/s?wd=...`,丢掉 `/__proxy__/` 前缀落入 404 错误页;新增 `recover_proxy_redirect`——无前缀请求用 Referer(仍为代理 URL)找回上游 scheme/host,307 重定向回代理形式(307 保持方法与请求体,导航与 XHR 通用),恢复不了才回错误页;新增恢复逻辑单测(百度实测复现场景)

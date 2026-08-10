@@ -102,3 +102,6 @@ config.local.toml
 # Logo 候选与临时备份(手动迭代用,不入仓;注意 src-tauri/icons/ 是 Tauri 必需资源,不能误伤)
 /icons/_candidates/
 /icons/_original/
+
+# Python 虚拟环境(e2e 测试服务器依赖)
+test-sftp/.venv/

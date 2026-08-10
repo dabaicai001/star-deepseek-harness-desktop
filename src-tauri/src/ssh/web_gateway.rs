@@ -53,13 +53,18 @@ where
     let connections: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
     let connections_loop = Arc::clone(&connections);
+    // 最近一次成功代理 HTML 文档的上游(scheme, hostport):JS 根相对导航
+    // 丢掉 /__proxy__/ 前缀且 Referer 缺失(如 sandbox iframe)时的兜底。
+    let last_upstream: Arc<std::sync::Mutex<Option<(String, String)>>> =
+        Arc::new(std::sync::Mutex::new(None));
     let task = tokio::spawn(async move {
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
                     let ssh = Arc::clone(&ssh);
+                    let last_upstream = Arc::clone(&last_upstream);
                     let conn = tokio::spawn(async move {
-                        if let Err(e) = handle_conn(stream, ssh).await {
+                        if let Err(e) = handle_conn(stream, ssh, last_upstream).await {
                             tracing::debug!("web gateway conn closed: {e}");
                         }
                     });
@@ -239,6 +244,20 @@ fn recover_proxy_redirect(raw_path: &str, headers: &[(String, String)]) -> Optio
     if (scheme != "http" && scheme != "https") || hostport.is_empty() {
         return None;
     }
+    Some(format!("{GATEWAY_PATH_PREFIX}{scheme}/{hostport}{raw_path}"))
+}
+
+/// Referer 恢复失败时的兜底:用本网关最近一次成功代理 HTML 文档的上游。
+/// 单站点浏览场景下可靠;多标签同时浏览不同站点时 Referer 路径优先,兜底
+/// 可能指错站点,但严格好于直接回错误页。
+fn fallback_proxy_redirect(
+    raw_path: &str,
+    last_upstream: &Arc<std::sync::Mutex<Option<(String, String)>>>,
+) -> Option<String> {
+    if !raw_path.starts_with('/') || raw_path.starts_with("//") {
+        return None;
+    }
+    let (scheme, hostport) = last_upstream.lock().ok()?.clone()?;
     Some(format!("{GATEWAY_PATH_PREFIX}{scheme}/{hostport}{raw_path}"))
 }
 
@@ -586,7 +605,11 @@ where
     })
 }
 
-async fn handle_conn<H>(mut stream: TcpStream, ssh: Arc<russh::client::Handle<H>>) -> Result<(), String>
+async fn handle_conn<H>(
+    mut stream: TcpStream,
+    ssh: Arc<russh::client::Handle<H>>,
+    last_upstream: Arc<std::sync::Mutex<Option<(String, String)>>>,
+) -> Result<(), String>
 where
     H: russh::client::Handler,
     H::Error: Into<anyhow::Error> + Send,
@@ -618,9 +641,12 @@ where
     let Some(rest) = raw_path.strip_prefix(GATEWAY_PATH_PREFIX) else {
         // JS 驱动的根相对导航(如百度搜索回车后 location.href="/s?wd=...")会把
         // 网关联源根路径直接打过来,丢掉 /__proxy__/ 前缀;HTML 改写覆盖不到 JS。
-        // 此时用 Referer(仍为代理 URL)找回上游 scheme/host,307 重定向回代理形式。
+        // 优先用 Referer(仍为代理 URL)找回上游 scheme/host;Referer 缺失
+        // (sandbox iframe / referrer 策略等)时兜底用最近成功代理 HTML 的上游。
         // 307 保持方法与请求体,导航与 XHR 都适用。
-        if let Some(target) = recover_proxy_redirect(&raw_path, &request_headers) {
+        if let Some(target) = recover_proxy_redirect(&raw_path, &request_headers)
+            .or_else(|| fallback_proxy_redirect(&raw_path, &last_upstream))
+        {
             respond_redirect(&mut stream, &target).await;
             return Ok(());
         }
@@ -727,6 +753,10 @@ where
     let mut body = resp.body;
     // HTML 改写(注入 <base> + URL 改写)
     if content_type.contains("text/html") {
+        // 记录最近成功代理 HTML 的上游,供无前缀请求的 Referer 兜底失效时使用
+        if let Ok(mut slot) = last_upstream.lock() {
+            *slot = Some((scheme.clone(), hostport.clone()));
+        }
         let html = String::from_utf8_lossy(&body);
         body = rewrite_html(&html, &scheme, &hostport).into_bytes();
     }
@@ -1236,6 +1266,27 @@ mod tests {
         assert_eq!(recover_proxy_redirect("not-a-path", &headers), None);
     }
 
+    #[test]
+    fn falls_back_to_last_upstream_when_referer_missing() {
+        // Referer 缺失(sandbox iframe 等)时,用最近成功代理 HTML 的上游兜底
+        let last: Arc<std::sync::Mutex<Option<(String, String)>>> =
+            Arc::new(std::sync::Mutex::new(Some((
+                "https".to_string(),
+                "www.baidu.com".to_string(),
+            ))));
+        assert_eq!(
+            fallback_proxy_redirect("/s?wd=IP", &last),
+            Some("/__proxy__/https/www.baidu.com/s?wd=IP".to_string())
+        );
+        // 尚未代理过任何 HTML 文档时无兜底
+        let empty: Arc<std::sync::Mutex<Option<(String, String)>>> =
+            Arc::new(std::sync::Mutex::new(None));
+        assert_eq!(fallback_proxy_redirect("/s?wd=IP", &empty), None);
+        // 路径非法时同样不恢复
+        assert_eq!(fallback_proxy_redirect("//evil.com/x", &last), None);
+        assert_eq!(fallback_proxy_redirect("not-a-path", &last), None);
+    }
+
     // ── 端到端:经本地 SSH 测试服务器(test-sftp/direct_tcpip_server.py,127.0.0.1:2223)
     // 的 direct-tcpip 通道访问真实站点,验证网关全链路(通道 + TLS + 改写)。 ──
 
@@ -1299,6 +1350,11 @@ mod tests {
         };
         let gw = start(0, ssh).await.expect("gateway should start");
 
+        // 尚未代理过任何页面:非 /__proxy__/ 路径返回友好错误页而非裸 404
+        let resp = gateway_get(gw.port, "/favicon.ico").await;
+        assert!(resp.starts_with("HTTP/1.1 404"), "unexpected status: {}", resp.lines().next().unwrap_or_default());
+        assert!(resp.contains("StarHub Web Gateway"), "expected friendly error page");
+
         // HTTPS 站点:通道 + TLS + HTML 改写全链路
         let resp = gateway_get(gw.port, "/__proxy__/https/www.baidu.com/").await;
         let status_line = resp.lines().next().unwrap_or_default().to_string();
@@ -1319,10 +1375,29 @@ mod tests {
             "frame-embedding blockers should be stripped, got head:\n{head}"
         );
 
-        // 非 /__proxy__/ 路径:返回友好错误页而非裸 404
+        // 模拟百度搜索回车:JS 根相对导航丢掉 /__proxy__/ 前缀(且无 Referer,
+        // 对应 sandbox iframe 场景),应 307 回代理形式而非错误页
+        let resp = gateway_get(gw.port, "/s?wd=IP").await;
+        let status_line = resp.lines().next().unwrap_or_default().to_string();
+        assert!(status_line.contains("307"), "expected 307 recovery redirect, got: {status_line}");
+        let location = resp
+            .lines()
+            .find(|l| l.to_lowercase().starts_with("location:"))
+            .unwrap_or_default()
+            .to_string();
+        assert_eq!(
+            location.trim_end_matches('\r'),
+            "Location: /__proxy__/https/www.baidu.com/s?wd=IP",
+            "unexpected recovery location:\n{}",
+            resp.split("\r\n\r\n").next().unwrap_or_default()
+        );
+        // 子资源(如 favicon)同样受益于兜底
         let resp = gateway_get(gw.port, "/favicon.ico").await;
-        assert!(resp.starts_with("HTTP/1.1 404"), "unexpected status: {}", resp.lines().next().unwrap_or_default());
-        assert!(resp.contains("StarHub Web Gateway"), "expected friendly error page");
+        assert!(
+            resp.lines().next().unwrap_or_default().contains("307"),
+            "expected 307 for favicon fallback, got: {}",
+            resp.lines().next().unwrap_or_default()
+        );
 
         gw.abort.abort();
     }
