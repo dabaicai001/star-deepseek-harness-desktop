@@ -14,6 +14,11 @@
 
 ---
 
+## [0.50.1] - 2026-08-10
+
+### 修复
+- AI 助手跑命令途中 SSH 终端突然掉线("Connection closed by remote host" 后自动重连):russh 客户端此前没有任何应用层心跳(两处 `client::Config` 只有 `inactivity_timeout: None`),终端连接在 shell 无输出期间长时间零流量,易被中间 NAT / 防火墙按空闲会话踢掉(表现为 AI 长命令执行中远程主动断开);为两处连接配置启用 `keepalive_interval: 30s` + `keepalive_max: 3`(应用层 keepalive,不依赖对端 sshd 的 ClientAlive 配置);同时读循环把断开原因(Eof=shell 退出 / Close=通道关闭 / 连接丢失)记录 `tracing::warn` 并作为 `ssh:close:{id}` 事件 payload 透传给前端,终端据此区分打印「Remote shell exited」与「Connection closed by remote host」,此前两种情形一律显示后者无法定位
+
 ## [0.50.0] - 2026-08-10
 
 ### 新增

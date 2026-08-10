@@ -781,13 +781,19 @@ async function subscribeSessionEvents(sessionId: string) {
     zmodemSentry?.consume(octets)
   })
 
-  unlistenClose = await listen(`ssh:close:${sessionId}`, () => {
+  unlistenClose = await listen<string>(`ssh:close:${sessionId}`, (event) => {
     connected.value = false
     clearPromptCapture(new Error('SSH connection closed before prompt returned'))
     resetZmodem()
     resetSftpReady()
     stopTimer()
-    terminalRef.value?.writeln('\r\n\x1b[33m! Connection closed by remote host\x1b[0m')
+    // 后端透传断开原因:shell-exited(远程 shell 退出,连接未必断)/
+    // channel-closed(服务端关通道)/ connection-lost(连接真的断了)
+    const cause = typeof event.payload === 'string' ? event.payload : 'connection-lost'
+    const causeText = cause === 'shell-exited'
+      ? '! Remote shell exited (connection may still be alive)'
+      : '! Connection closed by remote host'
+    terminalRef.value?.writeln(`\r\n\x1b[33m${causeText}\x1b[0m`)
     if (autoReconnect.value && !asset.value?.config.mfaEnabled) {
       tryReconnect(sessionId)
     } else if (asset.value?.config.mfaEnabled) {

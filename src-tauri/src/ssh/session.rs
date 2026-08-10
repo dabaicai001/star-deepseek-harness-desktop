@@ -179,6 +179,11 @@ impl SshSession {
 
         let config = client::Config {
             inactivity_timeout: None,
+            // SSH 层 keepalive:30s 一个 global-request,3 次无应答才判定死亡。
+            // AI 场景下终端连接经常长时间零流量(AI 在独立连接上干活 /
+            // 长命令无输出),没有心跳会被 NAT / LB / sshd ClientAlive 踢掉。
+            keepalive_interval: Some(Duration::from_secs(30)),
+            keepalive_max: 3,
             ..Default::default()
         };
 
@@ -297,6 +302,9 @@ impl SshSession {
 
             let config = client::Config {
                 inactivity_timeout: None,
+                // 同主连接:跳板机内层连接也开心跳,见上方注释。
+                keepalive_interval: Some(Duration::from_secs(30)),
+                keepalive_max: 3,
                 ..Default::default()
             };
 
@@ -413,6 +421,9 @@ impl SshSession {
             }
         });
         tokio::spawn(async move {
+            // 记录断开原因并透传到前端:此前统一打印 "Connection closed by
+            // remote host",shell 正常退出与连接被踢无法区分,没法诊断。
+            let mut close_cause = "connection-lost";
             loop {
                 tokio::select! {
                     resize_result = resize_rx.changed() => {
@@ -441,7 +452,18 @@ impl SshSession {
                                     .emit(&format!("ssh:data:{}", id_for_read), data.to_vec());
                             }
                             Some(ChannelMsg::WindowChange { .. }) | Some(ChannelMsg::Success) => {}
-                            Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                            // Eof:远程 shell 进程退出(exit / shell 被杀),连接本身可能还活着
+                            Some(ChannelMsg::Eof) => {
+                                close_cause = "shell-exited";
+                                break;
+                            }
+                            // Close:服务端主动关通道
+                            Some(ChannelMsg::Close) => {
+                                close_cause = "channel-closed";
+                                break;
+                            }
+                            // None:russh 连接句柄结束(TCP 断、服务端 disconnect、keepalive 超时)
+                            None => break,
                             _ => {}
                         }
                     }
@@ -456,7 +478,12 @@ impl SshSession {
             }
             drop(ch);
             if was_current {
-                let _ = app_handle.emit(&format!("ssh:close:{}", id_for_read), ());
+                tracing::warn!(
+                    session_id = %id_for_read,
+                    cause = close_cause,
+                    "SSH shell channel closed"
+                );
+                let _ = app_handle.emit(&format!("ssh:close:{}", id_for_read), close_cause);
             }
         });
         Ok(())

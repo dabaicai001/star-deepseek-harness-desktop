@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.50.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.50.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.50.1 (2026-08-10)
+- 🐛 AI 助手跑命令途中 SSH 终端突然掉线("Connection closed by remote host" 后自动重连):russh 客户端此前没有任何应用层心跳(两处 `client::Config` 只有 `inactivity_timeout: None`),终端连接在 shell 无输出期间长时间零流量,易被中间 NAT / 防火墙按空闲会话踢掉(表现为 AI 长命令执行中远程主动断开);为两处连接配置启用 `keepalive_interval: 30s` + `keepalive_max: 3`(应用层 keepalive,不依赖对端 sshd 的 ClientAlive 配置);同时读循环把断开原因(Eof=shell 退出 / Close=通道关闭 / 连接丢失)记录 `tracing::warn` 并作为 `ssh:close:{id}` 事件 payload 透传给前端,终端据此区分打印「Remote shell exited」与「Connection closed by remote host」,此前两种情形一律显示后者无法定位
 
 ### v0.50.0 (2026-08-10)
 - ✨ AI Agent 支持「绑定目标」与「自动批准(仅查询)」:编辑器可为 Agent 勾选默认绑定的资产(#SSH-xxx / #DB-xxx / #LOCAL 等)与自动批准开关;绑定目标在该 Agent 的对话首轮自动注入为 # 上下文(沿用 resolveStickyContextBinding,按当前可用资产过滤),无需每次手动输入 #;自动批准开启后,只读查询类工具调用(SELECT/SHOW/EXPLAIN 类 SQL、ls/df/ps 等查看类命令,commandGuard 新增 isReadOnlySql/isReadOnlyShellCommand 保守判定——重定向、命令替换、sudo、多段管道任一段不可证只读即拦)免确认直接执行,更新/删除等 _confirmed 写工具(always-confirm)与高风险命令(risk)仍逐条人工审查,勾选处附说明文案
