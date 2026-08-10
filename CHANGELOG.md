@@ -14,6 +14,11 @@
 
 ---
 
+## [0.47.9] - 2026-08-10
+
+### 修复
+- 桌面端窗口右侧常驻一条空白竖条(AI 视图右侧"多出来一块",此前按「`.workspace-content` 多余滚动条」修过未根治):真根因是 Vuetify reset(`vuetify/styles`)给 `html` 写了 `overflow-y: scroll`,与 cyber.css 全局 `overflow: hidden` 同优先级且注入更晚,Windows 经典(非 overlay)滚动条下视口右侧常驻一条空白滚动条轨道;overlay/headless 滚动条不占布局空间,纯浏览器预览回归全程看不出来;cyber.css 对 `html` 显式 `overflow-y: hidden !important` 压掉
+
 ## [0.47.8] - 2026-08-10
 
 ### 修复

@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.47.8(服务器网页访问 v0.47.7 的 _blank 拦截 / 自定义右键菜单 / 地址栏同步在桌面应用里全部静默失效:应用源(`http://tauri.localhost`)与网关源(`127.0.0.1:<port>`)跨源,`iframe.contentDocument` 为 null,外层 JS 根本碰不到 iframe 文档(此前纯浏览器预览的同源假象掩盖);改为网关在改写 HTML 时注入桥接脚本(`BRIDGE_SCRIPT`),在页面内部完成 _blank / 中键 / Ctrl+点击拦截(新开 tab)、右键菜单拦截、导航与页面标题上报,统一 `postMessage` 与外层通信,并接收外层 back / forward / reload 命令;tab 标题跟随页面 `<title>` 更新(`appStore.updateTabTitle`)) |
+| 当前版本 | v0.47.9(桌面端窗口右侧常驻一条空白竖条(AI 视图右侧"多出来一块",此前按「`.workspace-content` 多余滚动条」修过未根治):真根因是 Vuetify reset(`vuetify/styles`)给 `html` 写了 `overflow-y: scroll`,与 cyber.css 全局 `overflow: hidden` 同优先级且注入更晚,Windows 经典(非 overlay)滚动条下视口右侧常驻一条空白滚动条轨道;overlay/headless 滚动条不占布局空间,纯浏览器预览回归全程看不出来;cyber.css 对 `html` 显式 `overflow-y: hidden !important` 压掉) |
 
 ---
 
@@ -478,4 +478,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-10 (v0.47.8)*
+*最后更新: 2026-08-10 (v0.47.9)*
