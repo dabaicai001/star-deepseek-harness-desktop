@@ -201,6 +201,10 @@ function onGatewayMessage(e: MessageEvent) {
   const d = e.data as { __starhub?: number; type?: string; href?: string; url?: string; title?: string; x?: number; y?: number } | null
   if (!d || d.__starhub !== 1) return
   if (gatewayPort && e.origin !== `http://127.0.0.1:${gatewayPort}`) return
+  // 多 web tab 并存且共享同一网关端口时 origin 无法区分来源,
+  // 必须按发送窗口归属到本视图的 iframe,否则标题/地址互相污染
+  const win = iframeRef.value?.contentWindow
+  if (!win || e.source !== win) return
   if (d.type === 'navigated' && d.href) {
     // 切 tab 恢复期间,只接受恢复目标的上报,忽略初始 src 竞态产生的旧地址
     if (restoring) {

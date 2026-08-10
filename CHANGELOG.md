@@ -14,6 +14,11 @@
 
 ---
 
+## [0.47.11] - 2026-08-10
+
+### 修复
+- 服务器网页访问同时开多个 web tab 时标题/地址互相污染(第一个 tab 标题被后开的页面覆盖),且切回上一个 tab 偶发报错:多个 tab 共享同一 SSH 网关端口,每个 keep-alive 的 WebBrowserView 都在 window 上监听 `message`,此前只按 `e.origin` 过滤,同端口下无法区分来源 iframe,B tab 页面的 navigated/title 上报被 A tab 一并处理;`onGatewayMessage` 增加 `e.source === iframeRef.contentWindow` 归属判断,只处理本视图 iframe 的消息
+
 ## [0.47.10] - 2026-08-10
 
 ### 修复
