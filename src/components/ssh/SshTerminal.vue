@@ -22,7 +22,7 @@ import { useDialogStore } from '@/stores/dialog'
 import { useThemeStore } from '@/stores/theme'
 import type { Asset } from '@/types/asset'
 import { parseInstanceId, withTabIndexSuffix, generateInstanceId } from '@/utils/tabId'
-import { parseXshellQbl, decodeQblText } from '@/utils/xshellQuickCommand'
+import { parseXshellQblDetailed, parseXshellQblx, decodeQblText } from '@/utils/xshellQuickCommand'
 import { formatSize } from '@/services/sftp'
 import { getDetachedInfo, LOCAL_TAB_DETACH_EVENT } from '@/lib/windowDetach'
 import { SSH_SYSTEM_PROMPT, SSH_SILENT_MODE_PROMPT_NOTE, sshTools, makeSshToolCaller } from '@/utils/aiTools'
@@ -1566,13 +1566,24 @@ async function onQblFileChange(e: Event) {
   input.value = ''
   if (!file) return
   try {
-    const parsed = parseXshellQbl(decodeQblText(await file.arrayBuffer()))
-    if (parsed.length === 0) {
+    const buf = await file.arrayBuffer()
+    // .qblx 是 ZIP(PK 魔数):每个命令集一个 commands.qbl;否则按 .qbl 文本解析
+    const head = new Uint8Array(buf, 0, 2)
+    const result = head[0] === 0x50 && head[1] === 0x4b
+      ? await parseXshellQblx(buf)
+      : parseXshellQblDetailed(decodeQblText(buf))
+    if (result.commands.length === 0) {
       showQcImportMsg(t('ssh.quickCommandEditor.importFailed'), true)
       return
     }
-    quickCommands.value.push(...parsed.map(p => ({ ...p, icon: 'mdi-script-text-outline', isDefault: false })))
-    showQcImportMsg(t('ssh.quickCommandEditor.importSuccess', { n: parsed.length }), false)
+    quickCommands.value.push(...result.commands.map(p => ({ ...p, icon: 'mdi-script-text-outline', isDefault: false })))
+    const msg = t('ssh.quickCommandEditor.importSuccess', { n: result.commands.length })
+    showQcImportMsg(
+      result.skippedScripts > 0
+        ? msg + t('ssh.quickCommandEditor.importSkippedScripts', { m: result.skippedScripts })
+        : msg,
+      false,
+    )
   } catch {
     showQcImportMsg(t('ssh.quickCommandEditor.importFailed'), true)
   }
@@ -2105,7 +2116,7 @@ function handleKbCancelled() {
  <input
  ref="qblFileInput"
  type="file"
- accept=".qbl"
+ accept=".qbl,.qblx"
  style="display: none"
  @change="onQblFileChange"
  />

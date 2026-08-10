@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.48.2-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.49.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.49.0 (2026-08-10)
+- ✨ SSH 快捷命令(QUICK)导入支持 Xshell 8 导出的 .qblx:该格式实为 ZIP 包(每个命令集一个目录、目录名 GBK 编码,各含一个 UTF-16 LE 的 commands.qbl,新版 `Button_N_Name/Action/Type` 键格式,Action 内字面 `\r\n` 表换行);零依赖解 ZIP(手工解析中央目录 + `DecompressionStream('deflate-raw')`),多命令集合并导入(多集时标签加 `集名/` 前缀),Type=2 本地脚本条目跳过并在结果里计数;解析器同时兼容旧版 `Button_N=标签\n[1]命令` 键格式与 UTF-16/UTF-8/GBK 三种编码
 
 ### v0.48.2 (2026-08-10)
 - 🐛 数据库查询结果网格编辑 varchar 等文本列时前导零被吃掉(`companyId` 输入 `000023123121` 失焦后变 `23123121`,保存即数据损坏):Univer 编辑器提交时把数字形文本按 Excel 语义解析成数字;按上游 `getCellDataByInput`「文本格式('@')优先级最高」的规则,为 char/text/enum/set/json/uuid/date/time/year/binary/blob 等文本语义列的单元格设 `n.pattern='@'` 文本格式,输入原样保留(日期时间同理不再变序列号);`coerceValue` 再加一道兜底——粘贴等绕过编辑器文本格式的路径把数字/布尔转回字符串,保住列类型语义

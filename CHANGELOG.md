@@ -14,6 +14,11 @@
 
 ---
 
+## [0.49.0] - 2026-08-10
+
+### 新增
+- SSH 快捷命令(QUICK)导入支持 Xshell 8 导出的 .qblx:该格式实为 ZIP 包(每个命令集一个目录、目录名 GBK 编码,各含一个 UTF-16 LE 的 commands.qbl,新版 `Button_N_Name/Action/Type` 键格式,Action 内字面 `\r\n` 表换行);零依赖解 ZIP(手工解析中央目录 + `DecompressionStream('deflate-raw')`),多命令集合并导入(多集时标签加 `集名/` 前缀),Type=2 本地脚本条目跳过并在结果里计数;解析器同时兼容旧版 `Button_N=标签\n[1]命令` 键格式与 UTF-16/UTF-8/GBK 三种编码
+
 ## [0.48.2] - 2026-08-10
 
 ### 修复
