@@ -146,13 +146,25 @@ function buildHeaderCell(column: ColumnInfo): ICellData {
   } as ICellData
 }
 
-function buildValueCell(value: unknown, dirty = false): ICellData {
+/**
+ * 字符串语义的列类型:char/text/enum/set/json/uuid/date/time/year/binary 等。
+ * 这些列在 Univer 里要设文本格式('@'),否则编辑器提交时会把
+ * '000023123121' 这类数字形文本解析成数字,前导零直接丢失
+ * (日期时间形同理会变成序列号);getCellDataByInput 里文本格式优先级最高。
+ */
+function isTextColumn(column: ColumnInfo): boolean {
+  return /char|text|enum|set|json|uuid|date|time|year|binary|blob/i.test(column.type)
+}
+
+function buildValueCell(value: unknown, dirty = false, column?: ColumnInfo): ICellData {
   const isNull = value === null || value === undefined
   const isNumber = typeof value === 'number'
   return {
     v: serializeCell(value),
     t: cellType(value),
     s: {
+      // 文本列强制文本格式,保住前导零 / 日期时间原文(见 isTextColumn)
+      ...(column && isTextColumn(column) ? { n: { pattern: '@' } } : {}),
       cl: {
         rgb: cssVar(isNull ? '--muted' : (isNumber ? '--cyan' : '--text'), isNull ? '#607082' : (isNumber ? '#5dd6d6' : '#dce7f3')),
       },
@@ -179,7 +191,7 @@ function buildCellData(): NonNullable<IWorksheetData['cellData']> {
     const sheetRow = rowIndex + 1
     row.forEach((value, columnIndex) => {
       if (!cellData[sheetRow]) cellData[sheetRow] = {}
-      cellData[sheetRow][columnIndex] = buildValueCell(value)
+      cellData[sheetRow][columnIndex] = buildValueCell(value, false, props.columns[columnIndex])
     })
   })
   return cellData
@@ -235,10 +247,10 @@ function buildWorkbookData(): IWorkbookData {
 function buildGridMatrix(): ICellData[][] {
   const header = props.columns.map(column => buildHeaderCell(column))
   const rows = props.rows.map(row =>
-    props.columns.map((_, columnIndex) => buildValueCell(row[columnIndex]))
+    props.columns.map((column, columnIndex) => buildValueCell(row[columnIndex], false, column))
   )
   if (rows.length === 0) {
-    rows.push(props.columns.map(() => buildValueCell('')))
+    rows.push(props.columns.map(column => buildValueCell('', false, column)))
   }
   return [header, ...rows]
 }
@@ -252,7 +264,12 @@ function valuesEqual(left: unknown, right: unknown): boolean {
 
 function coerceValue(value: unknown, original: unknown, column: ColumnInfo): unknown {
   if (value === null || value === undefined) return ''
-  if (typeof value !== 'string') return value
+  if (typeof value !== 'string') {
+    // 文本列兜底:粘贴等路径可能绕过编辑器文本格式解析成数字/布尔,
+    // 转回字符串保住列类型语义(前导零靠单元格 '@' 格式在输入侧保住)
+    if (isTextColumn(column)) return String(value)
+    return value
+  }
   if (value.trim().toUpperCase() === 'NULL') return null
 
   const type = column.type.toLowerCase()

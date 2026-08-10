@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.48.1(服务器网页访问 tab 切回后变成空白初始页(地址栏清空、需重新输入网址):web tab 首次打开时路由带 query(SSH 入口带 `?session=`、_blank 新开带 `?session=&url=`),而 tab 条点击切换的 `selectTab` 是不带 query 的 push——keep-alive 以 `route.fullPath` 为 key,两种 fullPath 各产生一个组件实例,带 query 的实例又不在 include 名单里被立即裁剪,`loadedUrl` 等浏览状态随之销毁(v0.47.10 的恢复机制因此只在第二次切换后才生效);修复:打开 web tab 一律不带 query(session 由 `tab.assetId` 反解),_blank 新开的初始 URL 改走 `src/utils/webTabNav.ts` 一次性暂存,新实例 onMounted 取走后自动导航) |
+| 当前版本 | v0.48.2(数据库查询结果网格编辑 varchar 等文本列时前导零被吃掉(`companyId` 输入 `000023123121` 失焦后变 `23123121`,保存即数据损坏):Univer 编辑器提交时把数字形文本按 Excel 语义解析成数字;按上游 `getCellDataByInput`「文本格式('@')优先级最高」的规则,为 char/text/enum/set/json/uuid/date/time/year/binary/blob 等文本语义列的单元格设 `n.pattern='@'` 文本格式,输入原样保留(日期时间同理不再变序列号);`coerceValue` 再加一道兜底——粘贴等绕过编辑器文本格式的路径把数字/布尔转回字符串,保住列类型语义) |
 
 ---
 
@@ -478,4 +478,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-10 (v0.48.1)*
+*最后更新: 2026-08-10 (v0.48.2)*
