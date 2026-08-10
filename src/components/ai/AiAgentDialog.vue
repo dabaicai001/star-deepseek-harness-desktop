@@ -8,6 +8,7 @@ import {
   type AiAgentDraft,
   type AiAssetType
 } from '@/stores/ai'
+import { useAssetStore } from '@/stores/asset'
 
 const props = defineProps<{
   modelValue: boolean
@@ -21,15 +22,33 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const aiStore = useAiStore()
+const assetStore = useAssetStore()
 const name = ref('')
 const description = ref('')
 const systemPrompt = ref('')
 const skillIds = ref<string[]>([])
+const boundAssetIds = ref<string[]>([])
+const boundLocal = ref(false)
+const autoApprove = ref(false)
 
 const allSkills = computed(() => [
   ...BUILTIN_AI_SKILLS,
   ...aiStore.settings.customSkills
 ])
+
+/** 与 AiView 的 # 引用标签一致:SSH-测试服务器 / DB-测试环境 ... */
+function workspacePrefix(type: AiAssetType) {
+  if (type === 'ssh') return 'SSH'
+  if (type === 'db') return 'DB'
+  if (type === 'docker') return 'Docker'
+  if (type === 'excel') return 'Excel'
+  return 'LOCAL'
+}
+
+/** 可绑定目标清单:按类型排序的资产 + 末尾的本机 */
+const bindableAssets = computed(() =>
+  [...assetStore.assets].sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name))
+)
 
 const presets: Array<{
   id: string
@@ -69,6 +88,9 @@ watch(
     description.value = agent?.description ?? ''
     systemPrompt.value = agent?.systemPrompt ?? ''
     skillIds.value = agent ? [...agent.skillIds] : [...aiStore.settings.enabledSkillIds]
+    boundAssetIds.value = agent?.boundAssetIds ? [...agent.boundAssetIds] : []
+    boundLocal.value = agent?.boundLocal ?? false
+    autoApprove.value = agent?.autoApprove ?? false
   },
   { immediate: true }
 )
@@ -91,6 +113,13 @@ function toggleSkill(id: string, enabled: boolean) {
   skillIds.value = Array.from(selected)
 }
 
+function toggleBoundAsset(id: string, enabled: boolean) {
+  const selected = new Set(boundAssetIds.value)
+  if (enabled) selected.add(id)
+  else selected.delete(id)
+  boundAssetIds.value = Array.from(selected)
+}
+
 function formatScopes(types: AiAssetType[]) {
   return types.map(type => type.toUpperCase()).join(' / ')
 }
@@ -101,7 +130,10 @@ function save() {
     name: name.value,
     description: description.value,
     systemPrompt: systemPrompt.value,
-    skillIds: [...skillIds.value]
+    skillIds: [...skillIds.value],
+    boundAssetIds: [...boundAssetIds.value],
+    boundLocal: boundLocal.value,
+    autoApprove: autoApprove.value
   })
   close()
 }
@@ -184,6 +216,60 @@ function save() {
               </span>
             </label>
           </div>
+        </div>
+
+        <div class="form-field">
+          <label class="field-label">{{ t('ai.boundTargets') }}</label>
+          <p class="ai-agent-bound-hint">{{ t('ai.boundTargetsHint') }}</p>
+          <div class="ai-agent-skill-grid ai-agent-bound-grid">
+            <label
+              v-for="asset in bindableAssets"
+              :key="asset.id"
+              class="ai-agent-skill ai-agent-bound-item"
+              :class="{ active: boundAssetIds.includes(asset.id) }"
+            >
+              <input
+                type="checkbox"
+                :checked="boundAssetIds.includes(asset.id)"
+                @change="toggleBoundAsset(asset.id, ($event.target as HTMLInputElement).checked)"
+              />
+              <span>
+                <strong>{{ asset.name }}</strong>
+                <code>{{ workspacePrefix(asset.type) }}</code>
+              </span>
+            </label>
+            <label
+              class="ai-agent-skill ai-agent-bound-item"
+              :class="{ active: boundLocal }"
+            >
+              <input
+                type="checkbox"
+                :checked="boundLocal"
+                @change="boundLocal = ($event.target as HTMLInputElement).checked"
+              />
+              <span>
+                <strong>{{ t('ai.boundTargetsLocal') }}</strong>
+                <code>LOCAL</code>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label
+            class="ai-agent-skill ai-agent-bound-item ai-agent-auto-approve"
+            :class="{ active: autoApprove }"
+          >
+            <input
+              type="checkbox"
+              :checked="autoApprove"
+              @change="autoApprove = ($event.target as HTMLInputElement).checked"
+            />
+            <span>
+              <strong>{{ t('ai.autoApprove') }}</strong>
+              <small>{{ t('ai.autoApproveHint') }}</small>
+            </span>
+          </label>
         </div>
       </div>
 

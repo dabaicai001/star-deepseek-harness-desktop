@@ -3896,6 +3896,51 @@ body {
   font-size: 9px;
 }
 
+.ai-agent-bound-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* 绑定目标比技能卡更密:单行紧凑卡片,滚动区限高 */
+.ai-agent-bound-grid {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.ai-agent-bound-item {
+  align-items: center;
+  padding: 8px 12px;
+}
+
+.ai-agent-bound-item input {
+  margin-top: 0;
+}
+
+.ai-agent-bound-item > span {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+/* 自动批准卡:标题在上、说明在下,说明允许换行 */
+.ai-agent-auto-approve {
+  align-items: flex-start;
+}
+
+.ai-agent-auto-approve input {
+  margin-top: 3px;
+}
+
+.ai-agent-auto-approve > span {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
 .ai-workspace {
   position: relative;
   display: flex;

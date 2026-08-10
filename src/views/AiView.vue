@@ -32,12 +32,13 @@ import { createDirectWorkspaceRuntime } from '@/services/aiWorkspace'
 import { createMcpRuntime } from '@/services/mcp'
 import { createLocalAiRuntime } from '@/services/aiLocal'
 import type { ToolConfirmCtx } from '@/utils/aiTools'
-import { extractWhitelistPrefix } from '@/utils/commandGuard'
+import { extractWhitelistPrefix, isReadOnlyToolCall } from '@/utils/commandGuard'
 import {
   buildCompletedStepContext,
   buildConversationContext,
   drainPendingSteers,
-  resolveStickyContextBinding
+  resolveStickyContextBinding,
+  type StickyContextBinding
 } from '@/utils/aiContext'
 import { captureScrollAnchor, resolveScrollTop, type ScrollAnchor } from '@/utils/scrollPosition'
 
@@ -418,6 +419,22 @@ async function executeWorkspaceTool(call: LlmToolCall, assets: Asset[]) {
   throw new Error(`Unsupported AI workspace tool: ${call.function.name}`)
 }
 
+/** Agent 配置的默认绑定目标:会话尚无绑定时作为上一轮绑定注入,
+ * resolveStickyContextBinding 会顺带按当前可用资产过滤掉已删除的目标。 */
+function agentDefaultBinding(agent: AiAgent): StickyContextBinding | undefined {
+  const ids = (agent.boundAssetIds || []).filter(id => assetStore.assets.some(asset => asset.id === id))
+  const local = Boolean(agent.boundLocal)
+  if (ids.length === 0 && !local) return undefined
+  const tokens = [
+    ...ids.map(id => {
+      const asset = assetStore.assets.find(item => item.id === id)
+      return asset ? `#${workspacePrefix(asset.type)}-${tokenSafeName(asset.name)}` : ''
+    }).filter(token => token.length > 0),
+    ...(local ? ['#LOCAL'] : [])
+  ]
+  return { assetIds: ids, local, tokens }
+}
+
 function buildPrompt(text: string, primaryAgent: AiAgent = activeAgent.value) {
   const mentions = extractAgents(text)
   const collaborators = mentions.filter(agent => agent.id !== primaryAgent.id)
@@ -433,7 +450,7 @@ function buildPrompt(text: string, primaryAgent: AiAgent = activeAgent.value) {
     explicitAssetIds: explicitAssets.map(asset => asset.id),
     explicitLocal: scopes.includes('local'),
     explicitTokens: explicitContextTokens,
-    previous: session.value.contextBinding,
+    previous: session.value.contextBinding ?? agentDefaultBinding(primaryAgent),
     availableAssetIds: assetStore.assets.map(asset => asset.id)
   })
   session.value.contextBinding = resolvedContext.binding
@@ -507,6 +524,16 @@ function resolvePendingConfirms() {
 }
 
 async function requestToolConfirmation(tempId: string, context: ToolConfirmCtx): Promise<boolean> {
+  // Agent 开启「自动批准(仅查询)」:只读查询类操作(whitelist-miss 且
+  // 通过只读判定)免确认直接放行;更新/删除等 _confirmed 写工具
+  // (always-confirm)与高风险命令(risk)不受影响,仍逐条人工审查。
+  if (
+    activeAgent.value.autoApprove
+    && context.reason === 'whitelist-miss'
+    && isReadOnlyToolCall(context.toolName, context.args)
+  ) {
+    return true
+  }
   const tempSession = aiStore.getSession(tempId)
   if (!tempSession) throw new Error(`AI execution session not found: ${tempId}`)
   let record = [...tempSession.toolCalls].reverse().find(item => item.status === 'running' || item.status === 'awaiting-confirm')

@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.49.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.50.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.50.0 (2026-08-10)
+- ✨ AI Agent 支持「绑定目标」与「自动批准(仅查询)」:编辑器可为 Agent 勾选默认绑定的资产(#SSH-xxx / #DB-xxx / #LOCAL 等)与自动批准开关;绑定目标在该 Agent 的对话首轮自动注入为 # 上下文(沿用 resolveStickyContextBinding,按当前可用资产过滤),无需每次手动输入 #;自动批准开启后,只读查询类工具调用(SELECT/SHOW/EXPLAIN 类 SQL、ls/df/ps 等查看类命令,commandGuard 新增 isReadOnlySql/isReadOnlyShellCommand 保守判定——重定向、命令替换、sudo、多段管道任一段不可证只读即拦)免确认直接执行,更新/删除等 _confirmed 写工具(always-confirm)与高风险命令(risk)仍逐条人工审查,勾选处附说明文案
 
 ### v0.49.0 (2026-08-10)
 - ✨ SSH 快捷命令(QUICK)导入支持 Xshell 8 导出的 .qblx:该格式实为 ZIP 包(每个命令集一个目录、目录名 GBK 编码,各含一个 UTF-16 LE 的 commands.qbl,新版 `Button_N_Name/Action/Type` 键格式,Action 内字面 `\r\n` 表换行);零依赖解 ZIP(手工解析中央目录 + `DecompressionStream('deflate-raw')`),多命令集合并导入(多集时标签加 `集名/` 前缀),Type=2 本地脚本条目跳过并在结果里计数;解析器同时兼容旧版 `Button_N=标签\n[1]命令` 键格式与 UTF-16/UTF-8/GBK 三种编码

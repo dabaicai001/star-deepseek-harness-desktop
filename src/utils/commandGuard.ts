@@ -201,3 +201,84 @@ export function extractWhitelistPrefix(command: string): string {
   // 其他命令取第一段
   return parts[0]
 }
+
+// ── 只读判定:Agent「自动批准(仅查询)」的安全边界 ──
+// 设计原则:宁可误拦(退回人工确认)也不误放,任何不确定的形态一律返回 false。
+
+/** 语句级写关键字:出现在语句里即视为非只读(覆盖 WITH CTE 里藏 UPDATE 等情况) */
+const SQL_WRITE_KEYWORDS = /\b(insert|update|delete|drop|alter|truncate|create|replace|grant|revoke|call|use|lock|unlock|rename|set)\b/i
+const SQL_READ_START = /^(select|show|desc|describe|explain)\b/i
+
+/**
+ * 只读 SQL 判定:去掉注释后,每条语句都以 SELECT/SHOW/DESC/DESCRIBE/EXPLAIN 开头
+ * (或 WITH 开头的 CTE 且全文不含写关键字),且全文不含写关键字。
+ */
+export function isReadOnlySql(sql: string): boolean {
+  const cleaned = sql
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  const statements = cleaned.split(';').map(s => s.trim()).filter(s => s.length > 0)
+  if (statements.length === 0) return false
+  return statements.every(s => {
+    if (SQL_WRITE_KEYWORDS.test(s)) return false
+    if (SQL_READ_START.test(s)) return true
+    return /^with\b/i.test(s) && !SQL_WRITE_KEYWORDS.test(s)
+  })
+}
+
+/** 只读 Shell 单条命令前缀(首 token 或小分子命令) */
+const READ_ONLY_SHELL_SINGLE = new Set([
+  'ls', 'll', 'pwd', 'cat', 'head', 'tail', 'less', 'more', 'wc', 'stat', 'file',
+  'find', 'grep', 'egrep', 'fgrep', 'rg', 'ps', 'top', 'htop', 'uptime', 'free',
+  'df', 'du', 'mount', 'lsblk', 'lsof', 'uname', 'hostname', 'date', 'whoami',
+  'id', 'w', 'who', 'last', 'env', 'printenv', 'which', 'whereis', 'type',
+  'echo', 'printf', 'ip', 'ifconfig', 'netstat', 'ss', 'ping', 'traceroute',
+  'dig', 'nslookup', 'host', 'journalctl', 'getenforce', 'lsusb', 'lspci',
+  'vmstat', 'iostat', 'nproc', 'lsmod', 'dmesg', 'lsattr', 'getfacl', 'tree',
+])
+const READ_ONLY_SHELL_PAIRS = new Set([
+  'docker ps', 'docker images', 'docker logs', 'docker inspect', 'docker stats',
+  'docker top', 'docker version', 'docker info', 'docker port',
+  'kubectl get', 'kubectl describe', 'kubectl logs', 'kubectl version',
+  'kubectl api-resources', 'systemctl status', 'systemctl list-units',
+  'systemctl list-timers', 'systemctl show', 'service --status-all',
+  'git status', 'git log', 'git diff', 'git show', 'git branch', 'git remote',
+  'redis-cli get', 'redis-cli mget', 'redis-cli keys', 'redis-cli scan',
+  'redis-cli ttl', 'redis-cli type', 'redis-cli exists', 'redis-cli info',
+  'redis-cli hget', 'redis-cli hgetall', 'redis-cli lrange', 'redis-cli smembers',
+  'redis-cli zrange', 'redis-cli dbsize', 'redis-cli ping',
+])
+
+/**
+ * 只读 Shell 判定:按 && / || / | / ; 切段,每段都必须满足:
+ *  - 无重定向(> >>)与命令替换($( )、反引号)
+ *  - 不是 sudo / su 提权
+ *  - 首 token(或 docker ps 这类两段子命令)在只读清单内
+ */
+export function isReadOnlyShellCommand(command: string): boolean {
+  const segments = command.split(/&&|\|\||[|;]/).map(s => s.trim()).filter(s => s.length > 0)
+  if (segments.length === 0) return false
+  return segments.every(seg => {
+    if (/[>`]|\$\(|`/.test(seg)) return false
+    const parts = seg.split(/\s+/)
+    const first = parts[0]?.toLowerCase()
+    if (!first || first === 'sudo' || first === 'su') return false
+    if (READ_ONLY_SHELL_SINGLE.has(first)) return true
+    if (parts.length >= 2 && READ_ONLY_SHELL_PAIRS.has(`${first} ${parts[1].toLowerCase()}`)) return true
+    return false
+  })
+}
+
+/**
+ * 只读工具调用判定(供 Agent 自动批准):
+ *  - 带 sql 参数的走 isReadOnlySql
+ *  - 带 command 参数的走 isReadOnlyShellCommand
+ *  - 其他形态(MCP、文件写入、无命令文本)一律不放行
+ */
+export function isReadOnlyToolCall(toolName: string, args: Record<string, unknown>): boolean {
+  const sql = typeof args.sql === 'string' ? args.sql : ''
+  if (sql) return isReadOnlySql(sql)
+  const command = typeof args.command === 'string' ? args.command : ''
+  if (command) return isReadOnlyShellCommand(command)
+  return false
+}

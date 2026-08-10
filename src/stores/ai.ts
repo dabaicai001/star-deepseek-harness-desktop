@@ -33,6 +33,12 @@ export interface AiAgent {
   description: string
   systemPrompt: string
   skillIds: string[]
+  /** 默认绑定目标:该 Agent 的对话首轮自动带上这些 # 资产,无需每次手动选择 */
+  boundAssetIds?: string[]
+  /** 默认绑定本机(#LOCAL) */
+  boundLocal?: boolean
+  /** 自动批准:只读查询类工具调用免确认;更新/删除等变更操作仍需人工审查 */
+  autoApprove?: boolean
   favorited: boolean
   createdAt: number
   updatedAt: number
@@ -93,6 +99,9 @@ export interface AiAgentDraft {
   description: string
   systemPrompt: string
   skillIds: string[]
+  boundAssetIds?: string[]
+  boundLocal?: boolean
+  autoApprove?: boolean
 }
 
 export const BUILTIN_AI_SKILLS: AiSkillDefinition[] = [
@@ -562,6 +571,11 @@ export const useAiStore = defineStore('ai', () => {
           ? agent.skillIds.filter(id => typeof id === 'string')
           : [...DEFAULT_ENABLED_SKILL_IDS],
         favorited: typeof agent.favorited === 'boolean' ? agent.favorited : (agent.id === 'starhub-assistant'),
+        boundAssetIds: Array.isArray(agent.boundAssetIds)
+          ? agent.boundAssetIds.filter(id => typeof id === 'string')
+          : [],
+        boundLocal: Boolean(agent.boundLocal),
+        autoApprove: Boolean(agent.autoApprove),
         createdAt: Number.isFinite(agent.createdAt) ? agent.createdAt : now,
         updatedAt: Number.isFinite(agent.updatedAt) ? agent.updatedAt : now
       }))
@@ -751,6 +765,9 @@ export const useAiStore = defineStore('ai', () => {
       description: draft.description.trim(),
       systemPrompt: draft.systemPrompt.trim(),
       skillIds: Array.from(new Set(draft.skillIds)),
+      boundAssetIds: Array.from(new Set(draft.boundAssetIds ?? [])),
+      boundLocal: Boolean(draft.boundLocal),
+      autoApprove: Boolean(draft.autoApprove),
       favorited: false,
       createdAt: now,
       updatedAt: now
@@ -770,6 +787,11 @@ export const useAiStore = defineStore('ai', () => {
       description: draft.description.trim(),
       systemPrompt: draft.systemPrompt.trim(),
       skillIds: Array.from(new Set(draft.skillIds)),
+      boundAssetIds: draft.boundAssetIds
+        ? Array.from(new Set(draft.boundAssetIds))
+        : (current.boundAssetIds ?? []),
+      boundLocal: draft.boundLocal ?? current.boundLocal ?? false,
+      autoApprove: draft.autoApprove ?? current.autoApprove ?? false,
       updatedAt: Date.now()
     }
     agents.value[index] = updated
@@ -783,7 +805,10 @@ export const useAiStore = defineStore('ai', () => {
       name: `${source.name} Copy`,
       description: source.description,
       systemPrompt: source.systemPrompt,
-      skillIds: [...source.skillIds]
+      skillIds: [...source.skillIds],
+      boundAssetIds: source.boundAssetIds ? [...source.boundAssetIds] : [],
+      boundLocal: source.boundLocal ?? false,
+      autoApprove: source.autoApprove ?? false
     })
   }
 

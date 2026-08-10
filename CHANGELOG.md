@@ -14,6 +14,11 @@
 
 ---
 
+## [0.50.0] - 2026-08-10
+
+### 新增
+- AI Agent 支持「绑定目标」与「自动批准(仅查询)」:编辑器可为 Agent 勾选默认绑定的资产(#SSH-xxx / #DB-xxx / #LOCAL 等)与自动批准开关;绑定目标在该 Agent 的对话首轮自动注入为 # 上下文(沿用 resolveStickyContextBinding,按当前可用资产过滤),无需每次手动输入 #;自动批准开启后,只读查询类工具调用(SELECT/SHOW/EXPLAIN 类 SQL、ls/df/ps 等查看类命令,commandGuard 新增 isReadOnlySql/isReadOnlyShellCommand 保守判定——重定向、命令替换、sudo、多段管道任一段不可证只读即拦)免确认直接执行,更新/删除等 _confirmed 写工具(always-confirm)与高风险命令(risk)仍逐条人工审查,勾选处附说明文案
+
 ## [0.49.0] - 2026-08-10
 
 ### 新增
