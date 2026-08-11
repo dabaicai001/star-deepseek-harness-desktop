@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.54.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.54.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,13 @@
 ---
 
 ## 当前版本
+
+### v0.54.1 (2026-08-11)
+- 🐛 SFTP 面板连接成功后初始目录从写死的根目录(`/`)改为会话起始目录(通常是登录用户家目录):新增 Rust `sftp_home_dir` 命令,通过 SFTP realpath(".") 解析,失败兜底根目录
+- 🐛 SFTP「跟随终端」开关不再要求用户先手动敲 pwd 才可用:
+- 🔧 AI 模型选择器触发按钮重设计:不再套用 cyber-badge 大写徽章观感(浅色主题下近白底 + 全大写模型名,突兀难读),改为与相邻 action-btn 对齐的透明底弱边框按钮;模型名保留原大小写、等宽字体、超长省略;视觉集中在 cyber.css `.ai-model-badge` 一处,组件不再写 scoped 视觉
+- ✨ `npm run cargo:check` / `npm run cargo:test`(`scripts/cargo-env.bat`):自动加载 MSVC vcvars64 环境再跑 cargo,解决 Git Bash 下 `failed to find tool "cl.exe"` 的问题;vcvars 路径取 `STARHUB_VCVARS` 环境变量,缺省回退 `D:\c++1` 安装位置
+- ✅ 新增 `tests/terminal-cwd.test.mjs`(7 例,`npm run test:terminal-cwd`):OSC 7 解析(BEL / ST 结尾、file://host 形式、跨分片拼接、非绝对路径过滤)与静默 pwd 输出解析
 
 ### v0.54.0 (2026-08-11)
 - ✨ AI 模型选择器下沉到所有视图的 AI 助手侧栏(共享组件,与工作区头部同源,选择立即生效);Settings 新增「Agent 最大迭代次数」;SFTP 面板支持跟随终端当前目录、路径输入直达、单击进入目录;标签页右键新增「在新标签页打开」

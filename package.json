@@ -1,6 +1,6 @@
 {
   "name": "starhub",
-  "version": "0.54.0",
+  "version": "0.54.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,9 @@
     "test:ai-scroll": "node --test tests/ai-scroll-position.test.mjs",
     "test:ai-steering": "node --test tests/ai-steering.test.mjs",
     "test:ssh-prompt": "node --test tests/ssh-prompt-capture.test.mjs",
+    "test:terminal-cwd": "node --test tests/terminal-cwd.test.mjs",
+    "cargo:check": "scripts\\cargo-env.bat check",
+    "cargo:test": "scripts\\cargo-env.bat test",
     "test:ssh-bg": "node --test tests/ssh-background-task.test.mjs",
     "test:memory-guard": "node --test tests/memory-guard.test.mjs",
     "test:ai-memory-review": "node --test tests/ai-memory-review.test.mjs",

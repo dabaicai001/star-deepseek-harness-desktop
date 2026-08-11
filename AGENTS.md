@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.54.0(AI 模型选择器共享组件下沉到各视图 AI 侧栏;Settings 新增 Agent 最大迭代次数;SFTP 面板跟随终端目录/路径输入/单击进目录;标签页右键「在新标签页打开」;修复「激活此模型」不生效 + 保存误删全局 API Key、记忆弹窗无法滚动、AI 调 SFTP 工具链六处、SFTP 右键下载作用对象错误、标签栏右键弹原生系统菜单) |
+| 当前版本 | v0.54.1(SFTP 面板连接成功后初始目录从写死的根目录(`/`)改为会话起始目录(通常是登录用户家目录):新增 Rust `sftp_home_dir` 命令,通过 SFTP realpath(".") 解析,失败兜底根目录) |
 
 ---
 
@@ -219,6 +219,10 @@ npm run test:ai-scroll    # AI 滚动位置
 
 # Rust 主进程
 cd src-tauri && cargo build && cargo test
+# Git Bash 下 cl.exe 不在 PATH,用 npm 脚本(scripts/cargo-env.bat 先加载 MSVC 环境;
+# vcvars64.bat 路径取 STARHUB_VCVARS 环境变量,缺省回退 D:\c++1)
+npm run cargo:check
+npm run cargo:test
 
 # Go Sidecar(推荐走根目录脚本,自动处理 GOOS/GOARCH 与 rsrc)
 npm run sidecar:build           # debug
@@ -478,4 +482,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-11 (v0.54.0)*
+*最后更新: 2026-08-11 (v0.54.1)*
