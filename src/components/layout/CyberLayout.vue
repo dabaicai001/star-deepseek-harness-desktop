@@ -195,6 +195,23 @@ function onTitlebarMousedown(e: MouseEvent) {
   appWindow.startDragging().catch(() => {})
 }
 
+// ====== 标签栏空白区域手动拖拽窗口 ======
+// tab-strip 不用 data-tauri-drag-region:Windows 上右键 HTCAPTION 命中区会弹出
+// 原生系统菜单(还原/移动/大小/关闭),和标签页自定义右键菜单互相抢,引起歧义。
+// 改为 mousedown 主动 startDragging 拖窗口,右键事件完整留给 ContextMenu。
+function onTabStripMousedown(e: MouseEvent) {
+  if (e.button !== 0) return
+  if (e.target !== e.currentTarget) return // 仅空白区域;tab 自身有点击与拖出手势
+  if (!appWindow) return
+  e.preventDefault()
+  appWindow.startDragging().catch(() => {})
+}
+
+function onTabStripDblclick(e: MouseEvent) {
+  if (e.target !== e.currentTarget) return
+  winToggleMaximize()
+}
+
 // ====== 标签页拖出为独立窗口 ======
 // detachedInfo 非空 = 当前窗口就是被拖出的独立工作区窗口(渲染精简外壳)
 const detachedInfo = getDetachedInfo()
@@ -1133,6 +1150,25 @@ function closeTabContextMenu() {
   tabCtxMenu.value = null
 }
 
+/** 在新标签页打开同一目标:资产 / Agent 开一个全新实例,不复用现有 tab */
+function duplicateTab(tabId: string) {
+  const full = appStore.tabs.find(t => t.id === tabId)
+  if (!full) return
+  if (full.type === 'ai') {
+    const agent = aiStore.getAgent(full.assetId || '') || aiStore.agents[0]
+    if (agent) openAiAgentTab(agent, false)
+    return
+  }
+  const asset = full.assetId ? assetStore.assets.find(a => a.id === full.assetId) : null
+  if (asset) openAssetTab(asset, false)
+}
+
+/** 该 tab 是否支持「在新标签页打开」(需要能解析到资产或 Agent) */
+function canDuplicateTab(tab: { type: string; assetId?: string }): boolean {
+  if (tab.type === 'ai') return true
+  return !!(tab.assetId && assetStore.assets.some(a => a.id === tab.assetId))
+}
+
 const tabCtxItems = computed<MenuItem[]>(() => {
   if (!tabCtxMenu.value) return []
   const { tab } = tabCtxMenu.value
@@ -1148,6 +1184,13 @@ const tabCtxItems = computed<MenuItem[]>(() => {
       type: 'header',
       icon: getIcon(tab.type),
       label: getTabDisplayTitle(tab as any)
+    },
+    {
+      type: 'item',
+      icon: 'mdi-tab-plus',
+      label: t('layout.openInNewTab'),
+      disabled: !canDuplicateTab(tab),
+      onClick: () => duplicateTab(tab.id)
     },
     {
       type: 'item',
@@ -1546,9 +1589,10 @@ vueWatch(() => appStore.tabs.length, () => {
         <div
           ref="tabStripRef"
           class="tab-strip"
-          data-tauri-drag-region
           @scroll="onTabStripScroll"
           @contextmenu="openTabBarContextMenu"
+          @mousedown="onTabStripMousedown"
+          @dblclick="onTabStripDblclick"
         >
           <div
             v-for="tab in appStore.tabs"
