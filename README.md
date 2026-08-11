@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.52.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.53.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.53.0 (2026-08-11)
+- ✨ AI 记忆系统三期:自动沉淀——压缩前 memory flush(上下文省略前先把在途事实存卡,防抖防重复冲刷)+ 回合后后台 review(自动整理对话沉淀新事实,重复自动去重);新增「自动沉淀记忆」开关(默认开,开启「写入需确认」时自动跳过);抽取 mini-loop 全静默降级,不影响主对话。三期全部落地:冷记忆存档检索 + 热记忆卡注入 + 自动沉淀闭环
 
 ### v0.52.0 (2026-08-11)
 - ✨ AI 记忆系统二期:长期记忆卡——`user` / `global` / `asset:{id}` 三级作用域,`memory` 工具(add/replace/remove,子串匹配)让 Agent 自主策展,硬字符上限超限自合并、精确去重;记忆块以冻结快照注入 system prompt(带容量用量头);写入前安全扫描(注入/凭据/隐形 Unicode);可选写入确认闸(复用工作区确认卡);Settings 新增开关与「管理记忆」弹窗(查看/编辑/删除);写入 💾 通知 + 审计

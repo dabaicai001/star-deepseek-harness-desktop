@@ -14,6 +14,16 @@
 
 ---
 
+## [0.53.0] - 2026-08-11
+
+### 新增
+- AI 记忆系统三期:自动沉淀(方案 `docs/AI记忆系统方案.md` 3.4 节)
+  - 压缩前 memory flush:上下文预算滑窗发生省略时,先用一次只挂 `memory` 工具的独立 LLM 调用把被省略历史中的 durable 事实落卡,再发出主请求(Hermes 同款时序);`lastFlushOmitted` 防抖,同一批省略历史不重复冲刷(增量 ≥20 条才再次触发)
+  - 回合后后台 review:runAgent 正常结束(abort/error/超步数不触发)后 fire-and-forget 整理最近对话,自动 add 值得长期记住的新事实(重复条目由 `[DUPLICATE]` 天然去重);模块级防重入
+  - 抽取 mini-loop 独立成 `src/services/aiMemoryReview.ts`(最多 4 步、非流式、全静默降级:非 Tauri / 无 API key / LLM 报错均不影响主对话);「记忆写入需确认」开启时 flush 与 review 整体跳过(确认卡无法后台交互,设计行为)
+  - Settings「06 记忆与上下文」新增「自动沉淀记忆」开关(默认开);触发条件纯函数 `aiMemoryReviewGates.ts` + 7 个 node --test 单测
+  - 至此三期全部落地:冷记忆(SQLite FTS5 存档 + session_search)+ 热记忆(三级记忆卡 + 冻结快照注入)+ 自动沉淀(flush + review)
+
 ## [0.52.0] - 2026-08-11
 
 ### 新增

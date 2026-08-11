@@ -4,7 +4,8 @@ import { invoke } from '@tauri-apps/api/core'
 import type { ChatMessage, LlmTool, LlmToolCall, NewChatRequest, NewChatResponse } from '@/services/ai'
 import { chatWithTools, chatStream, estimateCost } from '@/services/ai'
 import { decrypt as decryptLegacyKey } from '@/utils/crypto'
-import { compactPersistedMessages, buildBudgetedMessages, drainPendingSteers, snapshotChatMessages, type StickyContextBinding } from '@/utils/aiContext'
+import { compactPersistedMessages, buildBudgetedMessagesDetailed, drainPendingSteers, snapshotChatMessages, type StickyContextBinding } from '@/utils/aiContext'
+import { maybeFlushMemoryBeforeCompression, registerMemoryReviewRuntime, scheduleBackgroundMemoryReview } from '@/services/aiMemoryReview'
 import {
   aiConvDelete,
   aiConvList,
@@ -251,6 +252,8 @@ export interface AiSettings {
   memoryEnabled: boolean
   /** 记忆写入是否需要逐条人工确认(默认自动写入,聊天中显示轻量通知)。 */
   memoryWriteNeedsConfirm: boolean
+  /** 自动沉淀记忆:压缩前冲刷 + 回合后后台 review(开启写入确认闸时两者整体跳过)。 */
+  memoryAutoReview: boolean
 }
 
 export type AiPlanStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
@@ -317,6 +320,8 @@ export interface AiSession {
   pendingSteers: string[]
   /** 三级记忆卡注入块(运行时字段,不持久化;undefined = 未加载,加载一次后本会话冻结)。 */
   memoryBlock?: string
+  /** 上次压缩前 memory flush 时的省略消息总数(运行时字段,不持久化;用于 flush 防抖)。 */
+  lastFlushOmitted?: number
 }
 
 export type AiContextBinding = StickyContextBinding
@@ -540,7 +545,8 @@ export const useAiStore = defineStore('ai', () => {
     memoryStoreToolOutputs: false,
     contextBudgetChars: 120_000,
     memoryEnabled: true,
-    memoryWriteNeedsConfirm: false
+    memoryWriteNeedsConfirm: false,
+    memoryAutoReview: true
   })
 
   // Agent 只保存角色与技能绑定;Provider / API Key / 模型始终复用 settings。
@@ -598,6 +604,17 @@ export const useAiStore = defineStore('ai', () => {
       maxTokens: s.maxTokens,
     }
   }
+
+  // 三期:向记忆自动沉淀服务注入运行态依赖(模型配置与 runAgent 同源,含 Keyring 解锁的 key)。
+  // 放这里而不是模块顶层:getActiveModelConfig / settings 都是 setup 作用域内的绑定。
+  registerMemoryReviewRuntime({
+    getModelConfig: getActiveModelConfig,
+    getSettings: () => ({
+      memoryEnabled: settings.value.memoryEnabled,
+      memoryAutoReview: settings.value.memoryAutoReview,
+      memoryWriteNeedsConfirm: settings.value.memoryWriteNeedsConfirm
+    })
+  })
 
   function ensureSettingsShape() {
     const s = settings.value
@@ -675,6 +692,9 @@ export const useAiStore = defineStore('ai', () => {
     }
     if (typeof s.memoryWriteNeedsConfirm !== 'boolean') {
       s.memoryWriteNeedsConfirm = false
+    }
+    if (typeof s.memoryAutoReview !== 'boolean') {
+      s.memoryAutoReview = true
     }
     void migrateModelApiKeys().catch(error => {
       console.error('Failed to migrate model API keys:', error)
@@ -1569,6 +1589,9 @@ export const useAiStore = defineStore('ai', () => {
       await loadMemoryBlock(session)
     }
 
+    // 回合是否正常结束(非 abort / 非 error / 非超步数):只有正常结束才调度后台记忆 review
+    let finishedNormally = false
+
     try {
       for (let step = 0; step < maxSteps; step++) {
         // 检查是否被中断
@@ -1582,13 +1605,20 @@ export const useAiStore = defineStore('ai', () => {
         drainPendingSteers(session.messages, session.pendingSteers)
 
         const activeCfg = await getActiveModelConfig()
+        // 必须先拍快照；下面追加的流式 assistant 占位不能进入本次请求。
+        // 预算滑窗:超预算时从尾部保留,tool 组不拆,省略部分以注记提示可用 session_search 回溯。
+        const budgeted = buildBudgetedMessagesDetailed(snapshotChatMessages(session.messages), settings.value.contextBudgetChars)
+        if (budgeted.omittedCount > 0) {
+          // 三期:压缩前 memory flush——主请求之前,先把即将被省略的历史交给独立的
+          // 只读 memory 工具的 LLM 调用沉淀长期记忆(Hermes 同款时序)。
+          // 内部有设置开关/确认闸/防抖(新增省略 ≥20 条)门禁,常态零开销;任何失败静默。
+          await maybeFlushMemoryBeforeCompression(session, budgeted.omittedCount, budgeted.omittedMessages)
+        }
         const request: NewChatRequest = {
           baseUrl: activeCfg.baseUrl,
           apiKey: activeCfg.apiKey,
           model: activeCfg.model,
-          // 必须先拍快照；下面追加的流式 assistant 占位不能进入本次请求。
-          // 预算滑窗:超预算时从尾部保留,tool 组不拆,省略部分以注记提示可用 session_search 回溯。
-          messages: buildBudgetedMessages(snapshotChatMessages(session.messages), settings.value.contextBudgetChars),
+          messages: budgeted.messages,
           temperature: activeCfg.temperature,
           maxTokens: activeCfg.maxTokens,
           system: session.memoryBlock ? `${systemPrompt}\n\n${session.memoryBlock}` : systemPrompt,
@@ -1643,6 +1673,7 @@ export const useAiStore = defineStore('ai', () => {
           // 步数不够时不 continue 直接 return:否则耗尽循环造成 "exceeded max steps" 假错误,
           // 引导留队列为下一轮(用户下条消息触发的 runAgent)生效。
           if (session.pendingSteers.length > 0 && step + 1 < maxSteps) continue
+          finishedNormally = true
           return
         }
 
@@ -1705,6 +1736,8 @@ export const useAiStore = defineStore('ai', () => {
       _abortControllers.delete(instanceId)
       session.loading = false
       _inflightPromises.delete(instanceId)
+      // 三期:回合正常结束后 fire-and-forget 后台记忆 review(不阻塞 UI,失败静默)
+      if (finishedNormally) scheduleBackgroundMemoryReview(session)
       // 唤醒下一个等本轮的 runAgent
       resolveRun()
     }

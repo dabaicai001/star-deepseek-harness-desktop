@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.52.0(AI 记忆系统二期:长期记忆卡——`user`/`global`/`asset:{id}` 三级作用域,`memory` 三动作工具自主策展(子串匹配/超限自合并/去重),冻结快照注入 system prompt,写入前安全扫描 + 可选确认闸,Settings 管理弹窗,通知 + 审计;一期(SQLite 存档/session_search/预算滑窗)见 v0.51.0) |
+| 当前版本 | v0.53.0(AI 记忆系统三期全部落地,方案见 `docs/AI记忆系统方案.md`:冷记忆=SQLite FTS5 会话存档 + `session_search` 工具(v0.51.0);热记忆=`user`/`global`/`asset:{id}` 三级记忆卡,`memory` 工具自主策展,冻结快照注入 system prompt,安全扫描 + 确认闸 + 管理 UI(v0.52.0);自动沉淀=压缩前 memory flush + 回合后后台 review,默认开、可关(v0.53.0)) |
 
 ---
 
@@ -478,4 +478,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-11 (v0.52.0)*
+*最后更新: 2026-08-11 (v0.53.0)*

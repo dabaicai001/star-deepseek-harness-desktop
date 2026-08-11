@@ -184,6 +184,15 @@ function budgetedMessageChars(message: ChatMessage): number {
   return contentChars + toolCallChars
 }
 
+/** buildBudgetedMessagesDetailed 的返回:裁剪后消息 + 省略元信息(供压缩前 memory flush 使用) */
+export interface BudgetedMessagesResult {
+  messages: ChatMessage[]
+  /** 被省略(未进入结果)的消息条数 */
+  omittedCount: number
+  /** 被省略的原始消息(不含头部注记) */
+  omittedMessages: ChatMessage[]
+}
+
 /**
  * token 预算滑窗:从尾部向前按「单元」累积,单元字符数超出 maxChars 即停。
  *  - assistant 带 tool_calls 的消息与紧随的 tool 结果消息同进同退,绝不拆出孤立 tool_call
@@ -191,8 +200,8 @@ function budgetedMessageChars(message: ChatMessage): number {
  *  - 有省略时在最前面插一条注记 user 消息,提示可用 session_search 查历史存档
  *  - 最后一条 user 消息(及其后的当前回合)永远保留,即使它自身已超预算
  */
-export function buildBudgetedMessages(messages: ChatMessage[], maxChars: number): ChatMessage[] {
-  if (messages.length === 0) return []
+export function buildBudgetedMessagesDetailed(messages: ChatMessage[], maxChars: number): BudgetedMessagesResult {
+  if (messages.length === 0) return { messages: [], omittedCount: 0, omittedMessages: [] }
 
   // 分组:assistant(tool_calls) + 紧随的 tool 消息 = 一个不可拆单元
   const units: Array<{ messages: ChatMessage[]; chars: number }> = []
@@ -245,5 +254,10 @@ export function buildBudgetedMessages(messages: ChatMessage[], maxChars: number)
       content: `[上下文注记:为控制长度,已省略本会话较早的 ${omitted} 条消息。如需回顾,可用 session_search 工具搜索历史会话存档。]`
     })
   }
-  return result
+  return { messages: result, omittedCount: omitted, omittedMessages: messages.slice(0, omitted) }
+}
+
+/** 预算滑窗(仅消息):buildBudgetedMessagesDetailed 的简版,签名与一期一致。 */
+export function buildBudgetedMessages(messages: ChatMessage[], maxChars: number): ChatMessage[] {
+  return buildBudgetedMessagesDetailed(messages, maxChars).messages
 }

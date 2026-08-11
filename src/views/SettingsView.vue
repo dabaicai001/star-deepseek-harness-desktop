@@ -327,6 +327,10 @@ function onToggleMemoryWriteNeedsConfirm(event: Event) {
   void aiStore.updateSettings({ memoryWriteNeedsConfirm: (event.target as HTMLInputElement).checked })
 }
 
+function onToggleMemoryAutoReview(event: Event) {
+  void aiStore.updateSettings({ memoryAutoReview: (event.target as HTMLInputElement).checked })
+}
+
 // ====== 长期记忆管理弹窗(记忆系统二期,L1 三级记忆卡) ======
 const notifyStore = useNotifyStore()
 const memoryDialog = ref(false)
@@ -1397,6 +1401,14 @@ async function onTestWebhook(url: string) {
             @change="onToggleMemoryWriteNeedsConfirm"
           />
           <span>记忆写入需确认(默认自动写入,聊天中显示轻量通知)</span>
+        </label>
+        <label class="checkbox-row">
+          <input
+            type="checkbox"
+            :checked="aiStore.settings.memoryAutoReview"
+            @change="onToggleMemoryAutoReview"
+          />
+          <span>自动沉淀记忆(压缩前冲刷 + 回合后整理;开启写入确认时自动暂停)</span>
         </label>
         <div class="form-field">
           <label class="field-label">上下文预算(字符)</label>
