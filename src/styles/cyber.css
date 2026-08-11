@@ -4032,16 +4032,49 @@ body {
   flex-shrink: 0;
 }
 
+/* AI 模型选择器触发按钮(StarHub AI 头部 / 各视图 AI 侧栏共用)。
+   模型名是技术标识,不套用 cyber-badge 的大写徽章观感;
+   与相邻 action-btn 视觉对齐:透明底、弱边框、hover 出 cyan。 */
 .ai-model-badge {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--line-2);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 500;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  white-space: nowrap;
   cursor: pointer;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+
+.ai-model-badge .ai-model-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-model-badge .v-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: color var(--dur-fast) var(--ease-standard);
 }
 
 .ai-model-badge:hover {
-  background: var(--hover-bg);
+  background: var(--hover-cyan);
   border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.ai-model-badge:hover .v-icon {
+  color: var(--cyan);
 }
 
 .ai-model-list .v-list-item {

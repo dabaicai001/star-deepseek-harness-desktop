@@ -57,13 +57,13 @@ function selectModel(modelId: string) {
       <template #activator="{ props: menuProps }">
         <button
           v-bind="menuProps"
-          class="cyber-badge ai-model-badge"
+          class="ai-model-badge"
           :data-tooltip="t('ai.switchModel')"
           :title="t('ai.switchModel')"
         >
-          <v-icon size="11" class="mr-1">mdi-chip</v-icon>
-          {{ activeModelDisplayName }}
-          <v-icon size="10" class="ml-1">mdi-chevron-down</v-icon>
+          <v-icon size="12">mdi-chip</v-icon>
+          <span class="ai-model-name">{{ activeModelDisplayName }}</span>
+          <v-icon size="10">mdi-chevron-down</v-icon>
         </button>
       </template>
       <v-list class="cyber-panel ai-model-list" density="compact" max-height="320" style="overflow-y:auto; min-width:260px">
@@ -111,13 +111,3 @@ function selectModel(modelId: string) {
     </v-menu>
   </div>
 </template>
-
-<style scoped>
-/* 基础样式在 cyber.css(.ai-model-badge);这里只补侧栏窄宽度下的截断 */
-.ai-model-badge {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-</style>
