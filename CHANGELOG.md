@@ -14,6 +14,34 @@
 
 ---
 
+## [0.54.0] - 2026-08-11
+
+### 新增
+- AI 模型选择器下沉到各视图内嵌的 AI 助手侧栏:抽取共享组件 `AiModelSelector`(原 StarHub AI 工作区头部选择器),SSH / DB / Redis / Docker / ES / Excel 的 AI 面板工具栏均可切换模型;选择立即写入 `activeModelId` 并全局持久化,两处选择器同源同步
+- Settings「06 记忆与上下文」新增「Agent 最大迭代次数」设置(1–100,默认 20,立即生效);`runAgent` 的 `maxSteps` 默认值改从配置读取,旧持久化数据由 `ensureSettingsShape` 自动补默认值
+- SFTP 面板导航三连:
+  - 「跟随终端当前目录」开关(localStorage 持久化):终端 cd 后 SFTP 自动跳到同一目录(复用终端 pwd 跟踪的 `sshCwd`)
+  - 路径输入:工具栏铅笔按钮或双击面包屑切换为输入框,输入绝对路径回车直达(漏写前导 `/` 自动补齐)
+  - 目录进入方式由双击改为单击(Ctrl/Shift 多选语义保留),「..」上级目录同样单击生效
+- 标签页右键菜单新增「在新标签页打开」:同一资产 / Agent 开一个全新实例(不复用现有 tab),无资产可解析的 tab 该项置灰
+
+### 修复
+- Settings「激活此模型」两个 bug:
+  - 原实现只改本地草稿 `aiLocal`,不点「保存模型列表」激活不生效——改为点击立即写入 store 并持久化,附成功通知
+  - 保存时把激活模型的(常为空的)API Key 覆盖到全局再 `setApiKey('')`,会静默删除 Keyring 里的默认 key 导致所有对话 401——模型未单独配 key 时保留全局 key;激活为空(使用默认模型)不再被强制回退到列表第一项
+- AI 长期记忆管理弹窗无法上下滚动:`v-dialog scrollable` 只对 `v-card` 生效,自定义 `cyber-panel` 内容无限高被裁剪——面板限高 80vh + 分组列表区 `overflow-y: auto`
+- AI 调用 SFTP 工具链四处修复:
+  - SSH 自动重连后 `sftp_ensure_session` 的 `has_session` 短路复用旧(已死)SFTP 通道,之后上传/下载必败直到手动断开重连——`connect_session` 覆盖同 id 会话前先 `unregister_sftp`,下一次 ensure 在新会话上重建通道
+  - `waitForTransfer` 不处理 `paused`:用户在传输队列暂停 AI 发起的传输后,agent 每 400ms 空轮询直到 30 分钟超时整轮卡死——检测到暂停立即报错收口并提示恢复方式
+  - `sftp_download` 本机目标目录不存在时直接 open 失败——下载前 `create_dir_all` 递归创建
+  - `sftp_list` 静默截断 200 条无注记,LLM 会误判"文件不存在"——补「共 N 项,仅显示前 200 项」注记
+  - 远端路径参数(`path`/`remoteDir`/`remotePaths`)增加绝对路径校验,相对路径直接报错回传,不再被登录 home 静默解析到非预期目录
+  - 全局 AI 工作区确认弹窗「目标工作区: X」重复两行——`aiWorkspace` 不再向内层 `makeSftpToolCaller` 重复传 workspaceName,统一由 `withWorkspaceContext` 注入
+- SFTP 面板右键下载/删除作用对象错误:右键落在未选中条目上时操作仍作用于旧选中项(表现为"右键下载不了这个文件")——右键时先把选择切到该条目,与主流文件管理器一致
+- 标签栏右键弹出 Windows 原生系统菜单(还原/移动/大小/关闭)与自定义右键菜单互相抢:tab-strip 是 `data-tauri-drag-region`,Windows 对 HTCAPTION 命中区的右键由 OS 直接弹系统菜单,JS `preventDefault` 拦不住——弃用 drag-region 改为 mousedown 主动 `startDragging()`(空白区拖窗口、双击最大化行为保留),右键事件完整交给自定义 ContextMenu
+
+---
+
 ## [0.53.0] - 2026-08-11
 
 ### 新增

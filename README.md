@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.53.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.54.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,10 @@
 ---
 
 ## 当前版本
+
+### v0.54.0 (2026-08-11)
+- ✨ AI 模型选择器下沉到所有视图的 AI 助手侧栏(共享组件,与工作区头部同源,选择立即生效);Settings 新增「Agent 最大迭代次数」;SFTP 面板支持跟随终端当前目录、路径输入直达、单击进入目录;标签页右键新增「在新标签页打开」
+- 🐛 修复「激活此模型」不生效及保存时误删 Keyring 全局 API Key;AI 长期记忆弹窗无法滚动;AI 调 SFTP 工具链(SSH 重连后复用死 SFTP 通道必败、传输被暂停空轮询 30 分钟卡死、下载目录不存在直接失败、列表截断无注记、远端相对路径静默解析、确认弹窗工作区前缀重复);SFTP 右键下载作用于旧选中项;标签栏右键弹 Windows 原生系统菜单与自定义菜单互相抢(弃用 drag-region 改手动 startDragging)
 
 ### v0.53.0 (2026-08-11)
 - ✨ AI 记忆系统三期:自动沉淀——压缩前 memory flush(上下文省略前先把在途事实存卡,防抖防重复冲刷)+ 回合后后台 review(自动整理对话沉淀新事实,重复自动去重);新增「自动沉淀记忆」开关(默认开,开启「写入需确认」时自动跳过);抽取 mini-loop 全静默降级,不影响主对话。三期全部落地:冷记忆存档检索 + 热记忆卡注入 + 自动沉淀闭环
