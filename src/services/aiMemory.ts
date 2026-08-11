@@ -125,3 +125,73 @@ export async function aiMsgSearch(query: string, limit?: number): Promise<AiMess
     limit: limit ?? null
   })
 }
+
+// ============================================================
+// 二期:L1 热记忆(三级记忆卡 user / global / asset:{id})
+// ============================================================
+
+export interface AiMemoryRow {
+  id: string
+  /** 'user' | 'global' | 'asset:{assetId}' */
+  scope: string
+  content: string
+  /** 秒级时间戳 */
+  created_at: number
+  /** 秒级时间戳 */
+  updated_at: number
+}
+
+export interface AiMemoryCard {
+  scope: string
+  /** 条目按 updated_at ASC 用 \n§\n 拼接 */
+  content: string
+  char_count: number
+  char_limit: number
+  entry_count: number
+}
+
+/** 列出记忆条目;scope 精确过滤,不传返回全部(scope/updated_at 排序) */
+export async function aiMemoryList(scope?: string): Promise<AiMemoryRow[]> {
+  if (!isTauriRuntime()) return []
+  return await invoke<AiMemoryRow[]>('ai_memory_list', { scope: scope ?? null })
+}
+
+/** 按 scope 取记忆卡(拼接内容 + 容量用量),用于 system prompt 注入 */
+export async function aiMemoryCards(scopes: string[]): Promise<AiMemoryCard[]> {
+  if (!isTauriRuntime()) return []
+  return await invoke<AiMemoryCard[]>('ai_memory_cards', { scopes })
+}
+
+/**
+ * 新增记忆条目。错误前缀语义(工具执行器原样回给 LLM,不要 throw):
+ *  - [DUPLICATE] 完全相同条目已存在,未写入
+ *  - [FULL] {used}/{limit} chars,附当前条目 JSON
+ */
+export async function aiMemoryAdd(scope: string, content: string): Promise<AiMemoryRow> {
+  if (!isTauriRuntime()) throw new Error('记忆功能仅在桌面版可用')
+  return await invoke<AiMemoryRow>('ai_memory_add', { scope, content })
+}
+
+/** 用 old_text 唯一子串定位并替换条目;错误前缀:[NOMATCH] / [AMBIGUOUS] / [FULL] */
+export async function aiMemoryReplace(scope: string, oldText: string, content: string): Promise<AiMemoryRow> {
+  if (!isTauriRuntime()) throw new Error('记忆功能仅在桌面版可用')
+  return await invoke<AiMemoryRow>('ai_memory_replace', { scope, oldText, content })
+}
+
+/** 用 old_text 唯一子串删除条目,返回被删 id;错误前缀:[NOMATCH] / [AMBIGUOUS] */
+export async function aiMemoryRemove(scope: string, oldText: string): Promise<string> {
+  if (!isTauriRuntime()) throw new Error('记忆功能仅在桌面版可用')
+  return await invoke<string>('ai_memory_remove', { scope, oldText })
+}
+
+/** 按 id 删除(Settings 记忆管理用) */
+export async function aiMemoryDelete(id: string): Promise<void> {
+  if (!isTauriRuntime()) return
+  await invoke('ai_memory_delete', { id })
+}
+
+/** 按 id 更新内容(Settings 记忆管理用;有容量检查,超限 reject) */
+export async function aiMemoryUpdate(id: string, content: string): Promise<AiMemoryRow> {
+  if (!isTauriRuntime()) throw new Error('记忆功能仅在桌面版可用')
+  return await invoke<AiMemoryRow>('ai_memory_update', { id, content })
+}

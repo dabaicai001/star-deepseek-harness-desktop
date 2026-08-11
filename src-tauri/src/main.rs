@@ -277,6 +277,14 @@ fn main() {
             commands::ai_memory::ai_conv_delete,
             commands::ai_memory::ai_msg_sync,
             commands::ai_memory::ai_msg_search,
+            // AI 记忆:L1 热记忆
+            commands::ai_memory::ai_memory_list,
+            commands::ai_memory::ai_memory_cards,
+            commands::ai_memory::ai_memory_add,
+            commands::ai_memory::ai_memory_replace,
+            commands::ai_memory::ai_memory_remove,
+            commands::ai_memory::ai_memory_delete,
+            commands::ai_memory::ai_memory_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

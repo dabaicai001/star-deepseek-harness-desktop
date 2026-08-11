@@ -127,6 +127,15 @@ CREATE TABLE IF NOT EXISTS ai_messages (
   created_at INTEGER NOT NULL
 );
 
+-- AI 记忆:L1 热记忆条目(scope 三级:user / global / asset:{assetId})
+CREATE TABLE IF NOT EXISTS ai_memories (
+  id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 -- AI 记忆:消息全文索引(external-content,由触发器同步)
 CREATE VIRTUAL TABLE IF NOT EXISTS ai_messages_fts USING fts5(
   content, content='ai_messages', content_rowid='rowid'
@@ -145,6 +154,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_asset_id ON audit_log(asset_id);
 CREATE INDEX IF NOT EXISTS idx_alert_rule_enabled ON alert_rule(enabled);
 CREATE INDEX IF NOT EXISTS idx_alert_rule_category ON alert_rule(category);
 CREATE INDEX IF NOT EXISTS idx_ai_messages_conv ON ai_messages(conversation_id, seq);
+CREATE INDEX IF NOT EXISTS idx_ai_memories_scope ON ai_memories(scope);
 
 -- AI 记忆:FTS 同步触发器(external-content 标准三触发器)
 CREATE TRIGGER IF NOT EXISTS ai_messages_ai AFTER INSERT ON ai_messages BEGIN

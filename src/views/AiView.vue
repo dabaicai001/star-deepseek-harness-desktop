@@ -32,7 +32,7 @@ import { createDirectWorkspaceRuntime } from '@/services/aiWorkspace'
 import { createMcpRuntime } from '@/services/mcp'
 import { createLocalAiRuntime } from '@/services/aiLocal'
 import type { ToolConfirmCtx } from '@/utils/aiTools'
-import { sessionSearchTools, sessionSearchToolCaller } from '@/utils/aiTools'
+import { sessionSearchTools, sessionSearchToolCaller, memoryTools, makeMemoryToolCaller } from '@/utils/aiTools'
 import { extractWhitelistPrefix, isReadOnlyToolCall } from '@/utils/commandGuard'
 import {
   buildCompletedStepContext,
@@ -633,18 +633,26 @@ async function runPlanStep(plan: AiExecutionPlan, step: AiPlanStep): Promise<boo
     console.warn('[ai] Some MCP servers are unavailable:', mcpRuntime.warnings)
   }
 
+  const memoryToolCaller = makeMemoryToolCaller({
+    confirmFn: context => requestToolConfirmation(tempId, context),
+    getAssetId: () => session.value?.contextBinding?.assetIds?.[0] ?? null,
+    getSettings: () => aiStore.settings
+  })
   try {
     const allTools = [
       ...workspaceTools,
       ...runtime.tools,
       ...(localAuthorized ? localRuntime.tools : []),
       ...sessionSearchTools,
+      ...memoryTools,
       ...mcpRuntime.tools
     ]
     await aiStore.runAgent(
       tempId,
       allTools,
-      call => call.function.name === 'session_search'
+      call => call.function.name === 'memory'
+        ? memoryToolCaller(call)
+        : call.function.name === 'session_search'
         ? sessionSearchToolCaller(call)
         : call.function.name.startsWith('starhub_')
         ? executeWorkspaceTool(call, assets)

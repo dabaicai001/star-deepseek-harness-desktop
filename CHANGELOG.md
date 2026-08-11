@@ -14,6 +14,17 @@
 
 ---
 
+## [0.52.0] - 2026-08-11
+
+### 新增
+- AI 记忆系统二期:长期记忆卡(方案 `docs/AI记忆系统方案.md` 3.2/3.3 节)
+  - `ai_memories` 表 + 7 个 Rust command:`user` / `global` / `asset:{id}` 三级作用域卡,硬字符上限(user/asset 1375、global 2200)超限返回 `[FULL]` 并附当前条目(LLM 当轮自行合并重试),精确去重 `[DUPLICATE]`,replace/remove 短唯一子串匹配(0 条 `[NOMATCH]`、多条 `[AMBIGUOUS]`),13 个单测
+  - `memory` 工具(add/replace/remove 三动作)挂载全部 7 个宿主;target=asset 未绑定时提示先 # 绑定;写入前经 `src/utils/memoryGuard.ts` 安全扫描(隐形 Unicode / prompt 注入 / 凭据字面量,15 个单测含反误伤用例)
+  - system prompt 注入:会话首轮加载 user + global(+ 资产卡)记忆块,Hermes 格式带 `xx% — n/limit chars` 用量头,**冻结快照**(会话中写入下一会话生效,保 prefix cache)
+  - 写入确认闸:`memoryWriteNeedsConfirm` 开启后走现有工作区确认卡(reason=always-confirm);成功写入 💾 toast 通知 + `audit_log`(memory_add/update/remove)
+  - Settings「06 记忆与上下文」追加:启用长期记忆 / 写入需确认开关 + 「管理记忆」弹窗(按 scope 分组、用量显示、inline 编辑、删除二次确认)
+  - 已知限制:ExcelView 无确认卡基建,该宿主的写入确认闸不生效(直接写),其余宿主正常
+
 ## [0.51.0] - 2026-08-11
 
 ### 新增

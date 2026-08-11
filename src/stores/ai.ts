@@ -10,6 +10,7 @@ import {
   aiConvList,
   aiConvMessages,
   aiConvUpsert,
+  aiMemoryCards,
   aiMsgSync,
   type AiConversationRow,
   type AiMessageInput,
@@ -246,6 +247,10 @@ export interface AiSettings {
   memoryStoreToolOutputs: boolean
   /** runAgent 回发历史的字符预算(滑窗截断,超出部分省略并插注记)。 */
   contextBudgetChars: number
+  /** 是否启用长期记忆(三级记忆卡注入 system prompt + memory 工具)。 */
+  memoryEnabled: boolean
+  /** 记忆写入是否需要逐条人工确认(默认自动写入,聊天中显示轻量通知)。 */
+  memoryWriteNeedsConfirm: boolean
 }
 
 export type AiPlanStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
@@ -310,6 +315,8 @@ export interface AiSession {
   contextBinding?: AiContextBinding
   /** 运行中插入、待下一步边界生效的引导队列(runAgent 循环顶部 flush 进 messages)。 */
   pendingSteers: string[]
+  /** 三级记忆卡注入块(运行时字段,不持久化;undefined = 未加载,加载一次后本会话冻结)。 */
+  memoryBlock?: string
 }
 
 export type AiContextBinding = StickyContextBinding
@@ -531,7 +538,9 @@ export const useAiStore = defineStore('ai', () => {
     // 初始值保留在上一版,确保首次创建和旧持久化状态都执行一次 v3 跨平台预设迁移。
     commandWhitelistVersion: 2,
     memoryStoreToolOutputs: false,
-    contextBudgetChars: 120_000
+    contextBudgetChars: 120_000,
+    memoryEnabled: true,
+    memoryWriteNeedsConfirm: false
   })
 
   // Agent 只保存角色与技能绑定;Provider / API Key / 模型始终复用 settings。
@@ -660,6 +669,12 @@ export const useAiStore = defineStore('ai', () => {
     }
     if (!Number.isFinite(s.contextBudgetChars) || s.contextBudgetChars < 4_000) {
       s.contextBudgetChars = 120_000
+    }
+    if (typeof s.memoryEnabled !== 'boolean') {
+      s.memoryEnabled = true
+    }
+    if (typeof s.memoryWriteNeedsConfirm !== 'boolean') {
+      s.memoryWriteNeedsConfirm = false
     }
     void migrateModelApiKeys().catch(error => {
       console.error('Failed to migrate model API keys:', error)
@@ -1450,6 +1465,42 @@ export const useAiStore = defineStore('ai', () => {
     return `${DEFAULT_SYSTEM_PROMPT}\n\n当前 AI Agent 团队:\n${roleBlock}`
   }
 
+  /**
+   * 加载三级记忆卡(user / global / asset:{id})并拼成 system prompt 注入块(照 Hermes 格式)。
+   * 冻结快照:每会话只加载一次(session.memoryBlock 从 undefined 变为字符串),
+   * 会话中写入的记忆立即落库但不变更本块,下一会话生效(保 prefix cache)。
+   */
+  async function loadMemoryBlock(session: AiSession): Promise<void> {
+    // AI tab 的 assetId 是 agent.id,不是真实资产;只有真实资产类型的会话才注入 asset 卡
+    const isRealAsset = session.assetType !== 'ai' && typeof session.assetId === 'string' && session.assetId.length > 0
+    const scopes = isRealAsset ? ['user', 'global', `asset:${session.assetId}`] : ['user', 'global']
+    try {
+      const cards = await aiMemoryCards(scopes)
+      const cardMap = new Map(cards.map(card => [card.scope, card]))
+      const formatCard = (title: string, scope: string): string => {
+        const card = cardMap.get(scope)
+        const limit = card?.char_limit ?? (scope === 'global' ? 2200 : 1375)
+        const used = card?.char_count ?? 0
+        const usage = `${Math.round((used / limit) * 100)}% — ${used}/${limit} chars`
+        return `[${title}] [${usage}]\n${card && card.content ? card.content : '(空)'}`
+      }
+      const sections = [
+        formatCard('USER PROFILE — 用户画像', 'user'),
+        formatCard('GLOBAL — 环境与经验', 'global')
+      ]
+      if (isRealAsset) sections.push(formatCard(`ASSET — 当前资产(${session.assetId})`, `asset:${session.assetId}`))
+      session.memoryBlock = [
+        '══════════════════════════════════════════════',
+        'MEMORY — 长期记忆(以下是你跨会话记住的事实,用 memory 工具维护)',
+        '══════════════════════════════════════════════',
+        sections.join('\n\n')
+      ].join('\n')
+    } catch (error) {
+      console.warn('[ai] 加载记忆卡失败:', error)
+      session.memoryBlock = ''
+    }
+  }
+
   function buildSystemPrompt(basePrompt: string, assetType: AiAssetType): string {
     const enabledSkills = getEnabledSkills(assetType)
     if (enabledSkills.length === 0) return basePrompt
@@ -1513,6 +1564,11 @@ export const useAiStore = defineStore('ai', () => {
     session.loading = true
     session.error = null
 
+    // 三级记忆卡注入:每会话加载一次后冻结,会话中写入下一会话生效;禁用时不加载不注入
+    if (session.memoryBlock === undefined && settings.value.memoryEnabled !== false) {
+      await loadMemoryBlock(session)
+    }
+
     try {
       for (let step = 0; step < maxSteps; step++) {
         // 检查是否被中断
@@ -1535,7 +1591,7 @@ export const useAiStore = defineStore('ai', () => {
           messages: buildBudgetedMessages(snapshotChatMessages(session.messages), settings.value.contextBudgetChars),
           temperature: activeCfg.temperature,
           maxTokens: activeCfg.maxTokens,
-          system: systemPrompt,
+          system: session.memoryBlock ? `${systemPrompt}\n\n${session.memoryBlock}` : systemPrompt,
           tools,
           signal: ac.signal
         }

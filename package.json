@@ -1,6 +1,6 @@
 {
   "name": "starhub",
-  "version": "0.51.0",
+  "version": "0.52.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,8 @@
     "test:ai-steering": "node --test tests/ai-steering.test.mjs",
     "test:ssh-prompt": "node --test tests/ssh-prompt-capture.test.mjs",
     "test:ssh-bg": "node --test tests/ssh-background-task.test.mjs",
-    "test:utils": "node --test tests/utils/crypto.test.mjs tests/utils/ddlGenerator.test.mjs tests/utils/sqlHistory.test.mjs tests/utils/commandGuard.test.mjs tests/utils/sqlTables.test.mjs tests/utils/xshellQuickCommand.test.mjs",
+    "test:memory-guard": "node --test tests/memory-guard.test.mjs",
+    "test:utils": "node --test tests/utils/crypto.test.mjs tests/utils/ddlGenerator.test.mjs tests/utils/sqlHistory.test.mjs tests/utils/commandGuard.test.mjs tests/utils/sqlTables.test.mjs tests/utils/xshellQuickCommand.test.mjs && npm run test:memory-guard",
     "preview": "vite preview",
     "version": "node scripts/bump-version.mjs",
     "tauri": "tauri",

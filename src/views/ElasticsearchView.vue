@@ -7,7 +7,7 @@ import { useAssetStore } from '@/stores/asset'
 import { useAiStore } from '@/stores/ai'
 import { useI18n } from 'vue-i18n'
 import * as esService from '@/services/db'
-import { ES_SYSTEM_PROMPT, esTools, makeEsToolCaller, sessionSearchTools, sessionSearchToolCaller } from '@/utils/aiTools'
+import { ES_SYSTEM_PROMPT, esTools, makeEsToolCaller, sessionSearchTools, sessionSearchToolCaller, memoryTools, makeMemoryToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
 import { createMcpRuntime } from '@/services/mcp'
 import AiChat from '@/components/ai/AiChat.vue'
@@ -213,10 +213,16 @@ async function onAiSend(text: string) {
     () => aiStore.settings.commandWhitelist,
     confirmFn
   )
+  const memoryToolCaller = makeMemoryToolCaller({
+    confirmFn,
+    getAssetId: () => tab.value?.assetId || null,
+    getSettings: () => aiStore.settings
+  })
   const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
   if (mcpRuntime.warnings.length) console.warn('[es-ai] MCP discovery warnings:', mcpRuntime.warnings)
   const toolExec = async (call: LlmToolCall) => {
     if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
+    if (call.function.name === 'memory') return memoryToolCaller(call)
     return call.function.name.startsWith('mcp__')
       ? mcpRuntime.execute(call)
       : caller({ function: { name: call.function.name, arguments: call.function.arguments } })
@@ -225,7 +231,7 @@ async function onAiSend(text: string) {
     ? ES_SYSTEM_PROMPT.replace('Elasticsearch 集群', `Elasticsearch 集群,当前选中的索引是 "${selectedIndex.value}"`)
     : ES_SYSTEM_PROMPT
   const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'db')
-  await aiStore.runAgent(instanceId.value, [...esTools, ...sessionSearchTools, ...mcpRuntime.tools], toolExec, sysPrompt)
+  await aiStore.runAgent(instanceId.value, [...esTools, ...sessionSearchTools, ...memoryTools, ...mcpRuntime.tools], toolExec, sysPrompt)
 }
 
 async function onAiRetry() {

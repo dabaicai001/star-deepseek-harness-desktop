@@ -10,7 +10,7 @@ import ExcelSheetBar from '@/components/excel/ExcelSheetBar.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
 import { useAiStore } from '@/stores/ai'
-import { EXCEL_SYSTEM_PROMPT, excelTools, sessionSearchTools, sessionSearchToolCaller } from '@/utils/aiTools'
+import { EXCEL_SYSTEM_PROMPT, excelTools, sessionSearchTools, sessionSearchToolCaller, memoryTools, makeMemoryToolCaller } from '@/utils/aiTools'
 import { usePersistentPanelState } from '@/utils/panelState'
 import type { LlmToolCall } from '@/services/ai'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
@@ -687,8 +687,14 @@ function excelContextJson(): string {
   }, null, 2)
 }
 
+const memoryToolCaller = makeMemoryToolCaller({
+  getAssetId: () => asset.value?.id ?? null,
+  getSettings: () => aiStore.settings
+})
+
 async function executeExcelTool(call: LlmToolCall): Promise<string> {
   if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
+  if (call.function.name === 'memory') return memoryToolCaller(call)
   const args = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>
   switch (call.function.name) {
     case 'excel_get_context':
@@ -829,7 +835,7 @@ async function onAiSend(text: string) {
   aiSession.value.loading = true
   aiSession.value.messages.push({ role: 'user', content: text })
   const sysPrompt = aiStore.buildSystemPrompt(EXCEL_SYSTEM_PROMPT, 'excel')
-  await aiStore.runAgent(instanceId.value, [...excelTools, ...sessionSearchTools], executeExcelTool, sysPrompt)
+  await aiStore.runAgent(instanceId.value, [...excelTools, ...sessionSearchTools, ...memoryTools], executeExcelTool, sysPrompt)
 }
 
 async function onAiRetry() {
@@ -840,7 +846,7 @@ async function onAiRetry() {
   }
   if (msgs.length) {
     const sysPrompt = aiStore.buildSystemPrompt(EXCEL_SYSTEM_PROMPT, 'excel')
-    await aiStore.runAgent(instanceId.value, [...excelTools, ...sessionSearchTools], executeExcelTool, sysPrompt)
+    await aiStore.runAgent(instanceId.value, [...excelTools, ...sessionSearchTools, ...memoryTools], executeExcelTool, sysPrompt)
   }
 }
 

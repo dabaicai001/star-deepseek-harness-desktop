@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { BUILTIN_AI_SKILLS, useAiStore } from '@/stores/ai'
@@ -7,8 +7,11 @@ import type { AiAssetType, AiModelConfig, AiSettings, McpKeyValue, McpServerConf
 import { listMcpTools } from '@/services/mcp'
 import { checkForUpdates, downloadAndInstall } from '@/services/updater'
 import type { UpdateInfo } from '@/services/updater'
-import { fetchAuditLogs, clearAuditLogs, fetchAuditStats } from '@/services/audit'
+import { fetchAuditLogs, clearAuditLogs, fetchAuditStats, logAudit } from '@/services/audit'
 import type { AuditLogEntry, AuditStatItem } from '@/services/audit'
+import { aiMemoryDelete, aiMemoryList, aiMemoryUpdate, isTauriRuntime } from '@/services/aiMemory'
+import type { AiMemoryRow } from '@/services/aiMemory'
+import { useNotifyStore } from '@/stores/notify'
 import { fetchAlertRules, createAlertRule, updateAlertRule, deleteAlertRule, testAlertWebhook } from '@/services/alert'
 import type { AlertRule, AlertRuleInput } from '@/services/alert'
 import { version as appVersion } from '~package.json'
@@ -314,6 +317,112 @@ function onContextBudgetChange(event: Event) {
   const value = Number((event.target as HTMLInputElement).value)
   if (!Number.isFinite(value) || value < 4000) return
   void aiStore.updateSettings({ contextBudgetChars: Math.floor(value) })
+}
+
+function onToggleMemoryEnabled(event: Event) {
+  void aiStore.updateSettings({ memoryEnabled: (event.target as HTMLInputElement).checked })
+}
+
+function onToggleMemoryWriteNeedsConfirm(event: Event) {
+  void aiStore.updateSettings({ memoryWriteNeedsConfirm: (event.target as HTMLInputElement).checked })
+}
+
+// ====== 长期记忆管理弹窗(记忆系统二期,L1 三级记忆卡) ======
+const notifyStore = useNotifyStore()
+const memoryDialog = ref(false)
+const memoryLoading = ref(false)
+const memoryRows = ref<AiMemoryRow[]>([])
+const memoryError = ref('')
+const memoryEditingId = ref('')
+const memoryEditingContent = ref('')
+const memoryConfirmDeleteId = ref('')
+const memoryDesktopAvailable = isTauriRuntime()
+
+/** 卡容量上限:与 Rust 侧一致(user/asset=1375,global=2200) */
+function memoryScopeLimit(scope: string): number {
+  return scope === 'global' ? 2200 : 1375
+}
+
+function memoryScopeLabel(scope: string): string {
+  if (scope === 'user') return 'USER — 用户画像'
+  if (scope === 'global') return 'GLOBAL — 环境与经验'
+  return `ASSET — ${scope.slice('asset:'.length)}`
+}
+
+/** 按 scope 分组(user → global → asset:*),附容量用量(条目按 \n§\n 拼接估算) */
+const memoryGroups = computed(() => {
+  const groups = new Map<string, AiMemoryRow[]>()
+  for (const row of memoryRows.value) {
+    const list = groups.get(row.scope) ?? []
+    list.push(row)
+    groups.set(row.scope, list)
+  }
+  const order = (scope: string) => (scope === 'user' ? 0 : scope === 'global' ? 1 : 2)
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b))
+    .map(([scope, rows]) => ({
+      scope,
+      rows,
+      usedChars: rows.map(row => row.content).join('\n§\n').length,
+      limit: memoryScopeLimit(scope)
+    }))
+})
+
+async function loadMemories() {
+  if (!memoryDesktopAvailable) return
+  memoryLoading.value = true
+  memoryError.value = ''
+  try {
+    memoryRows.value = await aiMemoryList()
+  } catch (error) {
+    memoryError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    memoryLoading.value = false
+  }
+}
+
+function openMemoryManager() {
+  memoryDialog.value = true
+  memoryEditingId.value = ''
+  memoryConfirmDeleteId.value = ''
+  void loadMemories()
+}
+
+function startMemoryEdit(row: AiMemoryRow) {
+  memoryEditingId.value = row.id
+  memoryEditingContent.value = row.content
+  memoryConfirmDeleteId.value = ''
+}
+
+async function saveMemoryEdit(row: AiMemoryRow) {
+  const content = memoryEditingContent.value.trim()
+  if (!content) {
+    memoryError.value = '记忆内容不能为空'
+    return
+  }
+  memoryError.value = ''
+  try {
+    await aiMemoryUpdate(row.id, content)
+    memoryEditingId.value = ''
+    notifyStore.notify({ message: '💾 记忆已更新', color: 'success', timeout: 3000 })
+    void logAudit({ category: 'ai', action: 'memory_update', target: row.scope, detail: { content: content.slice(0, 200) } })
+    await loadMemories()
+  } catch (error) {
+    memoryError.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function deleteMemory(row: AiMemoryRow) {
+  memoryError.value = ''
+  try {
+    await aiMemoryDelete(row.id)
+    memoryConfirmDeleteId.value = ''
+    notifyStore.notify({ message: '💾 已删除记忆', color: 'success', timeout: 3000 })
+    void logAudit({ category: 'ai', action: 'memory_remove', target: row.scope, detail: { content: row.content.slice(0, 200) } })
+    await loadMemories()
+  } catch (error) {
+    memoryError.value = error instanceof Error ? error.message : String(error)
+  }
 }
 
 function toggleCustomSkillAssetType(type: AiAssetType, enabled: boolean) {
@@ -1273,6 +1382,22 @@ async function onTestWebhook(url: string) {
           />
           <span>会话存档包含工具调用与输出(默认只保存用户/助手文本)</span>
         </label>
+        <label class="checkbox-row">
+          <input
+            type="checkbox"
+            :checked="aiStore.settings.memoryEnabled"
+            @change="onToggleMemoryEnabled"
+          />
+          <span>启用长期记忆(会话开始时向 AI 注入三级记忆卡,AI 可用 memory 工具跨会话记住事实)</span>
+        </label>
+        <label class="checkbox-row">
+          <input
+            type="checkbox"
+            :checked="aiStore.settings.memoryWriteNeedsConfirm"
+            @change="onToggleMemoryWriteNeedsConfirm"
+          />
+          <span>记忆写入需确认(默认自动写入,聊天中显示轻量通知)</span>
+        </label>
         <div class="form-field">
           <label class="field-label">上下文预算(字符)</label>
           <input
@@ -1284,6 +1409,13 @@ async function onTestWebhook(url: string) {
             @change="onContextBudgetChange"
           />
           <span class="field-hint">发给模型的历史上限;超出部分从最早开始省略,AI 可用 session_search 回溯。默认 120000</span>
+        </div>
+        <div class="form-field">
+          <button class="cyber-btn-secondary" @click="openMemoryManager">
+            <v-icon size="14">mdi-brain</v-icon>
+            管理记忆
+          </button>
+          <span class="field-hint">查看 / 编辑 / 删除全部长期记忆条目(按 user / global / asset 分组)</span>
         </div>
       </div>
     </div>
@@ -1480,6 +1612,73 @@ async function onTestWebhook(url: string) {
             <v-icon size="14">mdi-content-save-outline</v-icon>
             保存
           </button>
+        </div>
+      </div>
+    </v-dialog>
+
+    <!-- 长期记忆管理弹窗 -->
+    <v-dialog v-model="memoryDialog" max-width="640" scrollable transition="cyber-dialog">
+      <div class="cyber-panel memory-dialog-panel">
+        <div class="settings-header">
+          <v-icon size="20" color="cyan">mdi-brain</v-icon>
+          <h2>AI 长期记忆</h2>
+          <button class="cyber-btn-secondary memory-refresh-btn" :disabled="memoryLoading" @click="loadMemories">
+            <v-icon size="14">{{ memoryLoading ? 'mdi-loading mdi-spin' : 'mdi-refresh' }}</v-icon>
+            刷新
+          </button>
+        </div>
+        <p class="section-desc">
+          记忆按 scope 分组:user = 用户偏好与习惯,global = 跨资产通用经验,asset = 单个资产专属事实。会话开始时注入 AI 上下文,会话中的写入下一会话生效。
+        </p>
+
+        <div v-if="!memoryDesktopAvailable" class="memory-empty">桌面版中可用</div>
+        <div v-else-if="memoryLoading && memoryRows.length === 0" class="memory-empty">加载中…</div>
+        <div v-else-if="memoryGroups.length === 0" class="memory-empty">还没有长期记忆,AI 会在对话中通过 memory 工具逐步积累</div>
+        <div v-else class="memory-groups">
+          <div v-for="group in memoryGroups" :key="group.scope" class="memory-group">
+            <div class="memory-group-header">
+              <span class="cyber-badge">{{ memoryScopeLabel(group.scope) }}</span>
+              <span class="memory-usage" :class="{ full: group.usedChars >= group.limit }">
+                {{ group.usedChars }}/{{ group.limit }} chars
+              </span>
+            </div>
+            <div v-for="row in group.rows" :key="row.id" class="memory-item">
+              <template v-if="memoryEditingId === row.id">
+                <textarea v-model="memoryEditingContent" class="cyber-input memory-edit-input" rows="3"></textarea>
+                <div class="memory-item-actions">
+                  <button class="cyber-btn-secondary" @click="memoryEditingId = ''">取消</button>
+                  <button class="cyber-btn" :disabled="!memoryEditingContent.trim()" @click="saveMemoryEdit(row)">
+                    <v-icon size="14">mdi-content-save-outline</v-icon>
+                    保存
+                  </button>
+                </div>
+              </template>
+              <template v-else>
+                <div class="memory-content">{{ row.content }}</div>
+                <div class="memory-item-actions">
+                  <template v-if="memoryConfirmDeleteId === row.id">
+                    <button class="cyber-btn-secondary" @click="memoryConfirmDeleteId = ''">取消</button>
+                    <button class="cyber-btn" @click="deleteMemory(row)">确认删除</button>
+                  </template>
+                  <template v-else>
+                    <button class="cyber-btn-secondary" @click="startMemoryEdit(row)">
+                      <v-icon size="14">mdi-pencil-outline</v-icon>
+                      编辑
+                    </button>
+                    <button class="cyber-btn-secondary" @click="memoryConfirmDeleteId = row.id">
+                      <v-icon size="14">mdi-delete-outline</v-icon>
+                      删除
+                    </button>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+        <p v-if="memoryError" class="memory-error">{{ memoryError }}</p>
+
+        <div class="action-row">
+          <button class="cyber-btn-secondary" @click="memoryDialog = false">关闭</button>
         </div>
       </div>
     </v-dialog>
@@ -2386,5 +2585,67 @@ async function onTestWebhook(url: string) {
 }
 .model-dialog {
   padding: 24px;
+}
+
+/* 长期记忆管理弹窗:布局复用 cyber-panel / cyber-badge / cyber-btn,只补分组与条目样式 */
+.memory-dialog-panel {
+  padding: 24px;
+}
+.memory-refresh-btn {
+  margin-left: auto;
+}
+.memory-empty {
+  padding: 32px 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.memory-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 12px;
+}
+.memory-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.memory-usage {
+  font-size: 11px;
+  color: var(--muted);
+}
+.memory-usage.full {
+  color: var(--red, #ff5f56);
+}
+.memory-item {
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.memory-content {
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.memory-edit-input {
+  width: 100%;
+  font-size: 12px;
+  resize: vertical;
+}
+.memory-item-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+.memory-error {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--red, #ff5f56);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>
