@@ -13,6 +13,14 @@
 
 import type { LlmTool } from '@/services/ai'
 import { checkCommand } from '@/utils/commandGuard'
+import {
+  buildBackgroundStartCommand,
+  buildTaskPollCommand,
+  clampTaskWaitSeconds,
+  findLongSleepSeconds,
+  isValidTaskId,
+  newBackgroundTaskId
+} from '@/utils/sshBackgroundTask'
 
 /** 工具调用等待确认时传给父组件的上下文(供弹窗渲染) */
 export interface ToolConfirmCtx {
@@ -48,6 +56,7 @@ export const SSH_SYSTEM_PROMPT = `你是一个 SSH 运维助手。当前已连�
 - 任何会改变服务器状态、删除文件、修改配置的操作,必须使用 ssh_exec_confirmed(每次都会弹确认框)
 - 工具命令必须是完整、可自行结束的非交互命令;禁止只发送 \`cat > 文件\`、编辑器、分页器或持续跟随命令
 - 写文件时使用包含完整正文与结束标记的 heredoc(\`cat <<'EOF' > 文件 ... EOF\`)或 \`printf\`,不能等待后续标准输入
+- 耗时可能超过 10 秒的命令(安装、下载、编译、批量处理,或需要 sleep 等待/轮询进度才能拿到结果的场景),必须先调用 ssh_exec_background 把命令写成脚本后台执行,再用 ssh_wait_task 查询进度与结果;禁止在 ssh_exec / ssh_exec_confirmed 里写长时间 sleep 或 while/for 轮询循环
 - 一次只发一条命令,等结果回来再决定下一步
 - 如果命令失败或输出异常,先分析原因再行动,不要盲目重试
 - 输出要简洁,把关键字段挑出来呈现`
@@ -85,6 +94,35 @@ export const sshTools: LlmTool[] = [
           command: { type: 'string', description: '要执行的完整命令' }
         },
         required: ['command']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ssh_exec_background',
+      description: '把一条耗时较长(可能超过 10 秒)的命令写成脚本在远端 nohup 后台执行,立即返回 task_id,不阻塞终端;输出写入日志文件。适合安装、下载、编译、批量处理等场景。启动后必须调用 ssh_wait_task 轮询任务状态与日志。命令本身仍会经过风险确认。',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: '要后台执行的完整命令(可以是多行脚本)' }
+        },
+        required: ['command']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ssh_wait_task',
+      description: '查询 ssh_exec_background 启动的后台任务:内部最多等待 wait_seconds 秒(带 sleep 轮询),返回 [STATUS] RUNNING / FINISHED(含退出码) / NOT_FOUND 与日志尾部。返回 RUNNING 时稍后可再次调用继续等待。',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_id: { type: 'string', description: 'ssh_exec_background 返回的 task_id' },
+          wait_seconds: { type: 'number', description: '本次最多等待的秒数,1-55,默认 30' }
+        },
+        required: ['task_id']
       }
     }
   }
@@ -179,19 +217,46 @@ export function makeSshToolCaller(
   runCommand: (cmd: string) => Promise<string>,
   getWhitelist: () => string[],
   confirmFn: ToolConfirmFn,
-  printStatus?: StatusPrinter
+  printStatus?: StatusPrinter,
+  /**
+   * 静默执行器(不占用用户终端的独立 exec channel),供 ssh_wait_task 轮询用;
+   * 不传时 ssh_wait_task 会直接报错。timeoutSec 由工具按 wait_seconds 加余量计算。
+   */
+  runSilentCommand?: (cmd: string, timeoutSec: number) => Promise<string>
 ) {
   return async (call: { function: { name: string; arguments: string } }): Promise<string> => {
     const args = safeParse(call.function.arguments)
+    const toolName = call.function.name
+
+    // ssh_wait_task:只读轮询,不走风险确认;轮询命令(内部带 sleep)经静默通道执行
+    if (toolName === 'ssh_wait_task') {
+      const taskId = String(args.task_id ?? '').trim()
+      if (!isValidTaskId(taskId)) return '[Error] 无效的 task_id'
+      if (!runSilentCommand) throw new Error('当前环境不支持后台任务轮询(缺少静默执行器)')
+      const waitSec = clampTaskWaitSeconds(args.wait_seconds)
+      const output = await runSilentCommand(buildTaskPollCommand(taskId, waitSec), waitSec + 15)
+      if (printStatus) printStatus('OK', `ssh_wait_task ${taskId}`)
+      return output || '(无输出)'
+    }
+
     const command = String(args.command ?? '').trim()
     if (!command) return '[Error] Empty command'
 
+    const isBackground = toolName === 'ssh_exec_background'
     const unsupportedReason = getUnsupportedSshCommandReason(command)
     if (unsupportedReason) {
       throw new Error(`SSH AI 工具只支持可自行结束的非交互命令: ${unsupportedReason}`)
     }
 
-    const forceConfirm = call.function.name === 'ssh_exec_confirmed'
+    // 前台命令不允许长时间 sleep(会阻塞终端直到超时被打断),引导改用后台任务工具
+    if (!isBackground) {
+      const sleepSec = findLongSleepSeconds(command)
+      if (sleepSec != null) {
+        throw new Error(`命令包含 sleep 约 ${Math.round(sleepSec)} 秒的长时间等待,会阻塞终端;请改用 ssh_exec_background 后台执行,再用 ssh_wait_task 轮询结果`)
+      }
+    }
+
+    const forceConfirm = toolName === 'ssh_exec_confirmed'
     const check = checkCommand(command, getWhitelist())
 
     if (check.isRisky) {
@@ -215,11 +280,17 @@ export function makeSshToolCaller(
     }
 
     // 写命令到 terminal(用户能看到),并等 shell prompt 返回后收集输出
-    const output = await runCommand(command)
+    // 后台任务:包装成「脚本落盘 + nohup 启动」命令,瞬间返回 task_id
+    const taskId = isBackground ? newBackgroundTaskId() : null
+    const finalCommand = taskId ? buildBackgroundStartCommand(command, taskId) : command
+    const output = await runCommand(finalCommand)
     // 打印执行状态到终端
     if (printStatus) {
       const err = !output || looksLikeSshError(output)
       printStatus(err ? 'ERR' : 'OK', command)
+    }
+    if (taskId) {
+      return `${output}\n后台任务已启动,task_id: ${taskId};请调用 ssh_wait_task(task_id="${taskId}") 查询进度与结果。`
     }
     return output || '(无输出)'
   }

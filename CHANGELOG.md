@@ -14,6 +14,11 @@
 
 ---
 
+## [0.50.3] - 2026-08-11
+
+### 修复
+- SSH AI 助手遇到长耗时命令(如 `sleep 50; if [ -f pid ]...` 轮询脚本)会阻塞终端直到 60s/120s 超时被 Ctrl+C 打断:新增 `ssh_exec_background` / `ssh_wait_task` 两个 AI 工具——前者把命令 base64 落盘成脚本、nohup 后台执行(输出进 out.log、退出码进 exit 文件)并立即返回 task_id,后者经独立静默 exec channel 轮询(内部带 sleep,不占用用户终端),返回 [STATUS] RUNNING/FINISHED(含退出码)/NOT_FOUND + 日志尾部;`ssh_exec`/`ssh_exec_confirmed` 预检拒绝含 sleep ≥15s 的命令并引导改用后台工具,system prompt 同步补充长耗时命令使用指引;新增 `src/utils/sshBackgroundTask.ts` 纯函数模块与 `tests/ssh-background-task.test.mjs` 单测
+
 ## [0.50.2] - 2026-08-11
 
 ### 文档

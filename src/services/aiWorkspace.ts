@@ -592,7 +592,16 @@ export function createDirectWorkspaceRuntime(options: DirectWorkspaceOptions): D
       const caller = makeSshToolCaller(
         command => sshExec(connection.connId, command, 30),
         options.getWhitelist,
-        context => options.confirm(withWorkspaceContext(context, asset))
+        context => options.confirm(withWorkspaceContext(context, asset)),
+        undefined,
+        // ssh_wait_task 轮询:非 0 退出时错误消息里带已收到的 stdout,原样回给 AI
+        async (cmd, timeoutSec) => {
+          try {
+            return await sshExec(connection.connId, cmd, timeoutSec)
+          } catch (error) {
+            return error instanceof Error ? error.message : String(error)
+          }
+        }
       )
       return caller(wrappedCall)
     }

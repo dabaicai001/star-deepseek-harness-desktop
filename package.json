@@ -1,6 +1,6 @@
 {
   "name": "starhub",
-  "version": "0.50.2",
+  "version": "0.50.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "test:ai-scroll": "node --test tests/ai-scroll-position.test.mjs",
     "test:ai-steering": "node --test tests/ai-steering.test.mjs",
     "test:ssh-prompt": "node --test tests/ssh-prompt-capture.test.mjs",
+    "test:ssh-bg": "node --test tests/ssh-background-task.test.mjs",
     "test:utils": "node --test tests/utils/crypto.test.mjs tests/utils/ddlGenerator.test.mjs tests/utils/sqlHistory.test.mjs tests/utils/commandGuard.test.mjs tests/utils/sqlTables.test.mjs tests/utils/xshellQuickCommand.test.mjs",
     "preview": "vite preview",
     "version": "node scripts/bump-version.mjs",

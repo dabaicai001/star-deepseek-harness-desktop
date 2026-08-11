@@ -456,7 +456,17 @@ async function runSshAgent() {
  const caller = makeSshToolCaller(
  runAiCommandWithPrompt,
  () => aiStore.settings.commandWhitelist,
- confirmFn
+ confirmFn,
+ undefined,
+ // ssh_wait_task 的轮询命令走独立静默 exec channel(不占用用户终端);
+ // 远端非 0 退出(如任务目录不存在)时 Rust 侧把已收到 stdout 拼进错误消息,原样回给 AI
+ async (cmd, timeoutSec) => {
+   try {
+     return await sshExec(props.id, cmd, timeoutSec)
+   } catch (error) {
+     return error instanceof Error ? error.message : String(error)
+   }
+ }
  )
  const sftpCaller = makeSftpToolCaller(props.id, confirmFn, asset.value?.name)
  const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
