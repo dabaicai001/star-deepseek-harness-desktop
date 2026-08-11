@@ -38,6 +38,7 @@ import {
   newCompletionMarkerId,
   normalizeTerminalText
 } from '@/utils/sshPromptCapture'
+import { extractOsc7Cwd, OSC7_INJECT_COMMAND, parsePwdOutput } from '@/utils/terminalCwd'
 import type { LlmToolCall } from '@/services/ai'
 import { createMcpRuntime } from '@/services/mcp'
 import { logAudit } from '@/services/audit'
@@ -304,6 +305,10 @@ watch(rightActiveTab, tab => {
 
 // ====== AI助手(每个 tab独立) ======
 const sshCwd = ref<string>('')
+/** OSC 7 解析的滚动 tail(转义序列可能跨 TCP 分片,保留未消费尾部) */
+let osc7Tail = ''
+/** 建链后待注入 OSC 7 shell integration(等首个输出块再写,避免与用户首条输入抢 stdin) */
+let osc7InjectPending = false
 // 后台静默模式:开关全局持久化(所有 SSH tab 共享一个 localStorage key)
 const aiSilentMode = usePersistentPanelState('sshAiSilentMode', false)
 /** 静默执行的 cwd 跟踪:每条命令结束后从 marker 解析更新,跨命令保持 cd 语义 */
@@ -753,8 +758,13 @@ async function connect() {
   await subscribeSessionEvents(sessionId)
   scheduleSftpReadyFallback()
 
-
-
+  // cwd 跟踪初始化:静默 exec pwd 拿登录目录(SFTP「跟随终端」立即可用);
+  // 并标记待注入 OSC 7(首个输出块到达时在 handleTerminalOctets 里写入,
+  // 之后 shell 每次回到 prompt 都会自动上报 cwd)
+  sshCwd.value = ''
+  osc7Tail = ''
+  osc7InjectPending = true
+  void initCwdFromExec(sessionId)
  } catch (error) {
   const msg = error instanceof Error ? error.message : String(error)
   if (connectCallId !== currentConnectId) {
@@ -835,6 +845,17 @@ function sliceBufferFrom(absoluteBaseline: number): string {
   return dataBuffer.value.slice(start).join('')
 }
 
+/** 建链后用静默 exec 通道跑 pwd 拿登录目录(exec channel 起始目录与交互 shell 一致) */
+async function initCwdFromExec(sid: string) {
+  if (devMockWorkspace.value) return
+  try {
+    const out = await sshExec(sid, 'pwd', 5)
+    const cwd = parsePwdOutput(out)
+    // OSC 7 可能已上报过更新的目录,只在还没值时兜底
+    if (cwd && !sshCwd.value) sshCwd.value = cwd
+  } catch { /* 拿不到就靠后续 OSC 7 / pwd 输出解析兜底 */ }
+}
+
 function handleTerminalOctets(octets: number[]) {
   const chunk = terminalDecoder.decode(new Uint8Array(octets), { stream: true })
   if (!chunk) return
@@ -842,7 +863,18 @@ function handleTerminalOctets(octets: number[]) {
   markSftpReady()
   //收集到 buffer(AI助手用,固定容量环形缓冲)
   pushDataChunk(chunk)
-  //检测 pwd 输出,更新当前工作目录
+  //OSC 7 cwd 上报(注入 shell integration 后,远端 shell 每次回到 prompt 都会携带当前目录)
+  osc7Tail += chunk
+  const osc7 = extractOsc7Cwd(osc7Tail)
+  osc7Tail = osc7.rest
+  if (osc7.cwd && osc7.cwd !== sshCwd.value) sshCwd.value = osc7.cwd
+  //首个输出块到达后注入 OSC 7 shell integration(此时登录输出已开始,shell 即将就绪;
+  //不在 connect 成功时立即写,避免与用户首条输入 / MFA 交互抢 stdin)
+  if (osc7InjectPending) {
+    osc7InjectPending = false
+    void invoke('ssh_write', { id: props.id, data: OSC7_INJECT_COMMAND }).catch(() => {})
+  }
+  //检测 pwd 输出,更新当前工作目录(sh/dash 等无 hook shell 的兜底)
   const pwdMatch = chunk.match(/(?:\r\n|\n|\r)(\/[\w\-./]{1,200})\s*(?:\r\n|\n|\r|$)/)
   if (pwdMatch && pwdMatch[1].startsWith('/')) {
     sshCwd.value = pwdMatch[1]

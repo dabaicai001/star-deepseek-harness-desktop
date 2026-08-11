@@ -125,8 +125,14 @@ async function connect() {
       connected.value = false
     })
 
-    // 连接成功后加载根目录
-    await loadDir('/')
+    // 连接成功后落到 SFTP 会话起始目录(通常是登录用户家目录);
+    // canonicalize 失败(老服务端不支持 realpath 等)兜底根目录
+    let homeDir = '/'
+    try {
+      const dir = await invoke<string>('sftp_home_dir', { id: sessionId })
+      if (dir.startsWith('/')) homeDir = dir
+    } catch { /* 兜底根目录 */ }
+    await loadDir(homeDir)
     if (launchInfo?.mode === 'fallback_exec' && launchInfo.server_path) {
       notify.notify({
         message: t('sftp.autoFallbackUsed', { path: launchInfo.server_path }),

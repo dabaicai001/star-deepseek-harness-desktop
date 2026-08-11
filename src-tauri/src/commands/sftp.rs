@@ -80,6 +80,20 @@ pub async fn sftp_list(
     Ok(entries)
 }
 
+/// 获取 SFTP 会话的起始目录(通常是登录用户的家目录)。
+/// SFTP 协议里服务器为会话分配的初始工作目录即 ".",用 realpath 解析成绝对路径;
+/// 前端连上后直接落到该目录,而不是写死的根目录。
+#[tauri::command]
+pub async fn sftp_home_dir(manager: State<'_, SshManager>, id: String) -> Result<String, String> {
+    let session_arc = get_session_arc!(manager, id);
+    let mut session = session_arc.lock().await;
+    session
+        .with_browse_sftp(|sftp| {
+            Box::pin(async move { sftp.canonicalize(".").await.map_err(map_err) })
+        })
+        .await
+}
+
 /// 读文件内容(返回字节)。整文件进内存并经 IPC 传输,限制 1MB;
 /// 更大的文件请走 TransferManager 分块下载(sftp_start_download)。
 #[tauri::command]

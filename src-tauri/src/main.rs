@@ -73,6 +73,7 @@ fn main() {
             commands::ssh::ssh_web_gateway_port,
             commands::ssh::ssh_parse_config_file,
             commands::sftp::sftp_list,
+            commands::sftp::sftp_home_dir,
             commands::sftp::sftp_read,
             commands::sftp::sftp_write,
             commands::sftp::sftp_stat,
