@@ -112,6 +112,15 @@ function requiredPath(value: unknown, field: string): string {
   return result
 }
 
+/** 远端路径必须是绝对路径(/ 或 ~ 开头),相对路径会按登录 home 静默解析到非预期目录 */
+function requiredRemotePath(value: unknown, field: string): string {
+  const result = requiredPath(value, field)
+  if (!result.startsWith('/') && !result.startsWith('~')) {
+    throw new Error(`${field} 必须是远端绝对路径(以 / 或 ~ 开头),收到: ${result}`)
+  }
+  return result
+}
+
 function speedLimit(value: unknown): number {
   const parsed = Number(value ?? 0)
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0
@@ -125,6 +134,10 @@ async function waitForTransfer(sessionId: string, transferId: string): Promise<T
       if (task.status === 'failed') throw new Error(task.error || `SFTP 传输失败: ${transferId}`)
       if (task.status === 'cancelled') throw new Error(`SFTP 传输已取消: ${transferId}`)
       return task
+    }
+    // 用户可能在传输队列里暂停了任务;不处理的话会空轮询到 30 分钟超时,整轮 agent 卡死
+    if (task && task.status === 'paused') {
+      throw new Error(`SFTP 传输已被用户暂停: ${transferId}。如需继续,请在传输队列中恢复后重试。`)
     }
     await new Promise(resolve => setTimeout(resolve, TRANSFER_POLL_MS))
   }
@@ -151,24 +164,27 @@ export function makeSftpToolCaller(
     await sftpEnsureSession(sessionId)
 
     if (call.function.name === 'sftp_list') {
-      const path = requiredPath(args.path, 'path')
+      const path = requiredRemotePath(args.path, 'path')
       const entries = await sftpList(sessionId, path)
-      return entries.slice(0, 200).map(entry => [
+      const lines = entries.slice(0, 200).map(entry => [
         entry.isDir ? 'DIR ' : 'FILE',
         entry.path,
         entry.isDir ? '-' : formatSize(entry.size),
         entry.permissions.toString(8)
-      ].join(' | ')).join('\n') || '(空目录)'
+      ].join(' | '))
+      // 截断必须附注记,否则 LLM 会误判"文件不存在"
+      if (entries.length > 200) lines.push(`… (共 ${entries.length} 项,仅显示前 200 项)`)
+      return lines.join('\n') || '(空目录)'
     }
 
     if (call.function.name === 'sftp_stat') {
-      const path = requiredPath(args.path, 'path')
+      const path = requiredRemotePath(args.path, 'path')
       return JSON.stringify(await sftpStat(sessionId, path), null, 2)
     }
 
     if (call.function.name === 'sftp_upload') {
       const localPaths = paths(args.localPaths, 'localPaths')
-      const remoteDir = requiredPath(args.remoteDir, 'remoteDir')
+      const remoteDir = requiredRemotePath(args.remoteDir, 'remoteDir')
       const approved = await confirm({
         toolName: 'sftp_upload',
         args: { ...workspace, localPaths, remoteDir },
@@ -181,7 +197,7 @@ export function makeSftpToolCaller(
     }
 
     if (call.function.name === 'sftp_download') {
-      const remotePaths = paths(args.remotePaths, 'remotePaths')
+      const remotePaths = paths(args.remotePaths, 'remotePaths').map(p => requiredRemotePath(p, 'remotePaths'))
       const localDir = requiredPath(args.localDir, 'localDir')
       const approved = await confirm({
         toolName: 'sftp_download',

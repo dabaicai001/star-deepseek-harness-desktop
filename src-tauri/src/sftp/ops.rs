@@ -335,6 +335,15 @@ where
         opts
     };
 
+    // 本机目标目录可能不存在(AI 工具调用时 LLM 常给一个还没建的目录),先递归创建
+    if let Some(parent) = std::path::Path::new(local_path).parent() {
+        if !parent.as_os_str().is_empty() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .with_context(|| format!("create local dir failed: {}", parent.display()))?;
+        }
+    }
+
     let mut local_file = open_opts
         .open(local_path)
         .await

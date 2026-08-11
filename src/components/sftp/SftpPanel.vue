@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
@@ -28,6 +28,8 @@ const props = defineProps<{
   /** 已登录的 SSH session ID。传入时复用该 session,不再单独认证。 */
   sessionId?: string
   sshConnected?: boolean
+  /** 终端侧跟踪到的当前工作目录(用于「跟随终端路径」开关) */
+  sshCwd?: string
 }>()
 
 const asset = computed(() =>
@@ -179,6 +181,52 @@ let unlistenDragDrop: (() => void) | null = null
 const selectedPaths = ref<Set<string>>(new Set())
 const lastClickedIndex = ref<number>(-1)
 
+// ====== 路径跟随终端 + 手动输入路径 ======
+const FOLLOW_TERMINAL_KEY = 'starhub.sftp.followTerminal'
+const followTerminal = ref(false)
+try {
+  followTerminal.value = localStorage.getItem(FOLLOW_TERMINAL_KEY) === 'true'
+} catch { /* 浏览器预览无 localStorage 时忽略 */ }
+
+watch(followTerminal, enabled => {
+  try { localStorage.setItem(FOLLOW_TERMINAL_KEY, String(enabled)) } catch { /* ignore */ }
+  // 开启时立即跳到终端当前目录
+  if (enabled && props.sshCwd && props.sshCwd !== currentPath.value && connected.value) {
+    loadDir(props.sshCwd)
+  }
+})
+
+// 终端 cwd 变化时跟随(仅绝对路径,避免 pwd 解析误匹配)
+watch(() => props.sshCwd, cwd => {
+  if (!followTerminal.value || !connected.value) return
+  if (!cwd || !cwd.startsWith('/') || cwd === currentPath.value) return
+  loadDir(cwd)
+})
+
+const pathEditing = ref(false)
+const pathInput = ref('')
+const pathInputRef = ref<HTMLInputElement | null>(null)
+
+async function startPathEdit() {
+  pathInput.value = currentPath.value
+  pathEditing.value = true
+  await nextTick()
+  pathInputRef.value?.focus()
+  pathInputRef.value?.select()
+}
+
+function submitPathInput() {
+  const target = pathInput.value.trim()
+  pathEditing.value = false
+  if (!target || target === currentPath.value) return
+  // 容错:用户漏写前导 / 时按绝对路径补齐
+  loadDir(target.startsWith('/') || target.startsWith('~') ? target : `/${target}`)
+}
+
+function cancelPathEdit() {
+  pathEditing.value = false
+}
+
 const sftpCtxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 const uploadMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 
@@ -268,6 +316,11 @@ async function uploadFolder() {
 
 // ====== Multi-select ======
 function onFileClick(entry: SftpEntry, index: number, event: MouseEvent) {
+  // 目录单击直接进入;Ctrl/Shift 修饰键下保持多选语义
+  if (entry.isDir && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+    navigateTo(entry)
+    return
+  }
   if (event.ctrlKey || event.metaKey) {
     const newSet = new Set(selectedPaths.value)
     if (newSet.has(entry.path)) {
@@ -380,6 +433,11 @@ function buildSftpContextItems(entry: SftpEntry | null): MenuItem[] {
 function onContextMenu(event: MouseEvent, entry: SftpEntry | null) {
   event.preventDefault()
   uploadMenu.value = null
+  // 右键落在未选中的条目上时,先把选择切到该条目;
+  // 否则下载/删除会作用在旧选中项上,表现为「右键下载不了这个文件」
+  if (entry && !selectedPaths.value.has(entry.path)) {
+    selectedPaths.value = new Set([entry.path])
+  }
   sftpCtxMenu.value = {
     x: event.clientX,
     y: event.clientY,
@@ -607,13 +665,38 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
           <v-icon size="14">mdi-download</v-icon>
         </button>
         <div class="tb-separator" />
+        <button
+          class="tb-btn"
+          :title="t('sftp.followTerminal')"
+          :class="{ active: followTerminal }"
+          :disabled="!sshCwd"
+          @click="followTerminal = !followTerminal"
+        >
+          <v-icon size="14">mdi-console-line</v-icon>
+        </button>
+        <button class="tb-btn" :title="t('sftp.editPath')" @click="startPathEdit">
+          <v-icon size="14">mdi-pencil-outline</v-icon>
+        </button>
+        <div class="tb-separator" />
         <button class="tb-btn" :title="t('sftp.transfers')" @click="transferStore.toggleExpanded()">
           <v-icon size="14">mdi-progress-download</v-icon>
         </button>
       </div>
 
-      <!-- 面包屑路径 -->
-      <div class="sftp-breadcrumb">
+      <!-- 面包屑路径 / 路径输入 -->
+      <div v-if="pathEditing" class="sftp-breadcrumb">
+        <input
+          ref="pathInputRef"
+          v-model="pathInput"
+          class="cyber-input path-input"
+          :placeholder="t('sftp.pathInputPlaceholder')"
+          spellcheck="false"
+          @keydown.enter.prevent="submitPathInput"
+          @keydown.esc.prevent="cancelPathEdit"
+          @blur="cancelPathEdit"
+        />
+      </div>
+      <div v-else class="sftp-breadcrumb" @dblclick="startPathEdit">
         <span
           v-for="(seg, i) in pathSegments"
           :key="i"
@@ -638,7 +721,7 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
         </div>
         <template v-else>
           <!-- 上级目录 -->
-          <div v-if="currentPath !== '/'" class="file-row" @dblclick="navigateUp" @contextmenu.prevent="onContextMenu($event, null)">
+          <div v-if="currentPath !== '/'" class="file-row" @click="navigateUp" @contextmenu.prevent="onContextMenu($event, null)">
             <v-icon size="14" class="file-icon">mdi-folder-arrow-up</v-icon>
             <span class="file-name">..</span>
           </div>
@@ -648,7 +731,6 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
             class="file-row"
             :class="{ selected: selectedPaths.has(entry.path) }"
             @click="onFileClick(entry, index, $event)"
-            @dblclick="navigateTo(entry)"
             @contextmenu.prevent="onContextMenu($event, entry)"
           >
             <v-icon size="14" class="file-icon" :class="{ 'is-dir': entry.isDir }">
@@ -823,6 +905,14 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
   white-space: nowrap;
+}
+
+.path-input {
+  width: 100%;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .crumb {

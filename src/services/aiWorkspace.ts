@@ -582,10 +582,11 @@ export function createDirectWorkspaceRuntime(options: DirectWorkspaceOptions): D
 
     if (connection.kind === 'ssh') {
       if (call.function.name.startsWith('sftp_')) {
+        // 工作区前缀由 withWorkspaceContext 统一注入,这里不再传 workspaceName,
+        // 否则确认弹窗会出现两行重复的「目标工作区: X」
         const caller = makeSftpToolCaller(
           connection.connId,
-          context => options.confirm(withWorkspaceContext(context, asset)),
-          asset.name
+          context => options.confirm(withWorkspaceContext(context, asset))
         )
         return caller(wrappedCall)
       }

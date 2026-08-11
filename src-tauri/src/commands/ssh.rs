@@ -160,11 +160,12 @@ pub async fn read_ssh_private_key_file(path: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn ssh_connect(
     manager: State<'_, SshManager>,
+    transfer_manager: State<'_, TransferManager>,
     id: String,
     config: SshConfig,
     app_handle: tauri::AppHandle,
 ) -> Result<SshSessionInfo, String> {
-    connect_session(&manager, id, config, app_handle, true).await
+    connect_session(&manager, &transfer_manager, id, config, app_handle, true).await
 }
 
 /// 为 AI / 仪表盘的一次性命令建立无 PTY 的 SSH 会话。
@@ -173,15 +174,17 @@ pub async fn ssh_connect(
 #[tauri::command]
 pub async fn ssh_connect_exec(
     manager: State<'_, SshManager>,
+    transfer_manager: State<'_, TransferManager>,
     id: String,
     config: SshConfig,
     app_handle: tauri::AppHandle,
 ) -> Result<SshSessionInfo, String> {
-    connect_session(&manager, id, config, app_handle, false).await
+    connect_session(&manager, &transfer_manager, id, config, app_handle, false).await
 }
 
 async fn connect_session(
     manager: &SshManager,
+    transfer_manager: &TransferManager,
     id: String,
     config: SshConfig,
     app_handle: tauri::AppHandle,
@@ -242,6 +245,12 @@ async fn connect_session(
         username: config.username,
         connected: true,
     };
+
+    // 覆盖同 id 的旧会话前,先注销 TransferManager 里挂在其上的 SFTP 通道。
+    // 否则自动重连后 sftp_ensure_session 的 has_session 短路会直接复用旧(已死)通道,
+    // 之后所有上传/下载都在死句柄上失败。注销后下一次 ensure 会在新会话上重建通道。
+    // 放在取 attempts/sessions 锁之前,避免引入新的锁顺序。
+    transfer_manager.unregister_sftp(&id).await;
 
     // 只在插入 map 时短暂持锁。锁顺序固定为 attempts -> sessions:
     // 先取 attempts 锁(校验代次),再取 sessions 锁插入,

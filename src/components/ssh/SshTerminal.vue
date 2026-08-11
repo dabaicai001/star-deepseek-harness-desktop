@@ -2220,7 +2220,7 @@ function handleKbCancelled() {
     />
   </template>
   <template #tab-sftp>
-    <SftpPanel :asset-id="asset?.id" :session-id="id" :ssh-connected="connected && sftpReady" />
+    <SftpPanel :asset-id="asset?.id" :session-id="id" :ssh-connected="connected && sftpReady" :ssh-cwd="sshCwd" />
   </template>
   </RightPanel>
   </div>
