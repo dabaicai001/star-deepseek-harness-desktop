@@ -4,7 +4,17 @@ import { invoke } from '@tauri-apps/api/core'
 import type { ChatMessage, LlmTool, LlmToolCall, NewChatRequest, NewChatResponse } from '@/services/ai'
 import { chatWithTools, chatStream, estimateCost } from '@/services/ai'
 import { decrypt as decryptLegacyKey } from '@/utils/crypto'
-import { compactPersistedMessages, drainPendingSteers, snapshotChatMessages, type StickyContextBinding } from '@/utils/aiContext'
+import { compactPersistedMessages, buildBudgetedMessages, drainPendingSteers, snapshotChatMessages, type StickyContextBinding } from '@/utils/aiContext'
+import {
+  aiConvDelete,
+  aiConvList,
+  aiConvMessages,
+  aiConvUpsert,
+  aiMsgSync,
+  type AiConversationRow,
+  type AiMessageInput,
+  type AiMessageRow
+} from '@/services/aiMemory'
 
 const KEYRING_MARKER = 'keyring:v1'
 
@@ -232,6 +242,10 @@ export interface AiSettings {
   commandWhitelist: string[]
   /** 命令白名单预设迁移版本；用户删除预设后不会在每次启动时被重新加入。 */
   commandWhitelistVersion: number
+  /** 会话存档是否落库 tool 消息与 assistant 的 tool_calls(默认只存 user/assistant 文本)。 */
+  memoryStoreToolOutputs: boolean
+  /** runAgent 回发历史的字符预算(滑窗截断,超出部分省略并插注记)。 */
+  contextBudgetChars: number
 }
 
 export type AiPlanStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
@@ -315,15 +329,14 @@ export interface AiToolCallRecord {
 }
 
 const DEFAULT_SYSTEM_PROMPT = '你是一个专业的运维助手,帮助用户操作本机、SSH、数据库、Docker 和工作簿。请用中文回答,简洁准确。'
+// 旧 localStorage 持久化已退役,仅保留 key 用于启动时的一次性迁移。
 const AI_SESSIONS_STORAGE_KEY = 'ai-sessions-v1'
+const AI_SESSIONS_MIGRATED_STORAGE_KEY = 'ai-sessions-migrated-v1'
 const MAX_PERSISTED_SESSIONS = 30
-
-interface PersistedAiSession {
-  instanceId: string
-  assetId: string
-  assetType: AiContextType
-  messages: ChatMessage[]
-}
+// 落库保护:单会话最多 500 条(倒序保留最新),单条 content 截 12000 字符,tool_calls_json 超 20000 字符存 null
+const MAX_STORED_MESSAGES = 500
+const MAX_STORED_MESSAGE_CHARS = 12_000
+const MAX_STORED_TOOL_CALLS_CHARS = 20_000
 
 function isAiContextType(value: unknown): value is AiContextType {
   return value === 'ssh' || value === 'db' || value === 'docker' || value === 'excel' || value === 'local' || value === 'ai'
@@ -340,6 +353,97 @@ function parsePersistedMessage(value: unknown): ChatMessage | null {
     ...(typeof record.agentName === 'string' ? { agentName: record.agentName } : {}),
     ...(record.steered === true ? { steered: true } : {})
   }
+}
+
+function truncateStoredText(value: string, maxChars: number): string {
+  return value.length <= maxChars ? value : `${value.slice(0, maxChars)}…`
+}
+
+/** 会话标题:首条 user 消息截 80 字符,无则「新会话」。 */
+function buildSessionTitle(messages: ChatMessage[]): string {
+  const firstUser = messages.find(message => message.role === 'user' && message.content.trim())
+  const text = firstUser?.content.trim().replace(/\s+/g, ' ') ?? ''
+  if (!text) return '新会话'
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text
+}
+
+/**
+ * 把会话消息转成 ai_msg_sync 的落库行。
+ *  - storeToolOutputs=false:复用 compactPersistedMessages 的取舍(只 user/assistant 非空文本)
+ *  - storeToolOutputs=true:含 tool 消息和 assistant 的 tool_calls(序列化进 tool_calls_json)
+ * created_at 为秒级;ChatMessage 不带时间戳,统一取当前时间(seq 保序)。
+ */
+function buildStoredMessageRows(messages: ChatMessage[], storeToolOutputs: boolean): AiMessageInput[] {
+  const createdAt = Math.floor(Date.now() / 1000)
+  if (!storeToolOutputs) {
+    return compactPersistedMessages(messages).map(message => ({
+      role: message.role,
+      content: message.content,
+      created_at: createdAt
+    }))
+  }
+  const rows: AiMessageInput[] = []
+  for (const message of messages.slice(-MAX_STORED_MESSAGES)) {
+    if (message.role !== 'user' && message.role !== 'assistant' && message.role !== 'tool') continue
+    const content = message.content?.trim() ? truncateStoredText(message.content, MAX_STORED_MESSAGE_CHARS) : null
+    let toolCallsJson: string | null = null
+    if (message.role === 'assistant' && message.tool_calls?.length) {
+      const serialized = JSON.stringify(message.tool_calls)
+      toolCallsJson = serialized.length > MAX_STORED_TOOL_CALLS_CHARS ? null : serialized
+    }
+    // 空文本且无工具调用的占位消息(如流式中的 assistant 占位)不落库
+    if (!content && !toolCallsJson) continue
+    rows.push({ role: message.role, content, tool_calls_json: toolCallsJson, created_at: createdAt })
+  }
+  return rows
+}
+
+/**
+ * 落库行转回 ChatMessage。tool 消息按序认领上一条 assistant 的 tool_calls;
+ * 孤立 tool 结果(截断/序列化丢失导致)直接丢弃,末尾未被应答的 tool_calls 剥离,
+ * 保证恢复出的消息序对 LLM 恒合法(tool result 必须紧跟 assistant tool_calls)。
+ */
+function rowsToChatMessages(rows: AiMessageRow[]): ChatMessage[] {
+  const result: ChatMessage[] = []
+  let pendingCalls: Array<{ id: string; name: string }> = []
+  for (const row of rows) {
+    if (row.role === 'assistant') {
+      let toolCalls: LlmToolCall[] | undefined
+      if (row.tool_calls_json) {
+        try {
+          const parsed: unknown = JSON.parse(row.tool_calls_json)
+          if (Array.isArray(parsed)) toolCalls = parsed as LlmToolCall[]
+        } catch {
+          toolCalls = undefined
+        }
+      }
+      result.push({
+        role: 'assistant',
+        content: row.content ?? '',
+        ...(toolCalls?.length ? { tool_calls: toolCalls } : {})
+      })
+      pendingCalls = toolCalls?.map(call => ({ id: call.id, name: call.function.name })) ?? []
+    } else if (row.role === 'tool') {
+      const call = pendingCalls.shift()
+      if (!call) continue
+      result.push({ role: 'tool', content: row.content ?? '', tool_call_id: call.id, name: call.name })
+    } else if (row.role === 'user') {
+      pendingCalls = []
+      result.push({ role: 'user', content: row.content ?? '' })
+    }
+  }
+  for (let index = 0; index < result.length; index++) {
+    const message = result[index]
+    if (message.role !== 'assistant' || !message.tool_calls?.length) continue
+    const answered = new Set<string>()
+    for (let next = index + 1; next < result.length && result[next].role === 'tool'; next++) {
+      if (result[next].tool_call_id) answered.add(result[next].tool_call_id as string)
+    }
+    const keptCalls = message.tool_calls.filter(call => answered.has(call.id))
+    if (keptCalls.length === 0) delete message.tool_calls
+    else if (keptCalls.length !== message.tool_calls.length) message.tool_calls = keptCalls
+  }
+  return result
 }
 
 export const useAiStore = defineStore('ai', () => {
@@ -425,7 +529,9 @@ export const useAiStore = defineStore('ai', () => {
     activeModelId: '',
     commandWhitelist: [...DEFAULT_COMMAND_WHITELIST],
     // 初始值保留在上一版,确保首次创建和旧持久化状态都执行一次 v3 跨平台预设迁移。
-    commandWhitelistVersion: 2
+    commandWhitelistVersion: 2,
+    memoryStoreToolOutputs: false,
+    contextBudgetChars: 120_000
   })
 
   // Agent 只保存角色与技能绑定;Provider / API Key / 模型始终复用 settings。
@@ -549,6 +655,12 @@ export const useAiStore = defineStore('ai', () => {
     if (typeof s.activeModelId !== 'string') {
       s.activeModelId = ''
     }
+    if (typeof s.memoryStoreToolOutputs !== 'boolean') {
+      s.memoryStoreToolOutputs = false
+    }
+    if (!Number.isFinite(s.contextBudgetChars) || s.contextBudgetChars < 4_000) {
+      s.contextBudgetChars = 120_000
+    }
     void migrateModelApiKeys().catch(error => {
       console.error('Failed to migrate model API keys:', error)
     })
@@ -586,56 +698,121 @@ export const useAiStore = defineStore('ai', () => {
   // key = tab instanceId,value = AiSession
   const sessions = ref<Map<string, AiSession>>(new Map())
   let persistSessionsTimer: ReturnType<typeof setTimeout> | undefined
+  let persistRunning = false
+  let persistAgain = false
 
-  function restorePersistedSessions() {
-    if (typeof window === 'undefined') return
+  /** 单个会话落库:upsert 会话行 + 全量替换消息;无落库内容时跳过。 */
+  async function writeSessionToDb(session: AiSession): Promise<void> {
+    const rows = buildStoredMessageRows(session.messages, settings.value.memoryStoreToolOutputs)
+    if (rows.length === 0) return
+    await aiConvUpsert({
+      id: session.instanceId,
+      assetId: session.assetId || null,
+      assetType: session.assetType,
+      title: buildSessionTitle(session.messages)
+    })
+    await aiMsgSync(session.instanceId, rows)
+  }
+
+  /**
+   * 一次性迁移:localStorage ai-sessions-v1 → SQLite,完成后写迁移标记并删除旧 key。
+   * 非 Tauri 环境写库是 no-op,直接跳过(不能删旧数据);已有标记也跳过。
+   */
+  async function migrateLegacyLocalStorageSessions(): Promise<void> {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
     try {
+      if (localStorage.getItem(AI_SESSIONS_MIGRATED_STORAGE_KEY) === '1') return
       const raw = localStorage.getItem(AI_SESSIONS_STORAGE_KEY)
-      if (!raw) return
-      const parsed: unknown = JSON.parse(raw)
-      if (!Array.isArray(parsed)) return
-      for (const value of parsed.slice(-MAX_PERSISTED_SESSIONS)) {
-        if (!value || typeof value !== 'object') continue
-        const record = value as Record<string, unknown>
-        if (typeof record.instanceId !== 'string' || typeof record.assetId !== 'string' || !isAiContextType(record.assetType)) continue
-        const messages = Array.isArray(record.messages)
-          ? compactPersistedMessages(record.messages.map(parsePersistedMessage).filter(message => message !== null))
-          : []
+      if (raw) {
+        const parsed: unknown = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          for (const value of parsed.slice(-MAX_PERSISTED_SESSIONS)) {
+            if (!value || typeof value !== 'object') continue
+            const record = value as Record<string, unknown>
+            if (typeof record.instanceId !== 'string' || typeof record.assetId !== 'string' || !isAiContextType(record.assetType)) continue
+            const messages = Array.isArray(record.messages)
+              ? compactPersistedMessages(record.messages.map(parsePersistedMessage).filter(message => message !== null))
+              : []
+            if (messages.length === 0) continue
+            await writeSessionToDb({
+              instanceId: record.instanceId,
+              assetId: record.assetId,
+              assetType: record.assetType,
+              messages,
+              loading: false,
+              error: null,
+              toolCalls: [],
+              pendingSteers: []
+            })
+          }
+        }
+      }
+      localStorage.setItem(AI_SESSIONS_MIGRATED_STORAGE_KEY, '1')
+      localStorage.removeItem(AI_SESSIONS_STORAGE_KEY)
+    } catch (error) {
+      console.warn('[ai] 旧会话存档迁移失败:', error)
+    }
+  }
+
+  /** 启动恢复:先跑一次性迁移,再把最近会话从 SQLite 读回内存。 */
+  async function restorePersistedSessions() {
+    await migrateLegacyLocalStorageSessions()
+    const conversations = await aiConvList(MAX_PERSISTED_SESSIONS, 0)
+    for (const conversation of conversations) {
+      try {
+        const messages = rowsToChatMessages(await aiConvMessages(conversation.id))
         if (messages.length === 0) continue
-        sessions.value.set(record.instanceId, {
-          instanceId: record.instanceId,
-          assetId: record.assetId,
-          assetType: record.assetType,
+        const existing = sessions.value.get(conversation.id)
+        if (existing) {
+          // tab 已先行创建空会话:灌入历史;已有消息的活跃会话不动
+          if (existing.messages.length === 0) existing.messages = messages
+          continue
+        }
+        sessions.value.set(conversation.id, {
+          instanceId: conversation.id,
+          assetId: conversation.asset_id ?? '',
+          assetType: isAiContextType(conversation.asset_type) ? conversation.asset_type : 'local',
           messages,
           loading: false,
           error: null,
           toolCalls: [],
           pendingSteers: []
         })
+      } catch (error) {
+        console.warn(`[ai] 恢复会话 ${conversation.id} 失败:`, error)
       }
-    } catch {
-      // localStorage 不可用或历史格式损坏时按空会话启动。
     }
   }
 
+  /**
+   * 会话落库(SQLite):保留 :execution: 过滤,写失败只告警不打断聊天。
+   * 异步重入时记 dirty,当前轮收尾后再补一轮,保证最后一次变更最终落库。
+   */
   function persistSessions() {
     if (typeof window === 'undefined') return
-    const persisted: PersistedAiSession[] = Array.from(sessions.value.values())
-      .filter(session => !session.instanceId.includes(':execution:'))
-      .map(session => ({
-        instanceId: session.instanceId,
-        assetId: session.assetId,
-        assetType: session.assetType,
-        messages: compactPersistedMessages(session.messages)
-      }))
-      .filter(session => session.messages.length > 0)
-      .slice(-MAX_PERSISTED_SESSIONS)
-    try {
-      if (persisted.length > 0) localStorage.setItem(AI_SESSIONS_STORAGE_KEY, JSON.stringify(persisted))
-      else localStorage.removeItem(AI_SESSIONS_STORAGE_KEY)
-    } catch {
-      // 隐私模式或存储配额不足不应中断当前对话。
+    if (persistRunning) {
+      persistAgain = true
+      return
     }
+    persistRunning = true
+    void (async () => {
+      try {
+        const targets = Array.from(sessions.value.values())
+          .filter(session => !session.instanceId.includes(':execution:'))
+          .slice(-MAX_PERSISTED_SESSIONS)
+        for (const session of targets) {
+          await writeSessionToDb(session)
+        }
+      } catch (error) {
+        console.warn('[ai] 会话落库失败:', error)
+      } finally {
+        persistRunning = false
+        if (persistAgain) {
+          persistAgain = false
+          schedulePersistSessions()
+        }
+      }
+    })()
   }
 
   function schedulePersistSessions() {
@@ -643,7 +820,16 @@ export const useAiStore = defineStore('ai', () => {
     persistSessionsTimer = setTimeout(persistSessions, 250)
   }
 
-  restorePersistedSessions()
+  /** beforeunload:取消待执行的防抖,立刻 flush 写库队列(best-effort)。 */
+  function flushPersistSessions() {
+    if (persistSessionsTimer) {
+      clearTimeout(persistSessionsTimer)
+      persistSessionsTimer = undefined
+    }
+    persistSessions()
+  }
+
+  void restorePersistedSessions()
   // 会话持久化触发器:不用 deep watch —— 流式期间每 token 都会对整个 sessions
   // 做全量深遍历,成本随历史消息线性放大。改为只跟踪「每个 session 的消息数 +
   // 最后一条消息内容长度」:消息只会追加、只有最后一条会流式增长,足以覆盖所有
@@ -655,7 +841,7 @@ export const useAiStore = defineStore('ai', () => {
     schedulePersistSessions,
     { flush: 'post' }
   )
-  if (typeof window !== 'undefined') window.addEventListener('beforeunload', persistSessions)
+  if (typeof window !== 'undefined') window.addEventListener('beforeunload', flushPersistSessions)
 
   /**
    * 获取或创建某个 tab 的 AI 会话
@@ -849,10 +1035,46 @@ export const useAiStore = defineStore('ai', () => {
     }
   }
 
+  /** 删除会话:SQLite 级联删消息 + 重置内存会话(保留 tab 会话对象)+ 移除摘要。 */
   function deleteConversation(instanceId: string) {
-    clearSession(instanceId)
-    conversationSummaries.value = conversationSummaries.value.filter(summary => summary.id !== instanceId)
-    persistSessions()
+    aiConvDelete(instanceId).catch(error => {
+      console.warn(`[ai] 删除会话存档 ${instanceId} 失败:`, error)
+    })
+    // resetSession 内部已中断运行中的 agent、清空消息并移除同 id 摘要;
+    // 空消息会话不会落库,无需再触发 persist。
+    resetSession(instanceId)
+  }
+
+  /** 历史会话列表(供 AiChat 历史弹窗;非 Tauri 返回空数组)。 */
+  async function listConversations(): Promise<AiConversationRow[]> {
+    return await aiConvList()
+  }
+
+  /**
+   * 把存档会话的消息加载进指定 tab 会话:覆盖 messages,并重置 toolCalls/error/pendingSteers
+   * 等运行时状态(executionPlan/contextBinding 保留,属于当前 tab 的交互状态)。
+   */
+  async function loadConversationIntoSession(instanceId: string, conversationId: string): Promise<boolean> {
+    const session = sessions.value.get(instanceId)
+    if (!session) return false
+    try {
+      const rows = await aiConvMessages(conversationId)
+      if (rows.length === 0) return false
+      const messages = rowsToChatMessages(rows)
+      if (messages.length === 0) return false
+      // 有正在跑的 agent 先中断,避免后台 push 污染刚加载的消息序列
+      stopAgent(instanceId)
+      session.messages = messages
+      session.toolCalls = []
+      session.error = null
+      session.loading = false
+      session.pendingSteers = []
+      schedulePersistSessions()
+      return true
+    } catch (error) {
+      console.warn(`[ai] 加载会话存档 ${conversationId} 失败:`, error)
+      return false
+    }
   }
 
   function clearConversationSummariesForAgent(agentId: string) {
@@ -1309,7 +1531,8 @@ export const useAiStore = defineStore('ai', () => {
           apiKey: activeCfg.apiKey,
           model: activeCfg.model,
           // 必须先拍快照；下面追加的流式 assistant 占位不能进入本次请求。
-          messages: snapshotChatMessages(session.messages),
+          // 预算滑窗:超预算时从尾部保留,tool 组不拆,省略部分以注记提示可用 session_search 回溯。
+          messages: buildBudgetedMessages(snapshotChatMessages(session.messages), settings.value.contextBudgetChars),
           temperature: activeCfg.temperature,
           maxTokens: activeCfg.maxTokens,
           system: systemPrompt,
@@ -1507,6 +1730,8 @@ export const useAiStore = defineStore('ai', () => {
     unfavoriteAgent,
     addConversationSummary,
     deleteConversation,
+    listConversations,
+    loadConversationIntoSession,
     clearConversationSummariesForAgent,
     getOrCreateSession,
     getSession,

@@ -11,7 +11,7 @@ import { parseInstanceId } from '@/utils/tabId'
 import { usePersistentPanelState } from '@/utils/panelState'
 import * as dbService from '@/services/db'
 import { useDialogStore } from '@/stores/dialog'
-import { REDIS_SYSTEM_PROMPT, redisTools, makeRedisToolCaller } from '@/utils/aiTools'
+import { REDIS_SYSTEM_PROMPT, redisTools, makeRedisToolCaller, sessionSearchTools, sessionSearchToolCaller } from '@/utils/aiTools'
 import type { LlmToolCall } from '@/services/ai'
 import { createMcpRuntime } from '@/services/mcp'
 import { useObjectTreeStore, type ObjectAction, type ObjectKind } from '@/stores/objectTree'
@@ -136,13 +136,15 @@ async function onAiSend(text: string) {
   )
   const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
   if (mcpRuntime.warnings.length) console.warn('[redis-ai] MCP discovery warnings:', mcpRuntime.warnings)
-  const toolExec = async (call: LlmToolCall) =>
-    call.function.name.startsWith('mcp__')
+  const toolExec = async (call: LlmToolCall) => {
+    if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
+    return call.function.name.startsWith('mcp__')
       ? mcpRuntime.execute(call)
       : caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+  }
   const basePrompt = REDIS_SYSTEM_PROMPT.replace('db0', `db${currentDb.value}`)
   const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'db')
-  await aiStore.runAgent(instanceId.value, [...redisTools, ...mcpRuntime.tools], toolExec, sysPrompt)
+  await aiStore.runAgent(instanceId.value, [...redisTools, ...sessionSearchTools, ...mcpRuntime.tools], toolExec, sysPrompt)
 }
 
 async function onAiRetry() {

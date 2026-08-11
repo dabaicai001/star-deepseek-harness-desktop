@@ -25,7 +25,7 @@ import { parseInstanceId, withTabIndexSuffix, generateInstanceId } from '@/utils
 import { parseXshellQblDetailed, parseXshellQblx, decodeQblText } from '@/utils/xshellQuickCommand'
 import { formatSize } from '@/services/sftp'
 import { getDetachedInfo, LOCAL_TAB_DETACH_EVENT } from '@/lib/windowDetach'
-import { SSH_SYSTEM_PROMPT, SSH_SILENT_MODE_PROMPT_NOTE, sshTools, makeSshToolCaller } from '@/utils/aiTools'
+import { SSH_SYSTEM_PROMPT, SSH_SILENT_MODE_PROMPT_NOTE, sshTools, makeSshToolCaller, sessionSearchTools, sessionSearchToolCaller } from '@/utils/aiTools'
 import { makeSftpToolCaller, sftpTools } from '@/utils/aiSftpTools'
 import { checkCommand, extractWhitelistPrefix, stripShellPrompt } from '@/utils/commandGuard'
 import {
@@ -472,6 +472,7 @@ async function runSshAgent() {
  const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
  if (mcpRuntime.warnings.length) console.warn('[ssh-ai] MCP discovery warnings:', mcpRuntime.warnings)
  const toolExec = async (call: LlmToolCall) => {
+ if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
  if (call.function.name.startsWith('mcp__')) return mcpRuntime.execute(call)
  const target = call.function.name.startsWith('sftp_') ? sftpCaller : caller
  return await target({ function: { name: call.function.name, arguments: call.function.arguments } })
@@ -484,7 +485,7 @@ async function runSshAgent() {
    aiSilentMode.value ? `${basePrompt}\n${SSH_SILENT_MODE_PROMPT_NOTE}` : basePrompt,
    'ssh'
  )
- await aiStore.runAgent(props.id, [...sshTools, ...sftpTools, ...mcpRuntime.tools], toolExec, sysPrompt)
+ await aiStore.runAgent(props.id, [...sshTools, ...sftpTools, ...sessionSearchTools, ...mcpRuntime.tools], toolExec, sysPrompt)
 }
 
 onMounted(async () => {

@@ -11,6 +11,9 @@
  */
 import { ref, nextTick, watch, computed, onMounted, onActivated, onDeactivated } from 'vue'
 import type { AiSession, AiToolCallRecord } from '@/stores/ai'
+import { useAiStore } from '@/stores/ai'
+import { useNotifyStore } from '@/stores/notify'
+import type { AiConversationRow } from '@/services/aiMemory'
 import { useI18n } from 'vue-i18n'
 import AiMessageContent from '@/components/ai/AiMessageContent.vue'
 import { captureScrollAnchor, resolveScrollTop, type ScrollAnchor } from '@/utils/scrollPosition'
@@ -301,6 +304,70 @@ function shortResult(s: string, max = 240): string {
   if (s.length <= max) return s
   return s.slice(0, max) + `\n… (+${s.length - max} chars)`
 }
+
+// ====== 历史会话存档(记忆系统 L2,SQLite + FTS5) ======
+const aiStore = useAiStore()
+const notifyStore = useNotifyStore()
+const isDesktopRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+const historyVisible = ref(false)
+const historyLoading = ref(false)
+const historyRows = ref<AiConversationRow[]>([])
+const historyQuery = ref('')
+const historyConfirmDeleteId = ref('')
+
+const filteredHistoryRows = computed(() => {
+  const keyword = historyQuery.value.trim().toLowerCase()
+  if (!keyword) return historyRows.value
+  return historyRows.value.filter(row => (row.title || '').toLowerCase().includes(keyword))
+})
+
+/** 打开弹窗时才拉取存档列表;非 Tauri 环境展示「桌面版中可用」空态。 */
+async function openHistory() {
+  historyVisible.value = true
+  historyQuery.value = ''
+  historyConfirmDeleteId.value = ''
+  if (!isDesktopRuntime) return
+  historyLoading.value = true
+  try {
+    historyRows.value = await aiStore.listConversations()
+  } catch (error) {
+    console.warn('[ai-chat] 加载历史会话列表失败:', error)
+    historyRows.value = []
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+function formatRelativeTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return ''
+  const diffMs = Date.now() - seconds * 1000
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes} 分钟前`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} 小时前`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days} 天前`
+  const date = new Date(seconds * 1000)
+  return `${date.getMonth() + 1}月${date.getDate()}日`
+}
+
+async function loadHistoryConversation(row: AiConversationRow) {
+  const ok = await aiStore.loadConversationIntoSession(props.session.instanceId, row.id)
+  if (ok) {
+    notifyStore.notify({ message: `已加载历史会话「${row.title || '新会话'}」`, color: 'success', timeout: 2000 })
+    historyVisible.value = false
+  } else {
+    notifyStore.notify({ message: '加载失败:会话不存在或没有消息', color: 'warning', timeout: 2500 })
+  }
+}
+
+function deleteHistoryConversation(row: AiConversationRow) {
+  historyConfirmDeleteId.value = ''
+  aiStore.deleteConversation(row.id)
+  historyRows.value = historyRows.value.filter(item => item.id !== row.id)
+  notifyStore.notify({ message: '已删除会话存档', color: 'success', timeout: 2000 })
+}
 </script>
 
 <template>
@@ -310,6 +377,9 @@ function shortResult(s: string, max = 240): string {
       <button class="toolbar-btn" title="新建会话" @click="emit('newChat')">
         <v-icon size="14">mdi-plus</v-icon>
         <span>新会话</span>
+      </button>
+      <button class="action-btn" data-tooltip="历史会话" aria-label="历史会话" @click="openHistory">
+        <v-icon size="14">mdi-history</v-icon>
       </button>
       <div class="toolbar-spacer" />
       <button
@@ -513,6 +583,59 @@ function shortResult(s: string, max = 240): string {
         {{ sending ? t('ai.steerButton') : '发送' }}
       </button>
     </div>
+
+    <!-- 历史会话存档弹窗 -->
+    <v-dialog v-model="historyVisible" max-width="560" scrollable transition="cyber-dialog">
+      <div class="cyber-panel ai-history-panel">
+        <div class="ai-history-header">
+          <span class="ai-history-heading">历史会话</span>
+          <button class="action-btn" data-tooltip="关闭" aria-label="关闭" @click="historyVisible = false">
+            <v-icon size="14">mdi-close</v-icon>
+          </button>
+        </div>
+        <input v-model="historyQuery" class="cyber-input" placeholder="按标题搜索…" />
+
+        <div v-if="!isDesktopRuntime" class="empty-state">
+          <v-icon size="28" color="muted">mdi-history</v-icon>
+          <div class="empty-desc">桌面版中可用</div>
+        </div>
+        <div v-else-if="historyLoading" class="empty-state">
+          <v-icon size="20" class="mdi-spin">mdi-loading</v-icon>
+          <div class="empty-desc">加载中…</div>
+        </div>
+        <div v-else-if="filteredHistoryRows.length === 0" class="empty-state">
+          <v-icon size="28" color="muted">mdi-message-off-outline</v-icon>
+          <div class="empty-desc">{{ historyQuery.trim() ? '没有匹配标题的会话' : '还没有历史会话存档' }}</div>
+        </div>
+        <div v-else class="ai-history-list">
+          <div v-for="row in filteredHistoryRows" :key="row.id" class="tree-item ai-history-item">
+            <div class="ai-history-item-main">
+              <span class="ai-history-item-title">{{ row.title || '新会话' }}</span>
+              <span class="ai-history-item-meta">
+                <span class="cyber-badge">{{ row.message_count }} 条</span>
+                <span class="ai-history-time">{{ formatRelativeTime(row.updated_at) }}</span>
+              </span>
+            </div>
+            <template v-if="historyConfirmDeleteId === row.id">
+              <button class="cyber-btn-secondary ai-history-mini-btn" @click="historyConfirmDeleteId = ''">
+                取消
+              </button>
+              <button class="cyber-btn ai-history-mini-btn" @click="deleteHistoryConversation(row)">
+                确认删除
+              </button>
+            </template>
+            <template v-else>
+              <button class="action-btn" data-tooltip="加载到当前会话" aria-label="加载到当前会话" @click="loadHistoryConversation(row)">
+                <v-icon size="14">mdi-download-outline</v-icon>
+              </button>
+              <button class="action-btn" data-tooltip="删除会话存档" aria-label="删除会话存档" @click="historyConfirmDeleteId = row.id">
+                <v-icon size="14">mdi-delete-outline</v-icon>
+              </button>
+            </template>
+          </div>
+        </div>
+      </div>
+    </v-dialog>
   </div>
 </template>
 
@@ -976,6 +1099,72 @@ function shortResult(s: string, max = 240): string {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+
+/* 历史会话存档弹窗:布局复用 cyber-panel / tree-item / action-btn,只补间距与截断 */
+.ai-history-panel {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 70vh;
+}
+
+.ai-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ai-history-heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ai-history-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ai-history-item {
+  gap: 6px;
+  cursor: default;
+}
+
+.ai-history-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ai-history-item-title {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-history-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-history-time {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.ai-history-mini-btn {
+  padding: 3px 8px !important;
+  font-size: 11px !important;
+  white-space: nowrap;
 }
 
 @media (max-width: 360px) {

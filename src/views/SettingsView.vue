@@ -305,6 +305,17 @@ function toggleSkill(id: string, enabled: boolean) {
   aiLocal.value.enabledSkillIds = Array.from(ids)
 }
 
+// 记忆与上下文(区块 06):不走 aiLocal 保存流,直接写 store 立即持久化
+function onToggleMemoryStoreToolOutputs(event: Event) {
+  void aiStore.updateSettings({ memoryStoreToolOutputs: (event.target as HTMLInputElement).checked })
+}
+
+function onContextBudgetChange(event: Event) {
+  const value = Number((event.target as HTMLInputElement).value)
+  if (!Number.isFinite(value) || value < 4000) return
+  void aiStore.updateSettings({ contextBudgetChars: Math.floor(value) })
+}
+
 function toggleCustomSkillAssetType(type: AiAssetType, enabled: boolean) {
   const types = new Set(customSkillAssetTypes.value)
   if (enabled) types.add(type)
@@ -1243,6 +1254,36 @@ async function onTestWebhook(url: string) {
               <v-icon size="11">mdi-close</v-icon>
             </button>
           </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">06</span>
+          <span class="section-title">记忆与上下文</span>
+        </div>
+        <p class="section-desc">
+          AI 会话存档保存在本地 SQLite,AI 可通过 session_search 工具全文检索历史会话。以下选项立即生效,随 AI 配置持久化。
+        </p>
+        <label class="checkbox-row">
+          <input
+            type="checkbox"
+            :checked="aiStore.settings.memoryStoreToolOutputs"
+            @change="onToggleMemoryStoreToolOutputs"
+          />
+          <span>会话存档包含工具调用与输出(默认只保存用户/助手文本)</span>
+        </label>
+        <div class="form-field">
+          <label class="field-label">上下文预算(字符)</label>
+          <input
+            class="cyber-input"
+            type="number"
+            min="4000"
+            step="10000"
+            :value="aiStore.settings.contextBudgetChars"
+            @change="onContextBudgetChange"
+          />
+          <span class="field-hint">发给模型的历史上限;超出部分从最早开始省略,AI 可用 session_search 回溯。默认 120000</span>
         </div>
       </div>
     </div>

@@ -32,6 +32,7 @@ import { createDirectWorkspaceRuntime } from '@/services/aiWorkspace'
 import { createMcpRuntime } from '@/services/mcp'
 import { createLocalAiRuntime } from '@/services/aiLocal'
 import type { ToolConfirmCtx } from '@/utils/aiTools'
+import { sessionSearchTools, sessionSearchToolCaller } from '@/utils/aiTools'
 import { extractWhitelistPrefix, isReadOnlyToolCall } from '@/utils/commandGuard'
 import {
   buildCompletedStepContext,
@@ -637,12 +638,15 @@ async function runPlanStep(plan: AiExecutionPlan, step: AiPlanStep): Promise<boo
       ...workspaceTools,
       ...runtime.tools,
       ...(localAuthorized ? localRuntime.tools : []),
+      ...sessionSearchTools,
       ...mcpRuntime.tools
     ]
     await aiStore.runAgent(
       tempId,
       allTools,
-      call => call.function.name.startsWith('starhub_')
+      call => call.function.name === 'session_search'
+        ? sessionSearchToolCaller(call)
+        : call.function.name.startsWith('starhub_')
         ? executeWorkspaceTool(call, assets)
         : call.function.name.startsWith('mcp__')
           ? mcpRuntime.execute(call)

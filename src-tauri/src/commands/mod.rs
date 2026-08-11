@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod ai_memory;
 pub mod alert;
 pub mod asset;
 pub mod audit;

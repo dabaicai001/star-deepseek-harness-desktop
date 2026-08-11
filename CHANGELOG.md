@@ -14,6 +14,16 @@
 
 ---
 
+## [0.51.0] - 2026-08-11
+
+### 新增
+- AI 记忆系统一期(参考 Hermes Agent 四层记忆架构,方案见 `docs/AI记忆系统方案.md`):
+  - 会话存档落 SQLite:`ai_conversations` / `ai_messages` 两张新表 + `ai_messages_fts` FTS5 全文索引(含 insert/delete/update 同步触发器),Rust 侧新增 8 个 command(`ai_conv_upsert/list/get/messages/rename/delete`、`ai_msg_sync`、`ai_msg_search`),对话历史(含可选 tool 流水)不再重启即丢,退役 localStorage `ai-sessions-v1`(含一次性迁移,旧数据自动入库)
+  - `session_search` 工具:Agent 可按需全文检索历史会话(Hermes 三形态:query 搜索 / 按 conversation_id 浏览 / before_rowid 翻页),已挂载到 SSH / DB / Docker / Redis / ES / Excel / AI 全部宿主
+  - 上下文 token 预算滑窗:`runAgent` 不再全量回发历史,新增 `buildBudgetedMessages` 按预算(默认 12 万字符,Settings 可调)从尾部保留,assistant 与其 tool 结果同进同退防孤立 tool_call,省略时头部注入注记并提示用 session_search 回顾
+  - AiChat 工具栏新增「历史会话」弹窗:标题搜索 / 相对时间 / 消息数徽章 / 加载到当前会话 / 删除(二次确认)
+  - Settings → AI 新增「06 记忆与上下文」:tool 输出落库开关(默认关,延续原 user/assistant 取舍)、上下文预算字符数
+
 ## [0.50.3] - 2026-08-11
 
 ### 修复

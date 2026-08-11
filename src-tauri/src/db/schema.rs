@@ -106,6 +106,32 @@ CREATE TABLE IF NOT EXISTS alert_rule (
   updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 
+-- AI 记忆:会话
+CREATE TABLE IF NOT EXISTS ai_conversations (
+  id TEXT PRIMARY KEY,
+  asset_id TEXT,
+  asset_type TEXT,
+  title TEXT NOT NULL DEFAULT '',
+  summary TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+-- AI 记忆:消息(FTS 依赖 rowid,不能用 WITHOUT ROWID)
+CREATE TABLE IF NOT EXISTS ai_messages (
+  conversation_id TEXT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  content TEXT,
+  tool_calls_json TEXT,
+  seq INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+-- AI 记忆:消息全文索引(external-content,由触发器同步)
+CREATE VIRTUAL TABLE IF NOT EXISTS ai_messages_fts USING fts5(
+  content, content='ai_messages', content_rowid='rowid'
+);
+
 -- 索引
 CREATE INDEX IF NOT EXISTS idx_assets_type ON assets(type);
 CREATE INDEX IF NOT EXISTS idx_assets_group_id ON assets(group_id);
@@ -118,4 +144,17 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_category ON audit_log(category);
 CREATE INDEX IF NOT EXISTS idx_audit_log_asset_id ON audit_log(asset_id);
 CREATE INDEX IF NOT EXISTS idx_alert_rule_enabled ON alert_rule(enabled);
 CREATE INDEX IF NOT EXISTS idx_alert_rule_category ON alert_rule(category);
+CREATE INDEX IF NOT EXISTS idx_ai_messages_conv ON ai_messages(conversation_id, seq);
+
+-- AI 记忆:FTS 同步触发器(external-content 标准三触发器)
+CREATE TRIGGER IF NOT EXISTS ai_messages_ai AFTER INSERT ON ai_messages BEGIN
+  INSERT INTO ai_messages_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS ai_messages_ad AFTER DELETE ON ai_messages BEGIN
+  INSERT INTO ai_messages_fts(ai_messages_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+END;
+CREATE TRIGGER IF NOT EXISTS ai_messages_au AFTER UPDATE ON ai_messages BEGIN
+  INSERT INTO ai_messages_fts(ai_messages_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+  INSERT INTO ai_messages_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
 ";

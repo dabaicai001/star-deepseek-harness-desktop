@@ -177,3 +177,73 @@ export function compactPersistedMessages(
   }
   return selected
 }
+
+function budgetedMessageChars(message: ChatMessage): number {
+  const contentChars = message.content?.length ?? 0
+  const toolCallChars = message.tool_calls?.length ? JSON.stringify(message.tool_calls).length : 0
+  return contentChars + toolCallChars
+}
+
+/**
+ * token 预算滑窗:从尾部向前按「单元」累积,单元字符数超出 maxChars 即停。
+ *  - assistant 带 tool_calls 的消息与紧随的 tool 结果消息同进同退,绝不拆出孤立 tool_call
+ *  - content 长度 + tool_calls 序列化长度计入预算
+ *  - 有省略时在最前面插一条注记 user 消息,提示可用 session_search 查历史存档
+ *  - 最后一条 user 消息(及其后的当前回合)永远保留,即使它自身已超预算
+ */
+export function buildBudgetedMessages(messages: ChatMessage[], maxChars: number): ChatMessage[] {
+  if (messages.length === 0) return []
+
+  // 分组:assistant(tool_calls) + 紧随的 tool 消息 = 一个不可拆单元
+  const units: Array<{ messages: ChatMessage[]; chars: number }> = []
+  let cursor = 0
+  while (cursor < messages.length) {
+    const message = messages[cursor]
+    if (message.role === 'assistant' && message.tool_calls?.length) {
+      const group = [message]
+      let next = cursor + 1
+      while (next < messages.length && messages[next].role === 'tool') {
+        group.push(messages[next])
+        next++
+      }
+      units.push({ messages: group, chars: group.reduce((sum, item) => sum + budgetedMessageChars(item), 0) })
+      cursor = next
+    } else {
+      units.push({ messages: [message], chars: budgetedMessageChars(message) })
+      cursor++
+    }
+  }
+
+  // 保底区:最后一条 user 消息所在单元及其后所有单元(当前回合)必须保留
+  let mandatoryStart = units.length - 1
+  for (let index = units.length - 1; index >= 0; index--) {
+    if (units[index].messages[0].role === 'user') {
+      mandatoryStart = index
+      break
+    }
+  }
+
+  const kept: Array<{ messages: ChatMessage[]; chars: number }> = []
+  let used = 0
+  for (let index = units.length - 1; index >= mandatoryStart; index--) {
+    kept.unshift(units[index])
+    used += units[index].chars
+  }
+  for (let index = mandatoryStart - 1; index >= 0; index--) {
+    const unit = units[index]
+    if (used + unit.chars > maxChars) break
+    kept.unshift(unit)
+    used += unit.chars
+  }
+
+  const keptCount = kept.reduce((sum, unit) => sum + unit.messages.length, 0)
+  const omitted = messages.length - keptCount
+  const result = kept.flatMap(unit => unit.messages)
+  if (omitted > 0) {
+    result.unshift({
+      role: 'user',
+      content: `[上下文注记:为控制长度,已省略本会话较早的 ${omitted} 条消息。如需回顾,可用 session_search 工具搜索历史会话存档。]`
+    })
+  }
+  return result
+}

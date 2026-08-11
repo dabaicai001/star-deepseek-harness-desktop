@@ -12,6 +12,7 @@
  */
 
 import type { LlmTool } from '@/services/ai'
+import { aiConvMessages, aiMsgSearch } from '@/services/aiMemory'
 import { checkCommand } from '@/utils/commandGuard'
 import {
   buildBackgroundStartCommand,
@@ -1130,3 +1131,104 @@ export function makeDockerToolCaller(
     return result
   }
 }
+
+// ============================================================
+// 会话存档搜索工具(记忆系统 L2:SQLite + FTS5)
+// ============================================================
+
+/**
+ * session_search:Hermes 三形态合一 ——
+ *  1) discovery:传 query 全文搜索所有历史会话,返回命中片段
+ *  2) browse:   传 conversation_id 浏览该会话消息
+ *  3) scroll:   传 conversation_id + before_rowid 向前翻页
+ * 只读工具,不需要 confirmFn。
+ */
+export const sessionSearchTools: LlmTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'session_search',
+      description: '搜索 AI 助手的历史会话存档(FTS5 全文检索)。三种用法:1) 传 query 全文搜索所有历史会话,返回命中片段;2) 传 conversation_id 浏览该会话消息;3) 传 conversation_id + before_rowid 向前翻页。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'FTS5 搜索词,中文按字分词;多个词用空格(AND)或 OR 连接' },
+          conversation_id: { type: 'string', description: '要浏览的会话 id(search 结果里返回)' },
+          before_rowid: { type: 'number', description: '翻页:返回该 rowid 之前的消息' },
+          limit: { type: 'number', description: '返回条数上限,默认 20' }
+        },
+        required: []
+      }
+    }
+  }
+]
+
+function formatArchiveTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return ''
+  return new Date(seconds * 1000).toLocaleString('zh-CN', { hour12: false })
+}
+
+function clampSearchLimit(value: unknown): number {
+  const num = Number(value)
+  if (!Number.isFinite(num) || num <= 0) return 20
+  return Math.min(Math.floor(num), 50)
+}
+
+/** FTS5 查询降级:去掉双引号、按空白分词后以空格(AND)连接,避免语法报错。 */
+function sanitizeFtsQuery(query: string): string {
+  return query.replace(/"/g, ' ').split(/\s+/).filter(Boolean).join(' ')
+}
+
+export function makeSessionSearchToolCaller() {
+  return async (call: { function: { name: string; arguments: string } }): Promise<string> => {
+    const args = safeParse(call.function.arguments)
+    const query = typeof args.query === 'string' ? args.query.trim() : ''
+    const conversationId = typeof args.conversation_id === 'string' ? args.conversation_id.trim() : ''
+    const limit = clampSearchLimit(args.limit)
+
+    // 形态一 discovery:FTS5 全文搜索所有历史会话
+    if (query) {
+      const sanitized = sanitizeFtsQuery(query)
+      if (!sanitized) return '搜索词只包含无法用于全文检索的字符,请换个关键词重试。'
+      const hits = await aiMsgSearch(sanitized, limit)
+      if (hits.length === 0) return `无命中:历史会话存档中没有找到与「${sanitized}」相关的内容。`
+      const blocks = hits.map(hit => {
+        const time = formatArchiveTime(hit.created_at)
+        return [
+          `会话「${hit.conversation_title || '新会话'}」(conversation_id: ${hit.conversation_id})`,
+          `rowid ${hit.rowid} · ${hit.role}${time ? ` · ${time}` : ''}`,
+          hit.snippet
+        ].join('\n')
+      })
+      return `命中 ${hits.length} 条(传 conversation_id 浏览完整会话,传 before_rowid 向前翻页):\n\n${blocks.join('\n\n')}`
+    }
+
+    // 形态二/三 browse / scroll:浏览指定会话,before_rowid 向前翻页
+    if (conversationId) {
+      const beforeRowid = Number(args.before_rowid)
+      const hasBefore = Number.isFinite(beforeRowid) && beforeRowid > 0
+      const rows = await aiConvMessages(conversationId, hasBefore ? Math.floor(beforeRowid) : undefined, limit)
+      if (rows.length === 0) {
+        return hasBefore
+          ? `会话 ${conversationId} 在 rowid ${Math.floor(beforeRowid)} 之前没有更多消息了。`
+          : `会话 ${conversationId} 没有消息(可能不存在或已被删除)。`
+      }
+      const blocks = rows.map(row => {
+        const time = formatArchiveTime(row.created_at)
+        const toolMark = row.tool_calls_json ? '(含工具调用)' : ''
+        const content = (row.content ?? '').trim()
+        const truncated = content.length > 500 ? `${content.slice(0, 500)}…(+${content.length - 500} 字符)` : content
+        return `[#${row.rowid}] ${row.role}${toolMark}${time ? ` · ${time}` : ''}\n${truncated || '(空)'}`
+      })
+      const hint = rows.length >= limit && rows[0].seq > 1
+        ? `\n\n还有更早的消息:传 conversation_id="${conversationId}" + before_rowid=${rows[0].rowid} 向前翻页。`
+        : ''
+      return `会话 ${conversationId} 的消息(${rows.length} 条):\n\n${blocks.join('\n\n')}${hint}`
+    }
+
+    return '请提供 query(全文搜索历史会话)或 conversation_id(浏览指定会话),两者都不传无法执行。'
+  }
+}
+
+/** 共享执行器实例(只读、无状态);宿主 toolExec 里按名分流即可。 */
+export const sessionSearchToolCaller = makeSessionSearchToolCaller()

@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.50.3(SSH AI 助手遇到长耗时命令(如 `sleep 50; if [ -f pid ]...` 轮询脚本)会阻塞终端直到 60s/120s 超时被 Ctrl+C 打断:新增 `ssh_exec_background` / `ssh_wait_task` 两个 AI 工具——前者把命令 base64 落盘成脚本、nohup 后台执行(输出进 out.log、退出码进 exit 文件)并立即返回 task_id,后者经独立静默 exec channel 轮询(内部带 sleep,不占用用户终端),返回 [STATUS] RUNNING/FINISHED(含退出码)/NOT_FOUND + 日志尾部;`ssh_exec`/`ssh_exec_confirmed` 预检拒绝含 sleep ≥15s 的命令并引导改用后台工具,system prompt 同步补充长耗时命令使用指引;新增 `src/utils/sshBackgroundTask.ts` 纯函数模块与 `tests/ssh-background-task.test.mjs` 单测) |
+| 当前版本 | v0.51.0(AI 记忆系统一期落地,方案见 `docs/AI记忆系统方案.md`:会话存档落 SQLite + FTS5(退役 `ai-sessions-v1`,旧数据自动迁移),`session_search` 工具全文检索历史会话并挂载全部宿主,`runAgent` 上下文预算滑窗(默认 12 万字符),AiChat「历史会话」弹窗,Settings 新增「记忆与上下文」) |
 
 ---
 
@@ -478,4 +478,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-11 (v0.50.3)*
+*最后更新: 2026-08-11 (v0.51.0)*

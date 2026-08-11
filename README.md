@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.50.3-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.51.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.51.0 (2026-08-11)
+- ✨ AI 记忆系统一期(方案见 `docs/AI记忆系统方案.md`):会话存档落 SQLite + FTS5 全文索引(退役 localStorage 压缩方案,旧数据自动迁移),Agent 可用 `session_search` 工具全文检索历史会话(搜索/浏览/翻页三形态,已挂载全部宿主);`runAgent` 增加上下文预算滑窗(默认 12 万字符,tool 组不拆散,省略注入注记);AiChat 新增「历史会话」弹窗(搜索/加载/删除);Settings 新增「记忆与上下文」设置项
 
 ### v0.50.3 (2026-08-11)
 - 🐛 SSH AI 助手遇到长耗时命令(如 `sleep 50; if [ -f pid ]...` 轮询脚本)会阻塞终端直到 60s/120s 超时被 Ctrl+C 打断:新增 `ssh_exec_background` / `ssh_wait_task` 两个 AI 工具——前者把命令 base64 落盘成脚本、nohup 后台执行(输出进 out.log、退出码进 exit 文件)并立即返回 task_id,后者经独立静默 exec channel 轮询(内部带 sleep,不占用用户终端),返回 [STATUS] RUNNING/FINISHED(含退出码)/NOT_FOUND + 日志尾部;`ssh_exec`/`ssh_exec_confirmed` 预检拒绝含 sleep ≥15s 的命令并引导改用后台工具,system prompt 同步补充长耗时命令使用指引;新增 `src/utils/sshBackgroundTask.ts` 纯函数模块与 `tests/ssh-background-task.test.mjs` 单测

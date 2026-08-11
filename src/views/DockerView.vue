@@ -21,7 +21,7 @@ import { parseInstanceId } from '@/utils/tabId'
 import { buildDockerConnectParams } from '@/utils/dockerConnect'
 import { logAudit } from '@/services/audit'
 import { usePersistentPanelState } from '@/utils/panelState'
-import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller } from '@/utils/aiTools'
+import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller, sessionSearchTools, sessionSearchToolCaller } from '@/utils/aiTools'
 import * as dockerService from '@/services/docker'
 import { assetConfigToSshConfig, type KbInteractiveEvent } from '@/services/ssh'
 import type { LlmToolCall } from '@/services/ai'
@@ -533,12 +533,14 @@ async function onAiSend(text: string) {
   )
   const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
   if (mcpRuntime.warnings.length) console.warn('[docker-ai] MCP discovery warnings:', mcpRuntime.warnings)
-  const toolExec = async (call: LlmToolCall) =>
-    call.function.name.startsWith('mcp__')
+  const toolExec = async (call: LlmToolCall) => {
+    if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
+    return call.function.name.startsWith('mcp__')
       ? mcpRuntime.execute(call)
       : caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+  }
   const sysPrompt = aiStore.buildSystemPrompt(DOCKER_SYSTEM_PROMPT, 'docker')
-  await aiStore.runAgent(instanceId.value, [...dockerTools, ...mcpRuntime.tools], toolExec, sysPrompt)
+  await aiStore.runAgent(instanceId.value, [...dockerTools, ...sessionSearchTools, ...mcpRuntime.tools], toolExec, sysPrompt)
 }
 
 async function onAiRetry() {
