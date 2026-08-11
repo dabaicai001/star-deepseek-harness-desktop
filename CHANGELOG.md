@@ -14,6 +14,11 @@
 
 ---
 
+## [0.50.2] - 2026-08-11
+
+### 文档
+- 新增 [`docs/AI记忆系统方案.md`](./docs/AI记忆系统方案.md):参考 Hermes Agent 四层记忆架构(热记忆卡 MEMORY/USER + SQLite FTS5 会话存档 + 技能 + 外部 provider)设计 StarHub AI 记忆系统;核心改造为记忆增加 `user / global / asset:{id}` 三级作用域(资产级记忆:"10.0.3.5 是生产库,DDL 前必须备份");明确 memory 三动作工具(add/replace/remove 子串匹配)、硬字符上限超限自合并、冻结快照保 prefix cache、写入前注入/凭据安全扫描、确认闸复用工作区确认卡;分三期落地(会话存档 + token 预算 → 记忆卡 → 后台 review 自动沉淀)
+
 ## [0.50.1] - 2026-08-10
 
 ### 修复

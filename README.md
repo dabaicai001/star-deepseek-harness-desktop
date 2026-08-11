@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.50.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.50.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.50.2 (2026-08-11)
+- 📝 新增 [`docs/AI记忆系统方案.md`](./docs/AI记忆系统方案.md):参考 Hermes Agent 四层记忆架构设计 StarHub AI 记忆系统——热记忆卡(user/global/asset 三级作用域,硬字符上限 + 冻结快照 + 写入安全扫描)注入 system prompt,冷记忆走 SQLite FTS5 会话存档 + `session_search` 工具,写入确认闸复用工作区确认卡,分三期落地(会话存档 + token 预算 → 记忆卡 → 后台 review 自动沉淀)
 
 ### v0.50.1 (2026-08-10)
 - 🐛 AI 助手跑命令途中 SSH 终端突然掉线("Connection closed by remote host" 后自动重连):russh 客户端此前没有任何应用层心跳(两处 `client::Config` 只有 `inactivity_timeout: None`),终端连接在 shell 无输出期间长时间零流量,易被中间 NAT / 防火墙按空闲会话踢掉(表现为 AI 长命令执行中远程主动断开);为两处连接配置启用 `keepalive_interval: 30s` + `keepalive_max: 3`(应用层 keepalive,不依赖对端 sshd 的 ClientAlive 配置);同时读循环把断开原因(Eof=shell 退出 / Close=通道关闭 / 连接丢失)记录 `tracing::warn` 并作为 `ssh:close:{id}` 事件 payload 透传给前端,终端据此区分打印「Remote shell exited」与「Connection closed by remote host」,此前两种情形一律显示后者无法定位
