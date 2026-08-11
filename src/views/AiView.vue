@@ -26,6 +26,7 @@ import { useAssetStore } from '@/stores/asset'
 import { useNotifyStore } from '@/stores/notify'
 import AiAgentDialog from '@/components/ai/AiAgentDialog.vue'
 import AiMessageContent from '@/components/ai/AiMessageContent.vue'
+import AiModelSelector from '@/components/ai/AiModelSelector.vue'
 import type { Asset } from '@/types/asset'
 import type { LlmTool, LlmToolCall } from '@/services/ai'
 import { createDirectWorkspaceRuntime } from '@/services/aiWorkspace'
@@ -72,14 +73,6 @@ const activeTab = computed(() => appStore.tabs.find(tab => tab.id === instanceId
 const activeAgent = computed(() =>
   aiStore.getAgent(activeTab.value?.assetId || '') || aiStore.agents[0]
 )
-const activeModelDisplayName = computed(() => {
-  if (aiStore.settings.activeModelId) {
-    const active = aiStore.settings.models.find(m => m.id === aiStore.settings.activeModelId)
-    if (active) return active.name
-  }
-  // 未选择模型或模型不存在时,显示默认模型名
-  return aiStore.settings.model || t('ai.defaultModel')
-})
 const session = computed(() =>
   aiStore.getOrCreateSession(instanceId.value, activeAgent.value.id, 'ai')
 )
@@ -871,28 +864,6 @@ function openGlobalAiSettings() {
   window.dispatchEvent(new CustomEvent('starhub:open-ai-settings'))
 }
 
-function selectModel(modelId: string) {
-  if (!modelId) {
-    // 选择默认模型:清除 activeModelId,回退到 LLM 服务的默认配置
-    aiStore.settings.activeModelId = ''
-    notifyStore.notify({
-      message: `${t('ai.modelSwitched')}: ${aiStore.settings.model || t('ai.defaultModel')}`,
-      color: 'info',
-      timeout: 2500,
-    })
-    return
-  }
-  const model = aiStore.settings.models.find(m => m.id === modelId)
-  if (model) {
-    aiStore.settings.activeModelId = modelId
-    notifyStore.notify({
-      message: `${t('ai.modelSwitched')}: ${model.name} (${model.model})`,
-      color: 'info',
-      timeout: 2500,
-    })
-  }
-}
-
 function onQuickAnalyze(e: Event) {
   const detail = (e as CustomEvent).detail as { workspaceType: string } | undefined
   if (!detail?.workspaceType) return
@@ -1013,64 +984,7 @@ function shortResult(value: string, max = 600) {
           <strong>{{ activeAgent.name }}</strong>
           <span>{{ activeAgent.description }}</span>
         </div>
-        <div class="ai-model-selector">
-          <v-menu :close-on-content-click="false" offset-y>
-            <template #activator="{ props: menuProps }">
-              <button
-                v-bind="menuProps"
-                class="cyber-badge ai-model-badge"
-                :data-tooltip="t('ai.switchModel')"
-                :title="t('ai.switchModel')"
-              >
-                <v-icon size="11" class="mr-1">mdi-chip</v-icon>
-                {{ activeModelDisplayName }}
-                <v-icon size="10" class="ml-1">mdi-chevron-down</v-icon>
-              </button>
-            </template>
-            <v-list class="cyber-panel ai-model-list" density="compact" max-height="320" style="overflow-y:auto; min-width:260px">
-              <!-- 默认模型 -->
-              <v-list-item
-                :active="!aiStore.settings.activeModelId"
-                :title="`${t('ai.defaultModel')} (${aiStore.settings.model || '—'})`"
-                :subtitle="aiStore.settings.baseUrl"
-                @click="selectModel('')"
-              >
-                <template #prepend>
-                  <v-icon size="14" :color="!aiStore.settings.activeModelId ? 'var(--cyan)' : 'var(--muted)'">
-                    {{ !aiStore.settings.activeModelId ? 'mdi-check-circle' : 'mdi-circle-outline' }}
-                  </v-icon>
-                </template>
-                <template #append>
-                  <span class="ai-model-mini" style="font-size:10px; color:var(--muted)">{{ t('ai.defaultModel') }}</span>
-                </template>
-              </v-list-item>
-              <v-divider v-if="aiStore.settings.models.length" class="my-1" />
-              <v-list-item
-                v-for="m in aiStore.settings.models"
-                :key="m.id"
-                :active="aiStore.settings.activeModelId === m.id"
-                :title="m.name"
-                :subtitle="m.baseUrl || aiStore.settings.baseUrl"
-                @click="selectModel(m.id)"
-              >
-                <template #prepend>
-                  <v-icon size="14" :color="aiStore.settings.activeModelId === m.id ? 'var(--cyan)' : 'var(--muted)'">
-                    {{ aiStore.settings.activeModelId === m.id ? 'mdi-check-circle' : 'mdi-circle-outline' }}
-                  </v-icon>
-                </template>
-                <template #append>
-                  <span class="ai-model-mini" style="font-size:10px; color:var(--muted)">{{ m.model }}</span>
-                </template>
-              </v-list-item>
-              <v-divider class="my-1" />
-              <v-list-item @click="openGlobalAiSettings" prepend-icon="mdi-plus-circle-outline">
-                <v-list-item-title style="font-size:12px; color:var(--cyan)">
-                  {{ t('ai.addModel') }}
-                </v-list-item-title>
-              </v-list-item>
-            </v-list>
-          </v-menu>
-        </div>
+        <AiModelSelector />
         <span v-if="executionPlan" class="ai-current-agent-badge">
           <v-icon size="12">mdi-robot-industrial-outline</v-icon>
           {{ currentAgentName }}

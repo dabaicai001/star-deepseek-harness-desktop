@@ -16,6 +16,7 @@ import { useNotifyStore } from '@/stores/notify'
 import type { AiConversationRow } from '@/services/aiMemory'
 import { useI18n } from 'vue-i18n'
 import AiMessageContent from '@/components/ai/AiMessageContent.vue'
+import AiModelSelector from '@/components/ai/AiModelSelector.vue'
 import { captureScrollAnchor, resolveScrollTop, type ScrollAnchor } from '@/utils/scrollPosition'
 
 const props = defineProps<{
@@ -382,6 +383,7 @@ function deleteHistoryConversation(row: AiConversationRow) {
         <v-icon size="14">mdi-history</v-icon>
       </button>
       <div class="toolbar-spacer" />
+      <AiModelSelector />
       <button
         class="toolbar-btn retry-toolbar-btn"
         title="重试最后一条消息"

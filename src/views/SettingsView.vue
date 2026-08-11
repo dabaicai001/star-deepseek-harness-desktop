@@ -167,16 +167,35 @@ const accentOptions = [
   { value: 'orange' as const, label: '橙色 (Sunset)',      color: '#ff7a3a' }
 ]
 
+// 「激活此模型」立即生效:直接写 store 并持久化,不再依赖「保存模型列表」。
+// 注意:激活的是该模型已保存的连接参数;卡片上未保存的编辑不会随之生效。
+function activateModel(id: string) {
+  aiLocal.value.activeModelId = id
+  void aiStore.updateSettings({ activeModelId: id })
+  const model = aiStore.settings.models.find(m => m.id === id)
+  if (model) {
+    notifyStore.notify({
+      message: `已激活模型: ${model.name} (${model.model})`,
+      color: 'success',
+      timeout: 2000
+    })
+  }
+}
+
 async function onSave() {
+  // 激活模型可以为空(表示使用默认模型配置),不强制回退到列表第一项
   const activeModel = aiLocal.value.models.find(model => model.id === aiLocal.value.activeModelId)
-    ?? aiLocal.value.models[0]
   if (activeModel) {
     aiLocal.value.activeModelId = activeModel.id
     aiLocal.value.baseUrl = activeModel.baseUrl
-    aiLocal.value.apiKey = activeModel.apiKey
     aiLocal.value.model = activeModel.model
     aiLocal.value.temperature = activeModel.temperature
     aiLocal.value.maxTokens = activeModel.maxTokens
+    // 模型未单独配置 key(占位「继承默认」)时保留全局 key;
+    // 原实现把空 key 同步给全局再 setApiKey(''),会直接删掉 Keyring 里的默认 key
+    if (activeModel.apiKey) {
+      aiLocal.value.apiKey = activeModel.apiKey
+    }
   }
   // apiKey 单独处理(走加密通道),其他字段用 updateSettings
   const { apiKey, mcpServers, ...rest } = aiLocal.value
@@ -317,6 +336,12 @@ function onContextBudgetChange(event: Event) {
   const value = Number((event.target as HTMLInputElement).value)
   if (!Number.isFinite(value) || value < 4000) return
   void aiStore.updateSettings({ contextBudgetChars: Math.floor(value) })
+}
+
+function onAgentMaxStepsChange(event: Event) {
+  const value = Number((event.target as HTMLInputElement).value)
+  if (!Number.isFinite(value) || value < 1 || value > 100) return
+  void aiStore.updateSettings({ agentMaxSteps: Math.floor(value) })
 }
 
 function onToggleMemoryEnabled(event: Event) {
@@ -1071,7 +1096,7 @@ async function onTestWebhook(url: string) {
             <div class="model-card-head">
               <span class="model-name">{{ m.name }}</span>
               <code class="model-id">{{ m.model }}</code>
-              <button class="action-btn" @click="aiLocal.activeModelId = m.id" :data-tooltip="'激活此模型'">
+              <button class="action-btn" @click="activateModel(m.id)" :data-tooltip="'激活此模型(立即生效)'">
                 <v-icon size="14">{{ aiLocal.activeModelId === m.id ? 'mdi-check-circle' : 'mdi-circle-outline' }}</v-icon>
               </button>
               <button class="action-btn model-delete" @click="removeModel(m.id)" :data-tooltip="'删除模型'">
@@ -1421,6 +1446,19 @@ async function onTestWebhook(url: string) {
             @change="onContextBudgetChange"
           />
           <span class="field-hint">发给模型的历史上限;超出部分从最早开始省略,AI 可用 session_search 回溯。默认 120000</span>
+        </div>
+        <div class="form-field">
+          <label class="field-label">Agent 最大迭代次数</label>
+          <input
+            class="cyber-input"
+            type="number"
+            min="1"
+            max="100"
+            step="1"
+            :value="aiStore.settings.agentMaxSteps"
+            @change="onAgentMaxStepsChange"
+          />
+          <span class="field-hint">单轮对话中 AI 调用工具的最大步数,超出后强制收口并报错。默认 20</span>
         </div>
         <div class="form-field">
           <button class="cyber-btn-secondary" @click="openMemoryManager">
@@ -2602,6 +2640,10 @@ async function onTestWebhook(url: string) {
 /* 长期记忆管理弹窗:布局复用 cyber-panel / cyber-badge / cyber-btn,只补分组与条目样式 */
 .memory-dialog-panel {
   padding: 24px;
+  /* v-dialog 的 scrollable 只对 v-card 生效;这里自己约束高度并让列表区滚动 */
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
 }
 .memory-refresh-btn {
   margin-left: auto;
@@ -2617,6 +2659,9 @@ async function onTestWebhook(url: string) {
   flex-direction: column;
   gap: 16px;
   margin-top: 12px;
+  /* 弹窗主体滚动区:flex 子项需要 min-height: 0 才能收缩出滚动条 */
+  overflow-y: auto;
+  min-height: 0;
 }
 .memory-group-header {
   display: flex;

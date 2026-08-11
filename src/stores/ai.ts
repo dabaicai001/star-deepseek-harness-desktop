@@ -248,6 +248,8 @@ export interface AiSettings {
   memoryStoreToolOutputs: boolean
   /** runAgent 回发历史的字符预算(滑窗截断,超出部分省略并插注记)。 */
   contextBudgetChars: number
+  /** runAgent 单轮对话的最大工具迭代步数(超出报错收口)。 */
+  agentMaxSteps: number
   /** 是否启用长期记忆(三级记忆卡注入 system prompt + memory 工具)。 */
   memoryEnabled: boolean
   /** 记忆写入是否需要逐条人工确认(默认自动写入,聊天中显示轻量通知)。 */
@@ -544,6 +546,7 @@ export const useAiStore = defineStore('ai', () => {
     commandWhitelistVersion: 2,
     memoryStoreToolOutputs: false,
     contextBudgetChars: 120_000,
+    agentMaxSteps: 20,
     memoryEnabled: true,
     memoryWriteNeedsConfirm: false,
     memoryAutoReview: true
@@ -686,6 +689,9 @@ export const useAiStore = defineStore('ai', () => {
     }
     if (!Number.isFinite(s.contextBudgetChars) || s.contextBudgetChars < 4_000) {
       s.contextBudgetChars = 120_000
+    }
+    if (!Number.isFinite(s.agentMaxSteps) || s.agentMaxSteps < 1 || s.agentMaxSteps > 100) {
+      s.agentMaxSteps = 20
     }
     if (typeof s.memoryEnabled !== 'boolean') {
       s.memoryEnabled = true
@@ -1543,7 +1549,7 @@ export const useAiStore = defineStore('ai', () => {
     tools: LlmTool[],
     executeTool: (call: LlmToolCall) => Promise<string>,
     systemPrompt: string,
-    maxSteps = 20
+    maxSteps = settings.value.agentMaxSteps ?? 20
   ): Promise<void> {
     const session = getSession(instanceId)
     if (!session) throw new Error(`AI session not found: ${instanceId}`)
