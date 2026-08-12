@@ -106,16 +106,9 @@ function focusAiQuickChat() {
     openSettings('ai')
     return
   }
-  const agent = aiStore.agents[0]
-  if (!agent) return
-  // 如果已有 AI tab,直接切过去;否则新建
-  const existingAiTab = appStore.tabs.find(tab => tab.type === 'ai')
-  if (existingAiTab) {
-    appStore.setActiveTab(existingAiTab.id)
-    router.push({ name: 'ai', params: { id: existingAiTab.id } })
-  } else {
-    openAiAgentTab(agent, true)
-  }
+  // 快速提问由侧边栏内嵌 AI 面板承接:展开侧边栏并聚焦其 composer(AssetTree 监听该事件)
+  appStore.sidebarOpen = true
+  window.dispatchEvent(new CustomEvent('starhub:ai-quick-ask'))
 }
 
 function isEditableEventTarget(target: EventTarget | null): boolean {

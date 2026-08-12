@@ -14,6 +14,12 @@
 
 ---
 
+## [0.58.0] - 2026-08-12
+
+### 新增
+- 主侧边栏 AI 面板从纯入口升级为内嵌真实聊天,与标签页助手共用一套逻辑:内嵌 `AiChat` + `useAiChatHost`(instanceId `sidebar-ai`,local 上下文,session_search / memory / MCP 工具由 composable 分流),免费获得会话级模型选择器、@/# mention、工具确认卡、历史会话存档;Agent 快捷列表与最近对话改为可折叠区,行为不变;「快速提问 Ctrl+J」改为聚焦内嵌 composer
+- 侧边栏 AI 面板新增可折叠「AI 记忆」区:列出 user / global 两级 L1 记忆卡,支持新增(选 scope)与删除,记忆禁用时显示提示;数据走 `src/services/aiMemory.ts`,聊天侧由 runAgent 自动注入/沉淀
+
 ## [0.57.0] - 2026-08-12
 
 ### 新增

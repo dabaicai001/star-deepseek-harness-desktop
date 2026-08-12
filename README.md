@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.57.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.58.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,10 @@
 ---
 
 ## 当前版本
+
+### v0.58.0 (2026-08-12)
+- ✨ 主侧边栏 AI 面板从纯入口升级为内嵌真实聊天,与标签页助手共用一套逻辑:内嵌 `AiChat` + `useAiChatHost`(instanceId `sidebar-ai`,local 上下文,session_search / memory / MCP 工具由 composable 分流),免费获得会话级模型选择器、@/# mention、工具确认卡、历史会话存档;Agent 快捷列表与最近对话改为可折叠区,行为不变;「快速提问 Ctrl+J」改为聚焦内嵌 composer
+- ✨ 侧边栏 AI 面板新增可折叠「AI 记忆」区:列出 user / global 两级 L1 记忆卡,支持新增(选 scope)与删除,记忆禁用时显示提示;数据走 `src/services/aiMemory.ts`,聊天侧由 runAgent 自动注入/沉淀
 
 ### v0.57.0 (2026-08-12)
 - ✨ 各标签页内嵌 AI 助手(AiChat)支持 `@`/`#` mention:`@Agent名` 切换本会话 Agent(AiSession 新增运行时 `agentId`,systemPrompt 改用该 Agent 的角色约束 + 绑定技能,宿主动态上下文降级为参考块);`#资产名` 绑定额外目标(写入 `session.contextBinding`,sticky 语义与 AiView 一致,systemPrompt 附绑定目标清单);mention 菜单(正则触发 / 键盘导航 / Esc 关闭)移植自 AiView;mention 纯函数抽取为 `src/utils/aiMention.ts` 供 AiView 与 AiChat 同源使用(配 9 例 node --test 单测)

@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.57.0(各标签页内嵌 AI 助手(AiChat)支持 `@`/`#` mention:`@Agent名` 切换本会话 Agent(AiSession 新增运行时 `agentId`,systemPrompt 改用该 Agent 的角色约束 + 绑定技能,宿主动态上下文降级为参考块);`#资产名` 绑定额外目标(写入 `session.contextBinding`,sticky 语义与 AiView 一致,systemPrompt 附绑定目标清单);mention 菜单(正则触发 / 键盘导航 / Esc 关闭)移植自 AiView;mention 纯函数抽取为 `src/utils/aiMention.ts` 供 AiView 与 AiChat 同源使用(配 9 例 node --test 单测)) |
+| 当前版本 | v0.58.0(主侧边栏 AI 面板从纯入口升级为内嵌真实聊天,与标签页助手共用一套逻辑:内嵌 `AiChat` + `useAiChatHost`(instanceId `sidebar-ai`,local 上下文,session_search / memory / MCP 工具由 composable 分流),免费获得会话级模型选择器、@/# mention、工具确认卡、历史会话存档;Agent 快捷列表与最近对话改为可折叠区,行为不变;「快速提问 Ctrl+J」改为聚焦内嵌 composer) |
 
 ---
 
@@ -482,4 +482,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-12 (v0.57.0)*
+*最后更新: 2026-08-12 (v0.58.0)*
