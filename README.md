@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.59.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.59.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.59.1 (2026-08-12)
+- 📝 AGENTS.md 6.5 新增「git tag 与 Release 构建」规则:一次会话涉及多个版本时只在最后 push 最新版本的 tag(中间版本不打 tag 不出包);纯文档/脚本类修订版默认不打 tag;推 tag 一律单个推(GitHub 单次 push 最多触发 3 个 tag 工作流,超出静默丢弃)
 
 ### v0.59.0 (2026-08-12)
 - 🔧 本地工作区(LocalView)UI 重设计,对标 VSCode Explorer + 编辑器体验并翻译到 cyber 设计系统:EXPLORER 式分区标题条(操作按钮 hover 显现)、目录树缩进参考线 + 选中行左侧 cyan 指示条、编辑器 tab 条(dirty 点/关闭钮同槽位互斥)、可点击面包屑、明细列表(吸附表头/等宽右对齐)、底部 24px 等宽状态栏、骨架加载态与引导空态;修复原组件引用不存在 token(`--color-surface-primary` 等)导致样式失效的根因,两个组件 scoped 样式整体删除,视觉集中于 cyber.css `.local-*` 一组类;顺手修复面包屑对 Windows 盘符路径拼出 `C:\/C:/foo` 坏路径的旧 bug;文案迁入 i18n `local` 命名空间(34 key,双语言);新增 Playwright 验证脚本 `scripts/verify-local-layout.py`(5 场景 + 双主题截图)
