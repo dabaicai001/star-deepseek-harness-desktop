@@ -14,6 +14,11 @@
 
 ---
 
+## [0.56.0] - 2026-08-12
+
+### 变更
+- 6 个内嵌 AI 助手宿主(SSH / DB / Docker / Redis / ES / Excel)的聊天编排逻辑抽取为共用 composable `src/composables/useAiChatHost.ts`(净删 532 行重复):防并发守卫、steering、工具组装(业务 + sessionSearch + memory + MCP)、whitelist 确认流程、runAgent 调用统一收口,宿主差异(业务工具、执行器、动态 prompt、审计钩子)全部参数化注入,行为不变
+
 ## [0.55.0] - 2026-08-12
 
 ### 新增

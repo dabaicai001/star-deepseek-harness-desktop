@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { invoke } from '@tauri-apps/api/core'
@@ -21,11 +21,10 @@ import { parseInstanceId } from '@/utils/tabId'
 import { buildDockerConnectParams } from '@/utils/dockerConnect'
 import { logAudit } from '@/services/audit'
 import { usePersistentPanelState } from '@/utils/panelState'
-import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller, sessionSearchTools, sessionSearchToolCaller, memoryTools, makeMemoryToolCaller } from '@/utils/aiTools'
+import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller } from '@/utils/aiTools'
+import { useAiChatHost } from '@/composables/useAiChatHost'
 import * as dockerService from '@/services/docker'
 import { assetConfigToSshConfig, type KbInteractiveEvent } from '@/services/ssh'
-import type { LlmToolCall } from '@/services/ai'
-import { createMcpRuntime } from '@/services/mcp'
 import type { Asset } from '@/types/asset'
 import type { ContainerInfo } from '@/types/docker'
 
@@ -442,11 +441,6 @@ const rightPanelTabs = computed(() => [
   { key: 'ai', label: 'AI 助手', icon: 'mdi-robot-outline' }
 ])
 
-const aiSession = computed(() => {
-  if (!asset.value) return null
-  return aiStore.getOrCreateSession(instanceId.value, asset.value.id, 'docker')
-})
-
 async function executeDockerTool(name: string, args: Record<string, unknown>): Promise<string> {
   const connId = dockerStore.currentConnId
   if (!connId) throw new Error('Docker 未连接')
@@ -490,114 +484,25 @@ async function executeDockerTool(name: string, args: Record<string, unknown>): P
   return `[Unknown tool] ${name}`
 }
 
-const dockerPendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
-
-async function onAiSend(text: string) {
-  if (!aiSession.value) return
-  // 防并发 send:loading 在 runAgent 之前立刻设,挡住重复点击,
-  // 否则两个 runAgent 并发跑会污染 messages(LLM 报 400 tool call 错位)
-  if (aiSession.value.loading) {
-    // 运行中:作为 steering 引导注入历史,runAgent 下一步边界生效
-    aiStore.steer(instanceId.value, text)
-    return
-  }
-  aiSession.value.loading = true
-  aiSession.value.messages.push({ role: 'user', content: text })
-
-  const confirmFn: import('@/utils/aiTools').ToolConfirmFn = async (ctx) => {
-    const session = aiSession.value!
-    const running = [...session.toolCalls].reverse().find(t => t.status === 'running' || t.status === 'awaiting-confirm')
-    const recordId = running?.id || `pending-${Date.now()}`
-    if (running) {
-      running.status = 'awaiting-confirm'
-      running.result = ctx.message
-      running.confirmReason = ctx.reason
-    } else {
-      session.toolCalls.push({
-        id: recordId, name: ctx.toolName, args: ctx.args,
-        status: 'awaiting-confirm', result: ctx.message, confirmReason: ctx.reason, startedAt: Date.now()
-      })
-    }
-    // 强制触发 Vue 响应式:替换 toolCalls 数组引用 + 等 nextTick 刷新 DOM
-    session.toolCalls = [...session.toolCalls]
-    await nextTick()
-    return new Promise<boolean>((resolve) => {
-      dockerPendingConfirms.value.set(recordId, resolve)
-    })
-  }
-
-  const caller = makeDockerToolCaller(
-    executeDockerTool,
-    () => aiStore.settings.commandWhitelist,
-    confirmFn
-  )
-  const memoryToolCaller = makeMemoryToolCaller({
-    confirmFn,
-    getAssetId: () => asset.value?.id ?? null,
-    getSettings: () => aiStore.settings
-  })
-  const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
-  if (mcpRuntime.warnings.length) console.warn('[docker-ai] MCP discovery warnings:', mcpRuntime.warnings)
-  const toolExec = async (call: LlmToolCall) => {
-    if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
-    if (call.function.name === 'memory') return memoryToolCaller(call)
-    return call.function.name.startsWith('mcp__')
-      ? mcpRuntime.execute(call)
-      : caller({ function: { name: call.function.name, arguments: call.function.arguments } })
-  }
-  const sysPrompt = aiStore.buildSystemPrompt(DOCKER_SYSTEM_PROMPT, 'docker')
-  await aiStore.runAgent(instanceId.value, [...dockerTools, ...sessionSearchTools, ...memoryTools, ...mcpRuntime.tools], toolExec, sysPrompt)
-}
-
-async function onAiRetry() {
-  if (!aiSession.value) return
-  const msgs = aiSession.value.messages
-  while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
-  const lastUserText = msgs.pop()?.content
-  if (lastUserText) await onAiSend(lastUserText)
-}
-
-function onAiNewChat() {
-  resolveDockerPendingConfirms()
-  aiStore.resetSession(instanceId.value)
-}
-
-function onAiStop() {
-  resolveDockerPendingConfirms()
-  aiStore.stopAgent(instanceId.value)
-}
-
-function resolveDockerPendingConfirms() {
-  for (const resolve of dockerPendingConfirms.value.values()) resolve(false)
-  dockerPendingConfirms.value.clear()
-}
-
-function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {
-  if (!aiSession.value) return
-  const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
-  if (rec) {
-    if (decision === 'whitelist') {
-      const cmd = String(rec.args.command ?? '')
-      const prefix = cmd.trim().split(/\s+/).slice(0, 2).join(' ') || ''
-      if (prefix) {
-        aiStore.addToWhitelist(prefix)
-      }
-      rec.status = 'success'
-      rec.result = `✓ 已加入白名单 (${prefix}),正在执行…`
-    } else if (decision === 'approve') {
-      rec.status = 'success'
-      rec.result = '✓ 已批准,正在执行…'
-    } else {
-      rec.status = 'rejected'
-      rec.result = '✗ 已拒绝'
-    }
-  }
-  const resolve = dockerPendingConfirms.value.get(recordId)
-  if (resolve) {
-    resolve(decision === 'approve' || decision === 'whitelist')
-    dockerPendingConfirms.value.delete(recordId)
-  }
-}
+// ====== AI 助手(共用聊天编排 composable,差异点经参数注入) ======
+const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
+  instanceId,
+  getAssetId: () => asset.value?.id ?? '',
+  assetType: 'docker',
+  enabled: () => !!asset.value,
+  tools: dockerTools,
+  makeToolExecutor: (confirmFn) => {
+    const caller = makeDockerToolCaller(
+      executeDockerTool,
+      () => aiStore.settings.commandWhitelist,
+      confirmFn
+    )
+    return (call) => caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+  },
+  getBasePrompt: () => DOCKER_SYSTEM_PROMPT,
+  extractWhitelistPrefix: (rec) => String(rec.args.command ?? '').trim().split(/\s+/).slice(0, 2).join(' '),
+  logTag: 'docker-ai'
+})
 </script>
 
 <template>
@@ -881,7 +786,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         <AiChat
           v-if="aiSession"
           :session="aiSession"
-          :sending="aiSession.loading"
+          :sending="aiSending"
           placeholder="问我关于这个 Docker 主机的任何事,例如'列一下所有容器'"
           @send="onAiSend"
           @retry="onAiRetry"

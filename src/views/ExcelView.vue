@@ -9,8 +9,8 @@ import UniverGrid from '@/components/excel/UniverGrid.vue'
 import ExcelSheetBar from '@/components/excel/ExcelSheetBar.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import AiChat from '@/components/ai/AiChat.vue'
-import { useAiStore } from '@/stores/ai'
-import { EXCEL_SYSTEM_PROMPT, excelTools, sessionSearchTools, sessionSearchToolCaller, memoryTools, makeMemoryToolCaller } from '@/utils/aiTools'
+import { EXCEL_SYSTEM_PROMPT, excelTools } from '@/utils/aiTools'
+import { useAiChatHost } from '@/composables/useAiChatHost'
 import { usePersistentPanelState } from '@/utils/panelState'
 import type { LlmToolCall } from '@/services/ai'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
@@ -20,7 +20,6 @@ const assetStore = useAssetStore()
 const appStore = useAppStore()
 const store = useExcelStore()
 const notify = useNotifyStore()
-const aiStore = useAiStore()
 const rightPanelOpen = usePersistentPanelState('excel', true)
 
 // 冻结路由参数:keep-alive 缓存的组件实例不应跟踪全局路由变化
@@ -40,9 +39,19 @@ const fileFormat = computed<'xlsx' | 'csv'>(() => {
 const isCsvFile = computed(() => fileFormat.value === 'csv')
 const rpcPrefix = computed(() => isCsvFile.value ? 'file.csv' : 'file.excel')
 const fileKindLabel = computed(() => isCsvFile.value ? 'CSV' : 'Excel')
-const aiSession = computed(() => {
-  if (!asset.value) return null
-  return aiStore.getOrCreateSession(instanceId.value, asset.value.id, 'excel')
+// ====== AI 助手(共用聊天编排 composable;Excel 工具直接作用于当前工作簿,暂不需要命令白名单确认,也不接 MCP) ======
+const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
+  instanceId,
+  getAssetId: () => asset.value?.id ?? '',
+  assetType: 'excel',
+  enabled: () => !!asset.value,
+  tools: excelTools,
+  confirm: false,
+  mcp: false,
+  retryMode: 'rerun',
+  makeToolExecutor: () => executeExcelTool,
+  getBasePrompt: () => EXCEL_SYSTEM_PROMPT,
+  logTag: 'excel-ai'
 })
 
 const loading = ref(false)
@@ -687,14 +696,7 @@ function excelContextJson(): string {
   }, null, 2)
 }
 
-const memoryToolCaller = makeMemoryToolCaller({
-  getAssetId: () => asset.value?.id ?? null,
-  getSettings: () => aiStore.settings
-})
-
 async function executeExcelTool(call: LlmToolCall): Promise<string> {
-  if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
-  if (call.function.name === 'memory') return memoryToolCaller(call)
   const args = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>
   switch (call.function.name) {
     case 'excel_get_context':
@@ -821,45 +823,6 @@ async function executeExcelTool(call: LlmToolCall): Promise<string> {
     default:
       return `[Error] Unknown Excel tool: ${call.function.name}`
   }
-}
-
-async function onAiSend(text: string) {
-  if (!aiSession.value) return
-  // 防并发 send:loading 在 runAgent 之前立刻设,挡住重复点击,
-  // 否则两个 runAgent 并发跑会污染 messages(LLM 报 400 tool call 错位)
-  if (aiSession.value.loading) {
-    // 运行中:作为 steering 引导注入历史,runAgent 下一步边界生效
-    aiStore.steer(instanceId.value, text)
-    return
-  }
-  aiSession.value.loading = true
-  aiSession.value.messages.push({ role: 'user', content: text })
-  const sysPrompt = aiStore.buildSystemPrompt(EXCEL_SYSTEM_PROMPT, 'excel')
-  await aiStore.runAgent(instanceId.value, [...excelTools, ...sessionSearchTools, ...memoryTools], executeExcelTool, sysPrompt)
-}
-
-async function onAiRetry() {
-  if (!aiSession.value) return
-  const msgs = aiSession.value.messages
-  while (msgs.length && msgs[msgs.length - 1].role !== 'user') {
-    msgs.pop()
-  }
-  if (msgs.length) {
-    const sysPrompt = aiStore.buildSystemPrompt(EXCEL_SYSTEM_PROMPT, 'excel')
-    await aiStore.runAgent(instanceId.value, [...excelTools, ...sessionSearchTools, ...memoryTools], executeExcelTool, sysPrompt)
-  }
-}
-
-function onAiNewChat() {
-  aiStore.resetSession(instanceId.value)
-}
-
-function onAiStop() {
-  aiStore.stopAgent(instanceId.value)
-}
-
-function onAiConfirmTool() {
-  // Excel 工具直接作用于当前工作簿,暂不需要命令白名单确认。
 }
 
 function formatNumber(n: number) {
@@ -1052,7 +1015,7 @@ watch(
             <AiChat
               v-if="aiSession"
               :session="aiSession"
-              :sending="aiSession.loading"
+              :sending="aiSending"
               placeholder="让 AI 操作当前表格,例如: 按金额降序、筛选状态为成功、把 B2 改成 100"
               @send="onAiSend"
               @retry="onAiRetry"

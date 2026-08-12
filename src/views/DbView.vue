@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
@@ -16,9 +16,8 @@ import DbDashboard from '@/components/dashboard/DbDashboard.vue'
 import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
 import { extractFromTables } from '@/utils/sqlTables'
 import { usePersistentPanelState } from '@/utils/panelState'
-import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller, sessionSearchTools, sessionSearchToolCaller, memoryTools, makeMemoryToolCaller } from '@/utils/aiTools'
-import type { LlmToolCall } from '@/services/ai'
-import { createMcpRuntime } from '@/services/mcp'
+import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller } from '@/utils/aiTools'
+import { useAiChatHost } from '@/composables/useAiChatHost'
 import SqlEditor from '@/components/db/SqlEditor.vue'
 import DataGrid from '@/components/db/DataGrid.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -2090,11 +2089,6 @@ const rightPanelTabs = computed(() => [
   { key: 'ai', label: t('db.aiAssistant'), icon: 'mdi-robot-outline' }
 ])
 
-const aiSession = computed(() => {
-  if (!asset.value) return null
-  return aiStore.getOrCreateSession(instanceId.value, asset.value.id, 'db')
-})
-
 async function executeDbSql(sql: string): Promise<string> {
   if (!connId.value) throw new Error('数据库未连接')
   const startedAt = Date.now()
@@ -2157,117 +2151,27 @@ function formatVal(v: unknown): string {
   return s.length > 100 ? s.slice(0, 100) + '…' : s
 }
 
-const dbPendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
-
-async function onAiSend(text: string) {
-  if (!aiSession.value) return
-  // 防并发 send:loading 在 runAgent 之前立刻设,挡住重复点击,
-  // 否则两个 runAgent 并发跑会污染 messages(LLM 报 400 tool call 错位)
-  if (aiSession.value.loading) {
-    // 运行中:作为 steering 引导注入历史,runAgent 下一步边界生效
-    aiStore.steer(instanceId.value, text)
-    return
-  }
-  aiSession.value.loading = true
-  aiSession.value.messages.push({ role: 'user', content: text })
-
-  const confirmFn: import('@/utils/aiTools').ToolConfirmFn = async (ctx) => {
-    const session = aiSession.value!
-    const running = [...session.toolCalls].reverse().find(t => t.status === 'running' || t.status === 'awaiting-confirm')
-    const recordId = running?.id || `pending-${Date.now()}`
-    if (running) {
-      running.status = 'awaiting-confirm'
-      running.result = ctx.message
-      running.confirmReason = ctx.reason
-    } else {
-      session.toolCalls.push({
-        id: recordId, name: ctx.toolName, args: ctx.args,
-        status: 'awaiting-confirm', result: ctx.message, confirmReason: ctx.reason, startedAt: Date.now()
-      })
-    }
-    // 强制触发 Vue 响应式:替换 toolCalls 数组引用 + 等 nextTick 刷新 DOM
-    session.toolCalls = [...session.toolCalls]
-    await nextTick()
-    return new Promise<boolean>((resolve) => {
-      dbPendingConfirms.value.set(recordId, resolve)
-    })
-  }
-
-  const caller = makeDbToolCaller(
-    executeDbSql,
-    () => aiStore.settings.commandWhitelist,
-    confirmFn
-  )
-  const memoryToolCaller = makeMemoryToolCaller({
-    confirmFn,
-    getAssetId: () => asset.value?.id ?? null,
-    getSettings: () => aiStore.settings
-  })
-  const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
-  if (mcpRuntime.warnings.length) console.warn('[db-ai] MCP discovery warnings:', mcpRuntime.warnings)
-  const toolExec = async (call: LlmToolCall) => {
-    if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
-    if (call.function.name === 'memory') return memoryToolCaller(call)
-    return call.function.name.startsWith('mcp__')
-      ? mcpRuntime.execute(call)
-      : caller({ function: { name: call.function.name, arguments: call.function.arguments } })
-  }
-  const basePrompt = selectedDb.value
+// ====== AI 助手(共用聊天编排 composable,差异点经参数注入) ======
+const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
+  instanceId,
+  getAssetId: () => asset.value?.id ?? '',
+  assetType: 'db',
+  enabled: () => !!asset.value,
+  tools: dbTools,
+  makeToolExecutor: (confirmFn) => {
+    const caller = makeDbToolCaller(
+      executeDbSql,
+      () => aiStore.settings.commandWhitelist,
+      confirmFn
+    )
+    return (call) => caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+  },
+  getBasePrompt: () => selectedDb.value
     ? DB_SYSTEM_PROMPT.replace('当前已连接到数据库', `当前已连接到数据库,当前数据库: ${selectedDb.value}`)
-    : DB_SYSTEM_PROMPT
-  const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'db')
-  await aiStore.runAgent(instanceId.value, [...dbTools, ...sessionSearchTools, ...memoryTools, ...mcpRuntime.tools], toolExec, sysPrompt)
-}
-
-async function onAiRetry() {
-  if (!aiSession.value) return
-  const msgs = aiSession.value.messages
-  while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
-  const lastUserText = msgs.pop()?.content
-  if (lastUserText) await onAiSend(lastUserText)
-}
-
-function onAiNewChat() {
-  resolveDbPendingConfirms()
-  aiStore.resetSession(instanceId.value)
-}
-
-function onAiStop() {
-  resolveDbPendingConfirms()
-  aiStore.stopAgent(instanceId.value)
-}
-
-function resolveDbPendingConfirms() {
-  for (const resolve of dbPendingConfirms.value.values()) resolve(false)
-  dbPendingConfirms.value.clear()
-}
-
-function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {
-  if (!aiSession.value) return
-  const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
-  if (rec) {
-    if (decision === 'whitelist') {
-      const sql = String(rec.args.sql ?? '')
-      const prefix = sql.trim().split(/\s+/)[0]?.toUpperCase() || ''
-      if (prefix) {
-        aiStore.addToWhitelist(prefix)
-      }
-      rec.status = 'success'
-      rec.result = `✓ 已加入白名单 (${prefix}),正在执行…`
-    } else if (decision === 'approve') {
-      rec.status = 'success'
-      rec.result = '✓ 已批准,正在执行…'
-    } else {
-      rec.status = 'rejected'
-      rec.result = '✗ 已拒绝'
-    }
-  }
-  const resolve = dbPendingConfirms.value.get(recordId)
-  if (resolve) {
-    resolve(decision === 'approve' || decision === 'whitelist')
-    dbPendingConfirms.value.delete(recordId)
-  }
-}
+    : DB_SYSTEM_PROMPT,
+  extractWhitelistPrefix: (rec) => String(rec.args.sql ?? '').trim().split(/\s+/)[0]?.toUpperCase() || '',
+  logTag: 'db-ai'
+})
 </script>
 
 <template>
@@ -2656,7 +2560,7 @@ function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whi
         <AiChat
           v-if="aiSession"
           :session="aiSession"
-          :sending="aiSession.loading"
+          :sending="aiSending"
           :placeholder="t('db.askAiPlaceholder')"
           @send="onAiSend"
           @retry="onAiRetry"

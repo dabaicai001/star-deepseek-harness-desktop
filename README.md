@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.55.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.56.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -105,6 +105,9 @@
 ---
 
 ## 当前版本
+
+### v0.56.0 (2026-08-12)
+- 🔧 6 个内嵌 AI 助手宿主(SSH / DB / Docker / Redis / ES / Excel)的聊天编排逻辑抽取为共用 composable `src/composables/useAiChatHost.ts`(净删 532 行重复):防并发守卫、steering、工具组装(业务 + sessionSearch + memory + MCP)、whitelist 确认流程、runAgent 调用统一收口,宿主差异(业务工具、执行器、动态 prompt、审计钩子)全部参数化注入,行为不变
 
 ### v0.55.0 (2026-08-12)
 - ✨ AI 模型选择支持按窗口/会话独立,互不影响:`AiSession` 新增 `modelId` 覆盖字段(运行时,不持久化),`runAgent` 与 Planner(`createExecutionPlan`)改经 `resolveModelConfig(session.modelId)` 解析,空覆盖回退全局 `settings.activeModelId`;`AiModelSelector` 新增 `sessionId` prop,会话模式下拉顶部提供「跟随全局」行,徽章左侧 cyan 点标识本窗口独立选模型

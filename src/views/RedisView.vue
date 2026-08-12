@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
@@ -11,9 +11,8 @@ import { parseInstanceId } from '@/utils/tabId'
 import { usePersistentPanelState } from '@/utils/panelState'
 import * as dbService from '@/services/db'
 import { useDialogStore } from '@/stores/dialog'
-import { REDIS_SYSTEM_PROMPT, redisTools, makeRedisToolCaller, sessionSearchTools, sessionSearchToolCaller, memoryTools, makeMemoryToolCaller } from '@/utils/aiTools'
-import type { LlmToolCall } from '@/services/ai'
-import { createMcpRuntime } from '@/services/mcp'
+import { REDIS_SYSTEM_PROMPT, redisTools, makeRedisToolCaller } from '@/utils/aiTools'
+import { useAiChatHost } from '@/composables/useAiChatHost'
 import { useObjectTreeStore, type ObjectAction, type ObjectKind } from '@/stores/objectTree'
 import RedisValueEditor from '@/components/redis/RedisValueEditor.vue'
 import RedisCli from '@/components/redis/RedisCli.vue'
@@ -81,11 +80,6 @@ const rightPanelTabs = computed<RightPanelTab[]>(() => [
 
 const activeRightTab = ref('dashboard')
 
-const aiSession = computed(() => {
-  if (!connId.value) return null
-  return aiStore.getOrCreateSession(instanceId.value, assetId.value, 'db')
-})
-
 async function executeRedisCmd(command: string): Promise<string> {
   if (!connId.value) throw new Error('Redis 未连接')
   const r = await dbService.redisExecute(connId.value, command)
@@ -93,115 +87,25 @@ async function executeRedisCmd(command: string): Promise<string> {
   return r.result == null ? '(无输出)' : (typeof r.result === 'string' ? r.result : JSON.stringify(r.result, null, 2))
 }
 
-const redisPendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
-
-async function onAiSend(text: string) {
-  if (!aiSession.value) return
-  // 防并发 send:loading 在 runAgent 之前立刻设,挡住重复点击,
-  // 否则两个 runAgent 并发跑会污染 messages(LLM 报 400 tool call 错位)
-  if (aiSession.value.loading) {
-    // 运行中:作为 steering 引导注入历史,runAgent 下一步边界生效
-    aiStore.steer(instanceId.value, text)
-    return
-  }
-  aiSession.value.loading = true
-  aiSession.value.messages.push({ role: 'user', content: text })
-
-  const confirmFn: import('@/utils/aiTools').ToolConfirmFn = async (ctx) => {
-    const session = aiSession.value!
-    const running = [...session.toolCalls].reverse().find(t => t.status === 'running' || t.status === 'awaiting-confirm')
-    const recordId = running?.id || `pending-${Date.now()}`
-    if (running) {
-      running.status = 'awaiting-confirm'
-      running.result = ctx.message
-      running.confirmReason = ctx.reason
-    } else {
-      session.toolCalls.push({
-        id: recordId, name: ctx.toolName, args: ctx.args,
-        status: 'awaiting-confirm', result: ctx.message, confirmReason: ctx.reason, startedAt: Date.now()
-      })
-    }
-    // 强制触发 Vue 响应式:替换 toolCalls 数组引用 + 等 nextTick 刷新 DOM
-    session.toolCalls = [...session.toolCalls]
-    await nextTick()
-    return new Promise<boolean>((resolve) => {
-      redisPendingConfirms.value.set(recordId, resolve)
-    })
-  }
-
-  const caller = makeRedisToolCaller(
-    executeRedisCmd,
-    () => aiStore.settings.commandWhitelist,
-    confirmFn
-  )
-  const memoryToolCaller = makeMemoryToolCaller({
-    confirmFn,
-    getAssetId: () => assetId.value || null,
-    getSettings: () => aiStore.settings
-  })
-  const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
-  if (mcpRuntime.warnings.length) console.warn('[redis-ai] MCP discovery warnings:', mcpRuntime.warnings)
-  const toolExec = async (call: LlmToolCall) => {
-    if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
-    if (call.function.name === 'memory') return memoryToolCaller(call)
-    return call.function.name.startsWith('mcp__')
-      ? mcpRuntime.execute(call)
-      : caller({ function: { name: call.function.name, arguments: call.function.arguments } })
-  }
-  const basePrompt = REDIS_SYSTEM_PROMPT.replace('db0', `db${currentDb.value}`)
-  const sysPrompt = aiStore.buildSystemPrompt(basePrompt, 'db')
-  await aiStore.runAgent(instanceId.value, [...redisTools, ...sessionSearchTools, ...memoryTools, ...mcpRuntime.tools], toolExec, sysPrompt)
-}
-
-async function onAiRetry() {
-  if (!aiSession.value) return
-  const msgs = aiSession.value.messages
-  while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
-  const lastUserText = msgs.pop()?.content
-  if (lastUserText) await onAiSend(lastUserText)
-}
-
-function onAiNewChat() {
-  resolveRedisPendingConfirms()
-  aiStore.resetSession(instanceId.value)
-}
-
-function onAiStop() {
-  resolveRedisPendingConfirms()
-  aiStore.stopAgent(instanceId.value)
-}
-
-function resolveRedisPendingConfirms() {
-  for (const resolve of redisPendingConfirms.value.values()) resolve(false)
-  redisPendingConfirms.value.clear()
-}
-
-function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {
-  if (!aiSession.value) return
-  const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
-  if (rec) {
-    if (decision === 'whitelist') {
-      const cmd = String(rec.args.command ?? '')
-      const prefix = cmd.trim().split(/\s+/)[0]?.toUpperCase() || ''
-      if (prefix) {
-        aiStore.addToWhitelist(prefix)
-      }
-      rec.status = 'success'
-      rec.result = `✓ 已加入白名单 (${prefix}),正在执行…`
-    } else if (decision === 'approve') {
-      rec.status = 'success'
-      rec.result = '✓ 已批准,正在执行…'
-    } else {
-      rec.status = 'rejected'
-      rec.result = '✗ 已拒绝'
-    }
-  }
-  const resolve = redisPendingConfirms.value.get(recordId)
-  if (resolve) {
-    resolve(decision === 'approve' || decision === 'whitelist')
-    redisPendingConfirms.value.delete(recordId)
-  }
-}
+// ====== AI 助手(共用聊天编排 composable,差异点经参数注入) ======
+const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
+  instanceId,
+  getAssetId: () => assetId.value,
+  assetType: 'db',
+  enabled: () => !!connId.value,
+  tools: redisTools,
+  makeToolExecutor: (confirmFn) => {
+    const caller = makeRedisToolCaller(
+      executeRedisCmd,
+      () => aiStore.settings.commandWhitelist,
+      confirmFn
+    )
+    return (call) => caller({ function: { name: call.function.name, arguments: call.function.arguments } })
+  },
+  getBasePrompt: () => REDIS_SYSTEM_PROMPT.replace('db0', `db${currentDb.value}`),
+  extractWhitelistPrefix: (rec) => String(rec.args.command ?? '').trim().split(/\s+/)[0]?.toUpperCase() || '',
+  logTag: 'redis-ai'
+})
 
 function isStaleConnect(attemptId: number): boolean {
   return connectStale || attemptId !== connectAttemptId
@@ -532,7 +436,7 @@ onBeforeUnmount(() => {
         <AiChat
           v-if="aiSession"
           :session="aiSession"
-          :sending="aiSession.loading"
+          :sending="aiSending"
           placeholder="问我关于 Redis 的任何事,例如'列出所有以 user: 开头的 key'"
           @send="onAiSend"
           @retry="onAiRetry"

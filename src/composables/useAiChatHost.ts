@@ -1,0 +1,227 @@
+import { computed, nextTick, ref, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
+import { useAiStore, type AiAssetType, type AiSession, type AiToolCallRecord } from '@/stores/ai'
+import {
+  sessionSearchTools,
+  sessionSearchToolCaller,
+  memoryTools,
+  makeMemoryToolCaller,
+  type ToolConfirmFn
+} from '@/utils/aiTools'
+import { createMcpRuntime } from '@/services/mcp'
+import type { LlmTool, LlmToolCall } from '@/services/ai'
+
+/** 工具确认决定(与 AiChat 的 confirm-tool 事件载荷一致) */
+export type AiToolDecision = 'approve' | 'reject' | 'whitelist'
+
+/**
+ * 「内嵌 AI 助手宿主」聊天编排 composable 参数。
+ * 公共骨架(防并发守卫 / steering / user 消息入列 / 工具组装 / systemPrompt / runAgent)
+ * 由 composable 实现;各宿主的差异点全部经参数注入。
+ */
+export interface UseAiChatHostOptions {
+  /** 会话 instanceId(tab 级;通常为冻结的路由 id 或终端 props.id) */
+  instanceId: MaybeRefOrGetter<string>
+  /** 会话绑定的资产 id(也用于 memory 工具的资产级写入) */
+  getAssetId: () => string
+  /** 会话上下文类型(决定 buildSystemPrompt 注入的技能组) */
+  assetType: AiAssetType
+  /** 会话可用条件(如连接就绪 / 资产存在),返回 false 时 session 为 null、AiChat 不渲染 */
+  enabled?: () => boolean
+  /** 宿主业务工具集(session_search / memory / mcp 工具由 composable 统一追加) */
+  tools: LlmTool[]
+  /**
+   * 用共享 confirmFn 组装宿主业务工具执行器(每次 agent 运行时调用)。
+   * 返回的执行器只需处理宿主业务工具;session_search / memory / mcp__ 前缀由 composable 分流。
+   */
+  makeToolExecutor: (confirmFn: ToolConfirmFn) => (call: LlmToolCall) => Promise<string>
+  /** 每次 agent 运行时求值的基础 system prompt(可含 cwd、当前库等动态上下文) */
+  getBasePrompt: () => string
+  /** 工具确认流程(默认 true;无风险命令确认的宿主如 Excel 传 false) */
+  confirm?: boolean
+  /** 是否注入 MCP 工具(默认 true) */
+  mcp?: boolean
+  /**
+   * 重试策略:
+   * - resend(默认):弹出最后一条 user 消息,重走完整 send 流程
+   * - rerun:保留最后一条 user 消息,直接重跑 agent
+   */
+  retryMode?: 'resend' | 'rerun'
+  /** decision === 'whitelist' 时从工具记录提取白名单前缀(confirm 开启时建议提供) */
+  extractWhitelistPrefix?: (rec: AiToolCallRecord) => string
+  /** send 推送 user 消息后、启动 agent 前的宿主钩子(如审计、cwd 抓取) */
+  beforeRun?: (text: string) => Promise<void> | void
+  /** stop / new-chat 时的宿主清理(如中断在途命令);stop 在 stopAgent 后、new-chat 在 resetSession 前调用 */
+  onInterrupt?: (trigger: 'stop' | 'new-chat') => void
+  /** 确认 promise 被 resolve 时的宿主钩子(如审计) */
+  onConfirmResolved?: (rec: AiToolCallRecord | undefined, decision: AiToolDecision) => void
+  /** MCP discovery 警告的 console 日志前缀(如 'ssh-ai') */
+  logTag: string
+}
+
+/**
+ * 内嵌 AI 助手宿主的共用聊天编排(SshTerminal / DbView / DockerView / RedisView /
+ * ElasticsearchView / ExcelView 共用)。返回值的 handler 签名与 AiChat 的 emit 一一对应,
+ * 宿主模板里 `@send="onAiSend"` 等绑定可直接沿用。
+ */
+export function useAiChatHost(options: UseAiChatHostOptions) {
+  const aiStore = useAiStore()
+  const confirmEnabled = options.confirm ?? true
+  const mcpEnabled = options.mcp ?? true
+  const retryMode = options.retryMode ?? 'resend'
+
+  const session: ComputedRef<AiSession | null> = computed(() => {
+    if (options.enabled && !options.enabled()) return null
+    return aiStore.getOrCreateSession(toValue(options.instanceId), options.getAssetId(), options.assetType)
+  })
+  const sending = computed(() => session.value?.loading ?? false)
+
+  /** 等待用户确认的 tool call 记录 ID → resolve 回调 */
+  const pendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
+
+  function resolvePendingConfirms() {
+    for (const resolve of pendingConfirms.value.values()) resolve(false)
+    pendingConfirms.value.clear()
+  }
+
+  /**
+   * 等用户确认(AiChat 弹确认卡,emit confirm-tool 事件后由 onAiConfirmTool resolve)。
+   * 把最近一个 running 的记录标为 awaiting-confirm;找不到就补一条占位记录。
+   */
+  const confirmFn: ToolConfirmFn = async (ctx) => {
+    const s = session.value!
+    const running = [...s.toolCalls].reverse().find(t => t.status === 'running' || t.status === 'awaiting-confirm')
+    const recordId = running?.id || `pending-${Date.now()}`
+    if (running) {
+      running.status = 'awaiting-confirm'
+      running.result = ctx.message
+      running.confirmReason = ctx.reason
+    } else {
+      s.toolCalls.push({
+        id: recordId, name: ctx.toolName, args: ctx.args,
+        status: 'awaiting-confirm', result: ctx.message, confirmReason: ctx.reason, startedAt: Date.now()
+      })
+    }
+    // 强制触发 Vue 响应式:替换 toolCalls 数组引用 + 等 nextTick 刷新 DOM
+    s.toolCalls = [...s.toolCalls]
+    await nextTick()
+    return new Promise<boolean>((resolve) => {
+      pendingConfirms.value.set(recordId, resolve)
+    })
+  }
+
+  /** 组装本轮工具集与 systemPrompt,启动 agent(runAgent 内部 finally 会还原 loading) */
+  async function runAgentOnce() {
+    if (!session.value) return
+    const executor = options.makeToolExecutor(confirmFn)
+    const memoryToolCaller = makeMemoryToolCaller({
+      // 确认流程关闭的宿主(Excel)不传 confirmFn,记忆写入直接执行
+      confirmFn: confirmEnabled ? confirmFn : undefined,
+      getAssetId: () => options.getAssetId() || null,
+      getSettings: () => aiStore.settings
+    })
+    const mcpRuntime = mcpEnabled
+      ? await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
+      : null
+    if (mcpRuntime?.warnings.length) console.warn(`[${options.logTag}] MCP discovery warnings:`, mcpRuntime.warnings)
+    const toolExec = async (call: LlmToolCall): Promise<string> => {
+      if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
+      if (call.function.name === 'memory') return memoryToolCaller(call)
+      if (mcpRuntime && call.function.name.startsWith('mcp__')) return mcpRuntime.execute(call)
+      return executor(call)
+    }
+    const sysPrompt = aiStore.buildSystemPrompt(options.getBasePrompt(), options.assetType)
+    const tools = mcpRuntime
+      ? [...options.tools, ...sessionSearchTools, ...memoryTools, ...mcpRuntime.tools]
+      : [...options.tools, ...sessionSearchTools, ...memoryTools]
+    await aiStore.runAgent(toValue(options.instanceId), tools, toolExec, sysPrompt)
+  }
+
+  async function onAiSend(text: string) {
+    const s = session.value
+    if (!s) return
+    // 防并发 send:loading 在 runAgent 之前立刻设,挡住重复点击,
+    // 否则两个 runAgent 并发跑会污染 messages(LLM 报 400 tool call 错位)
+    if (s.loading) {
+      // 运行中:作为 steering 引导注入历史,runAgent 下一步边界生效
+      aiStore.steer(toValue(options.instanceId), text)
+      return
+    }
+    s.loading = true
+    s.messages.push({ role: 'user', content: text })
+    await options.beforeRun?.(text)
+    await runAgentOnce()
+  }
+
+  async function onAiRetry() {
+    const s = session.value
+    if (!s) return
+    if (retryMode === 'rerun') {
+      // 保留最后一条 user 消息直接重跑 agent;运行中不重试
+      if (s.loading) return
+      const msgs = s.messages
+      while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
+      if (msgs.length) await runAgentOnce()
+      return
+    }
+    const msgs = s.messages
+    // 先删到最后一轮 user 消息为止(去掉 assistant 回答 / 错误尾巴)
+    while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
+    // 弹出最后一条 user,重走完整 send 流程(含 beforeRun 钩子)
+    const lastUserText = msgs.pop()?.content
+    if (lastUserText) await onAiSend(lastUserText)
+  }
+
+  function onAiNewChat() {
+    resolvePendingConfirms()
+    options.onInterrupt?.('new-chat')
+    aiStore.resetSession(toValue(options.instanceId))
+  }
+
+  function onAiStop() {
+    resolvePendingConfirms()
+    aiStore.stopAgent(toValue(options.instanceId))
+    options.onInterrupt?.('stop')
+  }
+
+  function onAiConfirmTool(recordId: string, decision: AiToolDecision) {
+    // 确认流程关闭的宿主(Excel)不存在确认卡,忽略该事件
+    if (!confirmEnabled) return
+    const s = session.value
+    if (!s) return
+    const rec = s.toolCalls.find(t => t.id === recordId)
+    if (rec) {
+      if (decision === 'whitelist') {
+        // 加入白名单并批准
+        const prefix = options.extractWhitelistPrefix?.(rec) ?? ''
+        if (prefix) {
+          aiStore.addToWhitelist(prefix)
+        }
+        rec.status = 'success'
+        rec.result = `✓ 已加入白名单 (${prefix}),正在执行…`
+      } else if (decision === 'approve') {
+        rec.status = 'success'
+        rec.result = '✓ 已批准,正在执行…'
+      } else {
+        rec.status = 'rejected'
+        rec.result = '✗ 已拒绝'
+      }
+    }
+    // 唤醒 caller 中的 await confirmFn()
+    const resolve = pendingConfirms.value.get(recordId)
+    if (resolve) {
+      options.onConfirmResolved?.(rec, decision)
+      resolve(decision === 'approve' || decision === 'whitelist')
+      pendingConfirms.value.delete(recordId)
+    }
+  }
+
+  return {
+    session,
+    sending,
+    onAiSend,
+    onAiRetry,
+    onAiNewChat,
+    onAiStop,
+    onAiConfirmTool
+  }
+}

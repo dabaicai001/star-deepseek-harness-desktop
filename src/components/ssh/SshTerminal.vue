@@ -25,7 +25,8 @@ import { parseInstanceId, withTabIndexSuffix, generateInstanceId } from '@/utils
 import { parseXshellQblDetailed, parseXshellQblx, decodeQblText } from '@/utils/xshellQuickCommand'
 import { formatSize } from '@/services/sftp'
 import { getDetachedInfo, LOCAL_TAB_DETACH_EVENT } from '@/lib/windowDetach'
-import { SSH_SYSTEM_PROMPT, SSH_SILENT_MODE_PROMPT_NOTE, sshTools, makeSshToolCaller, sessionSearchTools, sessionSearchToolCaller, memoryTools, makeMemoryToolCaller } from '@/utils/aiTools'
+import { SSH_SYSTEM_PROMPT, SSH_SILENT_MODE_PROMPT_NOTE, sshTools, makeSshToolCaller } from '@/utils/aiTools'
+import { useAiChatHost } from '@/composables/useAiChatHost'
 import { makeSftpToolCaller, sftpTools } from '@/utils/aiSftpTools'
 import { checkCommand, extractWhitelistPrefix, stripShellPrompt } from '@/utils/commandGuard'
 import {
@@ -39,8 +40,6 @@ import {
   normalizeTerminalText
 } from '@/utils/sshPromptCapture'
 import { extractOsc7Cwd, OSC7_INJECT_COMMAND, parsePwdOutput } from '@/utils/terminalCwd'
-import type { LlmToolCall } from '@/services/ai'
-import { createMcpRuntime } from '@/services/mcp'
 import { logAudit } from '@/services/audit'
 import { usePersistentPanelState } from '@/utils/panelState'
 import ZmodemModule from 'zmodem.js/src/zmodem_browser.js'
@@ -321,183 +320,72 @@ const AI_SILENT_EXEC_TIMEOUT_S = 120
 const AI_SILENT_CWD_MARKER = '__SH_CWD__'
 /** 预检:命中这些模式的命令需要交互输入,静默通道没有 PTY/stdin,自动回退到终端执行 */
 const SILENT_INTERACTIVE_CMD_RE = /(?:^|[;&|`(]\s*)(?:sudo\s+)?(?:vi|vim|nvim|nano|emacs|top|htop|atop|less|more|man|passwd|ssh|sftp|ftp|telnet|mysql|mycli|psql|pgcli|redis-cli|sqlite3|mongo|mongosh|watch|crontab|chsh|su)(?:\s|$)|\b(?:rm|mv|cp)\s+-(?:[a-zA-Z]*i|i[a-zA-Z]*)\b|\b(?:bash|zsh|sh|fish|python|python3|node|irb|bc)\s*(?:-i)?\s*(?:$|[;&|>])/i
-const aiSession = computed(() => {
- if (!asset.value) return null
- const session = aiStore.getOrCreateSession(props.id, asset.value.id, 'ssh')
- return session
-})
-
-async function onAiSend(text: string) {
- if (!aiSession.value) return
- // 防并发:loading 在 runAgent 之前就设 true,这样:
- // 1) UI 立刻切到"停止"按钮,textarea 立刻 disable
- // 2) 即使用户在 pwd/agent 启动间隙连点 send 也会被守卫拦掉
- // 不这么做会触发 pwd 抢占 promptCapture(Superseded)、
- // messages 数组被并发 push 污染(LLM 400 tool call 错位)
- if (aiSession.value.loading) {
-   // 运行中:作为 steering 引导注入历史,runAgent 下一步边界生效
-   aiStore.steer(props.id, text)
-   return
- }
- aiSession.value.loading = true
- aiSession.value.messages.push({ role: 'user', content: text })
- logAudit({ category: 'ai', action: 'ssh_ai_query', target: text.slice(0, 120), detail: { question: text.length > 500 ? text.slice(0, 500) + '…' : text }, sessionId: props.id, assetId: asset.value?.id, success: true })
- // 先获取当前工作目录:静默模式优先用已跟踪的 cwd,为空才跑 pwd 并顺带初始化跟踪值
- try {
-   if (aiSilentMode.value && aiSilentCwd.value) {
-     sshCwd.value = aiSilentCwd.value
-   } else {
-     const cwdOutput = await runAiCommandWithPrompt('pwd')
-     const pwdMatch = cwdOutput.match(/\/[\w\-./]+/)
-     if (pwdMatch) {
-       sshCwd.value = pwdMatch[0]
-       if (aiSilentMode.value && !aiSilentCwd.value) aiSilentCwd.value = pwdMatch[0]
+// ====== AI助手(每个 tab独立;共用聊天编排 composable,差异点经参数注入) ======
+const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
+ instanceId: () => props.id,
+ getAssetId: () => asset.value?.id ?? '',
+ assetType: 'ssh',
+ enabled: () => !!asset.value,
+ tools: [...sshTools, ...sftpTools],
+ makeToolExecutor: (confirmFn) => {
+   const caller = makeSshToolCaller(
+     runAiCommandWithPrompt,
+     () => aiStore.settings.commandWhitelist,
+     confirmFn,
+     undefined,
+     // ssh_wait_task 的轮询命令走独立静默 exec channel(不占用用户终端);
+     // 远端非 0 退出(如任务目录不存在)时 Rust 侧把已收到 stdout 拼进错误消息,原样回给 AI
+     async (cmd, timeoutSec) => {
+       try {
+         return await sshExec(props.id, cmd, timeoutSec)
+       } catch (error) {
+         return error instanceof Error ? error.message : String(error)
+       }
      }
+   )
+   const sftpCaller = makeSftpToolCaller(props.id, confirmFn, asset.value?.name)
+   return (call) => {
+     const target = call.function.name.startsWith('sftp_') ? sftpCaller : caller
+     return target({ function: { name: call.function.name, arguments: call.function.arguments } })
    }
- } catch { /* ignore */ }
- await runSshAgent()
- // runAgent 内部 finally 会把 loading 还原
-}
-
-async function onAiRetry() {
- if (!aiSession.value) return
- if (aiSession.value.loading) return
- //删最后一条 assistant + user 对,重发最后一条 user
- const msgs = aiSession.value.messages
- while (msgs.length && msgs[msgs.length -1].role !== 'user') {
- msgs.pop()
- }
- if (msgs.length) await runSshAgent()
-}
-
-function onAiNewChat() {
- resolvePendingAiConfirms()
- interruptAiCommand(new Error('已开始新会话,当前 SSH AI 命令已停止'))
- aiStore.resetSession(props.id)
-}
-
-function onAiStop() {
- resolvePendingAiConfirms()
- aiStore.stopAgent(props.id)
- interruptAiCommand(new Error('SSH AI 命令已由用户停止'))
-}
-
-function onAiConfirmTool(recordId: string, decision: 'approve' | 'reject' | 'whitelist') {
- if (!aiSession.value) return
- const rec = aiSession.value.toolCalls.find(t => t.id === recordId)
- if (rec) {
- if (decision === 'whitelist') {
- // 加入白名单并批准
- const command = String(rec.args.command ?? '')
- const prefix = extractWhitelistPrefix(command)
- if (prefix) {
- aiStore.addToWhitelist(prefix)
- }
- rec.status = 'success'
- rec.result = `✓ 已加入白名单 (${prefix}),正在执行…`
- } else if (decision === 'approve') {
- rec.status = 'success'
- rec.result = '✓ 已批准,正在执行…'
- } else {
- rec.status = 'rejected'
- rec.result = '✗ 已拒绝'
- }
- }
- //唤醒 caller 中的 await confirmFn()
- const resolve = pendingConfirms.value.get(recordId)
- if (resolve) {
-   if (rec) {
-     const cmd = String(rec.args.command ?? rec.args.sql ?? '')
-     logAudit({ category: 'ai', action: `tool_${decision}`, target: cmd.slice(0, 200), detail: { toolName: rec.name }, sessionId: props.id, assetId: asset.value?.id, success: decision !== 'reject' })
-   }
- resolve(decision === 'approve' || decision === 'whitelist')
- pendingConfirms.value.delete(recordId)
- }
-}
-
-/**等待用户确认的 tool call记录 ID → resolve回调 */
-const pendingConfirms = ref<Map<string, (approved: boolean) => void>>(new Map())
-
-function resolvePendingAiConfirms() {
- for (const resolve of pendingConfirms.value.values()) resolve(false)
- pendingConfirms.value.clear()
-}
-
-async function runSshAgent() {
- if (!aiSession.value) return
-
- /**
- * 等用户确认(通过 AiChat弹按钮,emit confirm-tool事件)
- */
- const confirmFn: import('@/utils/aiTools').ToolConfirmFn = async (ctx) => {
- // 把正在 confirm 的 call标 awaiting-confirm,记录 id 用于后续 resolve
- //找到 session 里最近一个 running 的 record,改成 awaiting-confirm
- const session = aiSession.value!
- const running = [...session.toolCalls].reverse().find(t => t.status === 'running' || t.status === 'awaiting-confirm')
- const recordId = running?.id || `pending-${Date.now()}`
- if (running) {
- running.status = 'awaiting-confirm'
- running.result = ctx.message
- running.confirmReason = ctx.reason
- } else {
- session.toolCalls.push({
- id: recordId,
- name: ctx.toolName,
- args: ctx.args,
- status: 'awaiting-confirm',
- result: ctx.message,
- confirmReason: ctx.reason,
- startedAt: Date.now()
- })
- }
- // 强制触发 Vue 响应式:替换 toolCalls 数组引用 + 等 nextTick 刷新 DOM
- session.toolCalls = [...session.toolCalls]
- await nextTick()
- return new Promise<boolean>((resolve) => {
- pendingConfirms.value.set(recordId, resolve)
- })
- }
-
- const caller = makeSshToolCaller(
- runAiCommandWithPrompt,
- () => aiStore.settings.commandWhitelist,
- confirmFn,
- undefined,
- // ssh_wait_task 的轮询命令走独立静默 exec channel(不占用用户终端);
- // 远端非 0 退出(如任务目录不存在)时 Rust 侧把已收到 stdout 拼进错误消息,原样回给 AI
- async (cmd, timeoutSec) => {
+ },
+ getBasePrompt: () => {
+   const base = sshCwd.value
+     ? SSH_SYSTEM_PROMPT.replace('当前已连接到远程服务器', `当前已连接到远程服务器,当前工作目录: ${sshCwd.value}`)
+     : SSH_SYSTEM_PROMPT
+   // 静默模式下每次 exec 都是新 channel,export/环境变量跨命令留不住,提前告诉 LLM 别依赖
+   return aiSilentMode.value ? `${base}\n${SSH_SILENT_MODE_PROMPT_NOTE}` : base
+ },
+ retryMode: 'rerun',
+ extractWhitelistPrefix: (rec) => extractWhitelistPrefix(String(rec.args.command ?? '')),
+ // 发送前:审计 + 先获取当前工作目录(静默模式优先用已跟踪的 cwd,为空才跑 pwd 并顺带初始化跟踪值)
+ beforeRun: async (text) => {
+   logAudit({ category: 'ai', action: 'ssh_ai_query', target: text.slice(0, 120), detail: { question: text.length > 500 ? text.slice(0, 500) + '…' : text }, sessionId: props.id, assetId: asset.value?.id, success: true })
    try {
-     return await sshExec(props.id, cmd, timeoutSec)
-   } catch (error) {
-     return error instanceof Error ? error.message : String(error)
-   }
- }
- )
- const sftpCaller = makeSftpToolCaller(props.id, confirmFn, asset.value?.name)
- const memoryToolCaller = makeMemoryToolCaller({
- confirmFn,
- getAssetId: () => asset.value?.id ?? null,
- getSettings: () => aiStore.settings
- })
- const mcpRuntime = await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
- if (mcpRuntime.warnings.length) console.warn('[ssh-ai] MCP discovery warnings:', mcpRuntime.warnings)
- const toolExec = async (call: LlmToolCall) => {
- if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
- if (call.function.name === 'memory') return memoryToolCaller(call)
- if (call.function.name.startsWith('mcp__')) return mcpRuntime.execute(call)
- const target = call.function.name.startsWith('sftp_') ? sftpCaller : caller
- return await target({ function: { name: call.function.name, arguments: call.function.arguments } })
- }
- const basePrompt = sshCwd.value
-   ? SSH_SYSTEM_PROMPT.replace('当前已连接到远程服务器', `当前已连接到远程服务器,当前工作目录: ${sshCwd.value}`)
-   : SSH_SYSTEM_PROMPT
- // 静默模式下每次 exec 都是新 channel,export/环境变量跨命令留不住,提前告诉 LLM 别依赖
- const sysPrompt = aiStore.buildSystemPrompt(
-   aiSilentMode.value ? `${basePrompt}\n${SSH_SILENT_MODE_PROMPT_NOTE}` : basePrompt,
-   'ssh'
- )
- await aiStore.runAgent(props.id, [...sshTools, ...sftpTools, ...sessionSearchTools, ...memoryTools, ...mcpRuntime.tools], toolExec, sysPrompt)
-}
+     if (aiSilentMode.value && aiSilentCwd.value) {
+       sshCwd.value = aiSilentCwd.value
+     } else {
+       const cwdOutput = await runAiCommandWithPrompt('pwd')
+       const pwdMatch = cwdOutput.match(/\/[\w\-./]+/)
+       if (pwdMatch) {
+         sshCwd.value = pwdMatch[0]
+         if (aiSilentMode.value && !aiSilentCwd.value) aiSilentCwd.value = pwdMatch[0]
+       }
+     }
+   } catch { /* ignore */ }
+ },
+ // stop / 新会话:中断仍在执行的 AI 命令(PTY 发 Ctrl+C,静默通道调 ssh_exec_abort)
+ onInterrupt: (trigger) => {
+   interruptAiCommand(new Error(trigger === 'stop' ? 'SSH AI 命令已由用户停止' : '已开始新会话,当前 SSH AI 命令已停止'))
+ },
+ // 工具确认结果审计
+ onConfirmResolved: (rec, decision) => {
+   if (!rec) return
+   const cmd = String(rec.args.command ?? rec.args.sql ?? '')
+   logAudit({ category: 'ai', action: `tool_${decision}`, target: cmd.slice(0, 200), detail: { toolName: rec.name }, sessionId: props.id, assetId: asset.value?.id, success: decision !== 'reject' })
+ },
+ logTag: 'ssh-ai'
+})
 
 onMounted(async () => {
  beforeUnloadHandler = (e: BeforeUnloadEvent) => {
@@ -2242,7 +2130,7 @@ function handleKbCancelled() {
     <AiChat
       v-if="aiSession"
       :session="aiSession"
-      :sending="aiSession.loading"
+      :sending="aiSending"
       placeholder="问我关于这台主机的任何事,例如'看看磁盘空间'"
       @send="onAiSend"
       @retry="onAiRetry"
