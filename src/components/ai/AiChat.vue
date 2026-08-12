@@ -12,12 +12,14 @@
 import { ref, nextTick, watch, computed, onMounted, onActivated, onDeactivated } from 'vue'
 import type { AiSession, AiToolCallRecord } from '@/stores/ai'
 import { useAiStore } from '@/stores/ai'
+import { useAssetStore } from '@/stores/asset'
 import { useNotifyStore } from '@/stores/notify'
 import type { AiConversationRow } from '@/services/aiMemory'
 import { useI18n } from 'vue-i18n'
 import AiMessageContent from '@/components/ai/AiMessageContent.vue'
 import AiModelSelector from '@/components/ai/AiModelSelector.vue'
 import { captureScrollAnchor, resolveScrollTop, type ScrollAnchor } from '@/utils/scrollPosition'
+import { agentHandle, assetMentionToken, assetSummary, matchMention, workspacePrefix } from '@/utils/aiMention'
 
 const props = defineProps<{
   session: AiSession
@@ -189,6 +191,29 @@ function onSend() {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // mention 建议打开时:上下键移动、Enter/Tab 选择、Esc 关闭(补空格打断匹配)
+  if (mentionSuggestions.value.length > 0) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      mentionIndex.value = (mentionIndex.value + 1) % mentionSuggestions.value.length
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      mentionIndex.value = (mentionIndex.value - 1 + mentionSuggestions.value.length) % mentionSuggestions.value.length
+      return
+    }
+    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+      e.preventDefault()
+      selectMention(mentionSuggestions.value[mentionIndex.value])
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      inputText.value += ' '
+      return
+    }
+  }
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     onSend()
@@ -309,6 +334,70 @@ function shortResult(s: string, max = 240): string {
 // ====== 历史会话存档(记忆系统 L2,SQLite + FTS5) ======
 const aiStore = useAiStore()
 const notifyStore = useNotifyStore()
+const assetStore = useAssetStore()
+
+// ====== @ / # mention(移植自 AiView;语义应用由 useAiChatHost 在 send 入口统一处理) ======
+const mentionIndex = ref(0)
+
+type MentionSuggestion = {
+  id: string
+  label: string
+  detail: string
+  icon: string
+  insert: string
+}
+
+/** # 模块作用域建议(#SSH/#DB/#Docker/#Excel/#LOCAL),描述走 i18n */
+const mentionScopeOptions = computed(() => [
+  { type: 'ssh', token: '#SSH', icon: 'mdi-console', description: t('ai.mentionScopes.ssh') },
+  { type: 'db', token: '#DB', icon: 'mdi-database-outline', description: t('ai.mentionScopes.db') },
+  { type: 'docker', token: '#Docker', icon: 'mdi-docker', description: t('ai.mentionScopes.docker') },
+  { type: 'excel', token: '#Excel', icon: 'mdi-file-excel-outline', description: t('ai.mentionScopes.excel') },
+  { type: 'local', token: '#LOCAL', icon: 'mdi-laptop', description: t('ai.mentionScopes.local') }
+])
+
+const mentionMatchResult = computed(() => matchMention(inputText.value))
+const mentionSuggestions = computed<MentionSuggestion[]>(() => {
+  const match = mentionMatchResult.value
+  if (!match) return []
+  const query = match.query.toLowerCase()
+  if (match.trigger === '@') {
+    return aiStore.agents
+      .filter(agent => agentHandle(agent).toLowerCase().includes(query))
+      .map(agent => ({
+        id: agent.id,
+        label: `@${agentHandle(agent)}`,
+        detail: agent.description || t('ai.agent'),
+        icon: 'mdi-robot-outline',
+        insert: `@${agentHandle(agent)}`
+      }))
+  }
+  const moduleSuggestions = mentionScopeOptions.value.map(item => ({
+    id: `module:${item.type}`,
+    label: item.token,
+    detail: item.description,
+    icon: item.icon,
+    insert: item.token
+  }))
+  const assetSuggestions = assetStore.assets.map(asset => ({
+    id: `${asset.type}:${asset.id}`,
+    label: assetMentionToken(asset.type, asset.name),
+    detail: assetSummary(asset),
+    icon: mentionScopeOptions.value.find(item => item.type === asset.type)?.icon || 'mdi-tab',
+    insert: assetMentionToken(asset.type, asset.name)
+  }))
+  return [...assetSuggestions, ...moduleSuggestions]
+    .filter(item => `${item.label} ${item.detail}`.toLowerCase().includes(query))
+})
+
+watch(mentionSuggestions, () => { mentionIndex.value = 0 })
+
+function selectMention(suggestion: MentionSuggestion) {
+  const match = mentionMatchResult.value
+  if (!match) return
+  inputText.value = `${inputText.value.slice(0, match.index)}${match.leading}${suggestion.insert} `
+}
+
 const isDesktopRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 const historyVisible = ref(false)
 const historyLoading = ref(false)
@@ -576,6 +665,18 @@ function deleteHistoryConversation(row: AiConversationRow) {
         :placeholder="sending ? t('ai.steerPlaceholder') : (placeholder ?? '问我关于这个连接的任何事…')"
         @keydown="onKeydown"
       />
+      <!-- @ / # mention 建议菜单(样式复用 cyber.css 的 .ai-mention-menu) -->
+      <div v-if="mentionSuggestions.length" class="ai-mention-menu cyber-panel">
+        <button
+          v-for="(suggestion, index) in mentionSuggestions"
+          :key="suggestion.id"
+          :class="{ active: index === mentionIndex }"
+          @mousedown.prevent="selectMention(suggestion)"
+        >
+          <v-icon size="14">{{ suggestion.icon }}</v-icon>
+          <span><strong>{{ suggestion.label }}</strong><small>{{ suggestion.detail }}</small></span>
+        </button>
+      </div>
       <button v-if="sending" class="cyber-btn-secondary stop-btn" @click="emit('stop')">
         <v-icon size="14">mdi-stop</v-icon>
         停止
@@ -990,6 +1091,14 @@ function deleteHistoryConversation(row: AiConversationRow) {
   align-items: flex-end;
   min-width: 0;
   flex-shrink: 0;
+  /* mention 菜单(.ai-mention-menu 绝对定位)的包含块 */
+  position: relative;
+}
+
+/* cyber.css 的 .ai-mention-menu 右侧留白是为 AiView 编排按钮调的;
+ * 内嵌输入区按钮在菜单层级之下,菜单铺满输入栏即可。仅覆盖布局,视觉 token 沿用全局类。 */
+.chat-input .ai-mention-menu {
+  right: 0;
 }
 
 .chat-input textarea {

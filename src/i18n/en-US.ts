@@ -824,6 +824,13 @@ export default {
     composerPlaceholder: "Ask a question; use {'@'}Agent to collaborate and #LOCAL / #SSH / #DB / #Docker / #Excel to bind targets...",
     composerHint: "Enter to send · Shift+Enter for newline · {'@'} Agent · # Workspace",
     inheritedContext: 'Inherited',
+    mentionScopes: {
+      ssh: 'Terminal, host and SFTP assets',
+      db: 'Database and message queue assets',
+      docker: 'Container and image workspaces',
+      excel: 'Workbooks and data analysis',
+      local: 'Local filesystem and cross-platform shell'
+    },
     clearInheritedContext: 'Clear the workspace context inherited by this conversation',
     parallelAgent: 'Parallel',
     temporaryAgent: 'Temporary',

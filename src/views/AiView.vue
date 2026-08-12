@@ -42,6 +42,17 @@ import {
   resolveStickyContextBinding,
   type StickyContextBinding
 } from '@/utils/aiContext'
+import {
+  agentHandle,
+  assetMentionToken,
+  assetSummary,
+  extractHashTokens,
+  extractMentionScopes,
+  filterMentionedAgents,
+  matchMention,
+  tokenSafeName,
+  workspacePrefix
+} from '@/utils/aiMention'
 import { captureScrollAnchor, resolveScrollTop, type ScrollAnchor } from '@/utils/scrollPosition'
 
 const props = defineProps<{ id?: string }>()
@@ -119,33 +130,17 @@ interface WorkspaceReference {
   asset: Asset
 }
 
-function workspacePrefix(type: AiAssetType) {
-  if (type === 'ssh') return 'SSH'
-  if (type === 'db') return 'DB'
-  if (type === 'docker') return 'Docker'
-  if (type === 'excel') return 'Excel'
-  return 'LOCAL'
-}
-
-function tokenSafeName(value: string) {
-  return value.trim().replace(/[\s@#]+/g, '-').replace(/-+/g, '-')
-}
-
 const workspaceReferences = computed<WorkspaceReference[]>(() =>
   assetStore.assets.map(asset => ({
     id: `${asset.type}:${asset.id}`,
     type: asset.type,
-    token: `#${workspacePrefix(asset.type)}-${tokenSafeName(asset.name)}`,
+    token: assetMentionToken(asset.type, asset.name),
     label: `${workspacePrefix(asset.type)}-${asset.name}`,
     detail: assetSummary(asset),
     icon: capabilityOptions.find(item => item.type === asset.type)?.icon || 'mdi-tab',
     asset
   }))
 )
-
-function agentHandle(agent: AiAgent) {
-  return agent.name.trim().replace(/\s+/g, '-')
-}
 
 type MentionSuggestion = {
   id: string
@@ -155,12 +150,12 @@ type MentionSuggestion = {
   insert: string
 }
 
-const mentionMatch = computed(() => inputText.value.match(/(^|\s)([@#])([^\s@#]*)$/))
+const mentionMatch = computed(() => matchMention(inputText.value))
 const mentionSuggestions = computed<MentionSuggestion[]>(() => {
   const match = mentionMatch.value
   if (!match) return []
-  const query = match[3].toLowerCase()
-  if (match[2] === '@') {
+  const query = match.query.toLowerCase()
+  if (match.trigger === '@') {
     return aiStore.agents
       .filter(agent => agentHandle(agent).toLowerCase().includes(query))
       .map(agent => ({
@@ -189,7 +184,7 @@ const mentionSuggestions = computed<MentionSuggestion[]>(() => {
     .filter(item => `${item.label} ${item.detail}`.toLowerCase().includes(query))
 })
 
-const selectedScopes = computed(() => extractScopes(inputText.value))
+const selectedScopes = computed(() => extractMentionScopes(inputText.value))
 const selectedWorkspaceReferences = computed(() => extractWorkspaceReferences(inputText.value))
 const selectedAgents = computed(() => extractAgents(inputText.value))
 const selectedContextTokens = computed(() => Array.from(new Set([
@@ -257,9 +252,8 @@ async function restoreScrollPosition() {
 
 function selectMention(suggestion: MentionSuggestion) {
   const match = mentionMatch.value
-  if (!match || match.index === undefined) return
-  const leading = match[1]
-  inputText.value = `${inputText.value.slice(0, match.index)}${leading}${suggestion.insert} `
+  if (!match) return
+  inputText.value = `${inputText.value.slice(0, match.index)}${match.leading}${suggestion.insert} `
 }
 
 function appendToken(token: string) {
@@ -302,30 +296,12 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 function extractAgents(text: string): AiAgent[] {
-  const handles = Array.from(text.matchAll(/@([^\s@#]+)/g), match => match[1].toLowerCase())
-  const unique = new Set(handles)
-  return aiStore.agents.filter(agent => unique.has(agentHandle(agent).toLowerCase()))
-}
-
-function extractScopes(text: string): AiAssetType[] {
-  const matches = Array.from(text.matchAll(/#(ssh|db|docker|excel|local|本机)(?=\s|$)/gi), match => {
-    const scope = match[1].toLowerCase()
-    return scope === '本机' ? 'local' : scope
-  })
-  return Array.from(new Set(matches)) as AiAssetType[]
+  return filterMentionedAgents(aiStore.agents, text)
 }
 
 function extractWorkspaceReferences(text: string): WorkspaceReference[] {
-  const tokens = new Set(Array.from(text.matchAll(/#([^\s@#]+)/g), match => `#${match[1]}`.toLowerCase()))
+  const tokens = new Set(extractHashTokens(text))
   return workspaceReferences.value.filter(reference => tokens.has(reference.token.toLowerCase()))
-}
-
-function assetSummary(asset: Asset) {
-  if (asset.type === 'ssh') return `${asset.config.host || '-'}:${asset.config.port || 22}`
-  if (asset.type === 'db') return `${asset.config.dbType || 'mysql'} · ${asset.config.address || asset.config.host || '-'}`
-  if (asset.type === 'docker') return asset.config.dockerTransport || asset.config.remoteHost || 'local'
-  if (asset.type === 'local') return asset.config.rootPath || asset.name || '-'
-  return asset.config.format || 'xlsx'
 }
 
 function scopedAssets(scopes: AiAssetType[], references: WorkspaceReference[] = []) {
@@ -433,7 +409,7 @@ function buildPrompt(text: string, primaryAgent: AiAgent = activeAgent.value) {
   const mentions = extractAgents(text)
   const collaborators = mentions.filter(agent => agent.id !== primaryAgent.id)
   let prompt = aiStore.buildAgentPrompt(primaryAgent, collaborators)
-  const scopes = extractScopes(text)
+  const scopes = extractMentionScopes(text)
   const references = extractWorkspaceReferences(text)
   const explicitContextTokens = [
     ...scopes.map(scope => `#${workspacePrefix(scope)}`),

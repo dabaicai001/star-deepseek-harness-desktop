@@ -825,6 +825,13 @@ export default {
     composerPlaceholder: "输入问题;使用 {'@'}Agent 协作,使用 #LOCAL / #SSH / #DB / #Docker / #Excel 绑定目标...",
     composerHint: "Enter 发送 · Shift+Enter 换行 · {'@'} Agent · # 工作区",
     inheritedContext: '已继承',
+    mentionScopes: {
+      ssh: '终端、主机与 SFTP 资产',
+      db: '数据库与消息队列资产',
+      docker: '容器与镜像工作区',
+      excel: '工作簿与数据分析',
+      local: '本机文件系统与跨平台 Shell'
+    },
     clearInheritedContext: '清除当前会话继承的工作区上下文',
     parallelAgent: '并行',
     temporaryAgent: '临时',

@@ -1,5 +1,6 @@
 import { computed, nextTick, ref, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
 import { useAiStore, type AiAssetType, type AiSession, type AiToolCallRecord } from '@/stores/ai'
+import { useAssetStore } from '@/stores/asset'
 import {
   sessionSearchTools,
   sessionSearchToolCaller,
@@ -7,6 +8,15 @@ import {
   makeMemoryToolCaller,
   type ToolConfirmFn
 } from '@/utils/aiTools'
+import {
+  assetMentionToken,
+  assetSummary,
+  extractMentionScopes,
+  filterMentionedAgents,
+  filterMentionedAssets,
+  workspacePrefix
+} from '@/utils/aiMention'
+import { resolveStickyContextBinding } from '@/utils/aiContext'
 import { createMcpRuntime } from '@/services/mcp'
 import type { LlmTool, LlmToolCall } from '@/services/ai'
 
@@ -65,6 +75,7 @@ export interface UseAiChatHostOptions {
  */
 export function useAiChatHost(options: UseAiChatHostOptions) {
   const aiStore = useAiStore()
+  const assetStore = useAssetStore()
   const confirmEnabled = options.confirm ?? true
   const mcpEnabled = options.mcp ?? true
   const retryMode = options.retryMode ?? 'resend'
@@ -109,6 +120,56 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
     })
   }
 
+  /**
+   * 解析消息中的 @ / # mention(语义与 AiView 一致,内嵌场景无 planner 直跑):
+   * - @Agent名 → 切换本会话 Agent(session.agentId,运行时字段;再次 @ 即切换)
+   * - #目标   → 写入 session.contextBinding(sticky:本轮显式提及则更新,未提及沿用上一轮)
+   * 无 # 提及时不触碰既有绑定;# 后紧跟无法解析的 token 视为显式清空(同 AiView)。
+   */
+  function applyMentions(text: string, s: AiSession) {
+    const mentionedAgents = filterMentionedAgents(aiStore.agents, text)
+    if (mentionedAgents.length > 0) {
+      aiStore.setSessionAgent(toValue(options.instanceId), mentionedAgents[0].id)
+    }
+    const scopes = extractMentionScopes(text)
+    const referencedAssets = filterMentionedAssets(assetStore.assets, text)
+    const explicitTokens = [
+      ...scopes.map(scope => `#${workspacePrefix(scope)}`),
+      ...referencedAssets.map(asset => assetMentionToken(asset.type, asset.name))
+    ]
+    if (explicitTokens.length === 0) return
+    // 模块作用域(#SSH 等)覆盖该类型全部资产,与 AiView 的 scopedAssets 语义一致
+    const explicitIds = new Set(referencedAssets.map(asset => asset.id))
+    for (const asset of assetStore.assets) {
+      if (scopes.includes(asset.type)) explicitIds.add(asset.id)
+    }
+    const resolved = resolveStickyContextBinding({
+      explicitAssetIds: Array.from(explicitIds),
+      explicitLocal: scopes.includes('local'),
+      explicitTokens,
+      previous: s.contextBinding,
+      availableAssetIds: assetStore.assets.map(asset => asset.id)
+    })
+    s.contextBinding = resolved.binding
+  }
+
+  /**
+   * # 绑定目标的 system prompt 附加块:只附带基本信息(类型/名称/连接摘要)供模型参照,
+   * 不新造跨资产工具通道,可用工具仍限于当前标签页宿主能力。
+   */
+  function buildBoundContextBlock(s: AiSession): string {
+    const binding = s.contextBinding
+    if (!binding) return ''
+    const boundIds = new Set(binding.assetIds)
+    const assets = assetStore.assets.filter(asset => boundIds.has(asset.id))
+    if (assets.length === 0 && !binding.local) return ''
+    const inventory = [
+      ...assets.map(asset => `- ${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`),
+      ...(binding.local ? ['- LOCAL | 本机 | 当前运行 StarHub 的设备'] : [])
+    ].join('\n')
+    return `\n\n本会话通过 # 额外绑定的目标: ${binding.tokens.join(', ')}\n绑定目标信息:\n${inventory}\n以上目标仅供参照;可用工具仍限于当前标签页宿主能力,不要声称能直接操作未接入的目标。`
+  }
+
   /** 组装本轮工具集与 systemPrompt,启动 agent(runAgent 内部 finally 会还原 loading) */
   async function runAgentOnce() {
     if (!session.value) return
@@ -129,7 +190,13 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
       if (mcpRuntime && call.function.name.startsWith('mcp__')) return mcpRuntime.execute(call)
       return executor(call)
     }
-    const sysPrompt = aiStore.buildSystemPrompt(options.getBasePrompt(), options.assetType)
+    // @ 切换的会话 Agent 优先:用其角色与技能(buildAgentPrompt)作为基础 prompt,
+    // 宿主动态上下文(cwd、当前库等)降级为参考块;清空 agentId 即回退宿主默认 prompt
+    const mentionAgent = session.value.agentId ? aiStore.getAgent(session.value.agentId) : undefined
+    const basePrompt = mentionAgent
+      ? `${aiStore.buildAgentPrompt(mentionAgent)}\n\n宿主标签页上下文(供参考):\n${options.getBasePrompt()}`
+      : options.getBasePrompt()
+    const sysPrompt = aiStore.buildSystemPrompt(basePrompt, options.assetType) + buildBoundContextBlock(session.value)
     const tools = mcpRuntime
       ? [...options.tools, ...sessionSearchTools, ...memoryTools, ...mcpRuntime.tools]
       : [...options.tools, ...sessionSearchTools, ...memoryTools]
@@ -139,6 +206,8 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
   async function onAiSend(text: string) {
     const s = session.value
     if (!s) return
+    // @ / # mention 在 send 入口统一应用(含 steering 分支:运行中也能切换 Agent / 调整绑定)
+    applyMentions(text, s)
     // 防并发 send:loading 在 runAgent 之前立刻设,挡住重复点击,
     // 否则两个 runAgent 并发跑会污染 messages(LLM 报 400 tool call 错位)
     if (s.loading) {

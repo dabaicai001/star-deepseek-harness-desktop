@@ -14,6 +14,11 @@
 
 ---
 
+## [0.57.0] - 2026-08-12
+
+### 新增
+- 各标签页内嵌 AI 助手(AiChat)支持 `@`/`#` mention:`@Agent名` 切换本会话 Agent(AiSession 新增运行时 `agentId`,systemPrompt 改用该 Agent 的角色约束 + 绑定技能,宿主动态上下文降级为参考块);`#资产名` 绑定额外目标(写入 `session.contextBinding`,sticky 语义与 AiView 一致,systemPrompt 附绑定目标清单);mention 菜单(正则触发 / 键盘导航 / Esc 关闭)移植自 AiView;mention 纯函数抽取为 `src/utils/aiMention.ts` 供 AiView 与 AiChat 同源使用(配 9 例 node --test 单测)
+
 ## [0.56.0] - 2026-08-12
 
 ### 变更

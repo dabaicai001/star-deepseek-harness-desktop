@@ -329,6 +329,11 @@ export interface AiSession {
    * 各窗口/标签页的 AI 会话独立选模型,互不影响。
    */
   modelId?: string
+  /**
+   * 内嵌 AI 助手的会话级 @ Agent 覆盖(运行时字段,不持久化):
+   * 设置后宿主组 systemPrompt 优先用该 Agent 的角色与技能,清空回退宿主默认 prompt。
+   */
+  agentId?: string
 }
 
 export type AiContextBinding = StickyContextBinding
@@ -626,6 +631,12 @@ export const useAiStore = defineStore('ai', () => {
   function setSessionModel(instanceId: string, modelId: string): void {
     const session = sessions.value.get(instanceId)
     if (session) session.modelId = modelId || undefined
+  }
+
+  /** 设置/清除内嵌 AI 助手会话的 @ Agent 覆盖(运行时字段,不持久化);传空回退宿主默认 prompt。 */
+  function setSessionAgent(instanceId: string, agentId?: string): void {
+    const session = sessions.value.get(instanceId)
+    if (session) session.agentId = agentId || undefined
   }
 
   // 三期:向记忆自动沉淀服务注入运行态依赖(模型配置与 runAgent 同源,含 Keyring 解锁的 key)。
@@ -990,6 +1001,7 @@ export const useAiStore = defineStore('ai', () => {
       session.loading = false
       session.executionPlan = undefined
       session.contextBinding = undefined
+      session.agentId = undefined
       session.pendingSteers = []
     }
     conversationSummaries.value = conversationSummaries.value.filter(summary => summary.id !== instanceId)
@@ -1841,6 +1853,7 @@ export const useAiStore = defineStore('ai', () => {
     getActiveModelConfig,
     resolveModelConfig,
     setSessionModel,
+    setSessionAgent,
     getAgent,
     createAgent,
     updateAgent,
