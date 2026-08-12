@@ -916,6 +916,14 @@ export default {
     whitelistHint: 'After adding, this command will not be asked again',
     collapseToolCall: 'Collapse Tool Details',
     expandToolResult: 'Show full result',
-    collapseToolResult: 'Collapse result'
+    collapseToolResult: 'Collapse result',
+    ctxUsage: 'ctx {percent}%',
+    ctxUsageTip: 'Context usage — click to compact now',
+    ctxCompacting: 'Compacting context…',
+    ctxCompacted: 'Context compacted into a summary',
+    ctxCompactSkipped: 'Not enough messages to compact',
+    compactedContext: 'Compacted context',
+    expandCompactSummary: 'Show full summary',
+    collapseCompactSummary: 'Collapse summary'
  }
 }

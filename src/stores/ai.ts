@@ -6,6 +6,8 @@ import { chatWithTools, chatStream, estimateCost } from '@/services/ai'
 import { decrypt as decryptLegacyKey } from '@/utils/crypto'
 import { compactPersistedMessages, buildBudgetedMessagesDetailed, drainPendingSteers, snapshotChatMessages, type StickyContextBinding } from '@/utils/aiContext'
 import { maybeFlushMemoryBeforeCompression, registerMemoryReviewRuntime, scheduleBackgroundMemoryReview } from '@/services/aiMemoryReview'
+import { estimateChars, pickCompactionRange, shouldCompact } from '@/utils/aiCompactionGates'
+import { COMPACT_SUMMARY_PREFIX, buildCompactSummaryMessage, registerCompactionRuntime, summarizeForCompaction } from '@/services/aiCompaction'
 import {
   aiConvDelete,
   aiConvList,
@@ -324,6 +326,10 @@ export interface AiSession {
   memoryBlock?: string
   /** 上次压缩前 memory flush 时的省略消息总数(运行时字段,不持久化;用于 flush 防抖)。 */
   lastFlushOmitted?: number
+  /** 上下文压缩进行中(运行时字段,不持久化;UI 用量指示据此显示 spinner/禁用)。 */
+  compacting?: boolean
+  /** 上次上下文压缩完成时间(运行时字段,不持久化)。 */
+  lastCompactAt?: number
   /**
    * 会话级模型覆盖(运行时字段,不持久化):空/undefined = 跟随全局 settings.activeModelId。
    * 各窗口/标签页的 AI 会话独立选模型,互不影响。
@@ -383,9 +389,11 @@ function truncateStoredText(value: string, maxChars: number): string {
   return value.length <= maxChars ? value : `${value.slice(0, maxChars)}…`
 }
 
-/** 会话标题:首条 user 消息截 80 字符,无则「新会话」。 */
+/** 会话标题:首条 user 消息截 80 字符,无则「新会话」;压缩摘要消息不当标题。 */
 function buildSessionTitle(messages: ChatMessage[]): string {
-  const firstUser = messages.find(message => message.role === 'user' && message.content.trim())
+  const firstUser = messages.find(message =>
+    message.role === 'user' && message.content.trim() && !message.content.startsWith(COMPACT_SUMMARY_PREFIX)
+  )
   const text = firstUser?.content.trim().replace(/\s+/g, ' ') ?? ''
   if (!text) return '新会话'
   return text.length > 80 ? `${text.slice(0, 80)}…` : text
@@ -484,6 +492,13 @@ export const useAiStore = defineStore('ai', () => {
   // 用于:1) 新一轮进入时等旧一轮 abort+finally 收尾,避免 messages 数组被并发 push 污染;
   //      2) 同一个 instanceId 上的并发 runAgent 串行化,防止 tool_call/tool 消息错位触发 LLM 400。
   const _inflightPromises = new Map<string, Promise<void>>()
+
+  // ====== 上下文压缩(compact)串行锁 ======
+  // key = instanceId, value = 当前在途压缩的 promise。
+  // 与 _inflightPromises 对称:压缩要改 session.messages(原位替换被压缩段),
+  // 必须与同会话的 runAgent 流式 push 串行 —— runAgent 进主循环前 await 它,
+  // compactSessionNow 动手前 await _inflightPromises,两个锁都只等「已开始的对方」,无死锁环。
+  const _compactingPromises = new Map<string, Promise<void>>()
 
   async function _ensureUnlocked() {
     if (_unlockedApiKey.value) return
@@ -647,6 +662,14 @@ export const useAiStore = defineStore('ai', () => {
       memoryEnabled: settings.value.memoryEnabled,
       memoryAutoReview: settings.value.memoryAutoReview,
       memoryWriteNeedsConfirm: settings.value.memoryWriteNeedsConfirm
+    })
+  })
+
+  // 上下文压缩:向压缩服务注入运行态依赖(模型解析与 runAgent 同源,含会话级覆盖)。
+  registerCompactionRuntime({
+    getModelConfig: resolveModelConfig,
+    getSettings: () => ({
+      contextBudgetChars: settings.value.contextBudgetChars
     })
   })
 
@@ -1571,6 +1594,64 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   /**
+   * 上下文压缩(compact):对会话里最早的一段消息生成摘要并原位替换。
+   * 手动触发入口(Ui 用量指示点击)与 runAgent 回合后的自动触发共用本函数。
+   *
+   * 串行保证:
+   *  - 动手前 await 该会话在途 runAgent(等它 finally 收尾,不再 push 消息)
+   *  - 压缩期间挂 _compactingPromises,runAgent 进主循环前会 await 它
+   *  - 同会话已在压缩时并入在途压缩,本次直接返回 false(不重复压)
+   *
+   * 门槛:只要 pickCompactionRange 选得出段(早期消息足够)就压 —— 手动触发即「立即执行」;
+   * 50% 阈值只在自动触发路径(回合结束后)用 shouldCompact 预检。
+   * 返回是否真压了;LLM 失败/消息不足/会话被清理都返回 false,消息原样保留。
+   */
+  async function compactSessionNow(instanceId: string): Promise<boolean> {
+    const session = getSession(instanceId)
+    if (!session) return false
+
+    // 串行:等当前 runAgent 收尾再动手,避免替换 messages 时与流式 push 打架
+    const prevRun = _inflightPromises.get(instanceId)
+    if (prevRun) {
+      try { await prevRun } catch { /* 上轮异常,照常继续 */ }
+    }
+    // 已在压缩:并入在途压缩,本次不算新压
+    const existing = _compactingPromises.get(instanceId)
+    if (existing) {
+      try { await existing } catch { /* 在途压缩异常,忽略 */ }
+      return false
+    }
+
+    // 快照选段:摘要 LLM 调用期间主会话消息可能继续变化(如下一轮 runAgent 在等锁,
+    // 但它要 await 本压缩,动不了 messages;快照只为 digest 输入稳定)
+    const snapshot = snapshotChatMessages(session.messages)
+    const range = pickCompactionRange(snapshot)
+    if (!range) return false
+
+    let resolveCompact!: () => void
+    const myCompact = new Promise<void>((res) => { resolveCompact = res })
+    _compactingPromises.set(instanceId, myCompact)
+    session.compacting = true
+    try {
+      const segment = snapshot.slice(range.start, range.end)
+      const summaryText = await summarizeForCompaction(session, segment)
+      if (!summaryText) return false
+      // 压缩期间会话可能被 clearSession 删除重建:对象已不是当前会话则放弃(不污染新会话)
+      if (sessions.value.get(instanceId) !== session) return false
+      // 原位替换被压缩段为摘要消息(普通 user 消息,随 writeSessionToDb 自然落库)
+      session.messages.splice(range.start, range.end - range.start, buildCompactSummaryMessage(summaryText, segment.length))
+      session.lastCompactAt = Date.now()
+      schedulePersistSessions()
+      return true
+    } finally {
+      session.compacting = false
+      _compactingPromises.delete(instanceId)
+      // 唤醒等本压缩的 runAgent
+      resolveCompact()
+    }
+  }
+
+  /**
    * 发起一次 LLM chat 请求;自动处理 function calling 循环,直到 AI 给出最终文本回复或达到最大步数。
    * 调用方负责传入:工具定义、工具执行器、当前资产上下文。
    *
@@ -1595,6 +1676,13 @@ export const useAiStore = defineStore('ai', () => {
     const prev = _inflightPromises.get(instanceId)
     if (prev) {
       try { await prev } catch { /* 上轮异常,本轮正常启动 */ }
+    }
+
+    // 等该会话在途的上下文压缩收尾:压缩会原位替换 messages 早期段,
+    // 不能与本回合的预算快照、流式 push 并发
+    const prevCompact = _compactingPromises.get(instanceId)
+    if (prevCompact) {
+      try { await prevCompact } catch { /* 压缩异常,本轮正常启动 */ }
     }
 
     // 注册本轮 in-flight
@@ -1779,6 +1867,12 @@ export const useAiStore = defineStore('ai', () => {
       _inflightPromises.delete(instanceId)
       // 三期:回合正常结束后 fire-and-forget 后台记忆 review(不阻塞 UI,失败静默)
       if (finishedNormally) scheduleBackgroundMemoryReview(session)
+      // 上下文压缩:回合正常结束且用量 ≥50% 预算时后台自动压缩(fire-and-forget,失败静默;
+      // compactSessionNow 内部等本回合 in-flight 已 delete,不会自等;阈值之外不动)
+      if (finishedNormally && shouldCompact(estimateChars(session.messages), settings.value.contextBudgetChars, session.compacting === true)) {
+        void compactSessionNow(instanceId)
+          .catch(error => console.warn('[ai-compact] 后台自动压缩失败(已静默):', error))
+      }
       // 唤醒下一个等本轮的 runAgent
       resolveRun()
     }
@@ -1882,6 +1976,7 @@ export const useAiStore = defineStore('ai', () => {
     createExecutionPlan,
     buildSystemPrompt,
     buildAgentPrompt,
+    compactSessionNow,
     runAgent,
     steer,
     stopAgent,

@@ -20,6 +20,8 @@ import AiMessageContent from '@/components/ai/AiMessageContent.vue'
 import AiModelSelector from '@/components/ai/AiModelSelector.vue'
 import { captureScrollAnchor, resolveScrollTop, type ScrollAnchor } from '@/utils/scrollPosition'
 import { agentHandle, assetMentionToken, assetSummary, matchMention, workspacePrefix } from '@/utils/aiMention'
+import { estimateChars } from '@/utils/aiCompactionGates'
+import { isCompactSummaryMessage } from '@/services/aiCompaction'
 
 const props = defineProps<{
   session: AiSession
@@ -336,6 +338,55 @@ const aiStore = useAiStore()
 const notifyStore = useNotifyStore()
 const assetStore = useAssetStore()
 
+// ====== 上下文压缩(compact):用量指示 + 手动触发 + 摘要折叠卡片 ======
+/** 上下文用量百分比(与预算滑窗同口径的字符估算 / contextBudgetChars);messages 变化即重算 */
+const ctxUsagePercent = computed(() => {
+  const budget = aiStore.settings.contextBudgetChars
+  if (!Number.isFinite(budget) || budget <= 0) return 0
+  return Math.round((estimateChars(props.session.messages) / budget) * 100)
+})
+
+/** <50% 正常(无类),50~80% cyan,>80% 黄色 */
+const ctxUsageClass = computed(() => {
+  if (ctxUsagePercent.value > 80) return 'ctx-danger'
+  if (ctxUsagePercent.value >= 50) return 'ctx-warn'
+  return ''
+})
+
+/** 点击用量指示 = 手动压缩;compacting 时禁用(store 内串行锁保证不与 runAgent 打架) */
+async function onCompactClick() {
+  if (props.session.compacting) return
+  const compacted = await aiStore.compactSessionNow(props.session.instanceId)
+  notifyStore.notify({
+    message: compacted ? t('ai.ctxCompacted') : t('ai.ctxCompactSkipped'),
+    color: compacted ? 'success' : 'info',
+    timeout: 2000
+  })
+}
+
+/** 摘要卡片展开状态(按消息下标;默认收起只显示一行摘要头) */
+const expandedCompactSummaries = ref<Set<number>>(new Set())
+
+function isCompactSummaryExpanded(index: number): boolean {
+  return expandedCompactSummaries.value.has(index)
+}
+
+function toggleCompactSummary(index: number) {
+  if (expandedCompactSummaries.value.has(index)) {
+    expandedCompactSummaries.value.delete(index)
+  } else {
+    expandedCompactSummaries.value.add(index)
+  }
+  // 触发响应式
+  expandedCompactSummaries.value = new Set(expandedCompactSummaries.value)
+}
+
+/** 收起时的一行摘要头:content 第一行(含已压缩条数说明) */
+function compactSummaryPreview(content: string): string {
+  return content.split('\n')[0]
+}
+
+
 // ====== @ / # mention(移植自 AiView;语义应用由 useAiChatHost 在 send 入口统一处理) ======
 const mentionIndex = ref(0)
 
@@ -473,6 +524,17 @@ function deleteHistoryConversation(row: AiConversationRow) {
       </button>
       <div class="toolbar-spacer" />
       <AiModelSelector :session-id="session.instanceId" />
+      <!-- 上下文用量指示:点击 = 手动压缩(compacting 时 spinner + 禁用) -->
+      <button
+        class="ctx-usage-btn"
+        :class="ctxUsageClass"
+        :disabled="session.compacting === true"
+        :title="session.compacting ? t('ai.ctxCompacting') : t('ai.ctxUsageTip')"
+        @click="onCompactClick"
+      >
+        <v-icon v-if="session.compacting" size="10" class="mdi-spin">mdi-loading</v-icon>
+        <span>{{ t('ai.ctxUsage', { percent: ctxUsagePercent }) }}</span>
+      </button>
       <button
         class="toolbar-btn retry-toolbar-btn"
         title="重试最后一条消息"
@@ -506,8 +568,22 @@ function deleteHistoryConversation(row: AiConversationRow) {
 
       <!-- 消息循环 -->
       <template v-for="(msg, idx) in session.messages" :key="idx">
+        <!-- 压缩摘要消息:可折叠卡片(默认收起,一行摘要头;展开看全文) -->
+        <div v-if="isCompactSummaryMessage(msg)" class="ai-compact-card">
+          <button type="button" class="ai-compact-head" @click="toggleCompactSummary(idx)">
+            <v-icon size="12">mdi-archive-arrow-down-outline</v-icon>
+            <span class="ai-compact-title">{{ t('ai.compactedContext') }}</span>
+            <span class="ai-compact-preview">{{ compactSummaryPreview(msg.content) }}</span>
+            <v-icon size="11">{{ isCompactSummaryExpanded(idx) ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
+            <span class="ai-compact-toggle-text">
+              {{ isCompactSummaryExpanded(idx) ? t('ai.collapseCompactSummary') : t('ai.expandCompactSummary') }}
+            </span>
+          </button>
+          <div v-if="isCompactSummaryExpanded(idx)" class="ai-compact-body">{{ msg.content }}</div>
+        </div>
+
         <!-- 普通消息 (user / assistant / tool) -->
-        <div class="msg" :class="msg.role">
+        <div v-else class="msg" :class="msg.role">
           <div class="msg-avatar">
             <v-icon size="14" v-if="msg.role === 'user'">mdi-account</v-icon>
             <v-icon size="14" v-else-if="msg.role === 'tool'">mdi-tools</v-icon>

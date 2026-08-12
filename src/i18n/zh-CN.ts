@@ -917,6 +917,14 @@ export default {
     whitelistHint: '加入白名单后，该命令将不再询问',
     collapseToolCall: '收起工具详情',
     expandToolResult: '展开完整结果',
-    collapseToolResult: '收起结果'
+    collapseToolResult: '收起结果',
+    ctxUsage: 'ctx {percent}%',
+    ctxUsageTip: '上下文用量,点击立即压缩',
+    ctxCompacting: '正在压缩上下文…',
+    ctxCompacted: '上下文已压缩为摘要',
+    ctxCompactSkipped: '消息较少,无需压缩',
+    compactedContext: '已压缩上下文',
+    expandCompactSummary: '展开摘要全文',
+    collapseCompactSummary: '收起摘要'
  }
 }

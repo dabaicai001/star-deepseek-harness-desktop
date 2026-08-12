@@ -14,6 +14,11 @@
 
 ---
 
+## [0.60.0] - 2026-08-12
+
+### 新增
+- AI 上下文压缩(compact):回合正常结束后估算上下文用量,≥50% 预算(`contextBudgetChars`)即在后台自动压缩——LLM 把最早一段消息(保留最近 12 条、边界不拆 tool 组、不足 6 条放弃)压成结构化中文摘要并原位替换为「上下文压缩摘要」消息(前缀标记,随会话自然落库);新增 `_compactingPromises` 锁与 runAgent in-flight 互等,压缩与流式输出严格串行;AiChat 工具栏新增 `ctx NN%` 用量指示(<50% muted / 50~80% cyan / >80% 黄),点击手动立即压缩(compacting 时 spinner);摘要消息在消息流渲染为可折叠卡片;纯门禁 `src/utils/aiCompactionGates.ts` + 15 例 node --test 单测;预算滑窗与 memory flush 时序不变
+
 ## [0.59.3] - 2026-08-12
 
 ### 移除

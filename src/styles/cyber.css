@@ -4761,6 +4761,108 @@ body {
   border: 1px solid var(--line-2);
 }
 
+/* ====== 上下文压缩(compact):工具栏用量指示 + 摘要折叠卡片 ====== */
+
+/* 工具栏 ctx 用量指示:小号等宽,点击 = 手动压缩 */
+.ctx-usage-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 3px 6px;
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  color: var(--muted);
+  font: 10px 'JetBrains Mono', monospace;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ctx-usage-btn:hover:not(:disabled) {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: var(--hover-cyan-soft);
+}
+
+.ctx-usage-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+/* 50~80%:cyan 提示;>80%:黄色警示 */
+.ctx-usage-btn.ctx-warn {
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+
+.ctx-usage-btn.ctx-danger {
+  color: var(--yellow);
+  border-color: var(--yellow);
+}
+
+/* 压缩摘要卡片:替代普通消息气泡,默认收起只显示一行摘要头 */
+.ai-compact-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 10px;
+  box-sizing: border-box;
+  border: 1px dashed var(--line-2);
+  border-left: 2px solid var(--cyan);
+  border-radius: 6px;
+  background: var(--hover-cyan-faint);
+}
+
+.ai-compact-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font: 10px 'JetBrains Mono', monospace;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ai-compact-head:hover {
+  color: var(--cyan);
+}
+
+.ai-compact-title {
+  flex-shrink: 0;
+  color: var(--cyan);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.ai-compact-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-compact-toggle-text {
+  flex-shrink: 0;
+}
+
+.ai-compact-body {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
 /* 连接工作区右栏的 AI 工具调用卡片 */
 .ai-tool-call {
   display: flex;
