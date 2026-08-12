@@ -9,10 +9,11 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.59.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.59.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
+[![官网](https://img.shields.io/badge/官网-starthub.waouzzz.cc-cyan)](https://starthub.waouzzz.cc/)
 
 </div>
 
@@ -45,10 +46,12 @@
 
 ### 数据库客户端 (Go Sidecar 承载)
 - ✅ **MySQL**:表结构、数据浏览、查询执行、DDL/索引/列管理、表数据 Excel 全量导出(分批拉取 + 进度条 + 通知中心)
+- ✅ **PostgreSQL / SQLite**:表浏览、查询执行、数据导出
 - ✅ **Redis**:键浏览、模糊检索、自动扫描当前 DB、String/List/Hash/Set/ZSet 类型适配
 - ✅ **Elasticsearch**:索引浏览、文档查询、聚合、导出 JSON
-- ✅ **ClickHouse**:表浏览、查询执行、导出
-- 🚧 **PostgreSQL / SQLite** (计划中)
+- ✅ **ClickHouse / SQL Server**:表浏览、查询执行、导出
+- ✅ 备份恢复、SQL 审计与告警
+- 🚧 **Oracle / MongoDB / 国产库 ODBC 桥** (规划中)
 
 数据库结果网格 (DbUniverGrid) 基于 Univer Sheets 渲染,已支持:
 - 表头纯字段名展示,类型/可空/键/默认值/备注在 hover tooltip 中
@@ -60,21 +63,22 @@
 ### SSH 终端
 - xterm.js 5 渲染,FitAddon / WebLinksAddon / SearchAddon
 - **ZMODEM 协议支持**:通过 `zmodem.js` 在 Webview 侧实现 `rz` / `sz`,支持远端触发本地文件选择发送 / 远端发送本地接收并保存
-- 跳板机 / 隧道 (规划中)
-- 多标签独立会话、状态恢复
+- 跳板机 / 端口转发、分屏、命令广播、危险命令拦截
+- 快捷命令(支持导入 Xshell .qbl / .qblx)、shell prompt 捕获与 cwd 跟踪
+- **服务器网页访问**:经 SSH direct-tcpip 的 Web 网关,从服务器侧出口浏览公网/内网站点
+- 多标签独立会话、状态恢复、断线自动重连(应用层 keepalive)
 
 ### SFTP 文件传输
 - 三栏浏览、路径面包屑、隐藏文件、新建文件夹、重命名、删除
 - SFTP 启动策略:自动诊断标准 subsystem,异常时探测 `sftp-server` 路径并受控降级;支持「仅标准 subsystem」和「指定远端程序」模式
-- 拖拽上传 / 下载 (规划中)
-- 断点续传 (规划中)
+- 拖拽上传 / 下载、断点续传、暂停 / 继续,全局传输任务条 (TransferDock)
+- 跟随终端当前目录、路径输入直达、连接后落到会话起始目录
 
 ### Docker 面板
-- 容器 / 镜像列表
-- 本地 Docker 主机
+- 容器 / 镜像列表,资产树 DB 化(容器/镜像对象树联动工作区)
+- 本地 Docker 主机 + SSH 通道连远程 Docker
 - **Docker Exec 交互式 TTY**:可持续读写的终端会话,支持窗口尺寸同步、命令历史、Tab 补全、Ctrl 组合键
-- SSH 通道连远程 Docker (规划中)
-- 镜像加速 (规划中)
+- Docker Compose、镜像加速
 
 ### Excel / CSV 工具
 - Univer Sheets 0.25.1 完整封装:
@@ -85,20 +89,29 @@
 - Sheet 切换复用同一 Workbench 实例,不再每次销毁重建
 - 与数据库查询结果共用 `src/lib/univer.ts` 集成层
 
+### 本地工作区
+- 导入文件夹 / 文件为工作区,目录树懒加载 + 缩进参考线、明细列表(大小/修改时间)
+- VSCode 式编辑体验:可点击面包屑、编辑器 tab(dirty 点/关闭钮同槽位)、底部状态栏
+- 文件 CRUD、右键菜单、文本编辑 Ctrl/Cmd+S 保存,.xlsx/.csv 自动用 Excel 工具打开
+- AI 全局可读本机文件(`#LOCAL` 绑定)
+
 ### AI 助手
-- OpenAI 兼容协议 (GPT / Claude / DeepSeek / 通义千问 / Ollama 等)
-- Function Calling 可驱动 SSH / SFTP / DB / Docker 工具
+- OpenAI 兼容协议 (GPT / Claude / DeepSeek / 通义千问 / Ollama 等),流式输出
+- 多模型配置与**会话级模型选择**:每个窗口/标签页独立切换模型,互不影响
+- Function Calling 可驱动 SSH / SFTP / DB / Docker / 本地文件工具;Planner → Executor 编排
+- `@` 调用 Agent、`#` 绑定目标(AI 工作区与各标签页内嵌助手同源支持)
+- **AI 记忆**:user / global / asset 三级记忆卡 + SQLite FTS5 会话存档检索 + 压缩前 flush / 回合后 review 自动沉淀;侧边栏内置记忆管理
 - MCP Server 支持 stdio、Streamable HTTP 与兼容 SSE,动态挂载外部 tools
-- 最近对话支持恢复与单条删除,发送区提供排障/变更/SFTP/MCP 提问引导
-- 危险命令强制确认,白名单命令可自动放行
-- 每个标签页独立聊天历史
-- 流式输出 (规划中)
+- 最近对话恢复与单条删除、历史会话全文搜索 (`session_search`)
+- 危险命令强制确认,白名单 / 只读命令可自动放行
+- 每个标签页独立聊天历史;主侧边栏内嵌 AI 聊天,快速提问 `Ctrl+J`
 
 ### 工作台体验
-- 多标签工作区,同一资产支持多实例
+- 多标签工作区,同一资产支持多实例;标签页可拖出为独立窗口
 - 单击资产优先激活已有标签,避免误开重复会话
 - 全局搜索 `Ctrl/Command + K`、命令面板 `Ctrl/Command + P`
 - 折叠侧边栏 `Ctrl/Command + B`、折叠右面板 `Ctrl/Command + Shift + B`
+- 深浅双主题、自动更新 (Tauri Updater)
 - 通知中心:操作历史 + 条数 / SQL / 耗时等详情
 - **Cyber Command Center** 设计系统:深色为主、低饱和青色高亮、栅格背景、玻璃面板、等宽数据字体
 
@@ -106,210 +119,15 @@
 
 ## 当前版本
 
+### v0.59.2 (2026-08-12)
+- 📝 README:当前版本区裁剪为最近 3 个版本(完整历史以 CHANGELOG 为准,规则写入 AGENTS.md 6.5-6);功能矩阵更新到 v0.59 实际交付面(PostgreSQL/SQLite/SQL Server、跳板机/端口转发、SFTP 断点续传/暂停、Docker Compose/SSH 通道、本地工作区、AI 记忆/@/# mention/会话级模型等,移除过期「规划中」标注);路线图重写为 v0.18~v0.59 阶段总结 + 下一步候选;新增官网徽章 https://starthub.waouzzz.cc/
+
 ### v0.59.1 (2026-08-12)
 - 📝 AGENTS.md 6.5 新增「git tag 与 Release 构建」规则:一次会话涉及多个版本时只在最后 push 最新版本的 tag(中间版本不打 tag 不出包);纯文档/脚本类修订版默认不打 tag;推 tag 一律单个推(GitHub 单次 push 最多触发 3 个 tag 工作流,超出静默丢弃)
 
 ### v0.59.0 (2026-08-12)
 - 🔧 本地工作区(LocalView)UI 重设计,对标 VSCode Explorer + 编辑器体验并翻译到 cyber 设计系统:EXPLORER 式分区标题条(操作按钮 hover 显现)、目录树缩进参考线 + 选中行左侧 cyan 指示条、编辑器 tab 条(dirty 点/关闭钮同槽位互斥)、可点击面包屑、明细列表(吸附表头/等宽右对齐)、底部 24px 等宽状态栏、骨架加载态与引导空态;修复原组件引用不存在 token(`--color-surface-primary` 等)导致样式失效的根因,两个组件 scoped 样式整体删除,视觉集中于 cyber.css `.local-*` 一组类;顺手修复面包屑对 Windows 盘符路径拼出 `C:\/C:/foo` 坏路径的旧 bug;文案迁入 i18n `local` 命名空间(34 key,双语言);新增 Playwright 验证脚本 `scripts/verify-local-layout.py`(5 场景 + 双主题截图)
 
-### v0.58.0 (2026-08-12)
-- ✨ 主侧边栏 AI 面板从纯入口升级为内嵌真实聊天,与标签页助手共用一套逻辑:内嵌 `AiChat` + `useAiChatHost`(instanceId `sidebar-ai`,local 上下文,session_search / memory / MCP 工具由 composable 分流),免费获得会话级模型选择器、@/# mention、工具确认卡、历史会话存档;Agent 快捷列表与最近对话改为可折叠区,行为不变;「快速提问 Ctrl+J」改为聚焦内嵌 composer
-- ✨ 侧边栏 AI 面板新增可折叠「AI 记忆」区:列出 user / global 两级 L1 记忆卡,支持新增(选 scope)与删除,记忆禁用时显示提示;数据走 `src/services/aiMemory.ts`,聊天侧由 runAgent 自动注入/沉淀
-
-### v0.57.0 (2026-08-12)
-- ✨ 各标签页内嵌 AI 助手(AiChat)支持 `@`/`#` mention:`@Agent名` 切换本会话 Agent(AiSession 新增运行时 `agentId`,systemPrompt 改用该 Agent 的角色约束 + 绑定技能,宿主动态上下文降级为参考块);`#资产名` 绑定额外目标(写入 `session.contextBinding`,sticky 语义与 AiView 一致,systemPrompt 附绑定目标清单);mention 菜单(正则触发 / 键盘导航 / Esc 关闭)移植自 AiView;mention 纯函数抽取为 `src/utils/aiMention.ts` 供 AiView 与 AiChat 同源使用(配 9 例 node --test 单测)
-
-### v0.56.0 (2026-08-12)
-- 🔧 6 个内嵌 AI 助手宿主(SSH / DB / Docker / Redis / ES / Excel)的聊天编排逻辑抽取为共用 composable `src/composables/useAiChatHost.ts`(净删 532 行重复):防并发守卫、steering、工具组装(业务 + sessionSearch + memory + MCP)、whitelist 确认流程、runAgent 调用统一收口,宿主差异(业务工具、执行器、动态 prompt、审计钩子)全部参数化注入,行为不变
-
-### v0.55.0 (2026-08-12)
-- ✨ AI 模型选择支持按窗口/会话独立,互不影响:`AiSession` 新增 `modelId` 覆盖字段(运行时,不持久化),`runAgent` 与 Planner(`createExecutionPlan`)改经 `resolveModelConfig(session.modelId)` 解析,空覆盖回退全局 `settings.activeModelId`;`AiModelSelector` 新增 `sessionId` prop,会话模式下拉顶部提供「跟随全局」行,徽章左侧 cyan 点标识本窗口独立选模型
-- ✨ AI 模型选择器下拉菜单重设计(cyber 面板替代裸 v-list):模型数 >3 时出现搜索框(按名称/模型 ID/URL 过滤)、「默认模型 / 已配置模型」分组小标题、模型 ID 等宽徽章 + baseUrl 副信息、底部「添加模型…」入口;视觉集中在 cyber.css `.ai-model-menu-*` 一处
-
-### v0.54.1 (2026-08-11)
-- 🐛 SFTP 面板连接成功后初始目录从写死的根目录(`/`)改为会话起始目录(通常是登录用户家目录):新增 Rust `sftp_home_dir` 命令,通过 SFTP realpath(".") 解析,失败兜底根目录
-- 🐛 SFTP「跟随终端」开关不再要求用户先手动敲 pwd 才可用:
-- 🔧 AI 模型选择器触发按钮重设计:不再套用 cyber-badge 大写徽章观感(浅色主题下近白底 + 全大写模型名,突兀难读),改为与相邻 action-btn 对齐的透明底弱边框按钮;模型名保留原大小写、等宽字体、超长省略;视觉集中在 cyber.css `.ai-model-badge` 一处,组件不再写 scoped 视觉
-- ✨ `npm run cargo:check` / `npm run cargo:test`(`scripts/cargo-env.bat`):自动加载 MSVC vcvars64 环境再跑 cargo,解决 Git Bash 下 `failed to find tool "cl.exe"` 的问题;vcvars 路径取 `STARHUB_VCVARS` 环境变量,缺省回退 `D:\c++1` 安装位置
-- ✅ 新增 `tests/terminal-cwd.test.mjs`(7 例,`npm run test:terminal-cwd`):OSC 7 解析(BEL / ST 结尾、file://host 形式、跨分片拼接、非绝对路径过滤)与静默 pwd 输出解析
-
-### v0.54.0 (2026-08-11)
-- ✨ AI 模型选择器下沉到所有视图的 AI 助手侧栏(共享组件,与工作区头部同源,选择立即生效);Settings 新增「Agent 最大迭代次数」;SFTP 面板支持跟随终端当前目录、路径输入直达、单击进入目录;标签页右键新增「在新标签页打开」
-- 🐛 修复「激活此模型」不生效及保存时误删 Keyring 全局 API Key;AI 长期记忆弹窗无法滚动;AI 调 SFTP 工具链(SSH 重连后复用死 SFTP 通道必败、传输被暂停空轮询 30 分钟卡死、下载目录不存在直接失败、列表截断无注记、远端相对路径静默解析、确认弹窗工作区前缀重复);SFTP 右键下载作用于旧选中项;标签栏右键弹 Windows 原生系统菜单与自定义菜单互相抢(弃用 drag-region 改手动 startDragging)
-
-### v0.53.0 (2026-08-11)
-- ✨ AI 记忆系统三期:自动沉淀——压缩前 memory flush(上下文省略前先把在途事实存卡,防抖防重复冲刷)+ 回合后后台 review(自动整理对话沉淀新事实,重复自动去重);新增「自动沉淀记忆」开关(默认开,开启「写入需确认」时自动跳过);抽取 mini-loop 全静默降级,不影响主对话。三期全部落地:冷记忆存档检索 + 热记忆卡注入 + 自动沉淀闭环
-
-### v0.52.0 (2026-08-11)
-- ✨ AI 记忆系统二期:长期记忆卡——`user` / `global` / `asset:{id}` 三级作用域,`memory` 工具(add/replace/remove,子串匹配)让 Agent 自主策展,硬字符上限超限自合并、精确去重;记忆块以冻结快照注入 system prompt(带容量用量头);写入前安全扫描(注入/凭据/隐形 Unicode);可选写入确认闸(复用工作区确认卡);Settings 新增开关与「管理记忆」弹窗(查看/编辑/删除);写入 💾 通知 + 审计
-
-### v0.51.0 (2026-08-11)
-- ✨ AI 记忆系统一期(方案见 `docs/AI记忆系统方案.md`):会话存档落 SQLite + FTS5 全文索引(退役 localStorage 压缩方案,旧数据自动迁移),Agent 可用 `session_search` 工具全文检索历史会话(搜索/浏览/翻页三形态,已挂载全部宿主);`runAgent` 增加上下文预算滑窗(默认 12 万字符,tool 组不拆散,省略注入注记);AiChat 新增「历史会话」弹窗(搜索/加载/删除);Settings 新增「记忆与上下文」设置项
-
-### v0.50.3 (2026-08-11)
-- 🐛 SSH AI 助手遇到长耗时命令(如 `sleep 50; if [ -f pid ]...` 轮询脚本)会阻塞终端直到 60s/120s 超时被 Ctrl+C 打断:新增 `ssh_exec_background` / `ssh_wait_task` 两个 AI 工具——前者把命令 base64 落盘成脚本、nohup 后台执行(输出进 out.log、退出码进 exit 文件)并立即返回 task_id,后者经独立静默 exec channel 轮询(内部带 sleep,不占用用户终端),返回 [STATUS] RUNNING/FINISHED(含退出码)/NOT_FOUND + 日志尾部;`ssh_exec`/`ssh_exec_confirmed` 预检拒绝含 sleep ≥15s 的命令并引导改用后台工具,system prompt 同步补充长耗时命令使用指引;新增 `src/utils/sshBackgroundTask.ts` 纯函数模块与 `tests/ssh-background-task.test.mjs` 单测
-
-### v0.50.2 (2026-08-11)
-- 📝 新增 [`docs/AI记忆系统方案.md`](./docs/AI记忆系统方案.md):参考 Hermes Agent 四层记忆架构设计 StarHub AI 记忆系统——热记忆卡(user/global/asset 三级作用域,硬字符上限 + 冻结快照 + 写入安全扫描)注入 system prompt,冷记忆走 SQLite FTS5 会话存档 + `session_search` 工具,写入确认闸复用工作区确认卡,分三期落地(会话存档 + token 预算 → 记忆卡 → 后台 review 自动沉淀)
-
-### v0.50.1 (2026-08-10)
-- 🐛 AI 助手跑命令途中 SSH 终端突然掉线("Connection closed by remote host" 后自动重连):russh 客户端此前没有任何应用层心跳(两处 `client::Config` 只有 `inactivity_timeout: None`),终端连接在 shell 无输出期间长时间零流量,易被中间 NAT / 防火墙按空闲会话踢掉(表现为 AI 长命令执行中远程主动断开);为两处连接配置启用 `keepalive_interval: 30s` + `keepalive_max: 3`(应用层 keepalive,不依赖对端 sshd 的 ClientAlive 配置);同时读循环把断开原因(Eof=shell 退出 / Close=通道关闭 / 连接丢失)记录 `tracing::warn` 并作为 `ssh:close:{id}` 事件 payload 透传给前端,终端据此区分打印「Remote shell exited」与「Connection closed by remote host」,此前两种情形一律显示后者无法定位
-
-### v0.50.0 (2026-08-10)
-- ✨ AI Agent 支持「绑定目标」与「自动批准(仅查询)」:编辑器可为 Agent 勾选默认绑定的资产(#SSH-xxx / #DB-xxx / #LOCAL 等)与自动批准开关;绑定目标在该 Agent 的对话首轮自动注入为 # 上下文(沿用 resolveStickyContextBinding,按当前可用资产过滤),无需每次手动输入 #;自动批准开启后,只读查询类工具调用(SELECT/SHOW/EXPLAIN 类 SQL、ls/df/ps 等查看类命令,commandGuard 新增 isReadOnlySql/isReadOnlyShellCommand 保守判定——重定向、命令替换、sudo、多段管道任一段不可证只读即拦)免确认直接执行,更新/删除等 _confirmed 写工具(always-confirm)与高风险命令(risk)仍逐条人工审查,勾选处附说明文案
-
-### v0.49.0 (2026-08-10)
-- ✨ SSH 快捷命令(QUICK)导入支持 Xshell 8 导出的 .qblx:该格式实为 ZIP 包(每个命令集一个目录、目录名 GBK 编码,各含一个 UTF-16 LE 的 commands.qbl,新版 `Button_N_Name/Action/Type` 键格式,Action 内字面 `\r\n` 表换行);零依赖解 ZIP(手工解析中央目录 + `DecompressionStream('deflate-raw')`),多命令集合并导入(多集时标签加 `集名/` 前缀),Type=2 本地脚本条目跳过并在结果里计数;解析器同时兼容旧版 `Button_N=标签\n[1]命令` 键格式与 UTF-16/UTF-8/GBK 三种编码
-
-### v0.48.2 (2026-08-10)
-- 🐛 数据库查询结果网格编辑 varchar 等文本列时前导零被吃掉(`companyId` 输入 `000023123121` 失焦后变 `23123121`,保存即数据损坏):Univer 编辑器提交时把数字形文本按 Excel 语义解析成数字;按上游 `getCellDataByInput`「文本格式('@')优先级最高」的规则,为 char/text/enum/set/json/uuid/date/time/year/binary/blob 等文本语义列的单元格设 `n.pattern='@'` 文本格式,输入原样保留(日期时间同理不再变序列号);`coerceValue` 再加一道兜底——粘贴等绕过编辑器文本格式的路径把数字/布尔转回字符串,保住列类型语义
-
-### v0.48.1 (2026-08-10)
-- 🐛 服务器网页访问 tab 切回后变成空白初始页(地址栏清空、需重新输入网址):web tab 首次打开时路由带 query(SSH 入口带 `?session=`、_blank 新开带 `?session=&url=`),而 tab 条点击切换的 `selectTab` 是不带 query 的 push——keep-alive 以 `route.fullPath` 为 key,两种 fullPath 各产生一个组件实例,带 query 的实例又不在 include 名单里被立即裁剪,`loadedUrl` 等浏览状态随之销毁(v0.47.10 的恢复机制因此只在第二次切换后才生效);修复:打开 web tab 一律不带 query(session 由 `tab.assetId` 反解),_blank 新开的初始 URL 改走 `src/utils/webTabNav.ts` 一次性暂存,新实例 onMounted 取走后自动导航
-
-### v0.48.0 (2026-08-10)
-- ✨ SSH 快捷命令(QUICK)支持导入 Xshell 导出的快速命令集(.qbl):编辑器新增「导入 Xshell (.qbl)」按钮,解析 INI 结构 `[QuickButton]` 节的 `Button_N=标签\n[1]命令` 条目(多段 `\n[N]` 拼多行命令、按序号排序、UTF-8 解码失败回退 GBK),导入后追加到当前列表(icon 默认 `mdi-script-text-outline`),保存后生效;解析器沉淀为纯函数 `src/utils/xshellQuickCommand.ts` 并配 node --test 单测
-
-### v0.47.11 (2026-08-10)
-- 🐛 服务器网页访问同时开多个 web tab 时标题/地址互相污染(第一个 tab 标题被后开的页面覆盖),且切回上一个 tab 偶发报错:多个 tab 共享同一 SSH 网关端口,每个 keep-alive 的 WebBrowserView 都在 window 上监听 `message`,此前只按 `e.origin` 过滤,同端口下无法区分来源 iframe,B tab 页面的 navigated/title 上报被 A tab 一并处理;`onGatewayMessage` 增加 `e.source === iframeRef.contentWindow` 归属判断,只处理本视图 iframe 的消息
-
-### v0.47.10 (2026-08-10)
-- 🐛 服务器网页访问部分站点(IIS/Http.sys)整单报「400 invalid header name」:网关原样转发浏览器请求头,头值带非 ASCII 原始字节(如个别站点种的 GBK cookie,经 `from_utf8_lossy` 已损坏)会被 Http.sys 拒;新增 `is_valid_header` 校验——头名非 token 或头值含非可见 ASCII 的头丢弃并 `tracing::warn` 留痕;顺带:Referer 由网关 URL 回写成原始站形式(`rewrite_referer`,兼容防盗链站点)、User-Agent 优先透传浏览器的(此前固定网关 UA 与浏览器 UA 重复)
-- 🐛 服务器网页访问切换 StarHub 标签页后页面状态丢失(回到初始地址):keep-alive 失活时 iframe 被移入离屏容器,浏览器对重新挂载的 iframe 按 src 属性重新导航;激活时按桥接脚本上报维护的当前真实地址重新加载(`ensureGateway`/`proxyUrlOf` 从 navigate 抽出复用),恢复期间忽略初始 src 竞态产生的旧地址上报(滚动位置等 DOM 级状态受浏览器限制无法保留)
-
-### v0.47.9 (2026-08-10)
-- 🐛 桌面端窗口右侧常驻一条空白竖条(AI 视图右侧"多出来一块",此前按「`.workspace-content` 多余滚动条」修过未根治):真根因是 Vuetify reset(`vuetify/styles`)给 `html` 写了 `overflow-y: scroll`,与 cyber.css 全局 `overflow: hidden` 同优先级且注入更晚,Windows 经典(非 overlay)滚动条下视口右侧常驻一条空白滚动条轨道;overlay/headless 滚动条不占布局空间,纯浏览器预览回归全程看不出来;cyber.css 对 `html` 显式 `overflow-y: hidden !important` 压掉
-
-### v0.47.8 (2026-08-10)
-- 🐛 服务器网页访问 v0.47.7 的 _blank 拦截 / 自定义右键菜单 / 地址栏同步在桌面应用里全部静默失效:应用源(`http://tauri.localhost`)与网关源(`127.0.0.1:<port>`)跨源,`iframe.contentDocument` 为 null,外层 JS 根本碰不到 iframe 文档(此前纯浏览器预览的同源假象掩盖);改为网关在改写 HTML 时注入桥接脚本(`BRIDGE_SCRIPT`),在页面内部完成 _blank / 中键 / Ctrl+点击拦截(新开 tab)、右键菜单拦截、导航与页面标题上报,统一 `postMessage` 与外层通信,并接收外层 back / forward / reload 命令;tab 标题跟随页面 `<title>` 更新(`appStore.updateTabTitle`)
-
-### v0.47.7 (2026-08-10)
-- 🐛 服务器网页访问点击百度搜索结果等 `target="_blank"` 链接无反应:sandbox iframe 内 _blank 弹窗被 webview 吞掉;改为前端在 iframe(与网关同源)挂 capture 点击拦截,`_blank` 链接(含 `<base target="_blank">` 场景)、中键 / Ctrl+点击统一还原出原始 URL 后按项目 tab 模式新开一个 WebBrowserView(`query.url` 自动导航),普通链接仍在 iframe 内跳转
-- 🔧 服务器网页访问工具栏补齐浏览器导航:新增回退 / 前进按钮(`contentWindow.history`),iframe 每次加载后地址栏同步为当前真实页面地址(此前 iframe 内跳转后地址栏停留在初始 URL,刷新会退回首页)
-
-### v0.47.6 (2026-08-10)
-- 🐛 服务器网页访问百度搜索回车仍报「link cannot be proxied」(v0.47.5 的 Referer 恢复未生效):网关 iframe 带 `sandbox` 属性,JS 根相对导航的请求可能不带可用 Referer,仅靠 Referer 恢复不可靠;新增 `fallback_proxy_redirect` 兜底——网关记录最近一次成功代理 HTML 文档的上游(scheme/host),无前缀请求在 Referer 恢复失败后用该上游 307 回代理形式(单站点浏览可靠;多标签异站点时 Referer 路径优先,兜底可能指错站点但严格好于错误页);端到端用例改为先断言未代理任何页面时无前缀请求仍回错误页,代理百度后再断言 `/s?wd=IP` 与 favicon 均收到 307 恢复重定向
-
-### v0.47.5 (2026-08-10)
-- 🐛 服务器网页访问百度搜索输入关键词回车后报「link cannot be proxied」:搜索提交由页面 JS 驱动(`location.href = "/s?wd=..."` 等根相对跳转),HTML 改写覆盖不到 JS,根相对路径相对网关源解析成 `http://127.0.0.1:<port>/s?wd=...`,丢掉 `/__proxy__/` 前缀落入 404 错误页;新增 `recover_proxy_redirect`——无前缀请求用 Referer(仍为代理 URL)找回上游 scheme/host,307 重定向回代理形式(307 保持方法与请求体,导航与 XHR 通用),恢复不了才回错误页;新增恢复逻辑单测(百度实测复现场景)
-
-### v0.47.4 (2026-08-10)
-- 🐛 服务器网页访问 iframe 报「127.0.0.1 拒绝连接」的真根因:并非端口失效,而是网关把上游站点的 `X-Frame-Options` / `Content-Security-Policy`(含 `frame-ancestors 'self'`)原样透传,webview 拒绝把页面渲染进 iframe(`ERR_BLOCKED_BY_RESPONSE`,错误文案恰好是「127.0.0.1 拒绝连接」,同一时刻 curl 直连网关端口完全正常,导致此前数版修复都在排查端口存活、方向全错);回写响应统一经 `should_skip_response_header` 剥离 XFO / CSP / CSP-Report-Only(整 CSP 一并剥离,否则上游 script-src/img-src 同样拦截改写产物);网关启动、上游失败、上游超时补 `tracing` 日志;新增头部过滤单测,端到端用例补 frame-ancestors 剥离断言(百度实测会发该头)
-
-### v0.47.3 (2026-08-09)
-- 🐛 服务器网页访问「127.0.0.1 拒绝连接」:前端缓存的网关端口在 SSH 重连(`disconnect` 停网关)或同会话其他网页标签页关闭后已失效,`navigate` 只在端口为 0 时才重启网关,刷新/跳转一直打到死端口;改为复用前先调 `ssh_web_gateway_port` 校验后端真实状态,不一致即重启;后端 accept 循环遇瞬时错误不再 `break` 永久退出(监听器死了但句柄还在,前端同样表现为拒绝连接),改为告警后短暂退避继续监听;`web_gateway::start` 泛型化 handler 以便测试直连,新增端到端用例(经 `test-sftp/direct_tcpip_server.py` 的 direct-tcpip 通道真实访问 www.baidu.com,验证 TLS + HTML 改写全链路)
-
-### v0.47.2 (2026-08-09)
-- 🐛 SSH AI 工具执行多行命令偶发「等待 shell prompt 返回超时」(命令秒回却等满 60s):借鉴 OpenHands / Roo Code 的哨兵思路,AI 命令后追加不可见 OSC 完成标记(`printf '\033]777;starhub;ai-done;<ID>;<退出码>\007' "$?"`),命中即收口并附退出码,哨兵被吞时退回原 prompt 识别;修复末行输出无换行导致 prompt 与输出粘连、永远匹配不上的问题
-- 🐛 AI 助手(AiView)与 SSH 终端内嵌 StarAI 面板切换标签页后滚动位置「回到开头」:keep-alive 失活时 DOM 先离屏、deactivated 钩子后触发,capture 到归零的 scrollTop 覆盖了正确锚点;改为已离屏时保留最后锚点,AiChat 补齐锚点保存/恢复
-
-### v0.47.1 (2026-08-08)
-- 🐛 SFTP 下载文件时 `sftp_start_download` 因预检 `stat` 失败直接报错:改为 `stat` 失败不阻塞,worker 直接尝试 `open` 下载;`download_file` 返回实际文件大小并回写任务总字节数,兼容远端/FUSE 等 `stat`/`fstat` 不可靠的场景
-
-### v0.47.0 (2026-08-08)
-- ✨ SFTP 传输暂停/继续:TransferDock 运行中任务新增「暂停」按钮(⏸),已暂停任务可「继续」(▶)或「取消」;后端 `TransferControl` 双令牌(cancel/pause),暂停时 worker 在 64KB 块边界退出并保留任务与逐文件断点偏移,继续时换新令牌重新 spawn worker 从断点续传;新增 `sftp_pause_transfer`/`sftp_resume_transfer` 命令与 `TransferStatus::Paused` 状态(进度条黄色,「清理已完成」不清除已暂停任务)
-
-### v0.46.10 (2026-08-08)
-- 🐛 SFTP 取消(暂停)传输对单个大文件失效:取消令牌只在文件之间检查,`upload_file`/`download_file` 的 64KB 块读写循环内不检查,点击 ✕ 后当前文件仍会传完才停止;在循环内每块检查一次取消标记并中断,取消立即生效且保留断点续传偏移
-
-### v0.46.9 (2026-08-08)
-
-- 🐛 修复「服务器网页访问」HTTPS 站点（如 www.baidu.com）报「127.0.0.1 未发送任何数据」：rustls 双 CryptoProvider（reqwest 的 ring + tokio-rustls 默认的 aws-lc-rs）导致 `ClientConfig::builder()` panic、连接被静默断开，改为显式 `builder_with_provider(ring)`
-
-### v0.46.8 (2026-08-08)
-- 🐛 SSH AI 工具执行 `sleep 5; ps ...` 等长时间静默的复合命令时不再提前返回空输出:prompt 可识别时停用 2s 数据流 idle 兜底,并排除折行命令回显被误判为 shell prompt 的情况;prompt 捕获纯函数抽至 `src/utils/sshPromptCapture.ts` 并补 node --test 单测
-- 📝 在 `docs/BUG-K3.md` 中标注「服务器网页访问」项已完成（v0.46.6），数据库查询结果可编辑与本地工作区改进仍为待办
-
-### v0.46.7 (2026-08-07)
-
-- 文档同步：`docs/BUG-K3.md` 标注服务器网页访问问题已完成，SQL 结果编辑/本地工作区改进仍待办
-
-### v0.46.6 (2026-08-07)
-
-- 服务器网页访问走真正的 SSH `direct-tcpip` 隧道，从服务器侧出口
-- 修复重定向/相对链接改写，新增 iframe 右键菜单（后退/前进/刷新/复制地址/外部浏览器打开）
-
-### v0.46.5 (2026-08-07)
-
-- AI 本地工作区上下文不再错误显示为 `xlsx`，支持通过 `#LOCAL-xxx` 绑定后调用本地文件/Shell 工具
-- 设置页「新增模型」弹窗背景改为不透明面板
-- 移除本地工作区树底部的全局「导入文件夹/导入文件」按钮，保留右键菜单导入
-- AI 助手与 AI 运行时输入框增加聚焦环绕光效
-- 修复 AI 视图右侧多余纵向滚动条
-- 数据库视图点击表后若连接尚未就绪会自动排队，连接完成后直接打开表数据页
-- 修复 MySQL 单元格编辑时前导零被吃掉的问题（如 `00000123`）
-
-### v0.46.4 (2026-08-06)
-
-- 修复 SSH 网页访问压缩响应未解压导致百度等站点显示乱码的问题
-- AI 设置改为统一模型列表，支持新增、编辑、选择并保存模型配置
-
-### v0.46.3 (2026-08-06)
-
-- 修复资产表 CHECK 约束缺失 'local' 类型导致导入本地文件夹报错
-- 修复 SSH 网页访问创建内置浏览器失败，改用 iframe + CSP frame-src
-- 改进 AI 模型选择器，支持默认模型与多模型即时切换
-
-### v0.46.2 (2026-08-06)
-
-- 修复 SSH Web 网关未透传请求头与 POST/PUT/PATCH 请求体的问题
-
-### v0.46.1 (2026-08-06)
-
-- 修复多模型 API Key 明文持久化与 SSH Web 网关编译问题
-
-### v0.46.0 (2026-08-06)
-- ✨ AI 助手多模型选择:对话页头新增模型切换下拉菜单,列出所有已配置模型(含 baseUrl / 模型 ID),一键切换;无多模型时显示默认模型名;底部「添加模型」快捷入口直达 Settings
-- ✨ SSH「服务器网页访问」重构为 Web 网关:输入公网/内网地址后由 reqwest 抓取,经本地 HTTP 代理重组,内嵌 webview 渲染;支持 HTTPS(正确 SNI/证书)、HTML 内 URL 自动改写让子资源也走网关
-- 🔧 SSH 终端工具栏按钮 alt 文案由"访问服务器网页"改为"服务器网页访问",强调由服务器视角发起
-- ✨ 本地工作区:支持导入文件夹 / 文件作为工作目录,目录树浏览、文本文件查看编辑(Ctrl+S / Cmd+S 保存)、新建文件 / 文件夹、重命名、删除、刷新(右键菜单 + 工具栏);导入单个文件时以所在目录为工作区并直接打开,.xlsx / .csv 自动用 Excel 工具打开
-- ✨ 新建连接对话框新增「本地工作区」类型(文件夹 / 文件选择器,按规范化路径去重,已存在则复用打开)
-- 🔧 Excel 工具入口全面替换为本地工作区:欢迎页模块卡 / 指标 / 状态栏、工作区与标签栏右键菜单;新建连接类型网格中的 Excel 卡片替换为本地工作区(存量 Excel 资产编辑表单保留)
-- 🔧 侧边栏「本地工作区」分组右键菜单改为「导入文件夹… / 导入文件…」,空态新增两个导入按钮
-- 🐛 修复侧边栏「本地工作区」分组右键新建弹出错误对话框的问题(此前落到通用新建连接类型选择页)
-- 🐛 修复复制本地工作区资产后标签页不跳转路由的问题
-- 🐛 修复 GitHub Actions Windows tag 构建失败:放宽 local shell 单测超时 (5s → 30s),避免 CI runner PowerShell 冷启动 flaky
-- 🐛 移除浏览器环境不可用的本地工作区导入文件夹/文件入口
-
-### v0.44.0 (2026-08-06)
-- ✨ SSH「服务器网页访问」重构为 Web 网关:输入公网/内网地址后由 reqwest 抓取,经本地 HTTP 代理重组,内嵌 webview 渲染;支持 HTTPS(正确 SNI/证书)、HTML 内 URL 自动改写让子资源也走网关
-- 🔧 SSH 终端工具栏按钮 alt 文案由"访问服务器网页"改为"服务器网页访问",强调由服务器视角发起
-- ✨ 本地工作区:支持导入文件夹 / 文件作为工作目录,目录树浏览、文本文件查看编辑(Ctrl+S / Cmd+S 保存)、新建文件 / 文件夹、重命名、删除、刷新(右键菜单 + 工具栏);导入单个文件时以所在目录为工作区并直接打开,.xlsx / .csv 自动用 Excel 工具打开
-- ✨ 新建连接对话框新增「本地工作区」类型(文件夹 / 文件选择器,按规范化路径去重,已存在则复用打开)
-- 🔧 Excel 工具入口全面替换为本地工作区:欢迎页模块卡 / 指标 / 状态栏、工作区与标签栏右键菜单;新建连接类型网格中的 Excel 卡片替换为本地工作区(存量 Excel 资产编辑表单保留)
-- 🔧 侧边栏「本地工作区」分组右键菜单改为「导入文件夹… / 导入文件…」,空态新增两个导入按钮
-- 🐛 修复侧边栏「本地工作区」分组右键新建弹出错误对话框的问题(此前落到通用新建连接类型选择页)
-- 🐛 修复复制本地工作区资产后标签页不跳转路由的问题
-- 🐛 修复 GitHub Actions Windows tag 构建失败:放宽 local shell 单测超时 (5s → 30s),避免 CI runner PowerShell 冷启动 flaky
-- 🐛 移除浏览器环境不可用的本地工作区导入文件夹/文件入口
-
-### v0.43.0 (2026-08-06)
-- ✨ 本地工作区:支持导入文件夹 / 文件作为工作目录,目录树浏览、文本文件查看编辑(Ctrl+S / Cmd+S 保存)、新建文件 / 文件夹、重命名、删除、刷新(右键菜单 + 工具栏);导入单个文件时以所在目录为工作区并直接打开,.xlsx / .csv 自动用 Excel 工具打开
-- ✨ 新建连接对话框新增「本地工作区」类型(文件夹 / 文件选择器,按规范化路径去重,已存在则复用打开)
-- 🔧 Excel 工具入口全面替换为本地工作区:欢迎页模块卡 / 指标 / 状态栏、工作区与标签栏右键菜单;新建连接类型网格中的 Excel 卡片替换为本地工作区(存量 Excel 资产编辑表单保留)
-- 🔧 侧边栏「本地工作区」分组右键菜单改为「导入文件夹… / 导入文件…」,空态新增两个导入按钮
-- 🐛 修复侧边栏「本地工作区」分组右键新建弹出错误对话框的问题(此前落到通用新建连接类型选择页)
-- 🐛 修复复制本地工作区资产后标签页不跳转路由的问题
-- 🐛 修复 GitHub Actions Windows tag 构建失败:放宽 local shell 单测超时 (5s → 30s),避免 CI runner PowerShell 冷启动 flaky
-- 🐛 移除浏览器环境不可用的本地工作区导入文件夹/文件入口
-
-### v0.42.3 (2026-08-06)
-- 🐛 修复 GitHub Actions Windows tag 构建失败:放宽 local shell 单测超时 (5s → 30s),避免 CI runner PowerShell 冷启动 flaky
-- 🐛 移除浏览器环境不可用的本地工作区导入文件夹/文件入口
-
-### v0.42.2 (2026-08-05)
-- 🐛 移除浏览器环境不可用的本地工作区导入文件夹/文件入口
-
-### v0.42.1 (2026-08-05)
-- ✨ 左侧 Excel 标签→本地工作区:导入文件夹/文件,目录树懒加载,Excel 文件复用现有编辑器,文本文件内置编辑器
-- ✨ AI 助手全局感知本地工作区文件
-- ✨ 设置 AI 助手多模型配置,支持 ClawHub trending skills 一键导入
-
-### v0.41.0 (2026-08-04)
-- ✨ 恢复资产树库/表/Redis/ES 节点右键菜单(树侧持有,不开 tab 直接弹);标签页右键新增关闭左侧/重新连接/断开连接/刷新资产树;删除与资产树重复的 Docker 中间容器列表面板
-
-### v0.40.0 (2026-08-04)
-- ✨ Docker 资产树 DB 化:DCKR 徽章 + 品牌图标,单击展开容器/镜像对象树、连接内过滤、点击容器/镜像联动工作区;连接参数构建抽取共用
 ---
 
 ## 技术栈
@@ -445,11 +263,11 @@ UI 改动必须先读 `AGENTS.md` 第 4.4 节,**token 优先 + 组件类集中**
 
 | 阶段 | 状态 | 重点 |
 |---|---|---|
-| v0.28.x | ✅ 完成 | SFTP 启动策略、Linux 跨发行版兼容、窗口拖动修复 |
-| v0.27.x | ✅ 完成 | Docker Exec 交互式 TTY、资产树徽章统一 |
-| v0.26.x | ✅ 完成 | SSH 私钥兼容性增强、SFTP 三栏传输、AI Agent 工作区 |
-| v0.18.x ~ v0.25.x | ✅ 完成 | PostgreSQL、Kafka/NSQ、Univer 深度集成、Excel 工具 |
-| v0.29.x+ | 📋 计划中 | SQLite 适配器、Settings 完善、Docker 远程连接、Compose |
+| v0.18.x ~ v0.32.x | ✅ 完成 | PostgreSQL、Kafka/NSQ、Univer 深度集成、SFTP 启动策略、Linux 跨发行版兼容、Docker 资产树 DB 化 |
+| v0.40.x ~ v0.49.x | ✅ 完成 | 本地工作区、服务器网页访问 (SSH Web 网关)、SFTP 暂停/继续、Xshell 快捷命令导入 |
+| v0.50.x ~ v0.54.x | ✅ 完成 | AI 记忆系统三期 (会话存档 FTS5 → 三级记忆卡 → 自动沉淀)、多模型配置与选择器、SFTP 跟随终端 |
+| v0.55.x ~ v0.59.x | ✅ 完成 | AI 会话级模型独立、useAiChatHost 统一聊天编排、`@`/`#` mention、侧边栏 AI 聊天 + 记忆、本地工作区 VSCode 化重设计 |
+| 下一步 | 📋 计划中 | Settings 代理与安全 tab、Oracle / MongoDB 适配、国产库 ODBC 桥、CI/CD 流水线 |
 | v1.0 | 🎯 目标 | 稳定版 GA、团队协作与企业能力 |
 
 ---

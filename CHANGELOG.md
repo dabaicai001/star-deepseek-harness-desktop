@@ -14,6 +14,11 @@
 
 ---
 
+## [0.59.2] - 2026-08-12
+
+### 文档
+- README:当前版本区裁剪为最近 3 个版本(完整历史以 CHANGELOG 为准,规则写入 AGENTS.md 6.5-6);功能矩阵更新到 v0.59 实际交付面(PostgreSQL/SQLite/SQL Server、跳板机/端口转发、SFTP 断点续传/暂停、Docker Compose/SSH 通道、本地工作区、AI 记忆/@/# mention/会话级模型等,移除过期「规划中」标注);路线图重写为 v0.18~v0.59 阶段总结 + 下一步候选;新增官网徽章 https://starthub.waouzzz.cc/
+
 ## [0.59.1] - 2026-08-12
 
 ### 文档

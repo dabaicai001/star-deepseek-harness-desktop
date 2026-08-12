@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.59.1(AGENTS.md 6.5 新增「git tag 与 Release 构建」规则:一次会话涉及多个版本时只在最后 push 最新版本的 tag(中间版本不打 tag 不出包);纯文档/脚本类修订版默认不打 tag;推 tag 一律单个推(GitHub 单次 push 最多触发 3 个 tag 工作流,超出静默丢弃)) |
+| 当前版本 | v0.59.2(README:当前版本区裁剪为最近 3 个版本(完整历史以 CHANGELOG 为准,规则写入 AGENTS.md 6.5-6);功能矩阵更新到 v0.59 实际交付面(PostgreSQL/SQLite/SQL Server、跳板机/端口转发、SFTP 断点续传/暂停、Docker Compose/SSH 通道、本地工作区、AI 记忆/@/# mention/会话级模型等,移除过期「规划中」标注);路线图重写为 v0.18~v0.59 阶段总结 + 下一步候选;新增官网徽章 https://starthub.waouzzz.cc/) |
 
 ---
 
@@ -330,6 +330,8 @@ npm run tauri:build
    - 纯文档/脚本类修订版(z)默认不打 tag,避免为无产物价值的变更触发 Release 构建;tag 随下一个有实际代码产物的版本一起打
    - 推 tag 一律单个推:`git tag vX.Y.Z && git push origin vX.Y.Z`,禁止一次推多个 tag
 
+6. **README「当前版本」区只保留最近 3 个版本**:`bump-version.mjs` 每次会在顶部插入新版本条目,升版后顺手把超出 3 个的旧条目裁掉(完整历史以 CHANGELOG.md 为准)。
+
 ### 6.5.1 每次更新代码必须更新版本号(强制)
 
 **核心规则**:**任何一次**代码或文档改动提交时,版本号必须随之递增,不允许「改了代码但版本号不变」。
@@ -488,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-12 (v0.59.1)*
+*最后更新: 2026-08-12 (v0.59.2)*
