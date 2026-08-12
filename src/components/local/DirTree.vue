@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { ref } from 'vue'
 import { useLocalViewStore, type LocalFileEntry } from '@/stores/localView'
 import { invoke } from '@tauri-apps/api/core'
 
 defineOptions({ name: 'DirTree' })
 
-const { t } = useI18n()
 const store = useLocalViewStore()
 
 const props = defineProps<{
@@ -116,7 +114,7 @@ function formatSize(bytes: number): string {
 </script>
 
 <template>
-  <div class="local-dir-tree">
+  <div class="local-tree">
     <div
       v-for="entry in entries"
       :key="entry.path"
@@ -125,29 +123,31 @@ function formatSize(bytes: number): string {
       <div
         class="local-tree-row"
         :class="{ selected: store.currentPath === entry.path }"
-        :style="{ paddingLeft: `${props.depth * 16 + 4}px` }"
         @click="onFileClick(entry)"
         @dblclick="onFileDblClick(entry)"
         @contextmenu="onRowCtx($event, entry)"
       >
         <v-icon
           v-if="entry.isDir"
-          class="chevron"
-          :class="{ open: isExpanded(entry.path), loading: loadingDirs.has(entry.path) }"
+          class="local-tree-chevron"
+          :class="{ open: isExpanded(entry.path) }"
           size="14"
           @click.stop="toggleDir(entry)"
         >
           {{ loadingDirs.has(entry.path) ? 'mdi-loading mdi-spin' : 'mdi-chevron-right' }}
         </v-icon>
-        <span v-else class="chevron-spacer" />
-        <v-icon :color="entry.isDir ? 'var(--color-accent-secondary)' : undefined" size="14">
+        <span v-else class="local-tree-chevron-spacer" />
+        <v-icon class="local-tree-icon" :class="{ 'is-dir': entry.isDir }" size="14">
           {{ getIcon(entry) }}
         </v-icon>
-        <span class="name">{{ entry.name }}</span>
-        <span v-if="!entry.isDir" class="size">{{ formatSize(entry.size) }}</span>
+        <span class="local-tree-name">{{ entry.name }}</span>
+        <span v-if="!entry.isDir" class="local-tree-size">{{ formatSize(entry.size) }}</span>
       </div>
-      <!-- 递归子目录 -->
-      <template v-if="entry.isDir && isExpanded(entry.path) && entry.children">
+      <!-- 递归子目录(嵌套层自带缩进参考线) -->
+      <div
+        v-if="entry.isDir && isExpanded(entry.path) && entry.children"
+        class="local-tree-children"
+      >
         <DirTree
           :entries="entry.children"
           :parent-path="entry.path"
@@ -156,59 +156,8 @@ function formatSize(bytes: number): string {
           @open-excel="(e) => emit('open-excel', e)"
           @ctx="(p) => emit('ctx', p)"
         />
-      </template>
+      </div>
     </div>
   </div>
 </template>
 
-<style scoped>
-.local-dir-tree {
-  overflow-y: auto;
-  flex: 1;
-}
-.local-tree-node {
-  user-select: none;
-}
-.local-tree-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 26px;
-  padding-right: 8px;
-  cursor: pointer;
-  border-radius: 3px;
-  transition: background 0.12s;
-}
-.local-tree-row:hover {
-  background: var(--color-surface-hover);
-}
-.local-tree-row.selected {
-  background: var(--color-accent-bg);
-}
-.chevron {
-  flex-shrink: 0;
-  transition: transform 0.15s;
-  color: var(--color-text-muted);
-}
-.chevron.open {
-  transform: rotate(90deg);
-}
-.chevron-spacer {
-  width: 14px;
-  flex-shrink: 0;
-}
-.name {
-  flex: 1;
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-text-primary);
-}
-.size {
-  font-size: 10px;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  flex-shrink: 0;
-}
-</style>

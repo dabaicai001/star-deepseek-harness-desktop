@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.58.0(主侧边栏 AI 面板从纯入口升级为内嵌真实聊天,与标签页助手共用一套逻辑:内嵌 `AiChat` + `useAiChatHost`(instanceId `sidebar-ai`,local 上下文,session_search / memory / MCP 工具由 composable 分流),免费获得会话级模型选择器、@/# mention、工具确认卡、历史会话存档;Agent 快捷列表与最近对话改为可折叠区,行为不变;「快速提问 Ctrl+J」改为聚焦内嵌 composer) |
+| 当前版本 | v0.59.0(本地工作区(LocalView)UI 重设计,对标 VSCode Explorer + 编辑器体验并翻译到 cyber 设计系统:EXPLORER 式分区标题条(操作按钮 hover 显现)、目录树缩进参考线 + 选中行左侧 cyan 指示条、编辑器 tab 条(dirty 点/关闭钮同槽位互斥)、可点击面包屑、明细列表(吸附表头/等宽右对齐)、底部 24px 等宽状态栏、骨架加载态与引导空态;修复原组件引用不存在 token(`--color-surface-primary` 等)导致样式失效的根因,两个组件 scoped 样式整体删除,视觉集中于 cyber.css `.local-*` 一组类;顺手修复面包屑对 Windows 盘符路径拼出 `C:\/C:/foo` 坏路径的旧 bug;文案迁入 i18n `local` 命名空间(34 key,双语言);新增 Playwright 验证脚本 `scripts/verify-local-layout.py`(5 场景 + 双主题截图)) |
 
 ---
 
@@ -482,4 +482,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-12 (v0.58.0)*
+*最后更新: 2026-08-12 (v0.59.0)*

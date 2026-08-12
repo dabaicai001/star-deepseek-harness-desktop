@@ -35,34 +35,54 @@ const asset = computed(() => {
 const loading = ref(false)
 const error = ref('')
 
-// 面包屑路径段
-const pathSegments = computed(() => {
-  if (!localStore.currentPath) return []
-  const parts = localStore.currentPath.replace(/\\/g, '/').split('/').filter(Boolean)
-  if (localStore.currentPath.match(/^[A-Z]:\\/i)) {
-    return [localStore.currentPath.substring(0, 3), ...parts.slice(1)]
+// 路径分段:Windows 盘符根("C:\")与 Unix 根("/")都作为首段保留
+function segmentsOf(p: string): string[] {
+  if (!p) return []
+  const parts = p.replace(/\\/g, '/').split('/').filter(Boolean)
+  if (p.match(/^[A-Z]:\\/i)) {
+    return [p.substring(0, 3), ...parts.slice(1)]
   }
-  if (localStore.currentPath.startsWith('/')) {
+  if (p.startsWith('/')) {
     return ['/', ...parts]
   }
   return parts
-})
+}
 
-// 路径面包屑点击
-function navigateToSegment(idx: number) {
-  const parts = localStore.currentPath.replace(/\\/g, '/').split('/').filter(Boolean)
-  const root = localStore.currentPath.match(/^[A-Z]:\\/i)
-    ? localStore.currentPath.substring(0, 3)
-    : localStore.currentPath.startsWith('/') ? '' : ''
-  if (root && idx === 0) {
-    localStore.setCurrentPath(root)
-    loadDirectory(root)
-    return
+/** 由路径与目标段索引还原该级目录的完整路径 */
+function targetOfSegment(fullPath: string, idx: number): string {
+  const picked = segmentsOf(fullPath).slice(0, idx + 1)
+  if (picked.length === 0) return fullPath
+  // Windows 盘符根:首段本身已是 "C:\",后续用 \ 连接
+  if (/^[A-Za-z]:\\$/.test(picked[0])) {
+    return picked[0] + picked.slice(1).join('\\')
   }
-  const segs = root ? parts.slice(0, root === '/' ? idx : idx) : parts.slice(0, idx + 1)
-  const target = root ? root + '/' + segs.join('/') : '/' + segs.join('/')
+  if (picked[0] === '/') return '/' + picked.slice(1).join('/')
+  return picked.join('/')
+}
+
+// 当前浏览路径的面包屑段
+const pathSegments = computed(() => segmentsOf(localStore.currentPath))
+
+// 编辑器顶部面包屑:激活文件的路径段(末段是文件名)
+const fileSegments = computed(() =>
+  localStore.activeEditorTab ? segmentsOf(localStore.activeEditorTab.path) : []
+)
+
+/** 跳转到指定段的目录并刷新列表 */
+function navigateToDir(target: string) {
   localStore.setCurrentPath(target)
   loadDirectory(target)
+}
+
+// 路径面包屑点击(文件列表态,基于 currentPath)
+function navigateToSegment(idx: number) {
+  navigateToDir(targetOfSegment(localStore.currentPath, idx))
+}
+
+// 编辑器面包屑点击:末段是文件名不可跳转,其余段进入对应目录
+function navigateToFileSegment(idx: number) {
+  if (!localStore.activeEditorTab || idx >= fileSegments.value.length - 1) return
+  navigateToDir(targetOfSegment(localStore.activeEditorTab.path, idx))
 }
 
 /** dirTree 当前对应的目录(面包屑/树可能把 currentPath 改成文件路径,这里单独记录) */
@@ -197,7 +217,7 @@ async function openFileInEditor(entry: LocalFileEntry) {
       language: localStore.getLanguage(entry.name),
     })
   } catch (err: any) {
-    notify.notify({ message: `打开文件失败: ${String(err)}`, color: 'error', timeout: 3000 })
+    notify.notify({ message: t('local.openFailed', { err: String(err) }), color: 'error', timeout: 3000 })
   }
 }
 
@@ -274,7 +294,7 @@ const ctxItems = computed<MenuItem[]>(() => {
     {
       type: 'item',
       icon: 'mdi-open-in-new',
-      label: '打开',
+      label: t('local.open'),
       onClick: () => onSelectFile(entry)
     }
   ]
@@ -282,7 +302,7 @@ const ctxItems = computed<MenuItem[]>(() => {
     items.push({
       type: 'item',
       icon: 'mdi-file-excel-outline',
-      label: '用 Excel 工具打开',
+      label: t('local.openExcel'),
       onClick: () => onOpenExcel(entry)
     })
   }
@@ -292,19 +312,19 @@ const ctxItems = computed<MenuItem[]>(() => {
       {
         type: 'item',
         icon: 'mdi-file-plus-outline',
-        label: '新建文件',
+        label: t('local.newFile'),
         onClick: () => ctxNewFile(entry.path)
       },
       {
         type: 'item',
         icon: 'mdi-folder-plus-outline',
-        label: '新建文件夹',
+        label: t('local.newFolder'),
         onClick: () => ctxNewFolder(entry.path)
       },
       {
         type: 'item',
         icon: 'mdi-refresh',
-        label: '刷新',
+        label: t('local.refresh'),
         onClick: () => refreshChildren(entry.path)
       }
     )
@@ -314,14 +334,14 @@ const ctxItems = computed<MenuItem[]>(() => {
     {
       type: 'item',
       icon: 'mdi-pencil-outline',
-      label: '重命名',
+      label: t('local.rename'),
       shortcut: 'F2',
       onClick: () => ctxRename(entry)
     },
     {
       type: 'item',
       icon: 'mdi-delete-outline',
-      label: '删除',
+      label: t('local.delete'),
       shortcut: 'Del',
       danger: true,
       onClick: () => ctxDelete(entry)
@@ -332,7 +352,7 @@ const ctxItems = computed<MenuItem[]>(() => {
 
 async function ctxNewFile(dirPath: string) {
   const name = await dlg.prompt({
-    message: `在 ${dirPath} 下新建文件`,
+    message: t('local.newFilePrompt', { path: dirPath }),
     placeholder: 'new-file.txt',
     requireNonEmpty: true,
   })
@@ -341,16 +361,16 @@ async function ctxNewFile(dirPath: string) {
   try {
     await invoke('local_write_text_file', { path: full, content: '', createParents: false })
     await refreshChildren(dirPath)
-    notify.notify({ message: `已创建 ${name}`, color: 'success', timeout: 2000 })
+    notify.notify({ message: t('local.created', { name }), color: 'success', timeout: 2000 })
     await openFileInEditor({ name, path: full, isDir: false, size: 0, modifiedAt: 0 })
   } catch (err: any) {
-    notify.notify({ message: `新建文件失败: ${String(err)}`, color: 'error', timeout: 3000 })
+    notify.notify({ message: t('local.createFailed', { err: String(err) }), color: 'error', timeout: 3000 })
   }
 }
 
 async function ctxNewFolder(dirPath: string) {
   const name = await dlg.prompt({
-    message: `在 ${dirPath} 下新建文件夹`,
+    message: t('local.newFolderPrompt', { path: dirPath }),
     placeholder: 'new-folder',
     requireNonEmpty: true,
   })
@@ -359,9 +379,9 @@ async function ctxNewFolder(dirPath: string) {
   try {
     await invoke('local_create_directory', { path: full, recursive: true })
     await refreshChildren(dirPath)
-    notify.notify({ message: `已创建文件夹 ${name}`, color: 'success', timeout: 2000 })
+    notify.notify({ message: t('local.folderCreated', { name }), color: 'success', timeout: 2000 })
   } catch (err: any) {
-    notify.notify({ message: `新建文件夹失败: ${String(err)}`, color: 'error', timeout: 3000 })
+    notify.notify({ message: t('local.createFolderFailed', { err: String(err) }), color: 'error', timeout: 3000 })
   }
 }
 
@@ -381,7 +401,7 @@ function rewriteEntryPaths(entry: LocalFileEntry, oldPath: string, newPath: stri
 
 async function ctxRename(entry: LocalFileEntry) {
   const newName = await dlg.prompt({
-    message: `重命名 ${entry.name}`,
+    message: t('local.renamePrompt', { name: entry.name }),
     defaultValue: entry.name,
     requireNonEmpty: true,
   })
@@ -391,7 +411,7 @@ async function ctxRename(entry: LocalFileEntry) {
   try {
     await invoke('local_move_path', { source: oldPath, destination: newPath })
   } catch (err: any) {
-    notify.notify({ message: `重命名失败: ${String(err)}`, color: 'error', timeout: 3000 })
+    notify.notify({ message: t('local.renameFailed', { err: String(err) }), color: 'error', timeout: 3000 })
     return
   }
   rewriteEntryPaths(entry, oldPath, newPath, newName)
@@ -406,22 +426,22 @@ async function ctxRename(entry: LocalFileEntry) {
   if (samePath(localStore.currentPath, oldPath) || normPath(localStore.currentPath).startsWith(normPath(oldPath) + '/')) {
     localStore.setCurrentPath(newPath + localStore.currentPath.slice(oldPath.length))
   }
-  notify.notify({ message: `已重命名为 ${newName}`, color: 'success', timeout: 2000 })
+  notify.notify({ message: t('local.renamed', { name: newName }), color: 'success', timeout: 2000 })
 }
 
 async function ctxDelete(entry: LocalFileEntry) {
   const ok = await dlg.confirm({
     message: entry.isDir
-      ? `确定删除文件夹 ${entry.name} 吗?将递归删除其中所有内容,此操作不可恢复。`
-      : `确定删除文件 ${entry.name} 吗?此操作不可恢复。`,
-    confirmText: '删除',
+      ? t('local.confirmDeleteDir', { name: entry.name })
+      : t('local.confirmDeleteFile', { name: entry.name }),
+    confirmText: t('local.delete'),
     danger: true,
   })
   if (!ok) return
   try {
     await invoke('local_remove_path', { path: entry.path, recursive: true })
   } catch (err: any) {
-    notify.notify({ message: `删除失败: ${String(err)}`, color: 'error', timeout: 3000 })
+    notify.notify({ message: t('local.deleteFailed', { err: String(err) }), color: 'error', timeout: 3000 })
     return
   }
   // 从树中移除节点
@@ -438,7 +458,7 @@ async function ctxDelete(entry: LocalFileEntry) {
       localStore.closeEditorTab(tab.id)
     }
   }
-  notify.notify({ message: `已删除 ${entry.name}`, color: 'success', timeout: 2000 })
+  notify.notify({ message: t('local.deleted', { name: entry.name }), color: 'success', timeout: 2000 })
 }
 
 /** 工具栏:当前浏览目录下新建文件 / 文件夹、刷新 */
@@ -502,43 +522,62 @@ function formatSize(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(1024))
   return `${(bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)} ${units[i]}`
 }
+
+// 修改时间:后端可能给秒或毫秒,按量级兼容
+function formatTime(ts: number): string {
+  if (!ts) return ''
+  const d = new Date(ts > 1e12 ? ts : ts * 1000)
+  if (Number.isNaN(d.getTime())) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// ====== 状态栏数据(纯展示) ======
+// 工作区根目录名(侧栏 section 头)
+const rootName = computed(() => {
+  const rp = localStore.rootPath
+  if (!rp) return ''
+  const norm = rp.replace(/[/\\]+$/, '')
+  return norm.split(/[/\\]/).pop() || rp
+})
+
+// 当前浏览目录的条目统计
+const dirCount = computed(() => localStore.dirTree.filter(e => e.isDir).length)
+const fileCount = computed(() => localStore.dirTree.filter(e => !e.isDir).length)
+
+// 状态栏显示的路径:优先当前列出目录,其次激活文件
+const statusPath = computed(() =>
+  localStore.activeEditorTab?.path || listedPath.value || localStore.currentPath
+)
 </script>
 
 <template>
   <div class="local-view">
-    <!-- 工具栏 -->
-    <div class="local-toolbar">
-      <div class="local-breadcrumb">
-        <v-icon size="15" color="var(--color-accent-secondary)">mdi-folder-outline</v-icon>
-        <template v-for="(seg, idx) in pathSegments" :key="idx">
-          <span v-if="idx > 0" class="breadcrumb-sep">/</span>
-          <span
-            class="breadcrumb-seg"
-            :class="{ last: idx === pathSegments.length - 1 }"
-            @click="navigateToSegment(idx)"
-          >{{ seg }}</span>
-        </template>
-      </div>
-      <div class="local-actions">
-        <button class="action-btn" :data-tooltip="'新建文件'" @click="toolbarNewFile">
-          <v-icon size="14">mdi-file-plus-outline</v-icon>
-        </button>
-        <button class="action-btn" :data-tooltip="'新建文件夹'" @click="toolbarNewFolder">
-          <v-icon size="14">mdi-folder-plus-outline</v-icon>
-        </button>
-        <button class="action-btn" :data-tooltip="'刷新'" @click="toolbarRefresh">
-          <v-icon size="14">mdi-refresh</v-icon>
-        </button>
-      </div>
-    </div>
-
-    <!-- 主内容 -->
     <div class="local-body">
-      <!-- 目录树 -->
-      <div class="local-sidebar">
-        <div class="local-sidebar-head">
-          <v-icon size="12">mdi-file-tree-outline</v-icon>
-          <span>目录树</span>
+      <!-- 目录树(VSCode Explorer 式:分区标题条 + hover 显现操作) -->
+      <aside class="local-sidebar">
+        <div class="local-side-head">
+          <span class="local-side-title">{{ t('local.explorer') }}</span>
+          <div class="local-side-actions">
+            <button class="action-btn" :data-tooltip="t('local.newFile')" @click="toolbarNewFile">
+              <v-icon size="13">mdi-file-plus-outline</v-icon>
+            </button>
+            <button class="action-btn" :data-tooltip="t('local.newFolder')" @click="toolbarNewFolder">
+              <v-icon size="13">mdi-folder-plus-outline</v-icon>
+            </button>
+            <button class="action-btn" :data-tooltip="t('local.refresh')" @click="toolbarRefresh">
+              <v-icon size="13">mdi-refresh</v-icon>
+            </button>
+          </div>
+        </div>
+        <div
+          v-if="rootName"
+          class="local-side-root"
+          :title="localStore.rootPath"
+          @click="localStore.setCurrentPath(localStore.rootPath)"
+        >
+          <v-icon size="13">mdi-folder-outline</v-icon>
+          <span>{{ rootName }}</span>
         </div>
         <DirTree
           v-if="localStore.dirTree.length > 0"
@@ -549,48 +588,69 @@ function formatSize(bytes: number): string {
           @open-excel="onOpenExcel"
           @ctx="onEntryCtx"
         />
-        <div v-else-if="loading" class="local-empty">
-          <v-icon size="18" class="mdi-spin">mdi-loading</v-icon>
-          <span>加载中…</span>
+        <div v-else-if="loading" class="local-tree-loading">
+          <div
+            v-for="i in 5"
+            :key="i"
+            class="cyber-skeleton"
+            :style="{ width: `${100 - i * 12}%` }"
+          />
         </div>
-        <div v-else class="local-empty">
-          <v-icon size="24">mdi-folder-open-outline</v-icon>
-          <span>选择文件夹开始工作</span>
+        <div v-else class="empty-state local-fill">
+          <v-icon size="40" class="empty-state-icon">mdi-folder-open-outline</v-icon>
+          <div class="empty-state-title">{{ t('local.emptyTreeTitle') }}</div>
+          <div class="empty-state-desc">{{ t('local.emptyTreeDesc') }}</div>
         </div>
-      </div>
+      </aside>
 
-      <!-- 内容区 -->
-      <div class="local-content">
-        <!-- 编辑器 -->
+      <!-- 主区域:编辑器 / 文件列表 -->
+      <main class="local-content">
         <template v-if="localStore.editorTabs.length > 0">
+          <!-- 打开文件 tab 条(dirty 点 / hover 关闭钮) -->
           <div class="local-editor-tabs">
-            <div
-              v-for="tab in localStore.editorTabs"
-              :key="tab.id"
-              class="local-editor-tab"
-              :class="{ active: tab.id === localStore.activeEditorTabId }"
-              @click="localStore.activeEditorTabId = tab.id"
-            >
-              <v-icon size="12">{{ getFileIcon(tab.name) }}</v-icon>
-              <span class="tab-name">{{ tab.name }}</span>
-              <span v-if="tab.dirty" class="tab-dirty">●</span>
-              <button
-                class="tab-close"
-                @click.stop="localStore.closeEditorTab(tab.id)"
-              ><v-icon size="11">mdi-close</v-icon></button>
-            </div>
+            <TransitionGroup name="cyber-tab" tag="div" class="local-editor-tab-list">
+              <div
+                v-for="tab in localStore.editorTabs"
+                :key="tab.id"
+                class="local-editor-tab"
+                :class="{ active: tab.id === localStore.activeEditorTabId, dirty: tab.dirty }"
+                :title="tab.path"
+                @click="localStore.activeEditorTabId = tab.id"
+              >
+                <v-icon size="13" class="local-tab-icon">{{ getFileIcon(tab.name) }}</v-icon>
+                <span class="local-tab-name">{{ tab.name }}</span>
+                <span class="local-tab-tail">
+                  <span v-if="tab.dirty" class="local-tab-dirty" />
+                  <button
+                    class="local-tab-close"
+                    @click.stop="localStore.closeEditorTab(tab.id)"
+                  ><v-icon size="11">mdi-close</v-icon></button>
+                </span>
+              </div>
+            </TransitionGroup>
             <button
               v-if="localStore.activeEditorTab?.dirty"
-              class="cyber-btn-secondary tab-save-btn"
+              class="cyber-btn-secondary local-tab-save"
               @click="saveEditorTab"
             >
               <v-icon size="12">mdi-content-save-outline</v-icon>
-              保存
+              {{ t('local.save') }}
             </button>
+          </div>
+          <!-- 编辑器面包屑:激活文件路径,目录段可点击跳转 -->
+          <div v-if="localStore.activeEditorTab" class="local-breadcrumb">
+            <template v-for="(seg, idx) in fileSegments" :key="idx">
+              <v-icon v-if="idx > 0" size="11" class="local-crumb-sep">mdi-chevron-right</v-icon>
+              <span
+                class="local-crumb"
+                :class="{ last: idx === fileSegments.length - 1 }"
+                @click="navigateToFileSegment(idx)"
+              >{{ seg }}</span>
+            </template>
           </div>
           <div v-if="localStore.activeEditorTab" class="local-editor-body">
             <textarea
-              class="local-editor-textarea cyber-input"
+              class="local-editor-textarea"
               :value="localStore.activeEditorTab.content"
               @input="(e) => localStore.updateEditorContent(localStore.activeEditorTab!.id, (e.target as HTMLTextAreaElement).value)"
               @keydown.ctrl.s.prevent="saveEditorTab"
@@ -600,30 +660,62 @@ function formatSize(bytes: number): string {
           </div>
         </template>
 
-        <!-- 文件网格 (当无编辑器 tab 时) -->
         <template v-else>
-          <div class="local-file-grid">
+          <!-- 目录面包屑:可点击逐级跳转 -->
+          <div class="local-breadcrumb">
+            <template v-for="(seg, idx) in pathSegments" :key="idx">
+              <v-icon v-if="idx > 0" size="11" class="local-crumb-sep">mdi-chevron-right</v-icon>
+              <span
+                class="local-crumb"
+                :class="{ last: idx === pathSegments.length - 1 }"
+                @click="navigateToSegment(idx)"
+              >{{ seg }}</span>
+            </template>
+          </div>
+          <!-- 文件列表(名称 / 大小 / 修改时间) -->
+          <div v-if="localStore.dirTree.length > 0" class="local-file-list">
+            <div class="local-file-head">
+              <span>{{ t('local.colName') }}</span>
+              <span class="local-file-size">{{ t('local.colSize') }}</span>
+              <span class="local-file-mtime">{{ t('local.colModified') }}</span>
+            </div>
             <div
               v-for="entry in localStore.dirTree"
               :key="entry.path"
-              class="local-file-card"
+              class="local-file-row"
               @dblclick="onSelectFile(entry)"
               @click="onSelectFile(entry)"
               @contextmenu="onEntryCtx({ event: $event, entry })"
             >
-              <v-icon size="28" :color="entry.isDir ? 'var(--color-accent-secondary)' : undefined">
-                {{ entry.isDir ? 'mdi-folder-outline' : getFileIcon(entry.name) }}
-              </v-icon>
-              <span class="file-name">{{ entry.name }}</span>
-              <span v-if="!entry.isDir" class="file-size">{{ formatSize(entry.size) }}</span>
-            </div>
-            <div v-if="localStore.dirTree.length === 0 && !loading" class="local-empty full">
-              <v-icon size="32">mdi-folder-open-outline</v-icon>
-              <span>空目录</span>
+              <span class="local-file-name">
+                <v-icon size="15" :class="{ 'is-dir': entry.isDir }">
+                  {{ entry.isDir ? 'mdi-folder-outline' : getFileIcon(entry.name) }}
+                </v-icon>
+                <span>{{ entry.name }}</span>
+              </span>
+              <span class="local-file-size">{{ entry.isDir ? '' : formatSize(entry.size) }}</span>
+              <span class="local-file-mtime">{{ formatTime(entry.modifiedAt) }}</span>
             </div>
           </div>
+          <div v-else-if="loading" class="local-tree-loading local-fill">
+            <div
+              v-for="i in 6"
+              :key="i"
+              class="cyber-skeleton"
+              :style="{ width: `${100 - i * 10}%` }"
+            />
+          </div>
+          <div v-else class="empty-state local-fill">
+            <v-icon size="40" class="empty-state-icon">mdi-folder-open-outline</v-icon>
+            <div class="empty-state-title">{{ t('local.emptyDirTitle') }}</div>
+            <div class="empty-state-desc">{{ t('local.emptyDirDesc') }}</div>
+            <button class="cyber-btn-secondary" @click="toolbarNewFile">
+              <v-icon size="13">mdi-file-plus-outline</v-icon>
+              {{ t('local.newFile') }}
+            </button>
+          </div>
         </template>
-      </div>
+      </main>
     </div>
 
     <!-- 错误提示 -->
@@ -631,6 +723,25 @@ function formatSize(bytes: number): string {
       <v-icon size="13">mdi-alert-circle-outline</v-icon>
       <span>{{ error }}</span>
     </div>
+
+    <!-- 状态栏(等宽数字) -->
+    <footer class="local-statusbar">
+      <span class="local-status-item local-status-path" :title="statusPath">
+        <v-icon size="11">mdi-folder-outline</v-icon>
+        <span>{{ statusPath }}</span>
+      </span>
+      <span v-if="localStore.dirTree.length > 0" class="local-status-item">
+        <v-icon size="11">mdi-format-list-bulleted</v-icon>
+        {{ t('local.entries', { dirs: dirCount, files: fileCount }) }}
+      </span>
+      <template v-if="localStore.activeEditorTab">
+        <span class="local-status-item accent">{{ localStore.activeEditorTab.language.toUpperCase() }}</span>
+        <span class="local-status-item" :class="{ warn: localStore.activeEditorTab.dirty }">
+          <v-icon size="11">{{ localStore.activeEditorTab.dirty ? 'mdi-circle-small' : 'mdi-check' }}</v-icon>
+          {{ localStore.activeEditorTab.dirty ? t('local.modified') : t('local.saved') }}
+        </span>
+      </template>
+    </footer>
 
     <!-- 文件 / 目录右键菜单 -->
     <ContextMenu
@@ -643,199 +754,3 @@ function formatSize(bytes: number): string {
   </div>
 </template>
 
-<style scoped>
-.local-view {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--color-surface-primary);
-}
-.local-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  flex-shrink: 0;
-  min-height: 36px;
-}
-.local-breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  flex: 1;
-  overflow-x: auto;
-  font-size: 12px;
-}
-.breadcrumb-sep {
-  color: var(--color-text-muted);
-  font-size: 11px;
-}
-.breadcrumb-seg {
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-.breadcrumb-seg:hover {
-  color: var(--color-text-primary);
-  background: var(--color-surface-hover);
-}
-.breadcrumb-seg.last {
-  color: var(--color-text-primary);
-  font-weight: 500;
-}
-.local-actions {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-.local-body {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-}
-.local-sidebar {
-  width: 220px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--color-border-subtle);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.local-sidebar-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  flex-shrink: 0;
-}
-.local-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.local-editor-tabs {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  flex-shrink: 0;
-  overflow-x: auto;
-  min-height: 32px;
-}
-.local-editor-tab {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  font-size: 11px;
-  border-radius: 3px;
-  cursor: pointer;
-  white-space: nowrap;
-  background: var(--color-surface-secondary);
-  color: var(--color-text-secondary);
-  border: 1px solid transparent;
-}
-.local-editor-tab.active {
-  background: var(--color-surface-primary);
-  color: var(--color-text-primary);
-  border-color: var(--color-border);
-}
-.local-editor-tab:hover { background: var(--color-surface-hover); }
-.tab-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
-.tab-dirty { color: var(--color-accent); font-size: 8px; }
-.tab-close {
-  background: none; border: none; cursor: pointer; padding: 0;
-  color: var(--color-text-muted); display: flex; align-items: center;
-  border-radius: 2px;
-}
-.tab-close:hover { color: var(--color-text-primary); background: var(--color-surface-hover); }
-.tab-save-btn { margin-left: auto; flex-shrink: 0; font-size: 11px; padding: 2px 8px; }
-.local-editor-body {
-  flex: 1;
-  overflow: hidden;
-}
-.local-editor-textarea {
-  width: 100%;
-  height: 100%;
-  border: none;
-  border-radius: 0;
-  resize: none;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.5;
-  padding: 12px;
-  tab-size: 2;
-  background: var(--color-surface-primary);
-  color: var(--color-text-primary);
-  outline: none;
-}
-.local-file-grid {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 8px;
-  padding: 12px;
-  overflow-y: auto;
-  flex: 1;
-}
-.local-file-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 80px;
-  padding: 10px 6px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.12s;
-}
-.local-file-card:hover { background: var(--color-surface-hover); }
-.file-name {
-  font-size: 11px;
-  text-align: center;
-  word-break: break-all;
-  line-height: 1.3;
-  max-height: 28px;
-  overflow: hidden;
-  color: var(--color-text-primary);
-}
-.file-size {
-  font-size: 10px;
-  color: var(--color-text-muted);
-}
-.local-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 32px;
-  color: var(--color-text-muted);
-  font-size: 12px;
-}
-.local-empty.full {
-  flex: 1;
-}
-.local-error {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-  color: var(--color-error);
-  background: var(--color-error-bg);
-  border-top: 1px solid var(--color-error);
-  flex-shrink: 0;
-}
-</style>

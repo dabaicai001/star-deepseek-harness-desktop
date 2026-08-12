@@ -6937,6 +6937,562 @@ body.tab-dragging {
   }
 }
 
+/* ============================================
+   本地工作区(Local Workspace)
+   VSCode Explorer + 编辑器体验翻译到 cyber 体系:
+   - EXPLORER 式分区标题条(小字号大写 + hover 显现操作)
+   - 目录树缩进参考线 / hover 行高亮 / 选中行左侧 cyan 指示条
+   - 编辑器 tab 条(dirty 点与关闭钮同槽位切换)+ 面包屑
+   - 底部细状态栏(等宽数字,复用 --chrome-glass-deep)
+   ============================================ */
+.local-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.local-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- 左侧:目录树 ---- */
+.local-sidebar {
+  width: 232px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-2);
+  border-right: 1px solid var(--line);
+}
+
+/* EXPLORER 式分区标题条:操作图标平时隐藏,hover / 键盘聚焦才显现 */
+.local-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 32px;
+  padding: 0 6px 0 12px;
+  flex-shrink: 0;
+}
+
+.local-side-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.local-side-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease-standard, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.local-side-head:hover .local-side-actions,
+.local-side-actions:focus-within {
+  opacity: 1;
+}
+
+.local-side-actions .action-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+}
+
+/* 工作区根目录行(类比 VSCode 的文件夹 section 头) */
+.local-side-root {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.local-side-root:hover {
+  color: var(--text);
+}
+
+.local-side-root .v-icon {
+  color: var(--cyan);
+}
+
+.local-side-root span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 目录树:嵌套层出缩进参考线,行级 hover / 选中态 */
+.local-tree {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px;
+}
+
+.local-tree-children {
+  /* 参考线对齐父行 chevron 中心,层级缩进 ≈ 18px */
+  margin-left: 10px;
+  padding-left: 7px;
+  border-left: 1px solid var(--line);
+}
+
+.local-tree-node {
+  user-select: none;
+}
+
+.local-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px 0 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-2);
+  transition: background 0.12s, color 0.12s;
+}
+
+.local-tree-row:hover {
+  background: var(--hover-cyan-soft);
+  color: var(--text);
+}
+
+/* 选中行:左侧 2px cyan 指示条(用 inset 阴影避免布局位移)+ 渐隐高亮 */
+.local-tree-row.selected {
+  background: linear-gradient(90deg, var(--focus-cyan) 0%, transparent 100%);
+  box-shadow: inset 2px 0 0 var(--cyan);
+  color: var(--cyan);
+}
+
+.local-tree-chevron {
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+
+.local-tree-chevron.open {
+  transform: rotate(90deg);
+}
+
+.local-tree-chevron-spacer {
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.local-tree-icon {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.local-tree-icon.is-dir {
+  color: var(--cyan);
+}
+
+.local-tree-row.selected .local-tree-icon,
+.local-tree-row.selected .local-tree-chevron {
+  color: var(--cyan);
+}
+
+.local-tree-name {
+  flex: 1;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.local-tree-size {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  flex-shrink: 0;
+}
+
+/* 树加载骨架 */
+.local-tree-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.local-tree-loading .cyber-skeleton {
+  height: 14px;
+  border-radius: 4px;
+}
+
+/* 空态 / 加载态占满所在 flex 区域 */
+.local-fill {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- 右侧:编辑器 / 文件列表 ---- */
+.local-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 编辑器 tab 条(VSCode 风格:dirty 点与关闭钮同槽位,hover 才给关闭) */
+.local-editor-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.local-editor-tab-list {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.local-editor-tab-list::-webkit-scrollbar {
+  display: none;
+}
+
+.local-editor-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px 0 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.local-editor-tab:hover {
+  background: var(--hover-cyan-faint);
+  color: var(--text);
+}
+
+/* 激活 tab:顶部 cyan 指示条(inset 阴影,无位移)+ 实心面板底 */
+.local-editor-tab.active {
+  background: var(--panel-solid);
+  border-color: var(--line-2);
+  box-shadow: inset 0 2px 0 var(--cyan);
+  color: var(--text);
+}
+
+.local-tab-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.local-editor-tab.active .local-tab-icon {
+  color: var(--cyan);
+}
+
+.local-tab-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* dirty 点 / 关闭钮同槽位:默认 dirty 显示圆点,hover 时切换为关闭钮 */
+.local-tab-tail {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.local-tab-dirty {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--focus-cyan);
+  transition: opacity 0.12s;
+}
+
+.local-tab-close {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+
+.local-tab-close:hover {
+  background: var(--hover-cyan);
+  color: var(--cyan);
+}
+
+.local-editor-tab:hover .local-tab-close,
+.local-editor-tab.active:not(.dirty) .local-tab-close {
+  opacity: 1;
+}
+
+.local-editor-tab:hover .local-tab-dirty {
+  opacity: 0;
+}
+
+.local-tab-save {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+/* 面包屑(编辑器 / 文件列表顶部,可点击逐级跳转) */
+.local-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 26px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--muted);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.local-breadcrumb::-webkit-scrollbar {
+  display: none;
+}
+
+.local-crumb {
+  padding: 1px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+
+.local-crumb:hover {
+  background: var(--hover-cyan-faint);
+  color: var(--text);
+}
+
+.local-crumb.last {
+  color: var(--text-2);
+  cursor: default;
+}
+
+.local-crumb-sep {
+  color: var(--muted);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+/* 编辑器主体(等宽,无框,融入底色) */
+.local-editor-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.local-editor-textarea {
+  width: 100%;
+  height: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 12px 16px;
+  background: var(--bg);
+  color: var(--text);
+  caret-color: var(--cyan);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.local-editor-textarea::selection {
+  background: var(--focus-cyan);
+}
+
+/* 文件列表(名称 / 大小 / 修改时间,表头吸附) */
+.local-file-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.local-file-head,
+.local-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px 150px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.local-file-head {
+  height: 28px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  user-select: none;
+}
+
+.local-file-row {
+  height: 32px;
+  flex-shrink: 0;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 0.12s;
+}
+
+.local-file-row:hover {
+  background: var(--hover-cyan-soft);
+}
+
+.local-file-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.local-file-row:hover .local-file-name {
+  color: var(--text);
+}
+
+.local-file-name .v-icon {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.local-file-name .v-icon.is-dir {
+  color: var(--cyan);
+}
+
+.local-file-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.local-file-size,
+.local-file-mtime {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---- 底部状态栏(等宽数字,复用全局 statusbar 玻璃底) ---- */
+.local-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 24px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  background: var(--chrome-glass-deep);
+  border-top: 1px solid var(--line);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  user-select: none;
+}
+
+.local-status-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.local-status-item.accent {
+  color: var(--cyan);
+}
+
+.local-status-item.warn {
+  color: var(--yellow);
+}
+
+.local-status-path {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.local-status-path span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- 错误条 ---- */
+.local-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--red);
+  background: var(--status-error-bg);
+  border-top: 1px solid var(--status-error-border);
+}
+
 /* ===== reduced-motion 无障碍降级(系统级偏好) ===== */
 @media (prefers-reduced-motion: reduce) {
   *,
