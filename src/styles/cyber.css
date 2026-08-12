@@ -3351,83 +3351,7 @@ body {
   animation: pulse 2s infinite;
 }
 
-/* AI 副标题(健康状态文字) */
-.ai-subtitle {
-  font-size: 9px;
-  color: var(--muted);
-  padding: 0 14px 6px;
-  font-family: 'JetBrains Mono', monospace;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* AI 快捷入口 */
-.ai-quick-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 0 8px 6px;
-}
-
-.ai-quick-action {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 28px;
-  padding: 3px 10px;
-  color: var(--text-2);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  font-size: 11px;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.15s var(--ease-standard);
-}
-
-.ai-quick-action:hover {
-  color: var(--cyan);
-  background: var(--hover-cyan-faint);
-  border-color: var(--line-2);
-}
-
-.ai-quick-action .v-icon {
-  font-size: 13px;
-  flex-shrink: 0;
-  color: var(--muted);
-}
-
-.ai-quick-action:hover .v-icon {
-  color: var(--cyan);
-}
-
-.ai-quick-action kbd {
-  margin-left: auto;
-  font-size: 9px;
-  padding: 1px 5px;
-  color: var(--muted);
-  background: var(--kbd-bg);
-  border: 1px solid var(--line-2);
-  border-radius: 3px;
-}
-
 /* AI 最近对话摘要 */
-.ai-recent-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px 4px;
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
 .ai-recent-item {
   display: flex;
   align-items: center;
@@ -3614,13 +3538,6 @@ body {
   color: var(--green);
 }
 
-/* AI 分组内的子分隔线(快捷入口 / 最近对话 与 Agent 列表之间) */
-.ai-section-divider {
-  height: 1px;
-  margin: 6px 14px;
-  background: var(--line);
-}
-
 /* AI 空状态引导 */
 .ai-empty-guide {
   display: flex;
@@ -3658,66 +3575,7 @@ body {
   border-color: var(--focus-cyan);
 }
 
-/* AI 未配置时的引导 */
-.ai-unconfigured-guide {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 14px 6px 28px;
-}
-
-.ai-unconfigured-guide p {
-  margin: 0;
-  font-size: 10px;
-  color: var(--muted);
-  line-height: 1.6;
-}
-
-.ai-unconfigured-guide .quick-hints {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.ai-unconfigured-guide .quick-hints span {
-  font-size: 9px;
-  padding: 2px 6px;
-  color: var(--text-2);
-  background: var(--hover-cyan-faint);
-  border-radius: 3px;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.ai-unconfigured-guide button {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  gap: 4px;
-  padding: 4px 10px;
-  font-size: 10px;
-  font-family: inherit;
-  color: var(--bg);
-  background: var(--grad-primary);
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s var(--ease-standard);
-}
-
-.ai-unconfigured-guide button:hover {
-  box-shadow: var(--glow-soft);
-}
-
-/* AI 面板内嵌聊天区(复用 AiChat 组件,容器给定固定高度,内部自滚动) */
-.ai-sidebar-chat {
-  height: 320px;
-  margin: 4px 8px 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-/* AI 面板可折叠子分区头(记忆 / Agent / 最近对话),样式对齐 ai-recent-label */
+/* AI 面板可折叠子分区头(Agent / 最近对话),样式对齐原 ai-recent-label */
 .ai-section-head {
   display: flex;
   align-items: center;
@@ -3743,124 +3601,6 @@ body {
 
 .ai-section-head .chevron.collapsed {
   transform: rotate(-90deg);
-}
-
-/* AI 记忆区(侧边栏宽度的简化版,参考 Settings 记忆管理) */
-.ai-memory-body {
-  padding: 2px 8px 4px 14px;
-}
-
-.ai-memory-hint {
-  padding: 4px 6px;
-  font-size: 10px;
-  color: var(--muted);
-  line-height: 1.6;
-}
-
-.ai-memory-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 160px;
-  overflow-y: auto;
-}
-
-.ai-memory-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 24px;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.ai-memory-item:hover {
-  background: var(--hover-cyan-faint);
-}
-
-.ai-memory-scope {
-  flex-shrink: 0;
-  padding: 1px 4px;
-  font-size: 8px;
-  font-family: 'JetBrains Mono', monospace;
-  color: var(--cyan);
-  background: var(--hover-cyan-faint);
-  border: 1px solid var(--line-2);
-  border-radius: 3px;
-}
-
-.ai-memory-content {
-  flex: 1;
-  min-width: 0;
-  font-size: 10.5px;
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 复用 ai-recent-delete 的删除按钮:在记忆条目 hover / 聚焦时显现 */
-.ai-memory-item:hover .ai-recent-delete,
-.ai-memory-item:focus-within .ai-recent-delete {
-  opacity: 1;
-}
-
-.ai-memory-add-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 4px;
-}
-
-.ai-memory-scope-select {
-  flex-shrink: 0;
-  height: 24px;
-  font-size: 10px;
-  font-family: inherit;
-  color: var(--text-2);
-  background: var(--panel-solid);
-  border: 1px solid var(--line-2);
-  border-radius: 4px;
-}
-
-.ai-memory-input {
-  flex: 1;
-  min-width: 0;
-  height: 24px;
-  padding: 0 8px;
-  font-size: 10.5px;
-}
-
-.ai-memory-add-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
-  color: var(--cyan);
-  background: var(--hover-cyan-faint);
-  border: 1px solid var(--line-2);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s var(--ease-standard);
-}
-
-.ai-memory-add-btn:hover:not(:disabled) {
-  background: var(--hover-cyan-soft);
-  border-color: var(--focus-cyan);
-}
-
-.ai-memory-add-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.ai-memory-error {
-  margin: 4px 6px 0;
-  font-size: 10px;
-  color: var(--red);
-  overflow-wrap: anywhere;
 }
 
 /* AI Agent 收藏星标 */

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
@@ -12,10 +12,7 @@ import { useObjectTreeStore, type ObjectNode } from '@/stores/objectTree'
 import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import AiAgentDialog from '@/components/ai/AiAgentDialog.vue'
-import AiChat from '@/components/ai/AiChat.vue'
 import ProductIcon from '@/components/common/ProductIcon.vue'
-import { useAiChatHost } from '@/composables/useAiChatHost'
-import { aiMemoryAdd, aiMemoryDelete, aiMemoryList, isTauriRuntime, type AiMemoryRow } from '@/services/aiMemory'
 import { generateInstanceId } from '@/utils/tabId'
 import { routeNameForAsset, getDbLabel, openAssetTab as openAssetTabRouting } from '@/utils/assetRouting'
 import type { Asset, CreateAssetDto } from '@/types/asset'
@@ -61,9 +58,6 @@ const localAssets = computed(() =>
 )
 const aiAgents = computed(() => aiStore.agents)
 
-/** AI 是否已配置(有 baseUrl + API Key + model) */
-const aiConfigured = computed(() => aiStore.isAiConfigured())
-
 /** AI 健康状态 */
 const aiHealth = computed(() => aiStore.aiHealthStatus())
 
@@ -78,100 +72,12 @@ const sortedAiAgents = computed(() =>
 /** 最近对话摘要(持久化列表最多 10 条) */
 const recentSummaries = computed(() => aiStore.conversationSummaries.slice(0, 10))
 
-// ====== 侧边栏内嵌 AI 聊天(与各标签页 AI 助手共用 useAiChatHost + AiChat) ======
-/** 固定会话 id:侧边栏全局会话,不绑定具体资产(assetId 空串) */
-const SIDEBAR_AI_INSTANCE_ID = 'sidebar-ai'
-/**
- * 基础 prompt:全局问答定位。侧边栏无业务工具,# 提及仅参照目标基本信息,
- * 真实操作引导用户到对应工作区标签页的 AI 助手。
- */
-const SIDEBAR_AI_BASE_PROMPT = `你是 StarHub 主侧边栏的全局 AI 助手,不绑定任何具体资产。
-用户可以输入 # 提及(如 #LOCAL、#SSH、#DB、#Docker、#Excel 或 #资产名)让你参照目标的基本信息,但你没有直接操作这些目标的工具;
-需要真正操作某个资产时,引导用户打开对应工作区标签页,使用该标签页内的 AI 助手。
-可用工具:session_search(检索历史会话)、memory(读写长期记忆),以及用户配置的 MCP 工具。`
-const {
-  session: aiSession,
-  sending: aiSending,
-  onAiSend,
-  onAiRetry,
-  onAiNewChat,
-  onAiStop,
-  onAiConfirmTool
-} = useAiChatHost({
-  instanceId: SIDEBAR_AI_INSTANCE_ID,
-  getAssetId: () => '',
-  assetType: 'local',
-  // 侧边栏不是资产宿主:无业务工具,session_search / memory / MCP 由 composable 统一分流
-  tools: [],
-  makeToolExecutor: () => async (call) => `侧边栏会话不支持工具 ${call.function.name};可用能力仅限 session_search / memory / MCP 工具`,
-  getBasePrompt: () => SIDEBAR_AI_BASE_PROMPT,
-  logTag: 'sidebar-ai'
-})
-
-/** 内嵌聊天区容器(快速提问时取其 composer 聚焦) */
-const aiChatWrapRef = ref<HTMLElement | null>(null)
-
-/** AI 面板子分区折叠态(记忆默认收起,Agent / 最近对话默认展开) */
-type AiSectionKey = 'memory' | 'agents' | 'recent'
-const aiSections = ref<Record<AiSectionKey, boolean>>({ memory: false, agents: true, recent: true })
+/** AI 面板子分区折叠态(Agent / 最近对话默认展开) */
+type AiSectionKey = 'agents' | 'recent'
+const aiSections = ref<Record<AiSectionKey, boolean>>({ agents: true, recent: true })
 function toggleAiSection(key: AiSectionKey) {
   aiSections.value[key] = !aiSections.value[key]
-  // 记忆区每次展开时刷新,拿到对话中 memory 工具刚写入的条目
-  if (key === 'memory' && aiSections.value.memory) void loadSidebarMemories()
 }
-
-// ====== AI 记忆(侧边栏只展示 user / global 两级 L1 记忆卡;资产级在设置里管理) ======
-const memoryDesktopAvailable = isTauriRuntime()
-const memoryRows = ref<AiMemoryRow[]>([])
-const memoryDraft = ref('')
-const memoryScope = ref<'user' | 'global'>('user')
-const memoryError = ref('')
-/** 设置里关闭记忆后:显示禁用提示并隐藏增删 */
-const memoryEnabled = computed(() => aiStore.settings.memoryEnabled !== false)
-const sidebarMemoryRows = computed(() =>
-  memoryRows.value.filter(row => row.scope === 'user' || row.scope === 'global')
-)
-
-async function loadSidebarMemories() {
-  if (!memoryDesktopAvailable) return
-  try {
-    memoryRows.value = await aiMemoryList()
-    memoryError.value = ''
-  } catch (error) {
-    memoryError.value = error instanceof Error ? error.message : String(error)
-  }
-}
-
-async function addSidebarMemory() {
-  const content = memoryDraft.value.trim()
-  if (!content) return
-  try {
-    await aiMemoryAdd(memoryScope.value, content)
-    memoryDraft.value = ''
-    memoryError.value = ''
-    await loadSidebarMemories()
-  } catch (error) {
-    memoryError.value = error instanceof Error ? error.message : String(error)
-  }
-}
-
-async function deleteSidebarMemory(row: AiMemoryRow) {
-  try {
-    await aiMemoryDelete(row.id)
-    memoryError.value = ''
-    await loadSidebarMemories()
-  } catch (error) {
-    memoryError.value = error instanceof Error ? error.message : String(error)
-  }
-}
-
-/** 当前激活的工作区类型 */
-const activeWorkspaceType = computed(() => {
-  const tab = appStore.tabs.find(t => t.id === appStore.activeTab)
-  if (!tab) return null
-  if (tab.type === 'ai') return null
-  return tab.type as 'ssh' | 'db' | 'docker' | 'excel' | 'local'
-})
 
 function getIcon(type: string, dbType?: string) {
   // DB 类型下根据 dbType 区分图标;MDI 没有 mdi-redis,用 mdi-key-variant(KV 语义)代替
@@ -271,46 +177,12 @@ function openDefaultAiAgent() {
   if (agent) openAiAgent(agent)
 }
 
-/** 快速提问(Ctrl+J):展开 AI 分组并聚焦内嵌 composer,不再打开 AI tab */
-function quickAsk() {
-  if (isCollapsed.value) appStore.sidebarOpen = true
-  if (!isGroupExpanded('ai')) toggleGroup('ai')
-  nextTick(() => {
-    aiChatWrapRef.value?.querySelector('textarea')?.focus()
-  })
-}
-
-function analyzeCurrentWorkspace() {
-  const wsType = activeWorkspaceType.value
-  if (!wsType) {
-    // 没有打开的工作区,打开首个 Agent
-    openDefaultAiAgent()
-    return
-  }
-  const agent = aiAgents.value[0]
-  if (!agent) return
-  // 打开默认 Agent 工作区 — inputText 会在 AiView 中设置
-  // 这里无法直接设置 AiView 内部的 inputText,
-  // 改为打开 agent 后触发自定义事件
-  openAiAgent(agent)
-  // 让 AiView 预填分析当前工作区的 prompt
-  nextTick(() => {
-    window.dispatchEvent(new CustomEvent('starhub:ai-quick-analyze', {
-      detail: { workspaceType: wsType }
-    }))
-  })
-}
-
 function toggleAgentFavorite(agent: AiAgent) {
   if (agent.favorited) {
     aiStore.unfavoriteAgent(agent.id)
   } else {
     aiStore.favoriteAgent(agent.id)
   }
-}
-
-function openAiSettings() {
-  window.dispatchEvent(new CustomEvent('starhub:open-ai-settings'))
 }
 
 function reopenConversation(summary: { id: string; agentId: string }) {
@@ -544,20 +416,8 @@ function onNewAgentEvent() {
   openNewAgentDialog()
 }
 
-/** Ctrl+J(经 CyberLayout 派发):聚焦侧边栏内嵌 composer */
-function onQuickAskEvent() {
-  quickAsk()
-}
-
-onMounted(() => {
-  window.addEventListener('starhub:new-ai-agent', onNewAgentEvent)
-  window.addEventListener('starhub:ai-quick-ask', onQuickAskEvent)
-  void loadSidebarMemories()
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('starhub:new-ai-agent', onNewAgentEvent)
-  window.removeEventListener('starhub:ai-quick-ask', onQuickAskEvent)
-})
+onMounted(() => window.addEventListener('starhub:new-ai-agent', onNewAgentEvent))
+onBeforeUnmount(() => window.removeEventListener('starhub:new-ai-agent', onNewAgentEvent))
 
 function openEditAgentDialog(agent: AiAgent) {
   editingAgent.value = agent
@@ -1329,7 +1189,7 @@ function closeNodeCtxMenu() {
       </div>
     </div>
 
-    <!-- AI 分组:视觉分层(渐变分割线 + 健康状态 + 快捷入口 + 最近对话 + Agent 列表) -->
+    <!-- AI 分组:视觉分层(渐变分割线 + 健康状态 + Agent 列表 + 最近对话) -->
     <div class="ai-group-divider" />
 
     <div class="tree-group ai">
@@ -1358,161 +1218,46 @@ function closeNodeCtxMenu() {
         </button>
       </div>
 
-      <!-- AI 健康状态副标题 -->
-      <div class="ai-subtitle">
-        {{ aiHealth === 'ready' ? 'API 就绪 · 跨工具智能助手' : aiHealth === 'unconfigured' ? '未配置 LLM' : '连接异常' }}
-      </div>
-
       <div v-show="isGroupExpanded('ai')" class="tree-group-body">
-        <!-- 未配置时的引导 -->
-        <div v-if="!aiConfigured" class="ai-unconfigured-guide">
-          <p>连接 LLM 即可用 AI 自然语言操作本机、SSH、数据库、Docker 与 Excel</p>
-          <div class="quick-hints">
-            <span>#LOCAL</span>
-            <span>#SSH</span>
-            <span>#DB</span>
-            <span>#Docker</span>
-            <span>#Excel</span>
-          </div>
-          <button @click.stop="openAiSettings">
-            <v-icon size="11">mdi-cog-outline</v-icon>配置 AI
-          </button>
-        </div>
-
-        <!-- 已配置:快捷入口 + 内嵌聊天(与各标签页 AI 助手同一套 useAiChatHost + AiChat) -->
-        <template v-if="aiConfigured">
-          <!-- 快捷入口:快速提问聚焦内嵌 composer;分析当前工作区行为不变 -->
-          <div class="ai-quick-actions">
-            <button class="ai-quick-action" @click.stop="quickAsk">
-              <v-icon size="13">mdi-message-text-outline</v-icon>
-              <span>快速提问...</span>
-              <kbd>Ctrl+J</kbd>
-            </button>
-            <button
-              v-if="activeWorkspaceType"
-              class="ai-quick-action"
-              @click.stop="analyzeCurrentWorkspace"
-            >
-              <v-icon size="13">mdi-magnify-scan</v-icon>
-              <span>分析当前工作区</span>
-            </button>
-          </div>
-
-          <!-- 内嵌聊天区(独立会话 sidebar-ai) -->
-          <div ref="aiChatWrapRef" class="ai-sidebar-chat">
-            <AiChat
-              v-if="aiSession"
-              :session="aiSession"
-              :sending="aiSending"
-              :placeholder="t('ai.sidebarChatPlaceholder')"
-              @send="onAiSend"
-              @retry="onAiRetry"
-              @confirm-tool="onAiConfirmTool"
-              @new-chat="onAiNewChat"
-              @stop="onAiStop"
-            />
-          </div>
-        </template>
-
-        <!-- AI 记忆(可折叠;user / global 两级 L1 记忆卡) -->
+        <!-- Agent 快捷列表(可折叠;点击仍打开 AiView 工作区 tab,行为不变) -->
         <div
           class="ai-section-head"
           role="button"
           tabindex="0"
-          :aria-expanded="aiSections.memory"
-          @click.stop="toggleAiSection('memory')"
-          @keydown.enter.prevent="toggleAiSection('memory')"
+          :aria-expanded="aiSections.agents"
+          @click.stop="toggleAiSection('agents')"
+          @keydown.enter.prevent="toggleAiSection('agents')"
         >
-          <v-icon class="chevron" size="10" :class="{ collapsed: !aiSections.memory }">mdi-chevron-down</v-icon>
-          <v-icon size="10">mdi-brain</v-icon>{{ t('ai.aiMemory') }}
+          <v-icon class="chevron" size="10" :class="{ collapsed: !aiSections.agents }">mdi-chevron-down</v-icon>
+          <v-icon size="10">mdi-robot-outline</v-icon>{{ t('ai.agents') }}
         </div>
-        <div v-show="aiSections.memory" class="ai-memory-body">
-          <div v-if="!memoryEnabled" class="ai-memory-hint">{{ t('ai.aiMemoryDisabled') }}</div>
-          <template v-else>
-            <div v-if="!memoryDesktopAvailable" class="ai-memory-hint">{{ t('ai.aiMemoryDesktopOnly') }}</div>
-            <div v-else-if="sidebarMemoryRows.length === 0" class="ai-memory-hint">{{ t('ai.aiMemoryEmpty') }}</div>
-            <div v-else class="ai-memory-list">
-              <div v-for="row in sidebarMemoryRows" :key="row.id" class="ai-memory-item">
-                <span class="ai-memory-scope">{{ row.scope === 'user' ? t('ai.aiMemoryScopeUser') : t('ai.aiMemoryScopeGlobal') }}</span>
-                <span class="ai-memory-content" :title="row.content">{{ row.content }}</span>
-                <button
-                  class="ai-recent-delete"
-                  :aria-label="t('common.delete')"
-                  :data-tooltip="t('common.delete')"
-                  @click.stop="deleteSidebarMemory(row)"
-                >
-                  <v-icon size="11">mdi-delete-outline</v-icon>
-                </button>
-              </div>
-            </div>
-            <div class="ai-memory-add-row">
-              <select v-model="memoryScope" class="ai-memory-scope-select" :aria-label="t('ai.aiMemory')">
-                <option value="user">{{ t('ai.aiMemoryScopeUser') }}</option>
-                <option value="global">{{ t('ai.aiMemoryScopeGlobal') }}</option>
-              </select>
-              <input
-                v-model="memoryDraft"
-                class="cyber-input ai-memory-input"
-                :placeholder="t('ai.aiMemoryAddPlaceholder')"
-                @keydown.enter.prevent="addSidebarMemory"
-              />
+        <div v-show="aiSections.agents">
+          <TransitionGroup name="cyber-list">
+            <div
+              v-for="agent in sortedAiAgents"
+              :key="agent.id"
+              class="tree-item ai-agent-tree-item"
+              :class="{ active: isAiAgentActive(agent) }"
+              :data-tooltip="agent.description || agent.name"
+              tabindex="0"
+              @click="openAiAgent(agent)"
+              @keydown.enter.prevent="openAiAgent(agent)"
+              @contextmenu="openAgentContextMenu($event, agent)"
+            >
+              <v-icon size="13">mdi-robot-outline</v-icon>
+              <span class="name">{{ agent.name }}</span>
               <button
-                class="ai-memory-add-btn"
-                :disabled="!memoryDraft.trim()"
-                :aria-label="t('ai.aiMemoryAdd')"
-                :data-tooltip="t('ai.aiMemoryAdd')"
-                @click.stop="addSidebarMemory"
+                class="favorite-star"
+                :class="{ favorited: agent.favorited }"
+                :data-tooltip="agent.favorited ? t('asset.unfavorite') : t('asset.favorite')"
+                @click.stop="toggleAgentFavorite(agent)"
               >
-                <v-icon size="12">mdi-plus</v-icon>
+                <v-icon size="11">{{ agent.favorited ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
               </button>
+              <span class="cyber-badge">{{ agent.skillIds.length }}</span>
             </div>
-            <p v-if="memoryError" class="ai-memory-error">{{ memoryError }}</p>
-          </template>
+          </TransitionGroup>
         </div>
-
-        <div class="ai-section-divider" />
-
-        <!-- Agent 快捷列表(可折叠;点击仍打开 AiView 工作区 tab,行为不变) -->
-        <template v-if="aiConfigured">
-          <div
-            class="ai-section-head"
-            role="button"
-            tabindex="0"
-            :aria-expanded="aiSections.agents"
-            @click.stop="toggleAiSection('agents')"
-            @keydown.enter.prevent="toggleAiSection('agents')"
-          >
-            <v-icon class="chevron" size="10" :class="{ collapsed: !aiSections.agents }">mdi-chevron-down</v-icon>
-            <v-icon size="10">mdi-robot-outline</v-icon>{{ t('ai.agents') }}
-          </div>
-          <div v-show="aiSections.agents">
-            <TransitionGroup name="cyber-list">
-              <div
-                v-for="agent in sortedAiAgents"
-                :key="agent.id"
-                class="tree-item ai-agent-tree-item"
-                :class="{ active: isAiAgentActive(agent) }"
-                :data-tooltip="agent.description || agent.name"
-                tabindex="0"
-                @click="openAiAgent(agent)"
-                @keydown.enter.prevent="openAiAgent(agent)"
-                @contextmenu="openAgentContextMenu($event, agent)"
-              >
-                <v-icon size="13">mdi-robot-outline</v-icon>
-                <span class="name">{{ agent.name }}</span>
-                <button
-                  class="favorite-star"
-                  :class="{ favorited: agent.favorited }"
-                  :data-tooltip="agent.favorited ? t('asset.unfavorite') : t('asset.favorite')"
-                  @click.stop="toggleAgentFavorite(agent)"
-                >
-                  <v-icon size="11">{{ agent.favorited ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
-                </button>
-                <span class="cyber-badge">{{ agent.skillIds.length }}</span>
-              </div>
-            </TransitionGroup>
-          </div>
-        </template>
 
         <!-- 最近对话(可折叠;始终可见,即使 LLM 暂未配置也可以恢复或删除历史) -->
         <template v-if="recentSummaries.length > 0">

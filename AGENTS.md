@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.59.2(README:当前版本区裁剪为最近 3 个版本(完整历史以 CHANGELOG 为准,规则写入 AGENTS.md 6.5-6);功能矩阵更新到 v0.59 实际交付面(PostgreSQL/SQLite/SQL Server、跳板机/端口转发、SFTP 断点续传/暂停、Docker Compose/SSH 通道、本地工作区、AI 记忆/@/# mention/会话级模型等,移除过期「规划中」标注);路线图重写为 v0.18~v0.59 阶段总结 + 下一步候选;新增官网徽章 https://starthub.waouzzz.cc/) |
+| 当前版本 | v0.59.3(侧边栏 AI 面板精简为纯入口:只保留 AI AGENTS 列表与最近对话两个可折叠区;移除 v0.58.0 引入的内嵌聊天窗与「AI 记忆」区(记忆管理仍在 Settings),以及副标题、未配置引导、快速提问行、「分析当前工作区」按钮;Ctrl+J 恢复为打开默认 Agent 的 AI 工作区 tab;AGENTS 列表不再要求 LLM 已配置才显示;清理无引用的 cyber.css 类与 17 个 i18n key) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-12 (v0.59.2)*
+*最后更新: 2026-08-12 (v0.59.3)*
