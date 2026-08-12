@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.60.0(AI 上下文压缩(compact):回合正常结束后估算上下文用量,≥50% 预算(`contextBudgetChars`)即在后台自动压缩——LLM 把最早一段消息(保留最近 12 条、边界不拆 tool 组、不足 6 条放弃)压成结构化中文摘要并原位替换为「上下文压缩摘要」消息(前缀标记,随会话自然落库);新增 `_compactingPromises` 锁与 runAgent in-flight 互等,压缩与流式输出严格串行;AiChat 工具栏新增 `ctx NN%` 用量指示(<50% muted / 50~80% cyan / >80% 黄),点击手动立即压缩(compacting 时 spinner);摘要消息在消息流渲染为可折叠卡片;纯门禁 `src/utils/aiCompactionGates.ts` + 15 例 node --test 单测;预算滑窗与 memory flush 时序不变) |
+| 当前版本 | v0.60.1(AI 记忆「写入下一会话生效」在同一 tab 内永远不生效:`resetSession`(新会话)此前不清冻结的 `memoryBlock` 与 `lastFlushOmitted`,记忆卡首次加载后永久冻结,只有重启 app 才重新加载;现在新会话即清,下次 runAgent 重新注入最新记忆卡) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-12 (v0.60.0)*
+*最后更新: 2026-08-12 (v0.60.1)*

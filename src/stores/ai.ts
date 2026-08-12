@@ -1026,6 +1026,10 @@ export const useAiStore = defineStore('ai', () => {
       session.contextBinding = undefined
       session.agentId = undefined
       session.pendingSteers = []
+      // 新会话 = 注释里承诺的「下一会话」:清掉冻结的记忆块与 flush 防抖计数,
+      // 下次 runAgent 重新加载记忆卡,本会话期间写入的记忆此刻生效
+      session.memoryBlock = undefined
+      session.lastFlushOmitted = undefined
     }
     conversationSummaries.value = conversationSummaries.value.filter(summary => summary.id !== instanceId)
   }
