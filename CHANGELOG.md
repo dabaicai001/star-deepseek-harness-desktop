@@ -14,6 +14,12 @@
 
 ---
 
+## [0.55.0] - 2026-08-12
+
+### 新增
+- AI 模型选择支持按窗口/会话独立,互不影响:`AiSession` 新增 `modelId` 覆盖字段(运行时,不持久化),`runAgent` 与 Planner(`createExecutionPlan`)改经 `resolveModelConfig(session.modelId)` 解析,空覆盖回退全局 `settings.activeModelId`;`AiModelSelector` 新增 `sessionId` prop,会话模式下拉顶部提供「跟随全局」行,徽章左侧 cyan 点标识本窗口独立选模型
+- AI 模型选择器下拉菜单重设计(cyber 面板替代裸 v-list):模型数 >3 时出现搜索框(按名称/模型 ID/URL 过滤)、「默认模型 / 已配置模型」分组小标题、模型 ID 等宽徽章 + baseUrl 副信息、底部「添加模型…」入口;视觉集中在 cyber.css `.ai-model-menu-*` 一处
+
 ## [0.54.1] - 2026-08-11
 
 ### 修复

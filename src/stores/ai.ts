@@ -324,6 +324,11 @@ export interface AiSession {
   memoryBlock?: string
   /** 上次压缩前 memory flush 时的省略消息总数(运行时字段,不持久化;用于 flush 防抖)。 */
   lastFlushOmitted?: number
+  /**
+   * 会话级模型覆盖(运行时字段,不持久化):空/undefined = 跟随全局 settings.activeModelId。
+   * 各窗口/标签页的 AI 会话独立选模型,互不影响。
+   */
+  modelId?: string
 }
 
 export type AiContextBinding = StickyContextBinding
@@ -582,11 +587,15 @@ export const useAiStore = defineStore('ai', () => {
     return aiHealthStatus() === 'ready'
   }
 
-  /** 获取当前激活的模型配置 */
-  async function getActiveModelConfig(): Promise<{ baseUrl: string; apiKey: string; model: string; temperature: number; maxTokens: number }> {
+  /**
+   * 解析模型配置:modelId 非空时优先取该模型(会话级覆盖),
+   * 否则回退全局 activeModelId,最终兜底默认 LLM 配置。
+   */
+  async function resolveModelConfig(modelId?: string): Promise<{ baseUrl: string; apiKey: string; model: string; temperature: number; maxTokens: number }> {
     const s = settings.value
-    if (s.activeModelId && s.models.length > 0) {
-      const active = s.models.find(m => m.id === s.activeModelId)
+    const effectiveId = modelId || s.activeModelId
+    if (effectiveId && s.models.length > 0) {
+      const active = s.models.find(m => m.id === effectiveId)
       if (active) {
         return {
           baseUrl: active.baseUrl || s.baseUrl,
@@ -606,6 +615,17 @@ export const useAiStore = defineStore('ai', () => {
       temperature: s.temperature,
       maxTokens: s.maxTokens,
     }
+  }
+
+  /** 获取当前激活的模型配置(全局,无会话覆盖) */
+  async function getActiveModelConfig(): Promise<{ baseUrl: string; apiKey: string; model: string; temperature: number; maxTokens: number }> {
+    return resolveModelConfig()
+  }
+
+  /** 设置会话级模型覆盖;传空串恢复跟随全局。 */
+  function setSessionModel(instanceId: string, modelId: string): void {
+    const session = sessions.value.get(instanceId)
+    if (session) session.modelId = modelId || undefined
   }
 
   // 三期:向记忆自动沉淀服务注入运行态依赖(模型配置与 runAgent 同源,含 Keyring 解锁的 key)。
@@ -1307,6 +1327,8 @@ export const useAiStore = defineStore('ai', () => {
     conversationContext: string
     defaultAgentId: string
     decision?: string
+    /** 会话级模型覆盖(AiView 工作区会话内选择的模型) */
+    modelId?: string
   }): Promise<AiExecutionPlan> {
     ensureAgentsShape()
     await _ensureUnlocked()
@@ -1372,7 +1394,7 @@ export const useAiStore = defineStore('ai', () => {
         }
       }
     }
-    const activeCfg = await getActiveModelConfig()
+    const activeCfg = await resolveModelConfig(input.modelId)
     const response = await chatWithTools({
       baseUrl: activeCfg.baseUrl,
       apiKey: activeCfg.apiKey,
@@ -1610,7 +1632,8 @@ export const useAiStore = defineStore('ai', () => {
         // steered user 只会追加在末尾,消息序恒合法(避免 steer 插在 tool_calls 与 tool 结果之间导致 LLM 400)。
         drainPendingSteers(session.messages, session.pendingSteers)
 
-        const activeCfg = await getActiveModelConfig()
+        // 会话级模型覆盖优先(session.modelId),否则跟随全局 activeModelId
+        const activeCfg = await resolveModelConfig(session.modelId)
         // 必须先拍快照；下面追加的流式 assistant 占位不能进入本次请求。
         // 预算滑窗:超预算时从尾部保留,tool 组不拆,省略部分以注记提示可用 session_search 回溯。
         const budgeted = buildBudgetedMessagesDetailed(snapshotChatMessages(session.messages), settings.value.contextBudgetChars)
@@ -1816,6 +1839,8 @@ export const useAiStore = defineStore('ai', () => {
     aiHealthStatus,
     isAiConfigured,
     getActiveModelConfig,
+    resolveModelConfig,
+    setSessionModel,
     getAgent,
     createAgent,
     updateAgent,

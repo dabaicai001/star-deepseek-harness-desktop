@@ -752,7 +752,8 @@ async function planAndExecute(text: string, decision?: string) {
       context,
       conversationContext,
       defaultAgentId: activeAgent.value.id,
-      decision
+      decision,
+      modelId: session.value.modelId
     })
     if (stopRequested.value) {
       plan.status = 'stopped'
@@ -984,7 +985,7 @@ function shortResult(value: string, max = 600) {
           <strong>{{ activeAgent.name }}</strong>
           <span>{{ activeAgent.description }}</span>
         </div>
-        <AiModelSelector />
+        <AiModelSelector :session-id="instanceId" />
         <span v-if="executionPlan" class="ai-current-agent-badge">
           <v-icon size="12">mdi-robot-industrial-outline</v-icon>
           {{ currentAgentName }}

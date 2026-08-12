@@ -383,7 +383,7 @@ function deleteHistoryConversation(row: AiConversationRow) {
         <v-icon size="14">mdi-history</v-icon>
       </button>
       <div class="toolbar-spacer" />
-      <AiModelSelector />
+      <AiModelSelector :session-id="session.instanceId" />
       <button
         class="toolbar-btn retry-toolbar-btn"
         title="重试最后一条消息"

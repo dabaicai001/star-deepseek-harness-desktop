@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.54.1(SFTP 面板连接成功后初始目录从写死的根目录(`/`)改为会话起始目录(通常是登录用户家目录):新增 Rust `sftp_home_dir` 命令,通过 SFTP realpath(".") 解析,失败兜底根目录) |
+| 当前版本 | v0.55.0(AI 模型选择支持按窗口/会话独立,互不影响:`AiSession` 新增 `modelId` 覆盖字段(运行时,不持久化),`runAgent` 与 Planner(`createExecutionPlan`)改经 `resolveModelConfig(session.modelId)` 解析,空覆盖回退全局 `settings.activeModelId`;`AiModelSelector` 新增 `sessionId` prop,会话模式下拉顶部提供「跟随全局」行,徽章左侧 cyan 点标识本窗口独立选模型) |
 
 ---
 
@@ -482,4 +482,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-11 (v0.54.1)*
+*最后更新: 2026-08-12 (v0.55.0)*
