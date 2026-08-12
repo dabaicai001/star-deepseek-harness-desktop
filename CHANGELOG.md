@@ -14,6 +14,14 @@
 
 ---
 
+## [0.61.0] - 2026-08-12
+
+### 新增
+- 上下文压缩阈值进设置页:滑块 10%~100%(步长 5%),默认 50%;`shouldCompact` 新增 `triggerRatio` 参数,setting 新增 `compactTriggerRatio` 字段(0~1],非法值自动回退 0.5);15→19 例 node --test 单测
+- 压缩存档保留原文:压缩时被替换的原始消息段写入 `session.compactedArchive`(运行时字段,新会话清空),digest 只压运行时消息(tool 结果 + 带 tool_calls 的 assistant),用户/助手纯文本原文保留不参与摘要生成
+
+---
+
 ## [0.60.1] - 2026-08-12
 
 ### 修复

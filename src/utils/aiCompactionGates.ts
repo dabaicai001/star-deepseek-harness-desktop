@@ -14,8 +14,8 @@
 
 import type { ChatMessage } from '@/services/ai'
 
-/** 上下文估算用量达到预算的该比例即触发自动压缩(回合正常结束后后台执行)。 */
-export const COMPACT_TRIGGER_RATIO = 0.5
+/** 上下文估算用量达到预算的该比例即触发自动压缩(回合正常结束后后台执行)。默认 0.5,可由用户设置页调节。 */
+export const COMPACT_TRIGGER_RATIO_DEFAULT = 0.5
 
 /**
  * 压缩时保留的最近消息条数:取 12 条而非按比例 ——
@@ -43,15 +43,16 @@ export function estimateChars(messages: ChatMessage[]): number {
 
 /**
  * 自动压缩触发判定:
- *  - 用量达到预算 COMPACT_TRIGGER_RATIO(边界含等于)
+ *  - 用量达到预算 triggerRatio(边界含等于)
  *  - 预算非法(≤0/非数值)不触发
  *  - 已在压缩中不重复触发(防重入)
  */
-export function shouldCompact(totalChars: number, budgetChars: number, compacting: boolean): boolean {
+export function shouldCompact(totalChars: number, budgetChars: number, compacting: boolean, triggerRatio: number = COMPACT_TRIGGER_RATIO_DEFAULT): boolean {
   if (compacting) return false
   if (!Number.isFinite(budgetChars) || budgetChars <= 0) return false
   if (!Number.isFinite(totalChars) || totalChars <= 0) return false
-  return totalChars >= budgetChars * COMPACT_TRIGGER_RATIO
+  if (!Number.isFinite(triggerRatio) || triggerRatio <= 0 || triggerRatio > 1) return false
+  return totalChars >= budgetChars * triggerRatio
 }
 
 /** pickCompactionRange 的返回:[start, end) 为参与压缩的消息段(原位替换为摘要消息)。 */

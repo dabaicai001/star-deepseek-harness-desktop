@@ -15,7 +15,7 @@ const {
   estimateChars,
   shouldCompact,
   pickCompactionRange,
-  COMPACT_TRIGGER_RATIO,
+  COMPACT_TRIGGER_RATIO_DEFAULT,
   COMPACT_KEEP_RECENT,
   COMPACT_MIN_MESSAGES
 } = gatesModule
@@ -55,10 +55,10 @@ test('estimateChars:空 content 与缺省字段按 0 处理', () => {
   assert.equal(estimateChars([{ role: 'assistant', content: '' }]), 0)
 })
 
-// ====== shouldCompact:50% 阈值判定 ======
+// ====== shouldCompact:阈值判定 ======
 
-test('shouldCompact:达到 50% 触发(边界含等于)', () => {
-  assert.equal(shouldCompact(120_000 * COMPACT_TRIGGER_RATIO, 120_000, false), true)
+test('shouldCompact:默认 50% 触发(边界含等于)', () => {
+  assert.equal(shouldCompact(120_000 * COMPACT_TRIGGER_RATIO_DEFAULT, 120_000, false), true)
   assert.equal(shouldCompact(60_001, 120_000, false), true)
 })
 
@@ -75,6 +75,23 @@ test('shouldCompact:预算非法不触发', () => {
   assert.equal(shouldCompact(10, 0, false), false)
   assert.equal(shouldCompact(10, -1, false), false)
   assert.equal(shouldCompact(10, Number.NaN, false), false)
+})
+
+test('shouldCompact:自定义阈值 30%', () => {
+  assert.equal(shouldCompact(36_000, 120_000, false, 0.3), true)
+  assert.equal(shouldCompact(35_999, 120_000, false, 0.3), false)
+})
+
+test('shouldCompact:自定义阈值 80%', () => {
+  assert.equal(shouldCompact(96_000, 120_000, false, 0.8), true)
+  assert.equal(shouldCompact(95_999, 120_000, false, 0.8), false)
+})
+
+test('shouldCompact:阈值非法(>1/<=0)不触发', () => {
+  assert.equal(shouldCompact(60_000, 120_000, false, 1.5), false)
+  assert.equal(shouldCompact(60_000, 120_000, false, 0), false)
+  assert.equal(shouldCompact(60_000, 120_000, false, -0.1), false)
+  assert.equal(shouldCompact(60_000, 120_000, false, Number.NaN), false)
 })
 
 // ====== pickCompactionRange:选段 ======

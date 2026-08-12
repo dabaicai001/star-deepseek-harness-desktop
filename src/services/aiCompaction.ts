@@ -41,7 +41,7 @@ const COMPACT_SYSTEM_PROMPT = [
 export interface CompactionRuntime {
   /** 会话级模型解析:传 session.modelId,与 runAgent 同源(含 Keyring 解锁后的明文 apiKey)。 */
   getModelConfig: (modelId?: string) => Promise<{ baseUrl: string; apiKey: string; model: string; temperature: number; maxTokens: number }>
-  getSettings: () => { contextBudgetChars: number }
+  getSettings: () => { contextBudgetChars: number; compactTriggerRatio: number }
 }
 
 let runtime: CompactionRuntime | null = null
@@ -75,10 +75,17 @@ function digestMessageLabel(message: ChatMessage): string {
   return 'System'
 }
 
-/** 被压缩段 → digest 文本(策略与 aiMemoryReview.buildMessagesDigest 一致:跳过空内容,单条截断)。 */
+/** 被压缩段 → digest 文本(只压运行时消息:工具调用 + 工具结果,跳过用户/助手纯文本以保留原文存档)。 */
 function buildCompactionDigest(messages: ChatMessage[]): string {
   const blocks = messages
-    .filter(message => message.role !== 'system' && message.content.trim())
+    .filter(message => {
+      if (message.role === 'system') return false
+      if (!message.content.trim()) return false
+      // 只压运行时消息:tool 结果 + 带 tool_calls 的 assistant 消息
+      if (message.role === 'tool') return true
+      if (message.role === 'assistant' && (message.tool_calls?.length ?? 0) > 0) return true
+      return false
+    })
     .map(message => `${digestMessageLabel(message)}:\n${truncateDigestEntry(message.content.trim(), MAX_DIGEST_ENTRY_CHARS)}`)
 
   const selected: string[] = []

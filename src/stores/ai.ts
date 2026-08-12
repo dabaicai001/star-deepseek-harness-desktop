@@ -258,6 +258,8 @@ export interface AiSettings {
   memoryWriteNeedsConfirm: boolean
   /** 自动沉淀记忆:压缩前冲刷 + 回合后后台 review(开启写入确认闸时两者整体跳过)。 */
   memoryAutoReview: boolean
+  /** 上下文压缩触发阈值:用量占预算比例(0~1],默认 0.5(50%)。 */
+  compactTriggerRatio: number
 }
 
 export type AiPlanStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
@@ -330,6 +332,8 @@ export interface AiSession {
   compacting?: boolean
   /** 上次上下文压缩完成时间(运行时字段,不持久化)。 */
   lastCompactAt?: number
+  /** 上下文压缩存档:被压缩的原始消息段(运行时字段,不持久化;供手动回溯)。 */
+  compactedArchive?: ChatMessage[]
   /**
    * 会话级模型覆盖(运行时字段,不持久化):空/undefined = 跟随全局 settings.activeModelId。
    * 各窗口/标签页的 AI 会话独立选模型,互不影响。
@@ -574,7 +578,8 @@ export const useAiStore = defineStore('ai', () => {
     agentMaxSteps: 20,
     memoryEnabled: true,
     memoryWriteNeedsConfirm: false,
-    memoryAutoReview: true
+    memoryAutoReview: true,
+    compactTriggerRatio: 0.5
   })
 
   // Agent 只保存角色与技能绑定;Provider / API Key / 模型始终复用 settings。
@@ -669,7 +674,8 @@ export const useAiStore = defineStore('ai', () => {
   registerCompactionRuntime({
     getModelConfig: resolveModelConfig,
     getSettings: () => ({
-      contextBudgetChars: settings.value.contextBudgetChars
+      contextBudgetChars: settings.value.contextBudgetChars,
+      compactTriggerRatio: settings.value.compactTriggerRatio
     })
   })
 
@@ -755,6 +761,9 @@ export const useAiStore = defineStore('ai', () => {
     }
     if (typeof s.memoryAutoReview !== 'boolean') {
       s.memoryAutoReview = true
+    }
+    if (!Number.isFinite(s.compactTriggerRatio) || s.compactTriggerRatio <= 0 || s.compactTriggerRatio > 1) {
+      s.compactTriggerRatio = 0.5
     }
     void migrateModelApiKeys().catch(error => {
       console.error('Failed to migrate model API keys:', error)
@@ -1030,6 +1039,8 @@ export const useAiStore = defineStore('ai', () => {
       // 下次 runAgent 重新加载记忆卡,本会话期间写入的记忆此刻生效
       session.memoryBlock = undefined
       session.lastFlushOmitted = undefined
+      // 清掉压缩存档:新会话不需要旧压缩段的原始消息
+      session.compactedArchive = undefined
     }
     conversationSummaries.value = conversationSummaries.value.filter(summary => summary.id !== instanceId)
   }
@@ -1642,6 +1653,8 @@ export const useAiStore = defineStore('ai', () => {
       if (!summaryText) return false
       // 压缩期间会话可能被 clearSession 删除重建:对象已不是当前会话则放弃(不污染新会话)
       if (sessions.value.get(instanceId) !== session) return false
+      // 存档保留原文:被压缩段原始消息写入 compactedArchive,供手动回溯
+      session.compactedArchive = [...(session.compactedArchive ?? []), ...segment]
       // 原位替换被压缩段为摘要消息(普通 user 消息,随 writeSessionToDb 自然落库)
       session.messages.splice(range.start, range.end - range.start, buildCompactSummaryMessage(summaryText, segment.length))
       session.lastCompactAt = Date.now()
@@ -1871,9 +1884,9 @@ export const useAiStore = defineStore('ai', () => {
       _inflightPromises.delete(instanceId)
       // 三期:回合正常结束后 fire-and-forget 后台记忆 review(不阻塞 UI,失败静默)
       if (finishedNormally) scheduleBackgroundMemoryReview(session)
-      // 上下文压缩:回合正常结束且用量 ≥50% 预算时后台自动压缩(fire-and-forget,失败静默;
+      // 上下文压缩:回合正常结束且用量达到阈值时后台自动压缩(fire-and-forget,失败静默;
       // compactSessionNow 内部等本回合 in-flight 已 delete,不会自等;阈值之外不动)
-      if (finishedNormally && shouldCompact(estimateChars(session.messages), settings.value.contextBudgetChars, session.compacting === true)) {
+      if (finishedNormally && shouldCompact(estimateChars(session.messages), settings.value.contextBudgetChars, session.compacting === true, settings.value.compactTriggerRatio)) {
         void compactSessionNow(instanceId)
           .catch(error => console.warn('[ai-compact] 后台自动压缩失败(已静默):', error))
       }

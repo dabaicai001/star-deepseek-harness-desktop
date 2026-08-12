@@ -344,6 +344,12 @@ function onAgentMaxStepsChange(event: Event) {
   void aiStore.updateSettings({ agentMaxSteps: Math.floor(value) })
 }
 
+function onCompactTriggerRatioChange(event: Event) {
+  const value = Number((event.target as HTMLInputElement).value)
+  if (!Number.isFinite(value) || value < 0.1 || value > 1) return
+  void aiStore.updateSettings({ compactTriggerRatio: Math.round(value * 100) / 100 })
+}
+
 function onToggleMemoryEnabled(event: Event) {
   void aiStore.updateSettings({ memoryEnabled: (event.target as HTMLInputElement).checked })
 }
@@ -1446,6 +1452,19 @@ async function onTestWebhook(url: string) {
             @change="onContextBudgetChange"
           />
           <span class="field-hint">发给模型的历史上限;超出部分从最早开始省略,AI 可用 session_search 回溯。默认 120000</span>
+        </div>
+        <div class="form-field">
+          <label class="field-label">压缩触发阈值: {{ Math.round(aiStore.settings.compactTriggerRatio * 100) }}%</label>
+          <input
+            class="cyber-input"
+            type="range"
+            min="10"
+            max="100"
+            step="5"
+            :value="Math.round(aiStore.settings.compactTriggerRatio * 100)"
+            @change="onCompactTriggerRatioChange"
+          />
+          <span class="field-hint">上下文用量占预算的百分比,达到后回合结束自动压缩早期消息为摘要。默认 50%</span>
         </div>
         <div class="form-field">
           <label class="field-label">Agent 最大迭代次数</label>
