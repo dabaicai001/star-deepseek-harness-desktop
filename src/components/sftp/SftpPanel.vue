@@ -32,6 +32,11 @@ const props = defineProps<{
   sshCwd?: string
 }>()
 
+const emit = defineEmits<{
+  /** 「跟随终端」开关变化(开启时终端侧会懒注入 OSC 7 以上报 cwd) */
+  'follow-terminal': [enabled: boolean]
+}>()
+
 const asset = computed(() =>
   props.assetId ? assetStore.assets.find(a => a.id === props.assetId) : undefined
 )
@@ -196,11 +201,12 @@ try {
 
 watch(followTerminal, enabled => {
   try { localStorage.setItem(FOLLOW_TERMINAL_KEY, String(enabled)) } catch { /* ignore */ }
+  emit('follow-terminal', enabled)
   // 开启时立即跳到终端当前目录
   if (enabled && props.sshCwd && props.sshCwd !== currentPath.value && connected.value) {
     loadDir(props.sshCwd)
   }
-})
+}, { immediate: true })
 
 // 终端 cwd 变化时跟随(仅绝对路径,避免 pwd 解析误匹配)
 watch(() => props.sshCwd, cwd => {

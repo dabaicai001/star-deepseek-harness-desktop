@@ -53,9 +53,14 @@ export function newCompletionMarkerId(seq: number): string {
   return `${seq.toString(36)}${Math.random().toString(36).slice(2, 8)}`
 }
 
-/** 生成追加在 AI 命令之后的哨兵命令(独立一行,兼容多行命令) */
+/**
+ * 生成追加在 AI 命令之后的哨兵命令(独立一行,兼容多行命令)。
+ * 同一行 printf 顺路上报 OSC 7 cwd(`$?` 与 `$PWD` 在 printf 执行前同时展开,
+ * 语义不变):AI 每执行一条命令,cwd 立即刷新,无需向 shell 注入任何 hook;
+ * 回显行由渲染过滤器(COMPLETION_MARKER_ECHO_TEXT)整行隐藏。
+ */
 export function buildCompletionMarkerCommand(markerId: string): string {
-  return `printf '\\033]777;${COMPLETION_MARKER_NS};${markerId};%s\\007' "$?"`
+  return `printf '\\033]777;${COMPLETION_MARKER_NS};${markerId};%s\\007\\033]7;%s\\007' "$?" "$PWD"`
 }
 
 export interface CompletionMarkerMatch {
@@ -81,6 +86,62 @@ export function findCompletionMarker(raw: string, markerId: string): CompletionM
 /** 判断一行是否是哨兵命令的回显行(清理 AI 侧输出时剔除) */
 export function isCompletionMarkerEchoLine(line: string): boolean {
   return line.includes(`777;${COMPLETION_MARKER_NS}`)
+}
+
+/**
+ * 渲染侧回显过滤:AI 哨兵命令 / OSC 7 注入命令写入 PTY 后,shell readline
+ * 会把命令文本回显到终端(`\033` 是反斜杠字面文本,与真实 OSC 序列的
+ * ESC 字节相区分),scrollback 里留下一行内部实现细节,对用户不友好。
+ * xterm 对真实 OSC 序列只解析不渲染,无需处理;这里把含指定字面量的
+ * 完整逻辑行整行剔除,哨兵 / 注入机制本身照常执行。
+ */
+
+/** AI 完成哨兵命令回显行里的稳定子串 */
+export const COMPLETION_MARKER_ECHO_TEXT = `\\033]777;${COMPLETION_MARKER_NS}`
+
+/**
+ * 创建跨 chunk 保持状态的渲染过滤器(回显行可能跨 TCP 分片)。
+ * 命中任一字面量的完整逻辑行整行剔除;未完成行出现完整 marker 或
+ * 其 ≥8 字符前缀时扣留整行等 \n(marker 可能从行中间开始并跨分片),
+ * 仅尾部与 marker 开头重叠时只扣留重叠段——无换行的 prompt 行实时放行。
+ */
+export function createHiddenEchoFilter(literals: string[]): (chunk: string) => string {
+  let pending = ''
+  const markers = literals.filter(lit => lit.length > 0)
+  const longest = markers.reduce((max, lit) => Math.max(max, lit.length), 0)
+  const PARTIAL_HEAD = 8
+
+  /** buf 尾部与任一 marker 前缀的最长重叠长度(跨分片的 marker 开头) */
+  function markerPrefixOverlap(buf: string): number {
+    const max = Math.min(buf.length, longest - 1)
+    for (let k = max; k > 0; k--) {
+      if (markers.some(lit => k < lit.length && buf.endsWith(lit.slice(0, k)))) return k
+    }
+    return 0
+  }
+
+  return (chunk: string): string => {
+    pending += chunk
+    let out = ''
+    let nl: number
+    while ((nl = pending.indexOf('\n')) >= 0) {
+      const line = pending.slice(0, nl + 1)
+      pending = pending.slice(nl + 1)
+      if (!markers.some(lit => line.includes(lit))) out += line
+    }
+    if (!pending) return out
+    // 完整 marker,或 marker 的可疑前缀(≥ PARTIAL_HEAD,覆盖从行中间开始、
+    // 后半截还在路上的情况):扣留整行,等 \n 到了做整行剔除判定
+    const hit = markers.some(lit =>
+      pending.includes(lit) || pending.includes(lit.slice(0, Math.min(lit.length, PARTIAL_HEAD)))
+    )
+    if (hit) return out
+    // 尾部可能是 marker 的开头(< PARTIAL_HEAD,前缀判断还无法命中),扣留重叠段
+    const keep = markerPrefixOverlap(pending)
+    out += pending.slice(0, pending.length - keep)
+    pending = pending.slice(pending.length - keep)
+    return out
+  }
 }
 
 /** 判断一行是否像 shell prompt(常见 bash/sh/zsh/fish 格式) */

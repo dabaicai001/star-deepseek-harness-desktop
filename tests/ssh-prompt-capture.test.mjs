@@ -12,7 +12,8 @@ const transpiled = ts.transpileModule(source, {
 }).outputText
 const mod = await import(`data:text/javascript;base64,${Buffer.from(transpiled).toString('base64')}`)
 const { hasReturnedPrompt, cleanPromptCapturedOutput, isCommandEchoFragment, isShellPromptLine,
-  buildCompletionMarkerCommand, findCompletionMarker, isCompletionMarkerEchoLine, newCompletionMarkerId } = mod
+  buildCompletionMarkerCommand, findCompletionMarker, isCompletionMarkerEchoLine, newCompletionMarkerId,
+  createHiddenEchoFilter, COMPLETION_MARKER_ECHO_TEXT } = mod
 
 const PROMPT = 'root@autodl-container-06c7:~#'
 const COMMAND =
@@ -80,8 +81,8 @@ test('isShellPromptLine 常见 prompt 与非 prompt', () => {
 const MARKER_ID = 't1abc'
 const MARKER_CMD = buildCompletionMarkerCommand(MARKER_ID)
 
-test('buildCompletionMarkerCommand 生成 printf 哨兵命令', () => {
-  assert.equal(MARKER_CMD, `printf '\\033]777;starhub;ai-done;${MARKER_ID};%s\\007' "$?"`)
+test('buildCompletionMarkerCommand 生成 printf 哨兵命令(顺路 OSC 7 上报 cwd)', () => {
+  assert.equal(MARKER_CMD, `printf '\\033]777;starhub;ai-done;${MARKER_ID};%s\\007\\033]7;%s\\007' "$?" "$PWD"`)
 })
 
 test('newCompletionMarkerId 每次生成不同 ID', () => {
@@ -156,4 +157,52 @@ test('多行 for 循环 + 末行无换行:prompt 识别失败但哨兵命中(用
 test('isCompletionMarkerEchoLine 识别哨兵回显行', () => {
   assert.equal(isCompletionMarkerEchoLine(`${PROMPT} ${MARKER_CMD}`), true)
   assert.equal(isCompletionMarkerEchoLine('--- unet ---'), false)
+})
+
+test('findCompletionMarker 兼容顺路 OSC 7 后缀(同流中的 cwd 上报不影响退出码解析)', () => {
+  const raw = `out\r\n\x1b]777;starhub;ai-done;${MARKER_ID};0\x07\x1b]7;/root\x07${PROMPT} `
+  const match = findCompletionMarker(raw, MARKER_ID)
+  assert.ok(match)
+  assert.equal(match.exitCode, 0)
+})
+
+// ====== 渲染侧回显过滤器(哨兵 / 注入命令的回显对用户不可见) ======
+
+const HIDDEN_LITERALS = [COMPLETION_MARKER_ECHO_TEXT, '__starhub_osc7']
+
+test('createHiddenEchoFilter 整行剔除哨兵命令回显,保留命令输出与 prompt', () => {
+  const filter = createHiddenEchoFilter(HIDDEN_LITERALS)
+  const chunk =
+    `${PROMPT} ls\r\n` +
+    `file1\r\nfile2\r\n` +
+    `${PROMPT} ${MARKER_CMD}\r\n` +
+    `\x1b]777;starhub;ai-done;${MARKER_ID};0\x07\x1b]7;/root\x07${PROMPT} `
+  const out = filter(chunk)
+  assert.equal(out.includes(MARKER_CMD), false)
+  assert.equal(out.includes('file1\r\nfile2\r\n'), true)
+  // 真实 OSC 序列(ESC 字节)保留,xterm 只解析不渲染;AI 侧 buffer 不受影响
+  assert.equal(out.includes(`\x1b]777;starhub;ai-done;${MARKER_ID};0\x07`), true)
+  // 无换行的 prompt 行实时放行,不被扣留
+  assert.equal(out.endsWith(`${PROMPT} `), true)
+})
+
+test('createHiddenEchoFilter 回显行跨 TCP 分片也能剔除', () => {
+  const filter = createHiddenEchoFilter(HIDDEN_LITERALS)
+  const full = `${PROMPT} ${MARKER_CMD}\r\nnext\r\n`
+  const cut = full.indexOf('ai-done') - 3
+  const out1 = filter(full.slice(0, cut))
+  const out2 = filter(full.slice(cut))
+  assert.equal((out1 + out2).includes('printf'), false)
+  assert.equal(out2, 'next\r\n')
+})
+
+test('createHiddenEchoFilter 剔除 OSC 7 注入命令回显', () => {
+  const filter = createHiddenEchoFilter(HIDDEN_LITERALS)
+  const injectLine =
+    `__starhub_osc7() { printf '\\033]7;%s\\007' "$PWD"; }; ` +
+    'if [ -n "${ZSH_VERSION:-}" ]; then precmd_functions+=(__starhub_osc7); ' +
+    'else PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}__starhub_osc7"; fi\r\n'
+  const out = filter(`${PROMPT} ${injectLine}${PROMPT} `)
+  assert.equal(out.includes('__starhub_osc7'), false)
+  assert.equal(out.endsWith(`${PROMPT} `), true)
 })

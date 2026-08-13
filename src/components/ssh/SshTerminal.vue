@@ -32,6 +32,8 @@ import { checkCommand, extractWhitelistPrefix, stripShellPrompt } from '@/utils/
 import {
   buildCompletionMarkerCommand,
   cleanPromptCapturedOutput,
+  COMPLETION_MARKER_ECHO_TEXT,
+  createHiddenEchoFilter,
   findCompletionMarker,
   hasReturnedPrompt,
   isCompletionMarkerEchoLine,
@@ -39,7 +41,7 @@ import {
   newCompletionMarkerId,
   normalizeTerminalText
 } from '@/utils/sshPromptCapture'
-import { extractOsc7Cwd, OSC7_INJECT_COMMAND, parsePwdOutput } from '@/utils/terminalCwd'
+import { extractOsc7Cwd, OSC7_INJECT_COMMAND, OSC7_INJECT_ECHO_TEXT, parsePwdOutput } from '@/utils/terminalCwd'
 import { logAudit } from '@/services/audit'
 import { usePersistentPanelState } from '@/utils/panelState'
 import ZmodemModule from 'zmodem.js/src/zmodem_browser.js'
@@ -306,8 +308,15 @@ watch(rightActiveTab, tab => {
 const sshCwd = ref<string>('')
 /** OSC 7 解析的滚动 tail(转义序列可能跨 TCP 分片,保留未消费尾部) */
 let osc7Tail = ''
-/** 建链后待注入 OSC 7 shell integration(等首个输出块再写,避免与用户首条输入抢 stdin) */
+/** 渲染侧回显过滤:AI 哨兵 / OSC 7 注入命令的 readline 回显整行隐藏,机制照跑 */
+const hiddenEchoFilter = createHiddenEchoFilter([COMPLETION_MARKER_ECHO_TEXT, OSC7_INJECT_ECHO_TEXT])
+// ====== OSC 7 shell integration 懒注入(SFTP「跟随终端」开启时触发) ======
+/** 待注入标记:开启跟随终端时置位,检测到 shell prompt 后才真正写入(避开 MFA / 登录交互) */
 let osc7InjectPending = false
+/** 本会话是否已注入过(幂等,重开跟随终端不重复写) */
+let osc7Injected = false
+/** 输出流中是否已见到过 shell prompt(懒注入的就绪信号) */
+let shellPromptSeen = false
 // 后台静默模式:开关全局持久化(所有 SSH tab 共享一个 localStorage key)
 const aiSilentMode = usePersistentPanelState('sshAiSilentMode', false)
 /** 静默执行的 cwd 跟踪:每条命令结束后从 marker 解析更新,跨命令保持 cd 语义 */
@@ -665,11 +674,18 @@ async function connect() {
   scheduleSftpReadyFallback()
 
   // cwd 跟踪初始化:静默 exec pwd 拿登录目录(SFTP「跟随终端」立即可用);
-  // 并标记待注入 OSC 7(首个输出块到达时在 handleTerminalOctets 里写入,
-  // 之后 shell 每次回到 prompt 都会自动上报 cwd)
+  // 之后靠 AI 哨兵顺路上报的 OSC 7、远端 shell 自身的 OSC 7 与 pwd 输出解析持续跟踪
   sshCwd.value = ''
   osc7Tail = ''
-  osc7InjectPending = true
+  osc7Injected = false
+  shellPromptSeen = false
+  // 重连后 SftpPanel 不一定会重新 emit(开关状态持久化在 localStorage),
+  // 这里直接按持久化状态恢复懒注入请求(key 与 SftpPanel.vue 同步)
+  try {
+    osc7InjectPending = localStorage.getItem('starhub.sftp.followTerminal') === 'true'
+  } catch {
+    osc7InjectPending = false
+  }
   void initCwdFromExec(sessionId)
  } catch (error) {
   const msg = error instanceof Error ? error.message : String(error)
@@ -762,29 +778,49 @@ async function initCwdFromExec(sid: string) {
   } catch { /* 拿不到就靠后续 OSC 7 / pwd 输出解析兜底 */ }
 }
 
+/** SFTP「跟随终端」开启 → 请求懒注入 OSC 7(已注入过则幂等跳过) */
+function onFollowTerminalToggle(enabled: boolean) {
+  if (!enabled || osc7Injected) return
+  osc7InjectPending = true
+  // 已见过 prompt(跟随终端通常是建链很久后才开),立即注入
+  if (shellPromptSeen) tryInjectOsc7()
+}
+
+/** 懒注入:仅在 shell 已到 prompt 后写入,回显由渲染过滤器隐藏 */
+function tryInjectOsc7() {
+  if (!osc7InjectPending || osc7Injected || !connected.value) return
+  osc7InjectPending = false
+  osc7Injected = true
+  void invoke('ssh_write', { id: props.id, data: OSC7_INJECT_COMMAND }).catch(() => {
+    // 写入失败允许下次触发重试
+    osc7Injected = false
+  })
+}
+
 function handleTerminalOctets(octets: number[]) {
   const chunk = terminalDecoder.decode(new Uint8Array(octets), { stream: true })
   if (!chunk) return
-  terminalRef.value?.write(chunk)
+  const renderChunk = hiddenEchoFilter(chunk)
+  if (renderChunk) terminalRef.value?.write(renderChunk)
   markSftpReady()
   //收集到 buffer(AI助手用,固定容量环形缓冲)
   pushDataChunk(chunk)
-  //OSC 7 cwd 上报(注入 shell integration 后,远端 shell 每次回到 prompt 都会携带当前目录)
+  //OSC 7 cwd 上报(远端 shell 自身 shell integration 发出时照单解析;不再注入)
   osc7Tail += chunk
   const osc7 = extractOsc7Cwd(osc7Tail)
   osc7Tail = osc7.rest
   if (osc7.cwd && osc7.cwd !== sshCwd.value) sshCwd.value = osc7.cwd
-  //首个输出块到达后注入 OSC 7 shell integration(此时登录输出已开始,shell 即将就绪;
-  //不在 connect 成功时立即写,避免与用户首条输入 / MFA 交互抢 stdin)
-  if (osc7InjectPending) {
-    osc7InjectPending = false
-    void invoke('ssh_write', { id: props.id, data: OSC7_INJECT_COMMAND }).catch(() => {})
-  }
   //检测 pwd 输出,更新当前工作目录(sh/dash 等无 hook shell 的兜底)
   const pwdMatch = chunk.match(/(?:\r\n|\n|\r)(\/[\w\-./]{1,200})\s*(?:\r\n|\n|\r|$)/)
   if (pwdMatch && pwdMatch[1].startsWith('/')) {
     sshCwd.value = pwdMatch[1]
   }
+  //shell prompt 就绪检测:懒注入 OSC 7 的时机信号(避开 MFA / 登录交互阶段)
+  if (!shellPromptSeen) {
+    const lastLine = normalizeTerminalText(chunk).split('\n').pop() ?? ''
+    if (isShellPromptLine(lastLine)) shellPromptSeen = true
+  }
+  if (osc7InjectPending && shellPromptSeen) tryInjectOsc7()
   //唤醒正在等待的 captureOutput
   maybeResolveCapture()
   maybeResolvePromptCapture()
@@ -1826,88 +1862,62 @@ function handleKbCancelled() {
  <div class="subtitle" v-else>—</div>
  </div>
 
- <div class="actions">
- <!--字体缩放 -->
- <button
- class="action-btn"
- data-tooltip="减小终端字号"
- title="减小终端字号"
- @click="adjustFontSize(-1)"
- >
- <v-icon size="14">mdi-format-font-size-decrease</v-icon>
- </button>
- <span class="font-size-indicator">{{ fontSize }}px</span>
- <button
- class="action-btn"
- data-tooltip="增大终端字号"
- title="增大终端字号"
- @click="adjustFontSize(1)"
- >
- <v-icon size="14">mdi-format-font-size-increase</v-icon>
- </button>
-
- <div class="divider" />
-
- <!--搜索 -->
- <div class="search-wrap" v-if="showSearch">
- <input
- v-model="searchQuery"
- type="text"
- class="cyber-search-input"
- :placeholder="t('ssh.search') + '...'"
- @keydown.enter="handleSearch"
- @keydown.esc="showSearch = false"
- />
- </div>
- <button
- v-else
- class="action-btn"
- :data-tooltip="t('ssh.search')"
- :title="t('ssh.search')"
- @click="showSearch = true"
- >
- <v-icon size="14">mdi-magnify</v-icon>
- </button>
-
- <!-- 清屏 -->
- <button
- class="action-btn"
- :data-tooltip="t('ssh.clear')"
- :title="t('ssh.clear')"
- @click="handleClear"
- >
- <v-icon size="14">mdi-broom</v-icon>
- </button>
-
- <span class="divider" />
-
- <!--状态 + 重连/断开(紧挨状态) -->
- <span class="status" :class="statusKind">
- <span class="dot" />
- {{ statusText }}
- </span>
-
- <button
- class="action-btn reconnect-btn"
- :data-tooltip="t('asset.connect')"
- :title="t('asset.connect')"
- :disabled="connecting || !asset"
- @click="connect"
- >
- <v-icon size="14">mdi-connection</v-icon>
- </button>
-
+  <div class="actions">
+  <!--字体缩放 -->
   <button
-  class="action-btn disconnect-btn"
-  :class="{ 'pulse-danger': connected }"
-  :data-tooltip="t('asset.disconnect')"
-  :title="t('asset.disconnect')"
-  :disabled="!connected"
-  @click="disconnect"
+  class="action-btn"
+  data-tooltip="减小终端字号"
+  title="减小终端字号"
+  @click="adjustFontSize(-1)"
   >
-  <v-icon size="14">mdi-power-standby</v-icon>
+  <v-icon size="14">mdi-format-font-size-decrease</v-icon>
+  </button>
+  <span class="terminal-font-size-indicator">{{ fontSize }}px</span>
+  <button
+  class="action-btn"
+  data-tooltip="增大终端字号"
+  title="增大终端字号"
+  @click="adjustFontSize(1)"
+  >
+  <v-icon size="14">mdi-format-font-size-increase</v-icon>
   </button>
 
+  <span class="terminal-action-divider" />
+
+  <!--搜索 -->
+  <div class="terminal-search-wrap" v-if="showSearch">
+  <input
+  v-model="searchQuery"
+  type="text"
+  class="terminal-search-input"
+  :placeholder="t('ssh.search') + '...'"
+  @keydown.enter="handleSearch"
+  @keydown.esc="showSearch = false"
+  />
+  </div>
+  <button
+  v-else
+  class="action-btn"
+  :data-tooltip="t('ssh.search')"
+  :title="t('ssh.search')"
+  @click="showSearch = true"
+  >
+  <v-icon size="14">mdi-magnify</v-icon>
+  </button>
+
+  <!-- 清屏 -->
+  <button
+  class="action-btn"
+  :data-tooltip="t('ssh.clear')"
+  :title="t('ssh.clear')"
+  @click="handleClear"
+  >
+  <v-icon size="14">mdi-broom</v-icon>
+  </button>
+
+  <span class="terminal-action-divider" />
+
+  <!-- 广播 / 网页(工具类,与连接控制分开) -->
   <button
   class="action-btn"
   :data-tooltip="t('ssh.broadcast.tooltip')"
@@ -1926,6 +1936,34 @@ function handleKbCancelled() {
   @click="openWebBrowserTab"
   >
   <v-icon size="14">mdi-web</v-icon>
+  </button>
+
+  <span class="terminal-action-divider" />
+
+  <!--状态 + 单按钮连接控制:在线只给断开,离线只给连接(不再同时摆两个) -->
+  <span class="status" :class="statusKind">
+  <span class="dot" />
+  {{ statusText }}
+  </span>
+
+  <button
+  v-if="connected"
+  class="action-btn disconnect-btn"
+  :data-tooltip="t('asset.disconnect')"
+  :title="t('asset.disconnect')"
+  @click="disconnect"
+  >
+  <v-icon size="14">mdi-power-standby</v-icon>
+  </button>
+  <button
+  v-else
+  class="action-btn reconnect-btn"
+  :data-tooltip="t('asset.connect')"
+  :title="t('asset.connect')"
+  :disabled="connecting || !asset"
+  @click="connect"
+  >
+  <v-icon size="14">mdi-connection</v-icon>
   </button>
   </div>
  </div>
@@ -2189,7 +2227,7 @@ function handleKbCancelled() {
     />
   </template>
   <template #tab-sftp>
-    <SftpPanel :asset-id="asset?.id" :session-id="id" :ssh-connected="connected && sftpReady" :ssh-cwd="sshCwd" />
+    <SftpPanel :asset-id="asset?.id" :session-id="id" :ssh-connected="connected && sftpReady" :ssh-cwd="sshCwd" @follow-terminal="onFollowTerminalToggle" />
   </template>
   </RightPanel>
   </div>
@@ -2370,29 +2408,14 @@ function handleKbCancelled() {
 }
 
 .action-btn.active {
- background: var(--active-cyan);
- color: var(--cyan);
- border-color: var(--focus-cyan);
-}
-
-.font-size-indicator {
- font-size:10px;
- font-family: 'JetBrains Mono', monospace;
- color: var(--muted);
- min-width:32px;
- text-align: center;
-}
-
-.divider {
- width:1px;
- height:18px;
- background: var(--line-2);
- margin:04px;
+  background: var(--active-cyan);
+  color: var(--cyan);
+  border-color: var(--focus-cyan);
 }
 
 .action-btn[disabled] {
- opacity:0.35;
- cursor: not-allowed;
+  opacity:0.35;
+  cursor: not-allowed;
 }
 
 .action-btn.danger:hover:not([disabled]) {
@@ -2413,55 +2436,18 @@ function handleKbCancelled() {
 }
 
 .disconnect-btn:not([disabled]) {
- color: var(--red);
- border-color: rgba(255,77,109,0.25);
+  color: var(--red);
+  border-color: rgba(255,77,109,0.25);
 }
 
 .disconnect-btn:not([disabled]):hover {
- background: rgba(255,77,109,0.12);
- border-color: rgba(255,77,109,0.4);
- box-shadow:006px rgba(255,77,109,0.2);
-}
-
-.disconnect-btn.pulse-danger {
- animation: pulse-red2s infinite;
-}
-
-@keyframes pulse-red {
-0%,100% { box-shadow: none; }
-50% { box-shadow:006px rgba(255,77,109,0.25); }
-}
-
-.search-wrap {
- position: relative;
- display: flex;
- align-items: center;
-}
-
-.cyber-search-input {
- background: var(--bg-input);
- border:1px solid var(--line-2);
- border-radius:6px;
- padding:4px8px;
- font-size:11px;
- color: var(--text);
- outline: none;
- width:160px;
- transition: all0.2s;
-}
-
-.cyber-search-input:focus {
- border-color: var(--cyan);
- box-shadow:0003px var(--focus-cyan);
- width:200px;
-}
-
-.cyber-search-input::placeholder {
- color: var(--muted);
+  background: rgba(255,77,109,0.12);
+  border-color: rgba(255,77,109,0.4);
+  box-shadow:006px rgba(255,77,109,0.2);
 }
 
 .status {
- position: relative;
+  position: relative;
 }
 
 .status .dot {
