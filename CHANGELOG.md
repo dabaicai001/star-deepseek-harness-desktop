@@ -13,6 +13,11 @@
 
 ---
 
+## [0.62.3] - 2026-08-13
+
+### 修复
+- 内嵌 AI 助手 # 绑定远程资产不接通(与 #LOCAL 同类问题的完整修复):此前绑定内非宿主资产(SSH/DB/Docker/Excel)只在 prompt 里作参照;现在绑定资产经 direct workspace runtime 实际接入对应工具(ssh_*/sftp_*/db_*/redis_*/es_*/docker_*/excel_*),workspace 参数区分目标,省略 workspace 或指向本标签页宿主资产时落在当前宿主执行器;与宿主同名工具替换为带 workspace 参数的版本避免重复函数名;runtime 随绑定集合变化重建,组件卸载时关闭全部绑定连接
+
 ## [0.62.2] - 2026-08-13
 
 ### 修复

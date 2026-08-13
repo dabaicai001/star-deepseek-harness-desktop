@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.62.2-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.62.3-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,22 +119,15 @@
 
 ## 当前版本
 
+### v0.62.3 (2026-08-13)
+- 🐛 内嵌 AI 助手 # 绑定远程资产不接通(与 #LOCAL 同类问题的完整修复):此前绑定内非宿主资产(SSH/DB/Docker/Excel)只在 prompt 里作参照;现在绑定资产经 direct workspace runtime 实际接入对应工具(ssh_*/sftp_*/db_*/redis_*/es_*/docker_*/excel_*),workspace 参数区分目标,省略 workspace 或指向本标签页宿主资产时落在当前宿主执行器;与宿主同名工具替换为带 workspace 参数的版本避免重复函数名;runtime 随绑定集合变化重建,组件卸载时关闭全部绑定连接
+
 ### v0.62.2 (2026-08-13)
 - 🐛 内嵌 AI 助手(SSH/DB 等宿主)# 绑定本机不接通:此前 `#LOCAL` / `#LOCAL-资产` 只在 prompt 里作「参照元数据」,工具仍限于当前宿主,AI 明确回答无法访问本机代码;现在绑定含本机(local 作用域或 local 资产)时,本轮实际接入 `local_*` 工具与本机运行时(文件读取免确认,写操作与 Shell 命令走确认卡),提示词同步说明可用能力与确认规则;宿主自带 local 工具(本地工作区)时不重复追加
 - 🐛 内嵌 AI 助手 @ Agent 默认绑定不生效:与 AiView 语义对齐,当 @ 提及的 Agent 配置了默认绑定目标(boundAssetIds / boundLocal)且本轮无显式 # token 时,自动注入该 Agent 的绑定;local 运行时在未启用工具确认的宿主(Excel)下对写操作 / Shell 安全拒绝而非崩溃
 
 ### v0.62.1 (2026-08-13)
 - 🐛 AI 哨兵命令回显进入 AI 上下文致模型困惑:PTY 路径的 dataBuffer(AI `captureOutput` 与超时兜底输出的来源)原先存原始 chunk,哨兵 printf 的 readline 回显原样混入,AI 看到自己没发过的 `printf '\033]777;...'` 内部命令;回显过滤器改为同时作用于渲染流与 AI buffer(真实 OSC 序列含 ESC 字节不受影响,完成判定照常)
-
-### v0.62.0 (2026-08-13)
-- ✨ 本地工作区 VSCode 化重设计:移除主区文件列表与目录面包屑,侧栏目录树成为唯一导航(单击展开/预览、双击固定);编辑器 tab 支持预览态(斜体、被下一预览替换,编辑/双击转正)、中键关闭;侧栏可拖拽调宽(160-480px)+「全部折叠」按钮;状态栏新增 Ln/Col 光标位置;树节点支持键盘焦点与 F2 重命名 / Del 删除;主区无文件时显示欢迎引导态
-- ✨ 本地工作区右侧边栏接入 AI 助手(RightPanel + useAiChatHost,复用 aiLocal 的 localTools):会话绑定 local 资产类型;base prompt 要求 AI 先读取工作区根 AGENTS.md 并遵循其中的约定,再执行任务;写操作与 Shell 命令仍走确认卡
-- ✨ AI 自生成 Skill:所有内嵌 AI 助手(SSH/DB/Docker/Redis/ES/Excel/本地)新增 `skill_save` 工具,按 name 幂等 upsert 到自定义 Skills 并自动启用,回显到 设置 → AI → Skills;写入前做隐形 Unicode / prompt 注入 / 凭据扫描,始终走确认卡;设置加载时 customSkills 的 assetTypes 白名单补上 local
-- 🔧 SSH 终端工具栏重组:字号、搜索/清屏、广播/网页、状态与连接控制四组分隔线分组;在线只显示断开(红色电源)按钮、离线只显示连接(绿色)按钮,不再同时摆连接+断开两个按钮;CONNECTED 徽标与连接按钮互斥显示;局部样式迁移到 terminal-* 全局组件类
-- 🔧 AI 完成哨兵顺路上报 cwd:AI 命令后的哨兵 printf 同一行同时输出 OSC 7($? 与 $PWD 一次展开),AI 每执行一条命令 cwd 立即刷新,无需向远端 shell 注入任何 hook
-- 🔧 渲染侧回显过滤器:AI 哨兵命令与 OSC 7 注入命令的 readline 回显整行从终端渲染流剔除(跨 TCP 分片安全),用户 scrollback 不再看到 `printf '\033]777;...'` 与 `__starhub_osc7() {...}` 内部实现
-- 🔧 OSC 7 shell integration 改为懒注入:建链 / MFA 阶段不再注入;仅当 SFTP「跟随终端」开启(或重连时该开关仍开)且检测到 shell prompt 后就绪后才写入,回显被渲染过滤器隐藏;SftpPanel 通过 follow-terminal 事件通知终端
-- 🔧 DB / Excel 网格关闭所有「数字以文本形式存储」hover 错误弹框与绿色警告角(disableForceStringAlert/Mark + disableTextFormatAlert/Mark),移除为此前提示文案补的 locale 兼容映射;字符串列设文本格式保住 '000123' 前导零的修复不受影响
 
 ---
 
