@@ -17,6 +17,8 @@ export interface LocalEditorTab {
   content: string
   dirty: boolean
   language: string
+  /** VSCode 式预览 tab:单击打开为预览(斜体),编辑 / 双击后固定 */
+  preview?: boolean
 }
 
 export const useLocalViewStore = defineStore('localView', () => {
@@ -66,14 +68,33 @@ export const useLocalViewStore = defineStore('localView', () => {
     }
   }
 
-  function openEditorTab(tab: LocalEditorTab) {
+  function openEditorTab(tab: LocalEditorTab, opts?: { preview?: boolean }) {
     const existing = editorTabs.value.find(t => t.path === tab.path)
     if (existing) {
       activeEditorTabId.value = existing.id
       return
     }
-    editorTabs.value.push(tab)
+    tab.preview = opts?.preview ?? false
+    if (tab.preview) {
+      // 预览 tab 全局只保留一个:新预览就地替换旧预览
+      const idx = editorTabs.value.findIndex(t => t.preview)
+      if (idx >= 0) editorTabs.value.splice(idx, 1, tab)
+      else editorTabs.value.push(tab)
+    } else {
+      editorTabs.value.push(tab)
+    }
     activeEditorTabId.value = tab.id
+  }
+
+  /** 固定预览 tab(双击树节点 / 双击 tab / 产生编辑时) */
+  function pinEditorTab(tabId: string) {
+    const tab = editorTabs.value.find(t => t.id === tabId)
+    if (tab) tab.preview = false
+  }
+
+  /** 折叠全部目录(VSCode Collapse All) */
+  function collapseAllDirs() {
+    expandedDirs.value = new Set()
   }
 
   function closeEditorTab(tabId: string) {
@@ -90,6 +111,7 @@ export const useLocalViewStore = defineStore('localView', () => {
     if (tab) {
       tab.content = content
       tab.dirty = true
+      tab.preview = false
     }
   }
 
@@ -134,6 +156,7 @@ export const useLocalViewStore = defineStore('localView', () => {
     editorTabs, activeEditorTabId, activeEditorTab, terminalCwd, viewMode,
     setRootPath, setDirTree, setCurrentPath, toggleExpandedDir,
     openEditorTab, closeEditorTab, updateEditorContent, markEditorClean,
+    pinEditorTab, collapseAllDirs,
     getLanguage, isExcelFile, reset,
   }
 })

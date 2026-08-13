@@ -6868,7 +6868,7 @@ body.tab-dragging {
   min-height: 0;
 }
 
-/* ---- 左侧:目录树 ---- */
+/* ---- 左侧:目录树(宽度由组件内联样式驱动,拖拽条调节) ---- */
 .local-sidebar {
   width: 232px;
   flex-shrink: 0;
@@ -6877,6 +6877,32 @@ body.tab-dragging {
   overflow: hidden;
   background: var(--bg-2);
   border-right: 1px solid var(--line);
+}
+
+/* 侧栏宽度拖拽条:贴边 4px 热区,hover 出 cyan 指示线 */
+.local-side-resizer {
+  width: 4px;
+  margin-left: -2px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  position: relative;
+  z-index: 2;
+}
+
+.local-side-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 1px;
+  width: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.local-side-resizer:hover::after,
+.local-side-resizer:active::after {
+  background: var(--cyan);
 }
 
 /* EXPLORER 式分区标题条:操作图标平时隐藏,hover / 键盘聚焦才显现 */
@@ -6985,6 +7011,12 @@ body.tab-dragging {
   color: var(--text);
 }
 
+/* 键盘焦点环(F2 / Del 等树键盘操作的可感知焦点) */
+.local-tree-row:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
 /* 选中行:左侧 2px cyan 指示条(用 inset 阴影避免布局位移)+ 渐隐高亮 */
 .local-tree-row.selected {
   background: linear-gradient(90deg, var(--focus-cyan) 0%, transparent 100%);
@@ -7027,13 +7059,6 @@ body.tab-dragging {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.local-tree-size {
-  font-size: 10px;
-  color: var(--muted);
-  font-family: 'JetBrains Mono', monospace;
-  flex-shrink: 0;
 }
 
 /* 树加载骨架 */
@@ -7132,6 +7157,12 @@ body.tab-dragging {
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 预览 tab(VSCode 式):斜体 + 弱色,固定后恢复 */
+.local-editor-tab.preview .local-tab-name {
+  font-style: italic;
+  color: var(--muted);
 }
 
 /* dirty 点 / 关闭钮同槽位:默认 dirty 显示圆点,hover 时切换为关闭钮 */
@@ -7261,89 +7292,6 @@ body.tab-dragging {
 
 .local-editor-textarea::selection {
   background: var(--focus-cyan);
-}
-
-/* 文件列表(名称 / 大小 / 修改时间,表头吸附) */
-.local-file-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-.local-file-head,
-.local-file-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 88px 150px;
-  align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-}
-
-.local-file-head {
-  height: 28px;
-  flex-shrink: 0;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--bg);
-  border-bottom: 1px solid var(--line);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-  user-select: none;
-}
-
-.local-file-row {
-  height: 32px;
-  flex-shrink: 0;
-  cursor: pointer;
-  border-left: 2px solid transparent;
-  transition: background 0.12s;
-}
-
-.local-file-row:hover {
-  background: var(--hover-cyan-soft);
-}
-
-.local-file-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--text-2);
-}
-
-.local-file-row:hover .local-file-name {
-  color: var(--text);
-}
-
-.local-file-name .v-icon {
-  flex-shrink: 0;
-  color: var(--muted);
-}
-
-.local-file-name .v-icon.is-dir {
-  color: var(--cyan);
-}
-
-.local-file-name span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.local-file-size,
-.local-file-mtime {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: var(--muted);
-  text-align: right;
-  white-space: nowrap;
 }
 
 /* ---- 底部状态栏(等宽数字,复用全局 statusbar 玻璃底) ---- */

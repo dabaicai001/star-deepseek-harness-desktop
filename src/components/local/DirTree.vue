@@ -15,6 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'select-file': [entry: LocalFileEntry]
+  'pin-file': [entry: LocalFileEntry]
   'open-excel': [entry: LocalFileEntry]
   'ctx': [payload: { event: MouseEvent; entry: LocalFileEntry }]
 }>()
@@ -61,26 +62,22 @@ function onRowCtx(event: MouseEvent, entry: LocalFileEntry) {
 }
 
 function onFileClick(entry: LocalFileEntry) {
+  store.setCurrentPath(entry.path)
   if (entry.isDir) {
     toggleDir(entry)
-    store.setCurrentPath(entry.path)
+    return
+  }
+  if (store.isExcelFile(entry.name)) {
+    emit('open-excel', entry)
   } else {
-    store.setCurrentPath(entry.path)
     emit('select-file', entry)
   }
 }
 
+/** 双击:目录无额外行为(单击已展开/折叠),文件固定预览 tab */
 function onFileDblClick(entry: LocalFileEntry) {
-  if (entry.isDir) {
-    toggleDir(entry)
-    store.setCurrentPath(entry.path)
-  } else {
-    if (store.isExcelFile(entry.name)) {
-      emit('open-excel', entry)
-    } else {
-      emit('select-file', entry)
-    }
-  }
+  if (entry.isDir || store.isExcelFile(entry.name)) return
+  emit('pin-file', entry)
 }
 
 function getIcon(entry: LocalFileEntry): string {
@@ -105,12 +102,6 @@ function getIcon(entry: LocalFileEntry): string {
   }
 }
 
-function formatSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return `${(bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)} ${units[i]}`
-}
 </script>
 
 <template>
@@ -123,6 +114,7 @@ function formatSize(bytes: number): string {
       <div
         class="local-tree-row"
         :class="{ selected: store.currentPath === entry.path }"
+        tabindex="0"
         @click="onFileClick(entry)"
         @dblclick="onFileDblClick(entry)"
         @contextmenu="onRowCtx($event, entry)"
@@ -141,7 +133,6 @@ function formatSize(bytes: number): string {
           {{ getIcon(entry) }}
         </v-icon>
         <span class="local-tree-name">{{ entry.name }}</span>
-        <span v-if="!entry.isDir" class="local-tree-size">{{ formatSize(entry.size) }}</span>
       </div>
       <!-- 递归子目录(嵌套层自带缩进参考线) -->
       <div
@@ -153,6 +144,7 @@ function formatSize(bytes: number): string {
           :parent-path="entry.path"
           :depth="props.depth + 1"
           @select-file="(e) => emit('select-file', e)"
+          @pin-file="(e) => emit('pin-file', e)"
           @open-excel="(e) => emit('open-excel', e)"
           @ctx="(p) => emit('ctx', p)"
         />

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -7,10 +7,16 @@ import { useAssetStore } from '@/stores/asset'
 import { useLocalViewStore, type LocalFileEntry } from '@/stores/localView'
 import { useDialogStore } from '@/stores/dialog'
 import { useNotifyStore } from '@/stores/notify'
+import { useAiStore } from '@/stores/ai'
 import { generateInstanceId } from '@/utils/tabId'
 import { invoke } from '@tauri-apps/api/core'
 import DirTree from '@/components/local/DirTree.vue'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
+import RightPanel from '@/components/layout/RightPanel.vue'
+import AiChat from '@/components/ai/AiChat.vue'
+import { useAiChatHost } from '@/composables/useAiChatHost'
+import { usePersistentPanelState } from '@/utils/panelState'
+import { localTools, createLocalAiRuntime } from '@/services/aiLocal'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -20,6 +26,7 @@ const assetStore = useAssetStore()
 const localStore = useLocalViewStore()
 const dlg = useDialogStore()
 const notify = useNotifyStore()
+const aiStore = useAiStore()
 
 const props = defineProps<{ id: string }>()
 
@@ -60,29 +67,31 @@ function targetOfSegment(fullPath: string, idx: number): string {
   return picked.join('/')
 }
 
-// 当前浏览路径的面包屑段
-const pathSegments = computed(() => segmentsOf(localStore.currentPath))
-
 // 编辑器顶部面包屑:激活文件的路径段(末段是文件名)
 const fileSegments = computed(() =>
   localStore.activeEditorTab ? segmentsOf(localStore.activeEditorTab.path) : []
 )
 
-/** 跳转到指定段的目录并刷新列表 */
-function navigateToDir(target: string) {
-  localStore.setCurrentPath(target)
-  loadDirectory(target)
+/** 在目录树中展开并选中指定目录(面包屑跳转 → VSCode Reveal in Explorer) */
+function revealDirInTree(dirPath: string) {
+  const root = normPath(localStore.rootPath).toLowerCase()
+  const target = normPath(dirPath).toLowerCase()
+  if (root && target.startsWith(root)) {
+    const segs = segmentsOf(dirPath)
+    for (let i = 0; i < segs.length; i++) {
+      const p = targetOfSegment(dirPath, i)
+      if (normPath(p).toLowerCase().length >= root.length) {
+        localStore.expandedDirs.add(p)
+      }
+    }
+  }
+  localStore.setCurrentPath(dirPath)
 }
 
-// 路径面包屑点击(文件列表态,基于 currentPath)
-function navigateToSegment(idx: number) {
-  navigateToDir(targetOfSegment(localStore.currentPath, idx))
-}
-
-// 编辑器面包屑点击:末段是文件名不可跳转,其余段进入对应目录
+// 编辑器面包屑点击:末段是文件名不可跳转,其余段在目录树中定位
 function navigateToFileSegment(idx: number) {
   if (!localStore.activeEditorTab || idx >= fileSegments.value.length - 1) return
-  navigateToDir(targetOfSegment(localStore.activeEditorTab.path, idx))
+  revealDirInTree(targetOfSegment(localStore.activeEditorTab.path, idx))
 }
 
 /** dirTree 当前对应的目录(面包屑/树可能把 currentPath 改成文件路径,这里单独记录) */
@@ -203,8 +212,8 @@ async function loadDirectory(dirPath: string) {
   }
 }
 
-/** 打开文本文件到编辑器 */
-async function openFileInEditor(entry: LocalFileEntry) {
+/** 打开文本文件到编辑器(preview=true 时为 VSCode 式预览 tab,可被下一次预览替换) */
+async function openFileInEditor(entry: LocalFileEntry, preview = false) {
   try {
     const result = await invoke<any>('local_read_text_file', { path: entry.path, offset: 0, maxBytes: 1048576 })
     const content = result.content || result || ''
@@ -215,7 +224,7 @@ async function openFileInEditor(entry: LocalFileEntry) {
       content,
       dirty: false,
       language: localStore.getLanguage(entry.name),
-    })
+    }, { preview })
   } catch (err: any) {
     notify.notify({ message: t('local.openFailed', { err: String(err) }), color: 'error', timeout: 3000 })
   }
@@ -261,18 +270,20 @@ onMounted(async () => {
   }
 })
 
-// 点击文件:打开编辑器或 Excel
+// 单击文件:打开预览 tab(目录展开 / Excel 路由已在 DirTree 内分流)
 async function onSelectFile(entry: LocalFileEntry) {
-  if (entry.isDir) {
-    localStore.setCurrentPath(entry.path)
-    await loadDirectory(entry.path)
+  await openFileInEditor(entry, true)
+}
+
+// 双击文件:固定为常驻 tab(已打开的预览直接转正)
+async function onPinFile(entry: LocalFileEntry) {
+  const existing = localStore.editorTabs.find(t => samePath(t.path, entry.path))
+  if (existing) {
+    localStore.activeEditorTabId = existing.id
+    localStore.pinEditorTab(existing.id)
     return
   }
-  if (localStore.isExcelFile(entry.name)) {
-    onOpenExcel(entry)
-    return
-  }
-  await openFileInEditor(entry)
+  await openFileInEditor(entry, false)
 }
 
 // ====== 文件操作(右键菜单 + 工具栏) ======
@@ -461,10 +472,52 @@ async function ctxDelete(entry: LocalFileEntry) {
   notify.notify({ message: t('local.deleted', { name: entry.name }), color: 'success', timeout: 2000 })
 }
 
-/** 工具栏:当前浏览目录下新建文件 / 文件夹、刷新 */
-function toolbarNewFile() { ctxNewFile(listedPath.value || localStore.currentPath) }
-function toolbarNewFolder() { ctxNewFolder(listedPath.value || localStore.currentPath) }
-function toolbarRefresh() { if (listedPath.value) refreshChildren(listedPath.value) }
+/** 工具栏目标目录:树中选中的目录,选中文件则取其父目录,兜底工作区根 */
+function targetDir(): string {
+  const p = localStore.currentPath
+  const entry = p ? findEntry(localStore.dirTree, p) : null
+  if (entry?.isDir) return p
+  if (entry) return parentOf(p)
+  return listedPath.value || localStore.rootPath || p
+}
+
+/** 工具栏:目标目录下新建文件 / 文件夹、刷新 */
+function toolbarNewFile() { const d = targetDir(); if (d) ctxNewFile(d) }
+function toolbarNewFolder() { const d = targetDir(); if (d) ctxNewFolder(d) }
+function toolbarRefresh() { const d = targetDir(); if (d) refreshChildren(d) }
+function collapseAll() { localStore.collapseAllDirs() }
+
+// ====== 侧栏宽度拖拽 ======
+const sideWidth = ref(232)
+
+function startSideResize(e: MouseEvent) {
+  e.preventDefault()
+  const startX = e.clientX
+  const startW = sideWidth.value
+  const onMove = (ev: MouseEvent) => {
+    sideWidth.value = Math.min(480, Math.max(160, startW + ev.clientX - startX))
+  }
+  const onUp = () => {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+// ====== 树键盘操作(VSCode:F2 重命名 / Del 删除,作用于选中节点) ======
+function onTreeKeydown(e: KeyboardEvent) {
+  if (!(e.target as HTMLElement).closest('.local-tree')) return
+  const entry = findEntry(localStore.dirTree, localStore.currentPath)
+  if (!entry) return
+  if (e.key === 'F2') {
+    e.preventDefault()
+    ctxRename(entry)
+  } else if (e.key === 'Delete') {
+    e.preventDefault()
+    ctxDelete(entry)
+  }
+}
 
 // Excel 文件:复用 ExcelView
 async function onOpenExcel(entry: LocalFileEntry) {
@@ -516,21 +569,56 @@ function getFileIcon(name: string): string {
   }
 }
 
-function formatSize(bytes: number): string {
-  if (!bytes) return ''
-  const units = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return `${(bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)} ${units[i]}`
+// ====== 编辑器光标位置(状态栏 Ln / Col) ======
+const cursor = ref({ line: 1, col: 1 })
+
+function updateCursorPos(ta: HTMLTextAreaElement) {
+  const pos = ta.selectionStart ?? 0
+  const before = (localStore.activeEditorTab?.content ?? '').slice(0, pos)
+  const lines = before.split('\n')
+  cursor.value = { line: lines.length, col: lines[lines.length - 1].length + 1 }
 }
 
-// 修改时间:后端可能给秒或毫秒,按量级兼容
-function formatTime(ts: number): string {
-  if (!ts) return ''
-  const d = new Date(ts > 1e12 ? ts : ts * 1000)
-  if (Number.isNaN(d.getTime())) return ''
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+function onEditorInput(e: Event) {
+  const ta = e.target as HTMLTextAreaElement
+  if (localStore.activeEditorTab) {
+    localStore.updateEditorContent(localStore.activeEditorTab.id, ta.value)
+  }
+  updateCursorPos(ta)
 }
+
+watch(() => localStore.activeEditorTabId, () => {
+  cursor.value = { line: 1, col: 1 }
+})
+
+// ====== 右侧 AI 助手(与 DB / Excel 同构:RightPanel + useAiChatHost + localTools) ======
+const rightPanelOpen = usePersistentPanelState('local', true)
+const rightActiveTab = ref('ai')
+const rightPanelTabs = computed(() => [
+  { key: 'ai', label: t('local.aiAssistant'), icon: 'mdi-robot-outline' }
+])
+
+const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
+  instanceId: tabId,
+  getAssetId: () => asset.value?.id ?? '',
+  assetType: 'local',
+  enabled: () => !!asset.value,
+  tools: localTools,
+  makeToolExecutor: (confirmFn) => {
+    const runtime = createLocalAiRuntime({
+      getWhitelist: () => aiStore.settings.commandWhitelist,
+      confirm: confirmFn,
+    })
+    return (call) => runtime.execute(call)
+  },
+  getBasePrompt: () => [
+    `你是 StarHub 本地工作区内嵌的 AI 助手,工作区根目录: ${localStore.rootPath || '(未设置)'}。`,
+    '开始任何任务前,先用 local_read_text_file 读取工作区根目录下的 AGENTS.md;若存在,把其中的项目约定、技术栈与命令作为后续所有操作的约束;不存在则直接跳过,不要报错。',
+    '文件操作默认限定在工作区根目录内,一律使用绝对路径;写操作与 Shell 命令会弹确认卡,需等待用户确认后才算完成。',
+    '反复使用的多步工作流程用 skill_save 沉淀为自定义 Skill(保存后出现在 设置 → AI → Skills 并自动启用);事实类信息用 memory 工具,两者都不要存一次性内容。',
+  ].join('\n'),
+  logTag: 'local-ai',
+})
 
 // ====== 状态栏数据(纯展示) ======
 // 工作区根目录名(侧栏 section 头)
@@ -541,13 +629,9 @@ const rootName = computed(() => {
   return norm.split(/[/\\]/).pop() || rp
 })
 
-// 当前浏览目录的条目统计
-const dirCount = computed(() => localStore.dirTree.filter(e => e.isDir).length)
-const fileCount = computed(() => localStore.dirTree.filter(e => !e.isDir).length)
-
-// 状态栏显示的路径:优先当前列出目录,其次激活文件
+// 状态栏显示的路径:优先激活文件,其次树中选中项
 const statusPath = computed(() =>
-  localStore.activeEditorTab?.path || listedPath.value || localStore.currentPath
+  localStore.activeEditorTab?.path || localStore.currentPath || listedPath.value
 )
 </script>
 
@@ -555,7 +639,7 @@ const statusPath = computed(() =>
   <div class="local-view">
     <div class="local-body">
       <!-- 目录树(VSCode Explorer 式:分区标题条 + hover 显现操作) -->
-      <aside class="local-sidebar">
+      <aside class="local-sidebar" :style="{ width: sideWidth + 'px' }" @keydown="onTreeKeydown">
         <div class="local-side-head">
           <span class="local-side-title">{{ t('local.explorer') }}</span>
           <div class="local-side-actions">
@@ -567,6 +651,9 @@ const statusPath = computed(() =>
             </button>
             <button class="action-btn" :data-tooltip="t('local.refresh')" @click="toolbarRefresh">
               <v-icon size="13">mdi-refresh</v-icon>
+            </button>
+            <button class="action-btn" :data-tooltip="t('local.collapseAll')" @click="collapseAll">
+              <v-icon size="13">mdi-unfold-less-horizontal</v-icon>
             </button>
           </div>
         </div>
@@ -585,6 +672,7 @@ const statusPath = computed(() =>
           :parent-path="localStore.currentPath"
           :depth="0"
           @select-file="onSelectFile"
+          @pin-file="onPinFile"
           @open-excel="onOpenExcel"
           @ctx="onEntryCtx"
         />
@@ -603,7 +691,10 @@ const statusPath = computed(() =>
         </div>
       </aside>
 
-      <!-- 主区域:编辑器 / 文件列表 -->
+      <!-- 侧栏宽度拖拽条 -->
+      <div class="local-side-resizer" @mousedown="startSideResize" />
+
+      <!-- 主区域:编辑器 / 欢迎态 -->
       <main class="local-content">
         <template v-if="localStore.editorTabs.length > 0">
           <!-- 打开文件 tab 条(dirty 点 / hover 关闭钮) -->
@@ -613,9 +704,11 @@ const statusPath = computed(() =>
                 v-for="tab in localStore.editorTabs"
                 :key="tab.id"
                 class="local-editor-tab"
-                :class="{ active: tab.id === localStore.activeEditorTabId, dirty: tab.dirty }"
+                :class="{ active: tab.id === localStore.activeEditorTabId, dirty: tab.dirty, preview: tab.preview }"
                 :title="tab.path"
                 @click="localStore.activeEditorTabId = tab.id"
+                @dblclick="localStore.pinEditorTab(tab.id)"
+                @mousedown.middle.prevent="localStore.closeEditorTab(tab.id)"
               >
                 <v-icon size="13" class="local-tab-icon">{{ getFileIcon(tab.name) }}</v-icon>
                 <span class="local-tab-name">{{ tab.name }}</span>
@@ -652,7 +745,9 @@ const statusPath = computed(() =>
             <textarea
               class="local-editor-textarea"
               :value="localStore.activeEditorTab.content"
-              @input="(e) => localStore.updateEditorContent(localStore.activeEditorTab!.id, (e.target as HTMLTextAreaElement).value)"
+              @input="onEditorInput"
+              @click="(e) => updateCursorPos(e.target as HTMLTextAreaElement)"
+              @keyup="(e) => updateCursorPos(e.target as HTMLTextAreaElement)"
               @keydown.ctrl.s.prevent="saveEditorTab"
               @keydown.meta.s.prevent="saveEditorTab"
               spellcheck="false"
@@ -661,54 +756,11 @@ const statusPath = computed(() =>
         </template>
 
         <template v-else>
-          <!-- 目录面包屑:可点击逐级跳转 -->
-          <div class="local-breadcrumb">
-            <template v-for="(seg, idx) in pathSegments" :key="idx">
-              <v-icon v-if="idx > 0" size="11" class="local-crumb-sep">mdi-chevron-right</v-icon>
-              <span
-                class="local-crumb"
-                :class="{ last: idx === pathSegments.length - 1 }"
-                @click="navigateToSegment(idx)"
-              >{{ seg }}</span>
-            </template>
-          </div>
-          <!-- 文件列表(名称 / 大小 / 修改时间) -->
-          <div v-if="localStore.dirTree.length > 0" class="local-file-list">
-            <div class="local-file-head">
-              <span>{{ t('local.colName') }}</span>
-              <span class="local-file-size">{{ t('local.colSize') }}</span>
-              <span class="local-file-mtime">{{ t('local.colModified') }}</span>
-            </div>
-            <div
-              v-for="entry in localStore.dirTree"
-              :key="entry.path"
-              class="local-file-row"
-              @dblclick="onSelectFile(entry)"
-              @click="onSelectFile(entry)"
-              @contextmenu="onEntryCtx({ event: $event, entry })"
-            >
-              <span class="local-file-name">
-                <v-icon size="15" :class="{ 'is-dir': entry.isDir }">
-                  {{ entry.isDir ? 'mdi-folder-outline' : getFileIcon(entry.name) }}
-                </v-icon>
-                <span>{{ entry.name }}</span>
-              </span>
-              <span class="local-file-size">{{ entry.isDir ? '' : formatSize(entry.size) }}</span>
-              <span class="local-file-mtime">{{ formatTime(entry.modifiedAt) }}</span>
-            </div>
-          </div>
-          <div v-else-if="loading" class="local-tree-loading local-fill">
-            <div
-              v-for="i in 6"
-              :key="i"
-              class="cyber-skeleton"
-              :style="{ width: `${100 - i * 10}%` }"
-            />
-          </div>
-          <div v-else class="empty-state local-fill">
-            <v-icon size="40" class="empty-state-icon">mdi-folder-open-outline</v-icon>
-            <div class="empty-state-title">{{ t('local.emptyDirTitle') }}</div>
-            <div class="empty-state-desc">{{ t('local.emptyDirDesc') }}</div>
+          <!-- 欢迎态:引导从目录树预览文件 -->
+          <div class="empty-state local-fill">
+            <v-icon size="40" class="empty-state-icon">mdi-file-document-outline</v-icon>
+            <div class="empty-state-title">{{ t('local.welcomeTitle') }}</div>
+            <div class="empty-state-desc">{{ t('local.welcomeDesc') }}</div>
             <button class="cyber-btn-secondary" @click="toolbarNewFile">
               <v-icon size="13">mdi-file-plus-outline</v-icon>
               {{ t('local.newFile') }}
@@ -716,6 +768,27 @@ const statusPath = computed(() =>
           </div>
         </template>
       </main>
+
+      <!-- 右侧边栏:AI 助手(与 DB / Docker / Excel 同构) -->
+      <RightPanel
+        v-model="rightPanelOpen"
+        v-model:active-tab="rightActiveTab"
+        :tabs="rightPanelTabs"
+      >
+        <template #tab-ai>
+          <AiChat
+            v-if="aiSession"
+            :session="aiSession"
+            :sending="aiSending"
+            :placeholder="t('local.aiPlaceholder')"
+            @send="onAiSend"
+            @retry="onAiRetry"
+            @confirm-tool="onAiConfirmTool"
+            @new-chat="onAiNewChat"
+            @stop="onAiStop"
+          />
+        </template>
+      </RightPanel>
     </div>
 
     <!-- 错误提示 -->
@@ -730,11 +803,8 @@ const statusPath = computed(() =>
         <v-icon size="11">mdi-folder-outline</v-icon>
         <span>{{ statusPath }}</span>
       </span>
-      <span v-if="localStore.dirTree.length > 0" class="local-status-item">
-        <v-icon size="11">mdi-format-list-bulleted</v-icon>
-        {{ t('local.entries', { dirs: dirCount, files: fileCount }) }}
-      </span>
       <template v-if="localStore.activeEditorTab">
+        <span class="local-status-item">Ln {{ cursor.line }}, Col {{ cursor.col }}</span>
         <span class="local-status-item accent">{{ localStore.activeEditorTab.language.toUpperCase() }}</span>
         <span class="local-status-item" :class="{ warn: localStore.activeEditorTab.dirty }">
           <v-icon size="11">{{ localStore.activeEditorTab.dirty ? 'mdi-circle-small' : 'mdi-check' }}</v-icon>
