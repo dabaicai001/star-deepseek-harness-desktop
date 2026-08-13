@@ -700,8 +700,8 @@ export const useAiStore = defineStore('ai', () => {
         ...skill,
         description: skill.description || '',
         assetTypes: Array.isArray(skill.assetTypes) && skill.assetTypes.length > 0
-          ? skill.assetTypes.filter(type => ['ssh', 'db', 'docker', 'excel'].includes(type))
-          : ['ssh', 'db', 'docker', 'excel']
+          ? skill.assetTypes.filter(type => ['ssh', 'db', 'docker', 'excel', 'local'].includes(type))
+          : ['ssh', 'db', 'docker', 'excel', 'local']
       }))
     if (!Array.isArray(s.mcpServers)) {
       s.mcpServers = []
@@ -1365,6 +1365,48 @@ export const useAiStore = defineStore('ai', () => {
     settings.value.enabledSkillIds = Array.from(ids)
   }
 
+  /**
+   * AI 自生成 Skill 落库(skill_save 工具):按 name 幂等 upsert,
+   * 新建 / 更新后自动启用,随 settings 持久化并回显到设置页 Skills 列表。
+   */
+  async function upsertCustomSkill(draft: {
+    name: string
+    description: string
+    prompt: string
+    assetTypes: AiAssetType[]
+  }): Promise<{ id: string; created: boolean }> {
+    ensureSettingsShape()
+    const name = draft.name.trim()
+    const existing = settings.value.customSkills.find(skill => skill.name === name)
+    if (existing) {
+      existing.description = draft.description
+      existing.prompt = draft.prompt
+      existing.assetTypes = [...draft.assetTypes]
+      if (!settings.value.enabledSkillIds.includes(existing.id)) {
+        settings.value.enabledSkillIds.push(existing.id)
+      }
+      await updateSettings({
+        customSkills: settings.value.customSkills,
+        enabledSkillIds: settings.value.enabledSkillIds
+      })
+      return { id: existing.id, created: false }
+    }
+    const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    settings.value.customSkills.push({
+      id,
+      name,
+      description: draft.description,
+      prompt: draft.prompt,
+      assetTypes: [...draft.assetTypes]
+    })
+    settings.value.enabledSkillIds.push(id)
+    await updateSettings({
+      customSkills: settings.value.customSkills,
+      enabledSkillIds: settings.value.enabledSkillIds
+    })
+    return { id, created: true }
+  }
+
   function getSkillsForAsset(assetType: AiAssetType): Array<AiSkillDefinition | AiCustomSkill> {
     return [
       ...BUILTIN_AI_SKILLS,
@@ -2000,6 +2042,7 @@ export const useAiStore = defineStore('ai', () => {
     addToWhitelist,
     removeFromWhitelist,
     setSkillEnabled,
+    upsertCustomSkill,
     getSkillsForAsset,
     getEnabledSkills,
     getSkillsForAgent,

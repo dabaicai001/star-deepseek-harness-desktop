@@ -6,6 +6,8 @@ import {
   sessionSearchToolCaller,
   memoryTools,
   makeMemoryToolCaller,
+  skillSaveTools,
+  makeSkillSaveToolCaller,
   type ToolConfirmFn
 } from '@/utils/aiTools'
 import {
@@ -180,6 +182,11 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
       getAssetId: () => options.getAssetId() || null,
       getSettings: () => aiStore.settings
     })
+    const skillSaveToolCaller = makeSkillSaveToolCaller({
+      confirmFn: confirmEnabled ? confirmFn : undefined,
+      getAssetType: () => options.assetType,
+      upsert: (draft) => aiStore.upsertCustomSkill(draft)
+    })
     const mcpRuntime = mcpEnabled
       ? await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
       : null
@@ -187,6 +194,7 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
     const toolExec = async (call: LlmToolCall): Promise<string> => {
       if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
       if (call.function.name === 'memory') return memoryToolCaller(call)
+      if (call.function.name === 'skill_save') return skillSaveToolCaller(call)
       if (mcpRuntime && call.function.name.startsWith('mcp__')) return mcpRuntime.execute(call)
       return executor(call)
     }
@@ -198,8 +206,8 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
       : options.getBasePrompt()
     const sysPrompt = aiStore.buildSystemPrompt(basePrompt, options.assetType) + buildBoundContextBlock(session.value)
     const tools = mcpRuntime
-      ? [...options.tools, ...sessionSearchTools, ...memoryTools, ...mcpRuntime.tools]
-      : [...options.tools, ...sessionSearchTools, ...memoryTools]
+      ? [...options.tools, ...sessionSearchTools, ...memoryTools, ...skillSaveTools, ...mcpRuntime.tools]
+      : [...options.tools, ...sessionSearchTools, ...memoryTools, ...skillSaveTools]
     await aiStore.runAgent(toValue(options.instanceId), tools, toolExec, sysPrompt)
   }
 

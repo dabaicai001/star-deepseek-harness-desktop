@@ -1367,3 +1367,104 @@ export function makeMemoryToolCaller(opts: {
     return result
   }
 }
+
+// ============================================================
+// AI 自生成 Skill 工具(skill_save → 设置页 Skills 列表)
+// ============================================================
+
+/**
+ * skill_save:把一套可复用工作流程沉淀为自定义 Skill,按 name 幂等 upsert,
+ * 自动启用并持久化,之后同作用域会话的 system prompt 都会带上它。
+ * 与 memory 的分工:memory 存事实,skill_save 存做法(步骤化操作手册)。
+ */
+export const skillSaveTools: LlmTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'skill_save',
+      description: '把一套可复用的多步工作流程保存为自定义 Skill,出现在 设置 → AI → Skills 列表中并自动启用,之后所有同作用域会话都会遵循。同名 Skill 会被覆盖更新。该存:反复使用的多步流程、项目特定的操作手册、用户明确要求「记住这个做法」的套路;不该存:一次性任务、琐碎事实(事实用 memory 工具)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Skill 名称,简短的动宾短语,如「MySQL 慢查询排查」' },
+          description: { type: 'string', description: '一句话说明适用场景' },
+          prompt: { type: 'string', description: 'Skill 正文:注入 system prompt 的具体指引,步骤化、可直接执行' },
+          assetTypes: {
+            type: 'array',
+            items: { type: 'string', enum: ['ssh', 'db', 'docker', 'excel', 'local'] },
+            description: '生效的宿主作用域,默认仅当前宿主;确需通用才传多个'
+          }
+        },
+        required: ['name', 'prompt']
+      }
+    }
+  }
+]
+
+const SKILL_ASSET_TYPES = ['ssh', 'db', 'docker', 'excel', 'local'] as const
+type SkillAssetType = (typeof SKILL_ASSET_TYPES)[number]
+
+export function makeSkillSaveToolCaller(opts: {
+  confirmFn?: ToolConfirmFn
+  /** 当前宿主作用域,assetTypes 缺省时回落到它 */
+  getAssetType: () => SkillAssetType
+  upsert: (draft: {
+    name: string
+    description: string
+    prompt: string
+    assetTypes: SkillAssetType[]
+  }) => Promise<{ id: string; created: boolean }>
+}) {
+  return async (call: { function: { name: string; arguments: string } }): Promise<string> => {
+    const args = safeParse(call.function.arguments)
+    const name = typeof args.name === 'string' ? args.name.trim() : ''
+    const description = typeof args.description === 'string' ? args.description.trim() : ''
+    const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
+    if (!name) return '[Error] name 不能为空'
+    if (!prompt) return '[Error] prompt 不能为空(Skill 正文是注入 system prompt 的指引)'
+    if (name.length > 60) return '[Error] name 过长(<= 60 字符),请用更简短的动宾短语'
+    if (prompt.length > 8000) return '[Error] prompt 过长(<= 8000 字符),请提炼为步骤化要点'
+
+    const assetTypes = Array.isArray(args.assetTypes)
+      ? Array.from(new Set(
+          args.assetTypes.filter((t): t is SkillAssetType =>
+            typeof t === 'string' && (SKILL_ASSET_TYPES as readonly string[]).includes(t))
+        ))
+      : []
+    if (assetTypes.length === 0) assetTypes.push(opts.getAssetType())
+
+    // 与记忆写入同源的安全扫描:隐形 Unicode / prompt 注入 / 凭据字面量
+    const scan = scanMemoryContent(prompt)
+    if (!scan.ok) return `[Error] Skill 写入被安全策略拦截:${scan.reason}`
+
+    // Skill 会注入后续所有同作用域会话的 system prompt,始终走确认卡
+    if (opts.confirmFn) {
+      const approved = await opts.confirmFn({
+        toolName: 'skill_save',
+        args: { name, description, assetTypes },
+        reason: 'always-confirm',
+        message: `AI 请求保存自定义 Skill(之后同作用域会话自动遵循):\n\n「${name}」\n${truncateForDisplay(prompt, 200)}`
+      })
+      if (!approved) throw new Error('[Rejected by user]')
+    }
+
+    const { created } = await opts.upsert({ name, description, prompt, assetTypes })
+    const result = created
+      ? `已保存 Skill「${name}」(作用域: ${assetTypes.join(', ')}),已在设置中启用,之后的会话自动生效`
+      : `已更新同名 Skill「${name}」(作用域: ${assetTypes.join(', ')}),之后的会话自动生效`
+    try {
+      useNotifyStore().notify({
+        message: `🧩 ${created ? '已保存' : '已更新'} Skill:${name}`,
+        color: 'success',
+        timeout: 3000
+      })
+    } catch { /* 无激活 pinia 的上下文(如测试)跳过通知 */ }
+    void logAudit({
+      category: 'ai',
+      action: created ? 'skill_create' : 'skill_update',
+      target: name,
+      detail: { assetTypes, prompt: truncateForDisplay(prompt, 200) }
+    })
+    return result
+  }
+}
