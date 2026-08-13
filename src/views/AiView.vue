@@ -54,7 +54,7 @@ import {
   workspacePrefix
 } from '@/utils/aiMention'
 import { captureScrollAnchor, resolveScrollTop, type ScrollAnchor } from '@/utils/scrollPosition'
-import { estimateChars } from '@/utils/aiCompactionGates'
+import { estimateChars, shouldCompact } from '@/utils/aiCompactionGates'
 
 const props = defineProps<{ id?: string }>()
 const { t } = useI18n()
@@ -770,6 +770,14 @@ async function planAndExecute(text: string, decision?: string) {
       // runAgent,runAgent 的自动 review 被 :execution: 过滤,落不到主会话上)。
       if (plan.status === 'completed') {
         aiStore.reviewSessionMemory(instanceId.value)
+        // 主会话自动压缩:runAgent finally 里的自动压缩同样只落在 :execution: 临时会话
+        // (随后被 clearSession 删除),主会话永远收不到,ctx% 会无界上涨——这里在计划
+        // 正常完成后对主会话补一次自动压缩判定(阈值/锁同 store 内逻辑)。
+        const s = session.value
+        if (shouldCompact(estimateChars(s.messages), aiStore.settings.contextBudgetChars, s.compacting === true, aiStore.settings.compactTriggerRatio)) {
+          void aiStore.compactSessionNow(instanceId.value)
+            .catch(error => console.warn('[ai-compact] 主会话后台自动压缩失败(已静默):', error))
+        }
       }
       // 末尾续跑:编排期间入队但未被步骤 flush 的引导,flush 成 steered 历史后自动作为新一轮发起。
       // steerContinuationDepth 上限防止零步骤计划 / 怪癖 LLM 输出无限链式 planner 调用;

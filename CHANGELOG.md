@@ -14,6 +14,11 @@
 
 ---
 
+## [0.61.3] - 2026-08-13
+
+### 修复
+- AI 工作区(AiView)上下文用量 `ctx NN%` 无界上涨(能到 382%):Planner → Executor 只在 `:execution:` 临时会话上 runAgent,`runAgent` finally 里的自动压缩落在临时会话(随后被 `clearSession` 删除),主会话永远收不到自动压缩;改为在计划正常完成后对主会话补一次 `shouldCompact` 判定并触发 `compactSessionNow`(阈值/锁与 store 内逻辑一致,默认 ≥50% 预算自动压)
+
 ## [0.61.2] - 2026-08-13
 
 ### 变更

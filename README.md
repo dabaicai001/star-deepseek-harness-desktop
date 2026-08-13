@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.61.2-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.61.3-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,6 +119,9 @@
 
 ## 当前版本
 
+### v0.61.3 (2026-08-13)
+- 🐛 AI 工作区(AiView)上下文用量 `ctx NN%` 无界上涨(能到 382%):Planner → Executor 只在 `:execution:` 临时会话上 runAgent,`runAgent` finally 里的自动压缩落在临时会话(随后被 `clearSession` 删除),主会话永远收不到自动压缩;改为在计划正常完成后对主会话补一次 `shouldCompact` 判定并触发 `compactSessionNow`(阈值/锁与 store 内逻辑一致,默认 ≥50% 预算自动压)
+
 ### v0.61.2 (2026-08-13)
 - 🔧 `local_read_text_file` 本机文件读取不再要求人工确认:它是纯只读操作(不修改/删除文件),之前每次读取都弹确认卡;改为直接执行,工具描述、AiView 系统提示与 `docs/技术方案.md` 安全门说明同步更新(正文仍会发送给当前 AI Provider)
 
@@ -126,10 +129,6 @@
 - 🐛 Settings「Agent 最大迭代次数」等「记忆与上下文(区块 06)」字段改完又被冲回旧值:区块 06 字段不走 `aiLocal` 保存流(直接写 store 立即持久化),但 `onSave` 曾把整份 `aiLocal` 草稿写回 store,点「保存」会用草稿旧值覆盖用户刚改的设置;改为从 `rest` 里剥离这些字段,不再被「保存」冲掉
 - 🐛 AI 工作区(AiView)会话头部补齐上下文用量指示(`ctx NN%`):与 AiChat 同口径字符估算 / `contextBudgetChars`,<50% muted、50~80% cyan、>80% 黄色,点击手动立即压缩(compacting 时 spinner)
 - 🐛 AI 工作区(AiView)长期记忆自动沉淀失效:Planner → Executor 只在 `:execution:` 临时会话上 runAgent,runAgent 的回合后 review 被 `isExecutionSession` 过滤落不到主会话;新增 `reviewSessionMemory` 在计划正常完成后对主会话补一次 review(内部 memoryEnabled / memoryAutoReview / memoryWriteNeedsConfirm / shouldReview 门禁不变)
-
-### v0.61.0 (2026-08-12)
-- ✨ 压缩阈值进设置页:滑块 10%~100%(步长 5%),默认 50%
-- 📦 压缩存档保留原文、只压运行时消息(tool/assistant tool_calls)
 
 ---
 
