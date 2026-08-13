@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.61.6-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.62.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,16 +119,22 @@
 
 ## 当前版本
 
+### v0.62.0 (2026-08-13)
+- ✨ 本地工作区 VSCode 化重设计:移除主区文件列表与目录面包屑,侧栏目录树成为唯一导航(单击展开/预览、双击固定);编辑器 tab 支持预览态(斜体、被下一预览替换,编辑/双击转正)、中键关闭;侧栏可拖拽调宽(160-480px)+「全部折叠」按钮;状态栏新增 Ln/Col 光标位置;树节点支持键盘焦点与 F2 重命名 / Del 删除;主区无文件时显示欢迎引导态
+- ✨ 本地工作区右侧边栏接入 AI 助手(RightPanel + useAiChatHost,复用 aiLocal 的 localTools):会话绑定 local 资产类型;base prompt 要求 AI 先读取工作区根 AGENTS.md 并遵循其中的约定,再执行任务;写操作与 Shell 命令仍走确认卡
+- ✨ AI 自生成 Skill:所有内嵌 AI 助手(SSH/DB/Docker/Redis/ES/Excel/本地)新增 `skill_save` 工具,按 name 幂等 upsert 到自定义 Skills 并自动启用,回显到 设置 → AI → Skills;写入前做隐形 Unicode / prompt 注入 / 凭据扫描,始终走确认卡;设置加载时 customSkills 的 assetTypes 白名单补上 local
+- 🔧 SSH 终端工具栏重组:字号、搜索/清屏、广播/网页、状态与连接控制四组分隔线分组;在线只显示断开(红色电源)按钮、离线只显示连接(绿色)按钮,不再同时摆连接+断开两个按钮;CONNECTED 徽标与连接按钮互斥显示;局部样式迁移到 terminal-* 全局组件类
+- 🔧 AI 完成哨兵顺路上报 cwd:AI 命令后的哨兵 printf 同一行同时输出 OSC 7($? 与 $PWD 一次展开),AI 每执行一条命令 cwd 立即刷新,无需向远端 shell 注入任何 hook
+- 🔧 渲染侧回显过滤器:AI 哨兵命令与 OSC 7 注入命令的 readline 回显整行从终端渲染流剔除(跨 TCP 分片安全),用户 scrollback 不再看到 `printf '\033]777;...'` 与 `__starhub_osc7() {...}` 内部实现
+- 🔧 OSC 7 shell integration 改为懒注入:建链 / MFA 阶段不再注入;仅当 SFTP「跟随终端」开启(或重连时该开关仍开)且检测到 shell prompt 后就绪后才写入,回显被渲染过滤器隐藏;SftpPanel 通过 follow-terminal 事件通知终端
+- 🔧 DB / Excel 网格关闭所有「数字以文本形式存储」hover 错误弹框与绿色警告角(disableForceStringAlert/Mark + disableTextFormatAlert/Mark),移除为此前提示文案补的 locale 兼容映射;字符串列设文本格式保住 '000123' 前导零的修复不受影响
+
 ### v0.61.6 (2026-08-13)
 - 🐛 SSH 长命令/AI 执行期间掉线(「Connection closed by remote host」)优化:russh 自带的 `keepalive_interval`(30s)只在连接「完全空闲」时才发心跳,一旦长命令有零星输出(输出频率低于 NAT 空闲超时),russh 就判定连接「活跃」不发 keepalive,但中间 NAT/防火墙仍会按空闲踢掉会话;在 `SshSession` 内新增固定节拍心跳 task,认证完成后无条件每 15s 发一个 `keepalive@openssh.com` global request(want_reply=true)刷新 NAT 空闲定时器,`disconnect` 时一并取消;心跳负责保活,russh keepalive 仍负责连接黑洞时的死亡判定
 - 🐛 SSH 后台静默模式有时会在终端回显命令:`SILENT_INTERACTIVE_CMD_RE` 交互命令预检正则中 `\bsh\b` 未限定命令段边界,误伤 `./deploy.sh`、`bash xx.sh`、`grep ... sh` 等常见命令,使其被错误回退到 PTY 执行并回显;重写正则,交互 shell/REPL 必须限定在命令段开头整词匹配,`top` 仅非 batch 时回退
 
 ### v0.61.5 (2026-08-13)
 - ✨ AI 工作区(AiView,AI AGENTS 页)的 assistant 回复接入 Markdown 渲染,复用 `AiMessageContent` 的代码块「复制」按钮(用户消息仍纯文本);此前该页 assistant 是纯文本显示,代码块无复制按钮
-
-### v0.61.4 (2026-08-13)
-- ✨ AI 回复的代码块新增「复制」按钮(右上角),点击一键复制代码/命令;`AiMessageContent` 的 markdown 渲染给每个 `<pre>` 包一层头部(语言标签 + 复制按钮),事件委托处理复制并 toast 提示
-- ✨ SSH AI 助手的代码块额外显示「执行」按钮:点击去除 `$`/`#` 提示符后把命令写到 SSH 终端执行(`SshTerminal` 注入 `runCommand` → `AiChat` → `AiMessageContent`),未连接/空命令给提示
 
 ---
 

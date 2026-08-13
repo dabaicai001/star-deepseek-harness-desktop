@@ -10,9 +10,22 @@
 ### 计划中
 - Settings 补「代理」「安全」2 个 tab
 - SQL 查询结果可编辑及无主键报错提示（转 K3）
-- 本地工作区树形展示与 SSH/DB 联动排查的深度重做（转 K3）
 
 ---
+
+## [0.62.0] - 2026-08-13
+
+### 新增
+- 本地工作区 VSCode 化重设计:移除主区文件列表与目录面包屑,侧栏目录树成为唯一导航(单击展开/预览、双击固定);编辑器 tab 支持预览态(斜体、被下一预览替换,编辑/双击转正)、中键关闭;侧栏可拖拽调宽(160-480px)+「全部折叠」按钮;状态栏新增 Ln/Col 光标位置;树节点支持键盘焦点与 F2 重命名 / Del 删除;主区无文件时显示欢迎引导态
+- 本地工作区右侧边栏接入 AI 助手(RightPanel + useAiChatHost,复用 aiLocal 的 localTools):会话绑定 local 资产类型;base prompt 要求 AI 先读取工作区根 AGENTS.md 并遵循其中的约定,再执行任务;写操作与 Shell 命令仍走确认卡
+- AI 自生成 Skill:所有内嵌 AI 助手(SSH/DB/Docker/Redis/ES/Excel/本地)新增 `skill_save` 工具,按 name 幂等 upsert 到自定义 Skills 并自动启用,回显到 设置 → AI → Skills;写入前做隐形 Unicode / prompt 注入 / 凭据扫描,始终走确认卡;设置加载时 customSkills 的 assetTypes 白名单补上 local
+
+### 变更
+- SSH 终端工具栏重组:字号、搜索/清屏、广播/网页、状态与连接控制四组分隔线分组;在线只显示断开(红色电源)按钮、离线只显示连接(绿色)按钮,不再同时摆连接+断开两个按钮;CONNECTED 徽标与连接按钮互斥显示;局部样式迁移到 terminal-* 全局组件类
+- AI 完成哨兵顺路上报 cwd:AI 命令后的哨兵 printf 同一行同时输出 OSC 7($? 与 $PWD 一次展开),AI 每执行一条命令 cwd 立即刷新,无需向远端 shell 注入任何 hook
+- 渲染侧回显过滤器:AI 哨兵命令与 OSC 7 注入命令的 readline 回显整行从终端渲染流剔除(跨 TCP 分片安全),用户 scrollback 不再看到 `printf '\033]777;...'` 与 `__starhub_osc7() {...}` 内部实现
+- OSC 7 shell integration 改为懒注入:建链 / MFA 阶段不再注入;仅当 SFTP「跟随终端」开启(或重连时该开关仍开)且检测到 shell prompt 后就绪后才写入,回显被渲染过滤器隐藏;SftpPanel 通过 follow-terminal 事件通知终端
+- DB / Excel 网格关闭所有「数字以文本形式存储」hover 错误弹框与绿色警告角(disableForceStringAlert/Mark + disableTextFormatAlert/Mark),移除为此前提示文案补的 locale 兼容映射;字符串列设文本格式保住 '000123' 前导零的修复不受影响
 
 ## [0.61.6] - 2026-08-13
 
