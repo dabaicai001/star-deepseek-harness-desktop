@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.62.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.62.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -118,6 +118,9 @@
 ---
 
 ## 当前版本
+
+### v0.62.1 (2026-08-13)
+- 🐛 AI 哨兵命令回显进入 AI 上下文致模型困惑:PTY 路径的 dataBuffer(AI `captureOutput` 与超时兜底输出的来源)原先存原始 chunk,哨兵 printf 的 readline 回显原样混入,AI 看到自己没发过的 `printf '\033]777;...'` 内部命令;回显过滤器改为同时作用于渲染流与 AI buffer(真实 OSC 序列含 ESC 字节不受影响,完成判定照常)
 
 ### v0.62.0 (2026-08-13)
 - ✨ 本地工作区 VSCode 化重设计:移除主区文件列表与目录面包屑,侧栏目录树成为唯一导航(单击展开/预览、双击固定);编辑器 tab 支持预览态(斜体、被下一预览替换,编辑/双击转正)、中键关闭;侧栏可拖拽调宽(160-480px)+「全部折叠」按钮;状态栏新增 Ln/Col 光标位置;树节点支持键盘焦点与 F2 重命名 / Del 删除;主区无文件时显示欢迎引导态
