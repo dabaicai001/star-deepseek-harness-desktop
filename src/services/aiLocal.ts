@@ -5,7 +5,8 @@ import { checkCommand } from '@/utils/commandGuard'
 
 export interface LocalAiRuntimeOptions {
   getWhitelist: () => string[]
-  confirm: ToolConfirmFn
+  /** 宿主未启用确认流程时传 undefined:Shell 与写操作会直接拒绝,只读工具照常 */
+  confirm?: ToolConfirmFn
 }
 
 export interface LocalAiRuntime {
@@ -246,6 +247,9 @@ export function createLocalAiRuntime(options: LocalAiRuntimeOptions): LocalAiRun
     const check = checkCommand(command, options.getWhitelist())
     const forceConfirm = name === 'local_shell_exec_confirmed'
     if (!check.isRisky && !forceConfirm && !check.needsConfirm) return
+    if (!options.confirm) {
+      throw new Error('[Rejected by user] 当前会话未启用工具确认,Shell 命令不可执行')
+    }
     const approved = await options.confirm({
       toolName: name,
       args: { command, workingDir: args.workingDir, timeoutSec: args.timeoutSec },
@@ -282,6 +286,9 @@ export function createLocalAiRuntime(options: LocalAiRuntimeOptions): LocalAiRun
       return formatShellResult(result)
     }
     if (LOCAL_MUTATION_TOOLS.has(name)) {
+      if (!options.confirm) {
+        throw new Error('[Rejected by user] 当前会话未启用工具确认,写操作不可执行')
+      }
       const approved = await options.confirm(mutationConfirmContext(name, args))
       if (!approved) throw new Error('[Rejected by user]')
       if (name === 'local_write_text_file') {

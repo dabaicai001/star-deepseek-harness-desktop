@@ -18,8 +18,9 @@ import {
   filterMentionedAssets,
   workspacePrefix
 } from '@/utils/aiMention'
-import { resolveStickyContextBinding } from '@/utils/aiContext'
+import { resolveStickyContextBinding, type StickyContextBinding } from '@/utils/aiContext'
 import { createMcpRuntime } from '@/services/mcp'
+import { createLocalAiRuntime, localTools } from '@/services/aiLocal'
 import type { LlmTool, LlmToolCall } from '@/services/ai'
 
 /** 工具确认决定(与 AiChat 的 confirm-tool 事件载荷一致) */
@@ -124,14 +125,17 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
 
   /**
    * 解析消息中的 @ / # mention(语义与 AiView 一致,内嵌场景无 planner 直跑):
-   * - @Agent名 → 切换本会话 Agent(session.agentId,运行时字段;再次 @ 即切换)
+   * - @Agent名 → 切换本会话 Agent(session.agentId,运行时字段;再次 @ 即切换);
+   *   该 Agent 配置了默认绑定目标(boundAssetIds / boundLocal)且本轮无显式
+   *   # token 时,按 AiView 同款语义注入为绑定
    * - #目标   → 写入 session.contextBinding(sticky:本轮显式提及则更新,未提及沿用上一轮)
    * 无 # 提及时不触碰既有绑定;# 后紧跟无法解析的 token 视为显式清空(同 AiView)。
    */
   function applyMentions(text: string, s: AiSession) {
     const mentionedAgents = filterMentionedAgents(aiStore.agents, text)
-    if (mentionedAgents.length > 0) {
-      aiStore.setSessionAgent(toValue(options.instanceId), mentionedAgents[0].id)
+    const primaryAgent = mentionedAgents[0]
+    if (primaryAgent) {
+      aiStore.setSessionAgent(toValue(options.instanceId), primaryAgent.id)
     }
     const scopes = extractMentionScopes(text)
     const referencedAssets = filterMentionedAssets(assetStore.assets, text)
@@ -139,7 +143,8 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
       ...scopes.map(scope => `#${workspacePrefix(scope)}`),
       ...referencedAssets.map(asset => assetMentionToken(asset.type, asset.name))
     ]
-    if (explicitTokens.length === 0) return
+    const agentDefault = primaryAgent ? agentDefaultBinding(primaryAgent) : undefined
+    if (explicitTokens.length === 0 && !agentDefault) return
     // 模块作用域(#SSH 等)覆盖该类型全部资产,与 AiView 的 scopedAssets 语义一致
     const explicitIds = new Set(referencedAssets.map(asset => asset.id))
     for (const asset of assetStore.assets) {
@@ -149,15 +154,31 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
       explicitAssetIds: Array.from(explicitIds),
       explicitLocal: scopes.includes('local'),
       explicitTokens,
-      previous: s.contextBinding,
+      previous: s.contextBinding ?? agentDefault,
       availableAssetIds: assetStore.assets.map(asset => asset.id)
     })
     s.contextBinding = resolved.binding
   }
 
+  /** Agent 配置的默认绑定目标(与 AiView 的 agentDefaultBinding 语义一致) */
+  function agentDefaultBinding(agent: { boundAssetIds?: string[]; boundLocal?: boolean }): StickyContextBinding | undefined {
+    const ids = (agent.boundAssetIds ?? []).filter(id => assetStore.assets.some(asset => asset.id === id))
+    const local = Boolean(agent.boundLocal)
+    if (ids.length === 0 && !local) return undefined
+    const tokens = [
+      ...ids.map(id => {
+        const asset = assetStore.assets.find(item => item.id === id)
+        return asset ? assetMentionToken(asset.type, asset.name) : ''
+      }).filter(token => token.length > 0),
+      ...(local ? ['#LOCAL'] : [])
+    ]
+    return { assetIds: ids, local, tokens }
+  }
+
   /**
-   * # 绑定目标的 system prompt 附加块:只附带基本信息(类型/名称/连接摘要)供模型参照,
-   * 不新造跨资产工具通道,可用工具仍限于当前标签页宿主能力。
+   * # 绑定目标的 system prompt 附加块。
+   * 绑定含本机(local 作用域或 local 资产)时,本会话实际接入 local_* 工具,
+   * 其余绑定目标仅供参照(工具仍限于当前标签页宿主能力)。
    */
   function buildBoundContextBlock(s: AiSession): string {
     const binding = s.contextBinding
@@ -165,11 +186,15 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
     const boundIds = new Set(binding.assetIds)
     const assets = assetStore.assets.filter(asset => boundIds.has(asset.id))
     if (assets.length === 0 && !binding.local) return ''
+    const localAuthorized = binding.local || assets.some(asset => asset.type === 'local')
     const inventory = [
       ...assets.map(asset => `- ${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`),
       ...(binding.local ? ['- LOCAL | 本机 | 当前运行 StarHub 的设备'] : [])
     ].join('\n')
-    return `\n\n本会话通过 # 额外绑定的目标: ${binding.tokens.join(', ')}\n绑定目标信息:\n${inventory}\n以上目标仅供参照;可用工具仍限于当前标签页宿主能力,不要声称能直接操作未接入的目标。`
+    const capability = localAuthorized
+      ? '\n\n本会话已接入本机能力:可用 local_* 工具读写本机文件与执行 Shell(先调 local_system_info 判断平台与用户目录;文件读取免确认,写操作与 Shell 命令需用户确认)。绑定内非 local 目标仅供参照,SSH/DB 等工具仍限于当前标签页宿主。'
+      : '\n\n以上目标仅供参照;可用工具仍限于当前标签页宿主能力,不要声称能直接操作未接入的目标。'
+    return `\n\n本会话通过 # 绑定的目标: ${binding.tokens.join(', ')}\n绑定目标信息:\n${inventory}${capability}`
   }
 
   /** 组装本轮工具集与 systemPrompt,启动 agent(runAgent 内部 finally 会还原 loading) */
@@ -191,10 +216,26 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
       ? await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
       : null
     if (mcpRuntime?.warnings.length) console.warn(`[${options.logTag}] MCP discovery warnings:`, mcpRuntime.warnings)
+    // # 绑定本机(local 作用域或 local 资产)→ 本轮接入 local_* 工具与运行时;
+    // 宿主自身已带 local 工具(本地工作区)时不重复追加,由宿主执行器处理
+    const hostToolNames = new Set(options.tools.map(tool => tool.function.name))
+    const binding = session.value.contextBinding
+    const localBound = Boolean(binding && (
+      binding.local || assetStore.assets.some(asset => binding.assetIds.includes(asset.id) && asset.type === 'local')
+    ))
+    const localRuntime = localBound
+      ? createLocalAiRuntime({
+          getWhitelist: () => aiStore.settings.commandWhitelist,
+          confirm: confirmEnabled ? confirmFn : undefined
+        })
+      : null
     const toolExec = async (call: LlmToolCall): Promise<string> => {
       if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
       if (call.function.name === 'memory') return memoryToolCaller(call)
       if (call.function.name === 'skill_save') return skillSaveToolCaller(call)
+      if (localRuntime && call.function.name.startsWith('local_') && !hostToolNames.has(call.function.name)) {
+        return localRuntime.execute(call)
+      }
       if (mcpRuntime && call.function.name.startsWith('mcp__')) return mcpRuntime.execute(call)
       return executor(call)
     }
@@ -205,9 +246,15 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
       ? `${aiStore.buildAgentPrompt(mentionAgent)}\n\n宿主标签页上下文(供参考):\n${options.getBasePrompt()}`
       : options.getBasePrompt()
     const sysPrompt = aiStore.buildSystemPrompt(basePrompt, options.assetType) + buildBoundContextBlock(session.value)
+    const extraTools = [
+      ...sessionSearchTools,
+      ...memoryTools,
+      ...skillSaveTools,
+      ...(localRuntime && !hostToolNames.has('local_system_info') ? localTools : [])
+    ]
     const tools = mcpRuntime
-      ? [...options.tools, ...sessionSearchTools, ...memoryTools, ...skillSaveTools, ...mcpRuntime.tools]
-      : [...options.tools, ...sessionSearchTools, ...memoryTools, ...skillSaveTools]
+      ? [...options.tools, ...extraTools, ...mcpRuntime.tools]
+      : [...options.tools, ...extraTools]
     await aiStore.runAgent(toValue(options.instanceId), tools, toolExec, sysPrompt)
   }
 
