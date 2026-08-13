@@ -1185,6 +1185,7 @@ function shortResult(value: string, max = 600) {
                 <AiMessageContent
                   :content="message.content || ''"
                   :parse-think="message.role === 'assistant'"
+                  :markdown="message.role === 'assistant'"
                   :think-label="t('ai.thinkingProcess')"
                 />
               </div>

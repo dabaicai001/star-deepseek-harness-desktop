@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.61.4-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.61.5-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,15 +119,15 @@
 
 ## 当前版本
 
+### v0.61.5 (2026-08-13)
+- ✨ AI 工作区(AiView,AI AGENTS 页)的 assistant 回复接入 Markdown 渲染,复用 `AiMessageContent` 的代码块「复制」按钮(用户消息仍纯文本);此前该页 assistant 是纯文本显示,代码块无复制按钮
+
 ### v0.61.4 (2026-08-13)
 - ✨ AI 回复的代码块新增「复制」按钮(右上角),点击一键复制代码/命令;`AiMessageContent` 的 markdown 渲染给每个 `<pre>` 包一层头部(语言标签 + 复制按钮),事件委托处理复制并 toast 提示
 - ✨ SSH AI 助手的代码块额外显示「执行」按钮:点击去除 `$`/`#` 提示符后把命令写到 SSH 终端执行(`SshTerminal` 注入 `runCommand` → `AiChat` → `AiMessageContent`),未连接/空命令给提示
 
 ### v0.61.3 (2026-08-13)
 - 🐛 AI 工作区(AiView)上下文用量 `ctx NN%` 无界上涨(能到 382%):Planner → Executor 只在 `:execution:` 临时会话上 runAgent,`runAgent` finally 里的自动压缩落在临时会话(随后被 `clearSession` 删除),主会话永远收不到自动压缩;改为在计划正常完成后对主会话补一次 `shouldCompact` 判定并触发 `compactSessionNow`(阈值/锁与 store 内逻辑一致,默认 ≥50% 预算自动压)
-
-### v0.61.2 (2026-08-13)
-- 🔧 `local_read_text_file` 本机文件读取不再要求人工确认:它是纯只读操作(不修改/删除文件),之前每次读取都弹确认卡;改为直接执行,工具描述、AiView 系统提示与 `docs/技术方案.md` 安全门说明同步更新(正文仍会发送给当前 AI Provider)
 
 ---
 
