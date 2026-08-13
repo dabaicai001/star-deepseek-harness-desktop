@@ -1,4 +1,4 @@
-import { computed, nextTick, ref, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
 import { useAiStore, type AiAssetType, type AiSession, type AiToolCallRecord } from '@/stores/ai'
 import { useAssetStore } from '@/stores/asset'
 import {
@@ -21,6 +21,7 @@ import {
 import { resolveStickyContextBinding, type StickyContextBinding } from '@/utils/aiContext'
 import { createMcpRuntime } from '@/services/mcp'
 import { createLocalAiRuntime, localTools } from '@/services/aiLocal'
+import { createDirectWorkspaceRuntime } from '@/services/aiWorkspace'
 import type { LlmTool, LlmToolCall } from '@/services/ai'
 
 /** 工具确认决定(与 AiChat 的 confirm-tool 事件载荷一致) */
@@ -177,8 +178,9 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
 
   /**
    * # 绑定目标的 system prompt 附加块。
-   * 绑定含本机(local 作用域或 local 资产)时,本会话实际接入 local_* 工具,
-   * 其余绑定目标仅供参照(工具仍限于当前标签页宿主能力)。
+   * 绑定含本机(local 作用域或 local 资产)时接入 local_* 工具;
+   * 绑定含非宿主资产时接入对应类型的 workspace 工具(ssh/sftp/db/redis/es/
+   * docker/excel,workspace 参数区分目标)。两者都没有时才是纯参照。
    */
   function buildBoundContextBlock(s: AiSession): string {
     const binding = s.contextBinding
@@ -187,15 +189,53 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
     const assets = assetStore.assets.filter(asset => boundIds.has(asset.id))
     if (assets.length === 0 && !binding.local) return ''
     const localAuthorized = binding.local || assets.some(asset => asset.type === 'local')
+    const hostAssetId = options.getAssetId() || ''
+    const crossCount = assets.filter(asset => asset.id !== hostAssetId).length
     const inventory = [
       ...assets.map(asset => `- ${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`),
       ...(binding.local ? ['- LOCAL | 本机 | 当前运行 StarHub 的设备'] : [])
     ].join('\n')
-    const capability = localAuthorized
-      ? '\n\n本会话已接入本机能力:可用 local_* 工具读写本机文件与执行 Shell(先调 local_system_info 判断平台与用户目录;文件读取免确认,写操作与 Shell 命令需用户确认)。绑定内非 local 目标仅供参照,SSH/DB 等工具仍限于当前标签页宿主。'
-      : '\n\n以上目标仅供参照;可用工具仍限于当前标签页宿主能力,不要声称能直接操作未接入的目标。'
-    return `\n\n本会话通过 # 绑定的目标: ${binding.tokens.join(', ')}\n绑定目标信息:\n${inventory}${capability}`
+    const localText = '本机:可用 local_* 工具读写文件与执行 Shell(先调 local_system_info 判断平台与用户目录;文件读取免确认,写操作与 Shell 命令需用户确认)'
+    const crossText = '绑定工作区:可用 ssh_*/sftp_*/db_*/redis_*/es_*/docker_*/excel_* 工具直接操作(workspace 参数区分目标;省略 workspace 或指向本标签页宿主资产时落在当前宿主)'
+    const capability = [localAuthorized ? localText : '', crossCount > 0 ? crossText : '']
+      .filter(Boolean)
+      .join(';') || '以上目标仅供参照;可用工具仍限于当前标签页宿主能力,不要声称能直接操作未接入的目标'
+    const rule = '未绑定的资产与本机能力不得访问。'
+    return `\n\n本会话通过 # 绑定的目标: ${binding.tokens.join(', ')}\n绑定目标信息:\n${inventory}\n\n已接入能力:\n${capability}\n${rule}`
   }
+
+  // ====== 绑定资产 runtime:非宿主绑定资产的实际工具接入(连接缓存 + unmount 关闭) ======
+  let bindingRuntime: { runtime: ReturnType<typeof createDirectWorkspaceRuntime>; key: string } | null = null
+
+  function ensureBindingRuntime(boundAssetIds: string[]): ReturnType<typeof createDirectWorkspaceRuntime> | null {
+    const key = boundAssetIds.join(',')
+    if (bindingRuntime?.key === key) return bindingRuntime.runtime
+    void bindingRuntime?.runtime.close()
+    bindingRuntime = null
+    if (boundAssetIds.length === 0) return null
+    const hostAssetId = options.getAssetId() || ''
+    const assets = assetStore.assets.filter(asset => boundAssetIds.includes(asset.id) && asset.id !== hostAssetId)
+    if (assets.length === 0) return null
+    bindingRuntime = {
+      key,
+      runtime: createDirectWorkspaceRuntime({
+        runtimeId: `${toValue(options.instanceId)}:binding`,
+        assets,
+        dependencyAssets: assetStore.assets,
+        getWhitelist: () => aiStore.settings.commandWhitelist,
+        // 未启用工具确认的宿主(Excel)对需要确认的操作一律拒绝
+        confirm: confirmEnabled ? confirmFn : () => Promise.resolve(false)
+      })
+    }
+    return bindingRuntime.runtime
+  }
+
+  onBeforeUnmount(() => {
+    if (bindingRuntime) {
+      void bindingRuntime.runtime.close()
+      bindingRuntime = null
+    }
+  })
 
   /** 组装本轮工具集与 systemPrompt,启动 agent(runAgent 内部 finally 会还原 loading) */
   async function runAgentOnce() {
@@ -216,12 +256,18 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
       ? await createMcpRuntime(await aiStore.getMcpServers(), confirmFn)
       : null
     if (mcpRuntime?.warnings.length) console.warn(`[${options.logTag}] MCP discovery warnings:`, mcpRuntime.warnings)
-    // # 绑定本机(local 作用域或 local 资产)→ 本轮接入 local_* 工具与运行时;
-    // 宿主自身已带 local 工具(本地工作区)时不重复追加,由宿主执行器处理
+    // # 绑定目标 → 工具接入:
+    // - local(作用域或 local 资产):接 local_* 工具(宿主自带时由宿主执行器处理)
+    // - 非宿主资产:接 direct workspace runtime(ssh/sftp/db/redis/es/docker/excel,
+    //   workspace 参数路由);与宿主同名的工具用带 workspace 参数的版本,
+    //   省略 workspace 或指向宿主资产时落在当前宿主执行器
+    const hostAssetId = options.getAssetId() || ''
+    const hostAsset = hostAssetId ? assetStore.assets.find(asset => asset.id === hostAssetId) : undefined
     const hostToolNames = new Set(options.tools.map(tool => tool.function.name))
     const binding = session.value.contextBinding
+    const boundAssets = binding ? assetStore.assets.filter(asset => binding.assetIds.includes(asset.id)) : []
     const localBound = Boolean(binding && (
-      binding.local || assetStore.assets.some(asset => binding.assetIds.includes(asset.id) && asset.type === 'local')
+      binding.local || boundAssets.some(asset => asset.type === 'local')
     ))
     const localRuntime = localBound
       ? createLocalAiRuntime({
@@ -229,12 +275,53 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
           confirm: confirmEnabled ? confirmFn : undefined
         })
       : null
+    const workspaceRuntime = ensureBindingRuntime(boundAssets.map(asset => asset.id))
+    const crossToolDefs = workspaceRuntime?.tools ?? []
+    const crossToolNames = new Set(crossToolDefs.map(tool => tool.function.name))
+    // 与宿主同名(绑定含同类型资产):替换为 workspace 参数版,省略 workspace = 当前宿主
+    const clashingTools = crossToolDefs
+      .filter(tool => hostToolNames.has(tool.function.name))
+      .map(tool => ({
+        ...tool,
+        function: {
+          ...tool.function,
+          description: `${tool.function.description} workspace 省略或指向本标签页宿主资产时作用于当前宿主;指向 # 绑定的其他资产时作用于该工作区。`
+        }
+      }))
+    const extraCrossTools = crossToolDefs.filter(tool => !hostToolNames.has(tool.function.name))
+    const hostKeptTools = workspaceRuntime
+      ? options.tools.filter(tool => !crossToolNames.has(tool.function.name))
+      : options.tools
+
+    function bindingWorkspaceArg(call: LlmToolCall): string {
+      try {
+        const args = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>
+        return typeof args.workspace === 'string' ? args.workspace.trim() : ''
+      } catch {
+        return ''
+      }
+    }
+
+    function refsHostAsset(workspace: string): boolean {
+      if (!hostAsset || !workspace) return false
+      const w = workspace.toLowerCase()
+      return hostAsset.id.toLowerCase() === w || hostAsset.name.toLowerCase() === w
+    }
+
     const toolExec = async (call: LlmToolCall): Promise<string> => {
       if (call.function.name === 'session_search') return sessionSearchToolCaller(call)
       if (call.function.name === 'memory') return memoryToolCaller(call)
       if (call.function.name === 'skill_save') return skillSaveToolCaller(call)
       if (localRuntime && call.function.name.startsWith('local_') && !hostToolNames.has(call.function.name)) {
         return localRuntime.execute(call)
+      }
+      if (workspaceRuntime && crossToolNames.has(call.function.name)) {
+        const workspace = bindingWorkspaceArg(call)
+        // 宿主同名工具:无 workspace 或指向宿主资产 → 宿主执行器;否则落到绑定资产
+        if (hostToolNames.has(call.function.name) && (!workspace || refsHostAsset(workspace))) {
+          return executor(call)
+        }
+        return workspaceRuntime.execute(call)
       }
       if (mcpRuntime && call.function.name.startsWith('mcp__')) return mcpRuntime.execute(call)
       return executor(call)
@@ -250,11 +337,13 @@ export function useAiChatHost(options: UseAiChatHostOptions) {
       ...sessionSearchTools,
       ...memoryTools,
       ...skillSaveTools,
-      ...(localRuntime && !hostToolNames.has('local_system_info') ? localTools : [])
+      ...(localRuntime && !hostToolNames.has('local_system_info') ? localTools : []),
+      ...clashingTools,
+      ...extraCrossTools
     ]
     const tools = mcpRuntime
-      ? [...options.tools, ...extraTools, ...mcpRuntime.tools]
-      : [...options.tools, ...extraTools]
+      ? [...hostKeptTools, ...extraTools, ...mcpRuntime.tools]
+      : [...hostKeptTools, ...extraTools]
     await aiStore.runAgent(toValue(options.instanceId), tools, toolExec, sysPrompt)
   }
 
