@@ -798,10 +798,12 @@ function tryInjectOsc7() {
 }
 
 function handleTerminalOctets(octets: number[]) {
-  const chunk = terminalDecoder.decode(new Uint8Array(octets), { stream: true })
-  if (!chunk) return
-  const renderChunk = hiddenEchoFilter(chunk)
-  if (renderChunk) terminalRef.value?.write(renderChunk)
+  const raw = terminalDecoder.decode(new Uint8Array(octets), { stream: true })
+  if (!raw) return
+  // 回显过滤器同时作用于渲染流与 AI buffer:哨兵 / 注入命令的 readline 回显
+  // 不写屏、也不进 AI 上下文(真实 OSC 序列含 ESC 字节,不受影响,照常用于完成判定)
+  const chunk = hiddenEchoFilter(raw)
+  if (chunk) terminalRef.value?.write(chunk)
   markSftpReady()
   //收集到 buffer(AI助手用,固定容量环形缓冲)
   pushDataChunk(chunk)
