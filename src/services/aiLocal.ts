@@ -29,8 +29,6 @@ const LOCAL_MUTATION_TOOLS = new Set([
   'local_remove_path'
 ])
 
-const LOCAL_CONTENT_READ_TOOLS = new Set(['local_read_text_file'])
-
 export const localTools: LlmTool[] = [
   {
     type: 'function',
@@ -71,7 +69,7 @@ export const localTools: LlmTool[] = [
     type: 'function',
     function: {
       name: 'local_read_text_file',
-      description: '分段读取本机文本文件正文。正文可能发送给当前 AI Provider，因此每次都需要用户确认；单次最多 1 MiB。',
+      description: '分段读取本机文本文件正文。只读操作，不修改或删除文件，无需确认；正文会发送给当前 AI Provider，单次最多 1 MiB。',
       parameters: {
         type: 'object',
         properties: {
@@ -269,14 +267,7 @@ export function createLocalAiRuntime(options: LocalAiRuntimeOptions): LocalAiRun
     if (name === 'local_stat_path') {
       return JSON.stringify(await invoke('local_stat_path', { path: String(args.path || '') }), null, 2)
     }
-    if (LOCAL_CONTENT_READ_TOOLS.has(name)) {
-      const approved = await options.confirm({
-        toolName: name,
-        args: { path: args.path, offset: args.offset, maxBytes: args.maxBytes },
-        reason: 'always-confirm',
-        message: `即将读取本机文件正文并交给当前 AI Provider 处理。\n\n路径: ${String(args.path || '')}\n\n请确认文件不包含不应发送的密钥、凭据或隐私数据。`
-      })
-      if (!approved) throw new Error('[Rejected by user]')
+    if (name === 'local_read_text_file') {
       return JSON.stringify(await invoke('local_read_text_file', {
         path: String(args.path || ''), offset: numberArg(args.offset), maxBytes: numberArg(args.maxBytes)
       }), null, 2)

@@ -461,7 +461,7 @@ function buildPrompt(text: string, primaryAgent: AiAgent = activeAgent.value) {
       ...assets.map(asset => `- ${asset.id} | ${asset.type.toUpperCase()} | ${asset.name} | ${assetSummary(asset)}`),
       ...(localAuthorized ? ['- LOCAL | 本机 | 当前运行 StarHub 的 Windows / macOS / Linux 设备'] : [])
     ].join('\n')
-    prompt += `\n\n当前会话 # 工作区上下文${inheritedContext ? '（沿用上一轮）' : '（本轮更新）'}: ${contextTokens.join(', ')}\n可见目标:\n${inventory}\n\n你可以直接调用当前会话绑定目标对应的 SSH / DB / Redis / Elasticsearch / Docker / Excel / LOCAL 工具,不会打开、切换或新建标签页。绑定只包含用户明确选择时已经存在的目标,不会因后来新增资产而自动扩大；用户可在输入区清除绑定,新建会话或重启应用也会撤销工具授权。Windows 命令使用 PowerShell 语法,macOS/Linux 使用 POSIX /bin/sh 语法,应先调用 local_system_info 判断平台。文件正文读取会发送给当前 AI Provider,必须经人工确认；本机写操作、移动、复制和删除始终确认；Shell 命令继续受白名单与系统级高危规则约束。未绑定的资产和本机能力不得访问。需要用户做选择时不得要求输入 A/B/C 或序号,必须交回 Planner 的结构化点击选项。`
+    prompt += `\n\n当前会话 # 工作区上下文${inheritedContext ? '（沿用上一轮）' : '（本轮更新）'}: ${contextTokens.join(', ')}\n可见目标:\n${inventory}\n\n你可以直接调用当前会话绑定目标对应的 SSH / DB / Redis / Elasticsearch / Docker / Excel / LOCAL 工具,不会打开、切换或新建标签页。绑定只包含用户明确选择时已经存在的目标,不会因后来新增资产而自动扩大；用户可在输入区清除绑定,新建会话或重启应用也会撤销工具授权。Windows 命令使用 PowerShell 语法,macOS/Linux 使用 POSIX /bin/sh 语法,应先调用 local_system_info 判断平台。文件正文读取为只读操作、免确认(正文仍会发送给当前 AI Provider)；本机写操作、移动、复制和删除始终确认；Shell 命令继续受白名单与系统级高危规则约束。未绑定的资产和本机能力不得访问。需要用户做选择时不得要求输入 A/B/C 或序号,必须交回 Planner 的结构化点击选项。`
   } else {
     prompt += '\n\n当前会话没有 # 工作区上下文。可以使用应用级设置和能力发现工具,但不得访问任何资产或本机;需要本机能力时请要求用户引用 #LOCAL,需要远程资产时引用具体工作区,例如 #SSH-测试服务器。'
   }
