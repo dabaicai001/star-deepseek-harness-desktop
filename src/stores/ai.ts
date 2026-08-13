@@ -1004,6 +1004,19 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   /**
+   * 触发主会话的回合后记忆 review。
+   * AiView 的 Planner → Executor 编排只对 :execution: 临时会话调 runAgent,
+   * 主会话从不直接 runAgent,runAgent finally 里的 scheduleBackgroundMemoryReview
+   * 因 isExecutionSession 过滤永远落不到主会话上。这里显式对主会话补一次 review
+   * (内部有 memoryEnabled / memoryAutoReview / memoryWriteNeedsConfirm / shouldReview
+   * 门禁,常态零开销)。
+   */
+  function reviewSessionMemory(instanceId: string): void {
+    const session = getSession(instanceId)
+    if (session) scheduleBackgroundMemoryReview(session)
+  }
+
+  /**
    * 运行中插入引导(steering):不打断当前流式输出与在途工具,
    * 引导语先入 per-session 待生效队列,runAgent 循环顶部(上一步 tool 结果落位后)
    * 才 flush 进 messages,保证 tool 消息序恒合法(tool result 必须紧跟 assistant tool_calls)。
@@ -1998,6 +2011,7 @@ export const useAiStore = defineStore('ai', () => {
     steer,
     stopAgent,
     resetSession,
+    reviewSessionMemory,
     addConfirmRecord,
     resolveConfirm,
     setApiKey,

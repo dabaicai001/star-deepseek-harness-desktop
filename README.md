@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.61.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.61.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,27 +119,17 @@
 
 ## 当前版本
 
+### v0.61.1 (2026-08-13)
+- 🐛 Settings「Agent 最大迭代次数」等「记忆与上下文(区块 06)」字段改完又被冲回旧值:区块 06 字段不走 `aiLocal` 保存流(直接写 store 立即持久化),但 `onSave` 曾把整份 `aiLocal` 草稿写回 store,点「保存」会用草稿旧值覆盖用户刚改的设置;改为从 `rest` 里剥离这些字段,不再被「保存」冲掉
+- 🐛 AI 工作区(AiView)会话头部补齐上下文用量指示(`ctx NN%`):与 AiChat 同口径字符估算 / `contextBudgetChars`,<50% muted、50~80% cyan、>80% 黄色,点击手动立即压缩(compacting 时 spinner)
+- 🐛 AI 工作区(AiView)长期记忆自动沉淀失效:Planner → Executor 只在 `:execution:` 临时会话上 runAgent,runAgent 的回合后 review 被 `isExecutionSession` 过滤落不到主会话;新增 `reviewSessionMemory` 在计划正常完成后对主会话补一次 review(内部 memoryEnabled / memoryAutoReview / memoryWriteNeedsConfirm / shouldReview 门禁不变)
+
 ### v0.61.0 (2026-08-12)
 - ✨ 压缩阈值进设置页:滑块 10%~100%(步长 5%),默认 50%
 - 📦 压缩存档保留原文、只压运行时消息(tool/assistant tool_calls)
 
 ### v0.60.1 (2026-08-12)
 - 🐛 AI 记忆「写入下一会话生效」在同一 tab 内永远不生效
-
-### v0.60.0 (2026-08-12)
-- ✨ AI 上下文压缩(compact):后台自动压缩早期消息为结构化摘要,工具栏用量指示
-
-### v0.59.3 (2026-08-12)
-- 🗑️ 侧边栏 AI 面板精简为纯入口:只保留 AI AGENTS 列表与最近对话两个可折叠区;移除 v0.58.0 引入的内嵌聊天窗与「AI 记忆」区(记忆管理仍在 Settings),以及副标题、未配置引导、快速提问行、「分析当前工作区」按钮;Ctrl+J 恢复为打开默认 Agent 的 AI 工作区 tab;AGENTS 列表不再要求 LLM 已配置才显示;清理无引用的 cyber.css 类与 17 个 i18n key
-
-### v0.59.2 (2026-08-12)
-- 📝 README:当前版本区裁剪为最近 3 个版本(完整历史以 CHANGELOG 为准,规则写入 AGENTS.md 6.5-6);功能矩阵更新到 v0.59 实际交付面(PostgreSQL/SQLite/SQL Server、跳板机/端口转发、SFTP 断点续传/暂停、Docker Compose/SSH 通道、本地工作区、AI 记忆/@/# mention/会话级模型等,移除过期「规划中」标注);路线图重写为 v0.18~v0.59 阶段总结 + 下一步候选;新增官网徽章 https://starthub.waouzzz.cc/
-
-### v0.59.1 (2026-08-12)
-- 📝 AGENTS.md 6.5 新增「git tag 与 Release 构建」规则:一次会话涉及多个版本时只在最后 push 最新版本的 tag(中间版本不打 tag 不出包);纯文档/脚本类修订版默认不打 tag;推 tag 一律单个推(GitHub 单次 push 最多触发 3 个 tag 工作流,超出静默丢弃)
-
-### v0.59.0 (2026-08-12)
-- 🔧 本地工作区(LocalView)UI 重设计,对标 VSCode Explorer + 编辑器体验并翻译到 cyber 设计系统:EXPLORER 式分区标题条(操作按钮 hover 显现)、目录树缩进参考线 + 选中行左侧 cyan 指示条、编辑器 tab 条(dirty 点/关闭钮同槽位互斥)、可点击面包屑、明细列表(吸附表头/等宽右对齐)、底部 24px 等宽状态栏、骨架加载态与引导空态;修复原组件引用不存在 token(`--color-surface-primary` 等)导致样式失效的根因,两个组件 scoped 样式整体删除,视觉集中于 cyber.css `.local-*` 一组类;顺手修复面包屑对 Windows 盘符路径拼出 `C:\/C:/foo` 坏路径的旧 bug;文案迁入 i18n `local` 命名空间(34 key,双语言);新增 Playwright 验证脚本 `scripts/verify-local-layout.py`(5 场景 + 双主题截图)
 
 ---
 

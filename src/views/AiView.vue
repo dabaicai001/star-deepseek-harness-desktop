@@ -54,6 +54,7 @@ import {
   workspacePrefix
 } from '@/utils/aiMention'
 import { captureScrollAnchor, resolveScrollTop, type ScrollAnchor } from '@/utils/scrollPosition'
+import { estimateChars } from '@/utils/aiCompactionGates'
 
 const props = defineProps<{ id?: string }>()
 const { t } = useI18n()
@@ -93,6 +94,31 @@ const orchestrationBusy = computed(() => planning.value || executing.value || se
 const currentAgentName = computed(() =>
   executionPlan.value?.currentAgentName || (planning.value ? 'Planner Agent' : activeAgent.value.name)
 )
+
+// ====== 上下文用量指示(与 AiChat 同口径:字符估算 / contextBudgetChars)======
+const ctxUsagePercent = computed(() => {
+  const budget = aiStore.settings.contextBudgetChars
+  if (!Number.isFinite(budget) || budget <= 0) return 0
+  return Math.round((estimateChars(session.value.messages) / budget) * 100)
+})
+
+/** <50% 正常(无类),50~80% cyan,>80% 黄色 */
+const ctxUsageClass = computed(() => {
+  if (ctxUsagePercent.value > 80) return 'ctx-danger'
+  if (ctxUsagePercent.value >= 50) return 'ctx-warn'
+  return ''
+})
+
+/** 点击用量指示 = 手动压缩;compacting 时禁用(store 内串行锁保证不与 runAgent 打架) */
+async function onCompactClick() {
+  if (session.value.compacting) return
+  const compacted = await aiStore.compactSessionNow(instanceId.value)
+  notifyStore.notify({
+    message: compacted ? t('ai.ctxCompacted') : t('ai.ctxCompactSkipped'),
+    color: compacted ? 'success' : 'info',
+    timeout: 2000
+  })
+}
 const pendingConfirmRecords = computed(() =>
   session.value.toolCalls.filter(record => record.status === 'awaiting-confirm')
 )
@@ -740,6 +766,11 @@ async function planAndExecute(text: string, decision?: string) {
     planning.value = false
     if (plan.status !== 'awaiting-choice') {
       await executePlan(plan)
+      // 回合正常结束后对主会话补一次记忆 review(Planner → Executor 只在临时会话上
+      // runAgent,runAgent 的自动 review 被 :execution: 过滤,落不到主会话上)。
+      if (plan.status === 'completed') {
+        aiStore.reviewSessionMemory(instanceId.value)
+      }
       // 末尾续跑:编排期间入队但未被步骤 flush 的引导,flush 成 steered 历史后自动作为新一轮发起。
       // steerContinuationDepth 上限防止零步骤计划 / 怪癖 LLM 输出无限链式 planner 调用;
       // 不续跑时引导留在队列,由下一轮(用户新消息触发的 runPlanStep / runAgent)生效。
@@ -968,6 +999,16 @@ function shortResult(value: string, max = 600) {
         </span>
       </div>
       <div class="ai-workspace-actions">
+        <button
+          class="ctx-usage-btn"
+          :class="ctxUsageClass"
+          :disabled="session.compacting === true"
+          :title="session.compacting ? t('ai.ctxCompacting') : t('ai.ctxUsageTip')"
+          @click="onCompactClick"
+        >
+          <v-icon v-if="session.compacting" size="10" class="mdi-spin">mdi-loading</v-icon>
+          <span>{{ t('ai.ctxUsage', { percent: ctxUsagePercent }) }}</span>
+        </button>
         <button class="action-btn" :data-tooltip="t('ai.editAgent')" :aria-label="t('ai.editAgent')" @click="showAgentDialog = true">
           <v-icon size="15">mdi-account-edit-outline</v-icon>
         </button>

@@ -14,6 +14,13 @@
 
 ---
 
+## [0.61.1] - 2026-08-13
+
+### 修复
+- Settings「Agent 最大迭代次数」等「记忆与上下文(区块 06)」字段改完又被冲回旧值:区块 06 字段不走 `aiLocal` 保存流(直接写 store 立即持久化),但 `onSave` 曾把整份 `aiLocal` 草稿写回 store,点「保存」会用草稿旧值覆盖用户刚改的设置;改为从 `rest` 里剥离这些字段,不再被「保存」冲掉
+- AI 工作区(AiView)会话头部补齐上下文用量指示(`ctx NN%`):与 AiChat 同口径字符估算 / `contextBudgetChars`,<50% muted、50~80% cyan、>80% 黄色,点击手动立即压缩(compacting 时 spinner)
+- AI 工作区(AiView)长期记忆自动沉淀失效:Planner → Executor 只在 `:execution:` 临时会话上 runAgent,runAgent 的回合后 review 被 `isExecutionSession` 过滤落不到主会话;新增 `reviewSessionMemory` 在计划正常完成后对主会话补一次 review(内部 memoryEnabled / memoryAutoReview / memoryWriteNeedsConfirm / shouldReview 门禁不变)
+
 ## [0.61.0] - 2026-08-12
 
 ### 新增

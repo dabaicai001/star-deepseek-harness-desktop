@@ -197,8 +197,21 @@ async function onSave() {
       aiLocal.value.apiKey = activeModel.apiKey
     }
   }
-  // apiKey 单独处理(走加密通道),其他字段用 updateSettings
-  const { apiKey, mcpServers, ...rest } = aiLocal.value
+  // apiKey 单独处理(走加密通道),其他字段用 updateSettings。
+  // 「记忆与上下文(区块 06)」的字段不走 aiLocal 保存流(直接写 store 立即持久化),
+  // 从 rest 里剥离,避免点「保存」时用 aiLocal 的旧值把用户刚改的设置冲掉。
+  const {
+    apiKey,
+    mcpServers,
+    memoryStoreToolOutputs,
+    memoryEnabled,
+    memoryWriteNeedsConfirm,
+    memoryAutoReview,
+    contextBudgetChars,
+    agentMaxSteps,
+    compactTriggerRatio,
+    ...rest
+  } = aiLocal.value
   await aiStore.updateSettings(rest)
   await Promise.all([
     aiStore.setApiKey(apiKey),
