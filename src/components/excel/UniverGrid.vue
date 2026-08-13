@@ -375,14 +375,6 @@ async function renderWorkbook() {
         UniverPresetSheetsFindReplaceZhCN,
         UniverPresetSheetsNoteZhCN,
         UniverPresetSheetsTableZhCN,
-        {
-          'sheets-ui': {
-            info: {
-              error: '错误',
-              forceStringInfo: '此数字以文本形式存储',
-            },
-          },
-        },
       ),
     },
     presets: [
@@ -393,6 +385,13 @@ async function renderWorkbook() {
         contextMenu: true,
         footer: false,
         statusBarStatistic: false,
+        // 关掉所有 hover 弹出的"数字以文本形式存储"类错误提示(用户不需要)
+        disableTextFormatAlert: true,
+        disableTextFormatMark: true,
+        sheets: {
+          disableForceStringAlert: true,
+          disableForceStringMark: true,
+        },
       }),
       UniverSheetsDrawingPreset(),
       UniverSheetsFilterPreset(),

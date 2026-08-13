@@ -463,16 +463,6 @@ async function renderGrid() {
     locales: {
       [LocaleType.ZH_CN]: mergeLocales(
         UniverPresetSheetsCoreZhCN,
-        {
-          // Univer 0.25.1 的数字文本提示错误地读取 sheets-ui.info,
-          // 上游 zh-CN 仅放在 sheets-numfmt-ui.info,这里补兼容映射。
-          'sheets-ui': {
-            info: {
-              error: '错误',
-              forceStringInfo: '此数字以文本形式存储',
-            },
-          },
-        },
       ),
     },
     presets: [
@@ -484,6 +474,10 @@ async function renderGrid() {
         contextMenu: false,
         footer: false,
         statusBarStatistic: false,
+        // numfmt 文本格式警告(hover 弹"此数字以文本形式存储"):
+        // 字符串列设文本格式是为了保住 '000123' 前导零,警告本身在这里没有语义。
+        disableTextFormatAlert: true,
+        disableTextFormatMark: true,
         sheets: {
           // 数据库结果里 VARCHAR/TEXT 列经常装 '1111' / '2025-01-01' 这种
           // 长得像数字的字符串 — Univer 默认会把它们识别成 FORCE_STRING 候选,
