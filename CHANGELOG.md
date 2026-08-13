@@ -14,6 +14,12 @@
 
 ---
 
+## [0.61.6] - 2026-08-13
+
+### 修复
+- SSH 长命令/AI 执行期间掉线(「Connection closed by remote host」)优化:russh 自带的 `keepalive_interval`(30s)只在连接「完全空闲」时才发心跳,一旦长命令有零星输出(输出频率低于 NAT 空闲超时),russh 就判定连接「活跃」不发 keepalive,但中间 NAT/防火墙仍会按空闲踢掉会话;在 `SshSession` 内新增固定节拍心跳 task,认证完成后无条件每 15s 发一个 `keepalive@openssh.com` global request(want_reply=true)刷新 NAT 空闲定时器,`disconnect` 时一并取消;心跳负责保活,russh keepalive 仍负责连接黑洞时的死亡判定
+- SSH 后台静默模式有时会在终端回显命令:`SILENT_INTERACTIVE_CMD_RE` 交互命令预检正则中 `\bsh\b` 未限定命令段边界,误伤 `./deploy.sh`、`bash xx.sh`、`grep ... sh` 等常见命令,使其被错误回退到 PTY 执行并回显;同时 `top -b`(batch 模式)也会被误判为交互命令。重写正则:交互 shell/REPL(`bash`/`sh`/`python`/`node` 等)必须限定在命令段开头整词匹配且无脚本参数(或仅 `-i`),`top` 仅非 batch 时回退,`htop`/`atop` 恒回退
+
 ## [0.61.5] - 2026-08-13
 
 ### 新增

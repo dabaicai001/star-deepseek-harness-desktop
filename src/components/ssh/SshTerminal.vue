@@ -318,8 +318,26 @@ let aiSilentExecId: string | null = null
 const AI_SILENT_EXEC_TIMEOUT_S = 120
 /** 静默执行追加到命令末尾的 cwd 上报 marker(从 stdout 解析后剥离) */
 const AI_SILENT_CWD_MARKER = '__SH_CWD__'
-/** 预检:命中这些模式的命令需要交互输入,静默通道没有 PTY/stdin,自动回退到终端执行 */
-const SILENT_INTERACTIVE_CMD_RE = /(?:^|[;&|`(]\s*)(?:sudo\s+)?(?:vi|vim|nvim|nano|emacs|top|htop|atop|less|more|man|passwd|ssh|sftp|ftp|telnet|mysql|mycli|psql|pgcli|redis-cli|sqlite3|mongo|mongosh|watch|crontab|chsh|su)(?:\s|$)|\b(?:rm|mv|cp)\s+-(?:[a-zA-Z]*i|i[a-zA-Z]*)\b|\b(?:bash|zsh|sh|fish|python|python3|node|irb|bc)\s*(?:-i)?\s*(?:$|[;&|>])/i
+/** 预检:命中这些模式的命令需要交互输入,静默通道没有 PTY/stdin,自动回退到终端执行。
+ *
+ * 注意 `sh` 这类短命令名必须限定在「命令段开头」整词匹配,否则 `\bsh\b` 会误伤
+ * `./deploy.sh`、`bash xx.sh`、`grep ... sh` 等常见命令,导致静默模式下它们被
+ * 错误回退到终端执行并回显。同理 `top -b`(batch 模式)是能自行结束的,不应回退。
+ */
+const SILENT_INTERACTIVE_CMD_RE = new RegExp(
+  [
+    // 交互式编辑器 / 分页器 / 客户端(命令段开头 + 整词)
+    '(?:^|[;&|`(]\\s*)(?:sudo\\s+)?(?:vi|vim|nvim|nano|emacs|less|more|man|passwd|ssh|sftp|ftp|telnet|mysql|mycli|psql|pgcli|redis-cli|sqlite3|mongo|mongosh|watch|crontab|chsh|su)(?=\\s|$)',
+    // rm/mv/cp -i(删除/覆盖前会提示确认)
+    '\\b(?:rm|mv|cp)\\s+-(?:[a-zA-Z]*i|i[a-zA-Z]*)\\b',
+    // TUI 监控:htop/atop 恒交互;top 仅非 batch(-b) 时交互
+    '(?:^|[;&|`(]\\s*)(?:sudo\\s+)?(?:htop|atop)(?=\\s|$)',
+    '(?:^|[;&|`(]\\s*)(?:sudo\\s+)?top(?=\\s|$)(?![^;&|\\n]*\\s-b(?:n|\\s|$))',
+    // 交互 shell / REPL:命令段开头,且无脚本参数(或仅 -i),如 `bash`、`python`、`node`
+    '(?:^|[;&|`(]\\s*)(?:sudo\\s+)?(?:bash|zsh|sh|fish|python|python3|node|irb|bc)\\s*(?:-i\\b\\s*)?(?:$|[;&|>])',
+  ].join('|'),
+  'i'
+)
 // ====== AI助手(每个 tab独立;共用聊天编排 composable,差异点经参数注入) ======
 const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
  instanceId: () => props.id,

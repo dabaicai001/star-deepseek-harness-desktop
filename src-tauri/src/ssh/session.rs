@@ -17,6 +17,16 @@ const MAX_EXEC_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_EXEC_TIMEOUT_SEC: u64 = 600;
 /// SSH 写通道缓冲条数上限:慢网络时发送端等待(背压),而不是无限堆积内存。
 const SSH_WRITE_CHANNEL_CAPACITY: usize = 256;
+/// SSH 固定心跳间隔。
+///
+/// russh 自带的 `keepalive_interval` 只在连接「完全空闲」时才发心跳——
+/// 一旦 AI 长命令有零星输出(输出频率低于 NAT 空闲超时),russh 就判定连接
+/// 「活跃」而不发 keepalive,但中间 NAT / 防火墙仍会按空闲踢掉会话。
+/// 因此额外起一个固定节拍的心跳 task,无条件每此间隔发一个
+/// `keepalive@openssh.com` global request,保证任意时刻都有包刷新 NAT 空闲
+/// 定时器。间隔取 15s:小于绝大多数 NAT / LB 的空闲超时(≥30s),流量开销
+/// 可忽略(单包几十字节,每天约 300KB)。
+const SSH_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 const SFTP_PROBE_MARKER: &str = "__STARHUB_SFTP_PATH__";
 const SFTP_PROBE_NONE_MARKER: &str = "__STARHUB_SFTP_NONE__";
 const SFTP_SERVER_CANDIDATES: &[&str] = &[
@@ -126,6 +136,8 @@ pub struct SshSession {
     config: SshConfig,
     handle: Option<Arc<Handle<super::auth::SshHandler>>>,
     resize_tx: Option<watch::Sender<(u32, u32)>>,
+    /// 固定节拍心跳 task 的取消句柄,disconnect 时一并终止。
+    heartbeat_abort: Option<tokio::task::AbortHandle>,
     remote_forwards: RemoteForwards,
     port_forwards: Vec<PortForwardEntry>,
     /// Web 网关:本地 HTTP 代理,上游经 SSH direct-tcpip 通道转发。
@@ -141,6 +153,7 @@ impl SshSession {
             config,
             handle: None,
             resize_tx: None,
+            heartbeat_abort: None,
             remote_forwards: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             port_forwards: Vec::new(),
             web_gateway: None,
@@ -375,8 +388,34 @@ impl SshSession {
             .await?
         };
 
-        self.handle = Some(Arc::new(handle));
+        let handle = Arc::new(handle);
+        self.spawn_heartbeat(&handle);
+        self.handle = Some(handle);
         Ok(())
+    }
+
+    /// 启动固定节拍的应用层心跳,弥补 russh keepalive「只在空闲时发」的盲区。
+    ///
+    /// 连接建立(认证完成)后无条件每 `SSH_HEARTBEAT_INTERVAL` 发一个
+    /// `keepalive@openssh.com` global request(want_reply=true)。对端正常回复会
+    /// 重置 russh 的 keepalive 计时器,因此只要连接健康,russh keepalive 永不触发;
+    /// 一旦连接黑洞(NAT 静默丢包),心跳无回复,russh keepalive 仍会照常判定死亡。
+    /// 二者分工:本心跳负责刷新 NAT 空闲定时器,russh keepalive 负责死亡检测。
+    fn spawn_heartbeat(&mut self, handle: &Arc<Handle<super::auth::SshHandler>>) {
+        let handle = Arc::clone(handle);
+        let task = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(SSH_HEARTBEAT_INTERVAL);
+            // 首个 tick 立即触发,建链刚完成无需立刻发,先消费掉。
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                // sender 被 drop(连接已关)时返回 SendError,退出即可。
+                if handle.send_keepalive(true).await.is_err() {
+                    break;
+                }
+            }
+        });
+        self.heartbeat_abort = Some(task.abort_handle());
     }
 
     pub async fn open_shell(
@@ -1096,6 +1135,10 @@ impl SshSession {
     pub fn disconnect(&mut self) {
         self.resize_tx = None;
         self.browse_sftp = None;
+        // 停止固定节拍心跳
+        if let Some(abort) = self.heartbeat_abort.take() {
+            abort.abort();
+        }
         // 停止 Web 网关
         if let Some(gw) = self.web_gateway.take() {
             gw.abort.abort();
