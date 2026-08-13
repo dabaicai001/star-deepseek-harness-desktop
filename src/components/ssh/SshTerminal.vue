@@ -1073,6 +1073,36 @@ async function writeCommand(command: string): Promise<void> {
  await invoke('ssh_write', { id: props.id, data: command + '\n' })
 }
 
+/**
+ * 去除 AI 代码块里的 shell 提示符($ / #)与空行,得到可直接执行的命令文本。
+ */
+function normalizeAiCommand(code: string): string {
+ return code
+   .split('\n')
+   .map(line => line.replace(/^\s*[$#]\s+/, '').trimEnd())
+   .filter(line => line.trim().length > 0)
+   .join('\n')
+}
+
+/** AI 助手代码块「执行」按钮:把命令写到终端执行(用户能看到)。 */
+async function handleAiRunCommand(command: string): Promise<void> {
+ const normalized = normalizeAiCommand(command)
+ if (!normalized) {
+   notify.notify({ message: t('ssh.aiRunEmpty'), color: 'warning', timeout: 2000 })
+   return
+ }
+ if (!connected.value) {
+   notify.notify({ message: t('ssh.aiRunNotConnected'), color: 'warning', timeout: 2500 })
+   return
+ }
+ try {
+   await writeCommand(normalized)
+   notify.notify({ message: t('ssh.aiRunSent'), color: 'success', timeout: 2000 })
+ } catch (error) {
+   notify.notify({ message: error instanceof Error ? error.message : String(error), color: 'warning', timeout: 2500 })
+ }
+}
+
 function runAiCommandWithPrompt(command: string): Promise<string> {
  if (!connected.value) {
  throw new Error('SSH not connected')
@@ -2131,6 +2161,7 @@ function handleKbCancelled() {
       v-if="aiSession"
       :session="aiSession"
       :sending="aiSending"
+      :run-command="handleAiRunCommand"
       placeholder="问我关于这台主机的任何事,例如'看看磁盘空间'"
       @send="onAiSend"
       @retry="onAiRetry"

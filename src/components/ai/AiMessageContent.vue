@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { useI18n } from 'vue-i18n'
+import { useNotifyStore } from '@/stores/notify'
 
 type MessagePart = {
   kind: 'text' | 'think'
@@ -14,10 +16,15 @@ const props = withDefaults(defineProps<{
   /** true 时普通文本部分按 Markdown 渲染(DOMPurify 消毒后 v-html) */
   markdown?: boolean
   thinkLabel: string
+  /** 宿主提供后,代码块右上角显示「执行」按钮,点击把命令交给宿主(如 SSH 终端)执行 */
+  runCommand?: (command: string) => void
 }>(), {
   parseThink: false,
   markdown: false
 })
+
+const { t } = useI18n()
+const notifyStore = useNotifyStore()
 
 marked.setOptions({ gfm: true, breaks: true })
 
@@ -25,6 +32,73 @@ marked.setOptions({ gfm: true, breaks: true })
 function renderMarkdown(content: string): string {
   const html = marked.parse(content, { async: false }) as string
   return DOMPurify.sanitize(html)
+}
+
+/**
+ * 给每个代码块 `<pre>` 包一层头部(语言标签 + 复制按钮 + 可选执行按钮)。
+ * 输入已过 DOMPurify,这里追加的按钮是自有静态 HTML(非用户内容),安全。
+ */
+function decorateCodeBlocks(html: string): string {
+  if (!html.includes('<pre')) return html
+  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html')
+  const root = doc.body.firstElementChild as HTMLElement | null
+  if (!root) return html
+  root.querySelectorAll('pre').forEach(pre => {
+    const code = pre.querySelector('code')
+    const lang = code?.className.match(/language-([\w-]+)/)?.[1] ?? ''
+    const wrap = doc.createElement('div')
+    wrap.className = 'ai-code-block'
+    const head = doc.createElement('div')
+    head.className = 'ai-code-block-head'
+    const langLabel = doc.createElement('span')
+    langLabel.className = 'ai-code-lang'
+    langLabel.textContent = lang || 'code'
+    head.appendChild(langLabel)
+    const actions = doc.createElement('div')
+    actions.className = 'ai-code-actions'
+    const copyBtn = doc.createElement('button')
+    copyBtn.type = 'button'
+    copyBtn.className = 'ai-code-action ai-code-copy'
+    copyBtn.dataset.aiAction = 'copy'
+    copyBtn.title = t('ai.copyCode')
+    copyBtn.textContent = t('ai.copyCode')
+    actions.appendChild(copyBtn)
+    if (props.runCommand) {
+      const runBtn = doc.createElement('button')
+      runBtn.type = 'button'
+      runBtn.className = 'ai-code-action ai-code-run'
+      runBtn.dataset.aiAction = 'run'
+      runBtn.title = t('ai.runCommandTip')
+      runBtn.textContent = t('ai.runCommand')
+      actions.appendChild(runBtn)
+    }
+    head.appendChild(actions)
+    wrap.appendChild(head)
+    pre.parentNode?.insertBefore(wrap, pre)
+    wrap.appendChild(pre)
+  })
+  return root.innerHTML
+}
+
+/** 代码块按钮点击(事件委托):复制 / 执行。 */
+async function handleContentClick(event: MouseEvent): Promise<void> {
+  const btn = (event.target as HTMLElement).closest('button[data-ai-action]') as HTMLElement | null
+  if (!btn) return
+  const block = btn.closest('.ai-code-block') as HTMLElement | null
+  if (!block) return
+  const code = block.querySelector('code')
+  const text = code?.textContent ?? ''
+  const action = btn.dataset.aiAction
+  if (action === 'copy') {
+    try {
+      await navigator.clipboard.writeText(text)
+      notifyStore.notify({ message: t('ai.copied'), color: 'success', timeout: 1500 })
+    } catch {
+      notifyStore.notify({ message: t('ai.copyFailed'), color: 'warning', timeout: 2000 })
+    }
+  } else if (action === 'run' && props.runCommand) {
+    props.runCommand(text)
+  }
 }
 
 /** Split model reasoning from the visible answer without rendering untrusted HTML. */
@@ -64,7 +138,7 @@ const hasThink = computed(() => parts.value.some(part => part.kind === 'think'))
 const renderedParts = computed(() => parts.value.map(part => ({
   ...part,
   html: part.kind === 'text' && props.markdown && part.content.trim()
-    ? renderMarkdown(part.content)
+    ? decorateCodeBlocks(renderMarkdown(part.content))
     : ''
 })))
 </script>
@@ -79,7 +153,7 @@ const renderedParts = computed(() => parts.value.map(part => ({
         </summary>
         <pre class="ai-think-content">{{ part.content }}</pre>
       </details>
-      <div v-else-if="part.html" class="ai-message-markdown" v-html="part.html" />
+      <div v-else-if="part.html" class="ai-message-markdown" v-html="part.html" @click="handleContentClick" />
       <span v-else class="ai-message-text">{{ part.content }}</span>
     </template>
   </div>

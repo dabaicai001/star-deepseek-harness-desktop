@@ -263,6 +263,9 @@ export default {
     aiSilentSegmentTerminal: '终端',
     aiSilentSegmentSilent: '静默',
     aiSilentFallbackNote: '该命令需要交互输入，已自动回退到终端执行(后台静默通道不支持交互)',
+    aiRunSent: '已发送到终端执行',
+    aiRunNotConnected: 'SSH 未连接，无法执行',
+    aiRunEmpty: '没有可执行的命令',
     webAccess: {
       title: '服务器网页访问',
     },
@@ -925,6 +928,11 @@ export default {
     ctxCompactSkipped: '消息较少,无需压缩',
     compactedContext: '已压缩上下文',
     expandCompactSummary: '展开摘要全文',
-    collapseCompactSummary: '收起摘要'
+    collapseCompactSummary: '收起摘要',
+    copyCode: '复制',
+    copied: '已复制',
+    copyFailed: '复制失败',
+    runCommand: '执行',
+    runCommandTip: '在终端执行此命令'
  }
 }

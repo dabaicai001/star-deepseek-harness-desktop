@@ -263,6 +263,9 @@ export default {
     aiSilentSegmentTerminal: 'Terminal',
     aiSilentSegmentSilent: 'Silent',
     aiSilentFallbackNote: 'This command needs interactive input, so it was run in the terminal instead (silent background mode does not support interaction)',
+    aiRunSent: 'Sent to the terminal',
+    aiRunNotConnected: 'SSH not connected',
+    aiRunEmpty: 'No command to run',
     webAccess: {
       title: 'Server Web Access',
     },
@@ -924,6 +927,11 @@ export default {
     ctxCompactSkipped: 'Not enough messages to compact',
     compactedContext: 'Compacted context',
     expandCompactSummary: 'Show full summary',
-    collapseCompactSummary: 'Collapse summary'
+    collapseCompactSummary: 'Collapse summary',
+    copyCode: 'Copy',
+    copied: 'Copied',
+    copyFailed: 'Copy failed',
+    runCommand: 'Run',
+    runCommandTip: 'Run this command in the terminal'
  }
 }

@@ -27,6 +27,8 @@ const props = defineProps<{
   session: AiSession
   sending: boolean
   placeholder?: string
+  /** 宿主提供后,assistant 回复里的代码块显示「执行」按钮(如 SSH 终端快捷执行) */
+  runCommand?: (command: string) => void
 }>()
 
 const emit = defineEmits<{
@@ -608,6 +610,7 @@ function deleteHistoryConversation(row: AiConversationRow) {
                 parse-think
                 markdown
                 :think-label="t('ai.thinkingProcess')"
+                :run-command="runCommand"
               />
             </div>
           </div>

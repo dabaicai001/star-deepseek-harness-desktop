@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.61.3(AI 工作区(AiView)上下文用量 `ctx NN%` 无界上涨(能到 382%):Planner → Executor 只在 `:execution:` 临时会话上 runAgent,`runAgent` finally 里的自动压缩落在临时会话(随后被 `clearSession` 删除),主会话永远收不到自动压缩;改为在计划正常完成后对主会话补一次 `shouldCompact` 判定并触发 `compactSessionNow`(阈值/锁与 store 内逻辑一致,默认 ≥50% 预算自动压)) |
+| 当前版本 | v0.61.4(AI 回复的代码块新增「复制」按钮(右上角),点击一键复制代码/命令;`AiMessageContent` 的 markdown 渲染给每个 `<pre>` 包一层头部(语言标签 + 复制按钮),事件委托处理复制并 toast 提示) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-13 (v0.61.3)*
+*最后更新: 2026-08-13 (v0.61.4)*
