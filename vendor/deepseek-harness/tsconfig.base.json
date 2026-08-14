@@ -252,6 +252,7 @@
         "./packages/attachment/*/src",
         "./packages/spill/*/src",
         "./packages/todo/*/src",
+        "./packages/starhub/*/src",
         "./packages/bundle/*/src",
         "./packages/extensions/*/src",
         "./packages/sandbox/*/src",

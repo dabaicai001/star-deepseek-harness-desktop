@@ -294,16 +294,18 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 1. 只引入运行时类插件,逐个评审:许可(优先 MIT/Apache;NC/无许可一律不引入)、依赖重量、对 dsh 内部 seam 的耦合点是否在我们裁剪的子集内。
 2. 引入方式与内核一致——**源码拷入 vendor 自行维护**,不走 `dsh plugin add` / npm 依赖;加载机制(cordis patch / `dsh.bundle` manifest)在 vendor 副本中保留即可。
 3. 生态极年轻(多数仓库创建仅数日,awesome 列表自带"安全性无保证"免责声明),默认不信任,引入前必读源码。
-4. **用户自行引入:支持,作为 P2 能力,仅限运行时类插件,默认关闭。前端快捷导入,不要求用户手动操作目录。**
+4. **用户自行引入:支持,作为 P2 能力,仅限运行时类插件,默认关闭。前端快捷导入,不要求用户手动操作目录。**(支线 B 已实现,2026-08-14,见实施任务清单)
    - **导入方式(Settings → 插件页,Vue 前端操作)**:
-     - **插件市场(主路径)**:内嵌社区目录浏览——数据源用 awesome-dsh-plugin 的精选索引(纯数据、CC0),按分类浏览/搜索,一键安装(参考 dsh 生态的 dsh-market / dsh-webui-market-plugin 形态,UI 用 Vue 自实现);
-     - **URL 导入**:粘贴 GitHub 仓库地址(可带子目录/tag),应用侧 `git clone --depth 1` 拉取;
+     - **插件市场(主路径)**:内嵌社区目录浏览——数据源用 awesome-dsh-plugin 的精选索引(纯数据、CC0;目录本体 `README.zh.md`,`data/npm-map.json` / `data/stars.json` 以 GitHub URL 为 key 补 stars/npm 名),Rust 侧 reqwest 拉 raw 文件解析,**解析/抓取失败降级为空目录或缓存(`plugins/market-cache.json`,带抓取时间),不报错**;按分类浏览/搜索,一键安装;UI/主题/皮肤/客户端/娱乐类分类在市场侧直接不收录;
+     - **URL 导入**:粘贴 GitHub 仓库地址(可带 `/tree/<branch>`),reqwest 拉 `codeload.github.com` zip(分支顺序:指定 > main > master),也支持 zip 直链;`zip` crate 解包,`enclosed_name()` + 剥离后二次组件校验防 Zip Slip,剥掉 `<repo>-<branch>/` 顶层目录;
      - **本地导入**:系统文件选择器选本地文件夹/zip,复制进插件目录。
-   - **安装管线(Rust 侧执行)**:拉取/复制到应用数据目录 `plugins/<id>/` → 校验 `dsh.bundle` manifest(协议版本、wiring id、类型;UI/皮肤类直接拒装)→ 构建/安装依赖(若插件带构建产物则直接用,需构建的提示或不支持)→ 首次启用弹**风险提示**(插件等同本机代码权限)→ 逐项启用开关写入 runtime 的 cordis 配置 → 重启 dsh runtime 生效。
-   - **管理**:已装列表(版本/来源/启停)、更新(git pull / 重新拉取 + diff 提示)、卸载(移除目录 + 配置,重启复原);市场条目标注许可与"未审计"标记,NC/无许可插件额外警示。
+   - **安装管线(Rust 侧 `src-tauri/src/harness/plugins.rs`)**:拉取/复制到应用数据目录 `plugins/<id>/` → 校验 `dsh.bundle` manifest(**首版只支持零依赖插件**:`dependencies` 非空拒装;UI/皮肤类双保险拒装:manifest 含 `dsh.client` 或包名分段命中 skin/theme/client/ui;入口文件必须存在,不负责构建)→ **peer 依赖 junction**:`plugins/node_modules/@deepseek-ai/` 下为 cordis / cosmokit / schemastery 建指向 vendor 对应目录的 junction(Windows `mklink /J` 免管理员,失败回退整目录复制;vendor 根解析不到时安装明确报错)→ 首次启用弹**风险提示**(插件等同本机代码权限)→ 逐项启停写入 `plugins/cordis.yml`(entry 的 `disabled` 字段;该文件由本模块独占生成、单引号转义、禁止 `!!js`)→ 前端调 `dsh_shutdown` 重启 runtime 生效。
+   - **管理**:已装列表(版本/来源/启停/许可 + "未审计"标记,目录被外部删除时标 missing)、卸载(移除目录 + 配置,重启复原);更新(重拉 + diff 提示)留作后续。
+   - **加载机制落地(与调研假设的偏差,已实测)**:Cordis Include 插件是 tree carrier(`EntryGroup.key`),其 config 保持 literal,**`path` 字段不支持 `!!js` env 注入**;改为 Rust 在每次 spawn 前生成包装配置 `<app_data_dir>/dsh-cordis.generated.yml`(两条 `cordis:include` entry——app-boot 注册的内建插件,任何位置可引用:主组合指向 vendor 内 starhub-agent/cordis.yml,bare 包名仍在 vendor 树解析;用户插件清单带 `initial: []` 容忍文件缺失)。vendor 的 cordis.yml 本体零改动。
+   - **坏插件自救**:boot 有 assertEntriesActivated,坏插件会让 initialize 整体失败;首版自救降级为**手动**——initialize 失败时引导用户去插件页禁用,自动禁用留 TODO(`harness/plugins.rs` 模块注释)。
    - 底层机制不变:vendor 副本保留 Cordis 的 profile patch / `dsh.bundle` manifest 加载机制,启用状态最终落在 runtime 的 cordis 配置上。
    - 与开发者 vendor 引入的关系:随应用打包的官方插件走本节前三条评审流程;用户导入的插件是运行时扩展,不进仓库、不受 StarHub 背书。
-   - 落地阶段:迁移 Phase 3 之后的候选增强,不是迁移前置项。
+   - 落地阶段:作为并行支线(支线 B)于 Phase 1 期间完成,不阻塞主线。
 
 ---
 
@@ -454,3 +456,17 @@ token 源:`packages/client/ui-theme/src/styles/`(三层命名:`--dsw-static-*` �
 5. 验证:`cargo test harness`(mock LLM 端到端回路,无需 API key)。
 
 同一份代码、同一台机器(如笔记本带回家)无需任何操作,开箱即用。
+
+### 11.9 StarHub 本地补丁清单(vendor/deepseek-harness 内,上游同步时需重新施加)
+
+> vendor 副本锁定上游 commit `47f9438`(D6)。以下是 StarHub 在副本上的全部本地修改,合入上游更新时逐条重新施加并回归 `cargo test harness`。
+
+**P0(打包/构建修复)**:
+
+1. `scripts/build-exe-for-python-sdk.ts` 4 处 Windows 打包补丁:`PLATFORMS` 加 `win`、`process.platform` win32→win 映射、spawn pnpm 加 `shell: true`、产物名补 `.exe`(附录 11.5)。
+2. `tsconfig.host.json` `exclude` 两行:剔除因拷贝时裁掉 `website/` 而编译失败的 doc-site 脚本(G-2)。
+
+**P1-4(工具桥,2026-08-14)**:
+
+3. `packages/sdk/server/src/index.ts`:`apply()` 里把私有 transport 以 `ctx.provide('sdk-transport', transport)` 暴露为可选服务,供同组合的 starhub-tools 插件发起 server→client 双向 request(方法 `starhub/tool.execute`,参数 `{ name, args }`,result 为模型可读文本);生命周期跟随插件 fiber。
+4. 新增本地包 `packages/starhub/tools/`(`@deepseek-ai/dsh-starhub-tools`,`private: true`,不在上游):注册 `starhub_list_capabilities` / `starhub_list_assets` / `session_search` / `memory` 四个工具,`execute` 经 `sdk-transport` 桥回 Rust 主进程(`src-tauri/src/harness/tools.rs` 执行);缺 `sdk-transport` 时加载即 fail loud。配套登记:`tsconfig.host.json` references、`tsconfig.base.json` 的 `dsh-*` paths 通配组、`examples/package.json` 依赖、`examples/starhub-agent/cordis.yml` 插件条目(排在 sdk-jsonrpc-server 之后)。

@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.62.6(AI 内核替换 P0-4 完成:新增 `src-tauri/src/harness/`(dsh runtime spawn + NDJSON JSON-RPC 协议桥,复用 sidecar 解析模式,零新依赖)、3 个 Tauri command(`dsh_initialize`/`dsh_prompt`/`dsh_shutdown`)、前端 `src/services/aiHarness.ts`(流式 text-delta 拼装,idle 权威结束信号);端到端测试 mock LLM 实跑 4 轮全绿,`cargo:test` 81 passed。**Phase 0 风险验证全部完成,结论 Go**) |
+| 当前版本 | v0.63.0(AI 内核替换(deepseek-harness)Phase 1 完成,AiView 正式切换到 dsh 会话内核:新增 `examples/starhub-agent/cordis.yml` StarHub 专用组合(sdk-jsonrpc-server + llm-deepseek + agent-spine-demo + persistence-jsonl + tool-todo + compaction + subagent 系,无 bash/fs 工具,纯对话安全方向);Rust `HarnessManager` 支持模型参数注入(DEEPSEEK_API_KEY/DSH_SYSTEM_PROMPT/DSH_SESSION_ROOT)、spawn 指纹自动重启、`dsh_cancel`(杀进程兜底,SDK 协议无 cancel)、subagent.started/finished 事件转发;前端新增 `aiHarnessProjection.ts`(dsh 事件 → 块模型投影:user/assistant(text+reasoning 流式)/tool/todo/notice/subagent/error),AiView 消息区整链重写为投影渲染,旧 Planner→Executor 编排链与确认卡从 AiView 移除(AiChat 宿主路径 P3-4 才退役)) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-14 (v0.62.6)*
+*最后更新: 2026-08-14 (v0.63.0)*

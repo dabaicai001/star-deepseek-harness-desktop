@@ -1,6 +1,6 @@
 {
   "name": "starhub",
-  "version": "0.62.6",
+  "version": "0.63.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,6 +11,7 @@
     "test:ai-context": "node --test tests/ai-context.test.mjs",
     "test:ai-scroll": "node --test tests/ai-scroll-position.test.mjs",
     "test:ai-steering": "node --test tests/ai-steering.test.mjs",
+    "test:ai-dsh-projection": "node --test tests/ai-dsh-projection.test.mjs",
     "test:ssh-prompt": "node --test tests/ssh-prompt-capture.test.mjs",
     "test:terminal-cwd": "node --test tests/terminal-cwd.test.mjs",
     "cargo:check": "scripts\\cargo-env.bat check",

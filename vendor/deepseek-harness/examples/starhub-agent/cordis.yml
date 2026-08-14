@@ -1,0 +1,76 @@
+# StarHub AI 工作区(AiView)专用组合(内核替换 P1-3):纯对话内核。
+# 安全边界:不挂 bash/fs/subagent 工具——StarHub 的资产工具自 Phase 1 P1-4 起
+# 经 starhub-tools 插件接入,审批/白名单语义走 ctx.approval 桥(方案 5.2);
+# 在此之前模型没有任何可执行工具,退化方向是「只能对话」而不是「裸奔执行」。
+# stdout 只走 JSON-RPC;不要加 console logger。
+
+- id: sdk-jsonrpc-server
+  name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
+  config:
+    maxTokensAsSuccess: !!js "process.env.DSH_MAX_TOKENS_AS_SUCCESS === undefined ? true : JSON.parse(process.env.DSH_MAX_TOKENS_AS_SUCCESS)"
+
+# DeepSeek 适配器(OpenAI 兼容端点经 DEEPSEEK_BASE_URL 注入);模型随 initialize 按会话传入。
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    thinking: enabled
+    reasoningEffort: max
+
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    persona: !!js process.env.DSH_SYSTEM_PROMPT ?? 'You are StarHub AI, an operations assistant embedded in the StarHub desktop app.'
+    workspaceContext: false
+    skills:
+      enabled: false
+    toolBash: false
+    toolJobs: false
+
+- id: sessions
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    # StarHub Rust 桥默认注入应用数据目录;缺省 ./.sessions 仅限独立调试。
+    root: !!js process.env.DSH_SESSION_ROOT ?? './.sessions'
+    compression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+
+- id: session-checkpoints
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
+
+# 子代理(P1-5:Planner→Executor 由 dsh subagent 承接;plan mode 依赖
+# user-questions 审批缝,待审批桥落地后再启用)
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-spawn-in-process
+  name: '@deepseek-ai/dsh-subagent-spawn-in-process'
+  config:
+    providerName: spawn
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+    enableRunInBackground: false
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+# StarHub 宿主工具(P1-4):list_capabilities / list_assets / session_search /
+# memory;执行经 sdk-jsonrpc-server 暴露的 sdk-transport(本地补丁)桥回 Rust
+# 主进程,工具体不在 dsh 进程内。必须排在 sdk-jsonrpc-server 之后加载。
+- id: starhub-tools
+  name: '@deepseek-ai/dsh-starhub-tools'
+
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    thresholdRatio: 0.8
+    retainRatio: 0.16
+    maxTokens: 8192
+    compactionRetries: 1

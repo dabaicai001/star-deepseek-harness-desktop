@@ -57,6 +57,12 @@ export function apply(ctx: Context, config: JsonRpcConfig): void {
   const exit = config.exit ?? ((code: number): void => { process.exit(code) })
 
   const transport = new JsonRpcLineTransport(input, output)
+  // StarHub 本地补丁(P1-4,不在上游):把 stdio transport 以可选服务形式
+  // 暴露给同组合内的 starhub-tools 插件,使工具执行可经 SDK 双向 request
+  // (server→client,方法 starhub/tool.execute)桥回宿主进程。该服务名不走
+  // Context 接口声明合并(宿主私有协议),消费方用 ctx.get('sdk-transport')
+  // 读取并自行窄化;provide 的生命周期跟随本插件 fiber,卸载即摘除。
+  ctx.provide('sdk-transport', transport)
   const server = new HarnessSdkJsonRpcServer(ctx, transport, {
     maxTokensAsSuccess: resolvedConfig.maxTokensAsSuccess,
   })

@@ -170,8 +170,17 @@ async fn read_request_body(
 
 fn should_forward_request_header(name: &str) -> bool {
     ![
-        "accept-encoding", "connection", "content-length", "host", "keep-alive", "proxy-authenticate",
-        "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade",
+        "accept-encoding",
+        "connection",
+        "content-length",
+        "host",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
     ]
     .iter()
     .any(|skip| name.eq_ignore_ascii_case(skip))
@@ -187,7 +196,9 @@ fn is_valid_header(name: &str, value: &str) -> bool {
     }
     !name.is_empty()
         && name.bytes().all(is_token_char)
-        && value.bytes().all(|c| c == b'\t' || (0x20..=0x7e).contains(&c))
+        && value
+            .bytes()
+            .all(|c| c == b'\t' || (0x20..=0x7e).contains(&c))
 }
 
 /// Referer 回写:浏览器送来的 Referer 是网关 URL
@@ -275,7 +286,9 @@ fn recover_proxy_redirect(raw_path: &str, headers: &[(String, String)]) -> Optio
     if (scheme != "http" && scheme != "https") || hostport.is_empty() {
         return None;
     }
-    Some(format!("{GATEWAY_PATH_PREFIX}{scheme}/{hostport}{raw_path}"))
+    Some(format!(
+        "{GATEWAY_PATH_PREFIX}{scheme}/{hostport}{raw_path}"
+    ))
 }
 
 /// Referer 恢复失败时的兜底:用本网关最近一次成功代理 HTML 文档的上游。
@@ -289,7 +302,9 @@ fn fallback_proxy_redirect(
         return None;
     }
     let (scheme, hostport) = last_upstream.lock().ok()?.clone()?;
-    Some(format!("{GATEWAY_PATH_PREFIX}{scheme}/{hostport}{raw_path}"))
+    Some(format!(
+        "{GATEWAY_PATH_PREFIX}{scheme}/{hostport}{raw_path}"
+    ))
 }
 
 /// 上游字节流:direct-tcpip 通道流,或在其上完成 TLS 握手的加密流。
@@ -528,9 +543,7 @@ fn split_host_port(hostport: &str, scheme: &str) -> Result<(String, u16), String
             .ok_or_else(|| "invalid IPv6 host".to_string())?;
         let host = &rest[..end];
         let port = match rest[end + 1..].strip_prefix(':') {
-            Some(p) => p
-                .parse::<u16>()
-                .map_err(|_| "invalid port".to_string())?,
+            Some(p) => p.parse::<u16>().map_err(|_| "invalid port".to_string())?,
             None => default_port,
         };
         return Ok((host.to_string(), port));
@@ -636,7 +649,8 @@ where
         .and_then(|(_, value)| value.parse::<usize>().ok());
 
     // HEAD / 204 / 304 无 body
-    let no_body = method == "HEAD" || status == 204 || status == 304 || (100..200).contains(&status);
+    let no_body =
+        method == "HEAD" || status == 204 || status == 304 || (100..200).contains(&status);
     let body = if no_body {
         Vec::new()
     } else if is_chunked {
@@ -675,13 +689,23 @@ where
     if request_headers.iter().any(|(name, value)| {
         name.eq_ignore_ascii_case("transfer-encoding") && !value.eq_ignore_ascii_case("identity")
     }) {
-        respond_text(&mut stream, "501 Not Implemented", "web gateway: chunked requests are not supported").await;
+        respond_text(
+            &mut stream,
+            "501 Not Implemented",
+            "web gateway: chunked requests are not supported",
+        )
+        .await;
         return Ok(());
     }
     let content_length = match request_content_length(&request_headers) {
         Ok(length) => length,
         Err(error) => {
-            respond_text(&mut stream, "413 Payload Too Large", &format!("web gateway: {error}")).await;
+            respond_text(
+                &mut stream,
+                "413 Payload Too Large",
+                &format!("web gateway: {error}"),
+            )
+            .await;
             return Ok(());
         }
     };
@@ -1034,7 +1058,15 @@ fn rewrite_html(html: &str, scheme: &str, hostport: &str) -> String {
         s = s.replace(&format!("{q}//"), &format!("{q}{scheme_prefix}"));
     }
     s = s.replace("(//", &format!("({scheme_prefix}"));
-    for attr in ["href", "src", "action", "poster", "formaction", "data-src", "data-href"] {
+    for attr in [
+        "href",
+        "src",
+        "action",
+        "poster",
+        "formaction",
+        "data-src",
+        "data-href",
+    ] {
         for q in ['"', '\''] {
             s = replace_root_relative(&s, &format!("{attr}={q}"), &page_prefix, &scheme_prefix);
         }
@@ -1099,10 +1131,7 @@ fn inject_bridge(html: &str) -> String {
 fn resolve_relative_path(current_path_query: &str, rel: &str) -> String {
     // 纯查询串/锚点:基于当前路径替换
     if rel.starts_with('?') || rel.starts_with('#') {
-        let base_path = current_path_query
-            .split(['?', '#'])
-            .next()
-            .unwrap_or("/");
+        let base_path = current_path_query.split(['?', '#']).next().unwrap_or("/");
         return format!("{base_path}{rel}");
     }
     let base_dir = {
@@ -1112,9 +1141,7 @@ fn resolve_relative_path(current_path_query: &str, rel: &str) -> String {
             None => "/",
         }
     };
-    let suffix_start = rel
-        .find(['?', '#'])
-        .unwrap_or(rel.len());
+    let suffix_start = rel.find(['?', '#']).unwrap_or(rel.len());
     let (rel_path, suffix) = rel.split_at(suffix_start);
     let joined = format!("{base_dir}{rel_path}");
     let mut segments: Vec<&str> = Vec::new();
@@ -1150,7 +1177,12 @@ fn rewrite_location(value: &str, scheme: &str, hostport: &str, current_path_quer
 }
 
 /// 改写 Refresh 响应头(格式:`N; url=...`)。
-fn rewrite_refresh_header(value: &str, scheme: &str, hostport: &str, current_path_query: &str) -> String {
+fn rewrite_refresh_header(
+    value: &str,
+    scheme: &str,
+    hostport: &str,
+    current_path_query: &str,
+) -> String {
     let Some(semi) = value.find(';') else {
         return value.to_string();
     };
@@ -1186,7 +1218,11 @@ mod tests {
 
     #[test]
     fn injects_base_after_head() {
-        let out = rewrite_html(r#"<html><head lang="en"><title>t</title></head><body></body></html>"#, "https", "a.com");
+        let out = rewrite_html(
+            r#"<html><head lang="en"><title>t</title></head><body></body></html>"#,
+            "https",
+            "a.com",
+        );
         let head_end = out.find("<head lang=\"en\">").unwrap() + "<head lang=\"en\">".len();
         assert!(out[head_end..].starts_with(r#"<base href="/__proxy__/https/a.com/">"#));
     }
@@ -1199,7 +1235,11 @@ mod tests {
 
     #[test]
     fn does_not_duplicate_existing_base() {
-        let out = rewrite_html(r#"<html><head><base href="https://a.com/x/"></head></html>"#, "https", "a.com");
+        let out = rewrite_html(
+            r#"<html><head><base href="https://a.com/x/"></head></html>"#,
+            "https",
+            "a.com",
+        );
         assert_eq!(out.matches("<base").count(), 1);
     }
 
@@ -1214,7 +1254,8 @@ mod tests {
     #[test]
     fn leaves_non_refresh_url_equals_alone() {
         // script 里的 url= 不是 meta refresh,不应改写
-        let html = r#"<html><head></head><body><script>var x = "a?url=/keep";</script></body></html>"#;
+        let html =
+            r#"<html><head></head><body><script>var x = "a?url=/keep";</script></body></html>"#;
         let out = rewrite_html(html, "https", "a.com");
         assert!(out.contains("url=/keep"));
     }
@@ -1261,14 +1302,21 @@ mod tests {
             "http://192.168.1.10:8080/admin"
         );
         // 非代理 Referer 原样保留
-        assert_eq!(rewrite_referer("https://other.com/x"), "https://other.com/x");
+        assert_eq!(
+            rewrite_referer("https://other.com/x"),
+            "https://other.com/x"
+        );
     }
 
     #[test]
     fn injects_bridge_script_into_html() {
         // 桥接脚本必须随改写产物注入:外层(跨源)碰不到 iframe document,
         // _blank 拦截 / 右键菜单 / 导航上报全靠它
-        let out = rewrite_html(r#"<html><head><title>t</title></head><body></body></html>"#, "https", "a.com");
+        let out = rewrite_html(
+            r#"<html><head><title>t</title></head><body></body></html>"#,
+            "https",
+            "a.com",
+        );
         assert!(out.contains("__starhubBridge"));
         assert!(out.contains("open-in-new-tab"));
         assert!(out.contains("navigated"));
@@ -1329,11 +1377,26 @@ mod tests {
 
     #[test]
     fn splits_host_port_with_defaults() {
-        assert_eq!(split_host_port("a.com", "https").unwrap(), ("a.com".to_string(), 443));
-        assert_eq!(split_host_port("a.com", "http").unwrap(), ("a.com".to_string(), 80));
-        assert_eq!(split_host_port("a.com:8080", "http").unwrap(), ("a.com".to_string(), 8080));
-        assert_eq!(split_host_port("[::1]:9000", "http").unwrap(), ("::1".to_string(), 9000));
-        assert_eq!(split_host_port("[::1]", "https").unwrap(), ("::1".to_string(), 443));
+        assert_eq!(
+            split_host_port("a.com", "https").unwrap(),
+            ("a.com".to_string(), 443)
+        );
+        assert_eq!(
+            split_host_port("a.com", "http").unwrap(),
+            ("a.com".to_string(), 80)
+        );
+        assert_eq!(
+            split_host_port("a.com:8080", "http").unwrap(),
+            ("a.com".to_string(), 8080)
+        );
+        assert_eq!(
+            split_host_port("[::1]:9000", "http").unwrap(),
+            ("::1".to_string(), 9000)
+        );
+        assert_eq!(
+            split_host_port("[::1]", "https").unwrap(),
+            ("::1".to_string(), 443)
+        );
     }
 
     #[test]
@@ -1342,7 +1405,10 @@ mod tests {
             "POST /__proxy__/https/example.com/login HTTP/1.1\r\nHost: localhost\r\nCookie: sid=abc\r\nAuthorization: Bearer token\r\nContent-Length: 12\r\nConnection: keep-alive\r\n\r\n",
         )
         .expect("headers should parse");
-        assert_eq!(request_content_length(&headers).expect("length should parse"), 12);
+        assert_eq!(
+            request_content_length(&headers).expect("length should parse"),
+            12
+        );
         assert!(should_forward_request_header("Cookie"));
         assert!(should_forward_request_header("Authorization"));
         assert!(!should_forward_request_header("Host"));
@@ -1353,8 +1419,14 @@ mod tests {
 
     #[test]
     fn rejects_oversized_request_bodies() {
-        let headers = vec![("Content-Length".to_string(), (MAX_REQUEST_BODY_BYTES + 1).to_string())];
-        assert_eq!(request_content_length(&headers), Err("request body too large".to_string()));
+        let headers = vec![(
+            "Content-Length".to_string(),
+            (MAX_REQUEST_BODY_BYTES + 1).to_string(),
+        )];
+        assert_eq!(
+            request_content_length(&headers),
+            Err("request body too large".to_string())
+        );
     }
 
     #[test]
@@ -1363,7 +1435,9 @@ mod tests {
         // 报「127.0.0.1 拒绝连接」(ERR_BLOCKED_BY_RESPONSE),必须剥离
         assert!(should_skip_response_header("x-frame-options"));
         assert!(should_skip_response_header("content-security-policy"));
-        assert!(should_skip_response_header("content-security-policy-report-only"));
+        assert!(should_skip_response_header(
+            "content-security-policy-report-only"
+        ));
         assert!(should_skip_response_header("content-length"));
         assert!(should_skip_response_header("transfer-encoding"));
         assert!(should_skip_response_header("content-encoding"));
@@ -1410,11 +1484,9 @@ mod tests {
     #[test]
     fn falls_back_to_last_upstream_when_referer_missing() {
         // Referer 缺失(sandbox iframe 等)时,用最近成功代理 HTML 的上游兜底
-        let last: Arc<std::sync::Mutex<Option<(String, String)>>> =
-            Arc::new(std::sync::Mutex::new(Some((
-                "https".to_string(),
-                "www.baidu.com".to_string(),
-            ))));
+        let last: Arc<std::sync::Mutex<Option<(String, String)>>> = Arc::new(
+            std::sync::Mutex::new(Some(("https".to_string(), "www.baidu.com".to_string()))),
+        );
         assert_eq!(
             fallback_proxy_redirect("/s?wd=IP", &last),
             Some("/__proxy__/https/www.baidu.com/s?wd=IP".to_string())
@@ -1469,10 +1541,12 @@ mod tests {
         .await
         .expect("gateway port should accept connections")
         .expect("connect to gateway");
-        let req = format!(
-            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-        );
-        stream.write_all(req.as_bytes()).await.expect("write request");
+        let req =
+            format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+        stream
+            .write_all(req.as_bytes())
+            .await
+            .expect("write request");
         let mut buf = Vec::new();
         timeout(Duration::from_secs(40), stream.read_to_end(&mut buf))
             .await
@@ -1493,8 +1567,15 @@ mod tests {
 
         // 尚未代理过任何页面:非 /__proxy__/ 路径返回友好错误页而非裸 404
         let resp = gateway_get(gw.port, "/favicon.ico").await;
-        assert!(resp.starts_with("HTTP/1.1 404"), "unexpected status: {}", resp.lines().next().unwrap_or_default());
-        assert!(resp.contains("StarHub Web Gateway"), "expected friendly error page");
+        assert!(
+            resp.starts_with("HTTP/1.1 404"),
+            "unexpected status: {}",
+            resp.lines().next().unwrap_or_default()
+        );
+        assert!(
+            resp.contains("StarHub Web Gateway"),
+            "expected friendly error page"
+        );
 
         // HTTPS 站点:通道 + TLS + HTML 改写全链路
         let resp = gateway_get(gw.port, "/__proxy__/https/www.baidu.com/").await;
@@ -1510,7 +1591,11 @@ mod tests {
         );
         // 上游的 frame-ancestors / X-Frame-Options 必须剥离,否则 webview 拒绝
         // 把页面渲染进 iframe,报「127.0.0.1 拒绝连接」(ERR_BLOCKED_BY_RESPONSE)
-        let head = resp.split("\r\n\r\n").next().unwrap_or_default().to_lowercase();
+        let head = resp
+            .split("\r\n\r\n")
+            .next()
+            .unwrap_or_default()
+            .to_lowercase();
         assert!(
             !head.contains("frame-ancestors") && !head.contains("x-frame-options"),
             "frame-embedding blockers should be stripped, got head:\n{head}"
@@ -1520,7 +1605,10 @@ mod tests {
         // 对应 sandbox iframe 场景),应 307 回代理形式而非错误页
         let resp = gateway_get(gw.port, "/s?wd=IP").await;
         let status_line = resp.lines().next().unwrap_or_default().to_string();
-        assert!(status_line.contains("307"), "expected 307 recovery redirect, got: {status_line}");
+        assert!(
+            status_line.contains("307"),
+            "expected 307 recovery redirect, got: {status_line}"
+        );
         let location = resp
             .lines()
             .find(|l| l.to_lowercase().starts_with("location:"))

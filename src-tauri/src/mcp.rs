@@ -823,7 +823,10 @@ pub async fn call_tool(
 
 #[cfg(test)]
 mod tests {
-    use super::{evict_stdio_client, id_matches, rpc_result, stdio_call_tool, stdio_list_tools, McpServerConfig};
+    use super::{
+        evict_stdio_client, id_matches, rpc_result, stdio_call_tool, stdio_list_tools,
+        McpServerConfig,
+    };
     use serde_json::json;
 
     fn node_stdio_server() -> Option<McpServerConfig> {

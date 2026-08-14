@@ -6,6 +6,7 @@ pub mod audit;
 pub mod broker;
 pub mod db;
 pub mod docker;
+pub mod dsh_plugins;
 pub mod file;
 pub mod harness;
 pub mod local;

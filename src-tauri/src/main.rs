@@ -259,10 +259,18 @@ fn main() {
             commands::mcp::mcp_call_tool,
             // Sidecar 通用 RPC
             commands::sidecar::sidecar_rpc,
-            // dsh runtime(AI 内核替换 P0-4):stdio JSON-RPC 最小回路
+            // dsh runtime(AI 内核替换):stdio JSON-RPC 桥 + cancel 杀进程兜底
             commands::harness::dsh_initialize,
             commands::harness::dsh_prompt,
+            commands::harness::dsh_cancel,
             commands::harness::dsh_shutdown,
+            // dsh 用户插件(支线 B):市场 / URL / 本地三入口 + 逐项启停
+            commands::dsh_plugins::dsh_plugin_list,
+            commands::dsh_plugins::dsh_plugin_install_local,
+            commands::dsh_plugins::dsh_plugin_install_url,
+            commands::dsh_plugins::dsh_plugin_set_enabled,
+            commands::dsh_plugins::dsh_plugin_uninstall,
+            commands::dsh_plugins::dsh_plugin_market_fetch,
             // 审计日志
             commands::audit::audit_log,
             commands::audit::audit_list,

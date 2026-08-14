@@ -270,7 +270,14 @@ impl TransferManager {
             controls.insert(transfer_id.clone(), control.clone());
         }
 
-        self.spawn_upload_worker(transfer_id.clone(), session_id, sftp, all_files, remote_dir, control);
+        self.spawn_upload_worker(
+            transfer_id.clone(),
+            session_id,
+            sftp,
+            all_files,
+            remote_dir,
+            control,
+        );
 
         Ok(transfer_id)
     }
@@ -488,7 +495,11 @@ impl TransferManager {
                 } else {
                     TransferStatus::Done
                 };
-                tracing::info!("[TransferManager::upload] task {} finished: {:?}", tid, status);
+                tracing::info!(
+                    "[TransferManager::upload] task {} finished: {:?}",
+                    tid,
+                    status
+                );
                 let mut tasks = tasks.lock().await;
                 if let Some(t) = tasks.get_mut(&tid) {
                     t.status = status.clone();
@@ -597,7 +608,14 @@ impl TransferManager {
             controls.insert(transfer_id.clone(), control.clone());
         }
 
-        self.spawn_download_worker(transfer_id.clone(), session_id, sftp, remote_paths, local_dir, control);
+        self.spawn_download_worker(
+            transfer_id.clone(),
+            session_id,
+            sftp,
+            remote_paths,
+            local_dir,
+            control,
+        );
 
         Ok(transfer_id)
     }
@@ -781,7 +799,10 @@ impl TransferManager {
                     let mut tasks = tasks.lock().await;
                     if let Some(t) = tasks.get_mut(&tid) {
                         let old_size = t.files.get(i).map(|f| f.size).unwrap_or(0);
-                        t.total_bytes = t.total_bytes.saturating_sub(old_size).saturating_add(file_size);
+                        t.total_bytes = t
+                            .total_bytes
+                            .saturating_sub(old_size)
+                            .saturating_add(file_size);
                         t.transferred_bytes = cumulative_transferred;
                         if let Some(f) = t.files.get_mut(i) {
                             f.size = file_size;

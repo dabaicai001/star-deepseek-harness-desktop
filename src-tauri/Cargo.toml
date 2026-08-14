@@ -1,6 +1,6 @@
 [package]
 name = "starhub"
-version = "0.62.6"
+version = "0.63.0"
 edition = "2021"
 
 [dependencies]
@@ -34,6 +34,8 @@ webpki-roots = "1"
 futures = "0.3"
 bytes = "1"
 keyring-core = "1.0.0"
+# dsh 用户插件安装(支线 B):GitHub codeload zip 解包;只开 deflate,关掉其余压缩格式
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-native-keyring-store = "1.1.0"

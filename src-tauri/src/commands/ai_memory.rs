@@ -139,7 +139,8 @@ async fn get_conversation(
     row.map(|r| row_to_conversation(&r)).transpose()
 }
 
-async fn list_messages(
+/// (pub(crate):dsh 工具桥 harness::tools 的 session_search 浏览/翻页复用)
+pub(crate) async fn list_messages(
     pool: &SqlitePool,
     id: &str,
     before_rowid: Option<i64>,
@@ -352,7 +353,8 @@ pub async fn ai_msg_sync(
 }
 
 /// 全文检索容错包装:非法 FTS 语法(fts5 解析错误)返回空列表而非报错
-async fn search_messages_tolerant(
+/// (pub(crate):dsh 工具桥 harness::tools 的 session_search 复用)
+pub(crate) async fn search_messages_tolerant(
     pool: &SqlitePool,
     query: &str,
     limit: Option<i64>,
@@ -526,7 +528,12 @@ fn memory_match_unique(entries: Vec<AiMemoryRow>, old_text: &str) -> Result<AiMe
     }
 }
 
-async fn add_memory(pool: &SqlitePool, scope: &str, content: &str) -> Result<AiMemoryRow, String> {
+/// (pub(crate):dsh 工具桥 harness::tools 的 memory 工具复用写路径)
+pub(crate) async fn add_memory(
+    pool: &SqlitePool,
+    scope: &str,
+    content: &str,
+) -> Result<AiMemoryRow, String> {
     let content = content.trim();
     if content.is_empty() {
         return Err("记忆内容不能为空".to_string());
@@ -572,7 +579,7 @@ async fn add_memory(pool: &SqlitePool, scope: &str, content: &str) -> Result<AiM
     Ok(row)
 }
 
-async fn replace_memory(
+pub(crate) async fn replace_memory(
     pool: &SqlitePool,
     scope: &str,
     old_text: &str,
@@ -616,7 +623,11 @@ async fn replace_memory(
     })
 }
 
-async fn remove_memory(pool: &SqlitePool, scope: &str, old_text: &str) -> Result<String, String> {
+pub(crate) async fn remove_memory(
+    pool: &SqlitePool,
+    scope: &str,
+    old_text: &str,
+) -> Result<String, String> {
     let entries = memory_scope_entries(pool, scope)
         .await
         .map_err(|e| format!("Failed to load memories: {}", e))?;

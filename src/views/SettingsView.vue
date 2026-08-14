@@ -14,6 +14,13 @@ import type { AiMemoryRow } from '@/services/aiMemory'
 import { useNotifyStore } from '@/stores/notify'
 import { fetchAlertRules, createAlertRule, updateAlertRule, deleteAlertRule, testAlertWebhook } from '@/services/alert'
 import type { AlertRule, AlertRuleInput } from '@/services/alert'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import {
+  listPlugins, installLocalPlugin, installPluginFromUrl,
+  setPluginEnabled, uninstallPlugin, fetchPluginMarket
+} from '@/services/aiDshPlugins'
+import type { DshMarketPlugin, DshMarketCatalog, DshPluginInfo } from '@/services/aiDshPlugins'
+import { shutdown as shutdownDshRuntime } from '@/services/aiHarness'
 import { version as appVersion } from '~package.json'
 
 const { t, locale } = useI18n()
@@ -22,17 +29,21 @@ const aiStore = useAiStore()
 aiStore.ensureSettingsShape()
 
 // 选中的 tab
-type TabKey = 'general' | 'appearance' | 'ai' | 'audit' | 'alert' | 'about'
+type TabKey = 'general' | 'appearance' | 'ai' | 'plugins' | 'audit' | 'alert' | 'about'
 const props = withDefaults(defineProps<{ initialTab?: TabKey }>(), {
   initialTab: 'general'
 })
 const activeTab = ref<TabKey>(props.initialTab)
 watch(() => props.initialTab, tab => { activeTab.value = tab })
 
-// 切换到审计/告警 tab 时懒加载
+// 切换到审计/告警/插件 tab 时懒加载
 watch(activeTab, tab => {
   if (tab === 'audit' && auditLogs.value.length === 0) loadAuditLogs()
   if (tab === 'alert' && alertRules.value.length === 0) loadAlertRules()
+  if (tab === 'plugins') {
+    if (pluginList.value.length === 0) void loadPlugins()
+    if (!marketCatalog.value) void loadMarket()
+  }
 })
 
 /** 通用设置(用 localStorage 持久化,P2 阶段先不上 store) */
@@ -478,6 +489,187 @@ function toggleCustomSkillAssetType(type: AiAssetType, enabled: boolean) {
   if (enabled) types.add(type)
   else types.delete(type)
   customSkillAssetTypes.value = Array.from(types)
+}
+
+// ===== dsh 插件(AI 内核替换支线 B)=====
+// 每次安装/启停/卸载后关闭 runtime,下次对话 initialize 自动带新配置重启;
+// 纯浏览器预览(无 Tauri IPC)下各项操作静默降级为错误提示。
+const pluginList = ref<DshPluginInfo[]>([])
+const pluginLoading = ref(false)
+const pluginError = ref('')
+const pluginBusyId = ref('')
+const pluginUrl = ref('')
+const pluginUrlInstalling = ref(false)
+const marketCatalog = ref<DshMarketCatalog | null>(null)
+const marketLoading = ref(false)
+const marketSearch = ref('')
+const riskDialogPlugin = ref<DshPluginInfo | null>(null)
+const uninstallDialogPlugin = ref<DshPluginInfo | null>(null)
+
+/** 首次启用风险提示的确认记录(按插件 id 记一次) */
+const PLUGIN_ACK_KEY = 'starhub.plugins.enable-acknowledged'
+function pluginAckSet(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(PLUGIN_ACK_KEY) || '[]'))
+  } catch {
+    return new Set()
+  }
+}
+function markPluginAcked(id: string) {
+  try {
+    localStorage.setItem(PLUGIN_ACK_KEY, JSON.stringify([...pluginAckSet(), id]))
+  } catch {}
+}
+
+async function loadPlugins() {
+  if (!isTauriRuntime()) return
+  pluginLoading.value = true
+  pluginError.value = ''
+  try {
+    pluginList.value = await listPlugins()
+  } catch (error) {
+    pluginError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    pluginLoading.value = false
+  }
+}
+
+async function loadMarket(force = false) {
+  if (!isTauriRuntime()) return
+  marketLoading.value = true
+  try {
+    marketCatalog.value = await fetchPluginMarket(force)
+  } catch {
+    // Rust 侧已降级为空目录,这里只兜底 IPC 级失败
+    marketCatalog.value = { stale: false, categories: [] }
+  } finally {
+    marketLoading.value = false
+  }
+}
+
+const marketFiltered = computed(() => {
+  const catalog = marketCatalog.value
+  if (!catalog) return []
+  const keyword = marketSearch.value.trim().toLowerCase()
+  if (!keyword) return catalog.categories
+  return catalog.categories
+    .map(category => ({
+      ...category,
+      plugins: category.plugins.filter(plugin =>
+        plugin.name.toLowerCase().includes(keyword)
+        || plugin.description.toLowerCase().includes(keyword)
+        || (plugin.npm || '').toLowerCase().includes(keyword))
+    }))
+    .filter(category => category.plugins.length > 0)
+})
+
+/** 变更后收尾:关 runtime(下次对话重启生效)+ 提示 + 刷新列表 */
+async function afterPluginMutation(message: string) {
+  try {
+    await shutdownDshRuntime()
+  } catch {
+    // runtime 未运行属正常情况
+  }
+  notifyStore.notify({ message: `${message};${t('settings.plugins.restartDone')}`, color: 'success', timeout: 4000 })
+  await loadPlugins()
+}
+
+async function doSetPluginEnabled(plugin: DshPluginInfo, enabled: boolean) {
+  pluginBusyId.value = plugin.id
+  pluginError.value = ''
+  try {
+    await setPluginEnabled(plugin.id, enabled)
+    await afterPluginMutation(t(enabled ? 'settings.plugins.enabledOk' : 'settings.plugins.disabledOk'))
+  } catch (error) {
+    pluginError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    pluginBusyId.value = ''
+  }
+}
+
+/** 启停开关:启用且首次时需先过风险提示确认卡 */
+function onTogglePlugin(plugin: DshPluginInfo) {
+  if (pluginBusyId.value) return
+  if (plugin.enabled) {
+    void doSetPluginEnabled(plugin, false)
+    return
+  }
+  if (pluginAckSet().has(plugin.id)) {
+    void doSetPluginEnabled(plugin, true)
+    return
+  }
+  riskDialogPlugin.value = plugin
+}
+
+async function confirmRiskEnable() {
+  const plugin = riskDialogPlugin.value
+  riskDialogPlugin.value = null
+  if (!plugin) return
+  markPluginAcked(plugin.id)
+  await doSetPluginEnabled(plugin, true)
+}
+
+async function confirmUninstall() {
+  const plugin = uninstallDialogPlugin.value
+  uninstallDialogPlugin.value = null
+  if (!plugin) return
+  pluginBusyId.value = plugin.id
+  pluginError.value = ''
+  try {
+    await uninstallPlugin(plugin.id)
+    await afterPluginMutation(t('settings.plugins.uninstalledOk'))
+  } catch (error) {
+    pluginError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    pluginBusyId.value = ''
+  }
+}
+
+async function onInstallUrl(url?: string) {
+  const target = (url ?? pluginUrl.value).trim()
+  if (!target || pluginUrlInstalling.value) return
+  pluginUrlInstalling.value = true
+  pluginError.value = ''
+  try {
+    await installPluginFromUrl(target)
+    pluginUrl.value = ''
+    await afterPluginMutation(t('settings.plugins.installedOk'))
+  } catch (error) {
+    pluginError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    pluginUrlInstalling.value = false
+  }
+}
+
+/** 本地目录 / zip 导入:系统文件选择器(dialog 插件) */
+async function onImportLocal(kind: 'dir' | 'zip') {
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const selected = await open(
+    kind === 'dir'
+      ? { directory: true, multiple: false }
+      : { directory: false, multiple: false, filters: [{ name: 'Zip', extensions: ['zip'] }] }
+  )
+  if (typeof selected !== 'string') return
+  pluginError.value = ''
+  pluginBusyId.value = '(import)'
+  try {
+    await installLocalPlugin(selected)
+    await afterPluginMutation(t('settings.plugins.installedOk'))
+  } catch (error) {
+    pluginError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    pluginBusyId.value = ''
+  }
+}
+
+function pluginSourceLabel(kind: string): string {
+  const map: Record<string, string> = {
+    market: t('settings.plugins.sourceMarket'),
+    url: t('settings.plugins.sourceUrl'),
+    'local-dir': t('settings.plugins.sourceLocalDir'),
+    'local-zip': t('settings.plugins.sourceLocalZip')
+  }
+  return map[kind] || kind
 }
 
 function addCustomSkill() {
@@ -945,18 +1137,24 @@ async function onTestWebhook(url: string) {
         <span class="tab-label">AI 助手</span>
         <span class="tab-hint">Function Calling · 命令执行</span>
       </button>
-      <button class="tab" :class="{ active: activeTab === 'audit' }" @click="activeTab = 'audit'">
+      <button class="tab" :class="{ active: activeTab === 'plugins' }" @click="activeTab = 'plugins'">
         <span class="tab-num">04</span>
+        <v-icon size="13">mdi-puzzle-outline</v-icon>
+        <span class="tab-label">{{ t('settings.plugins.tab') }}</span>
+        <span class="tab-hint">{{ t('settings.plugins.tabHint') }}</span>
+      </button>
+      <button class="tab" :class="{ active: activeTab === 'audit' }" @click="activeTab = 'audit'">
+        <span class="tab-num">05</span>
         <v-icon size="13">mdi-clipboard-list-outline</v-icon>
         <span class="tab-label">审计日志</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'alert' }" @click="activeTab = 'alert'">
-        <span class="tab-num">05</span>
+        <span class="tab-num">06</span>
         <v-icon size="13">mdi-bell-alert-outline</v-icon>
         <span class="tab-label">告警规则</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'about' }" @click="activeTab = 'about'">
-        <span class="tab-num">06</span>
+        <span class="tab-num">07</span>
         <v-icon size="13">mdi-information-outline</v-icon>
         <span class="tab-label">{{ t('settings.about') }}</span>
       </button>
@@ -1502,6 +1700,168 @@ async function onTestWebhook(url: string) {
       </div>
     </div>
 
+    <!-- dsh 插件(支线 B):已装列表 + 三入口安装 + 市场 -->
+    <div v-if="activeTab === 'plugins'" class="settings-panel">
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">01</span>
+          <span class="section-title">{{ t('settings.plugins.installedTitle') }}</span>
+        </div>
+        <p class="section-desc">{{ t('settings.plugins.installedDesc') }}</p>
+
+        <div class="audit-toolbar">
+          <button class="cyber-btn-secondary" :disabled="pluginLoading" @click="loadPlugins">
+            <v-icon size="14">{{ pluginLoading ? 'mdi-loading mdi-spin' : 'mdi-refresh' }}</v-icon>
+            {{ pluginLoading ? t('common.loading') : t('common.refresh') }}
+          </button>
+        </div>
+
+        <div v-if="pluginError" class="alert-test-result">{{ pluginError }}</div>
+        <div v-if="pluginList.length === 0" class="audit-empty">{{ t('settings.plugins.empty') }}</div>
+
+        <div class="alert-rule-list">
+          <div v-for="plugin in pluginList" :key="plugin.id" class="alert-rule-card" :class="{ disabled: !plugin.enabled }">
+            <div class="alert-rule-head">
+              <span class="alert-rule-name">{{ plugin.name }}</span>
+              <span class="cyber-badge" :class="{ 'badge-off': !plugin.enabled }">
+                {{ plugin.enabled ? t('settings.plugins.enabledBadge') : t('settings.plugins.disabledBadge') }}
+              </span>
+              <span class="cyber-badge badge-off">{{ t('settings.plugins.unverified') }}</span>
+              <span v-if="plugin.missing" class="cyber-badge badge-off">{{ t('settings.plugins.missingBadge') }}</span>
+              <div class="alert-rule-actions">
+                <button
+                  class="action-btn"
+                  :aria-label="plugin.enabled ? t('settings.plugins.disable') : t('settings.plugins.enable')"
+                  :data-tooltip="plugin.enabled ? t('settings.plugins.disable') : t('settings.plugins.enable')"
+                  :disabled="pluginBusyId === plugin.id || plugin.missing"
+                  @click="onTogglePlugin(plugin)"
+                >
+                  <v-icon size="14">{{ pluginBusyId === plugin.id ? 'mdi-loading mdi-spin' : plugin.enabled ? 'mdi-toggle-switch' : 'mdi-toggle-switch-off-outline' }}</v-icon>
+                </button>
+                <button
+                  class="action-btn"
+                  :aria-label="t('settings.plugins.uninstall')"
+                  :data-tooltip="t('settings.plugins.uninstall')"
+                  :disabled="pluginBusyId === plugin.id"
+                  @click="uninstallDialogPlugin = plugin"
+                >
+                  <v-icon size="14">mdi-delete-outline</v-icon>
+                </button>
+              </div>
+            </div>
+            <div class="alert-rule-meta">
+              <span>v{{ plugin.version }}</span>
+              <span v-if="plugin.license">{{ plugin.license }}</span>
+              <span>{{ pluginSourceLabel(plugin.source.kind) }}</span>
+              <span v-if="plugin.description">{{ plugin.description }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">02</span>
+          <span class="section-title">{{ t('settings.plugins.installTitle') }}</span>
+        </div>
+        <p class="section-desc">{{ t('settings.plugins.installDesc') }}</p>
+        <div class="audit-toolbar">
+          <input
+            v-model="pluginUrl"
+            class="cyber-input plugin-url-input"
+            :placeholder="t('settings.plugins.urlPlaceholder')"
+            @keydown.enter="onInstallUrl()"
+          />
+          <button class="cyber-btn" :disabled="pluginUrlInstalling || !pluginUrl.trim()" @click="onInstallUrl()">
+            <v-icon size="14">{{ pluginUrlInstalling ? 'mdi-loading mdi-spin' : 'mdi-download-outline' }}</v-icon>
+            {{ t('settings.plugins.installUrl') }}
+          </button>
+          <button class="cyber-btn-secondary" :disabled="Boolean(pluginBusyId)" @click="onImportLocal('dir')">
+            <v-icon size="14">mdi-folder-open-outline</v-icon>
+            {{ t('settings.plugins.importDir') }}
+          </button>
+          <button class="cyber-btn-secondary" :disabled="Boolean(pluginBusyId)" @click="onImportLocal('zip')">
+            <v-icon size="14">mdi-package-variant</v-icon>
+            {{ t('settings.plugins.importZip') }}
+          </button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">03</span>
+          <span class="section-title">{{ t('settings.plugins.marketTitle') }}</span>
+        </div>
+        <p class="section-desc">
+          {{ t('settings.plugins.marketDesc') }}
+          <template v-if="marketCatalog?.fetchedAt">
+            {{ t('settings.plugins.fetchedAt') }}: {{ marketCatalog.fetchedAt }}
+          </template>
+          <span v-if="marketCatalog?.stale">({{ t('settings.plugins.staleHint') }})</span>
+        </p>
+        <div class="audit-toolbar">
+          <input
+            v-model="marketSearch"
+            class="cyber-input plugin-url-input"
+            :placeholder="t('settings.plugins.searchPlaceholder')"
+          />
+          <button class="cyber-btn-secondary" :disabled="marketLoading" @click="loadMarket(true)">
+            <v-icon size="14">{{ marketLoading ? 'mdi-loading mdi-spin' : 'mdi-refresh' }}</v-icon>
+            {{ marketLoading ? t('common.loading') : t('common.refresh') }}
+          </button>
+        </div>
+        <div v-if="marketFiltered.length === 0" class="audit-empty">{{ t('settings.plugins.marketEmpty') }}</div>
+        <div v-for="category in marketFiltered" :key="category.name" class="plugin-market-category">
+          <div class="plugin-market-category-name">{{ category.name }}</div>
+          <div class="alert-rule-list">
+            <div v-for="item in category.plugins" :key="item.url" class="alert-rule-card">
+              <div class="alert-rule-head">
+                <span class="alert-rule-name">{{ item.name }}</span>
+                <span v-if="item.stars !== undefined" class="alert-rule-metric">★ {{ item.stars }}</span>
+                <span class="cyber-badge badge-off">{{ t('settings.plugins.unverified') }}</span>
+                <div class="alert-rule-actions">
+                  <button
+                    class="action-btn"
+                    :aria-label="t('settings.plugins.installUrl')"
+                    :data-tooltip="t('settings.plugins.installUrl')"
+                    :disabled="pluginUrlInstalling || pluginList.some(p => item.url.includes(p.id))"
+                    @click="onInstallUrl(item.url)"
+                  >
+                    <v-icon size="14">{{ pluginUrlInstalling ? 'mdi-loading mdi-spin' : 'mdi-download-outline' }}</v-icon>
+                  </button>
+                </div>
+              </div>
+              <div class="alert-rule-meta">
+                <span v-if="item.description">{{ item.description }}</span>
+                <span v-if="item.npm">npm: {{ item.npm }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 首次启用风险提示(插件 = 本机代码权限) -->
+    <ConfirmDialog
+      :model-value="riskDialogPlugin !== null"
+      :title="t('settings.plugins.riskTitle')"
+      :message="`${riskDialogPlugin?.name ?? ''}\n\n${t('settings.plugins.riskMessage')}`"
+      :confirm-text="t('settings.plugins.enable')"
+      danger
+      @update:model-value="riskDialogPlugin = null"
+      @confirm="confirmRiskEnable"
+    />
+    <!-- 卸载确认 -->
+    <ConfirmDialog
+      :model-value="uninstallDialogPlugin !== null"
+      :title="t('settings.plugins.uninstall')"
+      :message="uninstallDialogPlugin?.name ?? ''"
+      :confirm-text="t('settings.plugins.uninstall')"
+      danger
+      @update:model-value="uninstallDialogPlugin = null"
+      @confirm="confirmUninstall"
+    />
+
     <!-- 审计日志 -->
     <div v-if="activeTab === 'audit'" class="settings-panel">
       <div class="section">
@@ -1999,6 +2359,23 @@ async function onTestWebhook(url: string) {
   color: var(--muted);
   margin: 0 0 14px;
   line-height: 1.6;
+}
+
+/* dsh 插件 tab:URL 输入框与市场分类标题 */
+.plugin-url-input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.plugin-market-category {
+  margin-top: 14px;
+}
+
+.plugin-market-category-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 8px;
 }
 
 .audit-retention-hint {

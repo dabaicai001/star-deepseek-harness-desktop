@@ -13,6 +13,20 @@
 
 ---
 
+## [0.63.0] - 2026-08-14
+
+### 新增
+- AI 内核替换(deepseek-harness)Phase 1 完成,AiView 正式切换到 dsh 会话内核:新增 `examples/starhub-agent/cordis.yml` StarHub 专用组合(sdk-jsonrpc-server + llm-deepseek + agent-spine-demo + persistence-jsonl + tool-todo + compaction + subagent 系,无 bash/fs 工具,纯对话安全方向);Rust `HarnessManager` 支持模型参数注入(DEEPSEEK_API_KEY/DSH_SYSTEM_PROMPT/DSH_SESSION_ROOT)、spawn 指纹自动重启、`dsh_cancel`(杀进程兜底,SDK 协议无 cancel)、subagent.started/finished 事件转发;前端新增 `aiHarnessProjection.ts`(dsh 事件 → 块模型投影:user/assistant(text+reasoning 流式)/tool/todo/notice/subagent/error),AiView 消息区整链重写为投影渲染,旧 Planner→Executor 编排链与确认卡从 AiView 移除(AiChat 宿主路径 P3-4 才退役)
+- dsh 工具桥第一批(P1-4):sdk server 补丁暴露 `sdk-transport` 服务;新增 vendor 包 `@deepseek-ai/dsh-starhub-tools`(starhub_list_capabilities / starhub_list_assets / session_search / memory 四个工具,execute 经 `starhub/tool.execute` 入站 request 桥回宿主 Rust 执行);Rust 协议桥升级双向 request 分发(JSON-RPC id 支持字符串);memory 安全扫描(memoryGuard)移植 Rust;端到端实测模型工具调用 → Rust 执行 → 结果回注全链路
+- dsh-deep-whale 皮肤风格评估(支线 C):新增 `docs/皮肤风格评估-dsh-deep-whale.md`,三枚增量 token 候选(`--radius-bubble` 气泡圆角、`--ease-emphasize` 强调缓动、`cyber-chase` 追逐动画)评审后并入 cyber.css 定义层,柔金/玻璃拟态不采纳
+- dsh 插件生态首版(支线 B,B-1~B-4):设置页新增「插件」tab,支持 awesome-dsh-plugin 市场目录浏览(README.zh.md + data/*.json 解析,失败降级空目录)、URL(zip)/本地目录/本地 zip 三种安装、逐项启停与卸载;插件落 `<app_data_dir>/plugins/`,Rust 每次 spawn 前生成包装配置 `dsh-cordis.generated.yml`(cordis:include 内建插件,主组合 + 用户清单两棵子树,vendor 副本零改动);安装管线含 manifest 校验(`dsh.bundle` 必需、零依赖强制、UI/皮肤类双保险拒装)、peer 依赖 junction(mklink /J,回退复制)、zip 防穿越(enclosed_name + 剥顶层后二次校验)、首次启用风险提示;变更后自动重启 dsh runtime;坏插件自救首版为手动引导(自动禁用留 TODO);打包布局暂不支持安装(明确报错)
+- 设计系统 token 层升级(支线 A,D0/D1/D3):阴影收敛为 `--shadow-1/2/3` 克制档,边框改 hairline(`--line` 0.06 / `--line-2` 0.12),新增中性 hover/active、圆角梯度(chip 4 → modal 24)、字号梯度(`--text-2xs~xl`)、`--font-mono` 等宽栈(73 处硬编码清除)、滚动条 token;按钮胶囊化、卡片圆角 16、核心组件 hover 中性化、交互过渡统一 0.2s;菜单修复无效 box-shadow;光晕类效果收敛至启动/欢迎页仪式场景;亮主题同步重做
+
+### 已知回退(dsh 切换期)
+- AiView 会话不再持久化到 StarHub SQLite(dsh 自有 jsonl,重启应用后历史不可恢复;session_search 桥在 P3 接)
+- 运行中 steering 暂停(dsh inbox 机制后续接);确认卡/白名单待审批桥(D3 已验证可行,Phase 2 落地);plan mode 待审批桥后启用
+- memory 工具确认闸未接(待审批桥);asset 级记忆固定返回未绑定提示(待 P2-7 绑定机制)
+
 ## [0.62.6] - 2026-08-14
 
 ### 新增
