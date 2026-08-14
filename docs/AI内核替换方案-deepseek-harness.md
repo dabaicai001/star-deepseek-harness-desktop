@@ -442,3 +442,15 @@ token 源:`packages/client/ui-theme/src/styles/`(三层命名:`--dsw-static-*` �
 - **G-8** mock 慢速流式只对 `slow_success` 行为生效;时序实验必须用它。
 - **G-10** engines 卡 Node ^22.19||>=24,Rust 拉起 runtime 时要钉住便携 Node 或直接用 exe。
 
+
+### 11.8 环境准备(新机器/重装)
+
+`vendor/deepseek-harness` 的 `node_modules`(~1.4GB)与便携 Node 均不入库。换机器或重装后,dsh runtime 跑不起来的话按此恢复:
+
+1. **便携 Node 24**(engines 要求 ^22.19 || >=24,系统 Node 22.14 不够):下载 `node-v24.19.0-win-x64.zip`(https://nodejs.org/dist/v24.19.0/)解压到 `tmp/node24/`,使用时 `export PATH="$PWD/tmp/node24:$PATH"`(Git Bash);Rust 侧缺省也会回退找 `<repo>/tmp/node24/node.exe`(可用 env `STARHUB_DSH_NODE` 覆盖)。
+2. **pnpm 11.7.0**:便携 Node 自带 corepack,`corepack enable pnpm` 后会按 repo `packageManager` 字段自动拉取。
+3. **安装依赖**:`cd vendor/deepseek-harness && pnpm install`(约 4 分钟;**不要设 CI=true**,见附录 G-4)。
+4. **构建**:`npm run build:lib:host`(约 47 秒,产物在 `packages/*/lib/`)。
+5. 验证:`cargo test harness`(mock LLM 端到端回路,无需 API key)。
+
+同一份代码、同一台机器(如笔记本带回家)无需任何操作,开箱即用。
