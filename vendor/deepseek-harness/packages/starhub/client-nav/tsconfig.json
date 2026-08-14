@@ -15,10 +15,13 @@
       "path": "../../client/ui-slots"
     },
     {
-      "path": "../../client/ui-conversation"
+      "path": "../../client/ui-layout"
     },
     {
-      "path": "../../client/web-react"
+      "path": "../../client/ui-sidebar"
+    },
+    {
+      "path": "../../client/ui-primitives"
     },
     {
       "path": "../../client/runtime"

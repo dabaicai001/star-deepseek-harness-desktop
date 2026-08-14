@@ -6075,6 +6075,20 @@ body {
   background: var(--bg);
 }
 
+/* embed 模式(dsh 主壳 iframe):去壳外壳,整幅工作区 */
+.embed-layout {
+  height: 100vh;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.embed-layout > * {
+  flex: 1;
+  min-height: 0;
+}
+
 .detached-titlebar {
   display: flex;
   align-items: center;

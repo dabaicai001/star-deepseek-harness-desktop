@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.63.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.64.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,6 +119,9 @@
 
 ## 当前版本
 
+### v0.64.0 (2026-08-14)
+- ✨ dsh 主壳融合(方案 B)P1 外壳融合:新增 `packages/starhub/host-static/`(dsh webserver 同源托管 StarHub embed dist 于 `/starhub/`,SPA fallback + 防穿越)、`packages/starhub/client-nav/` 全量(8 个导航条目注册 `sidebar.footer.action`,`shell.overlay` 整帧 iframe 层,Esc/再点关闭);Rust 新增 `DshWebManager`(profile 物化 + 端口 3085 起递增 + 就绪轮询 + 生命周期,4 单测);前端新增 embed 模式(`?embed=1&route=<path>` 精简外壳,去 titlebar/tab/侧栏/状态栏);双轨开发流 `npm run tauri:dev:dsh`(tauri.dev-dsh.json 覆盖 devUrl,默认旧外壳不受影响)+ `npm run build:embed`(base `/starhub/`,产物 `dist-embed/`);真窗口冒烟与 curl 链路全绿,踩坑记录第 20 节(overlay vs conversation.view、占位页自跳转等 7 条)
+
 ### v0.63.1 (2026-08-14)
 - ✨ dsh 主壳融合(方案 B)P0 spike:dsh 官方 Web GUI 在 vendored monorepo 内起服成功(`examples/starhub-web/` profile 组合 + `packages/starhub/client-nav/` 最小 client 插件,slot 注入链路 curl 验证通过);**决定性结论:Tauri 窗口加载 http://127.0.0.1 壳时,同源 iframe 完整继承 `__TAURI_INTERNALS__`,invoke 真实往返成功**——功能页嵌入无需自建 IPC 桥,方案 B 最大风险消除;任务清单 `docs/dsh主壳融合-任务清单.md` 与踩坑记录第 19 节同步
 
@@ -131,9 +134,6 @@
 - 🔧 AiView 会话不再持久化到 StarHub SQLite(dsh 自有 jsonl,重启应用后历史不可恢复;session_search 桥在 P3 接)
 - 🔧 运行中 steering 暂停(dsh inbox 机制后续接);确认卡/白名单待审批桥(D3 已验证可行,Phase 2 落地);plan mode 待审批桥后启用
 - 🔧 memory 工具确认闸未接(待审批桥);asset 级记忆固定返回未绑定提示(待 P2-7 绑定机制)
-
-### v0.62.6 (2026-08-14)
-- ✨ AI 内核替换 P0-4 完成:新增 `src-tauri/src/harness/`(dsh runtime spawn + NDJSON JSON-RPC 协议桥,复用 sidecar 解析模式,零新依赖)、3 个 Tauri command(`dsh_initialize`/`dsh_prompt`/`dsh_shutdown`)、前端 `src/services/aiHarness.ts`(流式 text-delta 拼装,idle 权威结束信号);端到端测试 mock LLM 实跑 4 轮全绿,`cargo:test` 81 passed。**Phase 0 风险验证全部完成,结论 Go**
 
 ---
 

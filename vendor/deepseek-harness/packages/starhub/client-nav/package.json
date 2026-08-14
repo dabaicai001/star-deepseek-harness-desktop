@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-starhub-client-nav",
-  "description": "StarHub shell navigation: conversation.view tabs embedding the StarHub frontend in same-origin iframes (StarHub-local package, not upstream)",
+  "description": "StarHub shell navigation: sidebar.footer.action section rows plus a shell.overlay full-frame iframe layer embedding the StarHub frontend same-origin (StarHub-local package, not upstream)",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -22,7 +22,8 @@
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
       ],
       "platform": "web"
     }
@@ -34,13 +35,18 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-layout": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-sidebar": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
     "react": "^18.2.0"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
-    "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-layout": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-sidebar": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
     "@types/react": "~18.3.1",

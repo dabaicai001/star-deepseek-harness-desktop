@@ -3,9 +3,12 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [vue()],
   root: 'src',
+  // embed 模式(dsh 壳 iframe 内嵌构建):资源走 /starhub/ 前缀,由 dsh 侧
+  // host-static 插件托管(避免与 dsh 自身的 /assets/ 冲突);产物落 dist-embed/。
+  base: mode === 'embed' ? '/starhub/' : '/',
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -18,7 +21,7 @@ export default defineConfig({
     strictPort: true
   },
   build: {
-    outDir: '../dist',
+    outDir: mode === 'embed' ? '../dist-embed' : '../dist',
     emptyOutDir: true,
     target: 'esnext',
     rollupOptions: {
@@ -52,4 +55,4 @@ export default defineConfig({
     exclude: ['tests/**/*.test.mjs', 'node_modules', 'dist'],
     passWithNoTests: true
   }
-})
+}))

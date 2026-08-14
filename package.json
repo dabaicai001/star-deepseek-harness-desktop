@@ -1,11 +1,12 @@
 {
   "name": "starhub",
-  "version": "0.63.1",
+  "version": "0.64.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "build:embed": "vite build --mode embed",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ai-context": "node --test tests/ai-context.test.mjs",
@@ -26,6 +27,7 @@
     "sidecar:build": "node scripts/build-sidecar.mjs",
     "sidecar:build:release": "node scripts/build-sidecar.mjs --release",
     "tauri:dev": "npm run tauri dev",
+    "tauri:dev:dsh": "npm run tauri dev -- --config src-tauri/tauri.dev-dsh.json",
     "tauri:build": "npm run tauri build"
   },
   "dependencies": {

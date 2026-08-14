@@ -30,6 +30,19 @@ fn main() {
         .manage(SshManager::new())
         .manage(sidecar_manager)
         .manage(harness::HarnessManager::new())
+        .manage(harness::web::DshWebManager::new())
+        // 主窗口销毁 = 应用退出:主动回收 dsh web 子进程(kill_on_drop 之外的确定性路径)
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) && window.label() == "main" {
+                let app_handle = window.app_handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    app_handle
+                        .state::<harness::web::DshWebManager>()
+                        .shutdown()
+                        .await;
+                });
+            }
+        })
         .setup(|app| {
             let app_handle = app.handle().clone();
             tauri::async_runtime::block_on(async {
@@ -41,6 +54,30 @@ fn main() {
 
             // 初始化 TransferManager(需要 AppHandle 用于 emit 进度/状态事件)
             app.manage(TransferManager::new(app.handle().clone()));
+
+            // 主壳融合 P1:dsh web GUI 长驻服务。STARHUB_DSH_WEB=0 禁用(逃生门);
+            // 启动失败不致命——旧外壳开发流(vite devUrl)不受影响,错误落日志。
+            if std::env::var("STARHUB_DSH_WEB").ok().as_deref() != Some("0") {
+                let app_handle = app.handle().clone();
+                let started = tauri::async_runtime::block_on({
+                    let app_handle = app_handle.clone();
+                    async move {
+                        app_handle
+                            .state::<harness::web::DshWebManager>()
+                            .ensure_started(&app_handle)
+                            .await
+                    }
+                });
+                match started {
+                    // tauri:dev:dsh 双轨流里 devUrl 的 3085 是占位等待页(真实服务
+                    // 在 3086+),跳转由占位页轮询脚本完成,Rust 不参与窗口导航
+                    // (取舍见 docs/踩坑记录.md 第 20 节)。
+                    Ok(url) => tracing::info!("dsh web 可用: {url}"),
+                    Err(e) => {
+                        tracing::error!("dsh web 启动失败(STARHUB_DSH_WEB=0 可整体禁用): {e}")
+                    }
+                }
+            }
 
             Ok(())
         })
@@ -264,6 +301,8 @@ fn main() {
             commands::harness::dsh_prompt,
             commands::harness::dsh_cancel,
             commands::harness::dsh_shutdown,
+            // dsh web GUI 管理器(主壳融合 P1)
+            commands::harness::dsh_web_url,
             // dsh 用户插件(支线 B):市场 / URL / 本地三入口 + 逐项启停
             commands::dsh_plugins::dsh_plugin_list,
             commands::dsh_plugins::dsh_plugin_install_local,

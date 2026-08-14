@@ -439,8 +439,9 @@ fn ensure_peer_links(plugins_dir: &Path, vendor_root: &Path) -> Result<(), Plugi
 }
 
 /// Windows 用目录 junction(cmd mklink /J,免管理员);Unix 用 symlink。
+/// pub(crate):harness/web.rs 的 dsh web 管理器为本地包补 junction 时复用。
 #[cfg(target_os = "windows")]
-fn create_dir_link(link: &Path, target: &Path) -> std::io::Result<()> {
+pub(crate) fn create_dir_link(link: &Path, target: &Path) -> std::io::Result<()> {
     let status = std::process::Command::new("cmd")
         .args(["/C", "mklink", "/J"])
         .arg(link)
@@ -456,7 +457,7 @@ fn create_dir_link(link: &Path, target: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn create_dir_link(link: &Path, target: &Path) -> std::io::Result<()> {
+pub(crate) fn create_dir_link(link: &Path, target: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }
 

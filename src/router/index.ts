@@ -1,7 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 const router = createRouter({
-  history: createWebHistory(),
+  // embed 构建的 BASE_URL 是 /starhub/(vite.config.ts 的 mode==='embed'),
+  // 使 iframe 内 router.replace 出的 URL 仍落在 host-static 前缀下,可刷新;
+  // 普通构建 BASE_URL='/',行为与 createWebHistory() 完全一致。
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',

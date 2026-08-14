@@ -28,6 +28,7 @@ import {
   TAB_REATTACH_EVENT,
   LOCAL_TAB_DETACH_EVENT,
 } from '@/lib/windowDetach'
+import { isEmbedMode, embedRoute } from '@/lib/embed'
 import { generateInstanceId } from '@/utils/tabId'
 import { routeNameForAsset, openAssetTab as openAssetTabRouting } from '@/utils/assetRouting'
 import { version as appVersion } from '~package.json'
@@ -216,6 +217,21 @@ function onTabStripDblclick(e: MouseEvent) {
 // detachedInfo 非空 = 当前窗口就是被拖出的独立工作区窗口(渲染精简外壳)
 const detachedInfo = getDetachedInfo()
 
+// ====== embed 模式(dsh 主壳 iframe 内嵌,P1)======
+// embedMode = 当前页面运行在 dsh 壳的 /starhub/ iframe 里:渲染去壳外壳
+// (无 titlebar / tab 条 / 侧栏 / 状态栏,不套 keep-alive、不进 appStore.tabs)。
+const embedMode = isEmbedMode()
+const embedTarget = embedRoute()
+/** embed 模式注册的「禁止回 /」路由守卫的注销函数(onMounted 内安装) */
+let removeEmbedGuard: (() => void) | undefined
+
+/** iframe 聚焦时 Esc 不透传到 dsh 壳,postMessage 给 client-nav 的 overlay 以关闭功能页 */
+function onEmbedKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || isEditableEventTarget(e.target)) return
+  if (window.parent === window) return
+  window.parent.postMessage({ type: 'starhub-embed-escape' }, window.location.origin)
+}
+
 /**
  * 拖出手势状态:dragging = 已超过位移阈值进入拖拽;detachArmed = 已离开 tab 条死区,松开即拖出。
  *
@@ -341,6 +357,8 @@ function onTabClick(tab: Tab) {
 
 /** 把 tab 拖出为一个独立窗口(右键菜单 / 拖拽落点两条入口共用) */
 async function detachTab(tab: Tab, clientPos?: { x: number; y: number }) {
+  // embed 模式(dsh 壳 iframe)没有 tab 系统,拖出/reattach 一律禁用
+  if (embedMode) return
   if (!appWindow) return
   const routePath = router.resolve({ name: routeNameForTab(tab), params: { id: tab.id } }).fullPath
   const label = detachedLabelFor(tab.id)
@@ -469,6 +487,23 @@ onMounted(async () => {
   isMac.value = /mac|iphone|ipad|ipod/.test(ua)
   isLinux.value = /linux/.test(ua) && !/android/.test(ua)
 
+  // ===== embed 模式:最简初始化,不挂快捷键/时钟/tab/窗口事件 =====
+  if (embedMode) {
+    // 与 detached 同理:必须等资产加载完再挂工作区,否则视图误判"资产已被删除"
+    await assetStore.fetchAssets().catch((e) => {
+      console.warn('[embed] fetchAssets failed:', e)
+    })
+    transferStore.ensureInit()
+    // DbView / DockerView 在资产缺失时会 push('/') 回欢迎页;embed 没有欢迎页,
+    // 取消这类回退,让视图停在自己的无资产/未连接空态
+    if (embedTarget) {
+      removeEmbedGuard = router.beforeEach((to) => to.path !== '/')
+      if (route.path !== embedTarget) await router.replace(embedTarget).catch(() => {})
+    }
+    window.addEventListener('keydown', onEmbedKeydown)
+    return
+  }
+
   // ===== 独立窗口模式:精简初始化,不挂主窗口的快捷键/时钟/tab 逻辑 =====
   if (detachedInfo) {
     // 必须等资产加载完再挂工作区:SshTerminal / DbView / DockerView 等组件
@@ -535,6 +570,9 @@ onBeforeUnmount(() => {
   appStore.stopAlertCheck()
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('keydown', onGlobalKeydown)
+  // embed 模式的路由守卫与 Esc 转发
+  removeEmbedGuard?.()
+  window.removeEventListener('keydown', onEmbedKeydown)
   if (clockTimer !== null) {
     window.clearInterval(clockTimer)
     clockTimer = null
@@ -1523,8 +1561,15 @@ vueWatch(() => appStore.tabs.length, () => {
 </script>
 
 <template>
+  <!-- ===== embed 模式(dsh 壳 iframe):去壳,只留工作区,无 tab/keep-alive ===== -->
+  <div v-if="embedMode" class="embed-layout">
+    <router-view v-slot="{ Component }">
+      <component :is="Component" :key="route.fullPath" />
+    </router-view>
+  </div>
+
   <!-- ===== 独立窗口模式(从主窗口拖出的单 tab 工作区) ===== -->
-  <div v-if="detachedInfo" class="detached-layout">
+  <div v-else-if="detachedInfo" class="detached-layout">
     <div
       class="detached-titlebar"
       data-tauri-drag-region

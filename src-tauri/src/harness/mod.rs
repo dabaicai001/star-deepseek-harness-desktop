@@ -36,6 +36,10 @@ pub mod tools;
 /// peer junction、市场目录、zip 安装、spawn 前包装配置生成)。
 pub mod plugins;
 
+/// 主壳融合 P1:dsh web GUI 组合的长驻管理器(spawn bin.js web、
+/// 端口递增、就绪探测、随应用退出回收)。
+pub mod web;
+
 /// 默认 RPC 超时;initialize 与 prompt 响应都很快,流式输出走通知不占此超时。
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
 /// 单行帧上限,超出即判定 runtime 异常,防止异常输出打爆内存。

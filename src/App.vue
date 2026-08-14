@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import ErrorBoundary from '@/components/common/ErrorBoundary.vue'
 import GlobalDialogHost from '@/components/common/GlobalDialogHost.vue'
 import GlobalToast from '@/components/common/GlobalToast.vue'
+import { isEmbedMode } from '@/lib/embed'
 
 const themeStore = useThemeStore()
 const { t } = useI18n()
@@ -18,6 +19,11 @@ onMounted(async () => {
   try {
     await router.isReady()
   } finally {
+    // embed 模式(dsh 壳 iframe):跳过启动页门控直接渲染,iframe 出现即工作区
+    if (isEmbedMode()) {
+      appReady.value = true
+      return
+    }
     // rAF 在隐藏/后台标签页里可能永不触发(浏览器节流),
     // 那样 appReady 永远为 false,应用会一直停在启动页。
     // 隐藏时退化为 setTimeout,可见时仍用 rAF 保证首帧后再亮界面。

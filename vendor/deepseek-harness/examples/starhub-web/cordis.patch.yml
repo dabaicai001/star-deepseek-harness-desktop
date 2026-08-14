@@ -9,7 +9,12 @@
     port: 3085
 
 # StarHub 壳导航:dsh.client 行,node 半被 modules 扫描进 window.__DSH_BOOT__,
-# 浏览器半注册 conversation.view 的 starhub-terminal 页签(iframe 占位)。
+# 浏览器半在 sidebar.footer.action 注册功能页导航、在 shell.overlay 注册整帧
+# iframe 层(P1;P0 的 conversation.view 占位已退役)。
+# starhub-host-static:普通 host 插件行,把 StarHub embed dist 挂到 /starhub/
+# 前缀(同源 iframe 的前提),dist 位置由插件经 STARHUB_DIST / 仓库布局解析。
 - insert:
     - id: client-nav
       name: '@deepseek-ai/dsh-starhub-client-nav'
+    - id: starhub-host-static
+      name: '@deepseek-ai/dsh-starhub-host-static'
