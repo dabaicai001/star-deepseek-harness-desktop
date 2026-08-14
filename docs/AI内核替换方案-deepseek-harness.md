@@ -6,6 +6,7 @@
 > - `deepseek-ai/deepseek-harness` master(fork: dabaicai001/deepseek-harness),版本 `0.1.0-rc.5`(developer preview)
 > - `Small-tailqwq/dsh-deep-whale`(dsh 皮肤插件,maid-atelier)
 > - dsh 插件生态:[awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 精选索引(198 个插件)+ GitHub `topic:dsh-plugin`
+> - dsh Web UI 设计系统(`packages/client/ui-theme`,token 三层 `--dsw-static/alias/specific`)
 > - 本仓库 StarHub v0.62.3 现状代码
 
 ---
@@ -101,7 +102,6 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 - **#LOCAL**:`src/services/aiLocal.ts` → Rust `commands/local.rs`(11 个 command);写操作 always-confirm。
 - **#资产绑定**:`src/services/aiWorkspace.ts`(674 行)direct workspace runtime:`workspace` 参数路由、惰性连接、绑定集合变化重建、卸载关闭全部连接。
 - Rust 能力层(`commands/local.rs` / `secret.rs` / `ai_memory.rs` / `mcp.rs` / SSH / SFTP / DB / Docker 各 command)与 Go sidecar(Excel/CSV)**可原样保留**,作为 dsh 工具的执行后端。
-
 ### 3.4 可退役
 
 - `src-tauri/src/ai/mod.rs` + `src-tauri/src/commands/ai.rs`(旧非流式网关,主流程已不使用)。
@@ -280,7 +280,7 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 | 插件类别 | 代表 | 适配结论 |
 |---|---|---|
 | 工具/能力(Tools & Capabilities) | dsh-tool-* 系列、dsh-docker、dsh-excel-chat、dsh-data-agent、modlens(视觉桥) | ✅ 可拷入 vendor 副本直接加载或少量改写——它们就是 Cordis 插件 + `defineTool`,与我们自建 starhub-tools 同机制 |
-| 记忆(Memory) | dsh-memento、dsh-mneme、dsh-memory | ⚠️ 机制可参考;StarHub 已拍板保留自有三级记忆卡(5.4),不引入 |
+| 记忆(Memory) | dsh-memento、dsh-mneme、dsh-memory | ⚠️ 机制可参考;StarHub 已拍板保留自有三级记忆卡(5.3),不引入 |
 | 工作流/自动化(Workflow) | dsh-routines、dsh-loop、dsh-workflow、dsh-proof | ⚠️ 可选引入,逐个评审;与 Planner→Executor 替代方案(D8)有重叠 |
 | 会话/消息(Sessions) | dsh-message-edit、dsh-share、dsh-chat-import | ⚠️ 部分有价值(message-edit 的分支编辑),需配合事件溯源模型评审 |
 | 模型/Provider(Models) | dsh-llm-fallbacks、dsh-polyglot(OpenAI 兼容 + 自动 fallback)、dsh-codex-auth | ✅ 高价值,直接补齐多 provider/fallback 能力 |
@@ -294,10 +294,97 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 1. 只引入运行时类插件,逐个评审:许可(优先 MIT/Apache;NC/无许可一律不引入)、依赖重量、对 dsh 内部 seam 的耦合点是否在我们裁剪的子集内。
 2. 引入方式与内核一致——**源码拷入 vendor 自行维护**,不走 `dsh plugin add` / npm 依赖;加载机制(cordis patch / `dsh.bundle` manifest)在 vendor 副本中保留即可。
 3. 生态极年轻(多数仓库创建仅数日,awesome 列表自带"安全性无保证"免责声明),默认不信任,引入前必读源码。
+4. **用户自行引入:支持,作为 P2 能力,仅限运行时类插件,默认关闭。**
+   - 机制:vendor 副本保留 Cordis 的 profile patch / `dsh.bundle` manifest 加载机制;StarHub 在应用数据目录开 `plugins/` 目录,用户放入社区插件后经 Settings UI 逐项启用(写入 runtime 的 cordis 配置),重启 dsh runtime 生效。
+   - 限制:UI/皮肤类不支持(锚定 dsh React DOM,见上表);**无插件沙箱**——Cordis 插件进程内运行,等同本机代码权限,首次启用必须弹风险提示;插件许可合规由用户自担。
+   - 与开发者 vendor 引入的关系:随应用打包的官方插件走本节前三条评审流程;用户目录插件是运行时扩展,不进仓库、不受 StarHub 背书。
+   - 落地阶段:迁移 Phase 3 之后的候选增强,不是迁移前置项。
 
 ---
 
-## 9. 附:调研工件
+## 9. 设计语言与前端改造方向:向 dsh 靠拢
+
+> 取向已拍板:**保留深色主场,借 dsh 语言**。本节为方向性设计,具体落地按 `docs/设计系统.md` 流程另行排期。
+
+### 9.1 dsh 设计语言摘要
+
+token 源:`packages/client/ui-theme/src/styles/`(三层命名:`--dsw-static-*` 色板 / `--dsw-alias-*` 语义 / `--dsw-specific-*` 组件面),亮暗双主题经 `body[data-ds-dark-theme]` 切换。
+
+**配色(关键值)**:
+
+| 角色 | 亮 | 暗 |
+|---|---|---|
+| bg-base / 分层 | `#FFFFFF`(亮态不分层) | `#151517` / layer1~3 `#232324`→`#353638` |
+| 中性灰(带蓝调) | neutral-bluish 50 `#F9FAFB` → 1000 `#0F1115` | 同色板 |
+| **brand-primary(主按钮)** | **`#0F1115` 墨色(不是蓝!)** | `#F9FAFB` 白 |
+| 功能蓝(进行中/功能动作) | `#4176E6` | `#679EFE` |
+| 边框 hairline l1/l2 | `rgba(0,0,0,0.04/0.10)` | `rgba(255,255,255,0.06/0.12)` |
+| 用户气泡 | `#EDF3FE` 淡品牌蓝 | `#2C2C2E` |
+| 阴影 | lv1 `0 2px 4px rgba(0,0,0,.05)` ~ lv3(仅悬浮层),极克制 | 同 |
+
+**字体**:系统字族栈;等宽 `'SF Mono','JetBrains Mono','Fira Code',Consolas`(故意不带裸 monospace 防 Windows CJK 回退);基准 14/16,梯度 xxs-11 ~ xl-24;数字 `tabular-nums`。
+
+**布局与组件**:三列 AppFrame(sidebar 280px 可拖 / center ≥640 / details 360px),chat 内容轴 748px;胶囊按钮(h36 r18,primary 墨底白字,发送键蓝底白箭头);composer 卡 r22 + lv2 阴影;输入框 h32 r8 描边、focus 描边变墨色;菜单 r12 / 模态 r24;tooltip 深底无箭头。
+
+**动效**:统一 `cubic-bezier(0.4,0,0.2,1)`,时长档 0.1/0.2(基准)/0.3s;turn 状态文字品牌蓝渐变 shimmer(1.8s);工具行 running 扫光(2.6s);全部有 `prefers-reduced-motion` 降级。滚动条契约:8px、thumb 圆角 4px、track 透明、抬升面重绑一档。
+
+**一句话定位**:DeepSeek Chat 同源的"轻亮优先、扁平 + hairline 描边、极轻阴影、偏大圆角、蓝只用于功能动作"的现代产品风——与 StarHub 现状(深色主场、青色发光、重阴影)几乎是两个极端。
+
+### 9.2 改造取舍(已拍板)
+
+**保留(StarHub 基因)**:
+
+- 深海蓝黑暗色基调(`--bg` 家族)与暗色主场定位;亮主题保留但同步重做。
+- 青色高亮(`--cyan`)作为品牌/强调色,**承担 dsh "功能蓝"的角色**(进行中状态、功能动作、发送键)。
+- 终端调色板(`--term-*`)、数据库域色(`--db-*`)、Excel 绿等域色不动。
+
+**采纳(dsh 语言)**:
+
+- **扁平化 + hairline 描边**替代发光/重阴影:`--glow-*` 与 `--shadow` 收敛为 dsh lv1~lv3 级别的克制阴影;层级靠灰阶面 + 描边而非投影。
+- **胶囊按钮**(r18/999px)+ 圆角梯度:卡片 16~22px、菜单 12px、行/输入 8px、chip 4~6px。
+- 字号梯度对齐 dsh(基准 14/16,梯度 11~24);等宽栈去掉裸 `monospace`;数字 `tabular-nums`。
+- 动效收敛:0.2s 基准 + `cubic-bezier(0.4,0,0.2,1)`;AI thinking/工具 running 改用扫光/shimmer(青色版);补全 `prefers-reduced-motion` 降级。
+- 滚动条契约:8px、圆角 thumb、透明 track、抬升面重绑。
+- 边框改 hairline 语义:l1 分隔/l2 交互描边,透明度向 dsh 值靠拢。
+
+**明确偏差(不照搬)**:
+
+- 不采纳"墨色主按钮"——深色主场下墨色无意义,主按钮继续用青色系。
+- 不采纳亮色优先——默认主题维持深色;亮主题按 dsh 暗色映射的思路重做但保持 StarHub 色温。
+- 不引入任何 dsh 前端代码/CSS(技术栈不同),只移植 token 数值与组件特征。
+
+### 9.3 token 映射表(方向性)
+
+| cyber.css 现状 | dsh 启发的新值(暗色) | 说明 |
+|---|---|---|
+| `--shadow` / `--glow-*`(发光重阴影) | lv1 `0 2px 4px rgba(0,0,0,.3)` / lv2 `0 4px 12px …` / lv3 `0 12px 32px …`(暗态加深) | 发光仅保留启动页等仪式场景 |
+| `--line` / `--line-2` | hairline `rgba(255,255,255,0.06)` / `0.12` | 由蓝灰色调改为中性白透明 |
+| `--hover-cyan` / `--active-cyan` | `rgba(255,255,255,0.08)` / `0.14` 中性 + 青色留给功能动作 | hover 中性化是 dsh 的重要特征 |
+| 按钮圆角(现状偏方) | 胶囊 999px / sm r14 | `.cyber-btn` 系列 |
+| 面板/卡片圆角 | 16~22px 梯度 | composer 卡、模态 24px |
+| 动效(现状不一) | `0.2s cubic-bezier(0.4,0,0.2,1)` 基准 | 全局统一 |
+| AI thinking 状态 | 青色扫光/shimmer(2.6s/1.8s) | 替换现有脉冲 |
+
+亮主题同表另出一套(向 dsh 亮色值靠拢、保持 StarHub 色温),落地时在 `docs/设计系统.md` 给出完整对照。
+
+### 9.4 改造范围与顺序
+
+按 AGENTS.md 设计系统流程执行(token → 组件类 → 使用方 → 同步 `docs/设计系统.md` → CHANGELOG → 7.3 真实浏览器 UI 回归):
+
+- **D0 token 层**:重构 `src/styles/cyber.css` `:root` 双主题 token(9.3 映射表落地)。
+- **D1 核心组件类**:`.cyber-*` 按钮/输入/面板/菜单/模态/滚动条。
+- **D2 AI 界面**:AiChat 消息流、composer、工具行、确认卡——与内核迁移 Phase 1/2 协同(新渲染层直接按新语言写,避免二次改造)。
+- **D3 全局面板**:设置、资产、传输、Docker 等其余视图。
+
+与内核迁移**无强依赖**,D0/D1 可先行;D2 建议与内核切换同步做。
+
+### 9.5 与 maid-atelier(8.2)的关系
+
+本节即 8.2"风格导入"的具体化与升级:8.2 列的可选项(玻璃拟态质感、柔金次级强调、缓动手感)并入 9.2/9.3 统一决策——其中缓动与扫光思路已被 dsh 原生方案覆盖;玻璃拟态与柔金默认**不采纳**(与扁平化方向冲突),如未来需要再走 token 增补流程。
+
+---
+
+## 10. 附:调研工件
 
 - dsh 浅克隆:`tmp/deepseek-harness/`(HEAD `47f9438`)
 - dsh-deep-whale 浅克隆:`tmp/dsh-deep-whale/`(HEAD `19dbbfb`)
