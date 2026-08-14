@@ -26,7 +26,7 @@
 - [ ] P1-3 AiView 切换到 dsh 会话(流式事件渲染,方案 5.4)
 - [ ] P1-4 工具集第一批:workspace 工具(starhub_list_capabilities 等)+ session_search + memory(方案 3.2)
 - [ ] P1-5 Planner→Executor 切换为 dsh plan mode / subagent(方案 D8)
-- [ ] P1-6 新旧内核 feature flag 并存,可回退
+- [ ] P1-6 旧内核调用路径随切换直接删除:不做 feature flag 并存,不留回退方案(方案 6-Phase1,已拍板)
 
 ## Phase 2:本地工作区与资产绑定
 

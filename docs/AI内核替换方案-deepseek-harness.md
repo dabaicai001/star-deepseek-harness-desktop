@@ -216,7 +216,7 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 - 新建 `src/services/aiHarness.ts` + `src-tauri/src/harness/`;AiView 切到 dsh 会话。
 - 工具集:workspace 工具(starhub_list_capabilities 等)+ session_search + memory;不接资产绑定。
 - Planner→Executor 切换 dsh plan mode / subagent 能力(D8)。
-- 新旧内核 feature flag 并存,可回退。
+- 新内核直接替换旧内核:AiView 接入 dsh 会话的同时删除旧内核调用路径,不做 feature flag 并存,不留回退方案。
 
 ### Phase 2:本地工作区与资产绑定
 
@@ -239,7 +239,7 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 | Windows 无官方打包载体 | 高 | Phase 0 优先验证;备选内置 Node |
 | developer preview 破坏性变更 | 高 | 锁版本 + vendor/fork;升级走回归 |
 | SDK 协议无 cancel/session close | 中 | ACP 或库形态;兜底杀进程重启 runtime |
-| 事件溯源重构前端渲染,工作量大 | 中 | 分阶段切换,feature flag 回退 |
+| 事件溯源重构前端渲染,工作量大 | 中 | 分阶段切换(按宿主逐个切,切一个删一个旧路径),不保留新旧并存 |
 | 确认/安全语义迁移遗漏 | 中 | 5.2 清单逐项核对;commandGuard 逻辑平移并配测试 |
 | 会话存档(SQLite FTS5)与 dsh 持久化双写 | 低 | 统一为 dsh 持久化 + 搜索工具桥,或保留存档仅作历史列表 |
 | 体积:Node runtime + dsh 闭包进安装包 | 低 | 监控 7.4 性能目标(安装包 < 35MB 可能需上调,需 Issue 讨论) |
