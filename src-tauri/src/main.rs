@@ -6,6 +6,7 @@
 mod ai;
 mod commands;
 mod db;
+mod harness;
 mod keyring;
 mod mcp;
 mod sftp;
@@ -28,6 +29,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .manage(SshManager::new())
         .manage(sidecar_manager)
+        .manage(harness::HarnessManager::new())
         .setup(|app| {
             let app_handle = app.handle().clone();
             tauri::async_runtime::block_on(async {
@@ -257,6 +259,10 @@ fn main() {
             commands::mcp::mcp_call_tool,
             // Sidecar 通用 RPC
             commands::sidecar::sidecar_rpc,
+            // dsh runtime(AI 内核替换 P0-4):stdio JSON-RPC 最小回路
+            commands::harness::dsh_initialize,
+            commands::harness::dsh_prompt,
+            commands::harness::dsh_shutdown,
             // 审计日志
             commands::audit::audit_log,
             commands::audit::audit_list,

@@ -11,13 +11,13 @@
 - [x] P0-1 建立 `vendor/deepseek-harness/` 源码副本(方案 6-Phase0-0 / D6)——✅ 2026-08-14,锁定上游 commit `47f9438`(commit `782b480`);注:实际保留了 `docs/`(裁的是 `.git`/`website/`/`.github`),剔除 `website/` 导致 doc-site 脚本编译错,已用 tsconfig exclude 修复(方案附录 G-2)
 - [x] P0-2 裁剪最小子集(方案 D6)——✅ 2026-08-14,`pnpm install`(4m23s)+ `build:lib:host` 全绿;最小保留子集清单已定(方案附录 11.6),物理裁剪随 exe 管线一起做
 - [x] P0-3 Windows 单文件 exe 打包验证(方案 D2)——✅ 2026-08-14,`@yao-pkg/pkg --sea` 产出 172MB win-x64 exe 并冒烟通过;一键复跑稳定性有 3 个遗留问题(方案附录 11.5),不阻塞
-- [ ] P0-4 Rust ↔ dsh stdio JSON-RPC 最小回路(方案 6-Phase0-2)——dsh 侧协议已验证(initialize/session/prompt/session.event/shutdown,见 `tmp/dsh-poc/transcript-basic.log`、`transcript-exe-basic.log`),**Rust 侧桥接与前端渲染待实施**
-- [x] P0-5 cancel 方案验证(方案 D1)——✅ 结论:SDK 协议**无 cancel**(-3263 unknown method,实测流式中取消无效),杀进程兜底已验证;进程内 `Agent.cancel()` 存在(ACP server 在用),给 SDK server 加 `session/cancel` 是小补丁,列入 Phase 1 候选
+- [x] P0-4 Rust ↔ dsh stdio JSON-RPC 最小回路(方案 6-Phase0-2)——✅ 2026-08-14,`src-tauri/src/harness/`(spawn + NDJSON 协议)+ `src-tauri/src/commands/harness.rs`(3 个 command)+ `src/services/aiHarness.ts`;端到端测试 `harness::tests::dsh_stdio_roundtrip_with_mock_llm` 连跑 4 轮全绿(mock LLM 实跑 initialize→流式→idle→shutdown),`cargo:test` 81 passed,`vue-tsc` 通过;验证日志 `tmp/dsh-p0-4-rust-roundtrip.log`
+- [x] P0-5 cancel 方案验证(方案 D1)——✅ 结论:SDK 协议**无 cancel**(-32603 unknown method,实测流式中取消无效),杀进程兜底已验证;进程内 `Agent.cancel()` 存在(ACP server 在用),给 SDK server 加 `session/cancel` 是小补丁,列入 Phase 1 候选
 - [x] P0-6 审批桥技术可行性验证(方案 D3)——✅ 结论:可介入;审批 seam 是 cordis 服务 `ctx.approval.request()`,需自写 answerer 插件桥到 stdio(现成参考 `packages/acp/acp/src/index.ts:215-229`);现 jsonrpc-agent 组合未挂 user-approval,需审批的工具 fail closed
 
 **Go/No-Go 门槛(方案 6):P0-3 / P0-4 / P0-5+P0-6 全部通过才进入 Phase 1;P0-3 失败且无备选 = 整体方案重议。**
 
-- [x] P0-G Go/No-Go 结论——✅ **Go**(2026-08-14):exe 打包 ✅、dsh 侧协议回路 ✅(Rust 桥为常规工程,无未知风险)、cancel 有兜底 ✅、审批桥路径明确 ✅;完整 POC 结论见方案附录 11
+- [x] P0-G Go/No-Go 结论——✅ **Go**(2026-08-14):exe 打包 ✅、协议回路全链路 ✅(Node 驱动 + Rust 桥端到端测试均通过)、cancel 有兜底 ✅、审批桥路径明确 ✅;完整 POC 结论见方案附录 11。**Phase 0 全部完成,进入 Phase 1**
 
 ## Phase 1:全局 AiView 切换(单宿主试点)
 

@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.62.5(AI 内核替换(deepseek-harness)Phase 0 POC 完成,结论 **Go**:`vendor/deepseek-harness` install/构建全绿;stdio JSON-RPC 多轮流式回路实测通过(Node 直跑与 172MB SEA exe 两种形态);确认 SDK 协议无 cancel(杀进程兜底,Phase 1 拟补 session/cancel 小补丁);审批桥路径明确(自写 cordis answerer 插件);vendor 副本含 Windows 适配补丁(exe 打包脚本 4 处 + tsconfig exclude);完整结论与坑清单见 `docs/AI内核替换方案-deepseek-harness.md` 附录 11) |
+| 当前版本 | v0.62.6(AI 内核替换 P0-4 完成:新增 `src-tauri/src/harness/`(dsh runtime spawn + NDJSON JSON-RPC 协议桥,复用 sidecar 解析模式,零新依赖)、3 个 Tauri command(`dsh_initialize`/`dsh_prompt`/`dsh_shutdown`)、前端 `src/services/aiHarness.ts`(流式 text-delta 拼装,idle 权威结束信号);端到端测试 mock LLM 实跑 4 轮全绿,`cargo:test` 81 passed。**Phase 0 风险验证全部完成,结论 Go**) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-14 (v0.62.5)*
+*最后更新: 2026-08-14 (v0.62.6)*

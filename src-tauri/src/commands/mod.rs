@@ -7,6 +7,7 @@ pub mod broker;
 pub mod db;
 pub mod docker;
 pub mod file;
+pub mod harness;
 pub mod local;
 pub mod mcp;
 pub mod secret;
