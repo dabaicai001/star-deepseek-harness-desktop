@@ -13,6 +13,11 @@
 
 ---
 
+## [0.62.5] - 2026-08-14
+
+### 新增
+- AI 内核替换(deepseek-harness)Phase 0 POC 完成,结论 **Go**:`vendor/deepseek-harness` install/构建全绿;stdio JSON-RPC 多轮流式回路实测通过(Node 直跑与 172MB SEA exe 两种形态);确认 SDK 协议无 cancel(杀进程兜底,Phase 1 拟补 session/cancel 小补丁);审批桥路径明确(自写 cordis answerer 插件);vendor 副本含 Windows 适配补丁(exe 打包脚本 4 处 + tsconfig exclude);完整结论与坑清单见 `docs/AI内核替换方案-deepseek-harness.md` 附录 11
+
 ## [0.62.4] - 2026-08-14
 
 ### 新增

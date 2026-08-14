@@ -49,7 +49,7 @@ const ASSET_GLOBS = [
   'node_modules/**/*.wasm',
 ]
 
-const PLATFORMS = ['linux', 'macos'] as const
+const PLATFORMS = ['linux', 'macos', 'win'] as const
 const ARCHES = ['x64', 'arm64'] as const
 type Platform = (typeof PLATFORMS)[number]
 type Arch = (typeof ARCHES)[number]
@@ -111,7 +111,7 @@ class Target {
    * @returns the host target; throws on an unsupported host platform or arch.
    */
   static host(): Target {
-    const platform = process.platform === 'darwin' ? 'macos' : process.platform === 'linux' ? 'linux' : undefined
+    const platform = process.platform === 'darwin' ? 'macos' : process.platform === 'linux' ? 'linux' : process.platform === 'win32' ? 'win' : undefined
     if (platform === undefined) {
       throw new Error(`build-exe-for-python-sdk: unsupported host platform ${process.platform}; pass --targets explicitly.`)
     }
@@ -380,7 +380,8 @@ class SingleExeBuild {
    * @returns the executable path and, on macOS, its helper path.
    */
   async pack(target: Target): Promise<string[]> {
-    const product = join(this.outDir, `${OUTPUT_BASENAME}-${target.platform}-${target.arch}`)
+    // pkg appends .exe for Windows outputs; name the product accordingly.
+    const product = join(this.outDir, `${OUTPUT_BASENAME}-${target.platform}-${target.arch}${target.platform === 'win' ? '.exe' : ''}`)
     await this.prepareNativePty(target)
     if (!this.cli.dryRun) await mkdir(this.outDir, { recursive: true })
     await this.run(`pkg ${target.spec}`, pnpmBin(), [
@@ -491,6 +492,9 @@ class SingleExeBuild {
       const child = spawn(command, args, {
         cwd: root,
         stdio: 'inherit',
+        // Windows cannot spawn .cmd without a shell (EINVAL since the Node
+        // CVE-2024-27980 hardening); upstream never runs this on Windows.
+        shell: process.platform === 'win32',
         // Artifact builds must not mutate or validate a developer's Git hooks.
         env: { ...process.env, CI: 'true' },
       })

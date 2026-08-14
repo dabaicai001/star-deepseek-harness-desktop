@@ -395,3 +395,50 @@ token 源:`packages/client/ui-theme/src/styles/`(三层命名:`--dsw-static-*` �
 - dsh-deep-whale 浅克隆:`tmp/dsh-deep-whale/`(HEAD `19dbbfb`)
 - dsh 高质量文档(迁移实施的日常参考):`tmp/deepseek-harness/docs/architecture.md`、`docs/subsystems/*`、`docs/tool-catalog.md`、`docs/capability-seams.md`
 - 插件生态索引:[awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)(198 个插件精选列表,CC0)
+
+---
+
+## 11. 附:Phase 0 POC 结论(2026-08-14,全部实测)
+
+> 实验脚本与原始收发日志:`tmp/dsh-poc/`(`drive.mjs`、`transcript-basic.log`、`transcript-cancel.log`、`transcript-exe-basic.log`)。环境:便携 Node v24.19.0(`tmp/node24/`)+ pnpm 11.7.0;LLM 用 mock(`pnpm run mock:llm`),未跑真 API。
+
+### 11.1 安装与构建
+
+- `pnpm install` 成功(4m23s,237 个 workspace project);`npm run build:lib:host` 绿(47s)。
+- 拷贝时剔除 `website/` 导致 `scripts/project-doc-site.ts` 编译错,修复:`tsconfig.host.json` exclude 两行(已 commit 进 vendor 副本)。
+
+### 11.2 stdio 协议(已实测确认)
+
+- 传输:NDJSON 一行一帧 JSON-RPC 2.0(`packages/sdk/protocol/src/transport.ts`);stdout 只走协议帧;未知方法回 `-32603`(注意不是 -32601)。
+- 方法(仅 3 个):`initialize {cwd, provider, model, maxTokens?}` → `serverInfo`;`session/prompt {sessionId, contentBlocks}` → `{messageId}`(**未知 sessionId 惰性创建 session,无独立 create;返回值只是入队回执**);`shutdown` → `{}`。
+- 通知:`session.event`(完整事件溯源信封 `{type, seq, time, data}`;流式 = 拼 `assistant/chunk` 的 `text-delta`;一轮结束权威信号 = `session.status` → `idle`,或 `turn/end{reason}`)、`subagent.started/finished`。
+- 启动:`node packages/examples/jsonrpc-demo/lib/bin.js <cordis.yml>`(或 env `DSH_CORDIS_CONFIG`);LLM 走 env:`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`;组合(工具集/persona/持久化根/审批)全在 cordis.yml,参考 `examples/jsonrpc-agent/cordis.yml`(全)与 `python/sdk-runtime/.../runtime/cordis.yml`(最小)。
+
+### 11.3 cancel(D1 最终结论)
+
+**SDK 协议无 cancel**:`session/cancel` 回 -32603,慢速流式中实测取消后事件继续涌入;SIGTERM 杀进程有效。进程内 `Agent.cancel()` 存在(`packages/core/agent/src/runtime-types.ts:85`),ACP server 的 cancel 就是调它(`packages/acp/acp/src/index.ts:338-342`)——**给 SDK server 补一个 `session/cancel` case 是小补丁,列入 Phase 1**;在此之前 Rust 桥按「中断=杀进程重启 runtime」实现。
+
+### 11.4 审批桥(D3 最终结论)
+
+可介入。审批 seam = cordis 服务 `ctx.approval.request(req)`(`packages/interaction/user-approval/`),answerer 是 `approval/request` waterfall 监听器;无 answerer 时 fail closed。现成参考:`packages/acp/acp/src/index.ts:215-229` 把审批转成 ACP `session/request_permission`。SDK 传输层双向 request 已支持,**实施 = 自写一个 answerer 插件向 stdio 对端发 JSON-RPC request**(上游已预留此意图)。已知限制:审批请求不带工具参数、只有 one-shot 授权。同类 seam:`user-questions`(ask_user_question 工具)也需 provider 插件桥出。
+
+### 11.5 exe 打包(D2 最终结论)
+
+路线:上游 `scripts/build-exe-for-python-sdk.ts` + `@yao-pkg/pkg --sea`(上游只声明 linux/macos,Windows 已打 4 处补丁跑通:PLATFORMS 加 win、win32→win 映射、spawn 加 shell、产物名补 .exe)。**已产出 172MB win-x64 exe 并完整冒烟通过**(initialize→多轮流式→shutdown)。体积已拍板不设限。一键复跑稳定性遗留(不阻塞,Phase 1 固化进构建脚本):
+1. 外层 `pnpm exec` 需 `--config.verify-deps-before-run=false`;**严禁设 CI=true**(会剪掉全部 devDependencies)。
+2. `pnpm deploy --legacy` 会拆掉其他 workspace 包的 node_modules 链接 → exe 构建后必跟一次 `pnpm install --config.confirmModulesPurge=false`。
+3. pkg 在 Refining 阶段偶发 `fetch failed`(网络抖动),且**失败运行会用 92.8MB 裸 node 坏产物覆盖好 exe**——用前必须实跑验证。
+
+### 11.6 最小 package 子集(物理裁剪清单)
+
+权威起点 = deploy 根 manifest `python/sdk-runtime/package.json`。建议保留:协议/启动(sdk-jsonrpc-server/demo、sdk-protocol、app-boot、cmdline)、vendored cordis 全家(cordis/loader/include/group/timer/cosmokit/schemastery)、核心(agent、agent-loop、agent-spine-demo、session、persistence-jsonl、checkpoint-policy、projection、scope、brand、tools、system-prompt、agent-instructions)、LLM(llm、llm-deepseek、llm-retry、token-meter、timeout、compaction-basic)、工具面(subprocess-local、shell、bash-local、tool-bash、fs 系、tool-fs、tool-str-replace-editor、tool-todo)、**审批/交互(user-approval、user-questions、tool-ask-user、permission-presets——现组合没有,必加)**、子代理(可选,subagent 系)。可裁:acp、hooks、workflow、jobs、web-search-*、llm-pi-ai、e2b、lsp、terminal、pwsh、session-sqlite、session-query、host、client、apps/web 整条 web 线。
+
+### 11.7 坑清单(POC 新发现的,dsh 相关)
+
+- **G-1 shutdown 后 0xC0000409**:完整跑过 LLM turn 的进程在 dispose 时触发 libuv 断言崩溃(node 与 exe 形态同现);**宿主以收到 shutdown 响应为完成信号,忽略退出码**。建议上游报 issue。
+- **G-2** 拷源必须带 `website/` 或 exclude doc-site 脚本(已修)。
+- **G-3 sessionId 持久化冲突**:同一 session root 下复用已存在 sessionId → `turn/end error id collision`;**StarHub 每轮必须生成全新 sessionId**。
+- **G-4/G-5/G-6**:pnpm 11 deps-status 自爆 / deploy 拆链接 / pkg 坏产物覆盖,见 11.5。
+- **G-8** mock 慢速流式只对 `slow_success` 行为生效;时序实验必须用它。
+- **G-10** engines 卡 Node ^22.19||>=24,Rust 拉起 runtime 时要钉住便携 Node 或直接用 exe。
+

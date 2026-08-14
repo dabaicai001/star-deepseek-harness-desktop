@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.62.4-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.62.5-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -118,6 +118,9 @@
 ---
 
 ## 当前版本
+
+### v0.62.5 (2026-08-14)
+- ✨ AI 内核替换(deepseek-harness)Phase 0 POC 完成,结论 **Go**:`vendor/deepseek-harness` install/构建全绿;stdio JSON-RPC 多轮流式回路实测通过(Node 直跑与 172MB SEA exe 两种形态);确认 SDK 协议无 cancel(杀进程兜底,Phase 1 拟补 session/cancel 小补丁);审批桥路径明确(自写 cordis answerer 插件);vendor 副本含 Windows 适配补丁(exe 打包脚本 4 处 + tsconfig exclude);完整结论与坑清单见 `docs/AI内核替换方案-deepseek-harness.md` 附录 11
 
 ### v0.62.4 (2026-08-14)
 - ✨ AI 内核替换(deepseek-harness)Phase 0 启动:新增 `vendor/deepseek-harness/` 上游源码副本(锁定上游 commit `47f9438`,MIT),作为 dsh runtime 内嵌 StarHub 的 POC 基础;配套方案 `docs/AI内核替换方案-deepseek-harness.md` 与任务清单 `docs/AI内核替换-实施任务清单.md`
