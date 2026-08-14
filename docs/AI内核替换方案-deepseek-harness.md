@@ -294,10 +294,15 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 1. 只引入运行时类插件,逐个评审:许可(优先 MIT/Apache;NC/无许可一律不引入)、依赖重量、对 dsh 内部 seam 的耦合点是否在我们裁剪的子集内。
 2. 引入方式与内核一致——**源码拷入 vendor 自行维护**,不走 `dsh plugin add` / npm 依赖;加载机制(cordis patch / `dsh.bundle` manifest)在 vendor 副本中保留即可。
 3. 生态极年轻(多数仓库创建仅数日,awesome 列表自带"安全性无保证"免责声明),默认不信任,引入前必读源码。
-4. **用户自行引入:支持,作为 P2 能力,仅限运行时类插件,默认关闭。**
-   - 机制:vendor 副本保留 Cordis 的 profile patch / `dsh.bundle` manifest 加载机制;StarHub 在应用数据目录开 `plugins/` 目录,用户放入社区插件后经 Settings UI 逐项启用(写入 runtime 的 cordis 配置),重启 dsh runtime 生效。
-   - 限制:UI/皮肤类不支持(锚定 dsh React DOM,见上表);**无插件沙箱**——Cordis 插件进程内运行,等同本机代码权限,首次启用必须弹风险提示;插件许可合规由用户自担。
-   - 与开发者 vendor 引入的关系:随应用打包的官方插件走本节前三条评审流程;用户目录插件是运行时扩展,不进仓库、不受 StarHub 背书。
+4. **用户自行引入:支持,作为 P2 能力,仅限运行时类插件,默认关闭。前端快捷导入,不要求用户手动操作目录。**
+   - **导入方式(Settings → 插件页,Vue 前端操作)**:
+     - **插件市场(主路径)**:内嵌社区目录浏览——数据源用 awesome-dsh-plugin 的精选索引(纯数据、CC0),按分类浏览/搜索,一键安装(参考 dsh 生态的 dsh-market / dsh-webui-market-plugin 形态,UI 用 Vue 自实现);
+     - **URL 导入**:粘贴 GitHub 仓库地址(可带子目录/tag),应用侧 `git clone --depth 1` 拉取;
+     - **本地导入**:系统文件选择器选本地文件夹/zip,复制进插件目录。
+   - **安装管线(Rust 侧执行)**:拉取/复制到应用数据目录 `plugins/<id>/` → 校验 `dsh.bundle` manifest(协议版本、wiring id、类型;UI/皮肤类直接拒装)→ 构建/安装依赖(若插件带构建产物则直接用,需构建的提示或不支持)→ 首次启用弹**风险提示**(插件等同本机代码权限)→ 逐项启用开关写入 runtime 的 cordis 配置 → 重启 dsh runtime 生效。
+   - **管理**:已装列表(版本/来源/启停)、更新(git pull / 重新拉取 + diff 提示)、卸载(移除目录 + 配置,重启复原);市场条目标注许可与"未审计"标记,NC/无许可插件额外警示。
+   - 底层机制不变:vendor 副本保留 Cordis 的 profile patch / `dsh.bundle` manifest 加载机制,启用状态最终落在 runtime 的 cordis 配置上。
+   - 与开发者 vendor 引入的关系:随应用打包的官方插件走本节前三条评审流程;用户导入的插件是运行时扩展,不进仓库、不受 StarHub 背书。
    - 落地阶段:迁移 Phase 3 之后的候选增强,不是迁移前置项。
 
 ---
