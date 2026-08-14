@@ -313,6 +313,18 @@ export default {
       timeout: '验证超时，连接已断开',
     },
   },
+  embed: {
+    assetBar: {
+      sectionAssets: '可用资产',
+      noAsset: '未选择资产',
+      goSettings: '去设置添加',
+    },
+    empty: {
+      title: '该类型暂无资产',
+      hint: '先在设置中添加连接，再从这里打开。',
+      goSettings: '去设置添加',
+    },
+  },
   web: {
     browser: {
       addressPlaceholder: '输入网址，如 www.baidu.com 或 http://内网:8080',

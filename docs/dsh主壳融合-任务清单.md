@@ -35,8 +35,15 @@
 
 ## P3 功能页逐个接入
 
-- [ ] SSH 终端页签(iframe embed)
-- [ ] SFTP 页签
+> P3a 第一批(2026-08-15 完成):SSH/SFTP 接入 + 资产选择骨架。
+> - 资产选择骨架:`src/components/common/EmbedAssetBar.vue`(embed 顶部细条:段图标 + 当前资产下拉 + 切换 = router.replace 同段新 instanceId;无资产给「去设置添加」)+ `src/components/common/EmbedSectionEmpty.vue`(段空态页);段事实表与解析在 `src/lib/embed.ts`(`EMBED_SECTIONS` / `resolveEmbedTarget` / `embedSectionForRoute` / `postEmbedOpenSection`,match 复用 `routeNameForAsset`)
+> - 段路由:client-nav `sections.ts` 改为无 id 段路由(`/ssh`、`/db/mysql` …),StarHub router 新增 9 条静态段路由(meta.embedSection → 空态页);embed 守卫(CyberLayout)有资产 → replace 到 `<prefix>/<instanceId>`,无资产 → 停空态;旧外壳不可达、行为不变
+> - 「去设置添加」链路:embed postMessage `starhub-embed-open-section` → client-nav overlay 校验 key 后 `openSection`(store 新增 action)切到设置页 iframe
+> - SSH/SFTP 页适配结论:Ctrl+W 等窗口级快捷键 embed 分支本就不挂;windowDetach 的 emitTo/listen 在 embed 惰性;TransferDock 挂进 embed 分支(每功能 iframe 一份,SFTP 在同页)
+> - 实测:stub 服务器(test-sftp/server.py 扩展 shell/exec/持久 host key)上,真窗口 embed `/ssh` 自动解析资产并 `ssh_connect` 成功(pty+shell+断线自动重连,仪表盘 exec 轮询正常);russh-sftp ↔ stub 互操作由 `src-tauri/tests/sftp_stub.rs`(#[ignore] 手动测试)覆盖读目录/上传/下载/删除
+
+- [x] SSH 终端页签(iframe embed)
+- [x] SFTP 页签
 - [ ] DB / Redis / ES 页签
 - [ ] Docker 页签
 - [ ] 其余页签(Settings / 审计 / Excel 等)

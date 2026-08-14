@@ -13,6 +13,11 @@
 
 ---
 
+## [0.64.1] - 2026-08-14
+
+### 新增
+- dsh 主壳融合 P3 第一批(SSH/SFTP):embed 资产选择骨架落地——`EmbedAssetBar`(embed 页顶部资产条,下拉切换 = 同段换 instanceId)、`EmbedSectionEmpty` 段空态、9 条静态段路由(`/ssh`、`/db/mysql` 等,`meta.embedSection`),client-nav 8 条目改段路由 + `starhub-embed-open-section` 消息联动;test-sftp/server.py 扩展为完整 SSH stub(pty/shell/exec/sftp,修 paramiko 5.0 兼容),新增 `src-tauri/tests/sftp_stub.rs` russh-sftp 集成测试;真窗口端到端实测 SSH 连接/断线重连全绿
+
 ## [0.64.0] - 2026-08-14
 
 ### 新增

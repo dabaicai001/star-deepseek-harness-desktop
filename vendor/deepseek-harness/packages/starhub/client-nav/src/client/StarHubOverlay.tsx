@@ -19,6 +19,8 @@ export type StarHubOverlayProps =
 
 /** Message type the StarHub embed shell posts when Escape is pressed inside the iframe. */
 const EMBED_ESCAPE_MESSAGE = 'starhub-embed-escape'
+/** Message type the embed asset bar posts to ask the shell to open another section (e.g. settings). */
+const EMBED_OPEN_SECTION_MESSAGE = 'starhub-embed-open-section'
 
 /**
  * Render the full-frame StarHub section iframe when a section is active.
@@ -34,11 +36,17 @@ export function StarHubOverlay({ useStore, actions }: StarHubOverlayProps) {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') actions.closeSection()
     }
-    // iframe 聚焦时 Esc 到不了顶层 document,embed 外壳经 postMessage 转发
+    // iframe 聚焦时 Esc 到不了顶层 document,embed 外壳经 postMessage 转发;
+    // embed 资产条的「去设置添加」也经 postMessage 请求切换功能页
     const onMessage = (e: MessageEvent) => {
-      if (e.origin === window.location.origin
-        && (e.data as { type?: unknown } | null)?.type === EMBED_ESCAPE_MESSAGE) {
+      if (e.origin !== window.location.origin) return
+      const data = e.data as { type?: unknown; key?: unknown } | null
+      if (data?.type === EMBED_ESCAPE_MESSAGE) {
         actions.closeSection()
+      } else if (data?.type === EMBED_OPEN_SECTION_MESSAGE
+        && typeof data.key === 'string'
+        && STARHUB_SECTIONS.some(s => s.key === data.key)) {
+        actions.openSection(data.key)
       }
     }
     document.addEventListener('keydown', onKeyDown)

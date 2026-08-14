@@ -313,6 +313,18 @@ export default {
       timeout: 'Verification timed out, connection closed',
     },
   },
+  embed: {
+    assetBar: {
+      sectionAssets: 'Available assets',
+      noAsset: 'No asset selected',
+      goSettings: 'Add in Settings',
+    },
+    empty: {
+      title: 'No assets of this type yet',
+      hint: 'Add a connection in Settings first, then open it here.',
+      goSettings: 'Add in Settings',
+    },
+  },
   web: {
     browser: {
       addressPlaceholder: 'Enter a URL, e.g. www.baidu.com or http://intranet:8080',

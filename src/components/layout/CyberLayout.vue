@@ -28,7 +28,8 @@ import {
   TAB_REATTACH_EVENT,
   LOCAL_TAB_DETACH_EVENT,
 } from '@/lib/windowDetach'
-import { isEmbedMode, embedRoute } from '@/lib/embed'
+import { isEmbedMode, embedRoute, resolveEmbedTarget } from '@/lib/embed'
+import EmbedAssetBar from '@/components/common/EmbedAssetBar.vue'
 import { generateInstanceId } from '@/utils/tabId'
 import { routeNameForAsset, openAssetTab as openAssetTabRouting } from '@/utils/assetRouting'
 import { version as appVersion } from '~package.json'
@@ -498,7 +499,10 @@ onMounted(async () => {
     // 取消这类回退,让视图停在自己的无资产/未连接空态
     if (embedTarget) {
       removeEmbedGuard = router.beforeEach((to) => to.path !== '/')
-      if (route.path !== embedTarget) await router.replace(embedTarget).catch(() => {})
+      // 段路由(无资产 id,如 /ssh)先解析:有该类型资产 → 带 instanceId 的
+      // 功能路由;无资产 → 原样停在段路由的空态页(EmbedSectionEmpty)
+      const resolvedTarget = resolveEmbedTarget(embedTarget, assetStore.assets)
+      if (route.path !== resolvedTarget) await router.replace(resolvedTarget).catch(() => {})
     }
     window.addEventListener('keydown', onEmbedKeydown)
     return
@@ -1561,11 +1565,16 @@ vueWatch(() => appStore.tabs.length, () => {
 </script>
 
 <template>
-  <!-- ===== embed 模式(dsh 壳 iframe):去壳,只留工作区,无 tab/keep-alive ===== -->
+  <!-- ===== embed 模式(dsh 壳 iframe):去壳,资产条 + 工作区,无 tab/keep-alive ===== -->
   <div v-if="embedMode" class="embed-layout">
-    <router-view v-slot="{ Component }">
-      <component :is="Component" :key="route.fullPath" />
-    </router-view>
+    <EmbedAssetBar />
+    <div class="embed-workspace">
+      <router-view v-slot="{ Component }">
+        <component :is="Component" :key="route.fullPath" />
+      </router-view>
+    </div>
+    <!-- 全局传输任务条:每个功能 iframe 各自挂一份(SFTP 就在该页),互不影响 -->
+    <TransferDock />
   </div>
 
   <!-- ===== 独立窗口模式(从主窗口拖出的单 tab 工作区) ===== -->

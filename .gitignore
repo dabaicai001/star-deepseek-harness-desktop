@@ -106,3 +106,6 @@ config.local.toml
 
 # Python 虚拟环境(e2e 测试服务器依赖)
 test-sftp/.venv/
+test-sftp/__pycache__/
+# 测试 SSH/SFTP 服务器的持久 host key(本地生成的测试私钥,不入库)
+test-sftp/host_key.pem

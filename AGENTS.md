@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.64.0(dsh 主壳融合(方案 B)P1 外壳融合:新增 `packages/starhub/host-static/`(dsh webserver 同源托管 StarHub embed dist 于 `/starhub/`,SPA fallback + 防穿越)、`packages/starhub/client-nav/` 全量(8 个导航条目注册 `sidebar.footer.action`,`shell.overlay` 整帧 iframe 层,Esc/再点关闭);Rust 新增 `DshWebManager`(profile 物化 + 端口 3085 起递增 + 就绪轮询 + 生命周期,4 单测);前端新增 embed 模式(`?embed=1&route=<path>` 精简外壳,去 titlebar/tab/侧栏/状态栏);双轨开发流 `npm run tauri:dev:dsh`(tauri.dev-dsh.json 覆盖 devUrl,默认旧外壳不受影响)+ `npm run build:embed`(base `/starhub/`,产物 `dist-embed/`);真窗口冒烟与 curl 链路全绿,踩坑记录第 20 节(overlay vs conversation.view、占位页自跳转等 7 条)) |
+| 当前版本 | v0.64.1(dsh 主壳融合 P3 第一批(SSH/SFTP):embed 资产选择骨架落地——`EmbedAssetBar`(embed 页顶部资产条,下拉切换 = 同段换 instanceId)、`EmbedSectionEmpty` 段空态、9 条静态段路由(`/ssh`、`/db/mysql` 等,`meta.embedSection`),client-nav 8 条目改段路由 + `starhub-embed-open-section` 消息联动;test-sftp/server.py 扩展为完整 SSH stub(pty/shell/exec/sftp,修 paramiko 5.0 兼容),新增 `src-tauri/tests/sftp_stub.rs` russh-sftp 集成测试;真窗口端到端实测 SSH 连接/断线重连全绿) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-14 (v0.64.0)*
+*最后更新: 2026-08-14 (v0.64.1)*

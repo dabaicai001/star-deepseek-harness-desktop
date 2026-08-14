@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.64.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.64.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,21 +119,14 @@
 
 ## 当前版本
 
+### v0.64.1 (2026-08-14)
+- ✨ dsh 主壳融合 P3 第一批(SSH/SFTP):embed 资产选择骨架落地——`EmbedAssetBar`(embed 页顶部资产条,下拉切换 = 同段换 instanceId)、`EmbedSectionEmpty` 段空态、9 条静态段路由(`/ssh`、`/db/mysql` 等,`meta.embedSection`),client-nav 8 条目改段路由 + `starhub-embed-open-section` 消息联动;test-sftp/server.py 扩展为完整 SSH stub(pty/shell/exec/sftp,修 paramiko 5.0 兼容),新增 `src-tauri/tests/sftp_stub.rs` russh-sftp 集成测试;真窗口端到端实测 SSH 连接/断线重连全绿
+
 ### v0.64.0 (2026-08-14)
 - ✨ dsh 主壳融合(方案 B)P1 外壳融合:新增 `packages/starhub/host-static/`(dsh webserver 同源托管 StarHub embed dist 于 `/starhub/`,SPA fallback + 防穿越)、`packages/starhub/client-nav/` 全量(8 个导航条目注册 `sidebar.footer.action`,`shell.overlay` 整帧 iframe 层,Esc/再点关闭);Rust 新增 `DshWebManager`(profile 物化 + 端口 3085 起递增 + 就绪轮询 + 生命周期,4 单测);前端新增 embed 模式(`?embed=1&route=<path>` 精简外壳,去 titlebar/tab/侧栏/状态栏);双轨开发流 `npm run tauri:dev:dsh`(tauri.dev-dsh.json 覆盖 devUrl,默认旧外壳不受影响)+ `npm run build:embed`(base `/starhub/`,产物 `dist-embed/`);真窗口冒烟与 curl 链路全绿,踩坑记录第 20 节(overlay vs conversation.view、占位页自跳转等 7 条)
 
 ### v0.63.1 (2026-08-14)
 - ✨ dsh 主壳融合(方案 B)P0 spike:dsh 官方 Web GUI 在 vendored monorepo 内起服成功(`examples/starhub-web/` profile 组合 + `packages/starhub/client-nav/` 最小 client 插件,slot 注入链路 curl 验证通过);**决定性结论:Tauri 窗口加载 http://127.0.0.1 壳时,同源 iframe 完整继承 `__TAURI_INTERNALS__`,invoke 真实往返成功**——功能页嵌入无需自建 IPC 桥,方案 B 最大风险消除;任务清单 `docs/dsh主壳融合-任务清单.md` 与踩坑记录第 19 节同步
-
-### v0.63.0 (2026-08-14)
-- ✨ AI 内核替换(deepseek-harness)Phase 1 完成,AiView 正式切换到 dsh 会话内核:新增 `examples/starhub-agent/cordis.yml` StarHub 专用组合(sdk-jsonrpc-server + llm-deepseek + agent-spine-demo + persistence-jsonl + tool-todo + compaction + subagent 系,无 bash/fs 工具,纯对话安全方向);Rust `HarnessManager` 支持模型参数注入(DEEPSEEK_API_KEY/DSH_SYSTEM_PROMPT/DSH_SESSION_ROOT)、spawn 指纹自动重启、`dsh_cancel`(杀进程兜底,SDK 协议无 cancel)、subagent.started/finished 事件转发;前端新增 `aiHarnessProjection.ts`(dsh 事件 → 块模型投影:user/assistant(text+reasoning 流式)/tool/todo/notice/subagent/error),AiView 消息区整链重写为投影渲染,旧 Planner→Executor 编排链与确认卡从 AiView 移除(AiChat 宿主路径 P3-4 才退役)
-- ✨ dsh 工具桥第一批(P1-4):sdk server 补丁暴露 `sdk-transport` 服务;新增 vendor 包 `@deepseek-ai/dsh-starhub-tools`(starhub_list_capabilities / starhub_list_assets / session_search / memory 四个工具,execute 经 `starhub/tool.execute` 入站 request 桥回宿主 Rust 执行);Rust 协议桥升级双向 request 分发(JSON-RPC id 支持字符串);memory 安全扫描(memoryGuard)移植 Rust;端到端实测模型工具调用 → Rust 执行 → 结果回注全链路
-- ✨ dsh-deep-whale 皮肤风格评估(支线 C):新增 `docs/皮肤风格评估-dsh-deep-whale.md`,三枚增量 token 候选(`--radius-bubble` 气泡圆角、`--ease-emphasize` 强调缓动、`cyber-chase` 追逐动画)评审后并入 cyber.css 定义层,柔金/玻璃拟态不采纳
-- ✨ dsh 插件生态首版(支线 B,B-1~B-4):设置页新增「插件」tab,支持 awesome-dsh-plugin 市场目录浏览(README.zh.md + data/*.json 解析,失败降级空目录)、URL(zip)/本地目录/本地 zip 三种安装、逐项启停与卸载;插件落 `<app_data_dir>/plugins/`,Rust 每次 spawn 前生成包装配置 `dsh-cordis.generated.yml`(cordis:include 内建插件,主组合 + 用户清单两棵子树,vendor 副本零改动);安装管线含 manifest 校验(`dsh.bundle` 必需、零依赖强制、UI/皮肤类双保险拒装)、peer 依赖 junction(mklink /J,回退复制)、zip 防穿越(enclosed_name + 剥顶层后二次校验)、首次启用风险提示;变更后自动重启 dsh runtime;坏插件自救首版为手动引导(自动禁用留 TODO);打包布局暂不支持安装(明确报错)
-- ✨ 设计系统 token 层升级(支线 A,D0/D1/D3):阴影收敛为 `--shadow-1/2/3` 克制档,边框改 hairline(`--line` 0.06 / `--line-2` 0.12),新增中性 hover/active、圆角梯度(chip 4 → modal 24)、字号梯度(`--text-2xs~xl`)、`--font-mono` 等宽栈(73 处硬编码清除)、滚动条 token;按钮胶囊化、卡片圆角 16、核心组件 hover 中性化、交互过渡统一 0.2s;菜单修复无效 box-shadow;光晕类效果收敛至启动/欢迎页仪式场景;亮主题同步重做
-- 🔧 AiView 会话不再持久化到 StarHub SQLite(dsh 自有 jsonl,重启应用后历史不可恢复;session_search 桥在 P3 接)
-- 🔧 运行中 steering 暂停(dsh inbox 机制后续接);确认卡/白名单待审批桥(D3 已验证可行,Phase 2 落地);plan mode 待审批桥后启用
-- 🔧 memory 工具确认闸未接(待审批桥);asset 级记忆固定返回未绑定提示(待 P2-7 绑定机制)
 
 ---
 

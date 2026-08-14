@@ -6075,7 +6075,7 @@ body {
   background: var(--bg);
 }
 
-/* embed 模式(dsh 主壳 iframe):去壳外壳,整幅工作区 */
+/* embed 模式(dsh 主壳 iframe):去壳外壳,资产条 + 整幅工作区 */
 .embed-layout {
   height: 100vh;
   background: var(--bg);
@@ -6084,9 +6084,124 @@ body {
   overflow: hidden;
 }
 
-.embed-layout > * {
+.embed-layout > .embed-workspace {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.embed-workspace > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* embed 模式没有状态栏,传输任务条贴底即可(默认 bottom:40px 是给状态栏让位) */
+.embed-layout .transfer-dock {
+  bottom: 16px;
+}
+
+/* ---- embed 资产条(EmbedAssetBar):顶部细条,段图标 + 当前资产下拉 ---- */
+.cyber-embed-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  user-select: none;
+}
+
+.cyber-embed-bar-icon {
+  color: var(--cyan);
+}
+
+.cyber-embed-bar-current {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  padding: 3px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-control);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cyber-embed-bar-current:hover:not(:disabled) {
+  border-color: var(--cyan);
+}
+
+.cyber-embed-bar-current:disabled {
+  cursor: default;
+  color: var(--muted);
+}
+
+.cyber-embed-bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cyber-embed-bar-sub {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cyber-embed-bar-spacer {
+  flex: 1;
+}
+
+.cyber-embed-bar-action {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--cyan);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--cyan);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cyber-embed-bar-action:hover {
+  background: rgba(93, 214, 214, 0.12);
+}
+
+/* ---- embed 段空态页(EmbedSectionEmpty) ---- */
+.cyber-embed-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  color: var(--text-2);
+}
+
+.cyber-embed-empty-icon {
+  color: var(--muted);
+}
+
+.cyber-embed-empty-title {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cyber-embed-empty-hint {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .detached-titlebar {

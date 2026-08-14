@@ -93,6 +93,26 @@ const router = createRouter({
           component: () => import('@/views/WebBrowserView.vue'),
           props: true,
         },
+        // ===== embed 段路由(无资产 id,dsh 壳 iframe 专用,P3 主壳融合)=====
+        // client-nav 导航条目指向这些段路由(如 /ssh);embed 守卫在 CyberLayout
+        // 里把「有资产」的段重定向到带 instanceId 的功能路由,「无资产」的段
+        // 停在空态页。旧外壳从不导航到这些路径,静态段路由优先于 :id 参数路由。
+        ...([
+          ['ssh', 'terminal'],
+          ['db/mysql', 'database'],
+          ['db/redis', 'redis'],
+          ['db/elasticsearch', 'elasticsearch'],
+          ['db/clickhouse', 'clickhouse'],
+          ['db/postgresql', 'postgresql'],
+          ['docker', 'docker'],
+          ['broker', 'broker'],
+          ['excel', 'excel'],
+        ] as const).map(([path, section]) => ({
+          path,
+          name: `embed-section-${section}`,
+          component: () => import('@/components/common/EmbedSectionEmpty.vue'),
+          meta: { embedSection: section },
+        })),
       ],
     },
   ],

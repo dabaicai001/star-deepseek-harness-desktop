@@ -8,9 +8,10 @@ import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-run
 /** 导航状态:active 为当前打开的功能页 key(SECTIONS[].key),null = 关闭。 */
 type StarHubNavState = { active: string | null }
 
-/** 写集合:切换(再点当前条目即关闭)与显式关闭(Esc / 关闭按钮)。 */
+/** 写集合:切换(再点当前条目即关闭)、显式打开(embed 页 postMessage 请求)与显式关闭(Esc / 关闭按钮)。 */
 type StarHubNavActions = {
   toggleSection: (draft: StarHubNavState, key: string) => void
+  openSection: (draft: StarHubNavState, key: string) => void
   closeSection: (draft: StarHubNavState) => void
 }
 
@@ -23,6 +24,7 @@ export function createStarHubNavStore(): EngineStoreHandle<StarHubNavState, Star
     init: (): StarHubNavState => ({ active: null }),
     actions: {
       toggleSection: (d, key: string) => { d.active = d.active === key ? null : key },
+      openSection: (d, key: string) => { d.active = key },
       closeSection: (d) => { d.active = null },
     },
   })

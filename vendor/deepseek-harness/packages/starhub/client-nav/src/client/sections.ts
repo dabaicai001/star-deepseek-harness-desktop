@@ -1,9 +1,9 @@
 /**
- * StarHub 功能页清单:侧栏导航条目 ↔ embed 路由的唯一事实表(P1)。
+ * StarHub 功能页清单:侧栏导航条目 ↔ embed 路由的唯一事实表(P1 定义,P3 改段路由)。
  * route 是 StarHub embed 入口(`/starhub/index.html?embed=1&route=...`)的直达
- * 路径;P1 没有资产选择器,带资产位段的页面统一用占位实例 id `embed`,
- * StarHub 各视图对缺失资产有「无资产/未连接」空态(DbView/DockerView 的回 '/'
- * 被 embed 外壳的路由守卫拦下)。
+ * 路径;P3 起统一用「段路由」(不带资产 id,如 /ssh),embed 侧守卫负责解析:
+ * 有该类型资产 → 重定向到带 instanceId 的功能路由;无资产 → 停在段空态页,
+ * 顶部资产条(EmbedAssetBar)给出「去设置添加」入口(postMessage 回本壳切设置)。
  */
 import {
   IconArchiveOutline20,
@@ -24,7 +24,7 @@ export interface StarHubSection {
   key: string
   /** 侧栏条目的中文文案。 */
   label: string
-  /** embed 入口的 route 参数(站内绝对路径)。 */
+  /** embed 入口的 route 参数(站内绝对路径,段路由不带资产 id)。 */
   route: string
   /** 侧栏图标(ui-primitives 现成字形)。 */
   Icon: ComponentType<IconProps>
@@ -32,13 +32,13 @@ export interface StarHubSection {
 
 /** 导航条目清单(展示顺序即数组顺序)。 */
 export const STARHUB_SECTIONS: readonly StarHubSection[] = [
-  { key: 'terminal', label: '终端', route: '/ssh/embed', Icon: IconCodeOutline16 },
-  { key: 'database', label: '数据库', route: '/db/mysql/embed', Icon: IconDataOutline16 },
-  { key: 'redis', label: 'Redis', route: '/db/redis/embed', Icon: IconChecklistOutline14 },
-  { key: 'elasticsearch', label: 'Elasticsearch', route: '/db/elasticsearch/embed', Icon: IconSearchOutline16 },
-  { key: 'docker', label: 'Docker', route: '/docker/embed', Icon: IconArchiveOutline20 },
-  { key: 'broker', label: 'Broker', route: '/broker/embed', Icon: IconBranchOutline16 },
-  { key: 'excel', label: 'Excel', route: '/excel/embed', Icon: IconListPenOutline16 },
+  { key: 'terminal', label: '终端', route: '/ssh', Icon: IconCodeOutline16 },
+  { key: 'database', label: '数据库', route: '/db/mysql', Icon: IconDataOutline16 },
+  { key: 'redis', label: 'Redis', route: '/db/redis', Icon: IconChecklistOutline14 },
+  { key: 'elasticsearch', label: 'Elasticsearch', route: '/db/elasticsearch', Icon: IconSearchOutline16 },
+  { key: 'docker', label: 'Docker', route: '/docker', Icon: IconArchiveOutline20 },
+  { key: 'broker', label: 'Broker', route: '/broker', Icon: IconBranchOutline16 },
+  { key: 'excel', label: 'Excel', route: '/excel', Icon: IconListPenOutline16 },
   { key: 'settings', label: '设置', route: '/settings', Icon: IconSettingsOutline16 },
 ]
 
