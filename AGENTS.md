@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.62.3(内嵌 AI 助手 # 绑定远程资产不接通(与 #LOCAL 同类问题的完整修复):此前绑定内非宿主资产(SSH/DB/Docker/Excel)只在 prompt 里作参照;现在绑定资产经 direct workspace runtime 实际接入对应工具(ssh_*/sftp_*/db_*/redis_*/es_*/docker_*/excel_*),workspace 参数区分目标,省略 workspace 或指向本标签页宿主资产时落在当前宿主执行器;与宿主同名工具替换为带 workspace 参数的版本避免重复函数名;runtime 随绑定集合变化重建,组件卸载时关闭全部绑定连接) |
+| 当前版本 | v0.62.4(AI 内核替换(deepseek-harness)Phase 0 启动:新增 `vendor/deepseek-harness/` 上游源码副本(锁定上游 commit `47f9438`,MIT),作为 dsh runtime 内嵌 StarHub 的 POC 基础;配套方案 `docs/AI内核替换方案-deepseek-harness.md` 与任务清单 `docs/AI内核替换-实施任务清单.md`) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-13 (v0.62.3)*
+*最后更新: 2026-08-14 (v0.62.4)*

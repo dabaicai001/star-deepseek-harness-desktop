@@ -13,6 +13,11 @@
 
 ---
 
+## [0.62.4] - 2026-08-14
+
+### 新增
+- AI 内核替换(deepseek-harness)Phase 0 启动:新增 `vendor/deepseek-harness/` 上游源码副本(锁定上游 commit `47f9438`,MIT),作为 dsh runtime 内嵌 StarHub 的 POC 基础;配套方案 `docs/AI内核替换方案-deepseek-harness.md` 与任务清单 `docs/AI内核替换-实施任务清单.md`
+
 ## [0.62.3] - 2026-08-13
 
 ### 修复

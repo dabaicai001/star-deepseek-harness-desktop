@@ -1,0 +1,1 @@
+47f943859bef60e4160492346772ded9b24f765a 2026-08-13 19:38:46 +0800 Merge pull request #2519 from deepseek-harness/feat/npm-public
