@@ -5,6 +5,7 @@
 > 调研对象:
 > - `deepseek-ai/deepseek-harness` master(fork: dabaicai001/deepseek-harness),版本 `0.1.0-rc.5`(developer preview)
 > - `Small-tailqwq/dsh-deep-whale`(dsh 皮肤插件,maid-atelier)
+> - dsh 插件生态:[awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 精选索引(198 个插件)+ GitHub `topic:dsh-plugin`
 > - 本仓库 StarHub v0.62.3 现状代码
 
 ---
@@ -153,7 +154,7 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 | D5 | **注入内容的日志不变量** | model-visible ⟺ logged,自定义注入必须落 session event | 资产上下文/记忆块经 `agent.inject()` 或扩展 `SessionEventMap` 声明合并,禁止绕过日志直接改 messages |
 | D6 | **代码获取方式(已拍板)** | 0.1.0-rc.5 developer preview,官方预告破坏性变更;npm 公开发布仅数日 | **源码拷入 `vendor/deepseek-harness/` 自维护,不依赖 npm 包**;锁定上游 commit `47f9438`,上游更新手动挑拣合入 |
 | D7 | **MCP 归属** | dsh 自带 mcp-client;Rust 侧已有 `mcp.rs` | 二选一:推荐交给 dsh(工具进同一注册表),Rust `mcp.rs` 退役;或保留 Rust 经工具桥暴露 |
-| D8 | **记忆/压缩/Planner 去留** | dsh 自带 compaction、plan mode、goal;StarHub 有三级记忆卡 + 压缩 + Planner | **记忆系统(三级记忆卡 + 会话注入 + 自动沉淀)确定保留**,迁移到 dsh 体系,见 5.4;压缩/计划切换 dsh 实现 |
+| D8 | **记忆/压缩/Planner 去留** | dsh 自带 compaction、plan mode、goal;StarHub 有三级记忆卡 + 压缩 + Planner | **记忆系统(三级记忆卡 + 会话注入 + 自动沉淀)确定保留**,迁移到 dsh 体系,见 5.3;压缩/计划切换 dsh 实现 |
 
 ### 4.3 LLM 配置映射
 
@@ -182,7 +183,7 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 - `approval/policy` per 会话 `'ask' | 'never'` 与 StarHub 的 session 白名单语义对齐。
 - 审计:`approval/asked` / `approval/decided` 落日志(dsh 自带)。
 
-### 5.4 记忆系统(确定保留)
+### 5.3 记忆系统(确定保留)
 
 现有三级记忆卡(user / global / asset:{id},SQLite + FTS5)+ 会话级记忆注入 + 压缩前 flush / 回合后 review 的自动沉淀,**整体保留**,只改注入通道与载体:
 
@@ -191,7 +192,7 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 - **工具保留**:`memoryTools` / `skill_save` 平移为 dsh 工具(`defineTool` 注册),写操作仍走确认闸 + 审计。
 - **自动沉淀保留**:压缩前 flush 与回合后 review 的 mini-loop 改为挂在 dsh 的 `agent/turn-stopping` / compaction 钩子上,门禁逻辑(`aiMemoryReviewGates.ts`)平移。
 
-### 5.5 前端事件渲染
+### 5.4 前端事件渲染
 
 - 前端从 `session.event` 全量流重建消息列表(事件溯源模型),**不再维护增量消息缓存**;现有 `AiChat.vue` 的流式渲染改造为事件投影渲染。
 - 确认卡状态机(`awaiting-confirm`)改由 `approval/request` 通知驱动。
@@ -203,8 +204,9 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 
 ### Phase 0:POC(风险验证,1 周内出结论)
 
+0. 建立 `vendor/deepseek-harness/` 拷贝(D6):锁定上游 commit `47f9438`,裁出最小子集(core 脊柱 + llm + 适配器 + sdk protocol/server + 需要的工具包),保留其 LICENSE,跑通最小组合的构建。
 1. Windows 上跑通 dsh runtime 单文件 exe 打包(D2);失败则验证"内置 Node + lib 闭包"备选。
-2. Rust ↔ dsh stdio JSON-RPC 最小回路:`initialize` → `session/prompt` → 收 `session.event` → 前端渲染一条流式回复。
+2. Rust ↔ dsh stdio JSON-RPC 最小回路:`initialize` → `session/prompt` → 收 `session.event` → 前端渲染一条流式回复(参考实现:deepseek-harness-tui,Rust 直接讲 SDK JSON-RPC,见 8.3)。
 3. 验证 cancel 方案(D1)与审批桥(D3)的技术可行性。
 
 **Go/No-Go 门槛**:三者全部通过才进入 Phase 1;D2 失败且无备选 = 整体方案重议。
@@ -254,13 +256,13 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 
 ### 8.2 能否适配到 StarHub 全工程
 
-**结论:不能直接适配,也不建议整体借鉴;只允许"读设计语言、写自己的 CSS"。**
+**结论:皮肤类不做完整适配,策略是"风格导入 + 尽量适配"——只把设计语言中有价值的元素(配色数值、质感参数、动效手感)移植进 `cyber.css` token 体系,装饰层与素材不迁移。**
 
-1. **技术上不可直接移植**:选择器全部锚定 dsh 的 React DOM 与 token 体系,对 Vue 3 + Vuetify 3 + `cyber.css` 的 StarHub 无意义,照搬等于重写。
+1. **技术上不可完整适配**:选择器全部锚定 dsh 的 React DOM 与 token 体系,对 Vue 3 + Vuetify 3 + `cyber.css` 的 StarHub 无意义,照搬等于重写——完整适配既不可能也无必要。
 2. **许可上不可直接搬运**:NC(禁止商用)+ SA(相同方式共享)与 MIT 不兼容,素材与 CSS 成品均不应入库。
-3. **风格上与 StarHub 定位冲突**:maid-atelier 是"华丽动漫装饰系"(整屏插画、立绘、蕾丝、蝴蝶结);StarHub 是"深海蓝黑暗色 + 低饱和青色高亮 + 等宽数字"的 Cyber Command Center(克制、工具向)。直接移植违反 `docs/设计系统.md` 的反模式约束。
+3. **风格上与 StarHub 定位冲突**:maid-atelier 是"华丽动漫装饰系"(整屏插画、立绘、蕾丝、蝴蝶结);StarHub 是"深海蓝黑暗色 + 低饱和青色高亮 + 等宽数字"的 Cyber Command Center(克制、工具向)。装饰层(整屏位图背景、立绘、蕾丝、Q 版 mascot)直接移植违反 `docs/设计系统.md` 的反模式约束,**不适配**。
 
-**可借鉴点(如确有需要,走 token 增补流程)**:
+**风格导入清单(尽量适配的部分,如确有需要,走 token 增补流程)**:
 
 - 分层 token 组织(navy 梯度 / glass / shadow 分组、明暗双套值)——与 cyber.css `:root` 做法一致,可参考写法。
 - 玻璃拟态质感参数(半透明面板 + `0 18px 54px rgba(15,30,72,.2)` 级大柔和投影)——可增强 `.cyber-panel` 层次。
@@ -284,7 +286,7 @@ dsh 的 Web UI 支持纯展示层客户端插件(覆盖 `--dsw-*` token + DOM �
 | 模型/Provider(Models) | dsh-llm-fallbacks、dsh-polyglot(OpenAI 兼容 + 自动 fallback)、dsh-codex-auth | ✅ 高价值,直接补齐多 provider/fallback 能力 |
 | 开发/运行时(Dev & Runtime) | dsh-bash-terminal(Win PowerShell/Git Bash/WSL PTY)、dsh-tool-approval、dsh-gitflow、dsh-eval-harness(插件回归测试) | ✅ 高价值;`dsh-bash-terminal` 正好补 Windows shell 短板;`dsh-eval-harness` 可作迁移回归测试设施 |
 | 通知/集成(Notifications) | telegram、微信/飞书桥 | ➖ 与 StarHub 桌面定位关系不大,暂不引入 |
-| UI 增强 / 主题皮肤(UI / Themes / 娱乐) | maid-atelier、dsh-skin、dsh-genui、whale-girl 桌宠等 | ❌ 全部锚定 dsh React DOM 与 `--dsw-*` token,对 Vue 前端无意义,只能借鉴思路(见 8.2) |
+| UI 增强 / 主题皮肤(UI / Themes / 娱乐) | maid-atelier、dsh-skin、dsh-genui、whale-girl 桌宠等 | ❌ 不做完整适配:全部锚定 dsh React DOM 与 `--dsw-*` token,对 Vue 前端无意义;只做"风格导入"(见 8.2),交互思路(如命令面板、状态栏)可参考后在 Vue 侧自实现 |
 | 独立客户端(TUI/ACP) | dsh-TUI、**deepseek-harness-tui**(Rust/ratatui,直接讲 SDK JSON-RPC) | ➖ 本身不用,但后者是 **Rust 侧 dsh 客户端的现成参考实现**,Phase 0 应研读 |
 
 **引入原则**:
