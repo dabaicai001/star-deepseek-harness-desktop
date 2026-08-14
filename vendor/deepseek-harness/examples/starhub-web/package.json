@@ -1,0 +1,16 @@
+{
+  "name": "dsh-profile-starhub-web",
+  "private": true,
+  "description": "StarHub web profile manifest template: the boot script copies this file to $DSH_HOME/profiles/web/package.json (see boot.mjs)",
+  "dependencies": {
+    "@deepseek-ai/dsh-starhub-client-nav": "workspace:*"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app"
+      ]
+    }
+  }
+}

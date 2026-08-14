@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.63.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.63.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,6 +119,9 @@
 
 ## 当前版本
 
+### v0.63.1 (2026-08-14)
+- ✨ dsh 主壳融合(方案 B)P0 spike:dsh 官方 Web GUI 在 vendored monorepo 内起服成功(`examples/starhub-web/` profile 组合 + `packages/starhub/client-nav/` 最小 client 插件,slot 注入链路 curl 验证通过);**决定性结论:Tauri 窗口加载 http://127.0.0.1 壳时,同源 iframe 完整继承 `__TAURI_INTERNALS__`,invoke 真实往返成功**——功能页嵌入无需自建 IPC 桥,方案 B 最大风险消除;任务清单 `docs/dsh主壳融合-任务清单.md` 与踩坑记录第 19 节同步
+
 ### v0.63.0 (2026-08-14)
 - ✨ AI 内核替换(deepseek-harness)Phase 1 完成,AiView 正式切换到 dsh 会话内核:新增 `examples/starhub-agent/cordis.yml` StarHub 专用组合(sdk-jsonrpc-server + llm-deepseek + agent-spine-demo + persistence-jsonl + tool-todo + compaction + subagent 系,无 bash/fs 工具,纯对话安全方向);Rust `HarnessManager` 支持模型参数注入(DEEPSEEK_API_KEY/DSH_SYSTEM_PROMPT/DSH_SESSION_ROOT)、spawn 指纹自动重启、`dsh_cancel`(杀进程兜底,SDK 协议无 cancel)、subagent.started/finished 事件转发;前端新增 `aiHarnessProjection.ts`(dsh 事件 → 块模型投影:user/assistant(text+reasoning 流式)/tool/todo/notice/subagent/error),AiView 消息区整链重写为投影渲染,旧 Planner→Executor 编排链与确认卡从 AiView 移除(AiChat 宿主路径 P3-4 才退役)
 - ✨ dsh 工具桥第一批(P1-4):sdk server 补丁暴露 `sdk-transport` 服务;新增 vendor 包 `@deepseek-ai/dsh-starhub-tools`(starhub_list_capabilities / starhub_list_assets / session_search / memory 四个工具,execute 经 `starhub/tool.execute` 入站 request 桥回宿主 Rust 执行);Rust 协议桥升级双向 request 分发(JSON-RPC id 支持字符串);memory 安全扫描(memoryGuard)移植 Rust;端到端实测模型工具调用 → Rust 执行 → 结果回注全链路
@@ -131,9 +134,6 @@
 
 ### v0.62.6 (2026-08-14)
 - ✨ AI 内核替换 P0-4 完成:新增 `src-tauri/src/harness/`(dsh runtime spawn + NDJSON JSON-RPC 协议桥,复用 sidecar 解析模式,零新依赖)、3 个 Tauri command(`dsh_initialize`/`dsh_prompt`/`dsh_shutdown`)、前端 `src/services/aiHarness.ts`(流式 text-delta 拼装,idle 权威结束信号);端到端测试 mock LLM 实跑 4 轮全绿,`cargo:test` 81 passed。**Phase 0 风险验证全部完成,结论 Go**
-
-### v0.62.5 (2026-08-14)
-- ✨ AI 内核替换(deepseek-harness)Phase 0 POC 完成,结论 **Go**:`vendor/deepseek-harness` install/构建全绿;stdio JSON-RPC 多轮流式回路实测通过(Node 直跑与 172MB SEA exe 两种形态);确认 SDK 协议无 cancel(杀进程兜底,Phase 1 拟补 session/cancel 小补丁);审批桥路径明确(自写 cordis answerer 插件);vendor 副本含 Windows 适配补丁(exe 打包脚本 4 处 + tsconfig exclude);完整结论与坑清单见 `docs/AI内核替换方案-deepseek-harness.md` 附录 11
 
 ---
 

@@ -85,6 +85,8 @@
     { "path": "./packages/client/ui-settings-plugins" },
     { "path": "./packages/client/ui-user-questions" },
     { "path": "./packages/client/ui-trajectory" },
+    // StarHub-local shell navigation (P0 spike): conversation.view iframe tabs.
+    { "path": "./packages/starhub/client-nav" },
     { "path": "./packages/session-query/session-log-export" },
     { "path": "./packages/client/ui-theme" },
     { "path": "./packages/client/ui-settings" },

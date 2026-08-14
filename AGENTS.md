@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.63.0(AI 内核替换(deepseek-harness)Phase 1 完成,AiView 正式切换到 dsh 会话内核:新增 `examples/starhub-agent/cordis.yml` StarHub 专用组合(sdk-jsonrpc-server + llm-deepseek + agent-spine-demo + persistence-jsonl + tool-todo + compaction + subagent 系,无 bash/fs 工具,纯对话安全方向);Rust `HarnessManager` 支持模型参数注入(DEEPSEEK_API_KEY/DSH_SYSTEM_PROMPT/DSH_SESSION_ROOT)、spawn 指纹自动重启、`dsh_cancel`(杀进程兜底,SDK 协议无 cancel)、subagent.started/finished 事件转发;前端新增 `aiHarnessProjection.ts`(dsh 事件 → 块模型投影:user/assistant(text+reasoning 流式)/tool/todo/notice/subagent/error),AiView 消息区整链重写为投影渲染,旧 Planner→Executor 编排链与确认卡从 AiView 移除(AiChat 宿主路径 P3-4 才退役)) |
+| 当前版本 | v0.63.1(dsh 主壳融合(方案 B)P0 spike:dsh 官方 Web GUI 在 vendored monorepo 内起服成功(`examples/starhub-web/` profile 组合 + `packages/starhub/client-nav/` 最小 client 插件,slot 注入链路 curl 验证通过);**决定性结论:Tauri 窗口加载 http://127.0.0.1 壳时,同源 iframe 完整继承 `__TAURI_INTERNALS__`,invoke 真实往返成功**——功能页嵌入无需自建 IPC 桥,方案 B 最大风险消除;任务清单 `docs/dsh主壳融合-任务清单.md` 与踩坑记录第 19 节同步) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-14 (v0.63.0)*
+*最后更新: 2026-08-14 (v0.63.1)*

@@ -1,0 +1,15 @@
+# StarHub web 组合的 profile 用户层(内核替换 P0 spike)。
+# boot.mjs 把它拷到 $DSH_HOME/profiles/web/cordis.patch.yml;patch 会整段替换
+# 目标行的 config,所以 webserver 行在此完整重述自己的 host/port。
+
+# 固定端口,避开默认 3080 上与既有实例的冲突。
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 3085
+
+# StarHub 壳导航:dsh.client 行,node 半被 modules 扫描进 window.__DSH_BOOT__,
+# 浏览器半注册 conversation.view 的 starhub-terminal 页签(iframe 占位)。
+- insert:
+    - id: client-nav
+      name: '@deepseek-ai/dsh-starhub-client-nav'
