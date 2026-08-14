@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
-import { useAppStore } from '@/stores/app'
 import { useExcelStore, type CellEdit, type WorkbookSheetData } from '@/stores/excel'
 import { useNotifyStore } from '@/stores/notify'
 import UniverGrid from '@/components/excel/UniverGrid.vue'
@@ -12,12 +11,12 @@ import AiChat from '@/components/ai/AiChat.vue'
 import { EXCEL_SYSTEM_PROMPT, excelTools } from '@/utils/aiTools'
 import { useAiChatHost } from '@/composables/useAiChatHost'
 import { usePersistentPanelState } from '@/utils/panelState'
+import { parseInstanceId } from '@/utils/tabId'
 import type { LlmToolCall } from '@/services/ai'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 
 const route = useRoute()
 const assetStore = useAssetStore()
-const appStore = useAppStore()
 const store = useExcelStore()
 const notify = useNotifyStore()
 const rightPanelOpen = usePersistentPanelState('excel', true)
@@ -26,9 +25,11 @@ const rightPanelOpen = usePersistentPanelState('excel', true)
 const _frozenInstanceId = route.params.id as string
 const instanceId = computed(() => _frozenInstanceId)
 const asset = computed(() => {
-  const tab = appStore.tabs.find(t => t.id === instanceId.value)
-  if (!tab?.assetId) return null
-  return assetStore.assets.find(a => a.id === tab.assetId)
+  // assetId 直接从 instanceId 解析(由 generateInstanceId(assetId) 生成),
+  // 不经 appStore.tabs 反查 —— embed 模式(dsh 壳 iframe)没有 tab 系统,tabs 恒为空
+  const assetId = parseInstanceId(instanceId.value).assetId
+  if (!assetId) return null
+  return assetStore.assets.find(a => a.id === assetId) ?? null
 })
 const fileFormat = computed<'xlsx' | 'csv'>(() => {
   const configured = asset.value?.config.format

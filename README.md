@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.64.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.64.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,14 +119,14 @@
 
 ## 当前版本
 
+### v0.64.2 (2026-08-14)
+- 🐛 dsh 主壳融合 P3 第二批(DB/Redis/ES/Docker/Broker/Excel/Settings):修复 embed 入口白屏(history base 剥离后 `/index.html` 无路由匹配,新增占位子路由);ElasticsearchView/ExcelView 的 assetId 从 tab 系统反查改为 instanceId 直解(embed 无 tab 系统,原写法必炸);SettingsView embed 模式加关闭按钮(复用 Esc postMessage 通道);8 页 DOM 探针实测渲染(真实服务本机不可用,仅错误态/空态证据);踩坑记录 §22
+
 ### v0.64.1 (2026-08-14)
 - ✨ dsh 主壳融合 P3 第一批(SSH/SFTP):embed 资产选择骨架落地——`EmbedAssetBar`(embed 页顶部资产条,下拉切换 = 同段换 instanceId)、`EmbedSectionEmpty` 段空态、9 条静态段路由(`/ssh`、`/db/mysql` 等,`meta.embedSection`),client-nav 8 条目改段路由 + `starhub-embed-open-section` 消息联动;test-sftp/server.py 扩展为完整 SSH stub(pty/shell/exec/sftp,修 paramiko 5.0 兼容),新增 `src-tauri/tests/sftp_stub.rs` russh-sftp 集成测试;真窗口端到端实测 SSH 连接/断线重连全绿
 
 ### v0.64.0 (2026-08-14)
 - ✨ dsh 主壳融合(方案 B)P1 外壳融合:新增 `packages/starhub/host-static/`(dsh webserver 同源托管 StarHub embed dist 于 `/starhub/`,SPA fallback + 防穿越)、`packages/starhub/client-nav/` 全量(8 个导航条目注册 `sidebar.footer.action`,`shell.overlay` 整帧 iframe 层,Esc/再点关闭);Rust 新增 `DshWebManager`(profile 物化 + 端口 3085 起递增 + 就绪轮询 + 生命周期,4 单测);前端新增 embed 模式(`?embed=1&route=<path>` 精简外壳,去 titlebar/tab/侧栏/状态栏);双轨开发流 `npm run tauri:dev:dsh`(tauri.dev-dsh.json 覆盖 devUrl,默认旧外壳不受影响)+ `npm run build:embed`(base `/starhub/`,产物 `dist-embed/`);真窗口冒烟与 curl 链路全绿,踩坑记录第 20 节(overlay vs conversation.view、占位页自跳转等 7 条)
-
-### v0.63.1 (2026-08-14)
-- ✨ dsh 主壳融合(方案 B)P0 spike:dsh 官方 Web GUI 在 vendored monorepo 内起服成功(`examples/starhub-web/` profile 组合 + `packages/starhub/client-nav/` 最小 client 插件,slot 注入链路 curl 验证通过);**决定性结论:Tauri 窗口加载 http://127.0.0.1 壳时,同源 iframe 完整继承 `__TAURI_INTERNALS__`,invoke 真实往返成功**——功能页嵌入无需自建 IPC 桥,方案 B 最大风险消除;任务清单 `docs/dsh主壳融合-任务清单.md` 与踩坑记录第 19 节同步
 
 ---
 

@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.64.1(dsh 主壳融合 P3 第一批(SSH/SFTP):embed 资产选择骨架落地——`EmbedAssetBar`(embed 页顶部资产条,下拉切换 = 同段换 instanceId)、`EmbedSectionEmpty` 段空态、9 条静态段路由(`/ssh`、`/db/mysql` 等,`meta.embedSection`),client-nav 8 条目改段路由 + `starhub-embed-open-section` 消息联动;test-sftp/server.py 扩展为完整 SSH stub(pty/shell/exec/sftp,修 paramiko 5.0 兼容),新增 `src-tauri/tests/sftp_stub.rs` russh-sftp 集成测试;真窗口端到端实测 SSH 连接/断线重连全绿) |
+| 当前版本 | v0.64.2(dsh 主壳融合 P3 第二批(DB/Redis/ES/Docker/Broker/Excel/Settings):修复 embed 入口白屏(history base 剥离后 `/index.html` 无路由匹配,新增占位子路由);ElasticsearchView/ExcelView 的 assetId 从 tab 系统反查改为 instanceId 直解(embed 无 tab 系统,原写法必炸);SettingsView embed 模式加关闭按钮(复用 Esc postMessage 通道);8 页 DOM 探针实测渲染(真实服务本机不可用,仅错误态/空态证据);踩坑记录 §22) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-14 (v0.64.1)*
+*最后更新: 2026-08-14 (v0.64.2)*

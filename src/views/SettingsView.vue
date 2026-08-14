@@ -22,11 +22,21 @@ import {
 import type { DshMarketPlugin, DshMarketCatalog, DshPluginInfo } from '@/services/aiDshPlugins'
 import { shutdown as shutdownDshRuntime } from '@/services/aiHarness'
 import { version as appVersion } from '~package.json'
+import { isEmbedMode } from '@/lib/embed'
 
 const { t, locale } = useI18n()
 const themeStore = useThemeStore()
 const aiStore = useAiStore()
 aiStore.ensureSettingsShape()
+
+// ====== embed 模式(dsh 壳 iframe,P3 主壳融合)======
+// embed 下设置页是整页路由而非旧外壳的 dialog;关闭 = postMessage 通知
+// client-nav overlay 关层(与 Esc 转发共用 starhub-embed-escape 通道)。
+const embedMode = isEmbedMode()
+function closeEmbedOverlay() {
+  if (window.parent === window) return
+  window.parent.postMessage({ type: 'starhub-embed-escape' }, window.location.origin)
+}
 
 // 选中的 tab
 type TabKey = 'general' | 'appearance' | 'ai' | 'plugins' | 'audit' | 'alert' | 'about'
@@ -1117,6 +1127,16 @@ async function onTestWebhook(url: string) {
     <div class="settings-header">
       <v-icon size="20" color="cyan">mdi-cog-outline</v-icon>
       <h2>{{ t('settings.title') }}</h2>
+      <!-- embed 模式(dsh 壳 iframe):设置是整页路由,提供显式关闭(= 关 overlay,等价 Esc) -->
+      <button
+        v-if="embedMode"
+        class="action-btn settings-embed-close"
+        :data-tooltip="t('common.close')"
+        :aria-label="t('common.close')"
+        @click="closeEmbedOverlay"
+      >
+        <v-icon size="14">mdi-close</v-icon>
+      </button>
     </div>
 
     <!-- Tab 切换 -->
@@ -2242,6 +2262,11 @@ async function onTestWebhook(url: string) {
   font-weight: 600;
   color: var(--text);
   margin: 0;
+}
+
+/* embed 模式的整页设置:关闭按钮推到 header 右侧 */
+.settings-embed-close {
+  margin-left: auto;
 }
 
 .settings-tabs {

@@ -17,6 +17,14 @@ const router = createRouter({
           component: { template: '<div />' }
         },
         {
+          // embed 入口 URL 是 /starhub/index.html?embed=1&route=...(host-static 托管):
+          // history base 剥离 /starhub/ 后路径为 /index.html,无匹配则整树不挂载
+          // (embed iframe 白屏,P3b 探针实测发现)。匹配后由 CyberLayout embed
+          // 分支读 query.route 并 replace 到目标功能路由。
+          path: 'index.html',
+          component: { template: '<div />' }
+        },
+        {
           path: 'settings',
           name: 'settings',
           component: () => import('@/views/SettingsView.vue')

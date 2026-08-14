@@ -13,6 +13,11 @@
 
 ---
 
+## [0.64.2] - 2026-08-14
+
+### 修复
+- dsh 主壳融合 P3 第二批(DB/Redis/ES/Docker/Broker/Excel/Settings):修复 embed 入口白屏(history base 剥离后 `/index.html` 无路由匹配,新增占位子路由);ElasticsearchView/ExcelView 的 assetId 从 tab 系统反查改为 instanceId 直解(embed 无 tab 系统,原写法必炸);SettingsView embed 模式加关闭按钮(复用 Esc postMessage 通道);8 页 DOM 探针实测渲染(真实服务本机不可用,仅错误态/空态证据);踩坑记录 §22
+
 ## [0.64.1] - 2026-08-14
 
 ### 新增

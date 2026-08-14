@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useDbStore } from '@/stores/db'
-import { useAppStore } from '@/stores/app'
 import { useAssetStore } from '@/stores/asset'
 import { useAiStore } from '@/stores/ai'
 import { useI18n } from 'vue-i18n'
@@ -15,6 +14,7 @@ import EsOverview from '@/components/es/EsOverview.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import type { RightPanelTab } from '@/components/layout/RightPanel.vue'
 import { usePersistentPanelState } from '@/utils/panelState'
+import { parseInstanceId } from '@/utils/tabId'
 import { logAudit } from '@/services/audit'
 import { useObjectTreeStore, type ObjectAction, type ObjectKind } from '@/stores/objectTree'
 import type { EsIndexInfo, EsSearchResult } from '@/types/db'
@@ -23,18 +23,19 @@ import ProductIcon from '@/components/common/ProductIcon.vue'
 const { t } = useI18n()
 const route = useRoute()
 const dbStore = useDbStore()
-const appStore = useAppStore()
 const assetStore = useAssetStore()
 const aiStore = useAiStore()
 
 // 冻结路由参数:keep-alive 缓存的组件实例不应跟踪全局路由变化
 const _frozenInstanceId = route.params.id as string
 const instanceId = computed(() => _frozenInstanceId)
-const tab = computed(() => appStore.tabs.find(t => t.id === _frozenInstanceId))
+// assetId 直接从 instanceId 解析(instanceId 由 generateInstanceId(assetId) 生成),
+// 不经 appStore.tabs 反查 —— embed 模式(dsh 壳 iframe)没有 tab 系统,tabs 恒为空
+const assetId = computed(() => parseInstanceId(_frozenInstanceId).assetId)
 
 const session = computed(() => {
   for (const [, s] of dbStore.sessions) {
-    if (s.assetId === tab.value?.assetId && s.dbType === 'elasticsearch') return s
+    if (s.assetId === assetId.value && s.dbType === 'elasticsearch') return s
   }
   return null
 })
@@ -96,7 +97,7 @@ const rightPanelTabs = computed<RightPanelTab[]>(() => [
 // ====== AI 助手(共用聊天编排 composable,差异点经参数注入) ======
 const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
   instanceId,
-  getAssetId: () => tab.value?.assetId || '',
+  getAssetId: () => assetId.value || '',
   assetType: 'db',
   enabled: () => !!connId.value,
   tools: esTools,
@@ -143,12 +144,12 @@ async function executeEsTool(name: string, args: Record<string, unknown>): Promi
         const startedAt = Date.now()
         try {
           const r = await esService.esSearch(connId.value, index, body, from, size)
-          logAudit({ category: 'db', action: 'es_search', target: index, detail: { query: body, index, durationMs: Date.now() - startedAt }, assetId: tab.value?.assetId, success: true })
+          logAudit({ category: 'db', action: 'es_search', target: index, detail: { query: body, index, durationMs: Date.now() - startedAt }, assetId: assetId.value, success: true })
           const hits = r.hits?.map(h => ({ _id: h.id, _index: h.index, _score: h.score, ...h.source })) || []
           return `总计: ${r.totalHits} 条, 耗时: ${r.took}ms\n${JSON.stringify(hits.slice(0, 20), null, 2)}${r.totalHits > 20 ? `\n... (还有 ${r.totalHits - 20} 条)` : ''}`
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e)
-          logAudit({ category: 'db', action: 'es_search', target: index, detail: { query: body, index, durationMs: Date.now() - startedAt, error: msg }, assetId: tab.value?.assetId, success: false })
+          logAudit({ category: 'db', action: 'es_search', target: index, detail: { query: body, index, durationMs: Date.now() - startedAt, error: msg }, assetId: assetId.value, success: false })
           throw e
         }
       }
@@ -188,19 +189,19 @@ async function executeEsTool(name: string, args: Record<string, unknown>): Promi
 }
 
 async function initConnection() {
-  if (!tab.value?.assetId) {
+  if (!assetId.value) {
     error.value = 'No asset found'
     return
   }
   for (const [cid, s] of dbStore.sessions) {
-    if (s.assetId === tab.value.assetId && s.dbType === 'elasticsearch') {
+    if (s.assetId === assetId.value && s.dbType === 'elasticsearch') {
       connId.value = cid
       break
     }
   }
   if (!connId.value) {
     try {
-      const asset = assetStore.assets.find(a => a.id === tab.value!.assetId)
+      const asset = assetStore.assets.find(a => a.id === assetId.value)
       if (!asset) throw new Error('Asset not found')
       const config = asset.config
       const params = {
@@ -211,9 +212,9 @@ async function initConnection() {
         password: config.password,
         useSSL: config.ssl || false,
       }
-      await dbStore.connectElasticsearch(tab.value.assetId, asset.name, params as any)
+      await dbStore.connectElasticsearch(assetId.value, asset.name, params as any)
       for (const [cid, s] of dbStore.sessions) {
-        if (s.assetId === tab.value.assetId) { connId.value = cid; break }
+        if (s.assetId === assetId.value) { connId.value = cid; break }
       }
     } catch (e: any) {
       error.value = e?.message || String(e)
@@ -255,11 +256,11 @@ async function executeSearch() {
     const idx = searchIndex.value || '_all'
     searchResult.value = await esService.esSearch(connId.value, idx, body, searchFrom.value, searchSize.value)
     error.value = null
-    logAudit({ category: 'db', action: 'es_search', target: idx, detail: { query: body, index: idx, durationMs: Date.now() - startedAt }, assetId: tab.value?.assetId, success: true })
+    logAudit({ category: 'db', action: 'es_search', target: idx, detail: { query: body, index: idx, durationMs: Date.now() - startedAt }, assetId: assetId.value, success: true })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
     error.value = msg
-    logAudit({ category: 'db', action: 'es_search', target: searchIndex.value || '_all', detail: { query: dslQuery.value, index: searchIndex.value || '_all', durationMs: Date.now() - startedAt, error: msg }, assetId: tab.value?.assetId, success: false })
+    logAudit({ category: 'db', action: 'es_search', target: searchIndex.value || '_all', detail: { query: dslQuery.value, index: searchIndex.value || '_all', durationMs: Date.now() - startedAt, error: msg }, assetId: assetId.value, success: false })
   } finally { searchLoading.value = false }
 }
 
@@ -293,7 +294,7 @@ function onIndexCreated(_name: string) {
 
 // ====== 全局对象树联动(分组 → 索引,选中/右键经 window 事件到达) ======
 function refreshObjectTree() {
-  const id = tab.value?.assetId
+  const id = assetId.value
   if (id) void objectTree.refreshAsset(id)
 }
 
@@ -303,7 +304,7 @@ function applyObjectSelection(kind: string, payload: Record<string, unknown>) {
 
 function onObjectSelected(e: Event) {
   const detail = (e as CustomEvent).detail as { assetId?: string; kind?: string; payload?: Record<string, unknown> } | undefined
-  if (!detail || detail.assetId !== tab.value?.assetId || !detail.kind || !detail.payload) return
+  if (!detail || detail.assetId !== assetId.value || !detail.kind || !detail.payload) return
   applyObjectSelection(detail.kind, detail.payload)
 }
 
@@ -337,14 +338,14 @@ watch(connId, (v) => {
 
 function onObjectAction(e: Event) {
   const detail = (e as CustomEvent).detail as { assetId?: string; kind?: ObjectKind; action?: string; payload?: Record<string, unknown> } | undefined
-  if (!detail || detail.assetId !== tab.value?.assetId || !detail.kind || !detail.action || !detail.payload) return
+  if (!detail || detail.assetId !== assetId.value || !detail.kind || !detail.action || !detail.payload) return
   runObjectAction({ kind: detail.kind, action: detail.action, payload: detail.payload })
 }
 
 // 标签右键「断开连接」:断开该资产的 ES 会话,状态点变灰
 function onTabDisconnect(e: Event) {
   const detail = (e as CustomEvent).detail as { assetId?: string } | undefined
-  if (!detail || detail.assetId !== tab.value?.assetId) return
+  if (!detail || detail.assetId !== assetId.value) return
   for (const [cid, s] of dbStore.sessions) {
     if (s.assetId === detail.assetId && s.dbType === 'elasticsearch') {
       void dbStore.disconnect(cid)
@@ -359,7 +360,7 @@ onMounted(() => {
   window.addEventListener('starhub:object-action', onObjectAction)
   window.addEventListener('starhub:tab-disconnect', onTabDisconnect)
   // 晚挂载兜底:树上先点了索引、视图后挂载时主动拉取一次
-  const id = tab.value?.assetId
+  const id = assetId.value
   if (id) {
     const pendingSel = objectTree.takePendingSelection(id)
     if (pendingSel) applyObjectSelection(pendingSel.kind, pendingSel.payload)

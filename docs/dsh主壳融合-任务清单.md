@@ -44,9 +44,16 @@
 
 - [x] SSH 终端页签(iframe embed)
 - [x] SFTP 页签
-- [ ] DB / Redis / ES 页签
-- [ ] Docker 页签
-- [ ] 其余页签(Settings / 审计 / Excel 等)
+- [x] DB / Redis / ES 页签
+- [x] Docker 页签
+- [x] 其余页签(Settings / 审计 / Excel 等)
+
+> P3b 第二批(2026-08-14 完成):DB(MySQL/PG/ClickHouse 共用 DbView)/ Redis / ES / Docker / Broker / Excel / Settings 全部接入。
+> - **真 bug 修复:embed 入口白屏**。入口 URL `/starhub/index.html?embed=1&route=...` 经 history base(`/starhub/`)剥离后路径是 `/index.html`,router 无匹配 → 整树不挂载(P3a 真窗口走的是 vite 1420 根路径,没踩到;P3b 探针实测发现)。修复:router 新增 `index.html` 子路由(空占位,CyberLayout 挂载后由 embed 分支读 query.route 再 replace)。
+> - **ES/Excel 资产解析去 tabs 依赖**:ElasticsearchView/ExcelView 原先经 `appStore.tabs` 反查 assetId,embed 没有 tab 系统恒为空 → 改为直接从 instanceId `parseInstanceId` 解析(与 DbView/RedisView/DockerView/BrokerView 同模式,旧外壳语义不变)。
+> - **Settings embed 化**:`/settings` 在 embed 下整页渲染(旧外壳的 dialog 形式只存在于 CyberLayout 非 embed 分支,天然不冲突);SettingsView header 新增 embed 关闭按钮(postMessage `starhub-embed-escape` 复用 Esc 通道让 client-nav overlay 关层);client-nav 设置条目路由 `/settings` 无需改。
+> - **无人值守 DOM 探针验证法**(新配方,见踩坑记录 §22):同源 iframe 探针页(`tmp/p3b-smoke/probe.html`)放进 dist-embed 由 host-static 托管,真窗口加载探针 → 探针内顺序 iframe 各功能页 → DOM 摘要(路由/资产条/空态/正文)no-cors 回报本地采集器。7 页 + clickhouse 空态全部拿到 DOM 级证据。
+> - 实测矩阵:全部页面「资产解析 → 段路由 replace → 页面挂载 → 错误态/空态」DOM 级验证通过;本机无 Docker daemon / MySQL / Redis / ES / Kafka,真实服务联通未实测(仅错误态验证,sidecar `go test ./...` 全绿兜底)。
 
 ## P4 退役与切换 + 打包
 
