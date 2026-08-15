@@ -19,7 +19,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -51,6 +51,38 @@ const RUNTIME_BIN_REL: &str = "packages/examples/jsonrpc-demo/lib/bin.js";
 /// 资产工具自 P1-4 起经 starhub-tools 插件接入。
 /// pub(crate):支线 B 的包装配置(plugins::prepare_runtime_config)引用它。
 pub(crate) const RUNTIME_CONFIG_REL: &str = "examples/starhub-agent/cordis.yml";
+/// prod 闭包入口(packaged-bin.js:runJsonrpcAgent(import.meta.url),裸插件从
+/// 物化后的 node_modules 闭包解析)。
+const RUNTIME_BIN_PACKAGED_REL: &str =
+    "node_modules/@deepseek-ai/dsh-sdk-jsonrpc-demo/lib/packaged-bin.js";
+/// prod 闭包配置(入包脚本把 examples/starhub-agent/cordis.yml 平移到 config/)。
+const RUNTIME_CONFIG_PACKAGED_REL: &str = "config/starhub-agent.yml";
+/// prod 资源目录名(tauri.conf.json bundle.resources 引用,落到 resource_dir 下)。
+const RUNTIME_RESOURCE_DIR: &str = "dsh-runtime";
+
+/// runtime_dir 是否为 prod 闭包布局(以 packaged 入口是否存在判定)。
+fn is_packaged_runtime(runtime_dir: &Path) -> bool {
+    runtime_dir.join(RUNTIME_BIN_PACKAGED_REL).exists()
+}
+
+/// 入口 bin 相对 runtime_dir 的路径(dev/prod 布局不同)。
+fn runtime_bin_rel(runtime_dir: &Path) -> &'static str {
+    if is_packaged_runtime(runtime_dir) {
+        RUNTIME_BIN_PACKAGED_REL
+    } else {
+        RUNTIME_BIN_REL
+    }
+}
+
+/// 主组合配置相对 runtime_dir 的路径(dev/prod 布局不同)。
+/// pub(crate):plugins::prepare_runtime_config 复用同一份判定。
+pub(crate) fn runtime_config_rel(runtime_dir: &Path) -> &'static str {
+    if is_packaged_runtime(runtime_dir) {
+        RUNTIME_CONFIG_PACKAGED_REL
+    } else {
+        RUNTIME_CONFIG_REL
+    }
+}
 
 /// 模型与接入配置,前端从 StarHub AI 设置(多模型列表 / Keyring)解析后经
 /// `dsh_initialize` 传入;key/baseUrl 经 env 注入 dsh 子进程,不落配置文件。
@@ -144,7 +176,8 @@ impl HarnessRuntime {
         on_notification: NotificationSink,
     ) -> Result<Arc<Self>, HarnessError> {
         let mut cmd = Command::new(&node_path);
-        cmd.arg(RUNTIME_BIN_REL)
+        let bin_rel = runtime_bin_rel(&runtime_dir);
+        cmd.arg(bin_rel)
             .arg(&config_path)
             .current_dir(&runtime_dir)
             .stdin(Stdio::piped())
@@ -160,7 +193,7 @@ impl HarnessRuntime {
         }
 
         let mut child = cmd.spawn().map_err(|e| {
-            HarnessError::Spawn(format!("{} {}: {e}", node_path.display(), RUNTIME_BIN_REL))
+            HarnessError::Spawn(format!("{} {}: {e}", node_path.display(), bin_rel))
         })?;
         let stdin = child
             .stdin
@@ -453,27 +486,57 @@ pub struct HarnessPaths {
     pub node_path: PathBuf,
     pub runtime_dir: PathBuf,
     pub config_path: PathBuf,
+    /// 是否为 prod 打包布局(resource_dir()/dsh-runtime),web.rs 据此切换 dist 来源。
+    pub is_packaged: bool,
 }
 
 impl HarnessPaths {
+    /// dev-only 解析:env 覆盖优先,否则从 current_exe 向上找 vendor/deepseek-harness。
+    /// prod 打包布局请用 [`Self::resolve_for_app`]。
     pub fn resolve() -> Result<Self, HarnessError> {
         let runtime_dir = match std::env::var("STARHUB_DSH_RUNTIME_DIR") {
             Ok(dir) => PathBuf::from(dir),
             Err(_) => Self::find_runtime_dir()?,
         };
+        Self::from_runtime_dir(runtime_dir)
+    }
+
+    /// prod 优先解析:env 覆盖优先 → resource_dir()/dsh-runtime → dev 布局。
+    pub fn resolve_for_app(app: &tauri::AppHandle) -> Result<Self, HarnessError> {
+        if let Ok(dir) = std::env::var("STARHUB_DSH_RUNTIME_DIR") {
+            return Self::from_runtime_dir(PathBuf::from(dir));
+        }
+        if let Some(dir) = Self::find_packaged_runtime_dir(app) {
+            return Self::from_runtime_dir(dir);
+        }
+        Self::resolve()
+    }
+
+    /// 用已确定的 runtime_dir 组装 node/config(env 覆盖优先,相对路径按布局切换)。
+    fn from_runtime_dir(runtime_dir: PathBuf) -> Result<Self, HarnessError> {
+        let is_packaged = is_packaged_runtime(&runtime_dir);
         let node_path = match std::env::var("STARHUB_DSH_NODE") {
             Ok(node) => PathBuf::from(node),
             Err(_) => Self::default_node(&runtime_dir),
         };
         let config_path = match std::env::var("STARHUB_DSH_CONFIG") {
             Ok(config) => PathBuf::from(config),
-            Err(_) => runtime_dir.join(RUNTIME_CONFIG_REL),
+            Err(_) => runtime_dir.join(runtime_config_rel(&runtime_dir)),
         };
         Ok(Self {
             node_path,
             runtime_dir,
             config_path,
+            is_packaged,
         })
+    }
+
+    /// prod 资源目录(resource_dir()/dsh-runtime),入口不存在则视为非打包布局。
+    fn find_packaged_runtime_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+        use tauri::Manager;
+        let resource_dir = app.path().resource_dir().ok()?;
+        let dir = resource_dir.join(RUNTIME_RESOURCE_DIR);
+        dir.join(RUNTIME_BIN_PACKAGED_REL).exists().then_some(dir)
     }
 
     /// 从 current_exe 向上找包含 vendor/deepseek-harness 的目录(dev 布局)。
@@ -495,15 +558,19 @@ impl HarnessPaths {
         )))
     }
 
-    /// 便携 Node 默认在 <repo>/tmp/node24/node.exe(runtime_dir 上两级即仓库根);
-    /// 非 Windows 或不存在时回退 PATH 上的 node。
-    fn default_node(runtime_dir: &PathBuf) -> PathBuf {
-        let portable = runtime_dir
-            .join("..")
-            .join("..")
-            .join("tmp")
-            .join("node24")
-            .join("node.exe");
+    /// 便携 Node:prod 在 <runtime_dir>/node.exe,dev 在 <repo>/tmp/node24/node.exe;
+    /// 不存在时回退 PATH 上的 node。
+    fn default_node(runtime_dir: &Path) -> PathBuf {
+        let portable = if is_packaged_runtime(runtime_dir) {
+            runtime_dir.join("node.exe")
+        } else {
+            runtime_dir
+                .join("..")
+                .join("..")
+                .join("tmp")
+                .join("node24")
+                .join("node.exe")
+        };
         if portable.exists() {
             return portable;
         }
@@ -597,7 +664,7 @@ impl HarnessManager {
                 // 配置变更重建:旧进程优雅关停失败也继续(G-1 退出码本就不可信)
                 let _ = old.shutdown().await;
             }
-            let paths = HarnessPaths::resolve()?;
+            let paths = HarnessPaths::resolve_for_app(app)?;
             // 支线 B:无 STARHUB_DSH_CONFIG 覆盖时,spawn 前生成包装配置
             // (主组合 + 用户插件两条 cordis:include entry),让用户插件经
             // plugins/cordis.yml 子树挂进 runtime;include 是 tree carrier,

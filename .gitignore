@@ -72,6 +72,8 @@ coverage/
 src-tauri/target/
 src-tauri/target-*/
 src-tauri/gen/
+# dsh runtime 入包产物(由 npm run package:dsh-runtime 生成)
+src-tauri/binaries/
 
 # 跨平台
 # Windows

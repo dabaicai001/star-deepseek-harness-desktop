@@ -1,0 +1,409 @@
+/**
+ * StarHub dsh-runtime 入包脚本(P4b):便携 Node + vendor prod 闭包整体入包。
+ *
+ * 产出 `src-tauri/binaries/dsh-runtime/`(由 tauri.conf.json 的 bundle.resources
+ * 引用,Tauri 打包后落在 `resource_dir()/dsh-runtime`):
+ *   node.exe                      # 官方 node24 portable(win-x64)
+ *   node_modules/                 # pnpm deploy --prod 物化后的依赖闭包
+ *   config/starhub-agent.yml      # AI 内核主组合(纯对话 + starhub-tools)
+ *   apps/cli/lib/bin.js           # dsh web GUI 入口
+ *   examples/starhub-web/         # dsh web GUI profile 模板
+ *
+ * 运行时 HarnessPaths 从 resource_dir()/dsh-runtime 解析 node / config / 入口;
+ * dev 布局(仓库内 vendor/deepseek-harness)保持不变。
+ */
+
+import { spawn } from 'node:child_process'
+import { existsSync, readdirSync, statSync } from 'node:fs'
+import type { Dirent } from 'node:fs'
+import {
+  copyFile,
+  cp,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
+import { dirname, join, resolve, sep } from 'node:path'
+import { parseArgs } from 'node:util'
+
+/** vendor/deepseek-harness 仓库根。 */
+const root = resolve(import.meta.dirname, '..')
+
+/** 闭包清单(纯依赖 deploy root),其 dependencies 定义入包内容。 */
+const DEPLOY_ROOT_PACKAGE = 'dsh-jsonrpc-agent-pkg'
+/** staging 目录(vendor 内,打包后即可丢弃)。 */
+const STAGING_DIR = 'dist-exe/.starhub-staging'
+/** StarHub src-tauri/binaries(相对 vendor 根向上两级)。 */
+const STARHUB_BINARIES_DIR = resolve(root, '..', '..', 'src-tauri', 'binaries')
+/** 最终资源目录名。 */
+const OUTPUT_DIR = 'dsh-runtime'
+/** legacy deploy 可能把直接依赖 hoist 回 deploy source 的 node_modules。 */
+const DEPLOY_SOURCE_NODE_MODULES = 'python/sdk-runtime/node_modules'
+/** 部署产物中排除的文档文件。 */
+const DEPLOY_ONLY_DOCS = ['README.md', 'README.zh.md', 'README.i18n.yaml']
+
+/** 便携 Node 版本(官方 LTS v24 线,固定版本保证可复现)。 */
+const NODE_VERSION = 'v24.19.0'
+const NODE_DIST_BASE = 'https://nodejs.org/dist'
+
+/** AI 内核主组合:dev 下 examples/starhub-agent/cordis.yml,prod 下平移到 config/。 */
+const CONFIG_SOURCE_REL = 'examples/starhub-agent/cordis.yml'
+const CONFIG_DEST_REL = 'config/starhub-agent.yml'
+
+/** web GUI 需要的静态 vendor 产物(相对 vendor 根)。
+ * bin.js 在运行时读取 ../package.json 作为版本与 install anchor,
+ * 动态 import lib 下的 chunk(profile-boot/plugin/dump-config),并
+ * 以 ../config/agent-presets 作为系统内置 agent 预设根;整体复制。 */
+const WEB_STATIC_RELS = [
+  'apps/cli/package.json',
+  'apps/cli/lib',
+  'apps/cli/config',
+  'examples/starhub-web/package.json',
+  'examples/starhub-web/cordis.patch.yml',
+]
+
+/** web GUI 需要补 junction 的本地包(packages/starhub/ 下目录名),
+ * 与 Rust web.rs 的 LOCAL_PACKAGES 对齐;入包后保持 dev 布局可复用 junction 逻辑。 */
+const WEB_LOCAL_PACKAGE_DIRS = ['client-nav', 'host-static']
+
+class BuildCli {
+  private constructor(
+    readonly skipBuild: boolean,
+    readonly nodeZip?: string,
+  ) {}
+
+  static parse(argv: string[]): BuildCli {
+    let values: ReturnType<typeof BuildCli.parseRaw>
+    try {
+      values = BuildCli.parseRaw(argv)
+    } catch (error) {
+      console.error(`package-dsh-runtime: ${error instanceof Error ? error.message : String(error)}\n`)
+      console.error(BuildCli.usage())
+      process.exit(1)
+    }
+    if (values.help) {
+      console.log(BuildCli.usage())
+      process.exit(0)
+    }
+    return new BuildCli(values['skip-build'], values['node-zip'])
+  }
+
+  private static parseRaw(argv: string[]) {
+    return parseArgs({
+      args: argv,
+      options: {
+        'skip-build': { type: 'boolean', default: false },
+        'node-zip': { type: 'string' },
+        'help': { type: 'boolean', default: false },
+      },
+    }).values
+  }
+
+  private static usage(): string {
+    return [
+      'Usage: pnpm exec tsx scripts/package-dsh-runtime.ts [flags]',
+      '',
+      '  --skip-build         跳过 build:lib:host(lib/ 产物必须已存在)。',
+      '  --node-zip <path>    使用本地 node 官方 zip(缺省从 nodejs.org 下载)。',
+      '  --help               打印帮助。',
+      '',
+      `产出: ${resolve(STARHUB_BINARIES_DIR, OUTPUT_DIR)}/`,
+    ].join('\n')
+  }
+}
+
+function pnpmBin(): string {
+  return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+}
+
+function formatCommand(command: string, args: string[]): string {
+  return [command, ...args].map(part => (part.includes(' ') ? JSON.stringify(part) : part)).join(' ')
+}
+
+class DshRuntimePackage {
+  readonly staging = resolve(root, STAGING_DIR)
+  private readonly outDir = resolve(STARHUB_BINARIES_DIR, OUTPUT_DIR)
+
+  constructor(private readonly cli: BuildCli) {}
+
+  async verifyClosure(): Promise<void> {
+    await this.run('runtime dependency closure', pnpmBin(), ['run', 'verify-runtime-closure'])
+  }
+
+  async build(): Promise<void> {
+    if (this.cli.skipBuild) {
+      console.log('package-dsh-runtime: 跳过构建 (--skip-build)')
+      return
+    }
+    // 只构建 host 面(dsh-runtime 只需要 node 侧运行时,不需要 client/web 前端产物)。
+    await this.run('build', pnpmBin(), ['run', 'build:lib:host'])
+  }
+
+  async deployStaging(): Promise<void> {
+    if (this.staging === root || root.startsWith(this.staging + sep)) {
+      throw new Error(`package-dsh-runtime: 拒绝清理 staging 目录 ${this.staging}:它包含仓库根。`)
+    }
+    await rm(this.staging, { recursive: true, force: true })
+    // 与上游 build-exe-for-python-sdk.ts 一致:hoisted 提供扁平单实例布局,
+    // 物化符号链接后便携 node 才能沿顶层 node_modules 解析传递依赖(如 js-yaml);
+    // auto-install-peers=false 防未声明 peer 扩大闭包,link-workspace-packages=true
+    // 选择直接工作区依赖(实测依据见 .agents/notes 的 single-file-executable 记录)。
+    await this.run('deploy', pnpmBin(), [
+      '--filter',
+      DEPLOY_ROOT_PACKAGE,
+      'deploy',
+      '--legacy',
+      '--prod',
+      '--config.node-linker=hoisted',
+      '--config.auto-install-peers=false',
+      '--config.link-workspace-packages=true',
+      // legacy --prod 会就地 pnpm install --production,把 devDep(含 lefthook)
+      // 移除后仍跑根 postinstall(静态 import 'lefthook/package.json'),本地必炸;
+      // 闭包 native 产物已由首次完整 install 缓存于 store,这里跳过脚本无副作用。
+      '--config.ignore-scripts=true',
+      this.staging,
+    ])
+    await this.restoreLegacyHoists()
+    await this.materializeStagedLinks()
+    await Promise.all(DEPLOY_ONLY_DOCS.map(name => rm(join(this.staging, name), { force: true })))
+  }
+
+  /// `pnpm deploy --legacy --prod` 会把根 node_modules 剪成 production(移除
+  /// devDeps 含 tsx),破坏后续 `pnpm exec tsx` 与本地开发环境;这里恢复完整安装。
+  async restoreDevDeps(): Promise<void> {
+    await this.run('restore devDeps', pnpmBin(), ['install'])
+  }
+
+  private async restoreLegacyHoists(): Promise<void> {
+    const manifestPath = join(this.staging, 'package.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+      dependencies?: Record<string, string>
+    }
+    const sourceNodeModules = resolve(root, DEPLOY_SOURCE_NODE_MODULES)
+    const restored: string[] = []
+    for (const dependency of Object.keys(manifest.dependencies ?? {}).sort()) {
+      const destination = join(this.staging, 'node_modules', dependency)
+      if (existsSync(destination)) continue
+      const source = join(sourceNodeModules, dependency)
+      if (!existsSync(source)) {
+        throw new Error(
+          `package-dsh-runtime: 部署依赖 ${dependency} 在 ${destination} 与 ${source} 均缺失。`,
+        )
+      }
+      await mkdir(dirname(destination), { recursive: true })
+      const nestedNodeModules = join(source, 'node_modules')
+      await cp(source, destination, {
+        recursive: true,
+        dereference: true,
+        filter: path => path !== nestedNodeModules && !path.startsWith(nestedNodeModules + sep),
+      })
+      restored.push(dependency)
+    }
+    const stillMissing = Object.keys(manifest.dependencies ?? {})
+      .filter(dependency => !existsSync(join(this.staging, 'node_modules', dependency)))
+    if (stillMissing.length > 0) {
+      throw new Error(`package-dsh-runtime: staged 依赖仍缺失: ${stillMissing.join(', ')}。`)
+    }
+    if (restored.length > 0) {
+      console.log(`package-dsh-runtime: 已恢复 legacy deploy hoist: ${restored.join(', ')}`)
+    }
+  }
+
+  private async materializeStagedLinks(): Promise<void> {
+    const nodeModules = join(this.staging, 'node_modules')
+    let materialized = 0
+    let removedBins = 0
+    // Windows 下 pnpm 产出大量真符号链接;一次性收集再批量物化,避免
+    // 每物化一个就重新全树遍历(旧实现 O(n^2),千级链接时耗时数十分钟)。
+    while (true) {
+      const links = await this.collectSymlinks(nodeModules)
+      if (links.length === 0) break
+      for (const destination of links) {
+        const segments = destination.slice(nodeModules.length + 1).split(sep)
+        const binIndex = segments.lastIndexOf('.bin')
+        if (binIndex >= 0) {
+          await rm(join(nodeModules, ...segments.slice(0, binIndex + 1)), { recursive: true, force: true })
+          removedBins += 1
+        }
+      }
+      for (const destination of links) {
+        const segments = destination.slice(nodeModules.length + 1).split(sep)
+        if (segments.lastIndexOf('.bin') >= 0) continue
+        let source: string
+        try {
+          source = await realpath(destination)
+        } catch {
+          continue // 已在 .bin 移除或前序物化中消失
+        }
+        const nestedNodeModules = join(source, 'node_modules')
+        const nestedDistExe = join(source, 'dist-exe')
+        await rm(destination, { recursive: true, force: true })
+        await cp(source, destination, {
+          recursive: true,
+          dereference: true,
+          filter: path => (
+            path !== nestedNodeModules && !path.startsWith(nestedNodeModules + sep)
+            && path !== nestedDistExe && !path.startsWith(nestedDistExe + sep)
+          ),
+        })
+        materialized += 1
+      }
+    }
+    if (materialized > 0 || removedBins > 0) {
+      console.log(`package-dsh-runtime: 已物化 ${materialized} 个符号链接、移除 ${removedBins} 个 .bin shim`)
+    }
+  }
+
+  private async collectSymlinks(directory: string): Promise<string[]> {
+    const result: string[] = []
+    const stack: string[] = [directory]
+    while (stack.length > 0) {
+      const current = stack.pop()!
+      let entries: Dirent[]
+      try {
+        entries = await readdir(current, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const entry of entries) {
+        if (entry.isSymbolicLink()) {
+          result.push(join(current, entry.name))
+        } else if (entry.isDirectory()) {
+          stack.push(join(current, entry.name))
+        }
+      }
+    }
+    return result
+  }
+
+  async downloadNodeExe(): Promise<string> {
+    const zipName = `node-${NODE_VERSION}-win-x64.zip`
+    const cacheDir = join(root, 'dist-exe', '.node-cache')
+    const extracted = join(cacheDir, `node-${NODE_VERSION}-win-x64`, 'node.exe')
+    if (existsSync(extracted)) return extracted
+    await mkdir(cacheDir, { recursive: true })
+    const zipPath = this.cli.nodeZip ?? join(cacheDir, zipName)
+    if (this.cli.nodeZip !== undefined && !existsSync(zipPath)) {
+      throw new Error(`package-dsh-runtime: 指定的 node zip 不存在: ${zipPath}`)
+    }
+    if (!existsSync(zipPath)) {
+      const url = `${NODE_DIST_BASE}/${NODE_VERSION}/${zipName}`
+      console.log(`package-dsh-runtime: 下载 ${url}`)
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`package-dsh-runtime: 下载 node 失败: HTTP ${response.status}`)
+      }
+      await writeFile(zipPath, Buffer.from(await response.arrayBuffer()))
+    } else {
+      console.log(`package-dsh-runtime: 使用本地 node zip: ${zipPath}`)
+    }
+    await this.expandArchive(zipPath, cacheDir)
+    if (!existsSync(extracted)) {
+      throw new Error(`package-dsh-runtime: 解压后未找到 ${extracted}`)
+    }
+    return extracted
+  }
+
+  private expandArchive(zipPath: string, destDir: string): Promise<void> {
+    const script = `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`
+    return new Promise<void>((resolvePromise, reject) => {
+      const child = spawn('powershell', ['-NoProfile', '-Command', script], { stdio: 'inherit' })
+      child.once('error', reject)
+      child.once('exit', code => {
+        if (code === 0) resolvePromise()
+        else reject(new Error(`package-dsh-runtime: Expand-Archive 失败 (exit ${code})`))
+      })
+    })
+  }
+
+  async assembleRuntime(nodeExe: string): Promise<string> {
+    if (this.outDir === root || root.startsWith(this.outDir + sep)) {
+      throw new Error(`package-dsh-runtime: 拒绝清理输出目录 ${this.outDir}:它包含仓库根。`)
+    }
+    await rm(this.outDir, { recursive: true, force: true })
+    await mkdir(this.outDir, { recursive: true })
+
+    console.log('package-dsh-runtime: 组装 dsh-runtime(node.exe + node_modules + config + web 静态产物)')
+    await copyFile(nodeExe, join(this.outDir, 'node.exe'))
+
+    // 物化后的 staging/node_modules;再 dereference 一次兜底,确保最终无符号链接
+    await cp(join(this.staging, 'node_modules'), join(this.outDir, 'node_modules'), {
+      recursive: true,
+      dereference: true,
+    })
+
+    await mkdir(join(this.outDir, dirname(CONFIG_DEST_REL)), { recursive: true })
+    await copyFile(join(root, CONFIG_SOURCE_REL), join(this.outDir, CONFIG_DEST_REL))
+
+    for (const rel of WEB_STATIC_RELS) {
+      const destination = join(this.outDir, rel)
+      await mkdir(dirname(destination), { recursive: true })
+      await cp(join(root, rel), destination, { recursive: true })
+    }
+    for (const dir of WEB_LOCAL_PACKAGE_DIRS) {
+      const destination = join(this.outDir, 'packages', 'starhub', dir)
+      await mkdir(dirname(destination), { recursive: true })
+      await cp(join(root, 'packages', 'starhub', dir), destination, { recursive: true })
+    }
+    return this.outDir
+  }
+
+  printResult(outDir: string): void {
+    let bytes = 0
+    const stack = [outDir]
+    while (stack.length > 0) {
+      const dir = stack.pop()!
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name)
+        if (entry.isDirectory()) stack.push(path)
+        else if (entry.isFile()) bytes += statSync(path).size
+      }
+    }
+    const megabytes = bytes / (1024 * 1024)
+    console.log(`package-dsh-runtime: 产物: ${outDir}  (${megabytes.toFixed(1)} MB)`)
+  }
+
+  private async run(label: string, command: string, args: string[]): Promise<void> {
+    const printable = formatCommand(command, args)
+    console.log(`package-dsh-runtime: ${label}: ${printable}`)
+    await new Promise<void>((resolvePromise, reject) => {
+      const shellArgs = process.platform === 'win32'
+        ? args.map(arg => (arg.includes(' ') ? `"${arg}"` : arg))
+        : args
+      const child = spawn(command, shellArgs, {
+        cwd: root,
+        stdio: 'inherit',
+        shell: process.platform === 'win32',
+      })
+      child.once('error', (error) => {
+        reject(new Error(`package-dsh-runtime: ${label} 启动失败: ${error.message} (${printable})`))
+      })
+      child.once('exit', (code, signal) => {
+        if (code === 0) {
+          resolvePromise()
+          return
+        }
+        const cause = code === null ? `signal ${signal ?? 'unknown'}` : `exit code ${code}`
+        reject(new Error(`package-dsh-runtime: ${label} 失败 (${cause}): ${printable}`))
+      })
+    })
+  }
+}
+
+async function main(): Promise<void> {
+  const cli = BuildCli.parse(process.argv.slice(2))
+  const pipeline = new DshRuntimePackage(cli)
+  console.log(`package-dsh-runtime: staging: ${pipeline.staging}`)
+  await pipeline.verifyClosure()
+  await pipeline.build()
+  await pipeline.deployStaging()
+  await pipeline.restoreDevDeps()
+  const nodeExe = await pipeline.downloadNodeExe()
+  const outDir = await pipeline.assembleRuntime(nodeExe)
+  pipeline.printResult(outDir)
+}
+
+await main()

@@ -901,7 +901,7 @@ pub fn prepare_runtime_config(
         tracing::warn!("dsh 插件 peer 链接建立失败(已装插件可能无法加载): {error}");
     }
     let wrapper = paths.wrapper_path();
-    let main_config = runtime_dir.join(super::RUNTIME_CONFIG_REL);
+    let main_config = runtime_dir.join(super::runtime_config_rel(runtime_dir));
     fs::write(
         &wrapper,
         render_wrapper_yml(&main_config, &paths.entries_path()),

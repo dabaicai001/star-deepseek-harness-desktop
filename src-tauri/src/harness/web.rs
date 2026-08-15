@@ -101,15 +101,16 @@ fn rewrite_patch_port(template: &str, port: u16) -> Result<String, DshWebError> 
 
 /// StarHub embed dist:优先 dist-embed(build:embed 产物,base /starhub/),
 /// 回退 dist。host-static 自己也做同样解析,这里经 STARHUB_DIST 显式钉死。
-fn resolve_starhub_dist(repo_root: &Path) -> Result<PathBuf, DshWebError> {
-    for dir in [repo_root.join("dist-embed"), repo_root.join("dist")] {
+/// `root`:dev 下为仓库根,prod 下为 resource_dir(两者都直接含 dist-embed/dist)。
+fn resolve_starhub_dist(root: &Path) -> Result<PathBuf, DshWebError> {
+    for dir in [root.join("dist-embed"), root.join("dist")] {
         if dir.join("index.html").exists() {
             return Ok(dir);
         }
     }
     Err(DshWebError::PathResolve(format!(
         "未找到 StarHub 前端 dist(先跑 npm run build:embed): {}",
-        repo_root.display()
+        root.display()
     )))
 }
 
@@ -145,13 +146,21 @@ impl DshWebManager {
 
     async fn spawn(&self, app: &tauri::AppHandle) -> Result<DshWebHandle, DshWebError> {
         use tauri::Manager;
-        let paths = HarnessPaths::resolve().map_err(|e| DshWebError::PathResolve(e.to_string()))?;
+        let paths = HarnessPaths::resolve_for_app(app)
+            .map_err(|e| DshWebError::PathResolve(e.to_string()))?;
         let runtime_dir = paths.runtime_dir;
-        let repo_root = runtime_dir
-            .join("..")
-            .join("..")
-            .canonicalize()
-            .map_err(|e| DshWebError::PathResolve(format!("仓库根解析失败: {e}")))?;
+        // prod:dist-embed 与本地包走 resource_dir;dev:走 runtime_dir 上两级的仓库根。
+        let dist_root = if paths.is_packaged {
+            app.path()
+                .resource_dir()
+                .map_err(|e| DshWebError::PathResolve(format!("resource_dir 失败: {e}")))?
+        } else {
+            runtime_dir
+                .join("..")
+                .join("..")
+                .canonicalize()
+                .map_err(|e| DshWebError::PathResolve(format!("仓库根解析失败: {e}")))?
+        };
         let example_dir = runtime_dir.join(EXAMPLE_REL);
         let cli_bin = runtime_dir.join(CLI_BIN_REL);
         if !cli_bin.exists() {
@@ -209,7 +218,7 @@ impl DshWebManager {
         }
 
         // 4. spawn dsh web 组合
-        let starhub_dist = resolve_starhub_dist(&repo_root)?;
+        let starhub_dist = resolve_starhub_dist(&dist_root)?;
         let mut cmd = Command::new(&paths.node_path);
         cmd.arg(&cli_bin)
             .arg("web")
