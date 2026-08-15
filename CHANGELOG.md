@@ -13,6 +13,14 @@
 
 ---
 
+## [0.67.0] - 2026-08-15
+
+### 新增
+- B 路径 Phase 0 spike Step 1:client-nav 新增壳内 React 工具页签(`conversation.view` 注册 `starhub-tools`,`StarHubToolWorkspace.tsx`)——无 iframe 直渲,挂载时经顶层帧 Tauri IPC 直调 `get_assets`,资产列表写入共享 asset store(`asset-store.ts`,defineStore);`tsc` + tsdown 构建通过,4 个组件测试(空态/加载/错误/列表)全绿
+- `docs/重构方案-B-壳内React插件化.md` 补 P0 spike 实测记录:D1/D2 结论、独立 3086 测试实例验证、运行时 junction 指向 `runtime_dir`(非仓库 vendor)的开发注意项
+
+---
+
 ## [0.66.9] - 2026-08-15
 
 ### 修正

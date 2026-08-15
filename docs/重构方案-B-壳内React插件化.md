@@ -101,11 +101,19 @@ vendor/deepseek-harness/packages/starhub/
 
 **推荐 A**,但需在 P0 spike 里实测两个硬约束:无会话时右栏可达性(AppFrame 现在 `detailsSession === undefined ? 0 : panels.details` 列宽归零)、以及切会话时工具状态去向(见 D2)。若 A 的 tab 共处代价过大,退回 B。
 
+> **P0 spike 实测记录(Step 1,2026-08-15)**:壳内直渲已验证可行——
+> 1. **`conversation.view` 页签 + Tauri IPC 直调成立**:`client-nav` 新增 `starhub-tools` 页签(`StarHubToolWorkspace.tsx`),壳内 React 直渲(无 iframe),挂载时经顶层帧 `__TAURI_INTERNALS__.invoke('get_assets')` 拉资产列表写入共享 asset store(`asset-store.ts`,defineStore);`pnpm exec tsc -b` + tsdown 构建通过,4 个组件测试(空态/加载/错误/列表)全绿。
+> 2. **独立测试实例验证**:为不干扰线上 3085(当前 GUI),在 **3086** 起独立 DSH_HOME 测试实例(port 3085→3086 改写 + client-nav junction 指向仓库 vendor 新 bundle):`/plugins/.../client-nav/client.js` 返回 14944B 新 bundle(含 `starhub-tools`)、boot rev 更新、注入含 `dsh-client-ui-conversation`;3085 保持 9255B 旧 bundle 不受影响。
+> 3. **关键发现(反直觉)**:本地开发改 `vendor/deepseek-harness/packages/starhub/client-nav` **不会**即时影响运行的 dsh web——线上实例经 `web.rs` 的 junction 指向 `runtime_dir`(本机为 `E:\StarHub1\dsh-runtime`,部署副本,非 git 仓库),需要把构建产物同步过去或用独立 DSH_HOME 起测试实例。验证完已把 3085 的 dsh-runtime 回滚到旧 bundle。
+> 4. **D2 数据佐证**:`conversation.view` 是 session scope,store 按 handle × scopeKey(sessionId)缓存实例——资产这类全局数据放 per-session 实例会随会话切换重建,验证了「长生命周期状态必须提升到 root-scope 承载」的必要性。
+> 5. **D1 修正**:Step 1 用 `conversation.view` 仅作载体验证「壳内直渲 + IPC + store」链路;`details` 右栏席位改造(方案 A)留待 Step 2,届时实测无会话可达性与切会话保活。
+
 ### D2 会话切换时工具状态保活
 
 - 现状:iframe 挂 `shell.overlay`(root scope),切会话不受影响;若搬进 `details`(session scope),**切会话会卸载整个右栏 → SSH/SFTP 连接状态全丢**。
 - 方案:连接/传输等长生命周期状态**提升到壳级 store**(与 session 解耦),工具组件只做投影;切会话时组件重挂,但 store 里的连接句柄不销毁。
 - 验收:P0 spike 里「切会话 → 终端不断线」作为硬指标。
+- **P0 spike 实测(Step 1)**:确证 store 实例按 `handle × scopeKey` 缓存,`conversation.view`(session scope)下资产 store 每会话重建——全局数据必须由 root-scope 承载(或 apply 闭包持有、经 inject 注入组件),这是后续 `details` 席位改造必须遵守的约束。
 
 ### D3 包粒度
 
