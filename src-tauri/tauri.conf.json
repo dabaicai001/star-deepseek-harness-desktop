@@ -1,12 +1,12 @@
 {
   "productName": "StarHub",
-  "version": "0.64.2",
+  "version": "0.65.0",
   "identifier": "com.starhub.app",
   "build": {
-    "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "npm run sidecar:build && npm run dev",
-    "beforeBuildCommand": "npm run sidecar:build:release && npm run build"
+    "frontendDist": "../shell-placeholder",
+    "devUrl": "http://127.0.0.1:3085",
+    "beforeDevCommand": "node scripts/dev-dsh-shell.mjs",
+    "beforeBuildCommand": "npm run sidecar:build:release && npm run build:embed"
   },
   "app": {
     "windows": [
@@ -19,7 +19,7 @@
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
-        "decorations": false,
+        "decorations": true,
         "transparent": false,
         "backgroundColor": "#080d14",
         "shadow": true,

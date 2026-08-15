@@ -15,6 +15,10 @@ import { useNotifyStore } from '@/stores/notify'
 import { fetchAlertRules, createAlertRule, updateAlertRule, deleteAlertRule, testAlertWebhook } from '@/services/alert'
 import type { AlertRule, AlertRuleInput } from '@/services/alert'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
+import { useAssetStore } from '@/stores/asset'
+import { getDbLabel } from '@/utils/assetRouting'
+import type { Asset, CreateAssetDto } from '@/types/asset'
 import {
   listPlugins, installLocalPlugin, installPluginFromUrl,
   setPluginEnabled, uninstallPlugin, fetchPluginMarket
@@ -38,10 +42,73 @@ function closeEmbedOverlay() {
   window.parent.postMessage({ type: 'starhub-embed-escape' }, window.location.origin)
 }
 
-// 选中的 tab
-type TabKey = 'general' | 'appearance' | 'ai' | 'plugins' | 'audit' | 'alert' | 'about'
+// ====== 资产 tab(P4a:旧外壳 AssetTree 退役后,资产 CRUD 的新家)======
+// 新建/编辑复用 NewConnectionDialog(create → @submit,edit → @update);
+// 功能页侧经 EmbedAssetBar 的「去设置添加」postMessage 指到本页。
+const assetStore = useAssetStore()
+const showAssetDialog = ref(false)
+const editingAsset = ref<Asset | null>(null)
+const assetDeleteTarget = ref<Asset | null>(null)
+
+/** 资产类型徽章文案(db 按 dbType 细分,复用 getDbLabel 缩写约定) */
+function assetTypeLabel(asset: Asset): string {
+  if (asset.type === 'db') return getDbLabel(asset.config.dbType)
+  return asset.type.toUpperCase()
+}
+
+/** 资产地址摘要(user@host / rootPath / filePath,取最常用字段) */
+function assetAddr(asset: Asset): string {
+  const c = asset.config
+  const host = typeof c.host === 'string' ? c.host : ''
+  const username = typeof c.username === 'string' ? c.username : ''
+  if (host && username) return `${username}@${host}`
+  if (host) return host
+  if (typeof c.rootPath === 'string' && c.rootPath) return c.rootPath
+  if (typeof c.filePath === 'string' && c.filePath) return c.filePath
+  return '-'
+}
+
+function openCreateAsset() {
+  editingAsset.value = null
+  showAssetDialog.value = true
+}
+
+function openEditAsset(asset: Asset) {
+  editingAsset.value = asset
+  showAssetDialog.value = true
+}
+
+async function onAssetSubmit(dto: CreateAssetDto) {
+  try {
+    await assetStore.createAsset(dto)
+  } catch (err) {
+    notifyStore.notify({ message: t('settings.assets.createFailed', { err: String(err) }), color: 'error', timeout: 3000 })
+  }
+}
+
+async function onAssetUpdate(payload: { id: string; dto: CreateAssetDto }) {
+  try {
+    await assetStore.updateAsset(payload.id, payload.dto)
+  } catch (err) {
+    notifyStore.notify({ message: t('settings.assets.updateFailed', { err: String(err) }), color: 'error', timeout: 3000 })
+  }
+}
+
+async function confirmAssetDelete() {
+  const target = assetDeleteTarget.value
+  assetDeleteTarget.value = null
+  if (!target) return
+  try {
+    await assetStore.deleteAsset(target.id)
+  } catch (err) {
+    notifyStore.notify({ message: t('settings.assets.deleteFailed', { err: String(err) }), color: 'error', timeout: 3000 })
+  }
+}
+
+// 选中的 tab(P4a:资产管理是默认 tab —— 旧外壳 AssetTree 退役后,这里是资产 CRUD 的唯一入口)
+type TabKey = 'assets' | 'general' | 'appearance' | 'ai' | 'plugins' | 'audit' | 'alert' | 'about'
 const props = withDefaults(defineProps<{ initialTab?: TabKey }>(), {
-  initialTab: 'general'
+  initialTab: 'assets'
 })
 const activeTab = ref<TabKey>(props.initialTab)
 watch(() => props.initialTab, tab => { activeTab.value = tab })
@@ -89,6 +156,9 @@ function saveGeneral() {
 }
 onMounted(async () => {
   loadGeneral()
+  assetStore.fetchAssets().catch((e) => {
+    console.warn('[settings] fetchAssets failed:', e)
+  })
   aiStore.ensureSettingsShape()
   await aiStore.migrateModelApiKeys()
   aiLocal.value = cloneAiSettings(aiStore.settings)
@@ -1141,43 +1211,102 @@ async function onTestWebhook(url: string) {
 
     <!-- Tab 切换 -->
     <div class="settings-tabs">
-      <button class="tab" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">
+      <button class="tab" :class="{ active: activeTab === 'assets' }" @click="activeTab = 'assets'">
         <span class="tab-num">01</span>
+        <v-icon size="13">mdi-server-network-outline</v-icon>
+        <span class="tab-label">{{ t('settings.assets.tab') }}</span>
+        <span class="tab-hint">{{ t('settings.assets.tabHint') }}</span>
+      </button>
+      <button class="tab" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">
+        <span class="tab-num">02</span>
         <v-icon size="13">mdi-tune-variant</v-icon>
         <span class="tab-label">{{ t('settings.general') }}</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">
-        <span class="tab-num">02</span>
+        <span class="tab-num">03</span>
         <v-icon size="13">mdi-palette-outline</v-icon>
         <span class="tab-label">{{ t('settings.appearance') }}</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
-        <span class="tab-num">03</span>
+        <span class="tab-num">04</span>
         <v-icon size="13">mdi-robot-outline</v-icon>
         <span class="tab-label">AI 助手</span>
         <span class="tab-hint">Function Calling · 命令执行</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'plugins' }" @click="activeTab = 'plugins'">
-        <span class="tab-num">04</span>
+        <span class="tab-num">05</span>
         <v-icon size="13">mdi-puzzle-outline</v-icon>
         <span class="tab-label">{{ t('settings.plugins.tab') }}</span>
         <span class="tab-hint">{{ t('settings.plugins.tabHint') }}</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'audit' }" @click="activeTab = 'audit'">
-        <span class="tab-num">05</span>
+        <span class="tab-num">06</span>
         <v-icon size="13">mdi-clipboard-list-outline</v-icon>
         <span class="tab-label">审计日志</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'alert' }" @click="activeTab = 'alert'">
-        <span class="tab-num">06</span>
+        <span class="tab-num">07</span>
         <v-icon size="13">mdi-bell-alert-outline</v-icon>
         <span class="tab-label">告警规则</span>
       </button>
       <button class="tab" :class="{ active: activeTab === 'about' }" @click="activeTab = 'about'">
-        <span class="tab-num">07</span>
+        <span class="tab-num">08</span>
         <v-icon size="13">mdi-information-outline</v-icon>
         <span class="tab-label">{{ t('settings.about') }}</span>
       </button>
+    </div>
+
+    <!-- 资产管理(P4a:旧外壳 AssetTree 退役后的 CRUD 新家;embed 下默认 tab) -->
+    <div v-if="activeTab === 'assets'" class="settings-panel">
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">01</span>
+          <span class="section-title">{{ t('settings.assets.title') }}</span>
+        </div>
+        <p class="section-desc">{{ t('settings.assets.desc') }}</p>
+
+        <div class="audit-toolbar">
+          <button class="cyber-btn-secondary" @click="openCreateAsset">
+            <v-icon size="14">mdi-plus</v-icon>
+            {{ t('asset.create') }}
+          </button>
+          <button class="cyber-btn-secondary" :disabled="assetStore.loading" @click="assetStore.fetchAssets()">
+            <v-icon size="14" :class="{ 'mdi-spin': assetStore.loading }">{{ assetStore.loading ? 'mdi-loading' : 'mdi-refresh' }}</v-icon>
+            {{ t('common.refresh') }}
+          </button>
+        </div>
+
+        <div class="audit-table-wrap">
+          <table class="audit-table assets-table">
+            <thead>
+              <tr>
+                <th>{{ t('settings.assets.colName') }}</th>
+                <th>{{ t('settings.assets.colType') }}</th>
+                <th>{{ t('settings.assets.colAddr') }}</th>
+                <th>{{ t('settings.assets.colActions') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="assetStore.assets.length === 0">
+                <td colspan="4" class="audit-empty">{{ t('settings.assets.empty') }}</td>
+              </tr>
+              <tr v-for="a in assetStore.assets" :key="a.id">
+                <td class="asset-name">{{ a.name }}</td>
+                <td><span class="cyber-badge">{{ assetTypeLabel(a) }}</span></td>
+                <td class="asset-addr" :title="assetAddr(a)">{{ assetAddr(a) }}</td>
+                <td class="asset-actions">
+                  <button class="action-btn" :data-tooltip="t('common.edit')" :aria-label="t('common.edit')" @click="openEditAsset(a)">
+                    <v-icon size="14">mdi-pencil-outline</v-icon>
+                  </button>
+                  <button class="action-btn asset-delete" :data-tooltip="t('common.delete')" :aria-label="t('common.delete')" @click="assetDeleteTarget = a">
+                    <v-icon size="14">mdi-delete-outline</v-icon>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- 通用设置 -->
@@ -1880,6 +2009,24 @@ async function onTestWebhook(url: string) {
       danger
       @update:model-value="uninstallDialogPlugin = null"
       @confirm="confirmUninstall"
+    />
+
+    <!-- 资产新建/编辑(复用 NewConnectionDialog;edit 模式传 :asset 走 @update) -->
+    <NewConnectionDialog
+      v-model="showAssetDialog"
+      :asset="editingAsset"
+      @submit="onAssetSubmit"
+      @update="onAssetUpdate"
+    />
+    <!-- 资产删除确认 -->
+    <ConfirmDialog
+      :model-value="assetDeleteTarget !== null"
+      :title="t('common.delete')"
+      :message="t('settings.assets.deleteConfirm', { name: assetDeleteTarget?.name ?? '' })"
+      :confirm-text="t('common.delete')"
+      danger
+      @update:model-value="assetDeleteTarget = null"
+      @confirm="confirmAssetDelete"
     />
 
     <!-- 审计日志 -->
@@ -3138,5 +3285,34 @@ async function onTestWebhook(url: string) {
   color: var(--red, #ff5f56);
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* 资产 tab:列宽在 cyber.css 的 .audit-table 全局规则上按本页语义覆盖 */
+.assets-table th:nth-child(1) { width: auto; }
+.assets-table th:nth-child(2) { width: 90px; }
+.assets-table th:nth-child(3) { width: auto; }
+.assets-table th:nth-child(4) { width: 96px; }
+.assets-table .asset-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.assets-table .asset-addr {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.assets-table .asset-actions {
+  white-space: nowrap;
+}
+.assets-table .asset-actions .action-btn {
+  width: 26px;
+  height: 26px;
+}
+.assets-table .asset-delete:hover {
+  color: var(--red);
+  border-color: var(--red);
 }
 </style>

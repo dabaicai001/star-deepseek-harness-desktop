@@ -5,8 +5,8 @@
  * 的同源 iframe(host-static 插件托管 dist,base `/starhub/`)。
  * embed=1 时 CyberLayout 渲染去壳外壳(无 titlebar / tab 条 / 侧栏 / 状态栏,
  * 不套 keep-alive、不进 appStore.tabs),并直接 router.replace 到 route。
- *
- * 与 detached 窗口(windowDetach.ts)同理:参数在窗口/iframe 生命周期内只解析一次。
+ * P4a 起 embed 是唯一形态(旧外壳与 windowDetach 拖出窗口已退役);
+ * 参数在 iframe 生命周期内只解析一次。
  */
 
 import type { Asset } from '@/types/asset'

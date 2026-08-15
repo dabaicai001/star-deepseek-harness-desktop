@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, onActivated, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import KbInteractiveDialog from './KbInteractiveDialog.vue'
@@ -24,7 +24,6 @@ import type { Asset } from '@/types/asset'
 import { parseInstanceId, withTabIndexSuffix, generateInstanceId } from '@/utils/tabId'
 import { parseXshellQblDetailed, parseXshellQblx, decodeQblText } from '@/utils/xshellQuickCommand'
 import { formatSize } from '@/services/sftp'
-import { getDetachedInfo, LOCAL_TAB_DETACH_EVENT } from '@/lib/windowDetach'
 import { SSH_SYSTEM_PROMPT, SSH_SILENT_MODE_PROMPT_NOTE, sshTools, makeSshToolCaller } from '@/utils/aiTools'
 import { useAiChatHost } from '@/composables/useAiChatHost'
 import { makeSftpToolCaller, sftpTools } from '@/utils/aiSftpTools'
@@ -253,38 +252,6 @@ const zmodemBytesText = computed(() => {
 })
 const terminalDecoder = new TextDecoder()
 
-// ====== 独立窗口(标签页拖出) ======
-/** 非空 = 本组件运行在拖出的独立窗口里 */
-const detachedWindowInfo = getDetachedInfo()
-/** 附加模式:复用了主窗口建好的后端 session,unmount 时不能 disconnect */
-let attachedToExisting = false
-/** 主窗口侧:tab 被拖出后本实例被 keep-alive 缓存,标记以便送回时恢复订阅 */
-let silencedForDetach = false
-
-/** 主窗口把本 tab 拖成独立窗口:停止消费会话数据(ZMODEM sentry 会抢字节),
- *  但不断开后端 session — 留给独立窗口附加。 */
-function onLocalDetachEvent(e: Event) {
-  const detail = (e as CustomEvent<{ id?: string }>).detail
-  if (detail?.id !== props.id) return
-  silencedForDetach = true
-  if (unlisten) { unlisten(); unlisten = null }
-  if (unlistenClose) { unlistenClose(); unlistenClose = null }
-  resetZmodem()
-  stopTimer()
-}
-
-/** tab 从独立窗口送回主窗口:keep-alive 重激活,恢复订阅同一后端会话 */
-onActivated(() => {
-  if (!silencedForDetach) return
-  silencedForDetach = false
-  if (!connected.value) return
-  terminalRef.value?.writeln('\x1b[36m⟐ 会话已从独立窗口送回(期间输出未回显)\x1b[0m')
-  startTimer()
-  setupZmodemSentry()
-  void subscribeSessionEvents(props.id)
-  void syncRemoteTerminalSize()
-})
-
 // ======右侧 Panel(仪表盘 / AI切换) ======
 const rightActiveTab = ref<string>('dashboard')
 
@@ -422,7 +389,6 @@ onMounted(async () => {
    }
  }
  window.addEventListener('beforeunload', beforeUnloadHandler)
- window.addEventListener(LOCAL_TAB_DETACH_EVENT, onLocalDetachEvent)
 
  initQuickCommands()
 
@@ -437,7 +403,6 @@ onMounted(async () => {
 
 onBeforeUnmount(async () => {
   currentConnectId++
-  window.removeEventListener(LOCAL_TAB_DETACH_EVENT, onLocalDetachEvent)
   if (beforeUnloadHandler) {
     window.removeEventListener('beforeunload', beforeUnloadHandler)
     beforeUnloadHandler = null
@@ -457,11 +422,7 @@ onBeforeUnmount(async () => {
   captureResolve = null
   clearPromptCapture(new Error('SSH terminal closed'))
   stopTimer()
-  // 附加模式下 session 属于主窗口原会话,unmount 不断开(独立窗口销毁后,
-  // 主窗口 reattach 还要复用它;后端 session 的生命周期由主窗口侧管理)
-  if (!attachedToExisting) {
-    await disconnect()
-  }
+  await disconnect()
 })
 
 function startTimer() {
@@ -547,32 +508,6 @@ async function connect() {
  connected.value = false
  resetSftpReady()
  connecting.value = true
-
-  // ===== 独立窗口附加模式 =====
-  // 本 tab 是从主窗口拖出的:后端 SSH session 还活着,直接附加
-  // (订阅同一 sessionId 的事件),不重新建链 — 远端 shell 与正在
-  // 运行的任务完全不受影响;拖出前的历史输出不回显。
-  if (detachedWindowInfo) {
-    try {
-      const sessions = await invoke<Array<{ id: string; connected: boolean }>>('ssh_get_sessions')
-      if (sessions.some(s => s.id === sessionId && s.connected)) {
-        attachedToExisting = true
-        connected.value = true
-        connecting.value = false
-        reconnectAttempt.value = 0
-        terminalRef.value?.writeln('\x1b[36m⟐ 已附加到现有会话(拖出前的历史输出未回显)\x1b[0m')
-        startTimer()
-        setupZmodemSentry()
-        await subscribeSessionEvents(sessionId)
-        await syncRemoteTerminalSize()
-        scheduleSftpReadyFallback()
-        return
-      }
-    } catch (error) {
-      // 探测失败(后端未就绪等)→ 回退到正常建链
-      console.warn('[ssh] attach probe failed, fallback to connect:', error)
-    }
-  }
 
  lastError.value = null
  terminalRef.value?.writeln('')
@@ -720,7 +655,7 @@ async function connect() {
  }
 }
 
-/** 订阅会话数据 / 关闭事件(正常建链与独立窗口附加模式共用) */
+/** 订阅会话数据 / 关闭事件 */
 async function subscribeSessionEvents(sessionId: string) {
   unlisten = await listen(`ssh:data:${sessionId}`, (event) => {
     const payload = event.payload

@@ -64,8 +64,8 @@ pub async fn dsh_shutdown(manager: State<'_, HarnessManager>) -> Result<Value, S
     Ok(Value::Null)
 }
 
-/// dsh web GUI 的实际 URL(主壳融合 P1;端口被占时会递增,不能假设 3085)。
-/// 未运行(STARHUB_DSH_WEB=0 禁用或启动失败)时返回错误。
+/// dsh web GUI 的实际 URL(主壳融合;端口被占时会递增,不能假设 3085)。
+/// 未运行(启动失败)时返回错误,shell-placeholder 跳板页据此轮询重试。
 #[tauri::command]
 pub async fn dsh_web_url(
     manager: State<'_, crate::harness::web::DshWebManager>,

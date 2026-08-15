@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.64.2(dsh 主壳融合 P3 第二批(DB/Redis/ES/Docker/Broker/Excel/Settings):修复 embed 入口白屏(history base 剥离后 `/index.html` 无路由匹配,新增占位子路由);ElasticsearchView/ExcelView 的 assetId 从 tab 系统反查改为 instanceId 直解(embed 无 tab 系统,原写法必炸);SettingsView embed 模式加关闭按钮(复用 Esc postMessage 通道);8 页 DOM 探针实测渲染(真实服务本机不可用,仅错误态/空态证据);踩坑记录 §22) |
+| 当前版本 | v0.65.0(dsh 主壳融合 P4a:**dsh GUI 成为唯一主壳**——`npm run tauri:dev` 默认即 dsh 界面(devUrl 指 3085 占位页自跳转,prod 用本地 `shell-placeholder/` 跳板轮询 `dsh_web_url`);窗口改回 native 标题栏(dsh GUI 无窗口控件);AiView/LocalView 整页退役(dsh 对话与 dsh 工作区接管),旧外壳代码整体删除(CyberLayout 2746 行 → 约 100 行 embed 唯一形态,windowDetach/AssetTree/命令面板/拖出窗口退役);资产 CRUD 迁至设置页新「资产」tab(先立后破);AiChat 右侧 AI 面板保留旧内核;真窗口冒烟 16/16 overlay 交互全过 + embed SSH 真连 stub;踩坑记录 §23) |
 
 ---
 
@@ -52,10 +52,10 @@ starhub/
 │
 ├── src/                      # 前端 - Vue 3 + Vite + TypeScript(仓库根 npm 管理)
 │   ├── components/            # 按域组织的组件(ai/asset/common/dashboard/db/docker/es/excel/layout/redis/sftp/ssh/transfer)
-│   ├── views/                 # 页面(DbView / SshTerminal / AiView / ExcelView 等)
+│   ├── views/                 # 页面(DbView / SshTerminal / SettingsView / ExcelView 等)
 │   ├── stores/                # Pinia 状态(app/asset/db/docker/excel/theme/transfer 等)
 │   ├── services/              # Tauri IPC 封装(ssh/sftp/db/docker/ai/mcp/updater 等)
-│   ├── lib/                   # 第三方集成层(univer.ts、windowDetach.ts)
+│   ├── lib/                   # 第三方集成层与 embed 协议(univer.ts、embed.ts)
 │   ├── plugins/               # vuetify 等插件
 │   ├── router/                # Vue Router
 │   ├── i18n/                  # 中/英文案
@@ -204,8 +204,8 @@ npm install
 # 前端开发(纯浏览器预览,http://127.0.0.1:1420,无 Tauri IPC)
 npm run dev
 
-# 完整桌面开发(先编 Go Sidecar,再启动 Tauri dev)
-npm run sidecar:build
+# 完整桌面开发(P4a 起默认 dsh 主壳:beforeDevCommand 自动做 vendor 检查 +
+# sidecar:build + build:embed + 3085 占位页,无需手动预编)
 npm run tauri:dev
 
 # 前端构建(先 vue-tsc 类型检查再 vite build)
@@ -457,7 +457,7 @@ npm run tauri:build
 - SFTP:断点续传、暂停/继续、全局传输任务条(TransferDock)
 - Docker:Compose、SSH 通道连远程
 - AI:Planner → Executor、MCP Server、工作区内嵌确认卡、@/# 上下文绑定
-- 应用:标签页拖出独立窗口、深浅双主题、自动更新
+- 应用:dsh 主壳融合(功能页 embed overlay)、深浅双主题、自动更新(标签页拖出独立窗口已随旧外壳于 P4a 退役)
 
 **下一步候选**(以 Issue / `CHANGELOG.md` [未发布] 为准):Settings 代理与安全 tab、Oracle / MongoDB 适配、国产库 ODBC 桥、CI/CD 流水线。
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-14 (v0.64.2)*
+*最后更新: 2026-08-15 (v0.65.0)*

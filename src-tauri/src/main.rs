@@ -55,9 +55,9 @@ fn main() {
             // 初始化 TransferManager(需要 AppHandle 用于 emit 进度/状态事件)
             app.manage(TransferManager::new(app.handle().clone()));
 
-            // 主壳融合 P1:dsh web GUI 长驻服务。STARHUB_DSH_WEB=0 禁用(逃生门);
-            // 启动失败不致命——旧外壳开发流(vite devUrl)不受影响,错误落日志。
-            if std::env::var("STARHUB_DSH_WEB").ok().as_deref() != Some("0") {
+            // 主壳融合 P4a:dsh web GUI 是唯一主壳(旧外壳已退役,逃生门随之移除)。
+            // 启动失败不致命——窗口停留在 shell-placeholder 跳板页轮询重试,错误落日志。
+            {
                 let app_handle = app.handle().clone();
                 let started = tauri::async_runtime::block_on({
                     let app_handle = app_handle.clone();
@@ -69,13 +69,12 @@ fn main() {
                     }
                 });
                 match started {
-                    // tauri:dev:dsh 双轨流里 devUrl 的 3085 是占位等待页(真实服务
-                    // 在 3086+),跳转由占位页轮询脚本完成,Rust 不参与窗口导航
+                    // dev 流里 devUrl 的 3085 是占位等待页(真实服务在 3086+),
+                    // 跳转由占位页轮询脚本完成;prod 由 shell-placeholder 跳板页
+                    // 轮询 dsh_web_url 后 location.replace。Rust 不参与窗口导航
                     // (取舍见 docs/踩坑记录.md 第 20 节)。
                     Ok(url) => tracing::info!("dsh web 可用: {url}"),
-                    Err(e) => {
-                        tracing::error!("dsh web 启动失败(STARHUB_DSH_WEB=0 可整体禁用): {e}")
-                    }
+                    Err(e) => tracing::error!("dsh web 启动失败: {e}"),
                 }
             }
 

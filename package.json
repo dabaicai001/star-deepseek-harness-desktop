@@ -1,6 +1,6 @@
 {
   "name": "starhub",
-  "version": "0.64.2",
+  "version": "0.65.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,6 @@
     "test:ai-context": "node --test tests/ai-context.test.mjs",
     "test:ai-scroll": "node --test tests/ai-scroll-position.test.mjs",
     "test:ai-steering": "node --test tests/ai-steering.test.mjs",
-    "test:ai-dsh-projection": "node --test tests/ai-dsh-projection.test.mjs",
     "test:ssh-prompt": "node --test tests/ssh-prompt-capture.test.mjs",
     "test:terminal-cwd": "node --test tests/terminal-cwd.test.mjs",
     "cargo:check": "scripts\\cargo-env.bat check",
@@ -27,7 +26,6 @@
     "sidecar:build": "node scripts/build-sidecar.mjs",
     "sidecar:build:release": "node scripts/build-sidecar.mjs --release",
     "tauri:dev": "npm run tauri dev",
-    "tauri:dev:dsh": "npm run tauri dev -- --config src-tauri/tauri.dev-dsh.json",
     "tauri:build": "npm run tauri build"
   },
   "dependencies": {

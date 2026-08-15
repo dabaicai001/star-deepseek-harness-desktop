@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for StarHub main window and detached workspace windows. Grants all required permissions for SSH terminal, asset CRUD, event listening, and multi-window tab detach.",
-  "windows": ["main", "detach-*"],
+  "description": "Default capability for StarHub main window (dsh web shell + embed iframe pages). Grants all required permissions for SSH terminal, asset CRUD, and event listening.",
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "core:event:default",

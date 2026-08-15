@@ -57,9 +57,17 @@
 
 ## P4 退役与切换 + 打包
 
-- [ ] 旧 Vue 壳路由切换到 dsh 壳为默认入口
-- [ ] 退役旧 AiView 壳路径残留(AiChat 宿主等)
-- [ ] 打包:apps/web dist + client bundles 纳入构建链,便携 Node / dsh runtime 入包
+- [x] 旧 Vue 壳路由切换到 dsh 壳为默认入口(P4a,2026-08-15)
+- [x] 退役旧 AiView 壳路径残留(P4a;AiChat 宿主 / stores/ai.ts / local_* 命令保留,dsh 内核 HarnessManager 保留待 D3/P2)
+- [ ] 打包:apps/web dist + client bundles 纳入构建链,便携 Node / dsh runtime 入包(P4b)
+
+> P4a(2026-08-15 完成):默认入口切换 + AiView/LocalView 退役 + 旧外壳代码退役。
+> - **默认入口**:`tauri.conf.json` devUrl=127.0.0.1:3085 + beforeDevCommand=`scripts/dev-dsh-shell.mjs`(双轨取消,`tauri:dev:dsh` 别名与 `tauri.dev-dsh.json` 删除);**decorations 改 true**(native 标题栏,dsh GUI 无窗口控件,自画 chrome 随旧外壳删除);`STARHUB_DSH_WEB=0` 逃生门移除(旧外壳已删,无回退目标)。
+> - **prod 方案(取舍)**:`frontendDist` 指本地 `shell-placeholder/` 跳板页(轮询 `dsh_web_url` command → `location.replace`),不用 remote URL——配置窗口在 setup 完成前就开始加载,远程地址未就绪会落在错误页且不重试。dist-embed / dsh runtime 入包是 P4b 的事。
+> - **AiView/LocalView 退役**:`/ai`、`/local` 路由删除;AiView.vue / LocalView.vue / aiHarnessProjection.ts(+ 其 node --test 与 package.json 脚本)/ stores/localView.ts / components/local/ 删除;i18n `local:` 段(中英)删除;services/ai.ts 的旧 Tauri 通道 `chat()`/`listModels()` 前端死导出删除(Rust 侧 ai_chat/ai_list_models 暂未下线,留 P6)。
+> - **旧外壳退役**:CyberLayout 瘦身为 embed 唯一形态(EmbedAssetBar + router-view + TransferDock);windowDetach.ts / AssetTree / AssetTreeNode / CommandPalette / SidebarHandle / NotificationCenter 删除;SshTerminal 拖出附加/送回逻辑清除;capabilities 去掉 `detach-*`。**stores/app.ts tab 系统保留**(消费者仍在:DbView 导出 Excel、WebBrowserView web tab、objectTree.openAndSelect;embed 下惰性 no-op,彻底移除留待后续);告警轮询 startAlertCheck 随旧外壳失去宿主,embed 不启动(避免 N 个 iframe 各自 60s 轮询)。
+> - **资产 CRUD 新家**:SettingsView 新增「资产」tab(默认 tab,列表 + 新建/编辑复用 NewConnectionDialog + 删除确认),EmbedAssetBar/EmbedSectionEmpty 的「去设置添加」落点即此。
+> - **实测**(真窗口 + DOM 探针,tmp/p4a-smoke/):`isDecorated()=true`;dsh GUI 侧栏 8 条目 DOM 在;8 条目逐一点击 overlay 开出(src=/starhub/index.html?embed=1&route=...)再点关闭全过;embed /ssh 真连 test-sftp stub(CONNECTED + 仪表盘 exec);设置页资产 tab 渲染 + IPC create/delete 往返 DOM 验证;默认 `npm run tauri:dev` 链路(占位页 3085 → Rust dsh web 3086)日志 + curl 证据。
 
 ## P5 全站换皮 dsw
 

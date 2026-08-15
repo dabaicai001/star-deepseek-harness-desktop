@@ -11,7 +11,7 @@
 //!
 //! 端口:默认 3085,占用则递增重试(上限 +10);实际端口写回状态,经
 //! `dsh_web_url` command 暴露。就绪探测:轮询 GET / 直到 200(超时 30s)。
-//! `STARHUB_DSH_WEB=0` 整体禁用(逃生门,便于旧外壳开发)。
+//! P4a 起 dsh web 是唯一主壳(旧外壳与 STARHUB_DSH_WEB=0 逃生门已退役)。
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;

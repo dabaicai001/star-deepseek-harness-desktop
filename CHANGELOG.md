@@ -13,6 +13,11 @@
 
 ---
 
+## [0.65.0] - 2026-08-15
+
+### 新增
+- dsh 主壳融合 P4a:**dsh GUI 成为唯一主壳**——`npm run tauri:dev` 默认即 dsh 界面(devUrl 指 3085 占位页自跳转,prod 用本地 `shell-placeholder/` 跳板轮询 `dsh_web_url`);窗口改回 native 标题栏(dsh GUI 无窗口控件);AiView/LocalView 整页退役(dsh 对话与 dsh 工作区接管),旧外壳代码整体删除(CyberLayout 2746 行 → 约 100 行 embed 唯一形态,windowDetach/AssetTree/命令面板/拖出窗口退役);资产 CRUD 迁至设置页新「资产」tab(先立后破);AiChat 右侧 AI 面板保留旧内核;真窗口冒烟 16/16 overlay 交互全过 + embed SSH 真连 stub;踩坑记录 §23
+
 ## [0.64.2] - 2026-08-14
 
 ### 修复

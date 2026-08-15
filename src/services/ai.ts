@@ -1,16 +1,12 @@
 /**
  * AI Service
  *
- * - 旧的 `chat()` (走 Tauri 后端 ai_chat) 保留,用于 AiView(全局 AI 助手页面)
- * - 新的 `chatWithTools()` 走前端 fetch,直接调 OpenAI 兼容 /chat/completions,
- *   用于 tab 内的 AI 助手,带 function calling 能力
+ * `chatWithTools()` / `chatStream()` 走前端 fetch,直接调 OpenAI 兼容
+ * /chat/completions,带 function calling 能力(AiChat 内嵌助手通道)。
  *
- * 两套并存是为了不动 AiView 的现有功能,tab 内 AI 助手是新通道。
+ * 注:旧的 Tauri 后端 `chat()` / `listModels()`(ai_chat / ai_list_models)
+ * 已随 AiView 退役(P4a)从前端删除;Rust 命令暂未下线(P6 收尾)。
  */
-
-import { invoke } from '@tauri-apps/api/core'
-
-// ===== 兼容旧 AiView 的接口(继续走 Tauri 后端) =====
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -37,6 +33,8 @@ export interface ContentPart {
   text?: string
   image_url?: { url: string }
 }
+
+// ===== OpenAI 兼容,前端直接调 =====
 
 /**
  * 估算单次 LLM 调用的花费(美元)。
@@ -71,41 +69,6 @@ function serializeMessages(messages: ChatMessage[]): Array<Record<string, unknow
     return msg as unknown as Record<string, unknown>
   })
 }
-
-export interface ChatRequest {
-  provider: string
-  api_key: string
-  model: string
-  messages: ChatMessage[]
-  temperature?: number
-  max_tokens?: number
-  system?: string
-}
-
-export interface ChatResponse {
-  content: string
-  model: string
-  usage: {
-    input_tokens: number
-    output_tokens: number
-  }
-}
-
-export interface ModelInfo {
-  id: string
-  name: string
-  provider: string
-}
-
-export async function chat(params: ChatRequest): Promise<ChatResponse> {
-  return invoke('ai_chat', { params })
-}
-
-export async function listModels(): Promise<ModelInfo[]> {
-  return invoke('ai_list_models')
-}
-
-// ===== 新通道:OpenAI 兼容,前端直接调 =====
 
 /**
  * OpenAI function calling 的工具定义

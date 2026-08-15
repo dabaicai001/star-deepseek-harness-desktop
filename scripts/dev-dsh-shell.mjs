@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * tauri:dev:dsh 的 beforeDevCommand(双轨制,默认 tauri:dev 不受影响)。
+ * tauri:dev 的 beforeDevCommand(P4a 起 dsh 壳是唯一主壳,双轨制已取消)。
  *
  * 依次执行:
  * 1. vendor dsh 构建产物存在性检查(client lib / web dist / CLI bin 缺失才构建;
@@ -70,7 +70,7 @@ const page = `<!DOCTYPE html>
   body { margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center;
          background: #080d14; color: #7f8b99; font: 14px/1.6 ui-monospace, monospace; }
 </style></head>
-<body><div>STARHUB dsh 壳启动中…(若长时间停留请查看终端日志,或 STARHUB_DSH_WEB=0 回退旧外壳)</div>
+<body><div>STARHUB dsh 壳启动中…(若长时间停留请查看终端日志)</div>
 <script>
   // 真实 dsh web 由 Rust 在 setup 拉起(3085 被本占位页占用,故在 3086+);
   // 轮询发现后立即跳转,用户基本无感。
