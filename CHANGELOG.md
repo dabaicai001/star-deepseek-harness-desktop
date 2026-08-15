@@ -13,6 +13,11 @@
 
 ---
 
+## [0.66.1] - 2026-08-15
+
+### 修复
+- 修复打包(prod)布局下 dsh web 无法启动:`package-dsh-runtime.ts` 新增 `installWebRuntimePackages`,把 deploy 闭包缺失的 dsh web 运行时包补入产物顶层 `node_modules`——两个 StarHub 本地包 `@deepseek-ai/dsh-starhub-client-nav/host-static`(loader 裸导入解析链上缺包即 ERR_MODULE_NOT_FOUND)、`node-addon-require-builtin` 及其传递依赖与平台预构建原生包(HMR 免 `--expose-internals` 回退,缺失则启动后崩溃);全新 DSH_HOME prod 布局冒烟 `/` 与 `/starhub/` 均 200
+
 ## [0.66.0] - 2026-08-15
 
 ### 新增

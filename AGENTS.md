@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.66.0(dsh 主壳融合 P4b+P5:**打包落地**——portable Node v24 + dsh runtime prod 闭包入包(`src-tauri/binaries/dsh-runtime`),web GUI dist + client bundles 纳入构建链(`dist-embed`),Rust `HarnessPaths` 支持 prod 资源目录解析与入口/config 切换,`tauri.conf.json` bundle.resources 纳入 dsh-runtime 与 dist-embed,打包冒烟验证(主壳 + AI 内核 stdio JSON-RPC)全绿;**全站换皮 dsw**——移除 panel/card 顶部 liquid-light 发光灯带(扁平化 + hairline 描边),收敛散落 `--glow-cyan/--glow-pink` 残留到克制阴影或移除,`--glow-soft` 暗色 token 中性化(去青,保留极轻环境光),输入 focus 光晕动画与硬编码 `rgba(93,214,214)` 收敛为 hairline focus ring) |
+| 当前版本 | v0.66.1(修复打包(prod)布局下 dsh web 无法启动:`package-dsh-runtime.ts` 新增 `installWebRuntimePackages`,把 deploy 闭包缺失的 dsh web 运行时包补入产物顶层 `node_modules`——两个 StarHub 本地包 `@deepseek-ai/dsh-starhub-client-nav/host-static`(loader 裸导入解析链上缺包即 ERR_MODULE_NOT_FOUND)、`node-addon-require-builtin` 及其传递依赖与平台预构建原生包(HMR 免 `--expose-internals` 回退,缺失则启动后崩溃);全新 DSH_HOME prod 布局冒烟 `/` 与 `/starhub/` 均 200) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-15 (v0.66.0)*
+*最后更新: 2026-08-15 (v0.66.1)*

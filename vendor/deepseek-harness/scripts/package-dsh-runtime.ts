@@ -5,6 +5,8 @@
  * 引用,Tauri 打包后落在 `resource_dir()/dsh-runtime`):
  *   node(.exe)                    # 官方 node24 portable(按目标平台)
  *   node_modules/                 # pnpm deploy --prod 物化后的依赖闭包
+ *                                  # (含补入的 dsh web 运行时包,见
+ *                                  # installWebRuntimePackages)
  *   config/starhub-agent.yml      # AI 内核主组合(纯对话 + starhub-tools)
  *   apps/cli/lib/bin.js           # dsh web GUI 入口
  *   examples/starhub-web/         # dsh web GUI profile 模板
@@ -408,7 +410,52 @@ class DshRuntimePackage {
       await mkdir(dirname(destination), { recursive: true })
       await cp(join(root, 'packages', 'starhub', dir), destination, { recursive: true })
     }
+    await this.installWebRuntimePackages()
     return this.outDir
+  }
+
+  /** dsh web GUI 需要、但 deploy 根(dsh-jsonrpc-agent-pkg)依赖闭包里没有的
+   * 包,补入产物顶层 node_modules。dev 布局靠 pnpm 隐藏 hoist
+   * `.pnpm/node_modules` 与 vendor 全量安装兜住,hoisted prod 闭包没有这两层:
+   * - 两个 StarHub 本地包 → `@deepseek-ai/dsh-starhub-*`:loader 条目从
+   *   cordis-plugin-loader 自身 realpath 向上做裸导入解析,hoisted 闭包里只有
+   *   顶层 node_modules 在解析链上,缺包即 ERR_MODULE_NOT_FOUND。node 侧零外部
+   *   依赖(client-nav 是空插件,host-static 只用 node 内置),补
+   *   package.json + lib 即可。
+   * - node-addon-require-builtin(+其唯一依赖 node-addon-native-custom-loader,
+   *   均为纯 JS):profile-boot 在无 --expose-internals 时挂载 watch-only HMR,
+   *   经它取 Node 内部 loader;缺失则 HMR 构造抛错、dsh web 启动后崩溃。 */
+  private async installWebRuntimePackages(): Promise<void> {
+    for (const dir of WEB_LOCAL_PACKAGE_DIRS) {
+      const source = join(root, 'packages', 'starhub', dir)
+      const destination = join(this.outDir, 'node_modules', '@deepseek-ai', `dsh-starhub-${dir}`)
+      await mkdir(destination, { recursive: true })
+      await copyFile(join(source, 'package.json'), join(destination, 'package.json'))
+      await cp(join(source, 'lib'), join(destination, 'lib'), { recursive: true })
+    }
+    // require-builtin 经 apps/cli 的安装树解析(pnpm junction);它的传递依赖
+    // (node-addon-native-custom-loader)与平台预构建原生包
+    // (node-addon-require-builtin-<platform>-<arch>-<libc>,含 .node 产物)都在
+    // 同一 .pnpm 条目下与之同级,一并物化进顶层闭包。
+    const requireBuiltinSource = await realpath(
+      join(root, 'apps', 'cli', 'node_modules', 'node-addon-require-builtin'),
+    )
+    const pnpmEntryDir = dirname(requireBuiltinSource)
+    await cp(requireBuiltinSource, join(this.outDir, 'node_modules', 'node-addon-require-builtin'), {
+      recursive: true,
+      dereference: true,
+    })
+    for (const entry of await readdir(pnpmEntryDir, { withFileTypes: true })) {
+      const name = entry.name
+      if (name === 'node-addon-require-builtin') continue
+      if (name === 'node-addon-native-custom-loader'
+        || name.startsWith('node-addon-require-builtin-')) {
+        await cp(join(pnpmEntryDir, name), join(this.outDir, 'node_modules', name), {
+          recursive: true,
+          dereference: true,
+        })
+      }
+    }
   }
 
   printResult(outDir: string): void {

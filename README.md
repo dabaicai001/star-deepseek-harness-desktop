@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.66.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.66.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -118,6 +118,9 @@
 ---
 
 ## 当前版本
+
+### v0.66.1 (2026-08-15)
+- 🐛 修复打包(prod)布局下 dsh web 无法启动:`package-dsh-runtime.ts` 新增 `installWebRuntimePackages`,把 deploy 闭包缺失的 dsh web 运行时包补入产物顶层 `node_modules`——两个 StarHub 本地包 `@deepseek-ai/dsh-starhub-client-nav/host-static`(loader 裸导入解析链上缺包即 ERR_MODULE_NOT_FOUND)、`node-addon-require-builtin` 及其传递依赖与平台预构建原生包(HMR 免 `--expose-internals` 回退,缺失则启动后崩溃);全新 DSH_HOME prod 布局冒烟 `/` 与 `/starhub/` 均 200
 
 ### v0.66.0 (2026-08-15)
 - ✨ dsh 主壳融合 P4b 打包落地:portable Node v24 + dsh runtime prod 闭包入包(`src-tauri/binaries/dsh-runtime`),web GUI dist + client bundles 纳入构建链(`dist-embed`);打包冒烟验证(主壳 + AI 内核 stdio JSON-RPC)全绿
