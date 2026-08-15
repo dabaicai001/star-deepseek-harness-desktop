@@ -16,6 +16,12 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /**
+     * Primary navigation actions pinned at the top of the main region, above
+     * the workspace/session browser. Declared by this package's 'sidebar'
+     * entry; each action receives only the column state.
+     */
+    'sidebar.navigation': { kind: 'list'; scope: 'root'; owner: SidebarNavigationOwnerProps }
+    /**
      * The workspace/session browsing region: section header, search, the
      * grouped/flat session list, and every workspace dialog. Declared by this
      * package's 'sidebar' entry (declaring is claiming); ui-workspace
@@ -47,8 +53,14 @@ export interface SidebarSectionOwnerProps {
   expandSidebar: () => void
 }
 
+/** Owner share of an action pinned at the top of the sidebar main region. */
+export interface SidebarNavigationOwnerProps {
+  /** Whether the sidebar renders wide content (false = 56px rail). */
+  wide: boolean
+}
+
 /**
- * Owner share of the sidebar settings seat: the column display state the
+ * Owner share of the settings seat: the column display state the
  * occupant's trigger row must render against (wide row vs rail icon).
  */
 export interface SidebarSettingsOwnerProps {
@@ -85,5 +97,5 @@ export type SidebarRootInjected = {
  */
 export type SidebarRootComponentProps =
   PropsRuntime<'sidebar'>
-  & PropsRenderSlots<'sidebar.workspaces' | 'sidebar.settings' | 'sidebar.footer.action'>
+  & PropsRenderSlots<'sidebar.workspaces' | 'sidebar.settings' | 'sidebar.footer.action' | 'sidebar.navigation'>
   & SidebarRootInjected & PropsLocale<'sidebar'>

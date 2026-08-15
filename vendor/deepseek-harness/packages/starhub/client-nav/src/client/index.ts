@@ -1,5 +1,5 @@
 /**
- * Browser StarHub navigation plugin: footer-action section rows plus the
+ * Browser StarHub navigation plugin: primary sidebar navigation rows plus the
  * full-frame overlay iframe layer, sharing one nav store handle.
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -16,15 +16,15 @@ export const inject = ['slots']
 
 /**
  * Client plugin body: one shared nav store handle across two registrations —
- * the section rows in `sidebar.footer.action` and the iframe layer in
+ * the section rows in `sidebar.navigation` and the iframe layer in
  * `shell.overlay`. Both ride slots.inject, so each waits on the slot
  * declaration and plugin unload removes the pair.
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
   const store = createStarHubNavStore()
-  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-    name: 'sidebar.footer.action',
+  ctx.slots.inject('sidebar.navigation', () => ctx.slots.register({
+    name: 'sidebar.navigation',
     id: 'starhub-nav',
     order: 20,
     label: 'StarHub',

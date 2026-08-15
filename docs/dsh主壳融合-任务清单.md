@@ -23,7 +23,7 @@
 - [x] starhub-web 组合固化:`boot.mjs` 同时补 client-nav + host-static 两个 junction;Rust 侧物化到 `<app_data_dir>/dsh-web-home`(boot.mjs 手动流仍用 `tmp/dsh-web-home`)
 - [x] Rust 侧 web 服务管理器 `src-tauri/src/harness/web.rs`(DshWebManager):物化 profile + 改写 webserver 端口 + junction + spawn `bin.js web`,3085 占用递增(上限 +10),GET / 轮询就绪(30s),kill_on_drop + 主窗口销毁时 shutdown 回收;`dsh_web_url` command;`STARHUB_DSH_WEB=0` 逃生门
 - [x] packages/starhub/host-static(host 插件):`/starhub` 前缀路由托管 StarHub embed dist(STARHUB_DIST > dist-embed > dist;非 embed 构建 fail loud;SPA fallback / 403 防穿越 / 405)
-- [x] client-nav 正式化:`sidebar.footer.action` 注册 8 个功能页条目(终端/数据库/Redis/ES/Docker/Broker/Excel/设置)+ `shell.overlay` 注册整帧 iframe 层(共享 nav store;再点当前条目/Esc/关闭按钮关闭;P0 的 conversation.view 占位已删);条目 ↔ 路由常量表在 `src/client/sections.ts`
+- [x] client-nav 正式化:`sidebar.navigation` 注册 8 个功能页条目(终端/数据库/Redis/ES/Docker/Broker/Excel/设置,置于侧栏顶部「工具」分组)+ `shell.overlay` 注册整帧 iframe 层(共享 nav store;再点当前条目/Esc/关闭按钮关闭;P0 的 conversation.view 占位已删);条目 ↔ 路由常量表在 `src/client/sections.ts`
 - [x] StarHub 前端 embed 模式:`src/lib/embed.ts`(`?embed=1&route=<path>`)+ App.vue 跳过启动页门控 + CyberLayout embed 去壳分支(无 titlebar/tab 条/侧栏/状态栏、不套 keep-alive、禁拖出、`/` 回退守卫、Esc postMessage);embed 构建 `npm run build:embed`(vite mode=embed,base `/starhub/`,产物 `dist-embed/`),router 用 `createWebHistory(import.meta.env.BASE_URL)`
 - [x] 双轨开发流 `npm run tauri:dev:dsh`(`src-tauri/tauri.dev-dsh.json` 覆盖 devUrl/beforeDevCommand,默认 tauri.conf.json 不动):beforeDevCommand = `scripts/dev-dsh-shell.mjs`(vendor 构建存在性检查 + sidecar:build + build:embed + 3085 占位等待页;真实 dsh web 由 Rust 拉起在 3086+,占位页内 JS 轮询同源 `/__dsh_url` 拿到真实地址后自跳转 location.replace)
 

@@ -45,6 +45,7 @@ describe('SidebarRoot.module.css', () => {
     for (const selector of [
       '.railIn .iconButton',
       '.railIn .newSession',
+      '.railIn .navArea',
       '.railIn .regionArea',
     ]) {
       expect(declarations(selector)?.get('animation')).toBe(animation)

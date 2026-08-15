@@ -13,6 +13,11 @@
 
 ---
 
+## [0.66.5] - 2026-08-15
+
+### 改进
+- dsh 主壳侧栏导航:StarHub 功能页(终端/数据库/Redis/Elasticsearch/Docker/Broker/Excel/设置)从侧栏底部 footer 上移到侧栏顶部「工具」分组,融入主侧栏导航区,解决功能入口埋底难找的问题;ui-sidebar 新增 `sidebar.navigation` 槽位,client-nav 改注册到该槽位(rail 折叠态仅显示图标)
+
 ## [0.66.4] - 2026-08-15
 
 ### 修复

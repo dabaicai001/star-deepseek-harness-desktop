@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.66.4-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.66.5-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,14 +119,14 @@
 
 ## 当前版本
 
+### v0.66.5 (2026-08-15)
+- ✨ dsh 主壳侧栏导航:StarHub 功能页(终端/数据库/Redis/Elasticsearch/Docker/Broker/Excel/设置)从侧栏底部 footer 上移到侧栏顶部「工具」分组,融入主侧栏导航区,解决功能入口埋底难找的问题
+
 ### v0.66.4 (2026-08-15)
 - 🐛 主进程日志落盘:Windows GUI 子系统下 stderr 不可见,dsh web 启动失败无法定位;新增 `%LOCALAPPDATA%/starhub/starhub.log`(Linux/macOS 落到 `~/.starhub/starhub.log`),写入 dsh web 启动错误与 node 子进程 stderr
 
 ### v0.66.3 (2026-08-15)
 - 🐛 移除 Linux AppImage 打包(仅保留 deb/rpm):Tauri 2.x linuxdeploy 打包 WebKitGTK AppImage 为上游已知 bug(tauri#14796),报 `failed to run linuxdeploy`
-
-### v0.66.2 (2026-08-15)
-- 🐛 修复 `package-dsh-runtime.ts` 的 `build()` 只构建 host 面(`build:lib:host`),而 `client-nav` 是仅 client 面包,全新 checkout 上缺 `lib/`,入包时 `installWebRuntimePackages` 拷贝 `client-nav/lib` 抛 ENOENT、CI「Package dsh runtime」步骤失败;改为 `build:lib`(host + client),补齐 `client-nav/lib/index.js` 与 `lib/client.js`
 
 ---
 

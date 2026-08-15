@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.66.4(主进程日志落盘:Windows GUI 子系统下 stderr 不可见,dsh web 启动失败无法定位;新增 `%LOCALAPPDATA%/starhub/starhub.log`(Linux/macOS 落到 `~/.starhub/starhub.log`),写入 dsh web 启动错误与 node 子进程 stderr) |
+| 当前版本 | v0.66.5(dsh 主壳侧栏导航:StarHub 功能页从侧栏底部 footer 上移到顶部「工具」分组,ui-sidebar 新增 `sidebar.navigation` 槽位) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-15 (v0.66.4)*
+*最后更新: 2026-08-15 (v0.66.5)*

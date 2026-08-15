@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-starhub-client-nav",
-  "description": "StarHub shell navigation: sidebar.footer.action section rows plus a shell.overlay full-frame iframe layer embedding the StarHub frontend same-origin (StarHub-local package, not upstream)",
+  "description": "StarHub shell navigation: sidebar.navigation primary section rows plus a shell.overlay full-frame iframe layer embedding the StarHub frontend same-origin (StarHub-local package, not upstream)",
   "private": true,
   "version": "0.0.1",
   "type": "module",
