@@ -3,7 +3,7 @@
  *
  * 产出 `src-tauri/binaries/dsh-runtime/`(由 tauri.conf.json 的 bundle.resources
  * 引用,Tauri 打包后落在 `resource_dir()/dsh-runtime`):
- *   node.exe                      # 官方 node24 portable(win-x64)
+ *   node(.exe)                    # 官方 node24 portable(按目标平台)
  *   node_modules/                 # pnpm deploy --prod 物化后的依赖闭包
  *   config/starhub-agent.yml      # AI 内核主组合(纯对话 + starhub-tools)
  *   apps/cli/lib/bin.js           # dsh web GUI 入口
@@ -17,6 +17,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import type { Dirent } from 'node:fs'
 import {
+  chmod,
   copyFile,
   cp,
   mkdir,
@@ -48,6 +49,48 @@ const DEPLOY_ONLY_DOCS = ['README.md', 'README.zh.md', 'README.i18n.yaml']
 /** 便携 Node 版本(官方 LTS v24 线,固定版本保证可复现)。 */
 const NODE_VERSION = 'v24.19.0'
 const NODE_DIST_BASE = 'https://nodejs.org/dist'
+
+/** 各平台/架构对应的 node 官方发行包与解压后二进制相对路径。 */
+function nodeDistSpec(): { archive: string; binRel: string; binName: string } {
+  const platform = process.platform
+  const arch = process.arch
+  if (platform === 'win32' && arch === 'x64') {
+    return {
+      archive: `node-${NODE_VERSION}-win-x64.zip`,
+      binRel: `node-${NODE_VERSION}-win-x64/node.exe`,
+      binName: 'node.exe',
+    }
+  }
+  if (platform === 'linux' && arch === 'x64') {
+    return {
+      archive: `node-${NODE_VERSION}-linux-x64.tar.xz`,
+      binRel: `node-${NODE_VERSION}-linux-x64/bin/node`,
+      binName: 'node',
+    }
+  }
+  if (platform === 'linux' && arch === 'arm64') {
+    return {
+      archive: `node-${NODE_VERSION}-linux-arm64.tar.xz`,
+      binRel: `node-${NODE_VERSION}-linux-arm64/bin/node`,
+      binName: 'node',
+    }
+  }
+  if (platform === 'darwin' && arch === 'x64') {
+    return {
+      archive: `node-${NODE_VERSION}-darwin-x64.tar.gz`,
+      binRel: `node-${NODE_VERSION}-darwin-x64/bin/node`,
+      binName: 'node',
+    }
+  }
+  if (platform === 'darwin' && arch === 'arm64') {
+    return {
+      archive: `node-${NODE_VERSION}-darwin-arm64.tar.gz`,
+      binRel: `node-${NODE_VERSION}-darwin-arm64/bin/node`,
+      binName: 'node',
+    }
+  }
+  throw new Error(`package-dsh-runtime: 不支持的平台/架构: ${platform}/${arch}`)
+}
 
 /** AI 内核主组合:dev 下 examples/starhub-agent/cordis.yml,prod 下平移到 config/。 */
 const CONFIG_SOURCE_REL = 'examples/starhub-agent/cordis.yml'
@@ -280,41 +323,54 @@ class DshRuntimePackage {
   }
 
   async downloadNodeExe(): Promise<string> {
-    const zipName = `node-${NODE_VERSION}-win-x64.zip`
+    const { archive: archiveName, binRel } = nodeDistSpec()
     const cacheDir = join(root, 'dist-exe', '.node-cache')
-    const extracted = join(cacheDir, `node-${NODE_VERSION}-win-x64`, 'node.exe')
+    const extracted = join(cacheDir, binRel)
     if (existsSync(extracted)) return extracted
     await mkdir(cacheDir, { recursive: true })
-    const zipPath = this.cli.nodeZip ?? join(cacheDir, zipName)
-    if (this.cli.nodeZip !== undefined && !existsSync(zipPath)) {
-      throw new Error(`package-dsh-runtime: 指定的 node zip 不存在: ${zipPath}`)
+    const archivePath = this.cli.nodeZip ?? join(cacheDir, archiveName)
+    if (this.cli.nodeZip !== undefined && !existsSync(archivePath)) {
+      throw new Error(`package-dsh-runtime: 指定的 node 归档不存在: ${archivePath}`)
     }
-    if (!existsSync(zipPath)) {
-      const url = `${NODE_DIST_BASE}/${NODE_VERSION}/${zipName}`
+    if (!existsSync(archivePath)) {
+      const url = `${NODE_DIST_BASE}/${NODE_VERSION}/${archiveName}`
       console.log(`package-dsh-runtime: 下载 ${url}`)
       const response = await fetch(url)
       if (!response.ok) {
         throw new Error(`package-dsh-runtime: 下载 node 失败: HTTP ${response.status}`)
       }
-      await writeFile(zipPath, Buffer.from(await response.arrayBuffer()))
+      await writeFile(archivePath, Buffer.from(await response.arrayBuffer()))
     } else {
-      console.log(`package-dsh-runtime: 使用本地 node zip: ${zipPath}`)
+      console.log(`package-dsh-runtime: 使用本地 node 归档: ${archivePath}`)
     }
-    await this.expandArchive(zipPath, cacheDir)
+    await this.expandArchive(archivePath, cacheDir)
     if (!existsSync(extracted)) {
       throw new Error(`package-dsh-runtime: 解压后未找到 ${extracted}`)
     }
     return extracted
   }
 
-  private expandArchive(zipPath: string, destDir: string): Promise<void> {
-    const script = `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`
+  private expandArchive(archivePath: string, destDir: string): Promise<void> {
+    if (process.platform === 'win32') {
+      const script = `Expand-Archive -LiteralPath '${archivePath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`
+      return new Promise<void>((resolvePromise, reject) => {
+        const child = spawn('powershell', ['-NoProfile', '-Command', script], { stdio: 'inherit' })
+        child.once('error', reject)
+        child.once('exit', code => {
+          if (code === 0) resolvePromise()
+          else reject(new Error(`package-dsh-runtime: Expand-Archive 失败 (exit ${code})`))
+        })
+      })
+    }
+    const args = archivePath.endsWith('.tar.xz')
+      ? ['-xJf', archivePath, '-C', destDir]
+      : ['-xzf', archivePath, '-C', destDir]
     return new Promise<void>((resolvePromise, reject) => {
-      const child = spawn('powershell', ['-NoProfile', '-Command', script], { stdio: 'inherit' })
+      const child = spawn('tar', args, { stdio: 'inherit' })
       child.once('error', reject)
       child.once('exit', code => {
         if (code === 0) resolvePromise()
-        else reject(new Error(`package-dsh-runtime: Expand-Archive 失败 (exit ${code})`))
+        else reject(new Error(`package-dsh-runtime: tar 解压失败 (exit ${code})`))
       })
     })
   }
@@ -326,8 +382,12 @@ class DshRuntimePackage {
     await rm(this.outDir, { recursive: true, force: true })
     await mkdir(this.outDir, { recursive: true })
 
-    console.log('package-dsh-runtime: 组装 dsh-runtime(node.exe + node_modules + config + web 静态产物)')
-    await copyFile(nodeExe, join(this.outDir, 'node.exe'))
+    const { binName } = nodeDistSpec()
+    console.log(`package-dsh-runtime: 组装 dsh-runtime(${binName} + node_modules + config + web 静态产物)`)
+    await copyFile(nodeExe, join(this.outDir, binName))
+    if (process.platform !== 'win32') {
+      await chmod(join(this.outDir, binName), 0o755)
+    }
 
     // 物化后的 staging/node_modules;再 dereference 一次兜底,确保最终无符号链接
     await cp(join(this.staging, 'node_modules'), join(this.outDir, 'node_modules'), {

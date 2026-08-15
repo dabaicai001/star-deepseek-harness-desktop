@@ -60,6 +60,13 @@ const RUNTIME_CONFIG_PACKAGED_REL: &str = "config/starhub-agent.yml";
 /// prod 资源目录名(tauri.conf.json bundle.resources 引用,落到 resource_dir 下)。
 const RUNTIME_RESOURCE_DIR: &str = "dsh-runtime";
 
+/// 便携 node 二进制文件名(Windows 为 node.exe,其余平台为 node)。
+const NODE_EXE_NAME: &str = if cfg!(target_os = "windows") {
+    "node.exe"
+} else {
+    "node"
+};
+
 /// runtime_dir 是否为 prod 闭包布局(以 packaged 入口是否存在判定)。
 fn is_packaged_runtime(runtime_dir: &Path) -> bool {
     runtime_dir.join(RUNTIME_BIN_PACKAGED_REL).exists()
@@ -558,18 +565,18 @@ impl HarnessPaths {
         )))
     }
 
-    /// 便携 Node:prod 在 <runtime_dir>/node.exe,dev 在 <repo>/tmp/node24/node.exe;
+    /// 便携 Node:prod 在 <runtime_dir>/<NODE_EXE_NAME>,dev 在 <repo>/tmp/node24/<NODE_EXE_NAME>;
     /// 不存在时回退 PATH 上的 node。
     fn default_node(runtime_dir: &Path) -> PathBuf {
         let portable = if is_packaged_runtime(runtime_dir) {
-            runtime_dir.join("node.exe")
+            runtime_dir.join(NODE_EXE_NAME)
         } else {
             runtime_dir
                 .join("..")
                 .join("..")
                 .join("tmp")
                 .join("node24")
-                .join("node.exe")
+                .join(NODE_EXE_NAME)
         };
         if portable.exists() {
             return portable;
@@ -809,7 +816,7 @@ mod tests {
         let node_path = std::env::var("STARHUB_DSH_NODE")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
-                let portable = manifest.join("../tmp/node24/node.exe");
+                let portable = manifest.join("../tmp/node24").join(NODE_EXE_NAME);
                 if portable.exists() {
                     portable
                 } else {
