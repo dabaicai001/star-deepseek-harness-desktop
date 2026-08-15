@@ -13,6 +13,11 @@
 
 ---
 
+## [0.66.2] - 2026-08-15
+
+### 修复
+- 修复 `package-dsh-runtime.ts` 的 `build()` 只构建 host 面(`build:lib:host`),而 `client-nav` 是仅 client 面包,全新 checkout 上缺 `lib/`,入包时 `installWebRuntimePackages` 拷贝 `client-nav/lib` 抛 ENOENT、CI「Package dsh runtime」步骤失败;改为 `build:lib`(host + client),补齐 `client-nav/lib/index.js` 与 `lib/client.js`
+
 ## [0.66.1] - 2026-08-15
 
 ### 修复

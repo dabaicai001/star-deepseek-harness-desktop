@@ -151,7 +151,7 @@ class BuildCli {
     return [
       'Usage: pnpm exec tsx scripts/package-dsh-runtime.ts [flags]',
       '',
-      '  --skip-build         跳过 build:lib:host(lib/ 产物必须已存在)。',
+      '  --skip-build         跳过 build:lib(lib/ 产物必须已存在)。',
       '  --node-zip <path>    使用本地 node 官方 zip(缺省从 nodejs.org 下载)。',
       '  --help               打印帮助。',
       '',
@@ -183,8 +183,10 @@ class DshRuntimePackage {
       console.log('package-dsh-runtime: 跳过构建 (--skip-build)')
       return
     }
-    // 只构建 host 面(dsh-runtime 只需要 node 侧运行时,不需要 client/web 前端产物)。
-    await this.run('build', pnpmBin(), ['run', 'build:lib:host'])
+    // dsh web GUI 运行时需要 client-nav 的 node 半(lib/index.js)与浏览器
+    // bundle(lib/client.js),两者都是 client 面产物;仅 build:lib:host 会在全新
+    // checkout 上缺 client-nav/lib。这里构建完整 lib(host + client)。
+    await this.run('build', pnpmBin(), ['run', 'build:lib'])
   }
 
   async deployStaging(): Promise<void> {

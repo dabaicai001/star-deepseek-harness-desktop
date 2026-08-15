@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.66.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.66.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,18 +119,15 @@
 
 ## 当前版本
 
+### v0.66.2 (2026-08-15)
+- 🐛 修复 `package-dsh-runtime.ts` 的 `build()` 只构建 host 面(`build:lib:host`),而 `client-nav` 是仅 client 面包,全新 checkout 上缺 `lib/`,入包时 `installWebRuntimePackages` 拷贝 `client-nav/lib` 抛 ENOENT、CI「Package dsh runtime」步骤失败;改为 `build:lib`(host + client),补齐 `client-nav/lib/index.js` 与 `lib/client.js`
+
 ### v0.66.1 (2026-08-15)
 - 🐛 修复打包(prod)布局下 dsh web 无法启动:`package-dsh-runtime.ts` 新增 `installWebRuntimePackages`,把 deploy 闭包缺失的 dsh web 运行时包补入产物顶层 `node_modules`——两个 StarHub 本地包 `@deepseek-ai/dsh-starhub-client-nav/host-static`(loader 裸导入解析链上缺包即 ERR_MODULE_NOT_FOUND)、`node-addon-require-builtin` 及其传递依赖与平台预构建原生包(HMR 免 `--expose-internals` 回退,缺失则启动后崩溃);全新 DSH_HOME prod 布局冒烟 `/` 与 `/starhub/` 均 200
 
 ### v0.66.0 (2026-08-15)
 - ✨ dsh 主壳融合 P4b 打包落地:portable Node v24 + dsh runtime prod 闭包入包(`src-tauri/binaries/dsh-runtime`),web GUI dist + client bundles 纳入构建链(`dist-embed`);打包冒烟验证(主壳 + AI 内核 stdio JSON-RPC)全绿
 - ✨ dsh 主壳融合 P5 全站换皮 dsw:移除 panel/card 顶部 liquid-light 发光灯带(扁平化 + hairline 描边),收敛散落 `--glow-cyan/--glow-pink` 残留,`--glow-soft` 暗色 token 中性化,输入 focus 光晕收敛为 hairline focus ring
-
-### v0.65.0 (2026-08-15)
-- ✨ dsh 主壳融合 P4a:**dsh GUI 成为唯一主壳**——`npm run tauri:dev` 默认即 dsh 界面(devUrl 指 3085 占位页自跳转,prod 用本地 `shell-placeholder/` 跳板轮询 `dsh_web_url`);窗口改回 native 标题栏(dsh GUI 无窗口控件);AiView/LocalView 整页退役(dsh 对话与 dsh 工作区接管),旧外壳代码整体删除(CyberLayout 2746 行 → 约 100 行 embed 唯一形态,windowDetach/AssetTree/命令面板/拖出窗口退役);资产 CRUD 迁至设置页新「资产」tab(先立后破);AiChat 右侧 AI 面板保留旧内核;真窗口冒烟 16/16 overlay 交互全过 + embed SSH 真连 stub;踩坑记录 §23
-
-### v0.64.2 (2026-08-14)
-- 🐛 dsh 主壳融合 P3 第二批(DB/Redis/ES/Docker/Broker/Excel/Settings):修复 embed 入口白屏(history base 剥离后 `/index.html` 无路由匹配,新增占位子路由);ElasticsearchView/ExcelView 的 assetId 从 tab 系统反查改为 instanceId 直解(embed 无 tab 系统,原写法必炸);SettingsView embed 模式加关闭按钮(复用 Esc postMessage 通道);8 页 DOM 探针实测渲染(真实服务本机不可用,仅错误态/空态证据);踩坑记录 §22
 
 ---
 
