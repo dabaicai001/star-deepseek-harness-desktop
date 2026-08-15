@@ -127,11 +127,6 @@ function confirm() {
 .cyber-btn.danger {
   background: linear-gradient(135deg, var(--red) 0%, var(--pink) 100%);
   color: white;
-  box-shadow: var(--glow-pink);
-}
-
-.cyber-btn.danger:hover:not([disabled]) {
-  box-shadow: var(--glow-pink);
 }
 
 .cyber-btn.danger[disabled] {

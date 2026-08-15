@@ -161,7 +161,6 @@ onBeforeUnmount(() => {
 .right-panel-handle:hover .handle-indicator {
   height: 32px;
   background: var(--cyan);
-  box-shadow: var(--glow-cyan);
 }
 
 /* 拖拽态 */
@@ -173,7 +172,6 @@ onBeforeUnmount(() => {
 .right-panel-handle.dragging .handle-indicator {
   height: 40px;
   background: var(--cyan);
-  box-shadow: var(--glow-cyan);
 }
 
 /* 聚焦态(无障碍) */
@@ -221,7 +219,6 @@ onBeforeUnmount(() => {
 .right-panel-handle.collapsed-only:hover .handle-indicator {
   opacity: 1;
   background: var(--cyan);
-  box-shadow: var(--glow-cyan);
 }
 
 .right-panel-handle.collapsed-only:hover .collapsed-arrow {

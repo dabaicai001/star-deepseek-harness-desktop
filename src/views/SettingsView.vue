@@ -2866,7 +2866,6 @@ async function onTestWebhook(url: string) {
 .skill-card.active .skill-toggle {
   border-color: var(--cyan);
   background: var(--cyan);
-  box-shadow: var(--glow-cyan);
 }
 
 .skill-body {

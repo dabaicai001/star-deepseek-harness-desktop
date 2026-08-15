@@ -3305,7 +3305,6 @@ const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat
   position: absolute;
   inset: 0 auto 0 0;
   background: var(--grad-primary);
-  box-shadow: var(--glow-cyan);
   transition: width 0.18s var(--ease-standard);
   border-radius: 999px;
 }

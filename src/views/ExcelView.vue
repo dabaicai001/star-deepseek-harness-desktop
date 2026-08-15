@@ -1056,7 +1056,6 @@ watch(
   color: var(--cyan);
   font-size: 13px;
   font-weight: 600;
-  box-shadow: var(--glow-cyan);
   pointer-events: none;
 }
 

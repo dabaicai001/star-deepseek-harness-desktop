@@ -955,7 +955,6 @@ onBeforeUnmount(cleanupExcelDropListener)
   color: var(--cyan);
   border-color: var(--cyan);
   background: var(--hover-cyan-faint);
-  box-shadow: var(--glow-cyan);
 }
 
 @media (max-width: 640px) {

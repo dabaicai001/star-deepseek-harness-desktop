@@ -156,7 +156,6 @@ onBeforeUnmount(() => {
 .resizable-sidebar-handle:focus-visible .handle-indicator {
   height: 44px;
   background: var(--cyan);
-  box-shadow: var(--glow-cyan);
 }
 
 .resizable-sidebar-handle.collapsed {
