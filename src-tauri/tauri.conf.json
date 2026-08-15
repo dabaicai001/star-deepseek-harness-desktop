@@ -1,12 +1,12 @@
 {
   "productName": "StarHub",
-  "version": "0.65.0",
+  "version": "0.66.0",
   "identifier": "com.starhub.app",
   "build": {
     "frontendDist": "../shell-placeholder",
     "devUrl": "http://127.0.0.1:3085",
     "beforeDevCommand": "node scripts/dev-dsh-shell.mjs",
-    "beforeBuildCommand": "npm run sidecar:build:release && npm run build:embed"
+    "beforeBuildCommand": "npm run sidecar:build:release && npm run build:embed && npm run package:dsh-runtime"
   },
   "app": {
     "windows": [
@@ -47,6 +47,10 @@
     "externalBin": [
       "../sidecar/bin/starhub-sidecar"
     ],
+    "resources": {
+      "binaries/dsh-runtime/": "dsh-runtime/",
+      "../dist-embed/": "dist-embed/"
+    },
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",

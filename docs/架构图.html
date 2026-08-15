@@ -498,15 +498,15 @@
   <header class="hero">
     <div class="eyebrow">技术架构 · Architecture</div>
     <h1>StarHub · 完整架构与实现方案</h1>
-    <p>基于方案 A 构建的"All-in-One 开发运维桌面中枢"——以 Tauri 2 为桌面壳、Vue 3 渲染前端、Rust 处理系统集成与协议、Go Sidecar 负责数据库驱动;通过 AI 编排打通 SSH、数据库、Docker,实现自然语言驱动的开发运维工作流。</p>
+    <p>基于方案 B(dsh 主壳融合)构建的"All-in-One 开发运维桌面中枢"——Tauri 2 桌面壳加载 dsh 官方 Web GUI(React)作为唯一主壳,StarHub 各功能页(SSH/SFTP/DB/Docker 等)以同源 iframe 嵌入并复用 Tauri IPC;Rust 处理系统集成与协议、Go Sidecar 负责数据库驱动;通过 AI 编排打通 SSH、数据库、Docker,实现自然语言驱动的开发运维工作流。</p>
     <div class="meta-row">
       <div class="meta-item">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-        <span><strong>版本</strong> v0.1</span>
+        <span><strong>版本</strong> v0.66.0</span>
       </div>
       <div class="meta-item">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-3V4a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v3H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><circle cx="12" cy="13" r="3"/></svg>
-        <span><strong>技术栈</strong> Tauri 2 / Vue 3 / Rust / Go</span>
+        <span><strong>技术栈</strong> Tauri 2 / dsh(React) / Vue 3 / Rust / Go / Node</span>
       </div>
       <div class="meta-item">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>

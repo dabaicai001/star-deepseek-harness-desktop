@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.65.0(dsh 主壳融合 P4a:**dsh GUI 成为唯一主壳**——`npm run tauri:dev` 默认即 dsh 界面(devUrl 指 3085 占位页自跳转,prod 用本地 `shell-placeholder/` 跳板轮询 `dsh_web_url`);窗口改回 native 标题栏(dsh GUI 无窗口控件);AiView/LocalView 整页退役(dsh 对话与 dsh 工作区接管),旧外壳代码整体删除(CyberLayout 2746 行 → 约 100 行 embed 唯一形态,windowDetach/AssetTree/命令面板/拖出窗口退役);资产 CRUD 迁至设置页新「资产」tab(先立后破);AiChat 右侧 AI 面板保留旧内核;真窗口冒烟 16/16 overlay 交互全过 + embed SSH 真连 stub;踩坑记录 §23) |
+| 当前版本 | v0.66.0(dsh 主壳融合 P4b+P5:**打包落地**——portable Node v24 + dsh runtime prod 闭包入包(`src-tauri/binaries/dsh-runtime`),web GUI dist + client bundles 纳入构建链(`dist-embed`),Rust `HarnessPaths` 支持 prod 资源目录解析与入口/config 切换,`tauri.conf.json` bundle.resources 纳入 dsh-runtime 与 dist-embed,打包冒烟验证(主壳 + AI 内核 stdio JSON-RPC)全绿;**全站换皮 dsw**——移除 panel/card 顶部 liquid-light 发光灯带(扁平化 + hairline 描边),收敛散落 `--glow-cyan/--glow-pink` 残留到克制阴影或移除,`--glow-soft` 暗色 token 中性化(去青,保留极轻环境光),输入 focus 光晕动画与硬编码 `rgba(93,214,214)` 收敛为 hairline focus ring) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-15 (v0.65.0)*
+*最后更新: 2026-08-15 (v0.66.0)*

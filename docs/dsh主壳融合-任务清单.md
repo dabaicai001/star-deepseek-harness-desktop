@@ -59,7 +59,7 @@
 
 - [x] 旧 Vue 壳路由切换到 dsh 壳为默认入口(P4a,2026-08-15)
 - [x] 退役旧 AiView 壳路径残留(P4a;AiChat 宿主 / stores/ai.ts / local_* 命令保留,dsh 内核 HarnessManager 保留待 D3/P2)
-- [ ] 打包:apps/web dist + client bundles 纳入构建链,便携 Node / dsh runtime 入包(P4b)
+- [x] 打包:apps/web dist + client bundles 纳入构建链,便携 Node / dsh runtime 入包(P4b,2026-08-15)
 
 > P4a(2026-08-15 完成):默认入口切换 + AiView/LocalView 退役 + 旧外壳代码退役。
 > - **默认入口**:`tauri.conf.json` devUrl=127.0.0.1:3085 + beforeDevCommand=`scripts/dev-dsh-shell.mjs`(双轨取消,`tauri:dev:dsh` 别名与 `tauri.dev-dsh.json` 删除);**decorations 改 true**(native 标题栏,dsh GUI 无窗口控件,自画 chrome 随旧外壳删除);`STARHUB_DSH_WEB=0` 逃生门移除(旧外壳已删,无回退目标)。
@@ -71,9 +71,11 @@
 
 ## P5 全站换皮 dsw
 
-- [ ] StarHub 页面向 dsh `--dsw-*` token 体系靠拢(见方案文档第 9 节)
+- [x] StarHub 页面向 dsh `--dsw-*` token 体系靠拢(见方案文档第 9 节,2026-08-15)
+
+> P5(2026-08-15 完成):移除 `.cyber-panel/.cyber-card` 顶部 liquid-light 发光灯带(扁平化 + hairline 描边);收敛散落 `--glow-cyan/--glow-pink` 残留(danger 按钮/拖拽把手/拖放区/进度条/overlay/开关)到克制阴影或移除;`--glow-soft` 暗色 token 中性化(去青,保留极轻环境光);输入 focus 光晕动画与硬编码 `rgba(93,214,214)` 收敛为 hairline focus ring。
 
 ## P6 文档/版本收尾
 
-- [ ] 方案文档/架构图/AGENTS.md 同步
-- [ ] CHANGELOG 与七处版本号
+- [x] 方案文档/架构图/AGENTS.md 同步
+- [x] CHANGELOG 与七处版本号
