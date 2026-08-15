@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 /**
- * StarHubToolWorkspace (Phase 0 spike): in-shell asset list conversation tab.
- * Covers the empty/loading/error/list render states driven through the shared
- * asset store (the get_assets IPC path is exercised live in the real shell;
- * jsdom has no Tauri internals, so these tests drive store state directly).
+ * StarHubToolWorkspace (Phase 0 spike): in-shell asset list docked into the
+ * details column. Covers the empty/loading/error/list render states driven
+ * through the shared asset store (the get_assets IPC path is exercised live
+ * in the real shell; jsdom has no Tauri internals, so these tests drive
+ * store state directly).
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
@@ -12,12 +13,27 @@ import { StarHubToolWorkspace } from '../src/client/StarHubToolWorkspace.tsx'
 
 afterEach(cleanup)
 
-/** Compose the store props share from a fresh instance (framework-free). */
+/**
+ * Compose the full details.workspace props share: the store seat from a fresh
+ * instance plus the session-maybe standard kit stubs the component's
+ * PropsRuntime requires (the component itself only reads useStore/actions).
+ */
 function storeProps() {
   const store = createStarHubAssetStore().create()
   const { getSnapshot, subscribe } = store
   const useStore = <S,>(sel: (s: ReturnType<typeof store.getSnapshot>) => S) => sel(getSnapshot())
-  return { useStore, actions: store.actions, subscribe }
+  return {
+    useStore,
+    actions: store.actions,
+    subscribe,
+    useSession: (() => undefined) as never,
+    sessionId: undefined,
+    useProjection: (() => undefined) as never,
+    useInput: (() => undefined) as never,
+    inputActions: {} as never,
+    useSessions: (() => undefined) as never,
+    useWorkspaces: (() => undefined) as never,
+  }
 }
 
 describe('StarHubToolWorkspace', () => {

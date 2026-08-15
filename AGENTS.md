@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.68.0(B 路径 Phase 0 spike Step 2:details 右栏停靠工具工作区,session-maybe 无会话可达 + 切会话保活) |
+| 当前版本 | v0.68.1(修复 CI 类型错误:details 保持 session,工具工作区改挂 details.workspace 内席) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-15 (v0.68.0)*
+*最后更新: 2026-08-15 (v0.68.1)*

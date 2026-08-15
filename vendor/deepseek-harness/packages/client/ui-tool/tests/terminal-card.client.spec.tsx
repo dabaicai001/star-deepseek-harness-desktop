@@ -624,9 +624,12 @@ describe('DetailsPanel Output section', () => {
     expect(view.getByText('该调用不在当前窗口内')).toBeTruthy()
   })
 
-  it('no selection at all renders the guidance line and the default title', () => {
+  it('no selection at all renders the workspace fallback guidance', () => {
     const view = mount(snapshot(), null)
-    expect(view.getByText('详情')).toBeTruthy()
+    // Path B Phase 0 Step 2: the column hosts the StarHub tool workspace
+    // title when no call is selected; with no workspace registrant in this
+    // harness, the original guidance line is the fallback.
+    expect(view.getByText('StarHub 工具')).toBeTruthy()
     expect(view.getByText('点击消息流中的工具行查看详情')).toBeTruthy()
   })
 

@@ -13,6 +13,14 @@
 
 ---
 
+## [0.68.1] - 2026-08-15
+
+### 修复
+- GitHub CI `build:lib:client` 类型错误:Step 2 将 `details` 席位 scope 改为 `session-maybe` 触发连锁声明冲突(其他包测试硬编码 `details: session`、AppFrame 的 SessionProvider 条件类型消失、client-nav 测试缺 session-maybe standard props)。实测发现 dsh 硬约束 **`one handle, one scope`**(DetailsPanel 与 conversation.session 共享 chatStore,details 不能改 session-maybe),**方案 A 被否决**;改为修订版:details 保持 session,DetailsPanel 新增 `details.workspace` 内席(无选中时显示工具工作区,fallback 保留原 guidance),client-nav 工具工作区注册该内席;全量 `tsc -b tsconfig.client.json` + 703 测试 + `package:dsh-runtime` 本地复现全部通过
+- `docs/重构方案-B-壳内React插件化.md` Step 2 记录改为修订版结论(方案 A 否决原因、无会话可达需方案 B 独立列)
+
+---
+
 ## [0.68.0] - 2026-08-15
 
 ### 新增

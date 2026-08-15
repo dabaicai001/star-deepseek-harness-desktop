@@ -66,25 +66,26 @@ function rawResultText(block: ToolCallBlock): string {
 export function DetailsPanel({ useSession, useSessions, sessionId, useStore, renderSlot, closeDetails, t }: DetailsPanelProps) {
   const selection = useStore(s => s.selection)
   // Session workspace root: an omitted or relative terminal cwd resolves
-  // against it, which the pure presenter cannot see. Path B Phase 0 Step 2:
-  // the details slot is session-maybe, so sessionId may be absent — resolve
-  // the cwd only when a session is current.
-  const sessionCwd = useSessions(list => sessionId === undefined ? undefined : list.byId[sessionId]?.cwd)
+  // against it, which the pure presenter cannot see.
+  const sessionCwd = useSessions(list => list.byId[sessionId]?.cwd)
   const callId = selection?.callId
   // materialFor builds a fresh wrapper; shallowEqual short-circuits on its
   // stable members (result node reference rides the snapshot's structural sharing).
-  // Path B Phase 0 Step 2: with no current session the snapshot selector
-  // returns undefined — treat that as "no material" (the StarHub tool
-  // workspace fills the column instead).
   const material = useSession(
-    s => (s === undefined || callId === undefined ? null : materialFor(s, callId)),
+    s => (callId === undefined ? null : materialFor(s, callId)),
     (a, b) => shallowEqual(a, b))
 
-  // Path B Phase 0 Step 2: with no selected tool call, the column hosts the
-  // docked StarHub tool workspace via the details.workspace inner seat; the
-  // tool-call inspection panel appears only when the user selects a call in
-  // the conversation.
+  // Path B Phase 0 Step 2 (plan option A, revised): with no selected tool
+  // call, the column hosts the docked StarHub tool workspace via the
+  // details.workspace inner seat; the tool-call inspection panel appears only
+  // when the user selects a call in the conversation. When no workspace
+  // registrant exists (vanilla dsh), fall back to the original guidance line.
+  // A step-selection without a callId keeps the guidance (no call to show).
+  // The details seat itself stays session-scoped (its chat store handle pins
+  // to one scope), so the workspace surface requires an active session — see
+  // plan D1 for the no-session variant.
   const showWorkspace = selection === null
+  const noCallId = selection !== null && callId === undefined
   const title = showWorkspace
     ? t('details.workspaceTitle')
     : material?.name ?? selection?.toolName ?? t('details.title')
@@ -103,8 +104,14 @@ export function DetailsPanel({ useSession, useSessions, sessionId, useStore, ren
       </div>
       <div className={css.body}>
         {showWorkspace
-          ? renderSlot('details.workspace', {})
-          : material == null
+          ? renderSlot('details.workspace', {}, {
+            // No StarHub workspace registrant (vanilla dsh): keep the
+            // original empty guidance instead of a blank column.
+            fallback: <div className={css.empty}>{t('details.empty')}</div>,
+          })
+          : noCallId
+            ? <div className={css.empty}>{t('details.empty')}</div>
+            : material == null
             ? <div className={css.empty}>{t('details.notInWindow')}</div>
             : (
               <>

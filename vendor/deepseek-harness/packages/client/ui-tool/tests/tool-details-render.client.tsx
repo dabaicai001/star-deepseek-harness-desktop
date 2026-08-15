@@ -50,11 +50,16 @@ export function toolChatSnapshot(
 
 /**
  * Bind ui-tool's details renderer to the conversation slot callback shape.
+ * Only the tool-details seat is handled; any other seat (e.g. the StarHub
+ * details.workspace inner seat) falls through to the owner's fallback, which
+ * the framework renderer supplies as the third argument when a seat has no
+ * registrant.
  * @param t - conversation locale seat used by Tool cards.
  * @returns a direct-test renderSlot implementation.
  */
 export function renderToolDetails(t: TranslateNS<'conversation'>): DetailsSlotProps['renderSlot'] {
-  return (_key, owner) => {
+  return (key, owner, opts) => {
+    if (key !== 'conversation.details.tool') return opts?.fallback ?? null
     // PropsRenderSlots keeps its key generic even for this one-key share;
     // recover the concrete owner selected by the adapter's fixed slot.
     const details = owner as unknown as DetailsToolOwnerProps

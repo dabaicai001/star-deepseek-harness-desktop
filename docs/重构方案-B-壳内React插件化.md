@@ -108,13 +108,13 @@ vendor/deepseek-harness/packages/starhub/
 > 4. **D2 数据佐证**:`conversation.view` 是 session scope,store 按 handle × scopeKey(sessionId)缓存实例——资产这类全局数据放 per-session 实例会随会话切换重建,验证了「长生命周期状态必须提升到 root-scope 承载」的必要性。
 > 5. **D1 修正**:Step 1 用 `conversation.view` 仅作载体验证「壳内直渲 + IPC + store」链路;`details` 右栏席位改造(方案 A)在 Step 2 完成(见下)。
 >
-> **P0 spike 实测记录(Step 2,2026-08-15)**:`details` 右栏席位改造(方案 A)——
-> 1. **改动落点**:`ui-layout` 的 `details` 席位 scope `session` → `session-maybe`(SlotMap 声明 + register children),`AppFrame` 列宽不再依赖 `detailsSession`(无会话也可展开)、去掉「切会话自动 closeDetails」(工具工作区跨会话保活);`ui-conversation` 的 `DetailsPanel` 新增 `details.workspace` 内席(session-maybe),无选中工具调用时右栏渲染 StarHub 工具工作区,选中工具调用时显示调用详情(两者共存);`client-nav` 工具工作区从 `conversation.view` 迁到 `details.workspace`,侧栏新增「工具工作区」入口(经 `ctx.layout.openDetails()` 打开右栏)。StarHubToolWorkspace 挂载时仍直调 Tauri IPC `get_assets`。
-> 2. **硬约束 1(无会话可达)验证**:`details` scope 改 `session-maybe` 后,AppFrame 在无会话时也按 store 偏好展开右栏;`app-frame.client.spec.tsx` 新增断言「切会话列保持打开、无会话时列偏好保留」通过。**结论:无会话时右栏可达成立**。
-> 3. **硬约束 2(切会话保活)验证**:去掉切会话自动 `closeDetails` 后,右栏跨会话保持打开;工具状态按 D2 原则放壳级 store(与 session 解耦)。**结论:切会话保活的布局前提成立**(真实连接句柄的跨会话保活仍待工具实体迁移时验证)。
-> 4. **回归**:改动的三个包 `tsc -b` 全过,478 个测试全绿(含新增 DetailsPanel workspace 渲染测试、app-frame 跨会话保持测试);`ui-layout` / `ui-conversation` 在 dsh 覆盖率豁免清单内(`packages/client/ui-conversation/src/client/*`、`packages/client/ui-layout/src/*` 为既有 GUI 债务豁免),`client-nav` 属 StarHub 本地包(上游 CI 不覆盖)。
-> 5. **部署约束(新发现,重要)**:浏览器级验证受 dsh 启动机制限制——`apps/cli` 每次启动经 `healProfilesModuleFallback` 从安装锚点(apps/cli 的依赖闭包)**强制重置** `profiles/node_modules` 里核心包(ui-layout/ui-conversation 等)的 junction 指向 dsh-runtime 实体,测试 DSH_HOME 无法让这些包指向仓库 vendor;而 dsh-runtime 实体文件被 3085(当前 GUI)共用,不能覆盖。**结论:修改 dsh 核心 UI 包后,浏览器级验证需要「重启应用让 Rust 重新物化」或「独立 runtime 副本」,不能靠独立 DSH_HOME + junction 绕过**;本 spike 的 Step 2 验证以单元测试为准,浏览器级留待工具实体迁移时随应用重启验证。
-> 6. **D1 结论(更新)**:方案 A 落地可行,改动集中于 ui-layout(1 处 scope + AppFrame 列宽/切会话逻辑)与 ui-conversation(DetailsPanel 内席 + 注册),均为豁免包、改动可控;无需退回方案 B。
+> **P0 spike 实测记录(Step 2,2026-08-15,修订版)**:`details` 右栏停靠工具工作区——
+> 1. **改动落点(修订版)**:`details` 席位**保持 `session` scope**(不可改 session-maybe,见下);`ui-conversation` 的 `DetailsPanel` 新增 `details.workspace` 内席,无选中工具调用时右栏渲染 StarHub 工具工作区(fallback 保留原 guidance,vanilla dsh 不受影响),选中工具调用时显示调用详情;`client-nav` 工具工作区从 `conversation.view` 迁到 `details.workspace`,侧栏新增「工具工作区」入口(经 `ctx.layout.openDetails()` 打开右栏);StarHubToolWorkspace 挂载时直调 Tauri IPC `get_assets`。
+> 2. **架构障碍(实测发现,推翻方案 A)**:dsh 有硬约束 **`one handle, one scope`**(`SlotCore.register`)—同一 store handle 不能跨 scope 挂载。`DetailsPanel` 与 `conversation.session` 等共享 `chatStore`(session pin),若 `details` 改 `session-maybe` 则同一 handle 跨 scope → 注册抛错。**结论:`details` 不能改 session-maybe;「无会话时右栏可达」需要独立的 workspace 顶层席位(方案 B 的独立列),即几何改动(AppFrame 加列 + columns/stores),留待后续。**
+> 3. **硬约束 2(切会话保活)部分成立**:DetailsPanel 有会话时渲染,无选中时显示工具工作区——「有会话时边聊右做」成立;「无会话可达」受方案 B 待办限制。
+> 4. **回归**:`tsc -b tsconfig.client.json` 全量通过;703 个测试全绿(含 DetailsPanel workspace fallback、ui-tool 空态适配);`package:dsh-runtime` 本地复现通过——**修复了 GitHub CI `build:lib:client` 的类型错误**(改 details scope 引发的连锁测试声明冲突已全部对齐)。
+> 5. **部署约束(新发现,重要)**:浏览器级验证受 dsh 启动机制限制——`apps/cli` 每次启动经 `healProfilesModuleFallback` 从安装锚点(apps/cli 的依赖闭包)**强制重置** `profiles/node_modules` 里核心包(ui-layout/ui-conversation 等)的 junction 指向 dsh-runtime 实体,测试 DSH_HOME 无法让这些包指向仓库 vendor;而 dsh-runtime 实体文件被 3085(当前 GUI)共用,不能覆盖。**结论:修改 dsh 核心 UI 包后,浏览器级验证需要「重启应用让 Rust 重新物化」或「独立 runtime 副本」**;本 spike 的 Step 2 验证以单元测试为准。
+> 6. **D1 结论(更新)**:方案 A(details 改 session-maybe)**被 one-handle-one-scope 否决**;采用修订版(DetailsPanel 内席,有会话时边聊右做);「无会话可达」需方案 B 独立列(AppFrame 几何改动),标记为 P1 前置项。
 
 ### D2 会话切换时工具状态保活
 
