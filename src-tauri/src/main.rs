@@ -17,8 +17,34 @@ use commands::ssh::SshManager;
 use sftp::transfer::TransferManager;
 use tauri::Manager;
 
+/// 初始化日志:stderr(开发)+ 文件(打包产物诊断)。
+/// Windows GUI 子系统下 stderr 不可见,dsh web 启动失败只有落到文件才可查。
+fn init_logging() {
+    use tracing_subscriber::fmt::writer::MakeWriterExt;
+    let log_dir = std::env::var_os("LOCALAPPDATA")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".starhub")))
+        .unwrap_or_else(std::env::temp_dir)
+        .join("starhub");
+    let _ = std::fs::create_dir_all(&log_dir);
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("starhub.log"))
+    {
+        Ok(file) => {
+            tracing_subscriber::fmt()
+                .with_writer(std::io::stderr.and(file))
+                .init();
+        }
+        Err(_) => {
+            tracing_subscriber::fmt::init();
+        }
+    }
+}
+
 fn main() {
-    tracing_subscriber::fmt::init();
+    init_logging();
 
     let sidecar_manager = sidecar::SidecarManager::new();
 

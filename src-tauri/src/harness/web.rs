@@ -219,8 +219,10 @@ impl DshWebManager {
 
         // 4. spawn dsh web 组合
         let starhub_dist = resolve_starhub_dist(&dist_root)?;
+        // 与 HarnessRuntime::spawn 一致:入口用相对路径 + current_dir,避免 Windows
+        // 下绝对路径(盘符 + 反斜杠)经命令行传给 node 后被截断成盘符(如 "E:")。
         let mut cmd = Command::new(&paths.node_path);
-        cmd.arg(&cli_bin)
+        cmd.arg(CLI_BIN_REL)
             .arg("web")
             .current_dir(&runtime_dir)
             .stdin(Stdio::null())
@@ -241,6 +243,12 @@ impl DshWebManager {
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
+        tracing::info!(
+            "spawn dsh web: node={} bin={} cwd={}",
+            paths.node_path.display(),
+            cli_bin.display(),
+            runtime_dir.display()
+        );
         let mut child = cmd.spawn().map_err(|e| {
             DshWebError::Spawn(format!("{} {}: {e}", paths.node_path.display(), cli_bin.display()))
         })?;

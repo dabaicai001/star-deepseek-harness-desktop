@@ -13,6 +13,12 @@
 
 ---
 
+## [0.66.4] - 2026-08-15
+
+### 修复
+- dsh web 无法启动:`web.rs` spawn 用绝对路径 `cmd.arg(&cli_bin)` 传入口,Windows 下经命令行传给 node 后被截断成盘符(node 报 `EISDIR: illegal operation on a directory, lstat 'E:'`),ESM 入口 realpath 失败、就绪探测 30s 超时;改为相对路径 + `current_dir`(与 AI runtime 的 `HarnessRuntime::spawn` 一致),并补 spawn 日志
+- 主进程日志落盘:Windows GUI 子系统下 stderr 不可见,dsh web 启动失败被吞进不可见的 stderr 无法定位;新增 `%LOCALAPPDATA%/starhub/starhub.log`(Linux/macOS 落到 `~/.starhub/starhub.log`),把 dsh web 启动错误与 node 子进程 stderr 一并写入文件,便于诊断
+
 ## [0.66.3] - 2026-08-15
 
 ### 修复
