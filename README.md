@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.66.8-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.66.9-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,15 +119,14 @@
 
 ## 当前版本
 
+### v0.66.9 (2026-08-15)
+- 📝 交互与信息架构方案修订:cyber.css 的 token 与 `cyber-*` 组件类不能提前删(当前 418 处引用),只能随 Vue 应用整体退役时一并移除;导航分组调整(终端并入 SFTP+Broker、设置并入 dsh 设置)
+
 ### v0.66.8 (2026-08-15)
 - 📝 新增 B 路径重构方案文档:去 iframe、StarHub 工具重写为 dsh 壳内 React 插件、最终退役整个 Vue 应用(仅方案,未动代码)
 
 ### v0.66.7 (2026-08-15)
 - 🐛 修复 dsh web「选择工作区」选中后回退:打包产物缺 `@deepseek-ai/dsh-persona`(agent preset `standard` 的 loader entry),session 创建时 preset 挂载失败;`python/sdk-runtime/package.json` 补 persona 依赖使闭包完整
-
-### v0.66.6 (2026-08-15)
-- 🐛 修复 SSH `event:listen` ACL 报错(capability 增加远程 `127.0.0.1` origin 覆盖),并修复 DeepSeek key 被占位 env 锁死(改为无 key 时走 dsh onboarding / Models 页输入)
-- 📝 新增重构方案文档(信息架构 + 功能页流程 + 对话/工具融合)
 
 ---
 
