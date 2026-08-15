@@ -110,7 +110,8 @@ jobs:
       - name: Build Linux desktop bundles
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
-        run: npx tauri build --bundles deb,rpm,appimage
+          RUST_LOG: tauri_bundler=debug
+        run: npx tauri build --bundles deb,rpm,appimage --verbose
 
       - name: Audit packages, sidecar and shared libraries
         run: bash scripts/verify-linux-bundles.sh src-tauri/target/release/bundle "${{ matrix.deb_arch }}"
