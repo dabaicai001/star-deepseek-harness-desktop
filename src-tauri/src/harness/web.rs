@@ -231,13 +231,15 @@ impl DshWebManager {
             .kill_on_drop(true)
             .env("DSH_HOME", &dsh_home)
             .env("DSH_TELEMETRY_DISABLED", "1")
-            .env("STARHUB_DIST", &starhub_dist)
-            // 不起会话,占位 key 即可(与 boot.mjs 相同)
-            .env(
-                "DEEPSEEK_API_KEY",
-                std::env::var("DEEPSEEK_API_KEY")
-                    .unwrap_or_else(|_| "starhub-p0-placeholder".into()),
-            );
+            .env("STARHUB_DIST", &starhub_dist);
+        // 仅透传真实环境 key,不再注入占位 key(与 boot.mjs 一致)。
+        // 否则 dsh 会把 key 判定为「由启动环境提供」(source=env,只读),
+        // 首次进入不弹 key 引导、Models 页也锁死无法输入。
+        if let Ok(key) = std::env::var("DEEPSEEK_API_KEY") {
+            if !key.trim().is_empty() {
+                cmd.env("DEEPSEEK_API_KEY", key);
+            }
+        }
         #[cfg(target_os = "windows")]
         {
             const CREATE_NO_WINDOW: u32 = 0x08000000;

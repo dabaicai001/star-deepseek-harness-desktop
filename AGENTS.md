@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.66.5(dsh 主壳侧栏导航:StarHub 功能页从侧栏底部 footer 上移到顶部「工具」分组,ui-sidebar 新增 `sidebar.navigation` 槽位) |
+| 当前版本 | v0.66.6(修复 SSH event:listen ACL 远程源覆盖 + DeepSeek key 占位 env 锁死,新增重构方案文档) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-15 (v0.66.5)*
+*最后更新: 2026-08-15 (v0.66.6)*

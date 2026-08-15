@@ -15,8 +15,8 @@
  * 3. Spawns the built dsh CLI (`apps/cli/lib/bin.js web`) with stdio inherited.
  *
  * Prerequisites: `pnpm run build` (host + client libs and the apps/web dist).
- * DEEPSEEK_API_KEY is passed through; a placeholder is fine for boot checks —
- * no session is started by serving the GUI.
+ * DEEPSEEK_API_KEY is passed through only when set in the real environment;
+ * no placeholder is injected so dsh's onboarding / Models page stays writable.
  */
 import { copyFileSync, existsSync, lstatSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -48,14 +48,20 @@ for (const pkg of ['dsh-starhub-client-nav', 'dsh-starhub-host-static']) {
 const bin = join(repoRoot, 'apps', 'cli', 'lib', 'bin.js')
 if (!existsSync(bin)) throw new Error('boot: apps/cli/lib/bin.js missing; run pnpm run build first')
 
+const env = {
+  ...process.env,
+  DSH_HOME: dshHome,
+  DSH_TELEMETRY_DISABLED: process.env.DSH_TELEMETRY_DISABLED ?? '1',
+}
+// 仅透传真实环境 key,不注入占位 key:否则 dsh 判定 key 为「由启动环境提供」
+// (只读),首次不弹引导、Models 页无法输入。
+if (process.env.DEEPSEEK_API_KEY) {
+  env.DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY
+}
+
 const child = spawn(process.execPath, [bin, 'web'], {
   stdio: 'inherit',
-  env: {
-    ...process.env,
-    DSH_HOME: dshHome,
-    DSH_TELEMETRY_DISABLED: process.env.DSH_TELEMETRY_DISABLED ?? '1',
-    DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY ?? 'starhub-p0-placeholder',
-  },
+  env,
 })
 child.on('exit', (code, signal) => {
   process.exit(code ?? (signal === null ? 1 : 0))

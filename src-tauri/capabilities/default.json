@@ -3,6 +3,9 @@
   "identifier": "default",
   "description": "Default capability for StarHub main window (dsh web shell + embed iframe pages). Grants all required permissions for SSH terminal, asset CRUD, and event listening.",
   "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*/*", "http://localhost:*/*"]
+  },
   "permissions": [
     "core:default",
     "core:event:default",

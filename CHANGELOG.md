@@ -13,6 +13,17 @@
 
 ---
 
+## [0.66.6] - 2026-08-15
+
+### 修复
+- SSH `plugin:event|listen not allowed by ACL`:capability 未覆盖 dsh 主壳的远程 `http://127.0.0.1:<port>` origin(`local` 默认只覆盖 `tauri://localhost` 等本地源),prod 下 shell-placeholder 跳转后落在远程源导致 iframe 内 `listen()` 被 ACL 拒绝;`capabilities/default.json` 增加 `remote.urls`(127.0.0.1 / localhost 任意端口)
+- DeepSeek API key 被占位 env 锁死:`web.rs`/`boot.mjs` 在无真实 `DEEPSEEK_API_KEY` 时注入 `starhub-p0-placeholder`,使 dsh 判定 key 为「由启动环境提供」(source=env、只读),首次进入不弹 key 引导、Models 页锁死无法输入;改为仅在真实环境存在 key 时才透传,keyless 走 dsh 自带 onboarding / Models 页
+
+### 新增
+- 重构方案文档 `docs/重构方案-交互与信息架构.md`(信息架构 + 各功能页布局流程 + dsh 对话区与工具区融合,仅方案、不动代码)
+
+---
+
 ## [0.66.5] - 2026-08-15
 
 ### 改进
