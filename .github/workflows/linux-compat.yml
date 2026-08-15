@@ -72,8 +72,8 @@ jobs:
 
       - name: Set up Rust
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install 1.96.0 --profile minimal
+          rustup default 1.96.0
 
       - name: Install frontend dependencies
         run: npm ci
