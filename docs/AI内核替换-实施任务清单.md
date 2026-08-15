@@ -35,7 +35,6 @@
 - [ ] P2-3 starhub-db-tools 包(MySQL/PG/SQLite/ClickHouse/MSSQL)+ DbView 宿主切换
 - [ ] P2-4 redis / es 工具包 + 对应宿主视图
 - [ ] P2-5 docker 工具包 + DockerView 宿主切换
-- [ ] P2-6 excel 工具包 + ExcelView 宿主切换
 - [ ] P2-7 绑定集合的 agent-scoped 插件机制落地(方案 D4)
 - [ ] P2-8 确认/安全语义迁移逐项核对(方案 5.2:commandGuard 平移 + 测试)
 
