@@ -28,6 +28,11 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -43,6 +48,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Install dsh runtime dependencies
+        run: pnpm --dir vendor/deepseek-harness install --frozen-lockfile
+
       - name: Test frontend and Go sidecar
         shell: pwsh
         run: |
@@ -56,6 +64,12 @@ jobs:
 
       - name: Build release sidecar
         run: npm run sidecar:build:release
+
+      - name: Build embed resources
+        run: npm run build:embed
+
+      - name: Package dsh runtime
+        run: npm run package:dsh-runtime
 
       - name: Test Tauri backend
         working-directory: src-tauri
