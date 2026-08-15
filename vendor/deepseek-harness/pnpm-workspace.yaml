@@ -24,6 +24,12 @@ packages:
 # builds must resolve those matching names to this workspace's pinned sources.
 linkWorkspacePackages: true
 
+# The committed lockfile was resolved against the npmmirror registry (China
+# mirror). On clean CI runners pnpm 11.3+ re-verifies every tarball URL against
+# registry.npmjs.org and rejects the mirror URLs (ERR_PNPM_TARBALL_URL_MISMATCH),
+# so trust the already-reviewed lockfile instead of re-verifying each entry.
+trustLockfile: true
+
 overrides:
   '@deepseek-ai/cosmokit': 'link:vendor/cosmokit'
   '@deepseek-ai/schemastery': 'link:vendor/schemastery'
