@@ -13,6 +13,13 @@
 
 ---
 
+## [0.66.7] - 2026-08-15
+
+### 修复
+- dsh web「选择工作区」选中后回退到选择工作区:打包产物 `dsh-runtime/node_modules` 缺 `@deepseek-ai/dsh-persona`(agent preset `standard` 的首个 loader entry,仅被 `apps/cli` 依赖、未进入 `dsh-jsonrpc-agent-pkg` deploy 闭包),session 创建时 preset 挂载失败(agent-preset-invalid)、`connectWorkspace` 抛错导致回退;`python/sdk-runtime/package.json` 补 persona 依赖使闭包完整
+
+---
+
 ## [0.66.6] - 2026-08-15
 
 ### 修复

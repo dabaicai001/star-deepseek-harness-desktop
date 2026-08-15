@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.66.6-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.66.7-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,15 +119,15 @@
 
 ## 当前版本
 
+### v0.66.7 (2026-08-15)
+- 🐛 修复 dsh web「选择工作区」选中后回退:打包产物缺 `@deepseek-ai/dsh-persona`(agent preset `standard` 的 loader entry),session 创建时 preset 挂载失败;`python/sdk-runtime/package.json` 补 persona 依赖使闭包完整
+
 ### v0.66.6 (2026-08-15)
 - 🐛 修复 SSH `event:listen` ACL 报错(capability 增加远程 `127.0.0.1` origin 覆盖),并修复 DeepSeek key 被占位 env 锁死(改为无 key 时走 dsh onboarding / Models 页输入)
 - 📝 新增重构方案文档(信息架构 + 功能页流程 + 对话/工具融合)
 
 ### v0.66.5 (2026-08-15)
 - ✨ dsh 主壳侧栏导航:StarHub 功能页(终端/数据库/Redis/Elasticsearch/Docker/Broker/Excel/设置)从侧栏底部 footer 上移到侧栏顶部「工具」分组,融入主侧栏导航区,解决功能入口埋底难找的问题
-
-### v0.66.4 (2026-08-15)
-- 🐛 主进程日志落盘:Windows GUI 子系统下 stderr 不可见,dsh web 启动失败无法定位;新增 `%LOCALAPPDATA%/starhub/starhub.log`(Linux/macOS 落到 `~/.starhub/starhub.log`),写入 dsh web 启动错误与 node 子进程 stderr
 
 ---
 
