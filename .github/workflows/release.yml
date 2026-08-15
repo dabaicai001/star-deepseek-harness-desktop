@@ -180,10 +180,7 @@ jobs:
         run: cargo test --locked
 
       - name: Build Linux desktop bundles
-        env:
-          APPIMAGE_EXTRACT_AND_RUN: "1"
-          NO_STRIP: "true"
-        run: npx tauri build --bundles deb,rpm,appimage
+        run: npx tauri build --bundles deb,rpm
 
       - name: Audit packages, sidecar and shared libraries
         run: bash scripts/verify-linux-bundles.sh src-tauri/target/release/bundle "${{ matrix.deb_arch }}"
@@ -195,7 +192,6 @@ jobs:
           path: |
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
-            src-tauri/target/release/bundle/appimage/*.AppImage
           if-no-files-found: error
 
   publish:
@@ -221,4 +217,3 @@ jobs:
             release-artifacts/**/*.exe
             release-artifacts/**/*.deb
             release-artifacts/**/*.rpm
-            release-artifacts/**/*.AppImage

@@ -37,16 +37,6 @@ assert_no_missing_libraries() {
   fi
 }
 
-assert_bundled_library() {
-  local report="$1"
-  local soname="$2"
-  local appdir="$3"
-  if ! grep -F "$soname => $appdir/" "$report" >/dev/null; then
-    echo "$soname is not resolved from inside the AppImage" >&2
-    exit 1
-  fi
-}
-
 assert_sidecar() {
   local sidecar="$1"
   test -x "$sidecar"
@@ -66,25 +56,8 @@ assert_binary_architecture() {
   esac
 }
 
-appimage="$(readlink -f "$(find_one "$bundle_root/appimage" '*.AppImage')")"
 deb="$(readlink -f "$(find_one "$bundle_root/deb" '*.deb')")"
 rpm="$(readlink -f "$(find_one "$bundle_root/rpm" '*.rpm')")"
-
-chmod +x "$appimage"
-mkdir "$audit_root/appimage"
-(
-  cd "$audit_root/appimage"
-  "$appimage" --appimage-extract >/dev/null
-)
-appimage_main="$audit_root/appimage/squashfs-root/usr/bin/starhub"
-appimage_sidecar="$audit_root/appimage/squashfs-root/usr/bin/starhub-sidecar"
-test -x "$appimage_main"
-assert_sidecar "$appimage_sidecar"
-assert_binary_architecture "$appimage_main"
-assert_binary_architecture "$appimage_sidecar"
-assert_no_missing_libraries "$appimage_main" "$audit_root/appimage-ldd.txt"
-assert_bundled_library "$audit_root/appimage-ldd.txt" "libwebkit2gtk-4.1.so.0" "$audit_root/appimage/squashfs-root"
-assert_bundled_library "$audit_root/appimage-ldd.txt" "libgtk-3.so.0" "$audit_root/appimage/squashfs-root"
 
 mkdir "$audit_root/deb"
 dpkg-deb -x "$deb" "$audit_root/deb"
@@ -149,4 +122,4 @@ if [[ -n "$expected_arch" ]]; then
   fi
 fi
 
-printf 'Verified AppImage, DEB and RPM bundles under %s\n' "$bundle_root"
+printf 'Verified DEB and RPM bundles under %s\n' "$bundle_root"

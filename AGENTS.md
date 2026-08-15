@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.66.2(修复 `package-dsh-runtime.ts` 的 `build()` 只构建 host 面(`build:lib:host`),而 `client-nav` 是仅 client 面包,全新 checkout 上缺 `lib/`,入包时 `installWebRuntimePackages` 拷贝 `client-nav/lib` 抛 ENOENT、CI「Package dsh runtime」步骤失败;改为 `build:lib`(host + client),补齐 `client-nav/lib/index.js` 与 `lib/client.js`) |
+| 当前版本 | v0.66.3(移除 Linux AppImage 打包目标,仅保留 deb/rpm:Tauri 2.x linuxdeploy 在 Ubuntu 22.04 打包 WebKitGTK AppImage 为上游已知 bug tauri#14796,`NO_STRIP=true` + `APPIMAGE_EXTRACT_AND_RUN=1` 仍报 `failed to run linuxdeploy`;deb 覆盖 Debian/Ubuntu、rpm 覆盖 Fedora/RHEL) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-15 (v0.66.2)*
+*最后更新: 2026-08-15 (v0.66.3)*

@@ -13,6 +13,11 @@
 
 ---
 
+## [0.66.3] - 2026-08-15
+
+### 修复
+- 移除 Linux AppImage 打包目标(仅保留 deb/rpm):Tauri 2.x 的 linuxdeploy 在 Ubuntu 22.04 上打包 WebKitGTK 应用的 AppImage 为上游已知 bug(tauri#14796),`NO_STRIP=true` + `APPIMAGE_EXTRACT_AND_RUN=1` 仍报 `failed to run linuxdeploy`;deb 覆盖 Debian/Ubuntu、rpm 覆盖 Fedora/RHEL,已满足 Linux 分发需求
+
 ## [0.66.2] - 2026-08-15
 
 ### 修复
