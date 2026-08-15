@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.67.0(B 路径 Phase 0 spike Step 1:壳内 React 工具页签 + Tauri IPC 直调资产) |
+| 当前版本 | v0.68.0(B 路径 Phase 0 spike Step 2:details 右栏停靠工具工作区,session-maybe 无会话可达 + 切会话保活) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-15 (v0.67.0)*
+*最后更新: 2026-08-15 (v0.68.0)*

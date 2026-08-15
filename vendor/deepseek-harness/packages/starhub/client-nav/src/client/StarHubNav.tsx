@@ -1,18 +1,26 @@
 /**
- * StarHub 侧栏导航:注册进 `sidebar.navigation` 的功能页条目列表。
- * 纯展示组件:激活态与切换动作全部来自 PropsStore 共享(nav store 与
- * overlay 层同一份 handle)。
+ * StarHub 侧栏导航:注册进 `sidebar.navigation` 的功能页条目列表 + Phase 0
+ * (Path B) 的「StarHub 工具工作区」入口。纯展示组件:激活态与切换动作全部
+ * 来自 PropsStore 共享(nav store 与 overlay 层同一份 handle),工作区入口
+ * 经 inject 回调调用 `ctx.layout.openDetails()` 打开右栏停靠的工具工作区。
  */
-import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRuntime, PropsStore, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the 'sidebar.navigation' SlotMap row (declared by ui-sidebar).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import { IconDataOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { STARHUB_SECTIONS } from './sections.ts'
 import type { createStarHubNavStore } from './store.ts'
 
-/** Full composed props: navigation owner share + the shared nav store share. */
+/** Business face injected by the registration: open the docked tool workspace. */
+export interface StarHubNavInjected {
+  openWorkspace: () => void
+}
+
+/** Full composed props: navigation owner share + the shared nav store share + injected face. */
 export type StarHubNavProps =
   & PropsRuntime<'sidebar.navigation'>
   & PropsStore<ReturnType<typeof createStarHubNavStore>>
+  & InjectFace<StarHubNavInjected>
 
 const rowStyle = (active: boolean, wide: boolean): React.CSSProperties => ({
   display: 'flex',
@@ -43,14 +51,25 @@ const headerStyle: React.CSSProperties = {
 
 /**
  * Render the StarHub section rows pinned at the top of the sidebar.
- * @param props - composed slot props (owner `wide` flag + nav store share).
+ * @param props - composed slot props (owner `wide` flag + nav store share + injected workspace opener).
  * @returns the rows element tree.
  */
-export function StarHubNav({ wide, useStore, actions }: StarHubNavProps) {
+export function StarHubNav({ wide, useStore, actions, openWorkspace }: StarHubNavProps) {
   const active = useStore(s => s.active)
   return (
     <>
       {wide && <div style={headerStyle}>工具</div>}
+      <button
+        key="starhub-tools-entry"
+        type="button"
+        style={rowStyle(false, wide)}
+        title="StarHub 工具工作区"
+        aria-pressed={false}
+        onClick={() => openWorkspace()}
+      >
+        <IconDataOutline16 size={wide ? 16 : 18} />
+        {wide ? <span>工具工作区</span> : null}
+      </button>
       {STARHUB_SECTIONS.map(({ key, label, Icon }) => (
         <button
           key={key}

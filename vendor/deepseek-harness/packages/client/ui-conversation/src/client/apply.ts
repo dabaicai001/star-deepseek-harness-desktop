@@ -446,6 +446,9 @@ export function apply(ctx: Context): void {
     locale: NS,
     children: {
       'conversation.details.tool': { kind: 'single', scope: 'session' },
+      // Path B Phase 0 Step 2: StarHub's tool workspace docks into the
+      // details column; the seat stays mounted with no current session.
+      'details.workspace': { kind: 'single', scope: 'session-maybe' },
     },
     store: chatStore,
     inject: (): DetailsInjected => ({

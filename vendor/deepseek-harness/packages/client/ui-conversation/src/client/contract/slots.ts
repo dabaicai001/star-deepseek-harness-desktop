@@ -123,6 +123,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'conversation.details.tool': { kind: 'single'; scope: 'session'; owner: DetailsToolOwnerProps }
     /**
+     * The StarHub tool workspace docked into the details column (Path B
+     * Phase 0 spike Step 2). Session-maybe: the docked tool surface must stay
+     * reachable with no current session and survive session switches (its
+     * state lives in shell-level stores). Declared by the DetailsPanel entry;
+     * StarHub's client-nav registers the workspace component here.
+     */
+    'details.workspace': { kind: 'single'; scope: 'session-maybe' }
+    /**
      * The composer takeover chain: entries are selector-routed replacements
      * of the default InputBar. Declared by this package's 'conversation'
      * entry; the owner dispatches the {@link ComposerChainProps} currency and
@@ -721,8 +729,8 @@ export interface DetailsInjected {
   closeDetails: () => void
 }
 
-/** Full details-slot props: selection store, Tool output seat, injected close callback, and locale. */
-export type DetailsSlotProps = PropsRuntime<'details'> & PropsRenderSlots<'conversation.details.tool'>
+/** Full details-slot props: selection store, Tool output seat, StarHub workspace seat, injected close callback, and locale. */
+export type DetailsSlotProps = PropsRuntime<'details'> & PropsRenderSlots<'conversation.details.tool' | 'details.workspace'>
   & PropsStore<ChatStore> & DetailsInjected & PropsLocale<'conversation'>
 
 /** Owner share common to the hero / New-Session Workspace pickers. */

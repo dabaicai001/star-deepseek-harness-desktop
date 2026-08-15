@@ -1,20 +1,20 @@
 /**
- * StarHub 工具工作区页签(Phase 0 spike,Step 1)。
+ * StarHub 工具工作区(Phase 0 spike,Step 2)。
  *
- * 注册进 `conversation.view`(聊天区页签环),壳内 React 直渲 —— 无 iframe。
- * 挂载时经顶层帧 Tauri IPC 直调 `get_assets`(P0 spike 已实测顶层帧
- * `__TAURI_INTERNALS__.invoke` 可用),结果写入共享 asset store。
+ * 注册进 `details.workspace`(details 右栏内席,方案 A),壳内 React 直渲——
+ * 无 iframe。挂载时经顶层帧 Tauri IPC 直调 `get_assets`(P0 spike 已实测
+ * 顶层帧 `__TAURI_INTERNALS__.invoke` 可用),结果写入共享 asset store。
  * 纯浏览器预览(无 Tauri)时降级展示错误提示。
  */
 import { useEffect } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only: the 'conversation.view' SlotMap row (declared by ui-conversation).
+// Type-only: the 'details.workspace' SlotMap row (declared by ui-conversation).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { createStarHubAssetStore, RustAsset } from './asset-store.ts'
 
-/** Full composed props: conversation view runtime share + the shared asset store share. */
+/** Full composed props: details workspace runtime share + the shared asset store share. */
 export type StarHubToolWorkspaceProps =
-  & PropsRuntime<'conversation.view'>
+  & PropsRuntime<'details.workspace'>
   & PropsStore<ReturnType<typeof createStarHubAssetStore>>
 
 /** Tauri IPC surface injected into the top frame by the desktop shell. */

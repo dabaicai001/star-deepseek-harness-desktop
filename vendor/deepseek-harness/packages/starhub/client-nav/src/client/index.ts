@@ -1,9 +1,10 @@
 /**
  * Browser StarHub navigation plugin: primary sidebar navigation rows plus the
  * full-frame overlay iframe layer, sharing one nav store handle. Phase 0
- * (Path B) additionally registers an in-shell `conversation.view` tab that
- * renders StarHub tool UI directly in the shell React tree (no iframe) and
- * talks to the desktop backend through top-frame Tauri IPC.
+ * (Path B) additionally docks the StarHub tool workspace into the shell's
+ * `details` column inner seat (`details.workspace`) — rendered in-shell in
+ * the React tree (no iframe) and talking to the desktop backend through
+ * top-frame Tauri IPC.
  */
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: the SlotMap rows of both target slots must be in the program for
@@ -17,15 +18,16 @@ import { StarHubNav } from './StarHubNav.tsx'
 import { StarHubOverlay } from './StarHubOverlay.tsx'
 import { StarHubToolWorkspace } from './StarHubToolWorkspace.tsx'
 
-/** Required services: the slot registry. */
-export const inject = ['slots']
+/** Required services: the slot registry and the layout panel-action face. */
+export const inject = ['slots', 'layout']
 
 /**
  * Client plugin body: one shared nav store handle across two registrations —
  * the section rows in `sidebar.navigation` and the iframe layer in
  * `shell.overlay`. Both ride slots.inject, so each waits on the slot
  * declaration and plugin unload removes the pair. Phase 0 (Path B) adds the
- * in-shell `conversation.view` tab sharing a separate asset store handle.
+ * in-shell tool workspace docking into the `details` column's inner seat
+ * (`details.workspace`), sharing a separate asset store handle.
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
@@ -36,6 +38,11 @@ export function apply(ctx: Context): void {
     order: 20,
     label: 'StarHub',
     store,
+    inject: () => ({
+      // Path B Phase 0 Step 2: open the docked StarHub tool workspace in the
+      // details column (the sidebar entry above the section rows).
+      openWorkspace: () => { ctx.layout.openDetails() },
+    }),
   }, StarHubNav))
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
@@ -45,11 +52,8 @@ export function apply(ctx: Context): void {
     store,
   }, StarHubOverlay))
   const assetStore = createStarHubAssetStore()
-  ctx.slots.inject('conversation.view', () => ctx.slots.register({
-    name: 'conversation.view',
-    id: 'starhub-tools',
-    order: 30,
-    label: 'StarHub 工具',
+  ctx.slots.inject('details.workspace', () => ctx.slots.register({
+    name: 'details.workspace',
     store: assetStore,
   }, StarHubToolWorkspace))
 }

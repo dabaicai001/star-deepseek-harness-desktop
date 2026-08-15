@@ -13,6 +13,14 @@
 
 ---
 
+## [0.68.0] - 2026-08-15
+
+### 新增
+- B 路径 Phase 0 spike Step 2:`details` 右栏席位改造(方案 A)——`ui-layout` 的 `details` scope `session` → `session-maybe`(无会话右栏可达、切会话不再自动关闭,工具工作区跨会话保活),`ui-conversation` 的 `DetailsPanel` 新增 `details.workspace` 内席(无选中工具调用时右栏渲染 StarHub 工具工作区,选中时显示调用详情),`client-nav` 工具工作区从 `conversation.view` 迁到 `details.workspace` 并新增侧栏「工具工作区」入口(`ctx.layout.openDetails()`);478 个测试全绿(含新增无会话可达、切会话保持、workspace 渲染断言)
+- `docs/重构方案-B-壳内React插件化.md` 补 Step 2 实测记录:两个硬约束结论、部署约束新发现(dsh 启动经 `healProfilesModuleFallback` 强制重置核心包 junction 指向 runtime,浏览器级验证需随应用重启或独立 runtime 副本)
+
+---
+
 ## [0.67.0] - 2026-08-15
 
 ### 新增

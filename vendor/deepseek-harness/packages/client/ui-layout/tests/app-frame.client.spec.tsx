@@ -172,7 +172,10 @@ describe('AppFrame', () => {
     expect(slotCalls.map(c => c.key)).toContain('details')
   })
 
-  it('ignores unselected states and closes only when the Session id changes', () => {
+  it('keeps the details column open across session switches (tool workspace survives)', () => {
+    // Path B Phase 0 Step 2: the details column hosts the StarHub tool
+    // workspace (session-maybe scope) whose state outlives session changes;
+    // the frame no longer auto-closes the column when the session id changes.
     const { frame, instance, rerenderFrame } = mountFrame()
     expect(tracks(frame)).toEqual([280, 0])
 
@@ -181,13 +184,12 @@ describe('AppFrame', () => {
 
     selectedSession.current = 's-next' as SessionId
     act(() => { rerenderFrame() })
-    expect(tracks(frame)).toEqual([280, 0])
+    expect(tracks(frame)).toEqual([280, 360])
 
-    act(() => { instance.actions.openDetails() })
     selectedSession.current = 's-blank' as SessionId
     selectedSessionBlank.current = true
     act(() => { rerenderFrame() })
-    expect(tracks(frame)).toEqual([280, 0])
+    expect(tracks(frame)).toEqual([280, 360])
     expect(instance.getSnapshot().details).toBe(360)
 
     selectedSession.current = 's-next' as SessionId
@@ -195,12 +197,13 @@ describe('AppFrame', () => {
     act(() => { rerenderFrame() })
     expect(tracks(frame)).toEqual([280, 360])
 
+    // No current session: the column preference is preserved (still open).
     selectedSession.current = undefined
     act(() => { rerenderFrame() })
-    expect(tracks(frame)).toEqual([280, 0])
+    expect(tracks(frame)).toEqual([280, 360])
     selectedSession.current = 's-test' as SessionId
     act(() => { rerenderFrame() })
-    expect(tracks(frame)).toEqual([280, 0])
+    expect(tracks(frame)).toEqual([280, 360])
   })
 
   it('keeps details closed when the first Session materializes', () => {
