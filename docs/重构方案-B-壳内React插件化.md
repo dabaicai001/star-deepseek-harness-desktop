@@ -115,6 +115,11 @@ vendor/deepseek-harness/packages/starhub/
 > 4. **回归**:`tsc -b tsconfig.client.json` 全量通过;703 个测试全绿(含 DetailsPanel workspace fallback、ui-tool 空态适配);`package:dsh-runtime` 本地复现通过——**修复了 GitHub CI `build:lib:client` 的类型错误**(改 details scope 引发的连锁测试声明冲突已全部对齐)。
 > 5. **部署约束(新发现,重要)**:浏览器级验证受 dsh 启动机制限制——`apps/cli` 每次启动经 `healProfilesModuleFallback` 从安装锚点(apps/cli 的依赖闭包)**强制重置** `profiles/node_modules` 里核心包(ui-layout/ui-conversation 等)的 junction 指向 dsh-runtime 实体,测试 DSH_HOME 无法让这些包指向仓库 vendor;而 dsh-runtime 实体文件被 3085(当前 GUI)共用,不能覆盖。**结论:修改 dsh 核心 UI 包后,浏览器级验证需要「重启应用让 Rust 重新物化」或「独立 runtime 副本」**;本 spike 的 Step 2 验证以单元测试为准。
 > 6. **D1 结论(更新)**:方案 A(details 改 session-maybe)**被 one-handle-one-scope 否决**;采用修订版(DetailsPanel 内席,有会话时边聊右做);「无会话可达」需方案 B 独立列(AppFrame 几何改动),标记为 P1 前置项。
+>
+> **P0 spike 实测记录(Step 3,2026-08-15,交互升级)**:右侧列改造成「工具大类 → 子类 → 资产列表」——
+> 1. **交互形态(用户确认)**:侧栏「工具工作区」升级为**大类**(可展开,对齐 dsh WorkspaceBrowser 分组),下挂**子类**:终端、数据库、Docker;点子类 → 右侧 workspace 列显示该类型的**资产列表**;点资产行 → **弹出该实例的操作页**(复用现有 embed iframe 功能页,功能与之前完全一致);右侧列交互(展示/切换/新建连接)与现状一致。
+> 2. **落地要点**:`sections.ts` 扩展为「大类 → 子类 → 资产路由」三层事实表;子类定义资产类型匹配(复用 `routeNameForAsset` 映射:终端=ssh、数据库=db 各子类型、Docker=docker);`StarHubToolWorkspace` 从「全部资产列表」改为「按所选子类过滤」;实例操作页复用 `sectionEmbedUrl(route + instanceId)` 的 embed iframe,后续随 P2 逐个壳内 React 化。
+> 3. **与既有实现的关系**:workspace 席位(session-maybe,无会话渲染)与 details 内席(有会话)已就位,本次只改右侧列的**内容逻辑**(子类过滤 + 资产行点击)与**侧栏结构**(大类/子类);操作页先用 iframe,不阻塞 B 路径的渐进迁移。
 
 ### D2 会话切换时工具状态保活
 
