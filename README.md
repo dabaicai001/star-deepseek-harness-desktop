@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.72.4-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.73.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -118,6 +118,9 @@
 ---
 
 ## 当前版本
+
+### v0.73.0 (2026-08-16)
+- ✨ **Broker 页完成 Vue→React 壳内迁移(P1 首个样本)**:`client-nav` 新增 broker service(复用 Rust `broker_overview`,走顶层帧 Tauri 桥)、DashboardCard 通用仪表盘卡片与 BrokerView 工作台(壳内直渲、dsw token 视觉、30s 自动刷新、卡片详情模态);`sections.ts` 事实表新增 `renderMode`(`iframe`/`native`),`db-broker` 路由切壳内组件、一行可回退;overlay 注入资产源供 native 页反查资产;client-nav 补齐包规范(invariant 伴生、per-file 100% 覆盖率、89 个测试全绿)
 
 ### v0.72.4 (2026-08-16)
 - 📝 **新增 `docs/迁移手册-Vue到React渐进迁移.md`**:绞杀者模式迁移的执行手册(配套重构方案 B)——五条铁律、v0.72.2 实测家底盘点(视图/组件/store/服务/i18n/cyber/Vuetify 用量)、九页迁移顺序(Settings 按 tab 特例)、Vue→React 全量技术映射表(框架/状态纪律/UI/token/embed 协议退役对照)、单页 10 步 playbook 与验收清单模板、迁移台账、5 项待拍板决策(M1–M5)

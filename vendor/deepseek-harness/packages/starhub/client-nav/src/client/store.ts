@@ -73,19 +73,8 @@ export interface StarHubAssetListState {
   preview: boolean
 }
 
-/** Tauri IPC surface injected into the top frame by the desktop shell. */
-interface TauriInternals {
-  invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
-}
-
-/** 顶层帧 Tauri IPC 直调;浏览器预览(无 Tauri)时 reject。 */
-function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const internals = (window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__
-  if (internals === undefined) {
-    return Promise.reject(new Error('Tauri IPC unavailable (browser preview)'))
-  }
-  return internals.invoke(cmd, args) as Promise<T>
-}
+/** 顶层帧 Tauri IPC 直调(共享桥,见 tauri.ts);浏览器预览(无 Tauri)时 reject。 */
+import { tauriInvoke } from './tauri.ts'
 
 /**
  * 资产列表 holder:apply 持有的裸 source + refresh 回调。session-maybe 席位
@@ -109,7 +98,7 @@ export function createStarHubAssets(): StarHubAssets {
     if (source.getSnapshot().loading) return
     // 浏览器预览无 Tauri IPC:不发请求,直接落 preview 态(组件据此展示
     // 「请在桌面应用中使用」提示,而不是一条红错)。
-    if ((window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__ === undefined) {
+    if ((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ === undefined) {
       source.update((d) => { d.loading = false; d.error = null; d.preview = true })
       return
     }

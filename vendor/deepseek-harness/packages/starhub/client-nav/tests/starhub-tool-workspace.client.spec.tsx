@@ -136,6 +136,74 @@ describe('StarHubToolWorkspace', () => {
     expect(screen.getByText('deploy@10.0.0.5')).toBeTruthy()
   })
 
+  it('renders subtitle fallbacks for host-only, database-only and empty configs', () => {
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => {
+      d.assets = [
+        { ...sshAsset, id: 'h1', config: { host: '10.0.0.6' } },
+        { ...sshAsset, id: 'd1', config: { database: 'orders' } },
+        { ...sshAsset, id: 'e1', config: {} },
+      ]
+    })
+    render(<StarHubToolWorkspace {...props} />)
+    expect(screen.getByText('10.0.0.6')).toBeTruthy()
+    expect(screen.getByText('orders')).toBeTruthy()
+  })
+
+  it('skips the settings sync when the api face is absent', () => {
+    const props = workspaceProps()
+    props.api = undefined as never
+    props.bridge.selectSubcategory('terminal')
+    render(<StarHubToolWorkspace {...props} />)
+    expect(screen.getByText('终端')).toBeTruthy()
+  })
+
+  it('syncs the opened asset into the tool-context settings patch', () => {
+    const props = workspaceProps()
+    const update = vi.fn(() => Promise.resolve({ result: { ok: true } }))
+    props.api = { settings: { update } } as never
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.assets = [sshAsset] })
+    const view = render(<StarHubToolWorkspace {...props} />)
+    props.bridge.openAsset({ id: 'a1', type: 'ssh', name: 'prod-server', config: { host: '10.0.0.5', username: 'deploy' } })
+    view.rerender(<StarHubToolWorkspace {...props} />)
+    expect(update).toHaveBeenCalled()
+    const patch = update.mock.calls.at(-1)?.[0]?.patch
+    expect(patch.assetId).toBe('a1')
+    expect(patch.assetName).toBe('prod-server')
+    expect(patch.routePrefix).toBe('/ssh')
+  })
+
+  it('swallows settings-sync failures', () => {
+    const props = workspaceProps()
+    const update = vi.fn(() => Promise.reject(new Error('settings down')))
+    props.api = { settings: { update } } as never
+    props.bridge.selectSubcategory('terminal')
+    render(<StarHubToolWorkspace {...props} />)
+    expect(update).toHaveBeenCalled()
+  })
+
+  it('refreshes from the header refresh button', () => {
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.assets = [sshAsset] })
+    render(<StarHubToolWorkspace {...props} />)
+    screen.getByTitle('刷新').click()
+    expect(props.refreshAssets).toHaveBeenCalledTimes(2) // mount + refresh button
+  })
+
+  it('opens the connection manager from the empty-state 新建连接 button', () => {
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('docker')
+    props.assets.update((d) => { d.assets = [sshAsset] })
+    render(<StarHubToolWorkspace {...props} />)
+    // 头部与空态各有一个「新建连接」,空态按钮在列表区域
+    const buttons = screen.getAllByText('新建连接')
+    buttons[buttons.length - 1].click()
+    expect(props.openConnectionManager).toHaveBeenCalledTimes(1)
+  })
+
   it('opens the instance operation page when an asset row is clicked', () => {
     const props = workspaceProps()
     props.bridge.selectSubcategory('terminal')

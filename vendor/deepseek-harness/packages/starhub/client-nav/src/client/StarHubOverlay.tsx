@@ -1,11 +1,12 @@
 /**
- * StarHub overlay:注册进 `shell.overlay` 的全幅 iframe 层。
+ * StarHub overlay:注册进 `shell.overlay` 的全幅层。
  * 两种打开方式,同一时刻只显示一个(资产实例优先):
  * - 连接管理(设置页只挂资产 tab):连接管理桥(inject hooks 舱位)的
  *   open 决定,来自工作区列「新建连接」与 embed 资产条「去设置添加」;
- * - 实例操作页:选择桥的 assetId / instanceId / routePrefix 决定 src
- *   (`assetInstanceUrl`),点资产行打开。instanceId 由打开动作生成一次,
- *   渲染期只读——重渲染不会重载 iframe。
+ * - 实例操作页:选择桥的 assetId / instanceId / routePrefix 决定内容。
+ *   已迁移路由(renderMode native,见 sections.ts)壳内直渲 React 组件,
+ *   未迁移路由仍走 embed iframe(assetInstanceUrl)。instanceId 由打开
+ *   动作生成一次,渲染期只读——重渲染不会重载 iframe。
  * 关闭:右上角关闭钮 / Esc / embed 转发 Esc。
  */
 import { useEffect } from 'react'
@@ -15,9 +16,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconCloseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  assetInstanceUrl, CONNECTION_MANAGER_TABS, settingsEmbedUrl,
+  assetInstanceUrl, CONNECTION_MANAGER_TABS, renderModeForAsset, settingsEmbedUrl,
 } from './sections.ts'
-import type { ToolSelection } from './store.ts'
+import type { StarHubAssetListState, ToolSelection } from './store.ts'
+import { BrokerView } from './broker/BrokerView.tsx'
 
 /** Business face injected by the registration: close/open the two overlay surfaces. */
 export interface StarHubOverlayInjected {
@@ -28,6 +30,8 @@ export interface StarHubOverlayInjected {
   hooks: {
     selection: SnapshotStore<ToolSelection>
     connectionManager: SnapshotStore<{ open: boolean }>
+    /** 资产列表(壳内 native 实例页按 assetId 反查资产配置)。 */
+    assets: SnapshotStore<StarHubAssetListState>
   }
 }
 
@@ -47,15 +51,17 @@ const CONNECTION_MANAGER_URL = settingsEmbedUrl(CONNECTION_MANAGER_TABS, 'assets
 /**
  * Render the full-frame StarHub overlay: the connection manager (settings
  * page, assets tab only) or an asset instance operation page, whichever is
- * active.
+ * active. Asset pages whose route is migrated render the native React view;
+ * the rest keep the embed iframe.
  * @param props - composed slot props (injected bridges face).
  * @returns null when closed; otherwise the overlay layer.
  */
 export function StarHubOverlay({
-  closeAsset, openConnectionManager, closeConnectionManager, useSelection, useConnectionManager,
+  closeAsset, openConnectionManager, closeConnectionManager, useSelection, useConnectionManager, useAssets,
 }: StarHubOverlayProps) {
   const selection = useSelection(s => s)
   const managerOpen = useConnectionManager(s => s.open)
+  const assets = useAssets(s => s.assets)
   const assetOpen = selection.assetId !== null && selection.instanceId !== null && selection.routePrefix !== null
   const open = assetOpen || managerOpen
 
@@ -87,22 +93,37 @@ export function StarHubOverlay({
     }
   }, [open, assetOpen, closeAsset, openConnectionManager, closeConnectionManager])
 
-  const src = assetOpen
-    ? assetInstanceUrl(selection.routePrefix!, selection.instanceId!)
-    : managerOpen ? CONNECTION_MANAGER_URL : null
-  if (src === null) return null
+  if (!open) return null
+
+  // 壳内 native 分支:已迁移路由按 assetId 反查资产,直渲 React 视图。
+  const openAsset = assetOpen && selection.assetId !== null
+    ? assets.find((a) => a.id === selection.assetId)
+    : undefined
+  const native = openAsset !== undefined && renderModeForAsset(openAsset) === 'native'
+
   return (
     // shell.overlay 层本身 click-through,这里整幅接管指针事件
     <div style={{
       position: 'fixed', inset: 0, zIndex: 40,
       pointerEvents: 'auto', background: 'var(--dsw-background-primary, #0b0f14)',
     }}>
-      <iframe
-        key={assetOpen ? `asset-${selection.instanceId}` : 'connection-manager'}
-        title={assetOpen ? 'starhub-asset' : 'starhub-connection-manager'}
-        src={src}
-        style={{ display: 'block', width: '100%', height: '100%', border: 'none' }}
-      />
+      {native && openAsset !== undefined ? (
+        <BrokerView asset={openAsset} />
+      ) : assetOpen ? (
+        <iframe
+          key={`asset-${selection.instanceId}`}
+          title="starhub-asset"
+          src={assetInstanceUrl(selection.routePrefix!, selection.instanceId!)}
+          style={{ display: 'block', width: '100%', height: '100%', border: 'none' }}
+        />
+      ) : (
+        <iframe
+          key="connection-manager"
+          title="starhub-connection-manager"
+          src={CONNECTION_MANAGER_URL}
+          style={{ display: 'block', width: '100%', height: '100%', border: 'none' }}
+        />
+      )}
       <button
         type="button"
         aria-label="关闭"

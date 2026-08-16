@@ -1,0 +1,461 @@
+/* Dashboard 通用卡片:结构对齐 DashboardCard.vue,视觉走 dsw token(无字面量颜色)。
+   颜色主题经 --card-accent 一处注入(组件内由 DASHBOARD_COLOR_TOKENS 决定)。 */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 12px;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  color: inherit;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--dsw-alias-border-l2);
+  transition: background 0.2s ease;
+}
+
+.card:hover {
+  border-color: var(--dsw-alias-border-l3);
+  transform: translateY(-2px);
+}
+
+.card:hover::before {
+  background: var(--card-accent);
+}
+
+.card:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.cardIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--card-accent) 14%, transparent);
+  color: var(--card-accent);
+}
+
+.cardTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  letter-spacing: 0.02em;
+}
+
+.cardTrend {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.detailChevron {
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform 0.2s, color 0.2s;
+}
+
+.card:hover .detailChevron {
+  color: var(--card-accent);
+  transform: translateX(2px);
+}
+
+.cardBody {
+  display: block;
+  min-height: 32px;
+}
+
+.cardValue {
+  display: block;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: clamp(16px, 1.15vw, 20px);
+  font-weight: 600;
+  color: var(--card-accent);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardSubtitle {
+  display: block;
+  font-size: 10px;
+  color: var(--dsw-alias-label-tertiary);
+  margin-top: 2px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.cardProgress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.progressBar {
+  flex: 1;
+  height: 4px;
+  background: var(--dsw-alias-border-l2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressFill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--card-accent);
+}
+
+.progressText {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--dsw-alias-label-tertiary);
+  min-width: 40px;
+  text-align: right;
+}
+
+.cardLoading {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+}
+
+.loadingDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--card-accent);
+  animation: loading-pulse 1.2s infinite;
+}
+
+.loadingDot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.loadingDot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes loading-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+/* ===== 详情模态 ===== */
+
+.dialogBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--dsw-alias-bg-mask-3);
+  padding: 24px;
+}
+
+.detailPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(920px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 10px;
+  padding: 16px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.detailHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.detailHeadText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.detailHeadText strong {
+  font-size: 14px;
+}
+
+.detailHeadText span {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.closeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.detailValue {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--card-accent);
+}
+
+.detailDescription {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.detailChart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.detailChartHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.detailChartHead strong {
+  font-size: 12px;
+}
+
+.detailChartHead span {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.lineWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.line {
+  display: block;
+  width: 100%;
+  height: 116px;
+}
+
+.lineGrid {
+  fill: none;
+  stroke: var(--dsw-alias-border-l2);
+  stroke-width: 1;
+}
+
+.lineArea {
+  fill: color-mix(in srgb, var(--card-accent) 12%, transparent);
+}
+
+.lineValue {
+  fill: none;
+  stroke: var(--card-accent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lineRange {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.donutWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.donut {
+  width: 120px;
+  height: 120px;
+}
+
+.donut circle {
+  fill: none;
+  stroke-width: 10;
+}
+
+.donutTrack {
+  stroke: var(--dsw-alias-border-l2);
+}
+
+.donutValue {
+  stroke: var(--card-accent);
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+.donutLabel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.donutLabel strong {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 18px;
+}
+
+.donutLabel span {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.donutLegend {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.donutLegend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 2px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.donutLegend i.used {
+  background: var(--card-accent);
+}
+
+.detailList {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.detailRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.detailRow + .detailRow {
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+.detailRow span {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.detailRow code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+  word-break: break-all;
+}
+
+.detailTableWrap {
+  overflow: auto;
+}
+
+.detailTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.detailTable th,
+.detailTable td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.detailTable th {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.detailTable td {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--dsw-alias-label-primary);
+}
+
+.detailTable th.right,
+.detailTable td.right {
+  text-align: right;
+}
+
+.detailTable th.wide,
+.detailTable td.wide {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.detailTable tbody tr:hover td {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.detailEmpty {
+  text-align: center;
+  color: var(--dsw-alias-label-tertiary);
+  padding: 16px !important;
+}

@@ -9,8 +9,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  assetInstanceUrl, CONNECTION_MANAGER_TABS, routeNameForAsset, routePrefixForAsset,
-  SETTINGS_SECTION_TABS, settingsEmbedUrl, STARHUB_SUBCATEGORIES,
+  assetInstanceUrl, CONNECTION_MANAGER_TABS, renderModeForAsset, routeNameForAsset,
+  routePrefixForAsset, SETTINGS_SECTION_TABS, settingsEmbedUrl, STARHUB_SUBCATEGORIES,
   type StarHubAsset,
 } from '../src/client/sections.ts'
 import {
@@ -33,6 +33,11 @@ describe('routePrefixForAsset', () => {
     expect(routePrefixForAsset(asset('db', 'elasticsearch'))).toBe('/db/elasticsearch')
     expect(routePrefixForAsset(asset('db', 'kafka'))).toBe('/broker')
     expect(routePrefixForAsset(asset('db', 'nsq'))).toBe('/broker')
+  })
+
+  it('maps excel and falls back to mysql for a non-string dbType', () => {
+    expect(routePrefixForAsset(asset('excel'))).toBe('/excel')
+    expect(routeNameForAsset({ id: 'x', type: 'db', name: 'n', config: { dbType: 5 } })).toBe('db-mysql')
   })
 
   it('returns null for types without a function route', () => {
@@ -68,6 +73,17 @@ describe('assetInstanceUrl', () => {
     expect(assetInstanceUrl('/db/redis', 'a1__123')).toBe(
       `/starhub/index.html?embed=1&route=${encodeURIComponent('/db/redis/a1__123')}`,
     )
+  })
+})
+
+describe('renderModeForAsset', () => {
+  it('renders migrated routes natively and everything else in an iframe', () => {
+    expect(renderModeForAsset(asset('db', 'kafka'))).toBe('native')
+    expect(renderModeForAsset(asset('db', 'nsq'))).toBe('native')
+    expect(renderModeForAsset(asset('ssh'))).toBe('iframe')
+    expect(renderModeForAsset(asset('db', 'mysql'))).toBe('iframe')
+    expect(renderModeForAsset(asset('docker'))).toBe('iframe')
+    expect(renderModeForAsset(asset('local'))).toBe('iframe')
   })
 })
 
@@ -151,6 +167,34 @@ describe('createStarHubAssets', () => {
     }
   })
 
+  it('stringifies non-Error rejections into the error field', async () => {
+    const restore = stubTauriInternals(() => Promise.reject('raw'))
+    try {
+      const holder = createStarHubAssets()
+      holder.refresh()
+      await vi.waitFor(() => expect(holder.source.getSnapshot().loading).toBe(false))
+      expect(holder.source.getSnapshot().error).toBe('raw')
+    } finally {
+      restore()
+    }
+  })
+
+  it('ignores refresh calls while a fetch is in flight', async () => {
+    let resolveFetch: (list: unknown[]) => void = () => {}
+    const restore = stubTauriInternals(() => new Promise((resolve) => { resolveFetch = resolve }))
+    try {
+      const holder = createStarHubAssets()
+      holder.refresh()
+      holder.refresh()
+      expect(holder.source.getSnapshot().loading).toBe(true)
+      resolveFetch([{ id: 'a1', type: 'ssh', name: 'n', config: {} }])
+      await vi.waitFor(() => expect(holder.source.getSnapshot().loading).toBe(false))
+      expect(holder.source.getSnapshot().assets).toHaveLength(1)
+    } finally {
+      restore()
+    }
+  })
+
   it('refresh without Tauri internals falls into the preview state (no request, no error)', async () => {
     const holder = createStarHubAssets()
     holder.refresh()
@@ -192,6 +236,14 @@ describe('settingsEmbedUrl', () => {
     expect(tabs.split(',')).toEqual(['general', 'ai', 'plugins', 'audit', 'alert', 'about'])
     expect(tabs).not.toContain('assets')
     expect(tabs).not.toContain('appearance')
+  })
+
+  it('omits the tabs param when the tab subset is empty', () => {
+    const url = settingsEmbedUrl([], 'assets')
+    const route = decodeURIComponent(url.slice('/starhub/index.html?embed=1&route='.length))
+    const query = new URLSearchParams(route.slice('/settings?'.length))
+    expect(query.has('tabs')).toBe(false)
+    expect(query.get('tab')).toBe('assets')
   })
 })
 

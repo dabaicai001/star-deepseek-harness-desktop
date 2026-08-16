@@ -13,6 +13,11 @@
 
 ---
 
+## [0.73.0] - 2026-08-16
+
+### 新增
+- **Broker 页完成 Vue→React 壳内迁移(P1 首个样本)**:`client-nav` 新增 broker service(复用 Rust `broker_overview`,走顶层帧 Tauri 桥)、DashboardCard 通用仪表盘卡片与 BrokerView 工作台(壳内直渲、dsw token 视觉、30s 自动刷新、卡片详情模态);`sections.ts` 事实表新增 `renderMode`(`iframe`/`native`),`db-broker` 路由切壳内组件、一行可回退;overlay 注入资产源供 native 页反查资产;client-nav 补齐包规范(invariant 伴生、per-file 100% 覆盖率、89 个测试全绿)
+
 ## [0.72.4] - 2026-08-16
 
 ### 文档

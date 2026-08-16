@@ -42,8 +42,8 @@ export interface StarHubSubcategory {
   matches: (asset: StarHubAsset) => boolean
 }
 
-/** 资产 → embed 功能路由名(与 src/utils/assetRouting.ts 的 routeNameForAsset 同构)。 */
-export function routeNameForAsset(asset: StarHubAsset): string {
+/** 资产 → embed 功能路由名(与 src/utils/assetRouting.ts 的 routeNameForAsset 同构;只需 type + config)。 */
+export function routeNameForAsset(asset: { type: string; config: Record<string, unknown> }): string {
   if (asset.type === 'ssh') return 'ssh-terminal'
   if (asset.type === 'docker') return 'docker'
   if (asset.type === 'excel') return 'excel'
@@ -68,6 +68,24 @@ export const ROUTE_NAME_PREFIX: Readonly<Record<string, string>> = {
   'db-broker': '/broker',
   docker: '/docker',
   excel: '/excel',
+}
+
+/** 渲染模式:已迁移页走壳内 native 组件,其余走 embed iframe(铁律 1 兜底)。 */
+export type StarHubRenderMode = 'iframe' | 'native'
+
+/**
+ * 已壳内 React 化的功能路由集合(迁移手册 §3.3 事实表规则:每迁一页,只改
+ * 这一行/这一个集合——加路由名 = 切 native,删 = 一行回退 iframe)。
+ */
+export const NATIVE_ROUTE_NAMES: ReadonlySet<string> = new Set(['db-broker'])
+
+/**
+ * 资产 → 渲染模式:路由在 NATIVE_ROUTE_NAMES 里走壳内组件,否则 iframe。
+ * @param asset - 目标资产(只需 type + config 判定路由)。
+ * @returns 该资产实例操作页的渲染模式。
+ */
+export function renderModeForAsset(asset: { type: string; config: Record<string, unknown> }): StarHubRenderMode {
+  return NATIVE_ROUTE_NAMES.has(routeNameForAsset(asset)) ? 'native' : 'iframe'
 }
 
 /**

@@ -73,7 +73,11 @@ export function apply(ctx: Context): void {
       closeAsset: selection.closeAsset,
       openConnectionManager: connectionManager.open,
       closeConnectionManager: connectionManager.close,
-      hooks: { selection: selection.source, connectionManager: connectionManager.source },
+      hooks: {
+        selection: selection.source,
+        connectionManager: connectionManager.source,
+        assets: assets.source,
+      },
     }),
   }, StarHubOverlay))
   const workspaceInject = () => ({

@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.72.4(**新增 `docs/迁移手册-Vue到React渐进迁移.md`**:绞杀者模式迁移的执行手册(配套重构方案 B)——五条铁律、v0.72.2 实测家底盘点(视图/组件/store/服务/i18n/cyber/Vuetify 用量)、九页迁移顺序(Settings 按 tab 特例)、Vue→React 全量技术映射表(框架/状态纪律/UI/token/embed 协议退役对照)、单页 10 步 playbook 与验收清单模板、迁移台账、5 项待拍板决策(M1–M5)) |
+| 当前版本 | v0.73.0(**Broker 页完成 Vue→React 壳内迁移(P1 首个样本)**:`client-nav` 新增 broker service(复用 Rust `broker_overview`,走顶层帧 Tauri 桥)、DashboardCard 通用仪表盘卡片与 BrokerView 工作台(壳内直渲、dsw token 视觉、30s 自动刷新、卡片详情模态);`sections.ts` 事实表新增 `renderMode`(`iframe`/`native`),`db-broker` 路由切壳内组件、一行可回退;overlay 注入资产源供 native 页反查资产;client-nav 补齐包规范(invariant 伴生、per-file 100% 覆盖率、89 个测试全绿)) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-16 (v0.72.4)*
+*最后更新: 2026-08-16 (v0.73.0)*

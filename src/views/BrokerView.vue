@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 只读冻结(迁移手册 §3.1 / 铁律 1):本页已于 v0.73.0 迁至壳内 React 直渲
+// (vendor/deepseek-harness/packages/starhub/client-nav/src/client/broker/BrokerView.tsx),
+// sections.ts 的 renderMode 已切 native。P4 退役前不再修改本文件;
+// 如需回退 iframe 版,把 NATIVE_ROUTE_NAMES 里 'db-broker' 一行删掉即可。
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import DashboardCard from '@/components/dashboard/DashboardCard.vue'

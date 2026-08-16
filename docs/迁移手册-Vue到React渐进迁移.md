@@ -193,7 +193,7 @@ v0.72.0 起 Settings 已以两种 embed 形态进壳(dsh 设置面板的 StarHub
 
 | 页 | renderMode | 状态 | 完成版本 | 备注 |
 |---|---|---|---|---|
-| Broker | iframe | 未开始 | — | P1 首个,最小样本 |
+| Broker | native | **已迁移** | 0.73.0 | P1 首个,最小样本;壳内直渲 + 30s 自动刷新 + 卡片详情,client-nav 100% 覆盖率 |
 | Excel | iframe | 未开始 | — | Univer 白捡 |
 | Redis | iframe | 未开始 | — | |
 | Docker | iframe | 未开始 | — | |
