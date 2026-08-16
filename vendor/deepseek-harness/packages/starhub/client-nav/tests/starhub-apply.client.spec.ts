@@ -101,8 +101,10 @@ describe('client-nav apply', () => {
       expect(config.groupLabel).toBe('StarHub')
       expect(config.name).toBe('settings.section')
     }
-    expect(settingsConfigs[0]!.label).toBe('AI 助手')
-    expect(settingsConfigs[4]!.label).toBe('关于')
+    // label 统一 star- 前缀,与 dsh 原生条目区分
+    expect(settingsConfigs.map((c) => c.label)).toEqual([
+      'star-AI 助手', 'star-插件', 'star-审计日志', 'star-告警规则', 'star-关于',
+    ])
   })
 })
 

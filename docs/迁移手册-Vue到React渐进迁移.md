@@ -91,7 +91,7 @@
 
 v0.72.0 起 Settings 已以两种 embed 形态进壳(dsh 设置面板的 StarHub 分区 + 连接管理 overlay)。**React 化时按 tab 逐个迁,而不是整页迁**:AI / 通用 / 插件 / 审计 / 告警 / 关于 6 个 tab 各自成为 dsh 设置面板的独立 section(就是现在的 `settings.section` 注册,只是内容从 iframe 换 React);资产 tab 变为工具区的连接管理面板(React)。`visibleTabs` / `chrome=inline` 参数机制保留到全部 tab 迁完。
 
-v0.76.0 起设置面板为**两列**:左侧 dsh 设置导航中 StarHub 为可展开分组(`settings.section` 注册带 `group: 'starhub'` + `groupLabel`,由 vendored `ui-settings-general` 的 SettingsRoot 渲染为折叠分组头,点击展开/收起,默认展开),5 个子项(AI 助手 / 插件 / 审计日志 / 告警规则 / 关于)各自直渲右侧内容,无面板内部嵌套列;旧版 SettingsPanel(面板内 rail + 内容区)已删除。
+v0.76.0 起设置面板为**两列**:左侧 dsh 设置导航中 StarHub 为可展开分组(`settings.section` 注册带 `group: 'starhub'` + `groupLabel`,由 vendored `ui-settings-general` 的 SettingsRoot 渲染为折叠分组头,点击展开/收起,默认展开),5 个子项(AI 助手 / 插件 / 审计日志 / 告警规则 / 关于)各自直渲右侧内容,无面板内部嵌套列;旧版 SettingsPanel(面板内 rail + 内容区)已删除。v0.76.1 起 5 个子项 label 统一加 `star-` 前缀(star-AI 助手 / star-插件 / star-审计日志 / star-告警规则 / star-关于),与 dsh 原生条目(通用/模型/插件/Agent 预设)区分。
 
 ### 3.3 事实表更新规则
 

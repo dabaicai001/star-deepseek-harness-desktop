@@ -106,16 +106,17 @@ export function apply(ctx: Context): void {
   // 设置融入底部设置齿轮:dsh 设置面板侧栏的 StarHub 可展开分组(点击
   // 分组头展开/收起,点子项右侧直渲对应 tab——两列,无内部嵌套列)。
   // group='starhub' 由 ui-settings-general 的 SettingsRoot 渲染为折叠分组;
-  // 5 个子 section 分别直渲 AI/插件/审计/告警/关于。order 30 起排在
+  // 5 个子 section 分别直渲 AI/插件/审计/告警/关于,label 统一加 star- 前缀
+  // 与 dsh 原生条目(通用/模型/插件/Agent 预设)区分。order 30 起排在
   // 通用(0)/模型(10)/插件(15)/Agent 预设(20)之后。
   const starhubTabs: ReadonlyArray<{
     id: string; order: number; label: string; component: () => JSX.Element
   }> = [
-    { id: 'starhub-ai', order: 30, label: 'AI 助手', component: AiTab },
-    { id: 'starhub-plugins', order: 31, label: '插件', component: PluginsTab },
-    { id: 'starhub-audit', order: 32, label: '审计日志', component: AuditTab },
-    { id: 'starhub-alert', order: 33, label: '告警规则', component: AlertTab },
-    { id: 'starhub-about', order: 34, label: '关于', component: AboutTab },
+    { id: 'starhub-ai', order: 30, label: 'star-AI 助手', component: AiTab },
+    { id: 'starhub-plugins', order: 31, label: 'star-插件', component: PluginsTab },
+    { id: 'starhub-audit', order: 32, label: 'star-审计日志', component: AuditTab },
+    { id: 'starhub-alert', order: 33, label: 'star-告警规则', component: AlertTab },
+    { id: 'starhub-about', order: 34, label: 'star-关于', component: AboutTab },
   ]
   for (const tab of starhubTabs) {
     ctx.slots.inject('settings.section', () => ctx.slots.register({
