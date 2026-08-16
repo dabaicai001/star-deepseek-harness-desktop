@@ -91,7 +91,9 @@
 
 v0.72.0 起 Settings 已以两种 embed 形态进壳(dsh 设置面板的 StarHub 分区 + 连接管理 overlay)。**React 化时按 tab 逐个迁,而不是整页迁**:AI / 通用 / 插件 / 审计 / 告警 / 关于 6 个 tab 各自成为 dsh 设置面板的独立 section(就是现在的 `settings.section` 注册,只是内容从 iframe 换 React);资产 tab 变为工具区的连接管理面板(React)。`visibleTabs` / `chrome=inline` 参数机制保留到全部 tab 迁完。
 
-v0.76.0 起设置面板为**两列**:左侧 dsh 设置导航中 StarHub 为可展开分组(`settings.section` 注册带 `group: 'starhub'` + `groupLabel`,由 vendored `ui-settings-general` 的 SettingsRoot 渲染为折叠分组头,点击展开/收起,默认展开),5 个子项(AI 助手 / 插件 / 审计日志 / 告警规则 / 关于)各自直渲右侧内容,无面板内部嵌套列;旧版 SettingsPanel(面板内 rail + 内容区)已删除。v0.76.1 起 5 个子项 label 统一加 `star-` 前缀(star-AI 助手 / star-插件 / star-审计日志 / star-告警规则 / star-关于),与 dsh 原生条目(通用/模型/插件/Agent 预设)区分。
+v0.76.0 起设置面板为**两列**:左侧 dsh 设置导航中 StarHub 为可展开分组(`settings.section` 注册带 `group: 'starhub'` + `groupLabel`,由 vendored `ui-settings-general` 的 SettingsRoot 渲染为折叠分组头,点击展开/收起,默认展开),5 个子项(AI 助手 / 插件 / 审计日志 / 告警规则 / 关于)各自直渲右侧内容,无面板内部嵌套列;旧版 SettingsPanel(面板内 rail + 内容区)已删除。v0.76.1 曾给子项加 `star-` 前缀,**v0.78.0 起按用户要求去掉**(分组头「StarHub」已承担归属标识)。
+
+v0.78.0 起两个形态变更:**连接管理不再是 embed overlay**——「新建/编辑连接」改为壳内 React 小对话框(`NewConnectionDialog.tsx`,dsh 风格,直调 create_asset/update_asset/delete_asset),资产 tab 的 embed 形态随之退役;**资产实例操作页不再以整幅 overlay 盖主壳**——点击资产经 `openNewPage`(client-nav `tauri.ts`)在桌面端开独立 webview 窗口(`plugin:webview|create_webview_window`,窗口 label 走 capability `starhub-*` glob),浏览器预览退化为新标签页。
 
 ### 3.3 事实表更新规则
 
@@ -155,7 +157,7 @@ v0.76.0 起设置面板为**两列**:左侧 dsh 设置导航中 StarHub 为可�
 | Vue/embed 机制 | React 壳内替代 |
 |---|---|
 | `useEmbedConnBridge`(postMessage 上报连接状态) | 壳级连接 store 直写(D2),EmbedAssetBar 的 React 版(方案 B P0)直读 |
-| `starhub-embed-escape` / `-open-section` 消息 | 壳内回调 props(关 overlay、开连接管理 = 同进程函数调用) |
+| `starhub-embed-escape` / `-open-section` 消息 | 壳内回调 props(v0.78.0 起:实例页在独立窗口,escape 消息随之退役;`-open-section` 仍由 overlay 层常驻监听,打开连接对话框) |
 | `embedRoute()` + `?embed=1&route=` URL | client-nav sections 事实表的 native 分支 |
 | `EmbedAssetBar` / `EmbedSectionEmpty` | 壳内连接头部组件(P0 spike 已验证形态) |
 | `EmbedConnState` 类型 | 壳级连接 store 的 state 字段 |
@@ -201,7 +203,8 @@ v0.76.0 起设置面板为**两列**:左侧 dsh 设置导航中 StarHub 为可�
 | Docker | iframe | 未开始 | — | |
 | Elasticsearch | iframe | 未开始 | — | |
 | WebBrowser | iframe | 未开始 | — | 低频 |
-| Settings(按 tab 拆) | native | **已迁移**(5 个 React tab) | 0.74.0 | AI(白名单/记忆)/插件/审计/告警/关于 壳内直渲;通用/外观由 dsh 设置接管;资产 tab 暂留 iframe(连接管理 overlay);0.76.0 起设置面板两列,StarHub 为左侧可展开分组(见 §3.2) |
+| Settings(按 tab 拆) | native | **已迁移**(5 个 React tab) | 0.74.0 | AI(白名单/记忆)/插件/审计/告警/关于 壳内直渲;通用/外观由 dsh 设置接管;0.76.0 起设置面板两列,StarHub 为左侧可展开分组(见 §3.2);0.78.0 起资产 tab 的 embed 形态退役,连接管理 = 壳内小对话框 |
+| 连接管理(资产新建/编辑) | native | **已迁移** | 0.78.0 | 壳内 React 小对话框(NewConnectionDialog),直调 asset IPC;替代原设置页资产 tab 整幅 iframe |
 | SSH/SFTP | iframe | 未开始 | — | D2 硬指标 |
 | DbView | iframe | 未开始 | — | 压轴 |
 
