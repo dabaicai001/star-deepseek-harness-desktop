@@ -9,8 +9,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  assetInstanceUrl, CONNECTION_MANAGER_TABS, renderModeForAsset, routeNameForAsset,
-  routePrefixForAsset, SETTINGS_SECTION_TABS, settingsEmbedUrl, STARHUB_SUBCATEGORIES,
+  assetInstanceUrl, renderModeForAsset, routeNameForAsset,
+  routePrefixForAsset, STARHUB_SUBCATEGORIES,
   type StarHubAsset,
 } from '../src/client/sections.ts'
 import {
@@ -219,41 +219,19 @@ describe('createStarHubAssets', () => {
   })
 })
 
-describe('settingsEmbedUrl', () => {
-  it('builds the connection-manager URL (assets tab only)', () => {
-    const url = settingsEmbedUrl(CONNECTION_MANAGER_TABS, 'assets')
-    expect(url.startsWith('/starhub/index.html?embed=1&route=')).toBe(true)
-    const route = decodeURIComponent(url.slice('/starhub/index.html?embed=1&route='.length))
-    expect(route).toBe('/settings?tabs=assets&tab=assets')
-  })
-
-  it('builds the settings-dialog section URL (no assets/appearance, inline chrome)', () => {
-    const url = settingsEmbedUrl(SETTINGS_SECTION_TABS, 'ai', 'inline')
-    const route = decodeURIComponent(url.slice('/starhub/index.html?embed=1&route='.length))
-    expect(route).toContain('tab=ai')
-    expect(route).toContain('chrome=inline')
-    const tabs = new URLSearchParams(route.slice('/settings?'.length)).get('tabs') ?? ''
-    expect(tabs.split(',')).toEqual(['general', 'ai', 'plugins', 'audit', 'alert', 'about'])
-    expect(tabs).not.toContain('assets')
-    expect(tabs).not.toContain('appearance')
-  })
-
-  it('omits the tabs param when the tab subset is empty', () => {
-    const url = settingsEmbedUrl([], 'assets')
-    const route = decodeURIComponent(url.slice('/starhub/index.html?embed=1&route='.length))
-    const query = new URLSearchParams(route.slice('/settings?'.length))
-    expect(query.has('tabs')).toBe(false)
-    expect(query.get('tab')).toBe('assets')
-  })
-})
-
 describe('createConnectionManagerOverlay', () => {
-  it('toggles the open flag through open/close', () => {
+  it('toggles the open flag through open/close and carries the edit target', () => {
     const overlay = createConnectionManagerOverlay()
-    expect(overlay.source.getSnapshot().open).toBe(false)
+    expect(overlay.source.getSnapshot()).toEqual({ open: false, asset: null })
     overlay.open()
-    expect(overlay.source.getSnapshot().open).toBe(true)
+    expect(overlay.source.getSnapshot()).toEqual({ open: true, asset: null })
+    const target = {
+      id: 'a1', type: 'ssh', name: 'web-1', group_id: null, config: { host: 'h' },
+      key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
+    }
+    overlay.open(target)
+    expect(overlay.source.getSnapshot()).toEqual({ open: true, asset: target })
     overlay.close()
-    expect(overlay.source.getSnapshot().open).toBe(false)
+    expect(overlay.source.getSnapshot()).toEqual({ open: false, asset: null })
   })
 })

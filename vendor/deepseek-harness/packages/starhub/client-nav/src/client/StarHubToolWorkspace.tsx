@@ -1,9 +1,10 @@
 /**
  * StarHub 工具工作区列(方案 P1,重构版):右侧工具工作区列显示当前子类
  * (终端 / 数据库 / Docker)的资产(连接)列表;点资产行经注入的 openAsset
- * 回调打开该实例的操作页(shell.overlay iframe)。列头带资产数、刷新与
- * 「新建连接」入口(经 openConnectionManager 打开连接管理 overlay ——
- * 设置页只挂资产 tab 的整幅层)。
+ * 回调新开该实例的独立操作页窗口(桌面端 Tauri webview 窗口,浏览器预览
+ * 新标签页;不再用整幅 overlay 盖住 dsh 主壳)。行尾 hover 出编辑钮,经
+ * openConnectionManager(asset) 打开连接对话框的编辑模式;列头带资产数、
+ * 刷新与「新建连接」入口(openConnectionManager())。
  *
  * 浏览器预览(无 Tauri IPC)时 refresh 落入 preview 态,这里展示预览提示
  * 而不是红错;其他拉取失败给错误 + 重试。
@@ -21,9 +22,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { IconPlusOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconEditOutline16, IconPlusOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
-import type { StarHubAssetListState, ToolSelection } from './store.ts'
+import type { RustAsset, StarHubAssetListState, ToolSelection } from './store.ts'
 import css from './StarHubToolWorkspace.module.css'
 
 /** Settings namespace written by the shell (host reads it per request). */
@@ -34,8 +35,8 @@ export interface StarHubToolWorkspaceInjected {
   api: IApiClient
   openAsset: (asset: StarHubAsset) => void
   refreshAssets: () => void
-  /** 打开连接管理 overlay(设置页资产 tab):新建/编辑/删除连接的唯一入口。 */
-  openConnectionManager: () => void
+  /** 打开连接对话框:不传资产 = 新建;传资产 = 编辑(含删除入口)。 */
+  openConnectionManager: (asset?: RustAsset) => void
   hooks: {
     selection: SnapshotStore<ToolSelection>
     assets: SnapshotStore<StarHubAssetListState>
@@ -148,17 +149,27 @@ export function StarHubToolWorkspace({
       {!loading && !preview && error === null && matched.length > 0 && (
         <div className={css.list}>
           {matched.map((asset) => (
-            <button
-              key={asset.id}
-              type="button"
-              className={css.row}
-              title={`打开 ${asset.name}`}
-              onClick={() => openAsset(asset)}
-            >
-              <span className={css.badge}>{subcategory.label}</span>
-              <span className={css.rowName}>{asset.name}</span>
-              <span className={css.rowSub}>{assetSubtitle(asset)}</span>
-            </button>
+            <div key={asset.id} className={css.rowWrap}>
+              <button
+                type="button"
+                className={css.row}
+                title={`打开 ${asset.name}(新窗口)`}
+                onClick={() => openAsset(asset)}
+              >
+                <span className={css.badge}>{subcategory.label}</span>
+                <span className={css.rowName}>{asset.name}</span>
+                <span className={css.rowSub}>{assetSubtitle(asset)}</span>
+              </button>
+              <button
+                type="button"
+                className={css.rowEdit}
+                title={`编辑 ${asset.name}`}
+                aria-label={`编辑 ${asset.name}`}
+                onClick={() => openConnectionManager(asset)}
+              >
+                <IconEditOutline16 size={13} />
+              </button>
+            </div>
           ))}
         </div>
       )}

@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.76.2(**GitHub CI Linux 打包失败(junction 清理)**:`harness::web::tests::sync_user_client_plugins_injects_and_cleans` 在 Linux 上断言「禁用后 junction 应清理」失败——失效用户 UI 插件链接的移除用 `fs::remove_dir`(Unix 底层 rmdir 对目录 symlink 返回 ENOTDIR,错误被 `let _ =` 吞掉导致链接残留),改为 Windows 用 `remove_dir` / Unix 用 `remove_file`(unlink);WSL 实测确认 rmdir 对 symlink 的行为,Windows 本地全量 cargo test 通过) |
+| 当前版本 | v0.78.0(**资产实例操作页改为新开独立窗口(用户要求)**:侧栏工具区点击已有连接不再用整幅 overlay 盖住 dsh 主壳——桌面端经 `plugin:webview|create_webview_window` 开独立 webview 窗口(label 走 capability `starhub-*` glob,embed 页保有 IPC 授权),浏览器预览退化为新标签页;选择桥仍记录当前资产供 AI 工具上下文注入) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-16 (v0.76.2)*
+*最后更新: 2026-08-16 (v0.78.0)*

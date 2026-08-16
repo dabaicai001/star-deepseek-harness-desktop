@@ -15,7 +15,39 @@ mod ssh;
 
 use commands::ssh::SshManager;
 use sftp::transfer::TransferManager;
-use tauri::Manager;
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+
+/// 程序化创建主窗口(声明式 app.windows 挂不上 on_download:WebView2 默认
+/// 丢弃 webview 内下载,dsh GUI 的「会话日志导出」等 anchor 下载会静默失败。
+/// 窗口属性与原 tauri.conf.json 声明逐项对齐;Requested 不打断默认落盘
+/// (系统下载目录 + webview 建议文件名),返回 true 放行)。
+fn create_main_window(app: &tauri::App) -> tauri::Result<()> {
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+        .title("StarHub")
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(800.0, 600.0)
+        .resizable(true)
+        .fullscreen(false)
+        .decorations(true)
+        .transparent(false)
+        .shadow(true)
+        .background_color(tauri::window::Color(8, 13, 20, 255))
+        .on_download(|_webview, event| {
+            match event {
+                tauri::webview::DownloadEvent::Requested { url, destination } => {
+                    tracing::info!("下载开始: {url} -> {}", destination.display());
+                }
+                tauri::webview::DownloadEvent::Finished { url, path, success } => {
+                    tracing::info!("下载结束: {url} -> {path:?} success={success}");
+                }
+                // DownloadEvent 是 non_exhaustive,未来变体一律放行
+                _ => {}
+            }
+            true
+        })
+        .build()?;
+    Ok(())
+}
 
 /// 初始化日志:stderr(开发)+ 文件(打包产物诊断)。
 /// Windows GUI 子系统下 stderr 不可见,dsh web 启动失败只有落到文件才可查。
@@ -70,6 +102,10 @@ fn main() {
             }
         })
         .setup(|app| {
+            // 主窗口程序化创建(见 create_main_window);必须在 dsh web 启动
+            // 之前建好,跳板页才能立刻开始轮询。
+            create_main_window(app)?;
+
             let app_handle = app.handle().clone();
             tauri::async_runtime::block_on(async {
                 db::init_database(&app_handle).await?;

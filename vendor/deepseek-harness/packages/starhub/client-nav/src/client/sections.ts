@@ -3,11 +3,12 @@
  *
  * 侧栏展示「工具」大类行(即分组头,可展开),下挂子类(终端 / 数据库 /
  * Docker);点子类 → 右侧工具工作区列显示该类型的资产(连接)列表;点资产
- * 行 → 弹出该实例的操作页(embed iframe,`/starhub/index.html?embed=1&route=...`)。
+ * 行 → 新开独立窗口加载该实例的操作页(embed 入口
+ * `/starhub/index.html?embed=1&route=...`,不再以整幅 overlay 盖住主壳)。
  * 子类只定义分组/图标/资产匹配;实例路由前缀一律按资产类型经
  * `routePrefixForAsset` 派生(数据库子类混有多种库,不能共用子类前缀)。
- * Excel 已不在导航里(功能退役出侧栏);设置经 `settingsEmbedUrl` 进入
- * dsh 底部设置面板(StarHub 分区)与连接管理 overlay。
+ * Excel 已不在导航里(功能退役出侧栏);设置直接融入 dsh 底部设置面板
+ * (StarHub 分组,壳内 React tab),连接管理为壳内小对话框。
  */
 import {
   IconArchiveOutline20,
@@ -70,12 +71,14 @@ export const ROUTE_NAME_PREFIX: Readonly<Record<string, string>> = {
   excel: '/excel',
 }
 
-/** 渲染模式:已迁移页走壳内 native 组件,其余走 embed iframe(铁律 1 兜底)。 */
+/** 渲染模式:迁移事实表记录(壳内 native 组件 vs embed iframe)。 */
 export type StarHubRenderMode = 'iframe' | 'native'
 
 /**
  * 已壳内 React 化的功能路由集合(迁移手册 §3.3 事实表规则:每迁一页,只改
  * 这一行/这一个集合——加路由名 = 切 native,删 = 一行回退 iframe)。
+ * 注:当前实例操作页一律经 openNewPage 开独立窗口(embed URL),native
+ * 集合暂不参与渲染分派,仅作迁移进度事实表保留(含 BrokerView 及其测试)。
  */
 export const NATIVE_ROUTE_NAMES: ReadonlySet<string> = new Set(['db-broker'])
 
@@ -132,36 +135,10 @@ export const STARHUB_SUBCATEGORIES: readonly StarHubSubcategory[] = [
 ]
 
 /**
- * StarHub 设置页的 embed 入口 URL(host-static 托管 embed dist 在 /starhub/)。
- * 设置页支持经 query 过滤可见 tab 子集与初始 tab(StarHub 侧
- * SettingsView.visibleTabs / router query props):
- * - 连接管理 overlay(侧栏工具区「新建连接」):只挂资产 tab;
- * - dsh 设置面板的 StarHub 分区:去掉资产/外观,落地 AI tab,且隐藏
- *   页面自带的关闭钮(chrome=inline,关闭由 dsh 对话框负责)。
- * @param tabs - 可见 tab 子集(SettingsView 的 TabKey)。
- * @param tab - 初始 tab。
- * @param chrome - 'inline' 隐藏 embed 页关闭钮。
- * @returns embed 入口 URL(站内路径)。
- */
-export function settingsEmbedUrl(tabs: readonly string[], tab: string, chrome?: 'inline'): string {
-  const params = new URLSearchParams()
-  if (tabs.length > 0) params.set('tabs', tabs.join(','))
-  params.set('tab', tab)
-  if (chrome !== undefined) params.set('chrome', chrome)
-  return `/starhub/index.html?embed=1&route=${encodeURIComponent(`/settings?${params.toString()}`)}`
-}
-
-/** dsh 设置面板 StarHub 分区的可见 tab(去掉资产/外观:资产经侧栏工具区管理,外观由 dsh 主题设置负责)。 */
-export const SETTINGS_SECTION_TABS = ['general', 'ai', 'plugins', 'audit', 'alert', 'about'] as const
-
-/** 连接管理 overlay 的可见 tab(只挂资产管理)。 */
-export const CONNECTION_MANAGER_TABS = ['assets'] as const
-
-/**
- * 组装实例操作页 iframe 的 src(host-static 托管 StarHub embed dist 在 /starhub/)。
+ * 组装实例操作页 URL(host-static 托管 StarHub embed dist 在 /starhub/)。
  * instanceId 由打开动作生成一次(`<assetId>__<timestamp>`,与 src/utils/tabId.ts
  * 同构,embed 侧经 parseInstanceId 反解资产 id)并随选择桥传递——不得在渲染期
- * 重新生成,否则任何重渲染都会改 src 重载 iframe、丢终端会话。
+ * 重新生成,否则任何重渲染都会改地址重载页面、丢终端会话。
  * @param routePrefix - 段路由前缀(按 routePrefixForAsset 派生)。
  * @param instanceId - 打开动作生成的实例 id。
  * @returns embed 入口 URL(站内路径)。

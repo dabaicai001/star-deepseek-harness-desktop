@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
  * client-nav 插件装配(apply)与 invariant 伴生注册:九个席位注册的槽名、
- * 组件、inject 面(选择桥 / 资产源 / 连接管理桥)与侧栏点击的
- * toggleDetails 联动,以及 invariant 伴生的包名注册。
+ * 组件、inject 面(选择桥 / 资产源 / 连接对话框桥)与侧栏点击的
+ * 布局联动(切换子类 openDetails 不收起、重复点击同一子类 toggle),
+ * 以及 invariant 伴生的包名注册。
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
@@ -22,14 +23,16 @@ import { apply as applyInvariant } from '../src/invariant.ts'
 function fakeContext() {
   const register = vi.fn()
   const inject = vi.fn((_name: string, fn: () => unknown) => fn())
+  const openDetails = vi.fn()
+  const closeDetails = vi.fn()
   const toggleDetails = vi.fn()
   const get = vi.fn((..._args: unknown[]) => ({ api: {} }))
   const ctx = {
     slots: { inject, register },
-    layout: { toggleDetails },
+    layout: { openDetails, closeDetails, toggleDetails },
     get,
   } as unknown as Context
-  return { ctx, register, inject, toggleDetails, get }
+  return { ctx, register, inject, openDetails, closeDetails, toggleDetails, get }
 }
 
 describe('client-nav apply', () => {
@@ -51,28 +54,42 @@ describe('client-nav apply', () => {
     ])
   })
 
-  it('sidebar inject selects the subcategory and toggles the details panel', () => {
-    const { ctx, register, toggleDetails } = fakeContext()
+  it('sidebar inject opens the details panel when switching subcategory (never collapses)', () => {
+    const { ctx, register, openDetails, toggleDetails } = fakeContext()
     applyPlugin(ctx)
     const navConfig = register.mock.calls[0]![0]!
     const injected = navConfig.inject()
     expect(typeof navConfig.store?.create).toBe('function')
     injected.selectSubcategory('terminal')
-    expect(toggleDetails).toHaveBeenCalledTimes(1)
+    expect(openDetails).toHaveBeenCalledTimes(1)
+    expect(toggleDetails).not.toHaveBeenCalled()
     expect(injected.hooks.selection.getSnapshot().subcategory).toBe('terminal')
+    // 切到另一个子类:仍只 open,不 toggle(修:终端→数据库误收起)
+    injected.selectSubcategory('database')
+    expect(openDetails).toHaveBeenCalledTimes(2)
+    expect(toggleDetails).not.toHaveBeenCalled()
+    expect(injected.hooks.selection.getSnapshot().subcategory).toBe('database')
   })
 
-  it('overlay inject exposes the three bare sources', () => {
+  it('sidebar inject toggles the details panel only on re-clicking the active subcategory', () => {
+    const { ctx, register, openDetails, toggleDetails } = fakeContext()
+    applyPlugin(ctx)
+    const injected = register.mock.calls[0]![0]!.inject()
+    injected.selectSubcategory('terminal')
+    injected.selectSubcategory('terminal')
+    expect(openDetails).toHaveBeenCalledTimes(1)
+    expect(toggleDetails).toHaveBeenCalledTimes(1)
+  })
+
+  it('overlay inject exposes the connection-dialog bridge face', () => {
     const { ctx, register } = fakeContext()
     applyPlugin(ctx)
     const overlayConfig = register.mock.calls[1]![0]!
     const injected = overlayConfig.inject()
-    expect(injected.closeAsset).toBeTypeOf('function')
     expect(injected.openConnectionManager).toBeTypeOf('function')
     expect(injected.closeConnectionManager).toBeTypeOf('function')
-    expect(injected.hooks.selection.getSnapshot()).toHaveProperty('subcategory')
-    expect(injected.hooks.connectionManager.getSnapshot()).toEqual({ open: false })
-    expect(injected.hooks.assets.getSnapshot()).toHaveProperty('assets')
+    expect(injected.refreshAssets).toBeTypeOf('function')
+    expect(injected.hooks.connectionManager.getSnapshot()).toEqual({ open: false, asset: null })
   })
 
   it('workspace inject wires the api face, bridge callbacks and asset holder', () => {
@@ -88,6 +105,26 @@ describe('client-nav apply', () => {
     expect(injected.hooks.assets.getSnapshot()).toHaveProperty('assets')
   })
 
+  it('workspace openAsset records the selection and opens a new page (browser: new tab)', () => {
+    const { ctx, register } = fakeContext()
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      applyPlugin(ctx)
+      const injected = register.mock.calls[2]![0]!.inject()
+      injected.openAsset({ id: 'a1', type: 'ssh', name: 'web-1', config: { host: '1.1.1.1' } })
+      const sel = injected.hooks.selection.getSnapshot()
+      expect(sel.assetId).toBe('a1')
+      expect(sel.routePrefix).toBe('/ssh')
+      expect(sel.instanceId).toMatch(/^a1__\d+$/)
+      expect(openSpy).toHaveBeenCalledTimes(1)
+      const url = openSpy.mock.calls[0]![0] as string
+      expect(url).toContain('/starhub/index.html?embed=1')
+      expect(url).toContain(encodeURIComponent(`/ssh/${sel.instanceId}`))
+    } finally {
+      openSpy.mockRestore()
+    }
+  })
+
   it('registers the five starhub settings sections under the starhub group at orders 30-34', () => {
     const { ctx, register } = fakeContext()
     applyPlugin(ctx)
@@ -101,9 +138,9 @@ describe('client-nav apply', () => {
       expect(config.groupLabel).toBe('StarHub')
       expect(config.name).toBe('settings.section')
     }
-    // label 统一 star- 前缀,与 dsh 原生条目区分
+    // 组内子项不带前缀(分组头「StarHub」已承担归属标识)
     expect(settingsConfigs.map((c) => c.label)).toEqual([
-      'star-AI 助手', 'star-插件', 'star-审计日志', 'star-告警规则', 'star-关于',
+      'AI 助手', '插件', '审计日志', '告警规则', '关于',
     ])
   })
 })

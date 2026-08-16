@@ -218,4 +218,16 @@ describe('StarHubToolWorkspace', () => {
     expect(sel.routePrefix).toBe('/ssh')
     expect(sel.instanceId).toMatch(/^a1__\d+$/)
   })
+
+  it('opens the connection dialog in edit mode from the row edit button (without opening the page)', () => {
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.assets = [sshAsset] })
+    render(<StarHubToolWorkspace {...props} />)
+    screen.getByLabelText('编辑 prod-server').click()
+    expect(props.openConnectionManager).toHaveBeenCalledTimes(1)
+    expect(props.openConnectionManager).toHaveBeenCalledWith(sshAsset)
+    // 编辑钮不触发打开操作页
+    expect(props.bridge.source.getSnapshot().assetId).toBeNull()
+  })
 })

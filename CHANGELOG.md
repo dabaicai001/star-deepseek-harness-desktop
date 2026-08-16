@@ -13,6 +13,19 @@
 
 ---
 
+## [0.78.0] - 2026-08-16
+
+### 新增
+- **资产实例操作页改为新开独立窗口(用户要求)**:侧栏工具区点击已有连接不再用整幅 overlay 盖住 dsh 主壳——桌面端经 `plugin:webview|create_webview_window` 开独立 webview 窗口(label 走 capability `starhub-*` glob,embed 页保有 IPC 授权),浏览器预览退化为新标签页;选择桥仍记录当前资产供 AI 工具上下文注入
+- **新建/编辑连接改为 dsh 风格小对话框(用户要求)**:原「设置页资产 tab 整幅 iframe」连接管理退役,换成壳内 React 小对话框(类型下拉:SSH/MySQL/PostgreSQL/ClickHouse/Redis/Elasticsearch/Kafka/NSQ/Docker,公共 + 专有字段,SSL/Redis DB 索引/SSH 私钥文件);支持编辑(资产行 hover 编辑钮,预填,密码/私钥留空保持不变)与两步确认删除;IPC 契约与 `src/services/asset.ts` 一致
+
+### 修复
+- **「资产加载失败:Command get_assets not allowed by ACL」**:tauri 2.x 起 remote origin(127.0.0.1 的 dsh 主壳)的 app command 也强制走 ACL——新增 `src-tauri/permissions/commands.toml` 权限文件,单条 `starhub-commands` 权限集中列出全部 236 个 app command,default capability 引用它;capability `windows` 增加 `starhub-*` glob(新开的资产窗口同属授权范围)
+- **session log 下载桌面端静默失败**:WebView2 默认丢弃 webview 内 anchor 下载——主窗口改为程序化创建(声明式 `app.windows` 挂不上 `on_download`),挂 `on_download` 钩子放行下载(Requested/Finished 落日志);窗口属性与原声明逐项对齐
+- **侧栏切换子类误收起右侧工作区列**:子类点击从一律 `toggleDetails` 改为「切到不同子类只 `openDetails`(保持展开换内容),重复点击当前子类才 toggle 收起」
+- **设置面板 StarHub 分组子项去掉 star- 前缀(用户要求,回退 0.76.1 的命名)**:分组头「StarHub」已承担归属标识,子项恢复 AI 助手/插件/审计日志/告警规则/关于
+- **插件 tab 移除「已安装插件」列表(用户要求)**:启停/卸载入口随之下线,已装列表仅静默拉取用于市场项「已安装」标记;插件市场/导入空列表随 ACL 修复恢复有数据
+
 ## [0.76.2] - 2026-08-16
 
 ### 修复

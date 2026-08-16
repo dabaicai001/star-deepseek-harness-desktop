@@ -1,6 +1,6 @@
 {
   "productName": "StarHub",
-  "version": "0.76.2",
+  "version": "0.78.0",
   "identifier": "com.starhub.app",
   "build": {
     "frontendDist": "../shell-placeholder",
@@ -9,23 +9,6 @@
     "beforeBuildCommand": "npm run sidecar:build:release && npm run build:embed && npm run package:dsh-runtime"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "StarHub",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 800,
-        "minHeight": 600,
-        "resizable": true,
-        "fullscreen": false,
-        "decorations": true,
-        "transparent": false,
-        "backgroundColor": "#080d14",
-        "shadow": true,
-        "dragDropEnabled": true
-      }
-    ],
     "security": {
       "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; frame-src 'self' http://127.0.0.1:*; connect-src 'self' ipc: http://ipc.localhost https: http:"
     },

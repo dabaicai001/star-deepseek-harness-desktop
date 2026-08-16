@@ -127,6 +127,40 @@
   white-space: nowrap;
 }
 
+/* 资产行外壳:主按钮(打开)+ 行尾编辑钮(打开连接对话框编辑模式)。 */
+.rowWrap {
+  position: relative;
+  display: flex;
+}
+
+.rowEdit {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.rowWrap:hover .rowEdit,
+.rowEdit:focus-visible {
+  display: inline-flex;
+}
+
+.rowEdit:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
 .status {
   display: flex;
   flex-direction: column;

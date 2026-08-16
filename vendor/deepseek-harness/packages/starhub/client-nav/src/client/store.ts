@@ -115,29 +115,36 @@ export function createStarHubAssets(): StarHubAssets {
   return { source, refresh }
 }
 
-/** 跨 scope 的连接管理 overlay 开关(设置页只挂资产 tab 的整幅 iframe 层)。 */
+/** 连接管理对话框状态:open + 编辑目标(null = 新建)。 */
+export interface ConnectionManagerState {
+  open: boolean
+  /** 编辑模式的目标资产(get_assets 返回的完整行);null = 新建。 */
+  asset: RustAsset | null
+}
+
+/** 跨 scope 的连接管理对话框开关(壳内 React 小对话框,非整幅 iframe 层)。 */
 export interface ConnectionManagerOverlay {
   /** 注入 hooks 舱位的裸 observable。 */
-  source: SnapshotStore<{ open: boolean }>
-  /** 打开连接管理 overlay(新建连接入口 / embed 资产条「去设置添加」)。 */
-  open: () => void
-  /** 关闭 overlay(关闭钮 / Esc / embed 转发 Esc)。 */
+  source: SnapshotStore<ConnectionManagerState>
+  /** 打开连接对话框(新建连接入口 / embed 资产条「去设置添加」);传入资产进入编辑模式。 */
+  open: (asset?: RustAsset) => void
+  /** 关闭对话框(关闭钮 / Esc / 提交成功)。 */
   close: () => void
 }
 
 /**
- * Create the apply-owned connection-manager overlay holder. Open state is
+ * Create the apply-owned connection-manager dialog holder. Open state is
  * read in the root-scope overlay seat and written from the session-maybe
  * workspace seats, so it rides the same bare-source bridge pattern as the
  * tool selection (one-handle-one-scope forbids a shared store handle).
  * @returns the holder (bare source + open/close callbacks).
  */
 export function createConnectionManagerOverlay(): ConnectionManagerOverlay {
-  const source = createSnapshotStore({ open: false })
+  const source = createSnapshotStore<ConnectionManagerState>({ open: false, asset: null })
   return {
     source,
-    open: () => { source.set({ open: true }) },
-    close: () => { source.set({ open: false }) },
+    open: (asset) => { source.set({ open: true, asset: asset ?? null }) },
+    close: () => { source.set({ open: false, asset: null }) },
   }
 }
 

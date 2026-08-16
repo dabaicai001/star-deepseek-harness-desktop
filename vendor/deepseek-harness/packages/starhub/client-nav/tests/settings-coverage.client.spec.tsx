@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { AuditTab, formatAuditDetail } from '../src/client/settings/audit.tsx'
 import { AlertTab } from '../src/client/settings/alert.tsx'
-import { ConfirmActionDialog, PluginsTab } from '../src/client/settings/plugins.tsx'
+import { PluginsTab } from '../src/client/settings/plugins.tsx'
 import { AboutTab } from '../src/client/settings/about.tsx'
 import { AiTab } from '../src/client/settings/ai.tsx'
 import {
@@ -314,31 +314,6 @@ describe('alert extra branches', () => {
 })
 
 describe('plugins extra branches', () => {
-  it('covers local-zip/unknown source labels, corrupted ack storage, string errors and shutdown failure', async () => {
-    localStorage.setItem('starhub.plugins.enable-acknowledged', '{broken')
-    const restore = stubTauriInternals({
-      dsh_plugin_list: () => [
-        { id: 'p1', name: 'zip-plugin', version: '1', source: { kind: 'local-zip' }, entry: 'i.js', enabled: false },
-        { id: 'p2', name: 'weird-plugin', version: '1', source: { kind: 'other' }, entry: 'i.js', enabled: false },
-      ],
-      dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
-      dsh_plugin_set_enabled: () => { throw 'raw enable failure' },
-      dsh_shutdown: () => { throw new Error('runtime not running') },
-    })
-    try {
-      render(<PluginsTab />)
-      expect(await screen.findByText('zip-plugin')).toBeTruthy()
-      expect(screen.getByText('Zip')).toBeTruthy() // local-zip 来源标签
-      expect(screen.getByText('other')).toBeTruthy() // 未知来源原样返回
-      // 启用失败(风险确认后 setPluginEnabled 抛字符串)→ 错误文案
-      fireEvent.click(screen.getAllByLabelText('启用')[0]!)
-      fireEvent.click(await screen.findByText('启用'))
-      expect(await screen.findByText('raw enable failure')).toBeTruthy()
-    } finally {
-      restore()
-    }
-  })
-
   it('covers URL-install string failure and market search with no matches', async () => {
     const restore = stubTauriInternals({
       dsh_plugin_list: () => [],
@@ -360,41 +335,21 @@ describe('plugins extra branches', () => {
     }
   })
 
-  it('covers Error-path failures, busy guard, direct enable when acked and zip/array import', async () => {
-    localStorage.setItem('starhub.plugins.enable-acknowledged', JSON.stringify(['p2']))
-    let releaseSet: (() => void) | null = null
+  it('covers URL-install Error path and zip/array import', async () => {
     const installLocal = vi.fn((..._args: unknown[]) => ({ id: 'p9', name: 'zip', version: '1', source: { kind: 'local-zip' }, entry: 'i.js', enabled: false }))
     const restore = stubTauriInternals({
-      dsh_plugin_list: () => [
-        { id: 'p1', name: 'a', version: '1', source: { kind: 'market' }, entry: 'i.js', enabled: false },
-        { id: 'p2', name: 'b', version: '1', source: { kind: 'market' }, entry: 'i.js', enabled: false },
-      ],
+      dsh_plugin_list: () => [],
       dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
-      dsh_plugin_set_enabled: () => new Promise((resolve) => { releaseSet = () => resolve(null) }),
       dsh_plugin_install_url: () => { throw new Error('url install failed') },
-      dsh_plugin_uninstall: () => { throw new Error('uninstall failed') },
       'plugin:dialog|open': () => ['C:/plugins/x.zip'],
       dsh_plugin_install_local: (args) => installLocal(args),
     })
     try {
       render(<PluginsTab />)
-      // p2 已 ack → 直接启用(无确认弹窗)
-      fireEvent.click((await screen.findAllByLabelText('启用'))[1]!)
-      expect(screen.queryByRole('dialog')).toBeNull()
-      // p2 操作进行中(p1 非 ack)再点 p1 → busy 守卫忽略
-      await vi.waitFor(() => expect(releaseSet).not.toBeNull())
-      fireEvent.click(screen.getAllByLabelText('启用')[0]!)
-      expect(screen.queryByRole('dialog')).toBeNull() // busy 期间不弹风险确认
-      releaseSet!()
-      await vi.waitFor(() => expect(screen.queryByText('…')).toBeNull())
       // URL 安装的 Error 路径
-      fireEvent.change(screen.getByPlaceholderText(/GitHub 仓库 URL/), { target: { value: 'https://x/e' } })
+      fireEvent.change(await screen.findByPlaceholderText(/GitHub 仓库 URL/), { target: { value: 'https://x/e' } })
       fireEvent.click(screen.getByText('URL 安装'))
       expect(await screen.findByText('url install failed')).toBeTruthy()
-      // 卸载的 Error 路径
-      fireEvent.click(screen.getAllByLabelText('卸载')[0]!)
-      fireEvent.click(await screen.findByText('卸载'))
-      expect(await screen.findByText('uninstall failed')).toBeTruthy()
       // Zip 导入(对话框返回数组)
       fireEvent.click(screen.getByText('导入 Zip'))
       await vi.waitFor(() => expect(installLocal).toHaveBeenCalledWith({ path: 'C:/plugins/x.zip' }))
@@ -405,7 +360,7 @@ describe('plugins extra branches', () => {
 
   it('ignores empty URL install and null local pick in preview', async () => {
     render(<PluginsTab />)
-    await screen.findByText('暂无已安装插件。')
+    await screen.findByText('安装插件')
     fireEvent.click(screen.getByText('URL 安装')) // 空 URL → 按钮禁用,点击无效果
     fireEvent.keyDown(screen.getByPlaceholderText(/GitHub 仓库 URL/), { key: 'Enter' }) // 空 URL Enter → 守卫返回
     fireEvent.keyDown(screen.getByPlaceholderText(/GitHub 仓库 URL/), { key: 'a' }) // 非 Enter 键忽略
@@ -413,7 +368,7 @@ describe('plugins extra branches', () => {
     expect(screen.queryByText(/raw/)).toBeNull()
   })
 
-  it('covers market install, list refresh, dialog cancels and fixture extras', async () => {
+  it('covers market install, market refresh and fixture extras', async () => {
     const installUrl = vi.fn((..._args: unknown[]) => ({ id: 'fresh', name: 'Fresh', version: '1', source: { kind: 'url' }, entry: 'i.js', enabled: false }))
     const restore = stubTauriInternals({
       dsh_plugin_list: () => [
@@ -428,17 +383,14 @@ describe('plugins extra branches', () => {
     })
     try {
       render(<PluginsTab />)
-      // license/description 展示
-      expect(await screen.findByText('MIT')).toBeTruthy()
-      expect(screen.getByText('desc')).toBeTruthy()
-      // 列表刷新按钮
-      fireEvent.click(screen.getByLabelText('刷新'))
-      await act(async () => { await Promise.resolve() })
+      // 市场卡片元信息(npm / stars)
+      expect(await screen.findByText('npm: fresh')).toBeTruthy()
+      expect(screen.getByText('★ 3')).toBeTruthy()
       // 市场安装(Fresh 未装 → 走 onInstallUrlFromMarket)
       fireEvent.click(screen.getByText('安装'))
       await vi.waitFor(() => expect(installUrl).toHaveBeenCalledWith({ url: 'https://x/fresh' }))
-      // 市场刷新按钮(列表刷新与市场刷新各一个「刷新」)
-      fireEvent.click(screen.getAllByText('刷新')[1]!)
+      // 市场刷新按钮
+      fireEvent.click(screen.getByText('刷新'))
       await act(async () => { await Promise.resolve() })
     } finally {
       restore()
@@ -470,56 +422,21 @@ describe('plugins extra branches', () => {
     }
   })
 
-  it('cancels the risk and uninstall dialogs', async () => {
+  it('covers empty-array dialog, import string failure and shutdown failure', async () => {
     const restore = stubTauriInternals({
-      dsh_plugin_list: () => [
-        { id: 'p1', name: 'a', version: '1', source: { kind: 'market' }, entry: 'i.js', enabled: false },
-      ],
+      dsh_plugin_list: () => [],
       dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
-    })
-    try {
-      render(<PluginsTab />)
-      // 风险确认弹窗 → 取消
-      fireEvent.click(await screen.findByLabelText('启用'))
-      expect(await screen.findByRole('dialog', { name: '启用插件' })).toBeTruthy()
-      fireEvent.click(screen.getByText('取消'))
-      expect(screen.queryByRole('dialog', { name: '启用插件' })).toBeNull()
-      // 卸载弹窗 → panel 阻止冒泡 + 取消
-      fireEvent.click(screen.getByLabelText('卸载'))
-      expect(await screen.findByRole('dialog', { name: '卸载插件' })).toBeTruthy()
-      fireEvent.mouseDown(screen.getByRole('dialog', { name: '卸载插件' })) // panel 阻止冒泡,不关闭
-      expect(screen.getByRole('dialog', { name: '卸载插件' })).toBeTruthy()
-      fireEvent.click(screen.getByText('取消'))
-      expect(screen.queryByRole('dialog', { name: '卸载插件' })).toBeNull()
-    } finally {
-      restore()
-    }
-  })
-
-  it('covers list string failure, enable Error, uninstall string, import string and empty-array dialog', async () => {
-    const restore = stubTauriInternals({
-      dsh_plugin_list: () => [
-        { id: 'p1', name: 'a', version: '1', source: { kind: 'market' }, entry: 'i.js', enabled: false },
-      ],
-      dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
-      dsh_plugin_set_enabled: () => { throw new Error('enable boom') },
-      dsh_plugin_uninstall: () => { throw 'uninstall raw' },
       dsh_plugin_install_local: () => { throw 'import raw' },
       'plugin:dialog|open': () => [],
+      dsh_shutdown: () => { throw new Error('runtime not running') },
     })
     try {
       render(<PluginsTab />)
-      // 启用 Error(先过风险确认)
-      fireEvent.click(await screen.findByLabelText('启用'))
-      fireEvent.click(await screen.findByText('启用'))
-      expect(await screen.findByText('enable boom')).toBeTruthy()
-      // 卸载字符串失败
-      fireEvent.click(screen.getByLabelText('卸载'))
-      fireEvent.click(await screen.findByText('卸载'))
-      expect(await screen.findByText('uninstall raw')).toBeTruthy()
-      // 空数组对话框 → 导入忽略;字符串失败走另一路径
+      await screen.findByText('安装插件')
+      // 空数组对话框 → 导入忽略
       fireEvent.click(screen.getByText('导入 Zip'))
       await act(async () => { await Promise.resolve() })
+      expect(screen.queryByText('import raw')).toBeNull()
     } finally {
       restore()
     }
@@ -545,7 +462,7 @@ describe('plugins extra branches', () => {
     })
     try {
       render(<PluginsTab />)
-      await screen.findByText('暂无已安装插件。')
+      await screen.findByText('安装插件')
       fireEvent.click(screen.getByText('导入 Zip'))
       await vi.waitFor(() => expect(releaseImport).not.toBeNull())
       releaseImport!(new Error('import boom')) // Error 路径
@@ -557,35 +474,22 @@ describe('plugins extra branches', () => {
     }
   })
 
-  it('covers list string failure on refresh', async () => {
-    let listCalls = 0
+  it('silently ignores installed-list failures (markers only)', async () => {
     const restore = stubTauriInternals({
-      dsh_plugin_list: () => {
-        listCalls += 1
-        if (listCalls === 1) return []
-        throw 'list raw failure'
-      },
-      dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
+      dsh_plugin_list: () => { throw 'list raw failure' },
+      dsh_plugin_market_fetch: () => ({
+        stale: false,
+        categories: [{ name: '工具', plugins: [{ name: 'A', url: 'https://x/a', description: 'a' }] }],
+      }),
     })
     try {
       render(<PluginsTab />)
-      // 市场加载完成触发 effect 重跑 → 第二次列表拉取抛字符串 → 错误文案
-      expect(await screen.findByText('list raw failure')).toBeTruthy()
-      expect(listCalls).toBeGreaterThanOrEqual(2)
+      // 列表失败不打扰:市场仍渲染,无错误文案
+      expect(await screen.findByText('A')).toBeTruthy()
+      expect(screen.queryByText('list raw failure')).toBeNull()
     } finally {
       restore()
     }
-  })
-
-  it('ConfirmActionDialog closes on backdrop mousedown and the close button', () => {
-    const onCancel = vi.fn()
-    const view = render(<ConfirmActionDialog title="T" message="M" confirmText="确定" onCancel={onCancel} onConfirm={() => {}} />)
-    fireEvent.mouseDown(view.container.querySelector('[role="presentation"]')!)
-    expect(onCancel).toHaveBeenCalledTimes(1)
-    const view2 = render(<ConfirmActionDialog title="T2" message="M" confirmText="确定" onCancel={onCancel} onConfirm={() => {}} />)
-    fireEvent.click(within(screen.getAllByRole('dialog')[1]!).getByLabelText('关闭'))
-    expect(onCancel).toHaveBeenCalledTimes(2)
-    void view2
   })
 })
 

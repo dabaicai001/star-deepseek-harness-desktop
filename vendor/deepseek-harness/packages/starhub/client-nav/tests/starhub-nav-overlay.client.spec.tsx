@@ -1,18 +1,18 @@
 // @vitest-environment jsdom
 /**
  * StarHubNav / StarHubOverlay(重构版):侧栏「工具」大类行 + 子类行(无
- * Excel/设置条目),overlay 的连接管理/实例页二选一与 Esc / postMessage 关闭。
- * 组件只读 props 四份份额;测试直接驱动 store 实例与选择/连接管理桥的裸
- * source(同 starhub-tool-workspace 规格)。设置五个 tab 各自直渲,见
+ * Excel/设置条目);overlay 现在只承载「新建/编辑连接」小对话框——打开
+ * (新建/编辑两态)、Esc / 关闭钮 / postMessage「去设置添加」打开、异域
+ * 消息忽略。资产实例页已改走新开独立窗口(见 starhub-apply 规格的
+ * openAsset 用例),不再经 overlay iframe。设置五个 tab 各自直渲,见
  * settings-tabs 规格。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { fireEvent } from '@testing-library/react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   createConnectionManagerOverlay, createStarHubNavStore, createToolSelectionBridge,
-  type StarHubAssetListState, type ToolSelection,
+  type ConnectionManagerState, type ToolSelection,
 } from '../src/client/store.ts'
 import { StarHubNav } from '../src/client/StarHubNav.tsx'
 import { StarHubOverlay } from '../src/client/StarHubOverlay.tsx'
@@ -35,21 +35,15 @@ function navProps() {
   }
 }
 
-/** 组装 StarHubOverlay 的完整 props(选择桥 + 连接管理桥 + 资产源 + 框架席位 stub)。 */
+/** 组装 StarHubOverlay 的完整 props(连接对话框桥 + 框架席位 stub)。 */
 function overlayProps() {
-  const selection = createToolSelectionBridge()
   const manager = createConnectionManagerOverlay()
-  const assets = createSnapshotStore<StarHubAssetListState>({ assets: [], loading: false, error: null, preview: false })
   return {
-    selection,
     manager,
-    assets,
-    closeAsset: vi.fn(),
     openConnectionManager: vi.fn(),
     closeConnectionManager: vi.fn(),
-    useSelection: (<S,>(sel: (s: ToolSelection) => S) => sel(selection.source.getSnapshot())) as never,
-    useConnectionManager: (<S,>(sel: (s: { open: boolean }) => S) => sel(manager.source.getSnapshot())) as never,
-    useAssets: (<S,>(sel: (s: StarHubAssetListState) => S) => sel(assets.getSnapshot())) as never,
+    refreshAssets: vi.fn(),
+    useConnectionManager: (<S,>(sel: (s: ConnectionManagerState) => S) => sel(manager.source.getSnapshot())) as never,
     useSessions: (() => undefined) as never,
     useWorkspaces: (() => undefined) as never,
   }
@@ -96,116 +90,70 @@ describe('StarHubNav', () => {
   })
 })
 
-describe('StarHubOverlay', () => {
-  it('renders nothing while both surfaces are closed', () => {
+describe('StarHubOverlay (connection dialog)', () => {
+  it('renders nothing while the dialog is closed', () => {
     const props = overlayProps()
     const { container } = render(<StarHubOverlay {...props} />)
     expect(container.firstChild).toBeNull()
   })
 
-  it('renders the connection manager iframe (assets-only settings page) when the bridge opens', () => {
+  it('renders the small create dialog (no fullscreen iframe) when the bridge opens', () => {
     const props = overlayProps()
     props.manager.open()
     render(<StarHubOverlay {...props} />)
-    const frame = document.querySelector('iframe')
-    expect(frame?.getAttribute('src')).toContain('embed=1')
-    expect(decodeURIComponent(frame?.getAttribute('src') ?? '')).toContain('/settings?tabs=assets&tab=assets')
-  })
-
-  it('renders the asset instance iframe when an asset is open', () => {
-    const props = overlayProps()
-    props.selection.selectSubcategory('terminal')
-    props.selection.openAsset({ id: 'a1', type: 'ssh', name: 'n', config: {} })
-    render(<StarHubOverlay {...props} />)
-    const frame = document.querySelector('iframe')
-    expect(decodeURIComponent(frame?.getAttribute('src') ?? '')).toContain('/ssh/a1__')
-  })
-
-  it('renders the native Broker view (no iframe) for migrated broker routes', () => {
-    const props = overlayProps()
-    props.assets.update((d) => {
-      d.assets = [{ id: 'bk1', type: 'db', name: 'prod-kafka', group_id: null, config: { dbType: 'kafka', host: 'h' }, key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0 }]
-    })
-    props.selection.selectSubcategory('terminal')
-    props.selection.openAsset({ id: 'bk1', type: 'db', name: 'prod-kafka', config: { dbType: 'kafka' } })
-    render(<StarHubOverlay {...props} />)
+    expect(screen.getByRole('dialog', { name: '新建连接' })).toBeTruthy()
     expect(document.querySelector('iframe')).toBeNull()
-    expect(screen.getByText('prod-kafka')).toBeTruthy()
-    expect(screen.getByText('连接状态')).toBeTruthy()
   })
 
-  it('falls back to the iframe when the opened asset is missing from the asset list', () => {
+  it('renders the edit dialog when the bridge opens with an asset', () => {
     const props = overlayProps()
-    props.selection.selectSubcategory('terminal')
-    props.selection.openAsset({ id: 'bk1', type: 'db', name: 'gone', config: { dbType: 'kafka' } })
+    props.manager.open({
+      id: 'a1', type: 'ssh', name: 'web-1', group_id: null,
+      config: { host: '1.1.1.1', port: 22, username: 'root' },
+      key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
+    })
     render(<StarHubOverlay {...props} />)
-    const frame = document.querySelector('iframe')
-    expect(decodeURIComponent(frame?.getAttribute('src') ?? '')).toContain('/broker/bk1__')
+    expect(screen.getByRole('dialog', { name: '编辑连接' })).toBeTruthy()
+    expect((screen.getByLabelText('名称 *') as HTMLInputElement).value).toBe('web-1')
+    expect((screen.getByLabelText('主机 *') as HTMLInputElement).value).toBe('1.1.1.1')
   })
 
-  it('closes the connection manager on the embed escape message and opens it on open-section', () => {
+  it('closes on Escape while open and ignores other keys', () => {
     const props = overlayProps()
     props.manager.open()
     render(<StarHubOverlay {...props} />)
-    fireEvent(window, new MessageEvent('message', {
-      data: { type: 'starhub-embed-escape' }, origin: window.location.origin,
-    }))
+    fireEvent.keyDown(document, { key: 'Enter' })
+    expect(props.closeConnectionManager).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'Escape' })
     expect(props.closeConnectionManager).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens the dialog on the embed open-section message (works while closed)', () => {
+    const props = overlayProps()
+    render(<StarHubOverlay {...props} />)
     fireEvent(window, new MessageEvent('message', {
       data: { type: 'starhub-embed-open-section', key: 'settings' }, origin: window.location.origin,
     }))
     expect(props.openConnectionManager).toHaveBeenCalledTimes(1)
   })
 
-  it('closes the asset page on Escape and ignores other keys', () => {
+  it('ignores open-section messages with another key and foreign origins', () => {
     const props = overlayProps()
-    props.selection.selectSubcategory('terminal')
-    props.selection.openAsset({ id: 'a1', type: 'ssh', name: 'n', config: {} })
-    render(<StarHubOverlay {...props} />)
-    fireEvent.keyDown(document, { key: 'Enter' })
-    expect(props.closeAsset).not.toHaveBeenCalled()
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(props.closeAsset).toHaveBeenCalledTimes(1)
-  })
-
-  it('closes the asset page on the embed escape message and ignores open-section with another key', () => {
-    const props = overlayProps()
-    props.selection.selectSubcategory('terminal')
-    props.selection.openAsset({ id: 'a1', type: 'ssh', name: 'n', config: {} })
     render(<StarHubOverlay {...props} />)
     fireEvent(window, new MessageEvent('message', {
       data: { type: 'starhub-embed-open-section', key: 'other' }, origin: window.location.origin,
     }))
-    expect(props.openConnectionManager).not.toHaveBeenCalled()
     fireEvent(window, new MessageEvent('message', {
-      data: { type: 'starhub-embed-escape' }, origin: window.location.origin,
+      data: { type: 'starhub-embed-open-section', key: 'settings' }, origin: 'https://evil.example',
     }))
-    expect(props.closeAsset).toHaveBeenCalledTimes(1)
+    expect(props.openConnectionManager).not.toHaveBeenCalled()
   })
 
-  it('closes the right surface through the close button for both asset and manager', () => {
-    const assetProps = overlayProps()
-    assetProps.selection.selectSubcategory('terminal')
-    assetProps.selection.openAsset({ id: 'a1', type: 'ssh', name: 'n', config: {} })
-    render(<StarHubOverlay {...assetProps} />)
-    fireEvent.click(screen.getByLabelText('关闭'))
-    expect(assetProps.closeAsset).toHaveBeenCalledTimes(1)
-    cleanup()
-
-    const managerProps = overlayProps()
-    managerProps.manager.open()
-    render(<StarHubOverlay {...managerProps} />)
-    fireEvent.click(screen.getByLabelText('关闭'))
-    expect(managerProps.closeConnectionManager).toHaveBeenCalledTimes(1)
-  })
-
-  it('ignores messages from foreign origins', () => {
+  it('closes through the dialog close button and backdrop', () => {
     const props = overlayProps()
     props.manager.open()
     render(<StarHubOverlay {...props} />)
-    fireEvent(window, new MessageEvent('message', {
-      data: { type: 'starhub-embed-escape' }, origin: 'https://evil.example',
-    }))
-    expect(props.closeConnectionManager).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByLabelText('关闭'))
+    expect(props.closeConnectionManager).toHaveBeenCalledTimes(1)
   })
 })

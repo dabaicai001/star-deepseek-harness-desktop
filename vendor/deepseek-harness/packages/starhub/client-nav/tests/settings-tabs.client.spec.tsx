@@ -1,16 +1,17 @@
 // @vitest-environment jsdom
 /**
- * Settings 各 tab 组件行为:审计加载/清空、告警 CRUD 弹窗、插件列表/风险
- * 确认/市场、关于更新状态机、AI 白名单/记忆(含记忆管理弹窗)。五个 tab
- * 以独立 settings.section 注册(dsh 设置侧栏 StarHub 可展开分组直渲,无
- * 面板内部嵌套列);IPC 走 window.__TAURI_INTERNALS__ stub;浏览器预览分支
- * (无 Tauri)一并覆盖。
+ * Settings 各 tab 组件行为:审计加载/清空、告警 CRUD 弹窗、插件安装入口/
+ * 市场(「已安装插件」列表已按用户要求移除,已装列表仅静默服务市场
+ * 「已安装」标记)、关于更新状态机、AI 白名单/记忆(含记忆管理弹窗)。
+ * 五个 tab 以独立 settings.section 注册(dsh 设置侧栏 StarHub 可展开分组
+ * 直渲,无面板内部嵌套列);IPC 走 window.__TAURI_INTERNALS__ stub;
+ * 浏览器预览分支(无 Tauri)一并覆盖。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { AuditTab, formatAuditDetail, formatAuditTime } from '../src/client/settings/audit.tsx'
 import { AlertTab } from '../src/client/settings/alert.tsx'
-import { PluginsTab, ConfirmActionDialog } from '../src/client/settings/plugins.tsx'
+import { PluginsTab } from '../src/client/settings/plugins.tsx'
 import { AboutTab } from '../src/client/settings/about.tsx'
 import { AiTab } from '../src/client/settings/ai.tsx'
 import { AI_STORAGE_KEY } from '../src/client/settings/aiSettings.ts'
@@ -172,20 +173,18 @@ describe('AlertTab', () => {
 })
 
 describe('PluginsTab', () => {
-  it('shows empty states in browser preview', async () => {
+  it('shows install entry and empty market in browser preview (no installed-list section)', async () => {
     render(<PluginsTab />)
-    expect(await screen.findByText('暂无已安装插件。')).toBeTruthy()
+    expect(screen.getByText('安装插件')).toBeTruthy()
     expect(screen.getByText('暂无市场插件。')).toBeTruthy()
+    expect(screen.queryByText('已安装插件')).toBeNull()
   })
 
-  it('lists plugins, toggles with the risk ack flow, installs by URL, filters the market and uninstalls', async () => {
-    const setEnabled = vi.fn((..._args: unknown[]) => null)
-    const uninstall = vi.fn((..._args: unknown[]) => null)
+  it('installs by URL, filters the market and marks installed entries', async () => {
+    const installUrl = vi.fn((..._args: unknown[]) => ({ id: 'p9', name: 'installed', version: '1.0.0', source: { kind: 'url' }, entry: 'index.js', enabled: false }))
     const restore = stubTauriInternals({
       dsh_plugin_list: () => [
-        { id: 'p1', name: 'demo', version: '1.0.0', source: { kind: 'market' }, entry: 'index.js', enabled: false },
-        { id: 'p2', name: 'other', version: '2.0.0', source: { kind: 'url' }, entry: 'index.js', enabled: true },
-        { id: 'p3', name: 'gone', version: '3.0.0', source: { kind: 'local-dir' }, entry: 'index.js', enabled: true, missing: true },
+        { id: 'p1-cool', name: 'demo', version: '1.0.0', source: { kind: 'market' }, entry: 'index.js', enabled: true },
       ],
       dsh_plugin_market_fetch: () => ({
         fetchedAt: '2026-01-01', stale: false,
@@ -197,68 +196,27 @@ describe('PluginsTab', () => {
           ],
         }],
       }),
-      dsh_plugin_install_url: () => ({ id: 'p9', name: 'installed', version: '1.0.0', source: { kind: 'url' }, entry: 'index.js', enabled: false }),
-      dsh_plugin_set_enabled: (args) => setEnabled(args),
-      dsh_plugin_uninstall: (args) => uninstall(args),
+      dsh_plugin_install_url: (args) => installUrl(args),
       dsh_shutdown: () => null,
     })
     try {
       render(<PluginsTab />)
-      expect(await screen.findByText('demo')).toBeTruthy()
-      expect(screen.getByText('gone')).toBeTruthy()
-      expect(screen.getByText('缺失')).toBeTruthy()
-      // 未启用 → 首次启用弹风险确认 → 确认后启用并记 ack
-      fireEvent.click(screen.getAllByLabelText('启用')[0]!)
-      expect(await screen.findByRole('dialog', { name: '启用插件' })).toBeTruthy()
-      fireEvent.click(screen.getByText('启用'))
-      await vi.waitFor(() => expect(setEnabled).toHaveBeenCalledWith({ id: 'p1', enabled: true }))
-      expect(JSON.parse(localStorage.getItem('starhub.plugins.enable-acknowledged') ?? '[]')).toContain('p1')
-      // 等 p1 的 busy 指示('…')消失后再操作其他插件
-      await vi.waitFor(() => expect(screen.queryByText('…')).toBeNull())
-      fireEvent.click(screen.getAllByTitle('禁用')[0]!)
-      await vi.waitFor(() => expect(setEnabled).toHaveBeenCalledWith({ id: 'p2', enabled: false }))
+      expect(await screen.findByText('Cool Plugin')).toBeTruthy()
+      // 已装标记:市场项 url 含已装插件 id → 按钮显示「已安装」且禁用
+      const installedButton = await screen.findByText('已安装')
+      expect(installedButton.hasAttribute('disabled')).toBe(true)
       // URL 安装
       fireEvent.change(screen.getByPlaceholderText(/GitHub 仓库 URL/), { target: { value: 'https://github.com/a/b' } })
       fireEvent.click(screen.getByText('URL 安装'))
-      await vi.waitFor(() => expect(setEnabled.mock.calls.length).toBeGreaterThanOrEqual(2))
-      expect(screen.getByDisplayValue('')).toBeTruthy() // 成功后清空输入
-      // 市场:Fresh 安装(installPluginFromUrl)+ Cool 已装禁用
-      fireEvent.click(screen.getAllByText('安装')[0]!)
-      await vi.waitFor(() => expect(screen.getAllByText('已安装').length).toBeGreaterThanOrEqual(1))
+      await vi.waitFor(() => expect(installUrl).toHaveBeenCalledWith({ url: 'https://github.com/a/b' }))
+      await vi.waitFor(() => expect((screen.getByPlaceholderText(/GitHub 仓库 URL/) as HTMLInputElement).value).toBe(''))
+      // 市场安装
+      fireEvent.click(screen.getByText('安装'))
+      await vi.waitFor(() => expect(installUrl).toHaveBeenCalledWith({ url: 'https://github.com/x/fresh' }))
       // 市场:搜索过滤
       fireEvent.change(screen.getByPlaceholderText('搜索插件…'), { target: { value: 'Cool' } })
       expect(await screen.findByText('Cool Plugin')).toBeTruthy()
       expect(screen.queryByText('Fresh Plugin')).toBeNull()
-      // 卸载 p2
-      fireEvent.click(screen.getAllByLabelText('卸载')[1]!)
-      expect(await screen.findByRole('dialog', { name: '卸载插件' })).toBeTruthy()
-      fireEvent.click(screen.getByText('卸载'))
-      await vi.waitFor(() => expect(uninstall).toHaveBeenCalledWith({ id: 'p2' }))
-    } finally {
-      restore()
-    }
-  })
-
-  it('shows type badges, protects builtin plugins and distinguishes UI risk copy', async () => {
-    const restore = stubTauriInternals({
-      dsh_plugin_list: () => [
-        { id: 'ui-plugin', name: '面板增强', version: '1', source: { kind: 'url' }, entry: 'lib/index.js', enabled: false, dshClient: true },
-        { id: 'dsh-starhub-client-nav', name: '@deepseek-ai/dsh-starhub-client-nav', version: '0.0.1', source: { kind: 'builtin' }, entry: 'lib/index.js', enabled: true, dshClient: true, builtin: true },
-      ],
-      dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
-    })
-    try {
-      render(<PluginsTab />)
-      expect(await screen.findByText('面板增强')).toBeTruthy()
-      // 两个 dshClient 插件都有 UI 徽标;内置插件有内置徽标(徽标+来源两处)
-      expect(screen.getAllByText('UI').length).toBeGreaterThanOrEqual(2)
-      expect(screen.getAllByText('内置').length).toBeGreaterThanOrEqual(1)
-      // 内置插件:启停/卸载按钮禁用
-      expect(screen.getAllByTitle('禁用').some((b) => b.hasAttribute('disabled'))).toBe(true)
-      expect(screen.getAllByLabelText('卸载').some((b) => b.hasAttribute('disabled'))).toBe(true)
-      // UI 插件首次启用 → 风险提示文案区分
-      fireEvent.click(screen.getAllByLabelText('启用')[0]!)
-      expect(await screen.findByText(/浏览器端 UI/)).toBeTruthy()
     } finally {
       restore()
     }
@@ -279,18 +237,6 @@ describe('PluginsTab', () => {
     } finally {
       restore()
     }
-  })
-
-  it('ConfirmActionDialog cancels without confirming', () => {
-    const onCancel = vi.fn()
-    const onConfirm = vi.fn()
-    render(<ConfirmActionDialog title="T" message="M" confirmText="确定" onCancel={onCancel} onConfirm={onConfirm} />)
-    fireEvent.click(screen.getByText('取消'))
-    expect(onCancel).toHaveBeenCalledTimes(1)
-    expect(onConfirm).not.toHaveBeenCalled()
-    render(<ConfirmActionDialog title="T2" message="M" confirmText="危险" danger onCancel={onCancel} onConfirm={onConfirm} />)
-    fireEvent.click(screen.getByText('危险'))
-    expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 })
 

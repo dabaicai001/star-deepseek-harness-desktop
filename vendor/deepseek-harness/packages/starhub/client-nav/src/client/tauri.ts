@@ -27,3 +27,34 @@ export function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Pro
   }
   return internals.invoke(cmd, args) as Promise<T>
 }
+
+/**
+ * Open a StarHub page in a NEW window instead of overlaying the dsh shell.
+ * Desktop: a real Tauri webview window (label must match the capability
+ * glob `starhub-*` so the embed page inside keeps its IPC grants). Browser
+ * preview: a new tab. The page URL is a same-origin path (e.g. the embed
+ * entry `/starhub/index.html?embed=1&route=...`); the Tauri command needs
+ * an absolute URL, so it is resolved against the current origin.
+ * @param path - same-origin page path (absolute path, not full URL).
+ * @param title - new window title (asset name).
+ * @returns after the window/tab has been requested.
+ * @throws when the desktop window creation IPC fails (no silent fallback —
+ *   a failed open must surface, not quietly do nothing).
+ */
+export async function openNewPage(path: string, title: string): Promise<void> {
+  const internals = (window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__
+  if (internals === undefined) {
+    window.open(path, '_blank', 'noopener')
+    return
+  }
+  await internals.invoke('plugin:webview|create_webview_window', {
+    options: {
+      label: `starhub-page-${Date.now()}`,
+      url: new URL(path, window.location.origin).toString(),
+      title,
+      width: 1280,
+      height: 800,
+      center: true,
+    },
+  })
+}

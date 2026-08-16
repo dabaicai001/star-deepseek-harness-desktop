@@ -1,10 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for StarHub main window (dsh web shell + embed iframe pages). Grants all required permissions for SSH terminal, asset CRUD, and event listening.",
-  "windows": ["main"],
+  "description": "Default capability for StarHub main window (dsh web shell + embed iframe pages). starhub-commands grants all app commands — required since tauri 2.x enforces ACL for remote origins (127.0.0.1 dsh shell). Command list lives in permissions/commands.toml.",
+  "windows": [
+    "main",
+    "starhub-*"
+  ],
   "remote": {
-    "urls": ["http://127.0.0.1:*/*", "http://localhost:*/*"]
+    "urls": [
+      "http://127.0.0.1:*/*",
+      "http://localhost:*/*"
+    ]
   },
   "permissions": [
     "core:default",
@@ -35,6 +41,7 @@
     "core:webview:allow-webview-show",
     "core:path:default",
     "core:app:default",
-    "dialog:default"
+    "dialog:default",
+    "starhub-commands"
   ]
 }
