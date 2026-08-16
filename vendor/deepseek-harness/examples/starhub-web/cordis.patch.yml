@@ -18,3 +18,7 @@
       name: '@deepseek-ai/dsh-starhub-client-nav'
     - id: starhub-host-static
       name: '@deepseek-ai/dsh-starhub-host-static'
+    # AI 上下文绑定(方案 4.3):host 插件,pre-step 时把当前 StarHub 工具
+    # 选择(settings 里由 client-nav 写入)注入 agent 请求。
+    - id: starhub-tool-context
+      name: '@deepseek-ai/dsh-starhub-tool-context'

@@ -8,13 +8,16 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: the connection service merge (ctx.get('connection') typing).
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { createStarHubStore } from './store.ts'
 import { StarHubNav } from './StarHubNav.tsx'
 import { StarHubOverlay } from './StarHubOverlay.tsx'
 import { StarHubToolWorkspace } from './StarHubToolWorkspace.tsx'
 
-/** Required services: the slot registry and the layout panel-action face. */
-export const inject = ['slots', 'layout']
+/** Required services: the slot registry, the layout panel-action face, and the connection wire. */
+export const inject = ['slots', 'layout', 'connection']
 
 /**
  * Client plugin body: one shared store handle across all four registrations —
@@ -48,9 +51,17 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('workspace', () => ctx.slots.register({
     name: 'workspace',
     store,
+    inject: () => ({
+      // The connection wire face for syncing the current tool context to
+      // host settings (Path B plan 4.3).
+      api: (ctx.get('connection') as ConnectionHandle).api,
+    }),
   }, StarHubToolWorkspace))
   ctx.slots.inject('details.workspace', () => ctx.slots.register({
     name: 'details.workspace',
     store,
+    inject: () => ({
+      api: (ctx.get('connection') as ConnectionHandle).api,
+    }),
   }, StarHubToolWorkspace))
 }

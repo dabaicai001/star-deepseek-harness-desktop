@@ -24,6 +24,9 @@
       "path": "../../client/ui-conversation"
     },
     {
+      "path": "../../client/connection/tsconfig.client.json"
+    },
+    {
       "path": "../../client/ui-primitives"
     },
     {

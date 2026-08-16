@@ -13,6 +13,13 @@
 
 ---
 
+## [0.71.0] - 2026-08-15
+
+### 新增
+- AI 上下文绑定(方案 4.3)完整落地:新增 dsh host 插件 `@deepseek-ai/dsh-starhub-tool-context`(`agent/pre-step` 读 `starhub-tool-context` settings namespace,把当前 StarHub 工具/资产/路由前缀注入每个 agent 请求,仿 `time-context` 的 plugin 来源 user message);client-nav 在子类/资产变化时经 `api.settings.update` 写入该 namespace;插件已注册进 starhub-web 组合;全量 tsc + 10 测试通过
+
+---
+
 ## [0.70.0] - 2026-08-15
 
 ### 新增

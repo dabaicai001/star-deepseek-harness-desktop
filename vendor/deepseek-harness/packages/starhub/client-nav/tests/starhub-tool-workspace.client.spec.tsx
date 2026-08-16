@@ -27,6 +27,9 @@ function storeProps() {
     useStore,
     actions: store.actions,
     subscribe,
+    // settings.update stub: the tool-context sync effect calls it and must
+    // not throw in jsdom (no real wire).
+    api: { settings: { update: () => Promise.resolve({ result: { ok: true } }) } } as never,
     useSession: (() => undefined) as never,
     sessionId: undefined,
     useProjection: (() => undefined) as never,

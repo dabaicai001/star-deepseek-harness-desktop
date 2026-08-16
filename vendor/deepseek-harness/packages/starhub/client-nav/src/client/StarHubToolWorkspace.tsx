@@ -4,17 +4,27 @@
  * (shell.overlay iframe)。挂载时经顶层帧 Tauri IPC 直调 `get_assets`。
  */
 import { useEffect } from 'react'
-import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRuntime, PropsStore, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the 'workspace' / 'details.workspace' SlotMap rows.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import { STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
 import type { createStarHubStore, RustAsset } from './store.ts'
 
-/** Full composed props: workspace runtime share + the shared StarHub store share. */
+/** Settings namespace written by the shell (host reads it per request). */
+const TOOL_CONTEXT_NAMESPACE = 'starhub-tool-context'
+
+/** Business face injected by the registration: the connection wire. */
+export interface StarHubToolWorkspaceInjected {
+  api: IApiClient
+}
+
+/** Full composed props: workspace runtime share + the shared StarHub store share + injected api. */
 export type StarHubToolWorkspaceProps =
   & PropsRuntime<'workspace'>
   & PropsStore<ReturnType<typeof createStarHubStore>>
+  & InjectFace<StarHubToolWorkspaceInjected>
 
 /** Tauri IPC surface injected into the top frame by the desktop shell. */
 interface TauriInternals {
@@ -67,15 +77,17 @@ const statusStyle: React.CSSProperties = {
 
 /**
  * Render the in-shell tool workspace column: the current subcategory's asset
- * list; clicking a row opens that instance's operation page.
- * @param props - composed slot props (workspace runtime share + store share).
+ * list; clicking a row opens that instance's operation page. Also syncs the
+ * current tool selection to host settings for AI context (Path B plan 4.3).
+ * @param props - composed slot props (workspace runtime share + store share + injected api).
  * @returns the asset list surface, or a loading/error/empty/guide state.
  */
-export function StarHubToolWorkspace({ useStore, actions }: StarHubToolWorkspaceProps) {
+export function StarHubToolWorkspace({ useStore, actions, api }: StarHubToolWorkspaceProps) {
   const assets = useStore(s => s.assets)
   const loading = useStore(s => s.loading)
   const error = useStore(s => s.error)
   const activeSubcategory = useStore(s => s.activeSubcategory)
+  const activeAssetId = useStore(s => s.activeAssetId)
   const subcategory = STARHUB_SUBCATEGORIES.find(s => s.key === activeSubcategory)
 
   useEffect(() => {
@@ -87,6 +99,20 @@ export function StarHubToolWorkspace({ useStore, actions }: StarHubToolWorkspace
       .catch((e: unknown) => { actions.setError(e instanceof Error ? e.message : String(e)) })
       .finally(() => { actions.setLoading(false) })
   }, [loading, assets.length, actions])
+
+  // 4.3: 当前工具选择 → host settings(供 agent/pre-step 注入 AI 上下文)。
+  useEffect(() => {
+    if (api === undefined) return
+    const patch: Record<string, string> = {}
+    if (subcategory !== undefined) patch.subcategory = subcategory.key
+    if (activeAssetId !== null) {
+      patch.assetId = activeAssetId
+      const asset = assets.find(a => a.id === activeAssetId)
+      if (asset !== undefined) patch.assetName = asset.name
+    }
+    if (subcategory !== undefined) patch.routePrefix = subcategory.routePrefix
+    void api.settings.update({ ns: TOOL_CONTEXT_NAMESPACE, patch }).catch(() => {})
+  }, [api, subcategory, activeAssetId, assets])
 
   if (subcategory === undefined) {
     return <div style={statusStyle}>请在左侧选择工具子类(终端 / 数据库 / Docker)。</div>

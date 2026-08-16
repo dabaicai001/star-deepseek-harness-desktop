@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.70.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.71.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,14 +119,14 @@
 
 ## 当前版本
 
+### v0.71.0 (2026-08-15)
+- ✨ AI 上下文绑定落地:新增 host 插件 starhub-tool-context(agent/pre-step 注入当前 StarHub 工具/资产到每个请求),client-nav 经 settings 通道同步工具选择
+
 ### v0.70.0 (2026-08-15)
 - ✨ 重构方案全部实施:侧栏「工具」大类/子类(终端/数据库/Docker)、右侧工具工作区列子类资产列表、点实例开操作页;连接上下文头部(类型徽标+连接状态+一键连接/断开+内联新建);postMessage 状态桥(useEmbedConnBridge);空态页内联新建
 
 ### v0.69.2 (2026-08-15)
 - 📝 方案调整:侧栏「工具工作区」升级为「工具大类 → 子类(终端/数据库/Docker)→ 资产列表 → 实例操作页」三层交互(仅文档)
-
-### v0.69.1 (2026-08-15)
-- 🐛 修复无会话时点「工具工作区」打不开:新增 workspace 席位(session-maybe),AppFrame 无会话时右栏渲染工具工作区,有会话时渲染工具调用详情;去掉切会话自动关列
 
 ---
 
