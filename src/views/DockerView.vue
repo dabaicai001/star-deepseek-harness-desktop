@@ -23,6 +23,7 @@ import { logAudit } from '@/services/audit'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller } from '@/utils/aiTools'
 import { useAiChatHost } from '@/composables/useAiChatHost'
+import { useEmbedConnBridgeOnUnmount } from '@/composables/useEmbedConnBridge'
 import * as dockerService from '@/services/docker'
 import { assetConfigToSshConfig, type KbInteractiveEvent } from '@/services/ssh'
 import type { Asset } from '@/types/asset'
@@ -45,6 +46,8 @@ const dlg = useDialogStore()
 const _frozenInstanceId = route.params.id as string
 const instanceId = computed(() => _frozenInstanceId)
 const assetId = computed(() => parseInstanceId(_frozenInstanceId).assetId)
+/** 连接上下文头部桥的停止函数(方案 3.1) */
+let stopEmbedConnBridge: (() => void) | null = null
 const devMockWorkspace = computed(() => import.meta.env.DEV && route.query.mock === '1')
 const devMockTimestamp = Date.now()
 const devMockAsset = computed<Asset | undefined>(() => devMockWorkspace.value ? {
@@ -425,9 +428,23 @@ onMounted(() => {
     if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
     router.push('/')
   }
+
+  // 连接上下文头部(方案 3.1):状态上报父帧资产条 + 监听连接/断开动作
+  stopEmbedConnBridge = useEmbedConnBridgeOnUnmount({
+    assetId: () => assetId.value,
+    connecting: () => connecting.value,
+    connected: () => connected.value,
+    error: () => connectError.value,
+    connect: () => connect(),
+    disconnect: () => {
+      connected.value = false
+      void disconnectOwnedSessions()
+    },
+  })
 })
 
 onBeforeUnmount(async () => {
+  stopEmbedConnBridge?.()
   window.removeEventListener('starhub:object-selected', onObjectSelected)
   window.removeEventListener('starhub:tab-disconnect', onTabDisconnect)
   await markStale()

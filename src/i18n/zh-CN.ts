@@ -333,6 +333,16 @@ export default {
       sectionAssets: '可用资产',
       noAsset: '未选择资产',
       goSettings: '去设置添加',
+      newConnection: '新建连接',
+      connect: '连接',
+      connecting: '连接中',
+      disconnect: '断开',
+      state: {
+        disconnected: '未连接',
+        connecting: '连接中',
+        connected: '已连接',
+        error: '错误',
+      },
     },
     empty: {
       title: '该类型暂无资产',

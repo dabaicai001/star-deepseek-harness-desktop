@@ -13,6 +13,7 @@ import * as dbService from '@/services/db'
 import { useDialogStore } from '@/stores/dialog'
 import { REDIS_SYSTEM_PROMPT, redisTools, makeRedisToolCaller } from '@/utils/aiTools'
 import { useAiChatHost } from '@/composables/useAiChatHost'
+import { useEmbedConnBridgeOnUnmount } from '@/composables/useEmbedConnBridge'
 import { useObjectTreeStore, type ObjectAction, type ObjectKind } from '@/stores/objectTree'
 import RedisValueEditor from '@/components/redis/RedisValueEditor.vue'
 import RedisCli from '@/components/redis/RedisCli.vue'
@@ -40,6 +41,8 @@ const _frozenInstanceId = route.params.id as string
 const instanceId = computed(() => _frozenInstanceId)
 const assetId = computed(() => parseInstanceId(_frozenInstanceId).assetId)
 const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value))
+/** 连接上下文头部桥的停止函数(方案 3.1) */
+let stopEmbedConnBridge: (() => void) | null = null
 
 const connected = ref(false)
 const connecting = ref(false)
@@ -341,9 +344,24 @@ onMounted(() => {
   if (pendingSel) applyObjectSelection(pendingSel.kind, pendingSel.payload)
   const pendingAct = objectTree.takePendingAction(assetId.value)
   if (pendingAct) runObjectAction(pendingAct)
+
+  // 连接上下文头部(方案 3.1):状态上报父帧资产条 + 监听连接/断开动作
+  stopEmbedConnBridge = useEmbedConnBridgeOnUnmount({
+    assetId: () => assetId.value,
+    connecting: () => connecting.value,
+    connected: () => connected.value,
+    error: () => connectError.value,
+    connect: () => connect(),
+    disconnect: () => {
+      connected.value = false
+      connId.value = null
+      void disconnectOwnedSessions()
+    },
+  })
 })
 
 onBeforeUnmount(() => {
+  stopEmbedConnBridge?.()
   markStale()
   connecting.value = false
   window.removeEventListener('starhub:object-selected', onObjectSelected)

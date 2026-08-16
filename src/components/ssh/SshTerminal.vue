@@ -22,6 +22,7 @@ import { useDialogStore } from '@/stores/dialog'
 import { useThemeStore } from '@/stores/theme'
 import type { Asset } from '@/types/asset'
 import { parseInstanceId, withTabIndexSuffix, generateInstanceId } from '@/utils/tabId'
+import { useEmbedConnBridgeOnUnmount } from '@/composables/useEmbedConnBridge'
 import { parseXshellQblDetailed, parseXshellQblx, decodeQblText } from '@/utils/xshellQuickCommand'
 import { formatSize } from '@/services/sftp'
 import { SSH_SYSTEM_PROMPT, SSH_SILENT_MODE_PROMPT_NOTE, sshTools, makeSshToolCaller } from '@/utils/aiTools'
@@ -105,6 +106,8 @@ const props = defineProps<{
 
 /** 从 instanceId解析出资产 id,再用资产 id找资产配置 */
 const instanceInfo = computed(() => parseInstanceId(props.id))
+/** 连接上下文头部桥的停止函数(方案 3.1) */
+let stopEmbedConnBridge: (() => void) | null = null
 const devMockWorkspace = computed(() => import.meta.env.DEV && route.query.mock === '1')
 const devMockLineCount = computed(() => {
   if (!devMockWorkspace.value) return 0
@@ -399,9 +402,20 @@ onMounted(async () => {
    if (appStore.activeTab) appStore.removeTab(appStore.activeTab)
    router.push('/')
    }
+
+ // 连接上下文头部(方案 3.1):状态上报父帧资产条 + 监听连接/断开动作
+ stopEmbedConnBridge = useEmbedConnBridgeOnUnmount({
+   assetId: () => instanceInfo.value.assetId,
+   connecting: () => connecting.value,
+   connected: () => connected.value,
+   error: () => null,
+   connect: () => connect(),
+   disconnect: () => disconnect(),
+ })
 })
 
 onBeforeUnmount(async () => {
+  stopEmbedConnBridge?.()
   currentConnectId++
   if (beforeUnloadHandler) {
     window.removeEventListener('beforeunload', beforeUnloadHandler)

@@ -13,6 +13,17 @@
 
 ---
 
+## [0.70.0] - 2026-08-15
+
+### 新增
+- 重构方案(交互与信息架构)全部实施:
+  - **第 2 章 信息架构**:侧栏「工具」大类可展开,下挂子类(终端/数据库/Docker);`sections.ts` 扩展为「大类→子类→资产路由」三层事实表;右侧工具工作区列按子类过滤资产列表,点资产行弹出实例操作页(embed iframe,功能不变);`store.ts` 合并导航+资产为单一共享 store
+  - **第 3 章 功能页**:EmbedAssetBar 升级连接上下文头部(类型徽标 + 连接状态点 + 一键连接/断开 + 内联新建连接,不再跳设置);新增 `useEmbedConnBridge`(postMessage 状态桥:视图上报 `starhub-embed-conn-state`,资产条发 `starhub-embed-conn-action`),DbView / RedisView / DockerView / SshTerminal 接入;空态页内联新建连接表单;打开即用(各视图挂载自动连接,已有行为保留)
+  - **第 4 章**:4.1/4.2 工具停靠右栏(workspace 席位 + details.workspace 内席)完成;4.3 AI 上下文绑定客户端半边(壳级 store 持有工具状态 + iframe 状态上报)完成,host 侧注入插件留待单独实现
+- 全量 tsc + 706 测试通过,embed 构建通过;3086 测试实例已验证
+
+---
+
 ## [0.69.2] - 2026-08-15
 
 ### 新增

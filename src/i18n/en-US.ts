@@ -333,6 +333,16 @@ export default {
       sectionAssets: 'Available assets',
       noAsset: 'No asset selected',
       goSettings: 'Add in Settings',
+      newConnection: 'New connection',
+      connect: 'Connect',
+      connecting: 'Connecting',
+      disconnect: 'Disconnect',
+      state: {
+        disconnected: 'Disconnected',
+        connecting: 'Connecting',
+        connected: 'Connected',
+        error: 'Error',
+      },
     },
     empty: {
       title: 'No assets of this type yet',

@@ -108,3 +108,64 @@ export function postEmbedOpenSection(key: string): void {
   if (!isEmbedMode() || window.parent === window) return
   window.parent.postMessage({ type: 'starhub-embed-open-section', key }, window.location.origin)
 }
+
+// ====== 连接上下文头部协议(方案第 3 章)======
+// EmbedAssetBar(父帧资产条)与功能页视图(子帧)之间同步连接状态与动作:
+// 视图状态变化 → postConnState 上报;资产条展示状态点与「连接/断开」按钮;
+// 资产条动作 → postConnAction 请求;视图监听执行并回上报新状态。
+
+/** 连接状态(方案 3.1 的连接上下文头部)。 */
+export type EmbedConnState = 'disconnected' | 'connecting' | 'connected' | 'error'
+
+/** 视图上报的连接状态载荷。 */
+export interface EmbedConnStateMessage {
+  type: 'starhub-embed-conn-state'
+  /** 资产 id(与视图当前 instanceId 反解一致)。 */
+  assetId: string
+  state: EmbedConnState
+  /** error 态的可读原因(可选)。 */
+  reason?: string
+}
+
+/** 资产条请求的连接动作载荷。 */
+export interface EmbedConnActionMessage {
+  type: 'starhub-embed-conn-action'
+  assetId: string
+  action: 'connect' | 'disconnect'
+}
+
+/** 视图向父帧(资产条)上报当前连接状态。 */
+export function postConnState(assetId: string, state: EmbedConnState, reason?: string): void {
+  if (!isEmbedMode() || window.parent === window) return
+  const msg: EmbedConnStateMessage = { type: 'starhub-embed-conn-state', assetId, state, ...(reason !== undefined ? { reason } : {}) }
+  window.parent.postMessage(msg, window.location.origin)
+}
+
+/** 资产条向功能页视图请求连接/断开。 */
+export function postConnAction(assetId: string, action: 'connect' | 'disconnect'): void {
+  if (!isEmbedMode() || window.parent === window) return
+  const msg: EmbedConnActionMessage = { type: 'starhub-embed-conn-action', assetId, action }
+  window.parent.postMessage(msg, window.location.origin)
+}
+
+/** 监听父帧发来的连接动作请求(视图侧);返回取消函数。 */
+export function onConnAction(handler: (msg: EmbedConnActionMessage) => void): () => void {
+  const listener = (e: MessageEvent) => {
+    if (e.origin !== window.location.origin) return
+    const data = e.data as { type?: unknown } | null
+    if (data?.type === 'starhub-embed-conn-action') handler(data as unknown as EmbedConnActionMessage)
+  }
+  window.addEventListener('message', listener)
+  return () => window.removeEventListener('message', listener)
+}
+
+/** 监听功能页视图上报的连接状态(资产条侧);返回取消函数。 */
+export function onConnState(handler: (msg: EmbedConnStateMessage) => void): () => void {
+  const listener = (e: MessageEvent) => {
+    if (e.origin !== window.location.origin) return
+    const data = e.data as { type?: unknown } | null
+    if (data?.type === 'starhub-embed-conn-state') handler(data as unknown as EmbedConnStateMessage)
+  }
+  window.addEventListener('message', listener)
+  return () => window.removeEventListener('message', listener)
+}

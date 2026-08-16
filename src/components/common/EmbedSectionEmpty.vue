@@ -1,19 +1,44 @@
 <script setup lang="ts">
 /**
- * embed 段路由(如 /ssh,无资产 id)的空态页(P3 主壳融合)。
+ * embed 段路由(如 /ssh,无资产 id)的空态页(方案第 3 章 3.2)。
  *
  * embed 守卫在「该类型无资产」时停在段路由,本组件渲染空态;
+ * 直接内联「新建连接」表单(NewConnectionDialog),不再只给「去设置」按钮;
  * 有资产时守卫直接重定向到带 instanceId 的功能路由,不会落到这里。
- * 「去设置添加」经 postMessage 让 dsh 壳(client-nav overlay)切到设置页。
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
-import { embedSectionForRoute, postEmbedOpenSection } from '@/lib/embed'
+import { useAssetStore } from '@/stores/asset'
+import NewConnectionDialog from '@/components/common/NewConnectionDialog.vue'
+import { embedSectionForRoute } from '@/lib/embed'
+import type { CreateAssetDto } from '@/types/asset'
 
 const { t } = useI18n()
 const route = useRoute()
+const assetStore = useAssetStore()
 const section = computed(() => embedSectionForRoute(route))
+
+/** 段 key → 资产类型(NewConnectionDialog 的 initialType) */
+function sectionToAssetType(key: string): 'ssh' | 'db' | 'docker' | undefined {
+  if (key === 'terminal') return 'ssh'
+  if (key === 'database' || key === 'redis' || key === 'elasticsearch'
+    || key === 'clickhouse' || key === 'postgresql') return 'db'
+  if (key === 'docker') return 'docker'
+  return undefined
+}
+
+const showNewDialog = ref(false)
+
+async function onCreateAsset(dto: CreateAssetDto) {
+  try {
+    await assetStore.createAsset(dto)
+    showNewDialog.value = false
+  } catch (err) {
+    // 保持对话框打开让用户修正;错误由对话框侧提示
+    void err
+  }
+}
 </script>
 
 <template>
@@ -21,9 +46,15 @@ const section = computed(() => embedSectionForRoute(route))
     <v-icon size="28" class="cyber-embed-empty-icon">{{ section?.icon ?? 'mdi-shape-outline' }}</v-icon>
     <div class="cyber-embed-empty-title">{{ t('embed.empty.title') }}</div>
     <div class="cyber-embed-empty-hint">{{ t('embed.empty.hint') }}</div>
-    <button class="cyber-embed-bar-action" @click="postEmbedOpenSection('settings')">
+    <!-- 方案 3.2:内联新建连接,不再跳设置 -->
+    <button class="cyber-embed-bar-action" @click="showNewDialog = true">
       <v-icon size="12">mdi-plus</v-icon>
-      <span>{{ t('embed.empty.goSettings') }}</span>
+      <span>{{ t('embed.assetBar.newConnection') }}</span>
     </button>
+    <NewConnectionDialog
+      v-model="showNewDialog"
+      :initial-type="section ? sectionToAssetType(section.key) : undefined"
+      @submit="onCreateAsset"
+    />
   </div>
 </template>

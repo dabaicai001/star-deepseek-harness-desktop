@@ -18,6 +18,7 @@ import { extractFromTables } from '@/utils/sqlTables'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller } from '@/utils/aiTools'
 import { useAiChatHost } from '@/composables/useAiChatHost'
+import { useEmbedConnBridgeOnUnmount } from '@/composables/useEmbedConnBridge'
 import SqlEditor from '@/components/db/SqlEditor.vue'
 import DataGrid from '@/components/db/DataGrid.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -54,6 +55,8 @@ const _frozenInstanceId = route.params.id as string
 const instanceId = computed(() => _frozenInstanceId)
 const assetId = computed(() => parseInstanceId(_frozenInstanceId).assetId)
 const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value))
+/** 连接上下文头部桥的停止函数(方案 3.1) */
+let stopEmbedConnBridge: (() => void) | null = null
 
 const isClickhouse = computed(() => asset.value?.config.dbType === 'clickhouse')
 
@@ -2072,9 +2075,24 @@ onMounted(() => {
   if (pendingSel) applyObjectSelection(pendingSel.kind, pendingSel.payload)
   const pendingAct = objectTree.takePendingAction(assetId.value)
   if (pendingAct) runObjectAction(pendingAct)
+
+  // 连接上下文头部(方案 3.1):状态上报父帧资产条 + 监听连接/断开动作
+  stopEmbedConnBridge = useEmbedConnBridgeOnUnmount({
+    assetId: () => assetId.value,
+    connecting: () => connecting.value,
+    connected: () => connected.value,
+    error: () => connectError.value,
+    connect: () => connect(),
+    disconnect: () => {
+      connected.value = false
+      connId.value = null
+      void disconnectOwnedSessions()
+    },
+  })
 })
 
 onBeforeUnmount(() => {
+  stopEmbedConnBridge?.()
   markStale()
   connecting.value = false
   window.removeEventListener('starhub:object-selected', onObjectSelected)

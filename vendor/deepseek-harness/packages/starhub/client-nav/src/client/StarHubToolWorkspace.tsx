@@ -1,21 +1,20 @@
 /**
- * StarHub 工具工作区(Phase 0 spike,Step 2)。
- *
- * 注册进 `details.workspace`(details 右栏内席,方案 A),壳内 React 直渲——
- * 无 iframe。挂载时经顶层帧 Tauri IPC 直调 `get_assets`(P0 spike 已实测
- * 顶层帧 `__TAURI_INTERNALS__.invoke` 可用),结果写入共享 asset store。
- * 纯浏览器预览(无 Tauri)时降级展示错误提示。
+ * StarHub 工具工作区列(方案 P1):右侧工具工作区列显示当前子类(终端 /
+ * 数据库 / Docker)的资产(连接)列表;点资产行打开该实例的操作页
+ * (shell.overlay iframe)。挂载时经顶层帧 Tauri IPC 直调 `get_assets`。
  */
 import { useEffect } from 'react'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only: the 'details.workspace' SlotMap row (declared by ui-conversation).
+// Type-only: the 'workspace' / 'details.workspace' SlotMap rows.
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { createStarHubAssetStore, RustAsset } from './asset-store.ts'
+import { STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
+import type { createStarHubStore, RustAsset } from './store.ts'
 
-/** Full composed props: details workspace runtime share + the shared asset store share. */
+/** Full composed props: workspace runtime share + the shared StarHub store share. */
 export type StarHubToolWorkspaceProps =
-  & PropsRuntime<'details.workspace'>
-  & PropsStore<ReturnType<typeof createStarHubAssetStore>>
+  & PropsRuntime<'workspace'>
+  & PropsStore<ReturnType<typeof createStarHubStore>>
 
 /** Tauri IPC surface injected into the top frame by the desktop shell. */
 interface TauriInternals {
@@ -49,7 +48,9 @@ const listStyle: React.CSSProperties = {
 const rowStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,
   padding: '6px 10px', borderRadius: 6,
+  border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 13, fontFamily: 'inherit',
   background: 'var(--dsw-background-secondary, rgba(255,255,255,0.04))',
+  textAlign: 'left', width: '100%',
 }
 
 const badgeStyle: React.CSSProperties = {
@@ -65,14 +66,17 @@ const statusStyle: React.CSSProperties = {
 }
 
 /**
- * Render the in-shell StarHub asset list as a conversation view tab.
- * @param props - composed slot props (view runtime share + asset store share).
- * @returns the asset list surface, or a loading/error/empty state.
+ * Render the in-shell tool workspace column: the current subcategory's asset
+ * list; clicking a row opens that instance's operation page.
+ * @param props - composed slot props (workspace runtime share + store share).
+ * @returns the asset list surface, or a loading/error/empty/guide state.
  */
 export function StarHubToolWorkspace({ useStore, actions }: StarHubToolWorkspaceProps) {
   const assets = useStore(s => s.assets)
   const loading = useStore(s => s.loading)
   const error = useStore(s => s.error)
+  const activeSubcategory = useStore(s => s.activeSubcategory)
+  const subcategory = STARHUB_SUBCATEGORIES.find(s => s.key === activeSubcategory)
 
   useEffect(() => {
     if (loading || assets.length > 0) return
@@ -84,25 +88,43 @@ export function StarHubToolWorkspace({ useStore, actions }: StarHubToolWorkspace
       .finally(() => { actions.setLoading(false) })
   }, [loading, assets.length, actions])
 
+  if (subcategory === undefined) {
+    return <div style={statusStyle}>请在左侧选择工具子类(终端 / 数据库 / Docker)。</div>
+  }
+
   if (loading) return <div style={statusStyle}>加载资产…</div>
   if (error !== null) return <div style={statusStyle}>资产加载失败:{error}</div>
-  if (assets.length === 0) return <div style={statusStyle}>暂无资产,请在设置中添加。</div>
+
+  const matched = assets.filter(subcategory.matches)
+  if (matched.length === 0) {
+    return (
+      <div style={statusStyle}>
+        暂无 {subcategory.label} 资产,请先在设置中添加连接。
+      </div>
+    )
+  }
 
   return (
     <div style={listStyle}>
       <div style={{ fontSize: 11, color: 'var(--dsw-foreground-secondary, #9aa7b4)', padding: '0 4px' }}>
-        StarHub 资产({assets.length})
+        {subcategory.label}({matched.length})
       </div>
-      {assets.map((asset) => (
-        <div key={asset.id} style={rowStyle}>
-          <span style={badgeStyle}>{asset.type}</span>
+      {matched.map((asset: StarHubAsset & RustAsset) => (
+        <button
+          key={asset.id}
+          type="button"
+          style={rowStyle}
+          title={`打开 ${asset.name}`}
+          onClick={() => actions.openAsset(asset.id)}
+        >
+          <span style={badgeStyle}>{subcategory.label}</span>
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {asset.name}
           </span>
           <span style={{ color: 'var(--dsw-foreground-secondary, #9aa7b4)', fontSize: 12 }}>
             {assetSubtitle(asset)}
           </span>
-        </div>
+        </button>
       ))}
     </div>
   )

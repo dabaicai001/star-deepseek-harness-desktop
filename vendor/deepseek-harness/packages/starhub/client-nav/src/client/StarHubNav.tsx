@@ -1,35 +1,35 @@
 /**
- * StarHub 侧栏导航:注册进 `sidebar.navigation` 的功能页条目列表 + Phase 0
- * (Path B) 的「StarHub 工具工作区」入口。纯展示组件:激活态与切换动作全部
- * 来自 PropsStore 共享(nav store 与 overlay 层同一份 handle),工作区入口
- * 经 inject 回调调用 `ctx.layout.openDetails()` 打开右栏停靠的工具工作区。
+ * StarHub 侧栏导航(方案 P1):「工具」大类(可展开)下挂子类行。
+ * 纯展示组件:展开态、选中子类、激活态与切换动作全部来自 PropsStore 共享
+ * (nav store 与右侧列、overlay 层同一份 handle);点子类经 inject 回调打开
+ * 右侧工具工作区列。
  */
 import type { PropsRuntime, PropsStore, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the 'sidebar.navigation' SlotMap row (declared by ui-sidebar).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import { IconDataOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { STARHUB_SECTIONS } from './sections.ts'
-import type { createStarHubNavStore } from './store.ts'
+import { IconChevronDownOutline14, IconDataOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { STARHUB_SUBCATEGORIES, STARHUB_SECTIONS } from './sections.ts'
+import type { createStarHubStore } from './store.ts'
 
 /** Business face injected by the registration: open the docked tool workspace. */
 export interface StarHubNavInjected {
   openWorkspace: () => void
 }
 
-/** Full composed props: navigation owner share + the shared nav store share + injected face. */
+/** Full composed props: navigation owner share + the shared StarHub store share + injected face. */
 export type StarHubNavProps =
   & PropsRuntime<'sidebar.navigation'>
-  & PropsStore<ReturnType<typeof createStarHubNavStore>>
+  & PropsStore<ReturnType<typeof createStarHubStore>>
   & InjectFace<StarHubNavInjected>
 
-const rowStyle = (active: boolean, wide: boolean): React.CSSProperties => ({
+const rowStyle = (active: boolean, wide: boolean, indent = false): React.CSSProperties => ({
   display: 'flex',
   alignItems: 'center',
   justifyContent: wide ? 'flex-start' : 'center',
   gap: wide ? 8 : 0,
   width: wide ? '100%' : 36,
   height: wide ? undefined : 36,
-  padding: wide ? '4px 8px' : 0,
+  padding: wide ? (indent ? '4px 8px 4px 20px' : '4px 8px') : 0,
   border: 'none',
   borderRadius: 6,
   background: active ? 'var(--dsw-background-secondary, rgba(255,255,255,0.08))' : 'transparent',
@@ -50,26 +50,55 @@ const headerStyle: React.CSSProperties = {
 }
 
 /**
- * Render the StarHub section rows pinned at the top of the sidebar.
+ * Render the StarHub sidebar navigation: the expandable "工具" category with
+ * subcategory rows (terminal / database / docker), plus legacy flat entries.
  * @param props - composed slot props (owner `wide` flag + nav store share + injected workspace opener).
  * @returns the rows element tree.
  */
 export function StarHubNav({ wide, useStore, actions, openWorkspace }: StarHubNavProps) {
+  const categoryOpen = useStore(s => s.categoryOpen)
+  const activeSubcategory = useStore(s => s.activeSubcategory)
   const active = useStore(s => s.active)
   return (
     <>
       {wide && <div style={headerStyle}>工具</div>}
       <button
-        key="starhub-tools-entry"
+        key="starhub-category"
         type="button"
         style={rowStyle(false, wide)}
-        title="StarHub 工具工作区"
-        aria-pressed={false}
-        onClick={() => openWorkspace()}
+        title="工具"
+        aria-expanded={categoryOpen || undefined}
+        onClick={() => actions.toggleCategory()}
       >
         <IconDataOutline16 size={wide ? 16 : 18} />
-        {wide ? <span>工具工作区</span> : null}
+        {wide
+          ? (
+            <>
+              <span style={{ flex: 1 }}>工具</span>
+              <IconChevronDownOutline14
+                size={12}
+                // Chevron points right when collapsed (rotate when open).
+              />
+            </>
+          )
+          : null}
       </button>
+      {categoryOpen && STARHUB_SUBCATEGORIES.map(({ key, label, Icon }) => (
+        <button
+          key={key}
+          type="button"
+          style={rowStyle(activeSubcategory === key, wide, true)}
+          title={label}
+          aria-pressed={activeSubcategory === key}
+          onClick={() => {
+            actions.setSubcategory(key)
+            openWorkspace()
+          }}
+        >
+          <Icon size={wide ? 15 : 17} />
+          {wide ? <span>{label}</span> : null}
+        </button>
+      ))}
       {STARHUB_SECTIONS.map(({ key, label, Icon }) => (
         <button
           key={key}

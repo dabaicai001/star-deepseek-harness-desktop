@@ -6054,6 +6054,64 @@ body {
   white-space: nowrap;
 }
 
+/* 类型徽标(连接上下文头部,方案 3.1) */
+.cyber-embed-badge {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--active-cyan, rgba(93, 214, 214, 0.18));
+  color: var(--cyan);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* 连接状态(未连接/连接中/已连接/错误,方案 3.1) */
+.cyber-embed-conn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cyber-embed-conn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.cyber-embed-conn.conn-connected {
+  color: var(--success, #3dd68c);
+}
+
+.cyber-embed-conn.conn-connected .cyber-embed-conn-dot {
+  background: var(--success, #3dd68c);
+}
+
+.cyber-embed-conn.conn-connecting {
+  color: var(--warn, #e6a23c);
+}
+
+.cyber-embed-conn.conn-connecting .cyber-embed-conn-dot {
+  background: var(--warn, #e6a23c);
+  animation: cyber-embed-pulse 1s ease-in-out infinite;
+}
+
+.cyber-embed-conn.conn-error {
+  color: var(--red, #f56c6c);
+}
+
+.cyber-embed-conn.conn-error .cyber-embed-conn-dot {
+  background: var(--red, #f56c6c);
+}
+
+@keyframes cyber-embed-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
 .cyber-embed-bar-sub {
   overflow: hidden;
   color: var(--muted);
