@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.72.2(**本地 vue-tsc 无法运行(构建链)**:`vue-tsc@2.0.0` 是上游发布残缺版本(tarball 缺 index.js),pnpm-lock 解析到它导致本地 `npm run build` 第一步就崩;声明下限提升为 `^2.2.0`,pnpm-lock 对齐 typescript 5.9.3(与 package-lock/CI 一致,消除 TS 版本差异造成的误报),本地全量类型检查与 CI 同口径通过) |
+| 当前版本 | v0.72.3(**本地 tauri:build 构建链修复(TS6307)**:`vendor/deepseek-harness/tsconfig.host.json` 的 references 漏引 `packages/starhub/tool-context` 项目,而 host aggregate 的 tests 通配(`packages/*/*/tests/**/*.ts`)把 `tool-context.spec.ts` 纳入,其 `../src/index.ts` 导入无处归属,导致 `tsc -b tsconfig.host.json` 报 TS6307、`npm run package:dsh-runtime` 失败、`tauri:build` 无法出包;补上 project reference 后本地全量构建恢复) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-16 (v0.72.2)*
+*最后更新: 2026-08-16 (v0.72.3)*

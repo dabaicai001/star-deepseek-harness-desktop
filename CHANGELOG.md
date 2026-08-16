@@ -13,6 +13,11 @@
 
 ---
 
+## [0.72.3] - 2026-08-16
+
+### 修复
+- **本地 tauri:build 构建链修复(TS6307)**:`vendor/deepseek-harness/tsconfig.host.json` 的 references 漏引 `packages/starhub/tool-context` 项目,而 host aggregate 的 tests 通配(`packages/*/*/tests/**/*.ts`)把 `tool-context.spec.ts` 纳入,其 `../src/index.ts` 导入无处归属,导致 `tsc -b tsconfig.host.json` 报 TS6307、`npm run package:dsh-runtime` 失败、`tauri:build` 无法出包;补上 project reference 后本地全量构建恢复
+
 ## [0.72.2] - 2026-08-16
 
 ### 修复
