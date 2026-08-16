@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.76.1(**设置面板 StarHub 条目加 star- 标识(用户要求)**:dsh 设置侧栏 StarHub 分组下的 5 个子项 label 统一加 `star-` 前缀(star-AI 助手 / star-插件 / star-审计日志 / star-告警规则 / star-关于),与 dsh 原生条目(通用/模型/插件/Agent 预设)区分) |
+| 当前版本 | v0.76.2(**GitHub CI Linux 打包失败(junction 清理)**:`harness::web::tests::sync_user_client_plugins_injects_and_cleans` 在 Linux 上断言「禁用后 junction 应清理」失败——失效用户 UI 插件链接的移除用 `fs::remove_dir`(Unix 底层 rmdir 对目录 symlink 返回 ENOTDIR,错误被 `let _ =` 吞掉导致链接残留),改为 Windows 用 `remove_dir` / Unix 用 `remove_file`(unlink);WSL 实测确认 rmdir 对 symlink 的行为,Windows 本地全量 cargo test 通过) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-16 (v0.76.1)*
+*最后更新: 2026-08-16 (v0.76.2)*

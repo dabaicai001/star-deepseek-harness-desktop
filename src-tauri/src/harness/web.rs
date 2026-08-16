@@ -354,7 +354,19 @@ fn sync_user_client_plugins(
     collect_stale_links(node_modules_root, &plugins_root, &enabled_ids, &mut stale, 0);
     for path in stale {
         tracing::info!("移除失效的用户 UI 插件 junction: {}", path.display());
-        let _ = fs::remove_dir(&path);
+        // Windows 目录 junction 用 rmdir 语义移除;Unix 目录 symlink 必须用
+        // unlink(remove_dir 对 symlink 报 ENOTDIR,静默吞掉会让链接残留,
+        // 禁用后 junction 仍留在 profiles/node_modules)。
+        #[cfg(target_os = "windows")]
+        let result = fs::remove_dir(&path);
+        #[cfg(not(target_os = "windows"))]
+        let result = fs::remove_file(&path);
+        if let Err(error) = result {
+            tracing::warn!(
+                "移除失效的用户 UI 插件 junction 失败({}): {error}",
+                path.display()
+            );
+        }
     }
 
     // 2/3. 建 junction(按包名,带 scope 多级)+ 依赖解析 + 追加 patch entry

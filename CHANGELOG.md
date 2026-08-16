@@ -13,6 +13,11 @@
 
 ---
 
+## [0.76.2] - 2026-08-16
+
+### 修复
+- **GitHub CI Linux 打包失败(junction 清理)**:`harness::web::tests::sync_user_client_plugins_injects_and_cleans` 在 Linux 上断言「禁用后 junction 应清理」失败——失效用户 UI 插件链接的移除用 `fs::remove_dir`(Unix 底层 rmdir 对目录 symlink 返回 ENOTDIR,错误被 `let _ =` 吞掉导致链接残留),改为 Windows 用 `remove_dir` / Unix 用 `remove_file`(unlink);WSL 实测确认 rmdir 对 symlink 的行为,Windows 本地全量 cargo test 通过
+
 ## [0.76.1] - 2026-08-16
 
 ### 变更
