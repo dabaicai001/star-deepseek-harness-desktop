@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.69.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.69.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,14 +119,14 @@
 
 ## 当前版本
 
+### v0.69.1 (2026-08-15)
+- 🐛 修复无会话时点「工具工作区」打不开:新增 workspace 席位(session-maybe),AppFrame 无会话时右栏渲染工具工作区,有会话时渲染工具调用详情;去掉切会话自动关列
+
 ### v0.69.0 (2026-08-15)
 - ✨ 侧栏「工具工作区」入口改为 toggle 交互:点一下展开右侧工具工作区,再点一下关闭(ui-layout 新增 toggleDetails)
 
 ### v0.68.1 (2026-08-15)
 - 🐛 修复 GitHub CI 类型错误:details 席位保持 session(实测 dsh 硬约束 one-handle-one-scope,方案 A 否决),工具工作区改挂 details.workspace 内席(有会话时边聊右做);全量 tsc + 703 测试通过
-
-### v0.68.0 (2026-08-15)
-- ✨ B 路径 Phase 0 spike Step 2:details 右栏停靠 StarHub 工具工作区,DetailsPanel 新增 details.workspace 内席,侧栏新增「工具工作区」入口
 
 ---
 

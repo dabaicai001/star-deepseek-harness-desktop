@@ -56,4 +56,11 @@ export function apply(ctx: Context): void {
     name: 'details.workspace',
     store: assetStore,
   }, StarHubToolWorkspace))
+  // Path B Phase 0 Step 2: the no-session column occupant — reachable with
+  // no current conversation (the details seat is session-scoped and empty
+  // without one).
+  ctx.slots.inject('workspace', () => ctx.slots.register({
+    name: 'workspace',
+    store: assetStore,
+  }, StarHubToolWorkspace))
 }

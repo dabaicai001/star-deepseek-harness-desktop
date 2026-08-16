@@ -13,6 +13,13 @@
 
 ---
 
+## [0.69.1] - 2026-08-15
+
+### 修复
+- 无会话时点「工具工作区」打不开:details 列是 session scope,AppFrame 无会话时列宽强制 0、详情席位不渲染;新增 `workspace` 席位(session-maybe),AppFrame 无会话时在右栏渲染 workspace(StarHub 工具工作区),有会话时渲染 details;去掉切会话自动关列(工具工作区跨会话保活);704 测试全绿
+
+---
+
 ## [0.69.0] - 2026-08-15
 
 ### 新增
