@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.72.1(**CI 构建类型错误(TS2322 ×4)**:`useEmbedConnBridgeOnUnmount` 声明返回 `void`,但 SshTerminal / DbView / DockerView / RedisView 四个视图把返回值赋给 `(() => void) | null` 的 `stopEmbedConnBridge` 并做主动 teardown;改为返回停止函数(卸载仍经 onBeforeUnmount 自动清理)) |
+| 当前版本 | v0.72.2(**本地 vue-tsc 无法运行(构建链)**:`vue-tsc@2.0.0` 是上游发布残缺版本(tarball 缺 index.js),pnpm-lock 解析到它导致本地 `npm run build` 第一步就崩;声明下限提升为 `^2.2.0`,pnpm-lock 对齐 typescript 5.9.3(与 package-lock/CI 一致,消除 TS 版本差异造成的误报),本地全量类型检查与 CI 同口径通过) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-16 (v0.72.1)*
+*最后更新: 2026-08-16 (v0.72.2)*

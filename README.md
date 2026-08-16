@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.72.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.72.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,6 +119,9 @@
 
 ## 当前版本
 
+### v0.72.2 (2026-08-16)
+- 🐛 **本地 vue-tsc 无法运行(构建链)**:`vue-tsc@2.0.0` 是上游发布残缺版本(tarball 缺 index.js),pnpm-lock 解析到它导致本地 `npm run build` 第一步就崩;声明下限提升为 `^2.2.0`,pnpm-lock 对齐 typescript 5.9.3(与 package-lock/CI 一致,消除 TS 版本差异造成的误报),本地全量类型检查与 CI 同口径通过
+
 ### v0.72.1 (2026-08-16)
 - 🐛 **CI 构建类型错误(TS2322 ×4)**:`useEmbedConnBridgeOnUnmount` 声明返回 `void`,但 SshTerminal / DbView / DockerView / RedisView 四个视图把返回值赋给 `(() => void) | null` 的 `stopEmbedConnBridge` 并做主动 teardown;改为返回停止函数(卸载仍经 onBeforeUnmount 自动清理)
 
@@ -129,14 +132,6 @@
 - 🔧 **浏览器预览友好空态**:无 Tauri IPC(纯浏览器打开 dsh web GUI)时资产列表落 preview 态,展示「浏览器预览模式,请在 StarHub 桌面应用中管理连接」,不再裸报「资产加载失败:Tauri IPC unavailable (browser preview)」;其他拉取失败给错误 + 重试按钮
 - 🔧 client-nav 测试 33 全过(新增 starhub-nav-overlay 套件:Nav/Overlay/SettingsSection 组件行为)
 - 🗑️ 侧栏导航去掉 Excel 条目(Excel 功能页保留在 embed 路由,仅退出侧栏);旧扁平条目表 `STARHUB_SECTIONS`/`sectionEmbedUrl` 退役,overlay 改为连接管理桥驱动
-
-### v0.71.1 (2026-08-16)
-- 🐛 **3086/打包实例 GUI 无法启动(根因)**:client-nav 共享单一 store handle 跨 root(sidebar/overlay)与 session-maybe(workspace)两个 scope 挂载,违反 one-handle-one-scope 约束直接抛错;且 session-maybe 席位在无会话分支框架不下发注册侧 store(useStore is not a function)。重构为:nav store(root)+ apply 持有的选择桥与资产列表 holder(裸 source 经 inject hooks 舱位下发、回调写入,同 ui-agent-preset controller 范式);新增 `starhub-shell-state` 测试套件,client-nav 18 测试全过
-- 🐛 **实例路由前缀错配(P0)**:子类前缀固定 `/db/mysql`,PostgreSQL/ClickHouse/Redis/ES/Broker 资产被错路由进 DbView;改为按资产类型派生(`routePrefixForAsset`),embed 侧 EmbedAssetBar/EmbedSectionEmpty 同步用 `routeNameForAsset` 派生路由名
-- 🐛 **tool-context 残留(P1)**:取消选中资产后 settings patch 不清空,过期资产滞留成 AI 上下文;改为全量四字段写入(空串清除)
-- 🐛 **iframe 重载风险(P1)**:`assetInstanceUrl` 渲染期 `Date.now()` 改为 openAsset 时一次性生成 instanceId
-- 🐛 **资产列表不刷新 / 空态新建不跳转 / Broker 归属与遗留条目(P2)**:挂载与切换子类重拉 get_assets;空态/资产条新建成功后直接跳进新资产实例页;Broker 归「终端」子类(方案 2.1);清理 redis/es/broker 扁平遗留条目
-- 🐛 **构建链修复**:根 package.json 显式锁 rxjs ^7.8.2(pnpm 把 univer 的 peer 解析成 7.0.0,其根入口不导出 filter 导致 embed 构建失败);入包脚本与 web.rs 的本地包清单补 `tool-context`(v0.71 注册进组合但未入包,junction 目标缺失时跳过并 warn)
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "starhub",
-  "version": "0.72.1",
+  "version": "0.72.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -74,9 +74,9 @@
     "@vue/test-utils": "^2.4.0",
     "jsdom": "^24.0.0",
     "sass": "^1.70.0",
-    "typescript": "^5.3.0",
+    "typescript": "^5.9.3",
     "vite": "^5.0.0",
     "vitest": "^1.6.0",
-    "vue-tsc": "^2.0.0"
+    "vue-tsc": "^2.2.0"
   }
 }
