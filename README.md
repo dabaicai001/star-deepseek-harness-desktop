@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.71.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.72.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,6 +119,14 @@
 
 ## 当前版本
 
+### v0.72.0 (2026-08-16)
+- ✨ **连接管理入口进工具工作区列(侧栏红框区功能补全)**:子类列头带资产数徽标、刷新与「新建连接」按钮;新建/编辑/删除走连接管理 overlay(设置页只挂资产 tab 的整幅 iframe,`settingsEmbedUrl(['assets'],'assets')`),空态页按钮同路;overlay 开关跨 root/session-maybe 两个 scope 走 apply 持有的裸 source 桥(`createConnectionManagerOverlay`,与选择桥同范式)
+- ✨ **StarHub 设置融入 dsh 底部设置齿轮**:client-nav 注册 `settings.section` 的 StarHub 分区(order 30,排在 通用/模型/插件/Agent 预设 之后),embed StarHub 设置页——可见 tab 去掉资产/外观(资产经工具区管理、外观由 dsh 主题设置负责),落地 AI 助手 tab,`chrome=inline` 隐藏页内关闭钮(关闭由 dsh 对话框负责);StarHub 侧 SettingsView 新增 `visibleTabs`/`hideEmbedClose` props(tab 条改 v-for 数据驱动),`/settings` 路由支持 `?tabs=&tab=&chrome=` query 过滤
+- 🔧 **侧栏「工具」区排版重构**:大类行即分组头(去掉重复的灰色「工具」小标题),chevron 随展开态旋转;子类行统一缩进/hover/active 态;inline style 改 CSS Modules,颜色/悬停全部走 `--dsw-alias-*` token;nav store 收敛为仅大类展开态(旧扁平条目状态退役)
+- 🔧 **浏览器预览友好空态**:无 Tauri IPC(纯浏览器打开 dsh web GUI)时资产列表落 preview 态,展示「浏览器预览模式,请在 StarHub 桌面应用中管理连接」,不再裸报「资产加载失败:Tauri IPC unavailable (browser preview)」;其他拉取失败给错误 + 重试按钮
+- 🔧 client-nav 测试 33 全过(新增 starhub-nav-overlay 套件:Nav/Overlay/SettingsSection 组件行为)
+- 🗑️ 侧栏导航去掉 Excel 条目(Excel 功能页保留在 embed 路由,仅退出侧栏);旧扁平条目表 `STARHUB_SECTIONS`/`sectionEmbedUrl` 退役,overlay 改为连接管理桥驱动
+
 ### v0.71.1 (2026-08-16)
 - 🐛 **3086/打包实例 GUI 无法启动(根因)**:client-nav 共享单一 store handle 跨 root(sidebar/overlay)与 session-maybe(workspace)两个 scope 挂载,违反 one-handle-one-scope 约束直接抛错;且 session-maybe 席位在无会话分支框架不下发注册侧 store(useStore is not a function)。重构为:nav store(root)+ apply 持有的选择桥与资产列表 holder(裸 source 经 inject hooks 舱位下发、回调写入,同 ui-agent-preset controller 范式);新增 `starhub-shell-state` 测试套件,client-nav 18 测试全过
 - 🐛 **实例路由前缀错配(P0)**:子类前缀固定 `/db/mysql`,PostgreSQL/ClickHouse/Redis/ES/Broker 资产被错路由进 DbView;改为按资产类型派生(`routePrefixForAsset`),embed 侧 EmbedAssetBar/EmbedSectionEmpty 同步用 `routeNameForAsset` 派生路由名
@@ -129,9 +137,6 @@
 
 ### v0.71.0 (2026-08-15)
 - ✨ AI 上下文绑定落地:新增 host 插件 starhub-tool-context(agent/pre-step 注入当前 StarHub 工具/资产到每个请求),client-nav 经 settings 通道同步工具选择
-
-### v0.70.0 (2026-08-15)
-- ✨ 重构方案全部实施:侧栏「工具」大类/子类(终端/数据库/Docker)、右侧工具工作区列子类资产列表、点实例开操作页;连接上下文头部(类型徽标+连接状态+一键连接/断开+内联新建);postMessage 状态桥(useEmbedConnBridge);空态页内联新建
 
 ---
 

@@ -1,18 +1,18 @@
 /**
  * StarHub 功能导航事实表:三层结构「工具大类 → 子类 → 资产路由」(P1 方案)。
  *
- * 侧栏展示「工具」大类(可展开),下挂子类(终端 / 数据库 / Docker);
- * 点子类 → 右侧工具工作区列显示该类型的资产(连接)列表;点资产行 →
- * 弹出该实例的操作页(embed iframe,`/starhub/index.html?embed=1&route=...`)。
+ * 侧栏展示「工具」大类行(即分组头,可展开),下挂子类(终端 / 数据库 /
+ * Docker);点子类 → 右侧工具工作区列显示该类型的资产(连接)列表;点资产
+ * 行 → 弹出该实例的操作页(embed iframe,`/starhub/index.html?embed=1&route=...`)。
  * 子类只定义分组/图标/资产匹配;实例路由前缀一律按资产类型经
  * `routePrefixForAsset` 派生(数据库子类混有多种库,不能共用子类前缀)。
+ * Excel 已不在导航里(功能退役出侧栏);设置经 `settingsEmbedUrl` 进入
+ * dsh 底部设置面板(StarHub 分区)与连接管理 overlay。
  */
 import {
   IconArchiveOutline20,
   IconCodeOutline16,
   IconDataOutline16,
-  IconListPenOutline16,
-  IconSettingsOutline16,
   type IconProps,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ComponentType } from 'react'
@@ -113,20 +113,31 @@ export const STARHUB_SUBCATEGORIES: readonly StarHubSubcategory[] = [
   },
 ]
 
-/** 遗留:旧扁平条目清单(仅未子类化/无资产型页面保留,供 overlay 直开)。 */
-export const STARHUB_SECTIONS: readonly { key: string; label: string; route: string; Icon: ComponentType<IconProps> }[] = [
-  { key: 'excel', label: 'Excel', route: '/excel', Icon: IconListPenOutline16 },
-  { key: 'settings', label: '设置', route: '/settings', Icon: IconSettingsOutline16 },
-]
-
 /**
- * 组装旧扁平功能页 iframe 的 src(host-static 托管 StarHub embed dist 在 /starhub/)。
- * @param section - 旧扁平条目(设置等无资产型页面)。
+ * StarHub 设置页的 embed 入口 URL(host-static 托管 embed dist 在 /starhub/)。
+ * 设置页支持经 query 过滤可见 tab 子集与初始 tab(StarHub 侧
+ * SettingsView.visibleTabs / router query props):
+ * - 连接管理 overlay(侧栏工具区「新建连接」):只挂资产 tab;
+ * - dsh 设置面板的 StarHub 分区:去掉资产/外观,落地 AI tab,且隐藏
+ *   页面自带的关闭钮(chrome=inline,关闭由 dsh 对话框负责)。
+ * @param tabs - 可见 tab 子集(SettingsView 的 TabKey)。
+ * @param tab - 初始 tab。
+ * @param chrome - 'inline' 隐藏 embed 页关闭钮。
  * @returns embed 入口 URL(站内路径)。
  */
-export function sectionEmbedUrl(section: { route: string }): string {
-  return `/starhub/index.html?embed=1&route=${encodeURIComponent(section.route)}`
+export function settingsEmbedUrl(tabs: readonly string[], tab: string, chrome?: 'inline'): string {
+  const params = new URLSearchParams()
+  if (tabs.length > 0) params.set('tabs', tabs.join(','))
+  params.set('tab', tab)
+  if (chrome !== undefined) params.set('chrome', chrome)
+  return `/starhub/index.html?embed=1&route=${encodeURIComponent(`/settings?${params.toString()}`)}`
 }
+
+/** dsh 设置面板 StarHub 分区的可见 tab(去掉资产/外观:资产经侧栏工具区管理,外观由 dsh 主题设置负责)。 */
+export const SETTINGS_SECTION_TABS = ['general', 'ai', 'plugins', 'audit', 'alert', 'about'] as const
+
+/** 连接管理 overlay 的可见 tab(只挂资产管理)。 */
+export const CONNECTION_MANAGER_TABS = ['assets'] as const
 
 /**
  * 组装实例操作页 iframe 的 src(host-static 托管 StarHub embed dist 在 /starhub/)。

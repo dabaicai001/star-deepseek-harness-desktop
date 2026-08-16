@@ -25,7 +25,7 @@ afterEach(cleanup)
  * injected face).
  */
 function workspaceProps() {
-  const assets = createSnapshotStore<StarHubAssetListState>({ assets: [], loading: false, error: null })
+  const assets = createSnapshotStore<StarHubAssetListState>({ assets: [], loading: false, error: null, preview: false })
   const bridge = createToolSelectionBridge()
   const useAssets = <S,>(sel: (s: StarHubAssetListState) => S) => sel(assets.getSnapshot())
   const useSelection = <S,>(sel: (s: ToolSelection) => S) => sel(bridge.source.getSnapshot())
@@ -33,6 +33,7 @@ function workspaceProps() {
     assets,
     bridge,
     refreshAssets: vi.fn(),
+    openConnectionManager: vi.fn(),
     useAssets,
     useSelection,
     // settings.update stub: the tool-context sync effect calls it and must
@@ -87,20 +88,41 @@ describe('StarHubToolWorkspace', () => {
     expect(screen.getByText(/加载资产/)).toBeTruthy()
   })
 
-  it('renders the error state when loading failed', () => {
+  it('renders the error state with a retry button when loading failed', () => {
     const props = workspaceProps()
     props.bridge.selectSubcategory('terminal')
-    props.assets.update((d) => { d.error = 'Tauri IPC unavailable (browser preview)' })
+    props.assets.update((d) => { d.error = 'boom' })
     render(<StarHubToolWorkspace {...props} />)
-    expect(screen.getByText(/资产加载失败/)).toBeTruthy()
+    expect(screen.getByText(/资产加载失败:boom/)).toBeTruthy()
+    screen.getByText('重试').click()
+    expect(props.refreshAssets).toHaveBeenCalledTimes(2) // mount + retry
   })
 
-  it('shows the per-subcategory empty state when no assets match', () => {
+  it('renders the browser-preview hint instead of an error in preview mode', () => {
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.preview = true })
+    render(<StarHubToolWorkspace {...props} />)
+    expect(screen.getByText('浏览器预览模式')).toBeTruthy()
+    expect(screen.queryByText(/资产加载失败/)).toBeNull()
+  })
+
+  it('shows the per-subcategory empty state with a 新建连接 button when no assets match', () => {
     const props = workspaceProps()
     props.bridge.selectSubcategory('docker')
     props.assets.update((d) => { d.assets = [sshAsset] })
     render(<StarHubToolWorkspace {...props} />)
-    expect(screen.getByText(/暂无 Docker 资产/)).toBeTruthy()
+    expect(screen.getByText(/暂无 Docker 连接/)).toBeTruthy()
+  })
+
+  it('renders the header with the matching count and opens the connection manager from 新建连接', () => {
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.assets = [sshAsset] })
+    render(<StarHubToolWorkspace {...props} />)
+    expect(screen.getByText('1')).toBeTruthy()
+    screen.getByText('新建连接').click()
+    expect(props.openConnectionManager).toHaveBeenCalledTimes(1)
   })
 
   it('renders matching asset rows with badge and subtitle, filtering per subcategory', () => {
@@ -109,7 +131,8 @@ describe('StarHubToolWorkspace', () => {
     props.assets.update((d) => { d.assets = [sshAsset] })
     render(<StarHubToolWorkspace {...props} />)
     expect(screen.getByText('prod-server')).toBeTruthy()
-    expect(screen.getByText('终端')).toBeTruthy()
+    // 列表行徽标与列头都含子类名,至少两处
+    expect(screen.getAllByText('终端').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('deploy@10.0.0.5')).toBeTruthy()
   })
 

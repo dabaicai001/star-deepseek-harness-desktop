@@ -1,13 +1,14 @@
 /**
- * Browser StarHub navigation plugin(方案 P1):侧栏「工具」大类/子类导航 +
- * shell.overlay 实例操作页 + 右侧工具工作区列。
+ * Browser StarHub navigation plugin(方案 P1,重构版):侧栏「工具」大类/子类
+ * 导航 + shell.overlay(实例操作页 / 连接管理)+ 右侧工具工作区列 + dsh
+ * 设置面板的 StarHub 分区。
  *
- * 状态拆分:nav store(root scope)挂在 sidebar.navigation / shell.overlay
- * 上;资产列表与「当前子类 + 打开的资产实例」由 apply 持有的两份裸
- * source 承载,经各注册的 inject hooks 舱位下发、经注入回调写入——
- * one-handle-one-scope 约束(共享 handle 跨 scope 挂载抛错)与
- * session-maybe 无会话分支不下发注册侧 store 这两条规定,把工作区的
- * 共享状态都推到了 hooks 舱位范式(同 ui-agent-preset controller)。
+ * 状态拆分:nav store(root scope,仅大类展开态)挂在 sidebar.navigation
+ * 上;资产列表、「当前子类 + 打开的资产实例」与连接管理 overlay 开关由
+ * apply 持有的三份裸 source 承载,经各注册的 inject hooks 舱位下发、经
+ * 注入回调写入——one-handle-one-scope 约束(共享 handle 跨 scope 挂载抛错)
+ * 与 session-maybe 无会话分支不下发注册侧 store 这两条规定,把共享状态都
+ * 推到了 hooks 舱位范式(同 ui-agent-preset controller)。
  */
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: the SlotMap rows of the target slots must be in the program for
@@ -15,31 +16,38 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: the connection service merge (ctx.get('connection') typing).
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import { createStarHubAssets, createStarHubNavStore, createToolSelectionBridge } from './store.ts'
+import {
+  createConnectionManagerOverlay, createStarHubAssets, createStarHubNavStore,
+  createToolSelectionBridge,
+} from './store.ts'
 import { StarHubNav } from './StarHubNav.tsx'
 import { StarHubOverlay } from './StarHubOverlay.tsx'
+import { StarHubSettingsSection } from './StarHubSettingsSection.tsx'
 import { StarHubToolWorkspace } from './StarHubToolWorkspace.tsx'
 
 /** Required services: the slot registry, the layout panel-action face, and the connection wire. */
 export const inject = ['slots', 'layout', 'connection']
 
 /**
- * Client plugin body: one root-scope store handle (sidebar + overlay) plus
- * the apply-owned selection bridge and asset-list holder across the four
- * registrations — the sidebar navigation, the overlay iframe layer, and the
- * two tool-workspace column seats (`workspace` for the no-session state,
- * `details.workspace` inside the session details panel). All ride
+ * Client plugin body: one root-scope store handle (sidebar) plus the
+ * apply-owned selection bridge, asset-list holder, and connection-manager
+ * overlay holder across the registrations — the sidebar navigation, the
+ * overlay iframe layer, the two tool-workspace column seats (`workspace` for
+ * the no-session state, `details.workspace` inside the session details
+ * panel), and the dsh settings dialog's StarHub section. All ride
  * slots.inject, so each waits on its slot declaration and plugin unload
- * removes the pair.
+ * removes the contribution.
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
   const navStore = createStarHubNavStore()
   const assets = createStarHubAssets()
   const selection = createToolSelectionBridge()
+  const connectionManager = createConnectionManagerOverlay()
   ctx.slots.inject('sidebar.navigation', () => ctx.slots.register({
     name: 'sidebar.navigation',
     id: 'starhub-nav',
@@ -61,10 +69,11 @@ export function apply(ctx: Context): void {
     id: 'starhub-overlay',
     order: 100,
     label: 'StarHub',
-    store: navStore,
     inject: () => ({
       closeAsset: selection.closeAsset,
-      hooks: { selection: selection.source },
+      openConnectionManager: connectionManager.open,
+      closeConnectionManager: connectionManager.close,
+      hooks: { selection: selection.source, connectionManager: connectionManager.source },
     }),
   }, StarHubOverlay))
   const workspaceInject = () => ({
@@ -73,6 +82,7 @@ export function apply(ctx: Context): void {
     api: (ctx.get('connection') as ConnectionHandle).api,
     openAsset: selection.openAsset,
     refreshAssets: assets.refresh,
+    openConnectionManager: connectionManager.open,
     hooks: { selection: selection.source, assets: assets.source },
   })
   // 两座工作区席位都不声明注册侧 store:session-maybe 无会话分支不下发
@@ -85,4 +95,13 @@ export function apply(ctx: Context): void {
     name: 'details.workspace',
     inject: workspaceInject,
   }, StarHubToolWorkspace))
+  // 设置融入底部设置齿轮:dsh 设置面板的 StarHub 分区(embed 设置页,
+  // 去掉资产/外观 tab)。order 30 排在 通用(0)/模型(10)/插件(15)/
+  // Agent 预设(20)之后。
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'starhub',
+    order: 30,
+    label: 'StarHub',
+  }, StarHubSettingsSection))
 }

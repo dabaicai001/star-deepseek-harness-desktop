@@ -13,6 +13,20 @@
 
 ---
 
+## [0.72.0] - 2026-08-16
+
+### 新增
+- **连接管理入口进工具工作区列(侧栏红框区功能补全)**:子类列头带资产数徽标、刷新与「新建连接」按钮;新建/编辑/删除走连接管理 overlay(设置页只挂资产 tab 的整幅 iframe,`settingsEmbedUrl(['assets'],'assets')`),空态页按钮同路;overlay 开关跨 root/session-maybe 两个 scope 走 apply 持有的裸 source 桥(`createConnectionManagerOverlay`,与选择桥同范式)
+- **StarHub 设置融入 dsh 底部设置齿轮**:client-nav 注册 `settings.section` 的 StarHub 分区(order 30,排在 通用/模型/插件/Agent 预设 之后),embed StarHub 设置页——可见 tab 去掉资产/外观(资产经工具区管理、外观由 dsh 主题设置负责),落地 AI 助手 tab,`chrome=inline` 隐藏页内关闭钮(关闭由 dsh 对话框负责);StarHub 侧 SettingsView 新增 `visibleTabs`/`hideEmbedClose` props(tab 条改 v-for 数据驱动),`/settings` 路由支持 `?tabs=&tab=&chrome=` query 过滤
+
+### 变更
+- **侧栏「工具」区排版重构**:大类行即分组头(去掉重复的灰色「工具」小标题),chevron 随展开态旋转;子类行统一缩进/hover/active 态;inline style 改 CSS Modules,颜色/悬停全部走 `--dsw-alias-*` token;nav store 收敛为仅大类展开态(旧扁平条目状态退役)
+- **浏览器预览友好空态**:无 Tauri IPC(纯浏览器打开 dsh web GUI)时资产列表落 preview 态,展示「浏览器预览模式,请在 StarHub 桌面应用中管理连接」,不再裸报「资产加载失败:Tauri IPC unavailable (browser preview)」;其他拉取失败给错误 + 重试按钮
+- client-nav 测试 33 全过(新增 starhub-nav-overlay 套件:Nav/Overlay/SettingsSection 组件行为)
+
+### 移除
+- 侧栏导航去掉 Excel 条目(Excel 功能页保留在 embed 路由,仅退出侧栏);旧扁平条目表 `STARHUB_SECTIONS`/`sectionEmbedUrl` 退役,overlay 改为连接管理桥驱动
+
 ## [0.71.1] - 2026-08-16
 
 ### 修复

@@ -106,12 +106,35 @@ async function confirmAssetDelete() {
 }
 
 // 选中的 tab(P4a:资产管理是默认 tab —— 旧外壳 AssetTree 退役后,这里是资产 CRUD 的唯一入口)
+// visibleTabs:embed 入口按场景过滤 tab 子集(dsh 壳连接管理 overlay 只挂资产 tab;
+// dsh 设置面板 StarHub 分区去掉资产/外观)。hideEmbedClose:嵌入 dsh 设置面板时
+// 隐藏右上角关闭(那里没有 overlay 可关,关闭由 dsh 对话框自己负责)。
 type TabKey = 'assets' | 'general' | 'appearance' | 'ai' | 'plugins' | 'audit' | 'alert' | 'about'
-const props = withDefaults(defineProps<{ initialTab?: TabKey }>(), {
-  initialTab: 'assets'
+const props = withDefaults(defineProps<{ initialTab?: TabKey; visibleTabs?: TabKey[]; hideEmbedClose?: boolean }>(), {
+  initialTab: 'assets',
+  // 默认值必须内联:withDefaults 的默认工厂提升到 setup 外,引不到本地常量
+  visibleTabs: () => ['assets', 'general', 'appearance', 'ai', 'plugins', 'audit', 'alert', 'about'],
+  hideEmbedClose: false
 })
 const activeTab = ref<TabKey>(props.initialTab)
 watch(() => props.initialTab, tab => { activeTab.value = tab })
+// activeTab 落在可见集合之外时(子集过滤或 initialTab 未入集)归位到第一个可见 tab
+watch(() => props.visibleTabs, tabs => {
+  if (!tabs.includes(activeTab.value)) activeTab.value = tabs[0] ?? 'assets'
+}, { immediate: true })
+
+/** tab 元数据(编号保持全量序列,过滤子集时不重排) */
+const tabDefs = computed(() => [
+  { key: 'assets' as TabKey, num: '01', icon: 'mdi-server-network-outline', label: t('settings.assets.tab'), hint: t('settings.assets.tabHint') },
+  { key: 'general' as TabKey, num: '02', icon: 'mdi-tune-variant', label: t('settings.general'), hint: '' },
+  { key: 'appearance' as TabKey, num: '03', icon: 'mdi-palette-outline', label: t('settings.appearance'), hint: '' },
+  { key: 'ai' as TabKey, num: '04', icon: 'mdi-robot-outline', label: 'AI 助手', hint: 'Function Calling · 命令执行' },
+  { key: 'plugins' as TabKey, num: '05', icon: 'mdi-puzzle-outline', label: t('settings.plugins.tab'), hint: t('settings.plugins.tabHint') },
+  { key: 'audit' as TabKey, num: '06', icon: 'mdi-clipboard-list-outline', label: '审计日志', hint: '' },
+  { key: 'alert' as TabKey, num: '07', icon: 'mdi-bell-alert-outline', label: '告警规则', hint: '' },
+  { key: 'about' as TabKey, num: '08', icon: 'mdi-information-outline', label: t('settings.about'), hint: '' },
+])
+const tabs = computed(() => tabDefs.value.filter(tab => props.visibleTabs.includes(tab.key)))
 
 // 切换到审计/告警/插件 tab 时懒加载
 watch(activeTab, tab => {
@@ -1197,9 +1220,10 @@ async function onTestWebhook(url: string) {
     <div class="settings-header">
       <v-icon size="20" color="cyan">mdi-cog-outline</v-icon>
       <h2>{{ t('settings.title') }}</h2>
-      <!-- embed 模式(dsh 壳 iframe):设置是整页路由,提供显式关闭(= 关 overlay,等价 Esc) -->
+      <!-- embed 模式(dsh 壳 iframe):设置是整页路由,提供显式关闭(= 关 overlay,等价 Esc);
+           嵌入 dsh 设置面板时(hideEmbedClose)隐藏,关闭由对话框自己负责 -->
       <button
-        v-if="embedMode"
+        v-if="embedMode && !hideEmbedClose"
         class="action-btn settings-embed-close"
         :data-tooltip="t('common.close')"
         :aria-label="t('common.close')"
@@ -1209,50 +1233,19 @@ async function onTestWebhook(url: string) {
       </button>
     </div>
 
-    <!-- Tab 切换 -->
+    <!-- Tab 切换(visibleTabs 子集过滤;编号保持全量序列) -->
     <div class="settings-tabs">
-      <button class="tab" :class="{ active: activeTab === 'assets' }" @click="activeTab = 'assets'">
-        <span class="tab-num">01</span>
-        <v-icon size="13">mdi-server-network-outline</v-icon>
-        <span class="tab-label">{{ t('settings.assets.tab') }}</span>
-        <span class="tab-hint">{{ t('settings.assets.tabHint') }}</span>
-      </button>
-      <button class="tab" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">
-        <span class="tab-num">02</span>
-        <v-icon size="13">mdi-tune-variant</v-icon>
-        <span class="tab-label">{{ t('settings.general') }}</span>
-      </button>
-      <button class="tab" :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">
-        <span class="tab-num">03</span>
-        <v-icon size="13">mdi-palette-outline</v-icon>
-        <span class="tab-label">{{ t('settings.appearance') }}</span>
-      </button>
-      <button class="tab" :class="{ active: activeTab === 'ai' }" @click="activeTab = 'ai'">
-        <span class="tab-num">04</span>
-        <v-icon size="13">mdi-robot-outline</v-icon>
-        <span class="tab-label">AI 助手</span>
-        <span class="tab-hint">Function Calling · 命令执行</span>
-      </button>
-      <button class="tab" :class="{ active: activeTab === 'plugins' }" @click="activeTab = 'plugins'">
-        <span class="tab-num">05</span>
-        <v-icon size="13">mdi-puzzle-outline</v-icon>
-        <span class="tab-label">{{ t('settings.plugins.tab') }}</span>
-        <span class="tab-hint">{{ t('settings.plugins.tabHint') }}</span>
-      </button>
-      <button class="tab" :class="{ active: activeTab === 'audit' }" @click="activeTab = 'audit'">
-        <span class="tab-num">06</span>
-        <v-icon size="13">mdi-clipboard-list-outline</v-icon>
-        <span class="tab-label">审计日志</span>
-      </button>
-      <button class="tab" :class="{ active: activeTab === 'alert' }" @click="activeTab = 'alert'">
-        <span class="tab-num">07</span>
-        <v-icon size="13">mdi-bell-alert-outline</v-icon>
-        <span class="tab-label">告警规则</span>
-      </button>
-      <button class="tab" :class="{ active: activeTab === 'about' }" @click="activeTab = 'about'">
-        <span class="tab-num">08</span>
-        <v-icon size="13">mdi-information-outline</v-icon>
-        <span class="tab-label">{{ t('settings.about') }}</span>
+      <button
+        v-for="tab in tabs"
+        :key="tab.key"
+        class="tab"
+        :class="{ active: activeTab === tab.key }"
+        @click="activeTab = tab.key"
+      >
+        <span class="tab-num">{{ tab.num }}</span>
+        <v-icon size="13">{{ tab.icon }}</v-icon>
+        <span class="tab-label">{{ tab.label }}</span>
+        <span v-if="tab.hint" class="tab-hint">{{ tab.hint }}</span>
       </button>
     </div>
 

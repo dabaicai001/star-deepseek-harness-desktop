@@ -9,10 +9,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  assetInstanceUrl, routeNameForAsset, routePrefixForAsset, STARHUB_SUBCATEGORIES,
+  assetInstanceUrl, CONNECTION_MANAGER_TABS, routeNameForAsset, routePrefixForAsset,
+  SETTINGS_SECTION_TABS, settingsEmbedUrl, STARHUB_SUBCATEGORIES,
   type StarHubAsset,
 } from '../src/client/sections.ts'
-import { createStarHubAssets, createToolSelectionBridge } from '../src/client/store.ts'
+import {
+  createConnectionManagerOverlay, createStarHubAssets, createToolSelectionBridge,
+} from '../src/client/store.ts'
 
 /** 构造一个最小资产(只带匹配所需的字段)。 */
 function asset(type: string, dbType?: string): StarHubAsset {
@@ -148,10 +151,57 @@ describe('createStarHubAssets', () => {
     }
   })
 
-  it('refresh without Tauri internals reports the browser-preview error', async () => {
+  it('refresh without Tauri internals falls into the preview state (no request, no error)', async () => {
     const holder = createStarHubAssets()
     holder.refresh()
-    await vi.waitFor(() => expect(holder.source.getSnapshot().loading).toBe(false))
-    expect(holder.source.getSnapshot().error).toMatch(/Tauri IPC unavailable/)
+    const snap = holder.source.getSnapshot()
+    expect(snap.loading).toBe(false)
+    expect(snap.error).toBeNull()
+    expect(snap.preview).toBe(true)
+  })
+
+  it('a successful refresh clears the preview flag', async () => {
+    const holder = createStarHubAssets()
+    holder.refresh()
+    expect(holder.source.getSnapshot().preview).toBe(true)
+    const restore = stubTauriInternals(() => Promise.resolve([]))
+    try {
+      holder.refresh()
+      await vi.waitFor(() => expect(holder.source.getSnapshot().loading).toBe(false))
+      expect(holder.source.getSnapshot().preview).toBe(false)
+    } finally {
+      restore()
+    }
+  })
+})
+
+describe('settingsEmbedUrl', () => {
+  it('builds the connection-manager URL (assets tab only)', () => {
+    const url = settingsEmbedUrl(CONNECTION_MANAGER_TABS, 'assets')
+    expect(url.startsWith('/starhub/index.html?embed=1&route=')).toBe(true)
+    const route = decodeURIComponent(url.slice('/starhub/index.html?embed=1&route='.length))
+    expect(route).toBe('/settings?tabs=assets&tab=assets')
+  })
+
+  it('builds the settings-dialog section URL (no assets/appearance, inline chrome)', () => {
+    const url = settingsEmbedUrl(SETTINGS_SECTION_TABS, 'ai', 'inline')
+    const route = decodeURIComponent(url.slice('/starhub/index.html?embed=1&route='.length))
+    expect(route).toContain('tab=ai')
+    expect(route).toContain('chrome=inline')
+    const tabs = new URLSearchParams(route.slice('/settings?'.length)).get('tabs') ?? ''
+    expect(tabs.split(',')).toEqual(['general', 'ai', 'plugins', 'audit', 'alert', 'about'])
+    expect(tabs).not.toContain('assets')
+    expect(tabs).not.toContain('appearance')
+  })
+})
+
+describe('createConnectionManagerOverlay', () => {
+  it('toggles the open flag through open/close', () => {
+    const overlay = createConnectionManagerOverlay()
+    expect(overlay.source.getSnapshot().open).toBe(false)
+    overlay.open()
+    expect(overlay.source.getSnapshot().open).toBe(true)
+    overlay.close()
+    expect(overlay.source.getSnapshot().open).toBe(false)
   })
 })

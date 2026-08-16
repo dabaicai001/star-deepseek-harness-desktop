@@ -4,8 +4,8 @@
  * 状态按 scope 拆成三份,因为 dsh 的 store handle 有 one-handle-one-scope
  * 约束(共享 handle 首次挂载即钉死 scope,跨 scope 复用直接抛错),且
  * session-maybe 席位在无会话时不挂注册侧 store(useStore 不下发):
- * - `createStarHubNavStore`(root scope):侧栏大类展开态 + 旧扁平条目,
- *   挂在 sidebar.navigation / shell.overlay(均 root scope)上共享;
+ * - `createStarHubNavStore`(root scope):侧栏「工具」大类展开态,只挂
+ *   sidebar.navigation 一座席位;
  * - `createStarHubAssets`:资产列表(get_assets 结果)与拉取状态。两座
  *   工作区席位(workspace 无会话 / details.workspace 有会话)在无会话分支
  *   拿不到注册侧 store,故资产状态由 apply 持有的裸 source 经 inject
@@ -13,6 +13,8 @@
  * - `createToolSelectionBridge`:跨 scope 的「当前子类 + 打开的资产实例」。
  *   选择状态必须跨 root(nav 点击)与 session-maybe(工作区列表/overlay
  *   读)两个 scope,同样走 apply 持有的裸 source + 注入回调。
+ * - `createConnectionManagerOverlay`:连接管理 overlay(设置页资产 tab)
+ *   的开关,同一裸 source 桥范式(session-maybe 工作区写,root overlay 读)。
  */
 import {
   createSnapshotStore, defineStore, type EngineStoreHandle, type SnapshotStore,
@@ -34,35 +36,27 @@ export interface RustAsset {
   updated_at: number
 }
 
-/** 壳内导航状态(root scope):大类展开 + 旧扁平条目。 */
+/** 壳内导航状态(root scope):「工具」大类展开态。 */
 type StarHubNavState = {
   /** 「工具」大类是否展开(侧栏)。 */
   categoryOpen: boolean
-  /** 当前打开的功能页 key(旧扁平条目,如 settings);null = 关闭。 */
-  active: string | null
 }
 
 /** 导航写集合。 */
 type StarHubNavActions = {
   toggleCategory: (draft: StarHubNavState) => void
-  toggleSection: (draft: StarHubNavState, key: string) => void
-  openSection: (draft: StarHubNavState, key: string) => void
-  closeSection: (draft: StarHubNavState) => void
 }
 
 /**
- * Create the root-scope navigation store handle (sidebar.navigation +
- * shell.overlay share it; both seats are root scope).
+ * Create the root-scope navigation store handle (only the sidebar
+ * navigation seat mounts it).
  * @returns the store handle (spec + type + identity + factory in one).
  */
 export function createStarHubNavStore(): EngineStoreHandle<StarHubNavState, StarHubNavActions> {
   return defineStore({
-    init: (): StarHubNavState => ({ categoryOpen: true, active: null }),
+    init: (): StarHubNavState => ({ categoryOpen: true }),
     actions: {
       toggleCategory: (d) => { d.categoryOpen = !d.categoryOpen },
-      toggleSection: (d, key: string) => { d.active = d.active === key ? null : key },
-      openSection: (d, key: string) => { d.active = key },
-      closeSection: (d) => { d.active = null },
     },
   })
 }
@@ -75,6 +69,8 @@ export interface StarHubAssetListState {
   loading: boolean
   /** 最近一次拉取的错误;null = 无错误。 */
   error: string | null
+  /** 浏览器预览(无 Tauri IPC):资产后端不可达,组件展示预览提示而非错误。 */
+  preview: boolean
 }
 
 /** Tauri IPC surface injected into the top frame by the desktop shell. */
@@ -108,10 +104,16 @@ export interface StarHubAssets {
  * @returns the holder (bare source + refresh callback).
  */
 export function createStarHubAssets(): StarHubAssets {
-  const source = createSnapshotStore<StarHubAssetListState>({ assets: [], loading: false, error: null })
+  const source = createSnapshotStore<StarHubAssetListState>({ assets: [], loading: false, error: null, preview: false })
   const refresh = (): void => {
     if (source.getSnapshot().loading) return
-    source.update((d) => { d.loading = true; d.error = null })
+    // 浏览器预览无 Tauri IPC:不发请求,直接落 preview 态(组件据此展示
+    // 「请在桌面应用中使用」提示,而不是一条红错)。
+    if ((window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__ === undefined) {
+      source.update((d) => { d.loading = false; d.error = null; d.preview = true })
+      return
+    }
+    source.update((d) => { d.loading = true; d.error = null; d.preview = false })
     tauriInvoke<RustAsset[]>('get_assets')
       .then((list) => { source.update((d) => { d.assets = list; d.loading = false }) })
       .catch((e: unknown) => {
@@ -122,6 +124,32 @@ export function createStarHubAssets(): StarHubAssets {
       })
   }
   return { source, refresh }
+}
+
+/** 跨 scope 的连接管理 overlay 开关(设置页只挂资产 tab 的整幅 iframe 层)。 */
+export interface ConnectionManagerOverlay {
+  /** 注入 hooks 舱位的裸 observable。 */
+  source: SnapshotStore<{ open: boolean }>
+  /** 打开连接管理 overlay(新建连接入口 / embed 资产条「去设置添加」)。 */
+  open: () => void
+  /** 关闭 overlay(关闭钮 / Esc / embed 转发 Esc)。 */
+  close: () => void
+}
+
+/**
+ * Create the apply-owned connection-manager overlay holder. Open state is
+ * read in the root-scope overlay seat and written from the session-maybe
+ * workspace seats, so it rides the same bare-source bridge pattern as the
+ * tool selection (one-handle-one-scope forbids a shared store handle).
+ * @returns the holder (bare source + open/close callbacks).
+ */
+export function createConnectionManagerOverlay(): ConnectionManagerOverlay {
+  const source = createSnapshotStore({ open: false })
+  return {
+    source,
+    open: () => { source.set({ open: true }) },
+    close: () => { source.set({ open: false }) },
+  }
 }
 
 /** 跨 scope 的当前工具选择:子类 + 打开的资产实例(含派生好的路由前缀)。 */

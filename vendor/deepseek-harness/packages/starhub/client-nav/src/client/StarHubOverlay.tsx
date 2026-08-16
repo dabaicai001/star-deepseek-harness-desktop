@@ -1,70 +1,82 @@
 /**
  * StarHub overlay:注册进 `shell.overlay` 的全幅 iframe 层。
- * 两种打开方式,同一时刻只显示一个:
- * - 旧扁平条目(设置等):root scope nav store 的 active 决定 src;
- * - 实例操作页(方案 P1):选择桥(inject hooks 舱位)的 assetId / instanceId /
- *   routePrefix 决定 src(`assetInstanceUrl`),点资产行打开,关闭按钮 / Esc /
- *   embed 转发 Esc 关闭。instanceId 由打开动作生成一次,渲染期只读——
- *   重渲染不会重载 iframe。
+ * 两种打开方式,同一时刻只显示一个(资产实例优先):
+ * - 连接管理(设置页只挂资产 tab):连接管理桥(inject hooks 舱位)的
+ *   open 决定,来自工作区列「新建连接」与 embed 资产条「去设置添加」;
+ * - 实例操作页:选择桥的 assetId / instanceId / routePrefix 决定 src
+ *   (`assetInstanceUrl`),点资产行打开。instanceId 由打开动作生成一次,
+ *   渲染期只读——重渲染不会重载 iframe。
+ * 关闭:右上角关闭钮 / Esc / embed 转发 Esc。
  */
 import { useEffect } from 'react'
-import type { PropsRuntime, PropsStore, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the 'shell.overlay' SlotMap row (declared by ui-layout).
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconCloseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { STARHUB_SECTIONS, assetInstanceUrl, sectionEmbedUrl } from './sections.ts'
-import type { createStarHubNavStore, ToolSelection } from './store.ts'
+import {
+  assetInstanceUrl, CONNECTION_MANAGER_TABS, settingsEmbedUrl,
+} from './sections.ts'
+import type { ToolSelection } from './store.ts'
 
-/** Business face injected by the registration: close the open asset instance. */
+/** Business face injected by the registration: close/open the two overlay surfaces. */
 export interface StarHubOverlayInjected {
   closeAsset: () => void
-  hooks: { selection: SnapshotStore<ToolSelection> }
+  /** 打开连接管理 overlay(embed 资产条「去设置添加」经 postMessage 触发)。 */
+  openConnectionManager: () => void
+  closeConnectionManager: () => void
+  hooks: {
+    selection: SnapshotStore<ToolSelection>
+    connectionManager: SnapshotStore<{ open: boolean }>
+  }
 }
 
-/** Full composed props: overlay runtime share + the root nav store share + injected face. */
+/** Full composed props: overlay runtime share + injected face. */
 export type StarHubOverlayProps =
   & PropsRuntime<'shell.overlay'>
-  & PropsStore<ReturnType<typeof createStarHubNavStore>>
   & InjectFace<StarHubOverlayInjected>
 
 /** Message type the StarHub embed shell posts when Escape is pressed inside the iframe. */
 const EMBED_ESCAPE_MESSAGE = 'starhub-embed-escape'
-/** Message type the embed asset bar posts to ask the shell to open another section (e.g. settings). */
+/** Message type the embed asset bar posts to ask the shell to open the connection manager. */
 const EMBED_OPEN_SECTION_MESSAGE = 'starhub-embed-open-section'
 
+/** 连接管理 overlay 的 iframe src(设置页只挂资产 tab)。 */
+const CONNECTION_MANAGER_URL = settingsEmbedUrl(CONNECTION_MANAGER_TABS, 'assets')
+
 /**
- * Render the full-frame StarHub overlay: a flat section (settings etc.) or an
- * asset instance operation page, whichever is active.
- * @param props - composed slot props (nav store share + injected selection face).
+ * Render the full-frame StarHub overlay: the connection manager (settings
+ * page, assets tab only) or an asset instance operation page, whichever is
+ * active.
+ * @param props - composed slot props (injected bridges face).
  * @returns null when closed; otherwise the overlay layer.
  */
-export function StarHubOverlay({ useStore, actions, closeAsset, useSelection }: StarHubOverlayProps) {
-  const active = useStore(s => s.active)
+export function StarHubOverlay({
+  closeAsset, openConnectionManager, closeConnectionManager, useSelection, useConnectionManager,
+}: StarHubOverlayProps) {
   const selection = useSelection(s => s)
-  const section = STARHUB_SECTIONS.find(s => s.key === active)
+  const managerOpen = useConnectionManager(s => s.open)
   const assetOpen = selection.assetId !== null && selection.instanceId !== null && selection.routePrefix !== null
+  const open = assetOpen || managerOpen
 
   useEffect(() => {
-    if (section === undefined && !assetOpen) return
+    if (!open) return
+    const close = () => {
+      if (assetOpen) closeAsset()
+      else closeConnectionManager()
+    }
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (assetOpen) closeAsset()
-        else actions.closeSection()
-      }
+      if (e.key === 'Escape') close()
     }
     // iframe 聚焦时 Esc 到不了顶层 document,embed 外壳经 postMessage 转发;
-    // embed 资产条的「去设置添加」也经 postMessage 请求切换功能页
+    // embed 资产条的「去设置添加」也经 postMessage 请求打开连接管理
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== window.location.origin) return
       const data = e.data as { type?: unknown; key?: unknown } | null
       if (data?.type === EMBED_ESCAPE_MESSAGE) {
-        if (assetOpen) closeAsset()
-        else actions.closeSection()
-      } else if (data?.type === EMBED_OPEN_SECTION_MESSAGE
-        && typeof data.key === 'string'
-        && STARHUB_SECTIONS.some(s => s.key === data.key)) {
-        actions.openSection(data.key)
+        close()
+      } else if (data?.type === EMBED_OPEN_SECTION_MESSAGE && data.key === 'settings') {
+        openConnectionManager()
       }
     }
     document.addEventListener('keydown', onKeyDown)
@@ -73,11 +85,11 @@ export function StarHubOverlay({ useStore, actions, closeAsset, useSelection }: 
       document.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('message', onMessage)
     }
-  }, [section, assetOpen, actions, closeAsset])
+  }, [open, assetOpen, closeAsset, openConnectionManager, closeConnectionManager])
 
   const src = assetOpen
     ? assetInstanceUrl(selection.routePrefix!, selection.instanceId!)
-    : section === undefined ? null : sectionEmbedUrl(section)
+    : managerOpen ? CONNECTION_MANAGER_URL : null
   if (src === null) return null
   return (
     // shell.overlay 层本身 click-through,这里整幅接管指针事件
@@ -86,15 +98,15 @@ export function StarHubOverlay({ useStore, actions, closeAsset, useSelection }: 
       pointerEvents: 'auto', background: 'var(--dsw-background-primary, #0b0f14)',
     }}>
       <iframe
-        key={assetOpen ? `asset-${selection.instanceId}` : `section-${section!.key}`}
-        title={assetOpen ? 'starhub-asset' : `starhub-${section!.key}`}
+        key={assetOpen ? `asset-${selection.instanceId}` : 'connection-manager'}
+        title={assetOpen ? 'starhub-asset' : 'starhub-connection-manager'}
         src={src}
         style={{ display: 'block', width: '100%', height: '100%', border: 'none' }}
       />
       <button
         type="button"
         aria-label="关闭"
-        onClick={() => { if (assetOpen) closeAsset(); else actions.closeSection() }}
+        onClick={() => { if (assetOpen) closeAsset(); else closeConnectionManager() }}
         style={{
           position: 'absolute', top: 8, right: 8, zIndex: 41,
           display: 'flex', alignItems: 'center', justifyContent: 'center',

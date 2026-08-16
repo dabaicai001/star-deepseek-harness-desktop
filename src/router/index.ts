@@ -27,7 +27,23 @@ const router = createRouter({
         {
           path: 'settings',
           name: 'settings',
-          component: () => import('@/views/SettingsView.vue')
+          component: () => import('@/views/SettingsView.vue'),
+          // embed 入口可经 query 过滤 tab 子集 / 指定初始 tab / 隐藏关闭钮:
+          // ?tabs=assets&tab=assets(dsh 壳连接管理 overlay);
+          // ?tabs=general,ai,plugins,audit,alert,about&tab=ai&chrome=inline(dsh 设置面板分区)
+          props: route => {
+            type SettingsTab = 'assets' | 'general' | 'appearance' | 'ai' | 'plugins' | 'audit' | 'alert' | 'about'
+            const ALL: readonly string[] = ['assets', 'general', 'appearance', 'ai', 'plugins', 'audit', 'alert', 'about']
+            const rawTabs = typeof route.query.tabs === 'string' ? route.query.tabs : ''
+            const tabs = rawTabs.split(',').filter((k): k is SettingsTab => ALL.includes(k))
+            const tab = typeof route.query.tab === 'string' && ALL.includes(route.query.tab)
+              ? route.query.tab as SettingsTab : undefined
+            return {
+              ...(tabs.length > 0 ? { visibleTabs: tabs } : {}),
+              ...(tab !== undefined ? { initialTab: tab } : {}),
+              ...(route.query.chrome === 'inline' ? { hideEmbedClose: true } : {}),
+            }
+          }
         },
         {
  path: 'ssh/:id',
