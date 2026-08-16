@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.73.0(**Broker 页完成 Vue→React 壳内迁移(P1 首个样本)**:`client-nav` 新增 broker service(复用 Rust `broker_overview`,走顶层帧 Tauri 桥)、DashboardCard 通用仪表盘卡片与 BrokerView 工作台(壳内直渲、dsw token 视觉、30s 自动刷新、卡片详情模态);`sections.ts` 事实表新增 `renderMode`(`iframe`/`native`),`db-broker` 路由切壳内组件、一行可回退;overlay 注入资产源供 native 页反查资产;client-nav 补齐包规范(invariant 伴生、per-file 100% 覆盖率、89 个测试全绿)) |
+| 当前版本 | v0.74.0(**Settings 页按 tab 完成 Vue→React 壳内迁移(§3.2 特例)**:dsh 设置面板 StarHub 分区改为壳内 React 面板(tab 导轨 + 内容区,不再 embed iframe)——插件(列表/URL/目录/Zip 导入/市场/风险确认/卸载)、审计(操作历史/统计/清理)、告警(规则 CRUD/Webhook 测试)、关于(版本/更新检查安装)、AI(命令白名单 + 记忆与上下文 + 记忆管理弹窗)5 个 tab 直渲;通用/外观由 dsh 设置接管不做,资产 tab 暂留 iframe(连接管理 overlay);服务层逐文件复制去 Pinia 耦合(审计/告警/插件/updater/记忆,updater 走 plugin:updater|* invoke + Channel 桥),AI 设置读写沿用 ai-v2 localStorage 无缝承接;client-nav 152 个测试全绿、per-file 100% 覆盖率) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-16 (v0.73.0)*
+*最后更新: 2026-08-16 (v0.74.0)*

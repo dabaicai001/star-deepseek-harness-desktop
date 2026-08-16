@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// 迁移冻结说明(迁移手册 §3.2 Settings 特例):AI(白名单/记忆)/插件/审计/告警/
+// 关于 5 个 tab 已于 v0.74.0 迁至壳内 React(dsh 设置面板 StarHub 分区,
+// vendor/deepseek-harness/packages/starhub/client-nav/src/client/settings/);
+// 通用/外观由 dsh 设置接管;本文件当前仅剩「资产 tab」embed 路径在服务
+// (工具区连接管理 overlay,settingsEmbedUrl(['assets'],'assets'))。P4 退役前
+// 不再新增/修改已迁移 tab 的逻辑;资产 tab 逻辑如需改动请照常维护。
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'

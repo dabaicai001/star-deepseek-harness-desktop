@@ -1,0 +1,677 @@
+/* Settings 各 tab 共享控件样式(dsw token 版 cyber 设置类):按钮/输入/
+   区块/卡片/徽标/弹窗。视觉只走 token,无字面量颜色。 */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sectionNumber {
+  flex: none;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--dsw-accent);
+  opacity: 0.8;
+}
+
+.sectionTitle {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.sectionDesc {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* ===== 按钮 ===== */
+
+.btn,
+.btnSecondary,
+.btnDanger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn {
+  background: var(--dsw-accent);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.btn:hover {
+  filter: brightness(1.1);
+}
+
+.btnSecondary {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.btnSecondary:hover {
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+}
+
+.btnDanger {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.btnDanger:hover {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  filter: brightness(1.15);
+}
+
+.btn:disabled,
+.btnSecondary:disabled,
+.btnDanger:disabled {
+  opacity: 0.5;
+  cursor: default;
+  filter: none;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.iconButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ===== 表单控件 ===== */
+
+.input,
+.select,
+.textarea {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  outline: none;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: var(--dsw-accent);
+}
+
+.textarea {
+  min-height: 64px;
+  resize: vertical;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.fieldLabel {
+  display: block;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  margin-bottom: 4px;
+}
+
+.fieldHint {
+  display: block;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  margin-top: 4px;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 14px;
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkboxRow input {
+  accent-color: var(--dsw-accent);
+  cursor: pointer;
+}
+
+/* ===== 反馈 ===== */
+
+.errorText {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.resultText {
+  font-size: 12px;
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.resultText.err {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* ===== 徽标 ===== */
+
+.badge,
+.badgeOff {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.badge {
+  background: color-mix(in srgb, var(--dsw-accent) 14%, transparent);
+  color: var(--dsw-accent);
+}
+
+.badgeOff {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* ===== 列表卡片 ===== */
+
+.cardList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.card.disabled {
+  opacity: 0.6;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cardName {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardMetric {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.cardMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ===== 表格(审计) ===== */
+
+.tableWrap {
+  overflow: auto;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th,
+.table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table th {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr:hover td {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.tableFailed td {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.tableDetail {
+  max-width: 380px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tableEmpty {
+  text-align: center;
+  color: var(--dsw-alias-label-tertiary);
+  padding: 18px !important;
+}
+
+/* ===== 统计卡(审计) ===== */
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.statCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.statHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.statRow {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.statRow code {
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* ===== 白名单(AI tab) ===== */
+
+.whitelistGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.whitelistChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  font-size: 11px;
+}
+
+.whitelistChip code {
+  color: var(--dsw-alias-label-primary);
+}
+
+.chipRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.chipRemove:hover {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.range {
+  width: 100%;
+  accent-color: var(--dsw-accent);
+}
+
+/* ===== 记忆管理(AI tab 弹窗) ===== */
+
+.memoryGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.memoryGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.memoryGroupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.memoryFull {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.memoryItem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.memoryContent {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ===== 关于页(about tab) ===== */
+
+.aboutHero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 20px;
+  text-align: center;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.aboutLogo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 34px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--dsw-accent), var(--dsw-static-deepseek-600));
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.aboutName {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--dsw-accent), var(--dsw-static-deepseek-400));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.aboutVersion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.aboutVersion code {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.aboutDesc {
+  max-width: 460px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.aboutLinks {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.aboutLink {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.aboutLink:hover {
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+}
+
+.aboutUpdateAvailable {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.aboutLicense {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* ===== 空态 ===== */
+
+.empty {
+  padding: 18px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 8px;
+}
+
+.marketSearch {
+  max-width: 220px;
+}
+
+.marketCategory {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.confirmMessage {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  line-height: 1.6;
+}
+
+/* ===== 弹窗 ===== */
+
+.dialogBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--dsw-alias-bg-mask-3);
+  padding: 24px;
+}
+
+.dialogPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(640px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.dialogHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dialogTitle {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.actionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+/* ===== 杂项 ===== */
+
+.spin {
+  animation: settings-spin 1s linear infinite;
+}
+
+@keyframes settings-spin {
+  to { transform: rotate(360deg); }
+}
+
+.mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}

@@ -199,7 +199,7 @@ v0.72.0 起 Settings 已以两种 embed 形态进壳(dsh 设置面板的 StarHub
 | Docker | iframe | 未开始 | — | |
 | Elasticsearch | iframe | 未开始 | — | |
 | WebBrowser | iframe | 未开始 | — | 低频 |
-| Settings(按 tab 拆) | iframe | **半迁**(embed 已入设置面板) | — | §3.2,按 tab 逐个 React 化 |
+| Settings(按 tab 拆) | native | **已迁移**(5 个 React tab) | 0.74.0 | AI(白名单/记忆)/插件/审计/告警/关于 壳内直渲;通用/外观由 dsh 设置接管;资产 tab 暂留 iframe(连接管理 overlay) |
 | SSH/SFTP | iframe | 未开始 | — | D2 硬指标 |
 | DbView | iframe | 未开始 | — | 压轴 |
 

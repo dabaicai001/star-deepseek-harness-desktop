@@ -1,0 +1,716 @@
+// @vitest-environment jsdom
+/**
+ * Settings 迁移的覆盖率补充:补齐 services / aiSettings / about / audit /
+ * alert / plugins / ai 各文件中首次测试未触达的分支(错误路径、次要 UI
+ * 分支、弹窗交互、白名单边界等),配合 settings-services / settings-tabs
+ * 两个主规格把 client-nav 包推到 per-file 100%。
+ */
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { AuditTab, formatAuditDetail } from '../src/client/settings/audit.tsx'
+import { AlertTab } from '../src/client/settings/alert.tsx'
+import { ConfirmActionDialog, PluginsTab } from '../src/client/settings/plugins.tsx'
+import { AboutTab } from '../src/client/settings/about.tsx'
+import { AiTab } from '../src/client/settings/ai.tsx'
+import {
+  checkForUpdates, logAudit,
+} from '../src/client/settings/services.ts'
+import { AI_STORAGE_KEY, loadAiSettings, normalizeAiSettings, saveAiSettings } from '../src/client/settings/aiSettings.ts'
+
+/** jsdom 全局下的 Tauri IPC stub:按命令返回 map 里的值。 */
+function stubTauriInternals(handlers: Record<string, (args?: unknown) => unknown>): () => void {
+  const w = window as unknown as { __TAURI_INTERNALS__?: { invoke: unknown } }
+  const prev = w.__TAURI_INTERNALS__
+  w.__TAURI_INTERNALS__ = {
+    invoke: (cmd: string, args?: unknown) => {
+      const handler = handlers[cmd]
+      if (handler === undefined) return Promise.reject(new Error(`unexpected command: ${cmd}`))
+      return Promise.resolve(handler(args))
+    },
+  }
+  return () => {
+    if (prev === undefined) {
+      delete w.__TAURI_INTERNALS__
+    } else {
+      w.__TAURI_INTERNALS__ = prev
+    }
+  }
+}
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+  localStorage.clear()
+  const w = window as unknown as { __TAURI_INTERNALS__?: unknown }
+  delete w.__TAURI_INTERNALS__
+})
+
+describe('services extra branches', () => {
+  it('logAudit passes through detail/session/asset fields and nulls the absent ones', async () => {
+    const invoke = vi.fn(() => Promise.resolve(1))
+    const restore = stubTauriInternals({ audit_log: (args) => invoke(args) })
+    try {
+      await logAudit({
+        category: 'db', action: 'run', target: 't', detail: { sql: 'SELECT 1' },
+        sessionId: 's1', assetId: 'a1',
+      })
+      expect(invoke).toHaveBeenLastCalledWith({
+        category: 'db', action: 'run', target: 't', detail: { sql: 'SELECT 1' },
+        sessionId: 's1', assetId: 'a1', success: true,
+      })
+      // 缺省字段 → ?? null 落空值
+      await logAudit({ category: 'ai', action: 'x' })
+      expect(invoke).toHaveBeenLastCalledWith({
+        category: 'ai', action: 'x', target: null, detail: null,
+        sessionId: null, assetId: null, success: true,
+      })
+    } finally {
+      restore()
+    }
+  })
+
+  it('checkForUpdates maps partial metadata and null metadata', async () => {
+    const restore = stubTauriInternals({
+      'plugin:updater|check': () => null,
+    })
+    try {
+      await expect(checkForUpdates()).resolves.toEqual({ available: false })
+    } finally {
+      restore()
+    }
+    const restore2 = stubTauriInternals({
+      'plugin:updater|check': () => ({ rid: 1, version: '9.0.0' }),
+    })
+    try {
+      await expect(checkForUpdates()).resolves.toEqual({ available: true, version: '9.0.0' })
+    } finally {
+      restore2()
+    }
+    const restore3 = stubTauriInternals({
+      'plugin:updater|check': () => ({ rid: 1 }),
+    })
+    try {
+      await expect(checkForUpdates()).resolves.toEqual({ available: true })
+    } finally {
+      restore3()
+    }
+  })
+})
+
+describe('aiSettings extra branches', () => {
+  it('recovers non-array whitelist and non-boolean memory flags', () => {
+    const settings = normalizeAiSettings({
+      commandWhitelist: 'nope' as never,
+      commandWhitelistVersion: 3,
+      memoryEnabled: 'x' as never,
+      memoryWriteNeedsConfirm: 'x' as never,
+      memoryAutoReview: 'x' as never,
+    })
+    expect(Array.isArray(settings.commandWhitelist)).toBe(true)
+    expect(settings.commandWhitelist.length).toBeGreaterThan(0)
+    expect(settings.memoryEnabled).toBe(true)
+    expect(settings.memoryWriteNeedsConfirm).toBe(false)
+    expect(settings.memoryAutoReview).toBe(true)
+  })
+
+  it('saveAiSettings survives a missing store key', () => {
+    expect(() => saveAiSettings(loadAiSettings())).not.toThrow()
+    const stored = JSON.parse(localStorage.getItem(AI_STORAGE_KEY) ?? '{}') as { settings: { memoryEnabled: boolean } }
+    expect(stored.settings.memoryEnabled).toBe(true)
+  })
+})
+
+describe('about extra branches', () => {
+  it('stringifies non-Error check failures', async () => {
+    const restore = stubTauriInternals({
+      'plugin:updater|check': () => { throw 'raw check failure' },
+    })
+    try {
+      render(<AboutTab />)
+      fireEvent.click(screen.getByText('检查更新'))
+      expect(await screen.findByText('raw check failure')).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it('stringifies non-Error download failures', async () => {
+    const restore = stubTauriInternals({
+      'plugin:updater|check': () => ({ rid: 1, version: '9.9.9' }),
+      'plugin:updater|download_and_install': () => { throw 'raw install failure' },
+    })
+    try {
+      render(<AboutTab />)
+      fireEvent.click(screen.getByText('检查更新'))
+      fireEvent.click(await screen.findByText('下载并安装'))
+      expect(await screen.findByText('raw install failure')).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+})
+
+describe('audit extra branches', () => {
+  it('renders failed rows, null targets and command details; refresh and string failures', async () => {
+    const restore = stubTauriInternals({
+      audit_list: () => [
+        { id: 1, timestamp: 0, category: 'ssh', action: 'run', target: null, detail: { command: 'ls' }, session_id: null, asset_id: null, success: false },
+      ],
+      audit_stats: () => [],
+      audit_clear: () => { throw 'raw clear failure' },
+    })
+    try {
+      render(<AuditTab />)
+      expect(await screen.findByText('run')).toBeTruthy()
+      expect(screen.getByText('--')).toBeTruthy() // null target
+      expect(screen.getByText('失败')).toBeTruthy()
+      expect(screen.getByText('ls')).toBeTruthy() // command detail
+      // 刷新按钮
+      fireEvent.click(screen.getByText('刷新'))
+      await act(async () => { await Promise.resolve() })
+      // 清理的非 Error 失败
+      fireEvent.click(screen.getByText('清理全部'))
+      expect(await screen.findByText(/清理失败: raw clear failure/)).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it('formats audit detail and survives a failed load', async () => {
+    const restore = stubTauriInternals({
+      audit_list: () => { throw 'raw list failure' },
+      audit_stats: () => [],
+    })
+    try {
+      render(<AuditTab />)
+      expect(await screen.findByText('暂无审计日志')).toBeTruthy() // 加载失败不崩,空态兜底
+    } finally {
+      restore()
+    }
+  })
+
+  it('formatAuditDetail prefers command, falls back to target/JSON and survives circular detail', () => {
+    expect(formatAuditDetail({ command: 'ls -la' })).toBe('ls -la')
+    expect(formatAuditDetail({ source: 'x', error: 'e' })).toBe('source=x · error: e')
+    expect(formatAuditDetail(null, null)).toBe('')
+    const circular: Record<string, unknown> = { name: 'c' }
+    circular.self = circular
+    expect(formatAuditDetail(circular)).toBe('[object Object]')
+  })
+})
+
+describe('alert extra branches', () => {
+  it('covers refresh, disabled badge, empty webhook, cancel, non-✓ result and failure paths', async () => {
+    const deleteCalls: unknown[] = []
+    const restore = stubTauriInternals({
+      alert_list: () => [
+        { id: 'r1', name: '启用规则', enabled: true, category: 'ssh', metric: 'ssh.error_count', operator: '>', threshold: 5, duration_sec: 0, webhook_url: 'http://hook', cooldown_sec: 300, created_at: 0, updated_at: 0 },
+        { id: 'r2', name: '禁用规则', enabled: false, category: 'db', metric: 'db.error_count', operator: '<', threshold: 1, duration_sec: 10, webhook_url: '', cooldown_sec: 60, created_at: 0, updated_at: 0 },
+      ],
+      alert_delete: (args) => { deleteCalls.push(args); return null },
+      alert_test_webhook: () => '✗ 无法送达',
+    })
+    try {
+      render(<AlertTab />)
+      expect(await screen.findByText('启用规则')).toBeTruthy()
+      expect(screen.getByText('禁用规则')).toBeTruthy()
+      expect(screen.getByText('禁用')).toBeTruthy() // 禁用徽标
+      expect(screen.getByText(/持续 10s/)).toBeTruthy() // 空 webhook 规则的 meta 行
+      // 刷新
+      fireEvent.click(screen.getByText('刷新'))
+      await act(async () => { await Promise.resolve() })
+      // 编辑 r1 并测试 webhook(非 ✓ 结果)
+      fireEvent.click(screen.getAllByLabelText('编辑')[0])
+      const dialog = screen.getByRole('dialog', { name: '编辑告警规则' })
+      fireEvent.click(within(dialog).getByText('测试 Webhook'))
+      expect(await screen.findByText('✗ 无法送达')).toBeTruthy()
+      // 取消关闭弹窗
+      fireEvent.click(within(dialog).getByText('取消'))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      // 删除
+      fireEvent.click(screen.getAllByLabelText('删除')[0])
+      await act(async () => { await Promise.resolve() })
+      expect(deleteCalls).toHaveLength(1)
+    } finally {
+      restore()
+    }
+  })
+
+  it('surfaces load and save failures without crashing', async () => {
+    const restore = stubTauriInternals({
+      alert_list: () => { throw 'raw list failure' },
+      alert_create: () => { throw new Error('create failed') },
+    })
+    try {
+      render(<AlertTab />)
+      fireEvent.click(screen.getByText('新建规则'))
+      const dialog = screen.getByRole('dialog', { name: '新建告警规则' })
+      // 逐个字段编辑(覆盖各 onChange;webhook 清空路径)
+      fireEvent.change(within(dialog).getByPlaceholderText(/例如/), { target: { value: '新规则' } })
+      fireEvent.change(within(dialog).getAllByRole('combobox')[0], { target: { value: 'docker' } })
+      fireEvent.change(within(dialog).getAllByRole('combobox')[1], { target: { value: 'docker.error_rate' } })
+      fireEvent.change(within(dialog).getAllByRole('combobox')[2], { target: { value: '>=' } })
+      const numbers = within(dialog).getAllByRole('spinbutton')
+      fireEvent.change(numbers[0], { target: { value: '7.5' } })
+      fireEvent.change(numbers[1], { target: { value: '3' } })
+      fireEvent.change(numbers[2], { target: { value: '120' } })
+      fireEvent.change(within(dialog).getAllByRole('textbox')[1], { target: { value: 'http://new' } })
+      fireEvent.change(within(dialog).getAllByRole('textbox')[1], { target: { value: '' } }) // 清空 → null 路径
+      fireEvent.click(within(dialog).getByRole('checkbox')) // 启用开关
+      // 保存失败 → 弹窗保持 + 不崩
+      fireEvent.click(within(dialog).getByText('保存'))
+      await act(async () => { await Promise.resolve() })
+      expect(screen.getByRole('dialog', { name: '新建告警规则' })).toBeTruthy()
+      // panel mousedown 阻止冒泡 → 弹窗保持
+      fireEvent.mouseDown(screen.getByRole('dialog', { name: '新建告警规则' }))
+      expect(screen.getByRole('dialog', { name: '新建告警规则' })).toBeTruthy()
+      // backdrop 关闭
+      fireEvent.mouseDown(screen.getByRole('dialog', { name: '新建告警规则' }).parentElement!)
+      expect(screen.queryByRole('dialog')).toBeNull()
+    } finally {
+      restore()
+    }
+  })
+
+  it('covers webhook test failure with a 5s auto-clear and delete failure', async () => {
+    vi.useFakeTimers()
+    let webhookCalls = 0
+    const restore = stubTauriInternals({
+      alert_list: () => [
+        { id: 'r1', name: '规则', enabled: true, category: 'ssh', metric: 'ssh.error_count', operator: '>', threshold: 5, duration_sec: 0, webhook_url: 'http://hook', cooldown_sec: 300, created_at: 0, updated_at: 0 },
+      ],
+      alert_test_webhook: () => {
+        webhookCalls += 1
+        if (webhookCalls === 1) throw new Error('webhook boom')
+        throw 'webhook raw'
+      },
+      alert_delete: () => { throw new Error('delete failed') },
+    })
+    try {
+      render(<AlertTab />)
+      fireEvent.click(screen.getByText('新建规则'))
+      const dialog = () => screen.getByRole('dialog', { name: '新建告警规则' })
+      // 输入 webhook 后测试(Error 失败)+ 5s 自动清除
+      fireEvent.change(within(dialog()).getAllByRole('textbox')[1], { target: { value: 'http://bad' } })
+      fireEvent.click(within(dialog()).getByText('测试 Webhook'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(screen.getByText('webhook boom')).toBeTruthy()
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+      expect(screen.queryByText('webhook boom')).toBeNull()
+      // 字符串失败
+      fireEvent.click(within(dialog()).getByText('测试 Webhook'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(screen.getByText('webhook raw')).toBeTruthy()
+      // 关闭弹窗后删除失败
+      fireEvent.click(within(dialog()).getByText('取消'))
+      fireEvent.click(screen.getByLabelText('删除'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    } finally {
+      vi.useRealTimers()
+      restore()
+    }
+  })
+})
+
+describe('plugins extra branches', () => {
+  it('covers local-zip/unknown source labels, corrupted ack storage, string errors and shutdown failure', async () => {
+    localStorage.setItem('starhub.plugins.enable-acknowledged', '{broken')
+    const restore = stubTauriInternals({
+      dsh_plugin_list: () => [
+        { id: 'p1', name: 'zip-plugin', version: '1', source: { kind: 'local-zip' }, entry: 'i.js', enabled: false },
+        { id: 'p2', name: 'weird-plugin', version: '1', source: { kind: 'other' }, entry: 'i.js', enabled: false },
+      ],
+      dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
+      dsh_plugin_set_enabled: () => { throw 'raw enable failure' },
+      dsh_shutdown: () => { throw new Error('runtime not running') },
+    })
+    try {
+      render(<PluginsTab />)
+      expect(await screen.findByText('zip-plugin')).toBeTruthy()
+      expect(screen.getByText('Zip')).toBeTruthy() // local-zip 来源标签
+      expect(screen.getByText('other')).toBeTruthy() // 未知来源原样返回
+      // 启用失败(风险确认后 setPluginEnabled 抛字符串)→ 错误文案
+      fireEvent.click(screen.getAllByLabelText('启用')[0])
+      fireEvent.click(await screen.findByText('启用'))
+      expect(await screen.findByText('raw enable failure')).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it('covers URL-install string failure and market search with no matches', async () => {
+    const restore = stubTauriInternals({
+      dsh_plugin_list: () => [],
+      dsh_plugin_market_fetch: () => ({
+        stale: false,
+        categories: [{ name: '工具', plugins: [{ name: 'A', url: 'https://x/a', description: 'a' }] }],
+      }),
+      dsh_plugin_install_url: () => { throw 'raw url failure' },
+    })
+    try {
+      render(<PluginsTab />)
+      fireEvent.change(await screen.findByPlaceholderText(/GitHub 仓库 URL/), { target: { value: 'https://x/a' } })
+      fireEvent.click(screen.getByText('URL 安装'))
+      expect(await screen.findByText('raw url failure')).toBeTruthy()
+      fireEvent.change(screen.getByPlaceholderText('搜索插件…'), { target: { value: 'zzz' } })
+      expect(await screen.findByText('暂无市场插件。')).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it('covers Error-path failures, busy guard, direct enable when acked and zip/array import', async () => {
+    localStorage.setItem('starhub.plugins.enable-acknowledged', JSON.stringify(['p2']))
+    let releaseSet: (() => void) | null = null
+    const installLocal = vi.fn(() => ({ id: 'p9', name: 'zip', version: '1', source: { kind: 'local-zip' }, entry: 'i.js', enabled: false }))
+    const restore = stubTauriInternals({
+      dsh_plugin_list: () => [
+        { id: 'p1', name: 'a', version: '1', source: { kind: 'market' }, entry: 'i.js', enabled: false },
+        { id: 'p2', name: 'b', version: '1', source: { kind: 'market' }, entry: 'i.js', enabled: false },
+      ],
+      dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
+      dsh_plugin_set_enabled: () => new Promise((resolve) => { releaseSet = () => resolve(null) }),
+      dsh_plugin_install_url: () => { throw new Error('url install failed') },
+      dsh_plugin_uninstall: () => { throw new Error('uninstall failed') },
+      'plugin:dialog|open': () => ['C:/plugins/x.zip'],
+      dsh_plugin_install_local: (args) => installLocal(args),
+    })
+    try {
+      render(<PluginsTab />)
+      // p2 已 ack → 直接启用(无确认弹窗)
+      fireEvent.click((await screen.findAllByLabelText('启用'))[1])
+      expect(screen.queryByRole('dialog')).toBeNull()
+      // p2 操作进行中(p1 非 ack)再点 p1 → busy 守卫忽略
+      await vi.waitFor(() => expect(releaseSet).not.toBeNull())
+      fireEvent.click(screen.getAllByLabelText('启用')[0])
+      expect(screen.queryByRole('dialog')).toBeNull() // busy 期间不弹风险确认
+      releaseSet!()
+      await vi.waitFor(() => expect(screen.queryByText('…')).toBeNull())
+      // URL 安装的 Error 路径
+      fireEvent.change(screen.getByPlaceholderText(/GitHub 仓库 URL/), { target: { value: 'https://x/e' } })
+      fireEvent.click(screen.getByText('URL 安装'))
+      expect(await screen.findByText('url install failed')).toBeTruthy()
+      // 卸载的 Error 路径
+      fireEvent.click(screen.getAllByLabelText('卸载')[0])
+      fireEvent.click(await screen.findByText('卸载'))
+      expect(await screen.findByText('uninstall failed')).toBeTruthy()
+      // Zip 导入(对话框返回数组)
+      fireEvent.click(screen.getByText('导入 Zip'))
+      await vi.waitFor(() => expect(installLocal).toHaveBeenCalledWith({ path: 'C:/plugins/x.zip' }))
+    } finally {
+      restore()
+    }
+  })
+
+  it('ignores empty URL install and null local pick in preview', async () => {
+    render(<PluginsTab />)
+    await screen.findByText('暂无已安装插件。')
+    fireEvent.click(screen.getByText('URL 安装')) // 空 URL → 按钮禁用,点击无效果
+    fireEvent.keyDown(screen.getByPlaceholderText(/GitHub 仓库 URL/), { key: 'Enter' }) // 空 URL Enter → 守卫返回
+    fireEvent.keyDown(screen.getByPlaceholderText(/GitHub 仓库 URL/), { key: 'a' }) // 非 Enter 键忽略
+    fireEvent.click(screen.getByText('导入目录')) // 预览无对话框 → null → 忽略
+    expect(screen.queryByText(/raw/)).toBeNull()
+  })
+
+  it('covers market install, list refresh, dialog cancels and fixture extras', async () => {
+    const installUrl = vi.fn(() => ({ id: 'fresh', name: 'Fresh', version: '1', source: { kind: 'url' }, entry: 'i.js', enabled: false }))
+    const restore = stubTauriInternals({
+      dsh_plugin_list: () => [
+        { id: 'p1', name: 'has-meta', version: '1', license: 'MIT', description: 'desc', source: { kind: 'market' }, entry: 'i.js', enabled: false },
+      ],
+      dsh_plugin_market_fetch: () => ({
+        stale: false,
+        categories: [{ name: '工具', plugins: [{ name: 'Fresh', url: 'https://x/fresh', description: 'new', stars: 3, npm: 'fresh' }] }],
+      }),
+      dsh_plugin_install_url: (args) => installUrl(args),
+      dsh_shutdown: () => null,
+    })
+    try {
+      render(<PluginsTab />)
+      // license/description 展示
+      expect(await screen.findByText('MIT')).toBeTruthy()
+      expect(screen.getByText('desc')).toBeTruthy()
+      // 列表刷新按钮
+      fireEvent.click(screen.getByLabelText('刷新'))
+      await act(async () => { await Promise.resolve() })
+      // 市场安装(Fresh 未装 → 走 onInstallUrlFromMarket)
+      fireEvent.click(screen.getByText('安装'))
+      await vi.waitFor(() => expect(installUrl).toHaveBeenCalledWith({ url: 'https://x/fresh' }))
+      // 市场刷新按钮(列表刷新与市场刷新各一个「刷新」)
+      fireEvent.click(screen.getAllByText('刷新')[1])
+      await act(async () => { await Promise.resolve() })
+    } finally {
+      restore()
+    }
+  })
+
+  it('surfaces market install failures (Error and string)', async () => {
+    let installCalls = 0
+    const restore = stubTauriInternals({
+      dsh_plugin_list: () => [],
+      dsh_plugin_market_fetch: () => ({
+        stale: false,
+        categories: [{ name: '工具', plugins: [{ name: 'A', url: 'https://x/a', description: 'a' }] }],
+      }),
+      dsh_plugin_install_url: () => {
+        installCalls += 1
+        if (installCalls === 1) throw new Error('market boom')
+        throw 'market raw'
+      },
+    })
+    try {
+      render(<PluginsTab />)
+      fireEvent.click(await screen.findByText('安装'))
+      expect(await screen.findByText('market boom')).toBeTruthy()
+      fireEvent.click(screen.getByText('安装'))
+      expect(await screen.findByText('market raw')).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it('cancels the risk and uninstall dialogs', async () => {
+    const restore = stubTauriInternals({
+      dsh_plugin_list: () => [
+        { id: 'p1', name: 'a', version: '1', source: { kind: 'market' }, entry: 'i.js', enabled: false },
+      ],
+      dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
+    })
+    try {
+      render(<PluginsTab />)
+      // 风险确认弹窗 → 取消
+      fireEvent.click(await screen.findByLabelText('启用'))
+      expect(await screen.findByRole('dialog', { name: '启用插件' })).toBeTruthy()
+      fireEvent.click(screen.getByText('取消'))
+      expect(screen.queryByRole('dialog', { name: '启用插件' })).toBeNull()
+      // 卸载弹窗 → panel 阻止冒泡 + 取消
+      fireEvent.click(screen.getByLabelText('卸载'))
+      expect(await screen.findByRole('dialog', { name: '卸载插件' })).toBeTruthy()
+      fireEvent.mouseDown(screen.getByRole('dialog', { name: '卸载插件' })) // panel 阻止冒泡,不关闭
+      expect(screen.getByRole('dialog', { name: '卸载插件' })).toBeTruthy()
+      fireEvent.click(screen.getByText('取消'))
+      expect(screen.queryByRole('dialog', { name: '卸载插件' })).toBeNull()
+    } finally {
+      restore()
+    }
+  })
+
+  it('covers list string failure, enable Error, uninstall string, import string and empty-array dialog', async () => {
+    const restore = stubTauriInternals({
+      dsh_plugin_list: () => [
+        { id: 'p1', name: 'a', version: '1', source: { kind: 'market' }, entry: 'i.js', enabled: false },
+      ],
+      dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
+      dsh_plugin_set_enabled: () => { throw new Error('enable boom') },
+      dsh_plugin_uninstall: () => { throw 'uninstall raw' },
+      dsh_plugin_install_local: () => { throw 'import raw' },
+      'plugin:dialog|open': () => [],
+    })
+    try {
+      render(<PluginsTab />)
+      // 启用 Error(先过风险确认)
+      fireEvent.click(await screen.findByLabelText('启用'))
+      fireEvent.click(await screen.findByText('启用'))
+      expect(await screen.findByText('enable boom')).toBeTruthy()
+      // 卸载字符串失败
+      fireEvent.click(screen.getByLabelText('卸载'))
+      fireEvent.click(await screen.findByText('卸载'))
+      expect(await screen.findByText('uninstall raw')).toBeTruthy()
+      // 空数组对话框 → 导入忽略;字符串失败走另一路径
+      fireEvent.click(screen.getByText('导入 Zip'))
+      await act(async () => { await Promise.resolve() })
+    } finally {
+      restore()
+    }
+  })
+
+  it('covers import Error and string failures', async () => {
+    let releaseImport: ((error: unknown) => void) | null = null
+    let installCalls = 0
+    const restore = stubTauriInternals({
+      dsh_plugin_list: () => [],
+      dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
+      'plugin:dialog|open': () => 'C:/p.zip',
+      dsh_plugin_install_local: () => {
+        installCalls += 1
+        if (installCalls === 1) {
+          return new Promise((_resolve, reject) => {
+            releaseImport = reject
+          })
+        }
+        throw 'import raw'
+      },
+      dsh_shutdown: () => null,
+    })
+    try {
+      render(<PluginsTab />)
+      await screen.findByText('暂无已安装插件。')
+      fireEvent.click(screen.getByText('导入 Zip'))
+      await vi.waitFor(() => expect(releaseImport).not.toBeNull())
+      releaseImport!(new Error('import boom')) // Error 路径
+      expect(await screen.findByText('import boom')).toBeTruthy()
+      fireEvent.click(screen.getByText('导入 Zip'))
+      expect(await screen.findByText('import raw')).toBeTruthy() // String 路径
+    } finally {
+      restore()
+    }
+  })
+
+  it('covers list string failure on refresh', async () => {
+    let listCalls = 0
+    const restore = stubTauriInternals({
+      dsh_plugin_list: () => {
+        listCalls += 1
+        if (listCalls === 1) return []
+        throw 'list raw failure'
+      },
+      dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
+    })
+    try {
+      render(<PluginsTab />)
+      // 市场加载完成触发 effect 重跑 → 第二次列表拉取抛字符串 → 错误文案
+      expect(await screen.findByText('list raw failure')).toBeTruthy()
+      expect(listCalls).toBeGreaterThanOrEqual(2)
+    } finally {
+      restore()
+    }
+  })
+
+  it('ConfirmActionDialog closes on backdrop mousedown and the close button', () => {
+    const onCancel = vi.fn()
+    const view = render(<ConfirmActionDialog title="T" message="M" confirmText="确定" onCancel={onCancel} onConfirm={() => {}} />)
+    fireEvent.mouseDown(view.container.querySelector('[role="presentation"]')!)
+    expect(onCancel).toHaveBeenCalledTimes(1)
+    const view2 = render(<ConfirmActionDialog title="T2" message="M" confirmText="确定" onCancel={onCancel} onConfirm={() => {}} />)
+    fireEvent.click(within(screen.getAllByRole('dialog')[1]).getByLabelText('关闭'))
+    expect(onCancel).toHaveBeenCalledTimes(2)
+    void view2
+  })
+})
+
+describe('ai extra branches', () => {
+  it('covers asset-scope labels, whitelist edge cases, all memory toggles and string failures', async () => {
+    localStorage.setItem(AI_STORAGE_KEY, JSON.stringify({
+      settings: { commandWhitelist: ['ls'], commandWhitelistVersion: 3 },
+    }))
+    const restore = stubTauriInternals({
+      ai_memory_list: () => [
+        { id: 'm1', scope: 'asset:abc', content: 'A'.repeat(2400), created_at: 0, updated_at: 0 },
+        { id: 'm2', scope: 'asset:xyz', content: 'b', created_at: 0, updated_at: 0 },
+      ],
+      ai_memory_update: () => { throw 'raw save failure' },
+      ai_memory_delete: () => { throw 'raw delete failure' },
+    })
+    try {
+      render(<AiTab />)
+      // 白名单边界:空输入不添加;重复项不添加;Enter 添加
+      fireEvent.click(screen.getByText('添加'))
+      expect(screen.getAllByText('ls').length).toBeGreaterThanOrEqual(1)
+      fireEvent.change(screen.getByPlaceholderText(/输入命令前缀/), { target: { value: '  ' } })
+      fireEvent.keyDown(screen.getByPlaceholderText(/输入命令前缀/), { key: 'Enter' })
+      fireEvent.keyDown(screen.getByPlaceholderText(/输入命令前缀/), { key: 'a' })
+      expect(screen.queryAllByText('ls').length).toBeGreaterThanOrEqual(1)
+      fireEvent.change(screen.getByPlaceholderText(/输入命令前缀/), { target: { value: 'ls' } })
+      fireEvent.keyDown(screen.getByPlaceholderText(/输入命令前缀/), { key: 'Enter' })
+      expect(screen.getAllByText('ls').length).toBe(1) // 重复不重复添加
+      fireEvent.change(screen.getByPlaceholderText(/输入命令前缀/), { target: { value: 'docker ps' } })
+      fireEvent.keyDown(screen.getByPlaceholderText(/输入命令前缀/), { key: 'Enter' })
+      expect(screen.getByText('docker ps')).toBeTruthy()
+      // 保存反馈 1.6s 后消失
+      vi.useFakeTimers()
+      fireEvent.click(screen.getByText('保存'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(1600) })
+      expect(screen.queryByText('已保存')).toBeNull()
+      vi.useRealTimers()
+      // 其余三个记忆开关
+      fireEvent.click(screen.getByText('存档 tool 消息与工具调用'))
+      fireEvent.click(screen.getByText('记忆写入需逐条确认'))
+      fireEvent.click(screen.getByText('自动沉淀记忆'))
+      const stored = () => JSON.parse(localStorage.getItem(AI_STORAGE_KEY) ?? '{}') as {
+        settings: { memoryStoreToolOutputs: boolean; memoryWriteNeedsConfirm: boolean; memoryAutoReview: boolean }
+      }
+      expect(stored().settings.memoryStoreToolOutputs).toBe(true)
+      expect(stored().settings.memoryWriteNeedsConfirm).toBe(true)
+      expect(stored().settings.memoryAutoReview).toBe(false)
+      // 压缩阈值非法输入被忽略
+      fireEvent.change(screen.getByLabelText(/压缩触发阈值/), { target: { value: '200' } })
+      // 记忆管理:asset scope 分组 + 超容量标红 + 编辑/删除字符串失败
+      fireEvent.click(screen.getByText('管理记忆'))
+      expect(await screen.findByText('ASSET — abc')).toBeTruthy()
+      expect(screen.getByText('ASSET — xyz')).toBeTruthy()
+      expect(screen.getByText(/2400\/1375 字符/)).toBeTruthy()
+      fireEvent.click(screen.getAllByLabelText('编辑')[0])
+      fireEvent.change(within(screen.getByRole('dialog', { name: '长期记忆管理' })).getByRole('textbox'), { target: { value: '新内容' } })
+      fireEvent.click(within(screen.getByRole('dialog', { name: '长期记忆管理' })).getByText('保存'))
+      expect(await screen.findByText('raw save failure')).toBeTruthy()
+      // 两段删除:取消后再删(字符串失败)
+      fireEvent.click(screen.getAllByLabelText('删除')[0])
+      fireEvent.click(screen.getAllByText('取消')[1]) // 删除确认行的取消
+      expect(screen.queryByText(/确认删除这条记忆/)).toBeNull()
+      fireEvent.click(screen.getAllByLabelText('删除')[0])
+      fireEvent.click(screen.getByText('删除'))
+      expect(await screen.findByText('raw delete failure')).toBeTruthy()
+      // 弹窗:刷新 / 关闭 / backdrop
+      fireEvent.click(screen.getByLabelText('刷新'))
+      await act(async () => { await Promise.resolve() })
+      fireEvent.mouseDown(screen.getByRole('dialog', { name: '长期记忆管理' }))
+      expect(screen.getByRole('dialog', { name: '长期记忆管理' })).toBeTruthy() // panel 阻止冒泡
+      fireEvent.mouseDown(screen.getByRole('dialog', { name: '长期记忆管理' }).parentElement!)
+      expect(screen.queryByRole('dialog', { name: '长期记忆管理' })).toBeNull()
+    } finally {
+      restore()
+    }
+  })
+
+  it('shows memory load failures (Error then string via refresh)', async () => {
+    let listCalls = 0
+    const restore = stubTauriInternals({
+      ai_memory_list: () => {
+        listCalls += 1
+        if (listCalls === 1) throw new Error('list boom')
+        throw 'list raw'
+      },
+    })
+    try {
+      render(<AiTab />)
+      fireEvent.click(screen.getByText('管理记忆'))
+      expect(await screen.findByText('list boom')).toBeTruthy()
+      fireEvent.click(screen.getByLabelText('刷新'))
+      expect(await screen.findByText('list raw')).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it('covers Error-path memory failures, compact NaN guard, dialog close and edit cancel', async () => {
+    const restore = stubTauriInternals({
+      ai_memory_list: () => [{ id: 'm1', scope: 'user', content: 'c', created_at: 0, updated_at: 0 }],
+      ai_memory_update: () => { throw new Error('save boom') },
+      ai_memory_delete: () => { throw new Error('delete boom') },
+    })
+    try {
+      render(<AiTab />)
+      // 压缩阈值 NaN 输入被忽略
+      fireEvent.change(screen.getByLabelText(/压缩触发阈值/), { target: { value: 'abc' } })
+      // 记忆编辑 Error 失败 + 编辑态取消
+      fireEvent.click(screen.getByText('管理记忆'))
+      fireEvent.click(await screen.findByLabelText('编辑'))
+      const dialog = () => screen.getByRole('dialog', { name: '长期记忆管理' })
+      fireEvent.change(within(dialog()).getByRole('textbox'), { target: { value: '新内容' } })
+      fireEvent.click(within(dialog()).getByText('保存'))
+      expect(await screen.findByText('save boom')).toBeTruthy()
+      fireEvent.click(within(dialog()).getByText('取消')) // 退出编辑态
+      expect(within(dialog()).queryByRole('textbox')).toBeNull()
+      // 删除 Error 失败
+      fireEvent.click(screen.getAllByLabelText('删除')[0])
+      fireEvent.click(screen.getByText('删除'))
+      expect(await screen.findByText('delete boom')).toBeTruthy()
+      // 关闭按钮关弹窗
+      fireEvent.click(screen.getByLabelText('关闭'))
+      expect(screen.queryByRole('dialog', { name: '长期记忆管理' })).toBeNull()
+    } finally {
+      restore()
+    }
+  })
+})

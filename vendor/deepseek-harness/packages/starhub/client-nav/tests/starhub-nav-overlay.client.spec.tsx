@@ -212,14 +212,17 @@ describe('StarHubOverlay', () => {
 })
 
 describe('StarHubSettingsSection', () => {
-  it('embeds the settings page without assets/appearance tabs, landing on ai with inline chrome', () => {
+  it('renders the in-shell React settings panel (no iframe) with the migrated tabs', () => {
     render(<StarHubSettingsSection />)
-    const frame = document.querySelector('iframe')
-    // 与 StarHub 侧的解析路径一致:route 参数解码一次,内层 query 再由路由解码
-    const route = decodeURIComponent((frame?.getAttribute('src') ?? '').split('route=')[1] ?? '')
-    const query = new URLSearchParams(route.slice('/settings?'.length))
-    expect(query.get('tabs')).toBe('general,ai,plugins,audit,alert,about')
-    expect(query.get('tab')).toBe('ai')
-    expect(query.get('chrome')).toBe('inline')
+    expect(document.querySelector('iframe')).toBeNull()
+    expect(screen.getByRole('tab', { name: /AI 助手/ })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /插件/ })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /审计日志/ })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /告警规则/ })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /关于/ })).toBeTruthy()
+    // 通用/外观/资产 tab 不再出现(dsh 接管 / 工具区管理)
+    expect(screen.queryByRole('tab', { name: /通用/ })).toBeNull()
+    expect(screen.queryByRole('tab', { name: /外观/ })).toBeNull()
+    expect(screen.queryByRole('tab', { name: /资产/ })).toBeNull()
   })
 })
