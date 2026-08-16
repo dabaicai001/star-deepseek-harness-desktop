@@ -111,8 +111,10 @@ const WEB_STATIC_RELS = [
 ]
 
 /** web GUI 需要补 junction 的本地包(packages/starhub/ 下目录名),
- * 与 Rust web.rs 的 LOCAL_PACKAGES 对齐;入包后保持 dev 布局可复用 junction 逻辑。 */
-const WEB_LOCAL_PACKAGE_DIRS = ['client-nav', 'host-static']
+ * 与 Rust web.rs 的 LOCAL_PACKAGES 对齐;入包后保持 dev 布局可复用 junction 逻辑。
+ * tool-context 自 v0.71 起被 examples/starhub-web/cordis.patch.yml 引用,
+ * 不入包则 profile 启动时按 fail-loud 拒绝缺失插件。 */
+const WEB_LOCAL_PACKAGE_DIRS = ['client-nav', 'host-static', 'tool-context']
 
 class BuildCli {
   private constructor(

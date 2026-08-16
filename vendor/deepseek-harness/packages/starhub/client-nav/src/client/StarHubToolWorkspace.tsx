@@ -1,47 +1,45 @@
 /**
  * StarHub 工具工作区列(方案 P1):右侧工具工作区列显示当前子类(终端 /
- * 数据库 / Docker)的资产(连接)列表;点资产行打开该实例的操作页
- * (shell.overlay iframe)。挂载时经顶层帧 Tauri IPC 直调 `get_assets`。
+ * 数据库 / Docker)的资产(连接)列表;点资产行经注入的 openAsset 回调
+ * 打开该实例的操作页(shell.overlay iframe)。
+ *
+ * 本组件同时挂在 workspace(无会话)与 details.workspace(有会话)两座
+ * session-maybe 席位上;框架在无会话分支不下发注册侧 store,故全部共享
+ * 状态都走 inject hooks 舱位的裸 source(useSelection / useAssets),写入
+ * 走注入回调(openAsset / refreshAssets)。挂载与切换子类时调
+ * refreshAssets 重拉 get_assets,保证设置里新建/删除连接后列表新鲜。
  */
 import { useEffect } from 'react'
-import type { PropsRuntime, PropsStore, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the 'workspace' / 'details.workspace' SlotMap rows.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
-import type { createStarHubStore, RustAsset } from './store.ts'
+import type { StarHubAssetListState, ToolSelection } from './store.ts'
 
 /** Settings namespace written by the shell (host reads it per request). */
 const TOOL_CONTEXT_NAMESPACE = 'starhub-tool-context'
 
-/** Business face injected by the registration: the connection wire. */
+/** Business face injected by the registration: the connection wire + bridge/asset writes. */
 export interface StarHubToolWorkspaceInjected {
   api: IApiClient
+  openAsset: (asset: StarHubAsset) => void
+  refreshAssets: () => void
+  hooks: {
+    selection: SnapshotStore<ToolSelection>
+    assets: SnapshotStore<StarHubAssetListState>
+  }
 }
 
-/** Full composed props: workspace runtime share + the shared StarHub store share + injected api. */
+/** Full composed props: workspace runtime share + the injected face (no slot store — see header). */
 export type StarHubToolWorkspaceProps =
   & PropsRuntime<'workspace'>
-  & PropsStore<ReturnType<typeof createStarHubStore>>
   & InjectFace<StarHubToolWorkspaceInjected>
 
-/** Tauri IPC surface injected into the top frame by the desktop shell. */
-interface TauriInternals {
-  invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
-}
-
-/** 顶层帧 Tauri IPC 直调;浏览器预览(无 Tauri)时 reject。 */
-function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const internals = (window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__
-  if (internals === undefined) {
-    return Promise.reject(new Error('Tauri IPC unavailable (browser preview)'))
-  }
-  return internals.invoke(cmd, args) as Promise<T>
-}
-
 /** 资产副标题(user@host 之类,取最常用字段;没有就不显示)。 */
-function assetSubtitle(asset: RustAsset): string {
+function assetSubtitle(asset: { config: Record<string, unknown> }): string {
   const c = asset.config
   const host = typeof c.host === 'string' ? c.host : ''
   const username = typeof c.username === 'string' ? c.username : ''
@@ -78,41 +76,37 @@ const statusStyle: React.CSSProperties = {
 /**
  * Render the in-shell tool workspace column: the current subcategory's asset
  * list; clicking a row opens that instance's operation page. Also syncs the
- * current tool selection to host settings for AI context (Path B plan 4.3).
- * @param props - composed slot props (workspace runtime share + store share + injected api).
+ * current tool selection to host settings for AI context (Path B plan 4.3) —
+ * the patch is always the full four fields, empty string clearing the key, so
+ * a deselected asset never lingers as stale AI context.
+ * @param props - composed slot props (workspace runtime share + injected face).
  * @returns the asset list surface, or a loading/error/empty/guide state.
  */
-export function StarHubToolWorkspace({ useStore, actions, api }: StarHubToolWorkspaceProps) {
-  const assets = useStore(s => s.assets)
-  const loading = useStore(s => s.loading)
-  const error = useStore(s => s.error)
-  const activeSubcategory = useStore(s => s.activeSubcategory)
-  const activeAssetId = useStore(s => s.activeAssetId)
+export function StarHubToolWorkspace({ api, openAsset, refreshAssets, useSelection, useAssets }: StarHubToolWorkspaceProps) {
+  const assets = useAssets(s => s.assets)
+  const loading = useAssets(s => s.loading)
+  const error = useAssets(s => s.error)
+  const activeSubcategory = useSelection(s => s.subcategory)
+  const activeAssetId = useSelection(s => s.assetId)
+  const activeRoutePrefix = useSelection(s => s.routePrefix)
   const subcategory = STARHUB_SUBCATEGORIES.find(s => s.key === activeSubcategory)
 
-  useEffect(() => {
-    if (loading || assets.length > 0) return
-    actions.setLoading(true)
-    actions.setError(null)
-    tauriInvoke<RustAsset[]>('get_assets')
-      .then((list) => { actions.setAssets(list) })
-      .catch((e: unknown) => { actions.setError(e instanceof Error ? e.message : String(e)) })
-      .finally(() => { actions.setLoading(false) })
-  }, [loading, assets.length, actions])
+  // 挂载与切换子类时都重新拉取(回调内部对并发拉取去重)。
+  useEffect(() => { refreshAssets() }, [activeSubcategory, refreshAssets])
 
   // 4.3: 当前工具选择 → host settings(供 agent/pre-step 注入 AI 上下文)。
+  // 全量四字段:取消选中写空串清除,避免过期资产滞留成 AI 上下文。
   useEffect(() => {
     if (api === undefined) return
-    const patch: Record<string, string> = {}
-    if (subcategory !== undefined) patch.subcategory = subcategory.key
-    if (activeAssetId !== null) {
-      patch.assetId = activeAssetId
-      const asset = assets.find(a => a.id === activeAssetId)
-      if (asset !== undefined) patch.assetName = asset.name
+    const asset = activeAssetId !== null ? assets.find(a => a.id === activeAssetId) : undefined
+    const patch = {
+      subcategory: subcategory?.key ?? '',
+      assetId: asset?.id ?? '',
+      assetName: asset?.name ?? '',
+      routePrefix: (activeAssetId !== null ? activeRoutePrefix : null) ?? subcategory?.routePrefix ?? '',
     }
-    if (subcategory !== undefined) patch.routePrefix = subcategory.routePrefix
     void api.settings.update({ ns: TOOL_CONTEXT_NAMESPACE, patch }).catch(() => {})
-  }, [api, subcategory, activeAssetId, assets])
+  }, [api, subcategory, activeAssetId, activeRoutePrefix, assets])
 
   if (subcategory === undefined) {
     return <div style={statusStyle}>请在左侧选择工具子类(终端 / 数据库 / Docker)。</div>
@@ -135,13 +129,13 @@ export function StarHubToolWorkspace({ useStore, actions, api }: StarHubToolWork
       <div style={{ fontSize: 11, color: 'var(--dsw-foreground-secondary, #9aa7b4)', padding: '0 4px' }}>
         {subcategory.label}({matched.length})
       </div>
-      {matched.map((asset: StarHubAsset & RustAsset) => (
+      {matched.map((asset) => (
         <button
           key={asset.id}
           type="button"
           style={rowStyle}
           title={`打开 ${asset.name}`}
-          onClick={() => actions.openAsset(asset.id)}
+          onClick={() => openAsset(asset)}
         >
           <span style={badgeStyle}>{subcategory.label}</span>
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

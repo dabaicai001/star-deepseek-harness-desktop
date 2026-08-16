@@ -36,7 +36,8 @@ const EXAMPLE_REL: &str = "examples/starhub-web";
 /// dsh CLI bin 相对 vendor 根的路径。
 const CLI_BIN_REL: &str = "apps/cli/lib/bin.js";
 /// 需要补 junction 的本地包(packages/starhub/ 下的目录名)。
-const LOCAL_PACKAGES: [&str; 2] = ["client-nav", "host-static"];
+/// tool-context 自 v0.71 起被 examples/starhub-web/cordis.patch.yml 引用。
+const LOCAL_PACKAGES: [&str; 3] = ["client-nav", "host-static", "tool-context"];
 
 #[derive(Debug, Error)]
 pub enum DshWebError {
@@ -208,6 +209,13 @@ impl DshWebManager {
                 continue;
             }
             let target = runtime_dir.join("packages").join("starhub").join(dir_name);
+            // 旧部署的 runtime 可能还没有该包目录(如 v0.71 新增的 tool-context):
+            // 跳过即可——healed profiles/node_modules 兜底会从安装闭包解析;
+            // 两边都缺时由 loader 在启动时 fail-loud。
+            if !target.exists() {
+                tracing::warn!("本地包目录缺失,跳过 junction: {}", target.display());
+                continue;
+            }
             plugins::create_dir_link(&link, &target).map_err(|e| {
                 DshWebError::PathResolve(format!(
                     "junction 创建失败({} → {}): {e}",

@@ -1,6 +1,6 @@
 {
   "name": "starhub",
-  "version": "0.71.0",
+  "version": "0.71.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -58,6 +58,7 @@
     "marked": "^18.0.7",
     "pinia": "^2.1.0",
     "pinia-plugin-persistedstate": "^3.2.0",
+    "rxjs": "^7.8.2",
     "simple-icons": "16.25.0",
     "sql-formatter": "^15.4.0",
     "vue": "^3.4.0",

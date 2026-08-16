@@ -1,35 +1,44 @@
 // @vitest-environment jsdom
 /**
  * StarHubToolWorkspace (方案 P1):右侧工具工作区列按子类过滤资产列表。
- * Covers the guide/empty/loading/error/list render states and the asset-row
- * click opening the instance operation page, driven through the shared
- * StarHub store (the get_assets IPC path is exercised live in the real shell;
- * jsdom has no Tauri internals, so these tests drive store state directly).
+ * Covers the guide/empty/loading/error/list render states, refreshAssets
+ * firing on mount and subcategory switch, and the asset-row click opening the
+ * instance operation page through the selection bridge. 资产/选择状态走
+ * inject hooks 舱位(session-maybe 无会话分支不下发注册侧 store),测试
+ * 直接驱动这两份裸 source。
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
-import { createStarHubStore } from '../src/client/store.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  createToolSelectionBridge, type StarHubAssetListState, type ToolSelection,
+} from '../src/client/store.ts'
 import { StarHubToolWorkspace } from '../src/client/StarHubToolWorkspace.tsx'
 
 afterEach(cleanup)
 
 /**
- * Compose the full workspace props share: the store seat from a fresh
- * instance plus the session-maybe standard kit stubs the component's
- * PropsRuntime requires (the component itself only reads useStore/actions).
+ * Compose the full workspace props share: a real selection bridge plus an
+ * asset-list bare source (both stand in for the apply-owned holders injected
+ * through the hooks compartment), plus the session-maybe standard kit stubs
+ * the component's PropsRuntime requires (the component itself only reads the
+ * injected face).
  */
-function storeProps() {
-  const store = createStarHubStore().create()
-  const { getSnapshot, subscribe } = store
-  const useStore = <S,>(sel: (s: ReturnType<typeof store.getSnapshot>) => S) => sel(getSnapshot())
+function workspaceProps() {
+  const assets = createSnapshotStore<StarHubAssetListState>({ assets: [], loading: false, error: null })
+  const bridge = createToolSelectionBridge()
+  const useAssets = <S,>(sel: (s: StarHubAssetListState) => S) => sel(assets.getSnapshot())
+  const useSelection = <S,>(sel: (s: ToolSelection) => S) => sel(bridge.source.getSnapshot())
   return {
-    store,
-    useStore,
-    actions: store.actions,
-    subscribe,
+    assets,
+    bridge,
+    refreshAssets: vi.fn(),
+    useAssets,
+    useSelection,
     // settings.update stub: the tool-context sync effect calls it and must
     // not throw in jsdom (no real wire).
     api: { settings: { update: () => Promise.resolve({ result: { ok: true } }) } } as never,
+    openAsset: bridge.openAsset,
     useSession: (() => undefined) as never,
     sessionId: undefined,
     useProjection: (() => undefined) as never,
@@ -56,39 +65,48 @@ const sshAsset = {
 
 describe('StarHubToolWorkspace', () => {
   it('shows the guide when no subcategory is selected', () => {
-    const props = storeProps()
+    const props = workspaceProps()
     render(<StarHubToolWorkspace {...props} />)
     expect(screen.getByText(/请在左侧选择工具子类/)).toBeTruthy()
   })
 
+  it('calls refreshAssets on mount and on subcategory switch', () => {
+    const props = workspaceProps()
+    const view = render(<StarHubToolWorkspace {...props} />)
+    expect(props.refreshAssets).toHaveBeenCalledTimes(1)
+    props.bridge.selectSubcategory('terminal')
+    view.rerender(<StarHubToolWorkspace {...props} />)
+    expect(props.refreshAssets).toHaveBeenCalledTimes(2)
+  })
+
   it('renders the loading state while fetching', () => {
-    const props = storeProps()
-    props.actions.setSubcategory('terminal')
-    props.actions.setLoading(true)
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.loading = true })
     render(<StarHubToolWorkspace {...props} />)
     expect(screen.getByText(/加载资产/)).toBeTruthy()
   })
 
   it('renders the error state when loading failed', () => {
-    const props = storeProps()
-    props.actions.setSubcategory('terminal')
-    props.actions.setError('Tauri IPC unavailable (browser preview)')
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.error = 'Tauri IPC unavailable (browser preview)' })
     render(<StarHubToolWorkspace {...props} />)
     expect(screen.getByText(/资产加载失败/)).toBeTruthy()
   })
 
   it('shows the per-subcategory empty state when no assets match', () => {
-    const props = storeProps()
-    props.actions.setSubcategory('docker')
-    props.actions.setAssets([sshAsset])
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('docker')
+    props.assets.update((d) => { d.assets = [sshAsset] })
     render(<StarHubToolWorkspace {...props} />)
     expect(screen.getByText(/暂无 Docker 资产/)).toBeTruthy()
   })
 
   it('renders matching asset rows with badge and subtitle, filtering per subcategory', () => {
-    const props = storeProps()
-    props.actions.setSubcategory('terminal')
-    props.actions.setAssets([sshAsset])
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.assets = [sshAsset] })
     render(<StarHubToolWorkspace {...props} />)
     expect(screen.getByText('prod-server')).toBeTruthy()
     expect(screen.getByText('终端')).toBeTruthy()
@@ -96,13 +114,16 @@ describe('StarHubToolWorkspace', () => {
   })
 
   it('opens the instance operation page when an asset row is clicked', () => {
-    const props = storeProps()
-    props.actions.setSubcategory('terminal')
-    props.actions.setAssets([sshAsset])
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.assets = [sshAsset] })
     render(<StarHubToolWorkspace {...props} />)
     const row = screen.getByText('prod-server').closest('button')
     expect(row).not.toBeNull()
     row!.click()
-    expect(props.store.getSnapshot().activeAssetId).toBe('a1')
+    const sel = props.bridge.source.getSnapshot()
+    expect(sel.assetId).toBe('a1')
+    expect(sel.routePrefix).toBe('/ssh')
+    expect(sel.instanceId).toMatch(/^a1__\d+$/)
   })
 })

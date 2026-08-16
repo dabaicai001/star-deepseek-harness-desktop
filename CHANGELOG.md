@@ -13,6 +13,16 @@
 
 ---
 
+## [0.71.1] - 2026-08-16
+
+### 修复
+- **3086/打包实例 GUI 无法启动(根因)**:client-nav 共享单一 store handle 跨 root(sidebar/overlay)与 session-maybe(workspace)两个 scope 挂载,违反 one-handle-one-scope 约束直接抛错;且 session-maybe 席位在无会话分支框架不下发注册侧 store(useStore is not a function)。重构为:nav store(root)+ apply 持有的选择桥与资产列表 holder(裸 source 经 inject hooks 舱位下发、回调写入,同 ui-agent-preset controller 范式);新增 `starhub-shell-state` 测试套件,client-nav 18 测试全过
+- **实例路由前缀错配(P0)**:子类前缀固定 `/db/mysql`,PostgreSQL/ClickHouse/Redis/ES/Broker 资产被错路由进 DbView;改为按资产类型派生(`routePrefixForAsset`),embed 侧 EmbedAssetBar/EmbedSectionEmpty 同步用 `routeNameForAsset` 派生路由名
+- **tool-context 残留(P1)**:取消选中资产后 settings patch 不清空,过期资产滞留成 AI 上下文;改为全量四字段写入(空串清除)
+- **iframe 重载风险(P1)**:`assetInstanceUrl` 渲染期 `Date.now()` 改为 openAsset 时一次性生成 instanceId
+- **资产列表不刷新 / 空态新建不跳转 / Broker 归属与遗留条目(P2)**:挂载与切换子类重拉 get_assets;空态/资产条新建成功后直接跳进新资产实例页;Broker 归「终端」子类(方案 2.1);清理 redis/es/broker 扁平遗留条目
+- **构建链修复**:根 package.json 显式锁 rxjs ^7.8.2(pnpm 把 univer 的 peer 解析成 7.0.0,其根入口不导出 filter 导致 embed 构建失败);入包脚本与 web.rs 的本地包清单补 `tool-context`(v0.71 注册进组合但未入包,junction 目标缺失时跳过并 warn)
+
 ## [0.71.0] - 2026-08-15
 
 ### 新增

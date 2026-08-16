@@ -46,7 +46,9 @@ export function embedRoute(): string | null {
 // ====== embed 段路由表(P3 资产选择骨架)======
 // client-nav 的导航条目指向「段路由」(不带资产 id,如 /ssh);embed 侧负责
 // 解析:有该类型资产 → 重定向到带 instanceId 的功能路由;无资产 → 停在段
-// 路由的空态页。key 与 client-nav sections.ts 的条目一一对应。
+// 路由的空态页。key 按功能路由细分(redis/elasticsearch 等各有独立条目),
+// 壳侧子类(终端/数据库/Docker)经 routeNameForAsset 匹配映射到这些段。
+
 
 export interface EmbedSectionDef {
   /** 稳定 key,与 client-nav sections.ts 的条目一致 */
@@ -59,7 +61,7 @@ export interface EmbedSectionDef {
   icon: string
 }
 
-/** embed 功能页清单(与 client-nav sections.ts 保持同序) */
+/** embed 功能页清单(按功能路由分段;壳侧子类清单见 client-nav sections.ts) */
 export const EMBED_SECTIONS: readonly EmbedSectionDef[] = [
   { key: 'terminal', pathPrefix: '/ssh', routeName: 'ssh-terminal', icon: 'mdi-console' },
   { key: 'database', pathPrefix: '/db/mysql', routeName: 'db-mysql', icon: 'mdi-database' },

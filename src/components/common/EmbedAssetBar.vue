@@ -19,6 +19,7 @@ import {
   postConnAction, postEmbedOpenSection, type EmbedConnState,
 } from '@/lib/embed'
 import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
+import { routeNameForAsset } from '@/utils/assetRouting'
 import type { Asset, CreateAssetDto } from '@/types/asset'
 
 const { t } = useI18n()
@@ -145,14 +146,15 @@ function openMenu(e: MouseEvent) {
   menu.value = { x: rect.left, y: rect.bottom + 4, items }
 }
 
-/** 切换资产:同段路由换一个 instanceId(= 新会话),组件整体重挂;重置状态显示 */
+/** 切换资产:换一个 instanceId(= 新会话),组件整体重挂;重置状态显示。
+ *  路由名按资产类型派生(数据库段下 PG/CH/Redis/ES 各有独立功能路由)。 */
 function switchAsset(asset: Asset) {
   const s = section.value
   if (!s?.routeName || asset.id === currentAsset.value?.id) return
   assetStore.updateAsset(asset.id, { lastUsedAt: Date.now() }).catch(() => {})
   connState.value = 'disconnected'
   connReason.value = ''
-  router.replace({ name: s.routeName, params: { id: generateInstanceId(asset.id) } }).catch(() => {})
+  router.replace({ name: routeNameForAsset(asset), params: { id: generateInstanceId(asset.id) } }).catch(() => {})
 }
 
 // ====== 内联新建连接(方案 3.1:不再跳设置)======
@@ -160,15 +162,11 @@ const showNewDialog = ref(false)
 
 async function onCreateAsset(dto: CreateAssetDto) {
   try {
-    await assetStore.createAsset(dto)
+    const created = await assetStore.createAsset(dto)
     showNewDialog.value = false
-    // 新建后如果当前段还是空态,直接切到新资产
-    const created = assetStore.assets.find(a => a.name === dto.name && a.config === dto.config)
-    if (created && !currentAsset.value) {
-      const s = section.value
-      if (s?.routeName) {
-        router.replace({ name: s.routeName, params: { id: generateInstanceId(created.id) } }).catch(() => {})
-      }
+    // 新建后如果当前段还是空态,直接切到新资产(路由名按资产类型派生)
+    if (!currentAsset.value) {
+      router.replace({ name: routeNameForAsset(created), params: { id: generateInstanceId(created.id) } }).catch(() => {})
     }
   } catch (err) {
     // 保持对话框打开让用户修正;错误由对话框侧提示

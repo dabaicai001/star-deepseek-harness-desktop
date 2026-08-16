@@ -1,22 +1,32 @@
 /**
  * StarHub overlay:注册进 `shell.overlay` 的全幅 iframe 层。
  * 两种打开方式,同一时刻只显示一个:
- * - 旧扁平条目(设置等):nav store 的 active 决定 src;
- * - 实例操作页(方案 P1):nav store 的 activeAssetId + 当前子类决定 src
- *   (`assetInstanceUrl`),点资产行打开,关闭按钮 / Esc / embed 转发 Esc 关闭。
+ * - 旧扁平条目(设置等):root scope nav store 的 active 决定 src;
+ * - 实例操作页(方案 P1):选择桥(inject hooks 舱位)的 assetId / instanceId /
+ *   routePrefix 决定 src(`assetInstanceUrl`),点资产行打开,关闭按钮 / Esc /
+ *   embed 转发 Esc 关闭。instanceId 由打开动作生成一次,渲染期只读——
+ *   重渲染不会重载 iframe。
  */
 import { useEffect } from 'react'
-import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRuntime, PropsStore, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the 'shell.overlay' SlotMap row (declared by ui-layout).
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconCloseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { STARHUB_SECTIONS, STARHUB_SUBCATEGORIES, assetInstanceUrl, sectionEmbedUrl } from './sections.ts'
-import type { createStarHubStore } from './store.ts'
+import { STARHUB_SECTIONS, assetInstanceUrl, sectionEmbedUrl } from './sections.ts'
+import type { createStarHubNavStore, ToolSelection } from './store.ts'
 
-/** Full composed props: overlay runtime share + the shared StarHub store share. */
+/** Business face injected by the registration: close the open asset instance. */
+export interface StarHubOverlayInjected {
+  closeAsset: () => void
+  hooks: { selection: SnapshotStore<ToolSelection> }
+}
+
+/** Full composed props: overlay runtime share + the root nav store share + injected face. */
 export type StarHubOverlayProps =
   & PropsRuntime<'shell.overlay'>
-  & PropsStore<ReturnType<typeof createStarHubStore>>
+  & PropsStore<ReturnType<typeof createStarHubNavStore>>
+  & InjectFace<StarHubOverlayInjected>
 
 /** Message type the StarHub embed shell posts when Escape is pressed inside the iframe. */
 const EMBED_ESCAPE_MESSAGE = 'starhub-embed-escape'
@@ -26,22 +36,20 @@ const EMBED_OPEN_SECTION_MESSAGE = 'starhub-embed-open-section'
 /**
  * Render the full-frame StarHub overlay: a flat section (settings etc.) or an
  * asset instance operation page, whichever is active.
- * @param props - composed slot props (nav store share).
+ * @param props - composed slot props (nav store share + injected selection face).
  * @returns null when closed; otherwise the overlay layer.
  */
-export function StarHubOverlay({ useStore, actions }: StarHubOverlayProps) {
+export function StarHubOverlay({ useStore, actions, closeAsset, useSelection }: StarHubOverlayProps) {
   const active = useStore(s => s.active)
-  const activeAssetId = useStore(s => s.activeAssetId)
-  const activeSubcategory = useStore(s => s.activeSubcategory)
+  const selection = useSelection(s => s)
   const section = STARHUB_SECTIONS.find(s => s.key === active)
-  const subcategory = STARHUB_SUBCATEGORIES.find(s => s.key === activeSubcategory)
-  const assetOpen = activeAssetId !== null && subcategory !== undefined
+  const assetOpen = selection.assetId !== null && selection.instanceId !== null && selection.routePrefix !== null
 
   useEffect(() => {
     if (section === undefined && !assetOpen) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (assetOpen) actions.closeAsset()
+        if (assetOpen) closeAsset()
         else actions.closeSection()
       }
     }
@@ -51,7 +59,7 @@ export function StarHubOverlay({ useStore, actions }: StarHubOverlayProps) {
       if (e.origin !== window.location.origin) return
       const data = e.data as { type?: unknown; key?: unknown } | null
       if (data?.type === EMBED_ESCAPE_MESSAGE) {
-        if (assetOpen) actions.closeAsset()
+        if (assetOpen) closeAsset()
         else actions.closeSection()
       } else if (data?.type === EMBED_OPEN_SECTION_MESSAGE
         && typeof data.key === 'string'
@@ -65,10 +73,10 @@ export function StarHubOverlay({ useStore, actions }: StarHubOverlayProps) {
       document.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('message', onMessage)
     }
-  }, [section, assetOpen, actions])
+  }, [section, assetOpen, actions, closeAsset])
 
   const src = assetOpen
-    ? assetInstanceUrl(subcategory!.routePrefix, activeAssetId!)
+    ? assetInstanceUrl(selection.routePrefix!, selection.instanceId!)
     : section === undefined ? null : sectionEmbedUrl(section)
   if (src === null) return null
   return (
@@ -78,7 +86,7 @@ export function StarHubOverlay({ useStore, actions }: StarHubOverlayProps) {
       pointerEvents: 'auto', background: 'var(--dsw-background-primary, #0b0f14)',
     }}>
       <iframe
-        key={assetOpen ? `asset-${activeAssetId}` : `section-${section!.key}`}
+        key={assetOpen ? `asset-${selection.instanceId}` : `section-${section!.key}`}
         title={assetOpen ? 'starhub-asset' : `starhub-${section!.key}`}
         src={src}
         style={{ display: 'block', width: '100%', height: '100%', border: 'none' }}
@@ -86,7 +94,7 @@ export function StarHubOverlay({ useStore, actions }: StarHubOverlayProps) {
       <button
         type="button"
         aria-label="关闭"
-        onClick={() => { if (assetOpen) actions.closeAsset(); else actions.closeSection() }}
+        onClick={() => { if (assetOpen) closeAsset(); else actions.closeSection() }}
         style={{
           position: 'absolute', top: 8, right: 8, zIndex: 41,
           display: 'flex', alignItems: 'center', justifyContent: 'center',

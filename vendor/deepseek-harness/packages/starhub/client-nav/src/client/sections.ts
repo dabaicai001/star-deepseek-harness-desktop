@@ -4,16 +4,14 @@
  * 侧栏展示「工具」大类(可展开),下挂子类(终端 / 数据库 / Docker);
  * 点子类 → 右侧工具工作区列显示该类型的资产(连接)列表;点资产行 →
  * 弹出该实例的操作页(embed iframe,`/starhub/index.html?embed=1&route=...`)。
- * route 前缀与资产匹配规则在子类上定义,实例路由由 `assetInstanceRoute` 派生。
+ * 子类只定义分组/图标/资产匹配;实例路由前缀一律按资产类型经
+ * `routePrefixForAsset` 派生(数据库子类混有多种库,不能共用子类前缀)。
  */
 import {
   IconArchiveOutline20,
-  IconBranchOutline16,
-  IconChecklistOutline14,
   IconCodeOutline16,
   IconDataOutline16,
   IconListPenOutline16,
-  IconSearchOutline16,
   IconSettingsOutline16,
   type IconProps,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -28,7 +26,7 @@ export interface StarHubAsset {
 }
 
 /**
- * 一个子类:侧栏子行 + 右侧资产列表过滤 + 实例路由前缀。
+ * 一个子类:侧栏子行 + 右侧资产列表过滤 + 缺省段路由前缀。
  * 资产匹配复用 `routeNameForAsset` 的路由名映射(asset.type + config.dbType)。
  */
 export interface StarHubSubcategory {
@@ -36,7 +34,7 @@ export interface StarHubSubcategory {
   key: string
   /** 侧栏子行文案。 */
   label: string
-  /** embed 入口的段路由前缀(不带资产 id),如 /ssh、/db/mysql。 */
+  /** 缺省段路由前缀(无资产空态与 routePrefixForAsset 未命中时的回退)。 */
   routePrefix: string
   /** 侧栏子行图标(ui-primitives 现成字形)。 */
   Icon: ComponentType<IconProps>
@@ -59,14 +57,41 @@ export function routeNameForAsset(asset: StarHubAsset): string {
   return 'db-mysql'
 }
 
-/** 子类清单(展示顺序即数组顺序)。数据库合并 MySQL / PG / CH / Redis / ES 为一个子类。 */
+/** 功能路由名 → embed 段路由前缀(与 src/router/index.ts 的 :id 路由一致)。 */
+export const ROUTE_NAME_PREFIX: Readonly<Record<string, string>> = {
+  'ssh-terminal': '/ssh',
+  'db-mysql': '/db/mysql',
+  'db-postgresql': '/db/postgresql',
+  'db-clickhouse': '/db/clickhouse',
+  'db-redis': '/db/redis',
+  'db-elasticsearch': '/db/elasticsearch',
+  'db-broker': '/broker',
+  docker: '/docker',
+  excel: '/excel',
+}
+
+/**
+ * 资产 → embed 段路由前缀。实例操作页必须按资产类型派生前缀:
+ * 数据库子类下 MySQL / PG / CH / Redis / ES 各有独立功能路由(不同视图),
+ * 用子类前缀会把 Redis/ES 资产错路由进 MySQL 工作台。
+ * @param asset - 目标资产。
+ * @returns 段路由前缀;无功能路由的类型(如 local)返回 null。
+ */
+export function routePrefixForAsset(asset: StarHubAsset): string | null {
+  return ROUTE_NAME_PREFIX[routeNameForAsset(asset)] ?? null
+}
+
+/** 子类清单(展示顺序即数组顺序)。终端含 SSH/SFTP/Broker,数据库合并 MySQL / PG / CH / Redis / ES(方案 2.1)。 */
 export const STARHUB_SUBCATEGORIES: readonly StarHubSubcategory[] = [
   {
     key: 'terminal',
     label: '终端',
     routePrefix: '/ssh',
     Icon: IconCodeOutline16,
-    matches: (a) => routeNameForAsset(a) === 'ssh-terminal',
+    matches: (a) => {
+      const name = routeNameForAsset(a)
+      return name === 'ssh-terminal' || name === 'db-broker'
+    },
   },
   {
     key: 'database',
@@ -76,7 +101,7 @@ export const STARHUB_SUBCATEGORIES: readonly StarHubSubcategory[] = [
     matches: (a) => {
       const name = routeNameForAsset(a)
       return name === 'db-mysql' || name === 'db-postgresql' || name === 'db-clickhouse'
-        || name === 'db-redis' || name === 'db-elasticsearch' || name === 'db-broker'
+        || name === 'db-redis' || name === 'db-elasticsearch'
     },
   },
   {
@@ -88,18 +113,15 @@ export const STARHUB_SUBCATEGORIES: readonly StarHubSubcategory[] = [
   },
 ]
 
-/** 遗留:旧扁平条目清单(仅设置等非资产型页面保留,供 overlay 直开)。 */
+/** 遗留:旧扁平条目清单(仅未子类化/无资产型页面保留,供 overlay 直开)。 */
 export const STARHUB_SECTIONS: readonly { key: string; label: string; route: string; Icon: ComponentType<IconProps> }[] = [
-  { key: 'broker', label: 'Broker', route: '/broker', Icon: IconBranchOutline16 },
-  { key: 'redis', label: 'Redis', route: '/db/redis', Icon: IconChecklistOutline14 },
-  { key: 'elasticsearch', label: 'Elasticsearch', route: '/db/elasticsearch', Icon: IconSearchOutline16 },
   { key: 'excel', label: 'Excel', route: '/excel', Icon: IconListPenOutline16 },
   { key: 'settings', label: '设置', route: '/settings', Icon: IconSettingsOutline16 },
 ]
 
 /**
  * 组装旧扁平功能页 iframe 的 src(host-static 托管 StarHub embed dist 在 /starhub/)。
- * @param section - 旧扁平条目(设置等非资产型页面)。
+ * @param section - 旧扁平条目(设置等无资产型页面)。
  * @returns embed 入口 URL(站内路径)。
  */
 export function sectionEmbedUrl(section: { route: string }): string {
@@ -108,13 +130,13 @@ export function sectionEmbedUrl(section: { route: string }): string {
 
 /**
  * 组装实例操作页 iframe 的 src(host-static 托管 StarHub embed dist 在 /starhub/)。
- * 实例路由用 instanceId(`<assetId>__<timestamp>`,与 src/utils/tabId.ts 同构),
- * embed 侧经 parseInstanceId 反解资产 id。
- * @param routePrefix - 子类段路由前缀(如 /ssh)。
- * @param assetId - 目标资产 id。
+ * instanceId 由打开动作生成一次(`<assetId>__<timestamp>`,与 src/utils/tabId.ts
+ * 同构,embed 侧经 parseInstanceId 反解资产 id)并随选择桥传递——不得在渲染期
+ * 重新生成,否则任何重渲染都会改 src 重载 iframe、丢终端会话。
+ * @param routePrefix - 段路由前缀(按 routePrefixForAsset 派生)。
+ * @param instanceId - 打开动作生成的实例 id。
  * @returns embed 入口 URL(站内路径)。
  */
-export function assetInstanceUrl(routePrefix: string, assetId: string): string {
-  const instanceId = `${assetId}__${Date.now()}`
+export function assetInstanceUrl(routePrefix: string, instanceId: string): string {
   return `/starhub/index.html?embed=1&route=${encodeURIComponent(`${routePrefix}/${instanceId}`)}`
 }
