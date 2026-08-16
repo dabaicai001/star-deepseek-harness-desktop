@@ -161,7 +161,7 @@ describe('StarHubToolWorkspace', () => {
 
   it('syncs the opened asset into the tool-context settings patch', () => {
     const props = workspaceProps()
-    const update = vi.fn(() => Promise.resolve({ result: { ok: true } }))
+    const update = vi.fn((..._args: unknown[]) => Promise.resolve({ result: { ok: true } }))
     props.api = { settings: { update } } as never
     props.bridge.selectSubcategory('terminal')
     props.assets.update((d) => { d.assets = [sshAsset] })
@@ -169,15 +169,16 @@ describe('StarHubToolWorkspace', () => {
     props.bridge.openAsset({ id: 'a1', type: 'ssh', name: 'prod-server', config: { host: '10.0.0.5', username: 'deploy' } })
     view.rerender(<StarHubToolWorkspace {...props} />)
     expect(update).toHaveBeenCalled()
-    const patch = update.mock.calls.at(-1)?.[0]?.patch
-    expect(patch.assetId).toBe('a1')
-    expect(patch.assetName).toBe('prod-server')
-    expect(patch.routePrefix).toBe('/ssh')
+    const arg = update.mock.calls.at(-1)?.[0] as { patch?: { assetId?: string; assetName?: string; routePrefix?: string } } | undefined
+    const patch = arg?.patch
+    expect(patch?.assetId).toBe('a1')
+    expect(patch?.assetName).toBe('prod-server')
+    expect(patch?.routePrefix).toBe('/ssh')
   })
 
   it('swallows settings-sync failures', () => {
     const props = workspaceProps()
-    const update = vi.fn(() => Promise.reject(new Error('settings down')))
+    const update = vi.fn((..._args: unknown[]) => Promise.reject(new Error('settings down')))
     props.api = { settings: { update } } as never
     props.bridge.selectSubcategory('terminal')
     render(<StarHubToolWorkspace {...props} />)
@@ -200,7 +201,7 @@ describe('StarHubToolWorkspace', () => {
     render(<StarHubToolWorkspace {...props} />)
     // 头部与空态各有一个「新建连接」,空态按钮在列表区域
     const buttons = screen.getAllByText('新建连接')
-    buttons[buttons.length - 1].click()
+    buttons[buttons.length - 1]!.click()
     expect(props.openConnectionManager).toHaveBeenCalledTimes(1)
   })
 

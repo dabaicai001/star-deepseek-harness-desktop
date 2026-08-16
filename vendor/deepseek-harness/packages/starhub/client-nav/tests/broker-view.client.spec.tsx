@@ -158,7 +158,7 @@ describe('BrokerView', () => {
   })
 
   it('does not invoke when the asset has no host', () => {
-    const invoke = vi.fn(() => Promise.resolve(kafkaOverview))
+    const invoke = vi.fn((..._args: unknown[]) => Promise.resolve(kafkaOverview))
     const restore = stubTauriInternals(invoke)
     try {
       render(<BrokerView asset={brokerAsset({ host: undefined })} />)
@@ -169,13 +169,13 @@ describe('BrokerView', () => {
   })
 
   it('refreshes on the refresh button and falls back to the default port when unset', async () => {
-    const invoke = vi.fn(() => Promise.resolve(kafkaOverview))
+    const invoke = vi.fn((..._args: unknown[]) => Promise.resolve(kafkaOverview))
     const restore = stubTauriInternals(invoke)
     try {
       render(<BrokerView asset={brokerAsset({ port: undefined })} />)
       await act(async () => { await Promise.resolve() })
       expect(invoke).toHaveBeenCalledTimes(1)
-      const args = invoke.mock.calls[0][1] as { params: { port: number } }
+      const args = invoke.mock.calls[0]![1]! as { params: { port: number } }
       expect(args.params.port).toBe(9092)
       fireEvent.click(screen.getByTitle('刷新状态'))
       await act(async () => { await Promise.resolve() })
@@ -186,12 +186,12 @@ describe('BrokerView', () => {
   })
 
   it('passes username/password/ssl through when present', async () => {
-    const invoke = vi.fn(() => Promise.resolve(kafkaOverview))
+    const invoke = vi.fn((..._args: unknown[]) => Promise.resolve(kafkaOverview))
     const restore = stubTauriInternals(invoke)
     try {
       render(<BrokerView asset={brokerAsset({ username: 'u', password: 'p', ssl: true })} />)
       await act(async () => { await Promise.resolve() })
-      const params = (invoke.mock.calls[0][1] as { params: Record<string, unknown> }).params
+      const params = (invoke.mock.calls[0]![1]! as { params: Record<string, unknown> }).params
       expect(params.username).toBe('u')
       expect(params.password).toBe('p')
       expect(params.ssl).toBe(true)
@@ -202,7 +202,7 @@ describe('BrokerView', () => {
 
   it('auto-refreshes every 30 seconds and stops refreshing after unmount', async () => {
     vi.useFakeTimers()
-    const invoke = vi.fn(() => Promise.resolve(kafkaOverview))
+    const invoke = vi.fn((..._args: unknown[]) => Promise.resolve(kafkaOverview))
     const restore = stubTauriInternals(invoke)
     try {
       const view = render(<BrokerView asset={brokerAsset()} />)

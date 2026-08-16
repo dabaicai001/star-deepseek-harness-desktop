@@ -37,7 +37,7 @@ describe('routePrefixForAsset', () => {
 
   it('maps excel and falls back to mysql for a non-string dbType', () => {
     expect(routePrefixForAsset(asset('excel'))).toBe('/excel')
-    expect(routeNameForAsset({ id: 'x', type: 'db', name: 'n', config: { dbType: 5 } })).toBe('db-mysql')
+    expect(routeNameForAsset({ type: 'db', config: { dbType: 5 } })).toBe('db-mysql')
   })
 
   it('returns null for types without a function route', () => {

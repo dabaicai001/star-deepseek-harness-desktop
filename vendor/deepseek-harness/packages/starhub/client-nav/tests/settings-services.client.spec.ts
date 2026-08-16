@@ -52,7 +52,7 @@ describe('isTauriRuntime', () => {
 describe('audit services', () => {
   it('logAudit forwards fields and is a no-op in preview', async () => {
     expect(await logAudit({ category: 'ai', action: 'memory_update', target: 'user' })).toBe(0)
-    const invoke = vi.fn(() => Promise.resolve(7))
+    const invoke = vi.fn((..._args: unknown[]) => Promise.resolve(7))
     const restore = stubTauriInternals(invoke)
     try {
       await expect(logAudit({ category: 'ai', action: 'memory_update', target: 'user', success: false }))
@@ -68,7 +68,7 @@ describe('audit services', () => {
 
   it('fetchAuditLogs forwards the fixed 200/0 pagination and filter', async () => {
     expect(await fetchAuditLogs({})).toEqual([])
-    const invoke = vi.fn(() => Promise.resolve([{ id: 1 }]))
+    const invoke = vi.fn((..._args: unknown[]) => Promise.resolve([{ id: 1 }]))
     const restore = stubTauriInternals(invoke)
     try {
       const rows = await fetchAuditLogs({ categoryFilter: 'ssh' })
@@ -173,7 +173,7 @@ describe('updater services', () => {
   })
 
   it('checkForUpdates maps the metadata and downloadAndInstall drives the plugin commands', async () => {
-    const invoke = vi.fn((cmd: string) => {
+    const invoke = vi.fn((cmd: string, _args?: unknown) => {
       if (cmd === 'plugin:updater|check') return Promise.resolve({ rid: 1, version: '9.9.9', date: '2026-01-01', body: 'b' })
       if (cmd === 'plugin:updater|download_and_install') return Promise.resolve(null)
       if (cmd === 'plugin:process|restart') return Promise.resolve(null)
@@ -190,7 +190,7 @@ describe('updater services', () => {
       expect(invoke.mock.calls.map((c) => c[0])).toEqual([
         'plugin:updater|check', 'plugin:updater|check', 'plugin:updater|download_and_install', 'plugin:process|restart',
       ])
-      const downloadArgs = invoke.mock.calls[2][1] as { onEvent: { toJSON: () => string }; rid: number }
+      const downloadArgs = invoke.mock.calls[2]![1]! as { onEvent: { toJSON: () => string }; rid: number }
       expect(downloadArgs.rid).toBe(1)
       expect(downloadArgs.onEvent.toJSON()).toBe('__CHANNEL__:42')
     } finally {
@@ -199,7 +199,7 @@ describe('updater services', () => {
   })
 
   it('downloadAndInstall stops when the check finds no update', async () => {
-    const invoke = vi.fn(() => Promise.resolve(null))
+    const invoke = vi.fn((..._args: unknown[]) => Promise.resolve(null))
     const restore = stubTauriInternals(invoke)
     try {
       await downloadAndInstall()

@@ -26,8 +26,12 @@ import {
 } from './store.ts'
 import { StarHubNav } from './StarHubNav.tsx'
 import { StarHubOverlay } from './StarHubOverlay.tsx'
-import { StarHubSettingsSection } from './StarHubSettingsSection.tsx'
 import { StarHubToolWorkspace } from './StarHubToolWorkspace.tsx'
+import { AboutTab } from './settings/about.tsx'
+import { AiTab } from './settings/ai.tsx'
+import { AlertTab } from './settings/alert.tsx'
+import { AuditTab } from './settings/audit.tsx'
+import { PluginsTab } from './settings/plugins.tsx'
 
 /** Required services: the slot registry, the layout panel-action face, and the connection wire. */
 export const inject = ['slots', 'layout', 'connection']
@@ -99,13 +103,28 @@ export function apply(ctx: Context): void {
     name: 'details.workspace',
     inject: workspaceInject,
   }, StarHubToolWorkspace))
-  // 设置融入底部设置齿轮:dsh 设置面板的 StarHub 分区(embed 设置页,
-  // 去掉资产/外观 tab)。order 30 排在 通用(0)/模型(10)/插件(15)/
-  // Agent 预设(20)之后。
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section',
-    id: 'starhub',
-    order: 30,
-    label: 'StarHub',
-  }, StarHubSettingsSection))
+  // 设置融入底部设置齿轮:dsh 设置面板侧栏的 StarHub 可展开分组(点击
+  // 分组头展开/收起,点子项右侧直渲对应 tab——两列,无内部嵌套列)。
+  // group='starhub' 由 ui-settings-general 的 SettingsRoot 渲染为折叠分组;
+  // 5 个子 section 分别直渲 AI/插件/审计/告警/关于。order 30 起排在
+  // 通用(0)/模型(10)/插件(15)/Agent 预设(20)之后。
+  const starhubTabs: ReadonlyArray<{
+    id: string; order: number; label: string; component: () => JSX.Element
+  }> = [
+    { id: 'starhub-ai', order: 30, label: 'AI 助手', component: AiTab },
+    { id: 'starhub-plugins', order: 31, label: '插件', component: PluginsTab },
+    { id: 'starhub-audit', order: 32, label: '审计日志', component: AuditTab },
+    { id: 'starhub-alert', order: 33, label: '告警规则', component: AlertTab },
+    { id: 'starhub-about', order: 34, label: '关于', component: AboutTab },
+  ]
+  for (const tab of starhubTabs) {
+    ctx.slots.inject('settings.section', () => ctx.slots.register({
+      name: 'settings.section',
+      id: tab.id,
+      order: tab.order,
+      label: tab.label,
+      group: 'starhub',
+      groupLabel: 'StarHub',
+    }, tab.component))
+  }
 }

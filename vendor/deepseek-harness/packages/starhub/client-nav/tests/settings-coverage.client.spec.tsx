@@ -48,7 +48,7 @@ afterEach(() => {
 
 describe('services extra branches', () => {
   it('logAudit passes through detail/session/asset fields and nulls the absent ones', async () => {
-    const invoke = vi.fn(() => Promise.resolve(1))
+    const invoke = vi.fn((..._args: unknown[]) => Promise.resolve(1))
     const restore = stubTauriInternals({ audit_log: (args) => invoke(args) })
     try {
       await logAudit({
@@ -221,7 +221,7 @@ describe('alert extra branches', () => {
       fireEvent.click(screen.getByText('刷新'))
       await act(async () => { await Promise.resolve() })
       // 编辑 r1 并测试 webhook(非 ✓ 结果)
-      fireEvent.click(screen.getAllByLabelText('编辑')[0])
+      fireEvent.click(screen.getAllByLabelText('编辑')[0]!)
       const dialog = screen.getByRole('dialog', { name: '编辑告警规则' })
       fireEvent.click(within(dialog).getByText('测试 Webhook'))
       expect(await screen.findByText('✗ 无法送达')).toBeTruthy()
@@ -229,7 +229,7 @@ describe('alert extra branches', () => {
       fireEvent.click(within(dialog).getByText('取消'))
       expect(screen.queryByRole('dialog')).toBeNull()
       // 删除
-      fireEvent.click(screen.getAllByLabelText('删除')[0])
+      fireEvent.click(screen.getAllByLabelText('删除')[0]!)
       await act(async () => { await Promise.resolve() })
       expect(deleteCalls).toHaveLength(1)
     } finally {
@@ -248,15 +248,15 @@ describe('alert extra branches', () => {
       const dialog = screen.getByRole('dialog', { name: '新建告警规则' })
       // 逐个字段编辑(覆盖各 onChange;webhook 清空路径)
       fireEvent.change(within(dialog).getByPlaceholderText(/例如/), { target: { value: '新规则' } })
-      fireEvent.change(within(dialog).getAllByRole('combobox')[0], { target: { value: 'docker' } })
-      fireEvent.change(within(dialog).getAllByRole('combobox')[1], { target: { value: 'docker.error_rate' } })
-      fireEvent.change(within(dialog).getAllByRole('combobox')[2], { target: { value: '>=' } })
+      fireEvent.change(within(dialog).getAllByRole('combobox')[0]!, { target: { value: 'docker' } })
+      fireEvent.change(within(dialog).getAllByRole('combobox')[1]!, { target: { value: 'docker.error_rate' } })
+      fireEvent.change(within(dialog).getAllByRole('combobox')[2]!, { target: { value: '>=' } })
       const numbers = within(dialog).getAllByRole('spinbutton')
-      fireEvent.change(numbers[0], { target: { value: '7.5' } })
-      fireEvent.change(numbers[1], { target: { value: '3' } })
-      fireEvent.change(numbers[2], { target: { value: '120' } })
-      fireEvent.change(within(dialog).getAllByRole('textbox')[1], { target: { value: 'http://new' } })
-      fireEvent.change(within(dialog).getAllByRole('textbox')[1], { target: { value: '' } }) // 清空 → null 路径
+      fireEvent.change(numbers[0]!, { target: { value: '7.5' } })
+      fireEvent.change(numbers[1]!, { target: { value: '3' } })
+      fireEvent.change(numbers[2]!, { target: { value: '120' } })
+      fireEvent.change(within(dialog).getAllByRole('textbox')[1]!, { target: { value: 'http://new' } })
+      fireEvent.change(within(dialog).getAllByRole('textbox')[1]!, { target: { value: '' } }) // 清空 → null 路径
       fireEvent.click(within(dialog).getByRole('checkbox')) // 启用开关
       // 保存失败 → 弹窗保持 + 不崩
       fireEvent.click(within(dialog).getByText('保存'))
@@ -292,7 +292,7 @@ describe('alert extra branches', () => {
       fireEvent.click(screen.getByText('新建规则'))
       const dialog = () => screen.getByRole('dialog', { name: '新建告警规则' })
       // 输入 webhook 后测试(Error 失败)+ 5s 自动清除
-      fireEvent.change(within(dialog()).getAllByRole('textbox')[1], { target: { value: 'http://bad' } })
+      fireEvent.change(within(dialog()).getAllByRole('textbox')[1]!, { target: { value: 'http://bad' } })
       fireEvent.click(within(dialog()).getByText('测试 Webhook'))
       await act(async () => { await vi.advanceTimersByTimeAsync(0) })
       expect(screen.getByText('webhook boom')).toBeTruthy()
@@ -331,7 +331,7 @@ describe('plugins extra branches', () => {
       expect(screen.getByText('Zip')).toBeTruthy() // local-zip 来源标签
       expect(screen.getByText('other')).toBeTruthy() // 未知来源原样返回
       // 启用失败(风险确认后 setPluginEnabled 抛字符串)→ 错误文案
-      fireEvent.click(screen.getAllByLabelText('启用')[0])
+      fireEvent.click(screen.getAllByLabelText('启用')[0]!)
       fireEvent.click(await screen.findByText('启用'))
       expect(await screen.findByText('raw enable failure')).toBeTruthy()
     } finally {
@@ -363,7 +363,7 @@ describe('plugins extra branches', () => {
   it('covers Error-path failures, busy guard, direct enable when acked and zip/array import', async () => {
     localStorage.setItem('starhub.plugins.enable-acknowledged', JSON.stringify(['p2']))
     let releaseSet: (() => void) | null = null
-    const installLocal = vi.fn(() => ({ id: 'p9', name: 'zip', version: '1', source: { kind: 'local-zip' }, entry: 'i.js', enabled: false }))
+    const installLocal = vi.fn((..._args: unknown[]) => ({ id: 'p9', name: 'zip', version: '1', source: { kind: 'local-zip' }, entry: 'i.js', enabled: false }))
     const restore = stubTauriInternals({
       dsh_plugin_list: () => [
         { id: 'p1', name: 'a', version: '1', source: { kind: 'market' }, entry: 'i.js', enabled: false },
@@ -379,11 +379,11 @@ describe('plugins extra branches', () => {
     try {
       render(<PluginsTab />)
       // p2 已 ack → 直接启用(无确认弹窗)
-      fireEvent.click((await screen.findAllByLabelText('启用'))[1])
+      fireEvent.click((await screen.findAllByLabelText('启用'))[1]!)
       expect(screen.queryByRole('dialog')).toBeNull()
       // p2 操作进行中(p1 非 ack)再点 p1 → busy 守卫忽略
       await vi.waitFor(() => expect(releaseSet).not.toBeNull())
-      fireEvent.click(screen.getAllByLabelText('启用')[0])
+      fireEvent.click(screen.getAllByLabelText('启用')[0]!)
       expect(screen.queryByRole('dialog')).toBeNull() // busy 期间不弹风险确认
       releaseSet!()
       await vi.waitFor(() => expect(screen.queryByText('…')).toBeNull())
@@ -392,7 +392,7 @@ describe('plugins extra branches', () => {
       fireEvent.click(screen.getByText('URL 安装'))
       expect(await screen.findByText('url install failed')).toBeTruthy()
       // 卸载的 Error 路径
-      fireEvent.click(screen.getAllByLabelText('卸载')[0])
+      fireEvent.click(screen.getAllByLabelText('卸载')[0]!)
       fireEvent.click(await screen.findByText('卸载'))
       expect(await screen.findByText('uninstall failed')).toBeTruthy()
       // Zip 导入(对话框返回数组)
@@ -414,7 +414,7 @@ describe('plugins extra branches', () => {
   })
 
   it('covers market install, list refresh, dialog cancels and fixture extras', async () => {
-    const installUrl = vi.fn(() => ({ id: 'fresh', name: 'Fresh', version: '1', source: { kind: 'url' }, entry: 'i.js', enabled: false }))
+    const installUrl = vi.fn((..._args: unknown[]) => ({ id: 'fresh', name: 'Fresh', version: '1', source: { kind: 'url' }, entry: 'i.js', enabled: false }))
     const restore = stubTauriInternals({
       dsh_plugin_list: () => [
         { id: 'p1', name: 'has-meta', version: '1', license: 'MIT', description: 'desc', source: { kind: 'market' }, entry: 'i.js', enabled: false },
@@ -438,7 +438,7 @@ describe('plugins extra branches', () => {
       fireEvent.click(screen.getByText('安装'))
       await vi.waitFor(() => expect(installUrl).toHaveBeenCalledWith({ url: 'https://x/fresh' }))
       // 市场刷新按钮(列表刷新与市场刷新各一个「刷新」)
-      fireEvent.click(screen.getAllByText('刷新')[1])
+      fireEvent.click(screen.getAllByText('刷新')[1]!)
       await act(async () => { await Promise.resolve() })
     } finally {
       restore()
@@ -583,7 +583,7 @@ describe('plugins extra branches', () => {
     fireEvent.mouseDown(view.container.querySelector('[role="presentation"]')!)
     expect(onCancel).toHaveBeenCalledTimes(1)
     const view2 = render(<ConfirmActionDialog title="T2" message="M" confirmText="确定" onCancel={onCancel} onConfirm={() => {}} />)
-    fireEvent.click(within(screen.getAllByRole('dialog')[1]).getByLabelText('关闭'))
+    fireEvent.click(within(screen.getAllByRole('dialog')[1]!).getByLabelText('关闭'))
     expect(onCancel).toHaveBeenCalledTimes(2)
     void view2
   })
@@ -638,15 +638,15 @@ describe('ai extra branches', () => {
       expect(await screen.findByText('ASSET — abc')).toBeTruthy()
       expect(screen.getByText('ASSET — xyz')).toBeTruthy()
       expect(screen.getByText(/2400\/1375 字符/)).toBeTruthy()
-      fireEvent.click(screen.getAllByLabelText('编辑')[0])
+      fireEvent.click(screen.getAllByLabelText('编辑')[0]!)
       fireEvent.change(within(screen.getByRole('dialog', { name: '长期记忆管理' })).getByRole('textbox'), { target: { value: '新内容' } })
       fireEvent.click(within(screen.getByRole('dialog', { name: '长期记忆管理' })).getByText('保存'))
       expect(await screen.findByText('raw save failure')).toBeTruthy()
       // 两段删除:取消后再删(字符串失败)
-      fireEvent.click(screen.getAllByLabelText('删除')[0])
-      fireEvent.click(screen.getAllByText('取消')[1]) // 删除确认行的取消
+      fireEvent.click(screen.getAllByLabelText('删除')[0]!)
+      fireEvent.click(screen.getAllByText('取消')[1]!) // 删除确认行的取消
       expect(screen.queryByText(/确认删除这条记忆/)).toBeNull()
-      fireEvent.click(screen.getAllByLabelText('删除')[0])
+      fireEvent.click(screen.getAllByLabelText('删除')[0]!)
       fireEvent.click(screen.getByText('删除'))
       expect(await screen.findByText('raw delete failure')).toBeTruthy()
       // 弹窗:刷新 / 关闭 / backdrop
@@ -699,7 +699,7 @@ describe('ai extra branches', () => {
       fireEvent.click(within(dialog()).getByText('取消')) // 退出编辑态
       expect(within(dialog()).queryByRole('textbox')).toBeNull()
       // 删除 Error 失败
-      fireEvent.click(screen.getAllByLabelText('删除')[0])
+      fireEvent.click(screen.getAllByLabelText('删除')[0]!)
       fireEvent.click(screen.getByText('删除'))
       expect(await screen.findByText('delete boom')).toBeTruthy()
       // 关闭按钮关弹窗

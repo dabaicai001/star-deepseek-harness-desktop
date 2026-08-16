@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 /**
- * Settings 各 tab 组件行为:面板 tab 切换、审计加载/清空、告警 CRUD 弹窗、
- * 插件列表/风险确认/市场、关于更新状态机、AI 白名单/记忆(含记忆管理弹窗)。
- * IPC 走 window.__TAURI_INTERNALS__ stub;浏览器预览分支(无 Tauri)一并覆盖。
+ * Settings 各 tab 组件行为:审计加载/清空、告警 CRUD 弹窗、插件列表/风险
+ * 确认/市场、关于更新状态机、AI 白名单/记忆(含记忆管理弹窗)。五个 tab
+ * 以独立 settings.section 注册(dsh 设置侧栏 StarHub 可展开分组直渲,无
+ * 面板内部嵌套列);IPC 走 window.__TAURI_INTERNALS__ stub;浏览器预览分支
+ * (无 Tauri)一并覆盖。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { StarHubSettingsPanel } from '../src/client/settings/SettingsPanel.tsx'
 import { AuditTab, formatAuditDetail, formatAuditTime } from '../src/client/settings/audit.tsx'
 import { AlertTab } from '../src/client/settings/alert.tsx'
 import { PluginsTab, ConfirmActionDialog } from '../src/client/settings/plugins.tsx'
@@ -41,32 +42,6 @@ afterEach(() => {
   localStorage.clear()
   const w = window as unknown as { __TAURI_INTERNALS__?: unknown }
   delete w.__TAURI_INTERNALS__
-})
-
-describe('StarHubSettingsPanel', () => {
-  it('defaults to the AI tab and switches content on rail clicks', () => {
-    render(<StarHubSettingsPanel />)
-    expect(screen.getByRole('button', { name: /AI 助手/ }).getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByText('命令白名单')).toBeTruthy()
-    fireEvent.click(screen.getByText('插件'))
-    expect(screen.getByText('已安装插件')).toBeTruthy()
-    fireEvent.click(screen.getByText('审计日志'))
-    expect(screen.getByText('操作历史')).toBeTruthy()
-    fireEvent.click(screen.getByText('告警规则'))
-    expect(screen.getByText('新建规则')).toBeTruthy()
-    fireEvent.click(screen.getByText('关于'))
-    expect(screen.getByText('应用版本')).toBeTruthy() // AboutTab 特有
-  })
-
-  it('collapses and re-expands the StarHub submenu on the group header', () => {
-    render(<StarHubSettingsPanel />)
-    expect(screen.getByText('插件')).toBeTruthy() // 默认展开
-    fireEvent.click(screen.getByText('StarHub')) // 折叠
-    expect(screen.queryByText('插件')).toBeNull()
-    expect(screen.getByText('命令白名单')).toBeTruthy() // 内容区保留当前项
-    fireEvent.click(screen.getByText('StarHub')) // 再点展开
-    expect(screen.getByText('插件')).toBeTruthy()
-  })
 })
 
 describe('AuditTab', () => {
@@ -150,8 +125,8 @@ describe('AlertTab', () => {
   })
 
   it('renders rules, edits, deletes and tests webhooks in desktop mode', async () => {
-    const update = vi.fn(() => ({ id: 'r1' }))
-    const remove = vi.fn(() => null)
+    const update = vi.fn((..._args: unknown[]) => ({ id: 'r1' }))
+    const remove = vi.fn((..._args: unknown[]) => null)
     const restore = stubTauriInternals({
       alert_list: () => [{
         id: 'r1', name: 'SSH 连接失败', enabled: true, category: 'ssh', metric: 'ssh.error_count',
@@ -204,8 +179,8 @@ describe('PluginsTab', () => {
   })
 
   it('lists plugins, toggles with the risk ack flow, installs by URL, filters the market and uninstalls', async () => {
-    const setEnabled = vi.fn(() => null)
-    const uninstall = vi.fn(() => null)
+    const setEnabled = vi.fn((..._args: unknown[]) => null)
+    const uninstall = vi.fn((..._args: unknown[]) => null)
     const restore = stubTauriInternals({
       dsh_plugin_list: () => [
         { id: 'p1', name: 'demo', version: '1.0.0', source: { kind: 'market' }, entry: 'index.js', enabled: false },
@@ -233,14 +208,14 @@ describe('PluginsTab', () => {
       expect(screen.getByText('gone')).toBeTruthy()
       expect(screen.getByText('缺失')).toBeTruthy()
       // 未启用 → 首次启用弹风险确认 → 确认后启用并记 ack
-      fireEvent.click(screen.getAllByLabelText('启用')[0])
+      fireEvent.click(screen.getAllByLabelText('启用')[0]!)
       expect(await screen.findByRole('dialog', { name: '启用插件' })).toBeTruthy()
       fireEvent.click(screen.getByText('启用'))
       await vi.waitFor(() => expect(setEnabled).toHaveBeenCalledWith({ id: 'p1', enabled: true }))
       expect(JSON.parse(localStorage.getItem('starhub.plugins.enable-acknowledged') ?? '[]')).toContain('p1')
       // 等 p1 的 busy 指示('…')消失后再操作其他插件
       await vi.waitFor(() => expect(screen.queryByText('…')).toBeNull())
-      fireEvent.click(screen.getAllByTitle('禁用')[0])
+      fireEvent.click(screen.getAllByTitle('禁用')[0]!)
       await vi.waitFor(() => expect(setEnabled).toHaveBeenCalledWith({ id: 'p2', enabled: false }))
       // URL 安装
       fireEvent.change(screen.getByPlaceholderText(/GitHub 仓库 URL/), { target: { value: 'https://github.com/a/b' } })
@@ -248,14 +223,14 @@ describe('PluginsTab', () => {
       await vi.waitFor(() => expect(setEnabled.mock.calls.length).toBeGreaterThanOrEqual(2))
       expect(screen.getByDisplayValue('')).toBeTruthy() // 成功后清空输入
       // 市场:Fresh 安装(installPluginFromUrl)+ Cool 已装禁用
-      fireEvent.click(screen.getAllByText('安装')[0])
+      fireEvent.click(screen.getAllByText('安装')[0]!)
       await vi.waitFor(() => expect(screen.getAllByText('已安装').length).toBeGreaterThanOrEqual(1))
       // 市场:搜索过滤
       fireEvent.change(screen.getByPlaceholderText('搜索插件…'), { target: { value: 'Cool' } })
       expect(await screen.findByText('Cool Plugin')).toBeTruthy()
       expect(screen.queryByText('Fresh Plugin')).toBeNull()
       // 卸载 p2
-      fireEvent.click(screen.getAllByLabelText('卸载')[1])
+      fireEvent.click(screen.getAllByLabelText('卸载')[1]!)
       expect(await screen.findByRole('dialog', { name: '卸载插件' })).toBeTruthy()
       fireEvent.click(screen.getByText('卸载'))
       await vi.waitFor(() => expect(uninstall).toHaveBeenCalledWith({ id: 'p2' }))
@@ -282,7 +257,7 @@ describe('PluginsTab', () => {
       expect(screen.getAllByTitle('禁用').some((b) => b.hasAttribute('disabled'))).toBe(true)
       expect(screen.getAllByLabelText('卸载').some((b) => b.hasAttribute('disabled'))).toBe(true)
       // UI 插件首次启用 → 风险提示文案区分
-      fireEvent.click(screen.getAllByLabelText('启用')[0])
+      fireEvent.click(screen.getAllByLabelText('启用')[0]!)
       expect(await screen.findByText(/浏览器端 UI/)).toBeTruthy()
     } finally {
       restore()
@@ -290,7 +265,7 @@ describe('PluginsTab', () => {
   })
 
   it('imports a local directory through the native dialog', async () => {
-    const install = vi.fn(() => ({ id: 'p1', name: 'n', version: '1', source: { kind: 'local-dir' }, entry: 'i.js', enabled: false }))
+    const install = vi.fn((..._args: unknown[]) => ({ id: 'p1', name: 'n', version: '1', source: { kind: 'local-dir' }, entry: 'i.js', enabled: false }))
     const restore = stubTauriInternals({
       'plugin:dialog|open': () => 'C:/plugins/my-plugin',
       dsh_plugin_install_local: (args) => install(args),
@@ -328,8 +303,8 @@ describe('AboutTab', () => {
   })
 
   it('loads the app version and drives the update state machine in desktop mode', async () => {
-    const install = vi.fn(() => null)
-    const restart = vi.fn(() => null)
+    const install = vi.fn((..._args: unknown[]) => null)
+    const restart = vi.fn((..._args: unknown[]) => null)
     const restore = stubTauriInternals({
       'plugin:app|version': () => '9.9.9',
       'plugin:updater|check': () => ({ rid: 1, version: '10.0.0' }),
@@ -434,14 +409,14 @@ describe('AiTab', () => {
       expect(await screen.findByText('USER — 用户画像')).toBeTruthy()
       expect(screen.getByText('GLOBAL — 环境与经验')).toBeTruthy()
       // 编辑
-      fireEvent.click(screen.getAllByLabelText('编辑')[0])
+      fireEvent.click(screen.getAllByLabelText('编辑')[0]!)
       fireEvent.change(screen.getByDisplayValue('用户偏好'), { target: { value: '新偏好' } })
       fireEvent.click(within(screen.getByRole('dialog', { name: '长期记忆管理' })).getByText('保存'))
       await act(async () => { await Promise.resolve() })
       expect(invoke).toHaveBeenCalledWith('update', { id: 'm1', content: '新偏好' })
       expect(invoke).toHaveBeenCalledWith('audit', expect.objectContaining({ action: 'memory_update', target: 'user' }))
       // 两段删除
-      fireEvent.click(screen.getAllByLabelText('删除')[1])
+      fireEvent.click(screen.getAllByLabelText('删除')[1]!)
       expect(screen.getByText(/确认删除这条记忆/)).toBeTruthy()
       fireEvent.click(screen.getByText('删除'))
       await act(async () => { await Promise.resolve() })

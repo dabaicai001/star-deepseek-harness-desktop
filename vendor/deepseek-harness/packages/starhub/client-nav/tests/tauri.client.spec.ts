@@ -28,7 +28,7 @@ afterEach(() => {
 
 describe('tauriInvoke', () => {
   it('forwards the command and args to the injected invoke and resolves its result', async () => {
-    const invoke = vi.fn(() => Promise.resolve({ ok: true }))
+    const invoke = vi.fn((..._args: unknown[]) => Promise.resolve({ ok: true }))
     const restore = stubTauriInternals(invoke)
     try {
       await expect(tauriInvoke('broker_overview', { kind: 'kafka', params: { host: 'h' } }))

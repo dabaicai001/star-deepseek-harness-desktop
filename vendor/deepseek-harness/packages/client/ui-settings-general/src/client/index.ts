@@ -101,12 +101,20 @@ export function apply(ctx: ClientContext): void {
             rowsVersion = version
             rowsRevision = revision
             rows = ctx.slots.entries('settings.section')
-              .map(e => ({
-                /* v8 ignore next -- list-slot registration requires id (SlotCore rejects an entry without one) */
-                id: e.options.id ?? '',
-                order: e.options.order ?? 0,
-                label: resolveSlotLabel(e.options.label) ?? '',
-              }))
+              .map(e => {
+                const groupLabel = e.options.groupLabel === undefined
+                  ? undefined
+                  : resolveSlotLabel(e.options.groupLabel)
+                return {
+                  /* v8 ignore next -- list-slot registration requires id (SlotCore rejects an entry without one) */
+                  id: e.options.id ?? '',
+                  order: e.options.order ?? 0,
+                  label: resolveSlotLabel(e.options.label) ?? '',
+                  // 分组折叠:可选,缺省平铺(通用/模型等既有注册不受影响)
+                  ...(e.options.group !== undefined ? { group: e.options.group } : {}),
+                  ...(groupLabel !== undefined ? { groupLabel } : {}),
+                } satisfies SettingsSectionRow
+              })
               .sort((a, b) => a.order - b.order)
           }
           return rows

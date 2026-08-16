@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 /**
- * StarHubNav / StarHubOverlay / StarHubSettingsSection(重构版):侧栏「工具」
- * 大类行 + 子类行(无 Excel/设置条目),overlay 的连接管理/实例页二选一与
- * Esc / postMessage 关闭,以及 dsh 设置面板 StarHub 分区的 embed URL。
+ * StarHubNav / StarHubOverlay(重构版):侧栏「工具」大类行 + 子类行(无
+ * Excel/设置条目),overlay 的连接管理/实例页二选一与 Esc / postMessage 关闭。
  * 组件只读 props 四份份额;测试直接驱动 store 实例与选择/连接管理桥的裸
- * source(同 starhub-tool-workspace 规格)。
+ * source(同 starhub-tool-workspace 规格)。设置五个 tab 各自直渲,见
+ * settings-tabs 规格。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
@@ -16,7 +16,6 @@ import {
 } from '../src/client/store.ts'
 import { StarHubNav } from '../src/client/StarHubNav.tsx'
 import { StarHubOverlay } from '../src/client/StarHubOverlay.tsx'
-import { StarHubSettingsSection } from '../src/client/StarHubSettingsSection.tsx'
 
 afterEach(cleanup)
 
@@ -208,22 +207,5 @@ describe('StarHubOverlay', () => {
       data: { type: 'starhub-embed-escape' }, origin: 'https://evil.example',
     }))
     expect(props.closeConnectionManager).not.toHaveBeenCalled()
-  })
-})
-
-describe('StarHubSettingsSection', () => {
-  it('renders the in-shell React settings panel (no iframe) with the migrated tabs', () => {
-    render(<StarHubSettingsSection />)
-    expect(document.querySelector('iframe')).toBeNull()
-    expect(screen.getByText('StarHub')).toBeTruthy() // 折叠头
-    expect(screen.getByText('AI 助手')).toBeTruthy()
-    expect(screen.getByText('插件')).toBeTruthy()
-    expect(screen.getByText('审计日志')).toBeTruthy()
-    expect(screen.getByText('告警规则')).toBeTruthy()
-    expect(screen.getByText('关于')).toBeTruthy()
-    // 通用/外观/资产 tab 不再出现(dsh 接管 / 工具区管理)
-    expect(screen.queryByText('通用设置')).toBeNull()
-    expect(screen.queryByText('外观设置')).toBeNull()
-    expect(screen.queryByText('资产管理')).toBeNull()
   })
 })

@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.75.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.76.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,23 +119,14 @@
 
 ## 当前版本
 
+### v0.76.0 (2026-08-16)
+- ✨ **设置面板两列化(用户要求)**:dsh 设置侧栏中 StarHub 改为可展开分组(点击分组头展开/收起、默认展开),5 个子项(AI 助手/插件/审计日志/告警规则/关于)各自以独立 `settings.section` 注册、点选右侧直渲内容,无面板内部嵌套列——旧版 SettingsPanel(面板内 rail + 内容区)删除;实现上扩展 vendored dsh 内核:ui-slots list 槽 `KindOptions` 增加可选 `group`/`groupLabel`(经 StoredEntry 投影透传),ui-settings-general 的 SettingsRoot 侧栏渲染可折叠分组(`buildNavItems` 聚合排序 + 折叠态组件局部 state + chevron/缩进样式),两处测试同步补齐(ledger 分组投影、分组渲染/折叠/回退/排序),client-nav/ui-settings-general/ui-slots 三包 per-file 100% 覆盖率
+
 ### v0.75.0 (2026-08-16)
 - ✨ **插件体系与 dsh 打通**:StarHub 插件 = dsh 插件,市场 = dsh 市场,可从市场/URL/本地快速安装 UI 类插件——`plugins.rs` 放开 `dsh.client`/UI 包名/`dependencies` 拒装(依赖分层解析:`@deepseek-ai/*` 经 vendor junction,第三方尽力解析),registry 新增 `dshClient`/`builtin` 字段;内置插件(client-nav/host-static/tool-context/tools)幂等注册、不可启停/卸载、不进 runtime 组合;`web.rs` spawn 前把启用中的 dsh.client 用户插件按包名 junction 进 `profiles/node_modules` 并在 patch 追加 entry 行(实测自建 UI 插件进入 `__DSH_BOOT__`、bundle 200,dsh 内核零改动);市场 UI/主题/皮肤类收录;插件 tab 显示 UI/内置徽标、内置启停/卸载禁用、UI 风险文案区分;`docs/插件体系打通方案-dsh插件统一.md` 记录实现
 
 ### v0.74.0 (2026-08-16)
 - ✨ **Settings 页按 tab 完成 Vue→React 壳内迁移(§3.2 特例)**:dsh 设置面板 StarHub 分区改为壳内 React 面板(tab 导轨 + 内容区,不再 embed iframe)——插件(列表/URL/目录/Zip 导入/市场/风险确认/卸载)、审计(操作历史/统计/清理)、告警(规则 CRUD/Webhook 测试)、关于(版本/更新检查安装)、AI(命令白名单 + 记忆与上下文 + 记忆管理弹窗)5 个 tab 直渲;通用/外观由 dsh 设置接管不做,资产 tab 暂留 iframe(连接管理 overlay);服务层逐文件复制去 Pinia 耦合(审计/告警/插件/updater/记忆,updater 走 plugin:updater|* invoke + Channel 桥),AI 设置读写沿用 ai-v2 localStorage 无缝承接;client-nav 152 个测试全绿、per-file 100% 覆盖率
-
-### v0.73.0 (2026-08-16)
-- ✨ **Broker 页完成 Vue→React 壳内迁移(P1 首个样本)**:`client-nav` 新增 broker service(复用 Rust `broker_overview`,走顶层帧 Tauri 桥)、DashboardCard 通用仪表盘卡片与 BrokerView 工作台(壳内直渲、dsw token 视觉、30s 自动刷新、卡片详情模态);`sections.ts` 事实表新增 `renderMode`(`iframe`/`native`),`db-broker` 路由切壳内组件、一行可回退;overlay 注入资产源供 native 页反查资产;client-nav 补齐包规范(invariant 伴生、per-file 100% 覆盖率、89 个测试全绿)
-
-### v0.72.4 (2026-08-16)
-- 📝 **新增 `docs/迁移手册-Vue到React渐进迁移.md`**:绞杀者模式迁移的执行手册(配套重构方案 B)——五条铁律、v0.72.2 实测家底盘点(视图/组件/store/服务/i18n/cyber/Vuetify 用量)、九页迁移顺序(Settings 按 tab 特例)、Vue→React 全量技术映射表(框架/状态纪律/UI/token/embed 协议退役对照)、单页 10 步 playbook 与验收清单模板、迁移台账、5 项待拍板决策(M1–M5)
-
-### v0.72.3 (2026-08-16)
-- 🐛 **本地 tauri:build 构建链修复(TS6307)**:`vendor/deepseek-harness/tsconfig.host.json` 的 references 漏引 `packages/starhub/tool-context` 项目,而 host aggregate 的 tests 通配(`packages/*/*/tests/**/*.ts`)把 `tool-context.spec.ts` 纳入,其 `../src/index.ts` 导入无处归属,导致 `tsc -b tsconfig.host.json` 报 TS6307、`npm run package:dsh-runtime` 失败、`tauri:build` 无法出包;补上 project reference 后本地全量构建恢复
-
-### v0.72.2 (2026-08-16)
-- 🐛 **本地 vue-tsc 无法运行(构建链)**:`vue-tsc@2.0.0` 是上游发布残缺版本(tarball 缺 index.js),pnpm-lock 解析到它导致本地 `npm run build` 第一步就崩;声明下限提升为 `^2.2.0`,pnpm-lock 对齐 typescript 5.9.3(与 package-lock/CI 一致,消除 TS 版本差异造成的误报),本地全量类型检查与 CI 同口径通过
 
 ---
 

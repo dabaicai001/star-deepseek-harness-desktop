@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.75.0(**插件体系与 dsh 打通**:StarHub 插件 = dsh 插件,市场 = dsh 市场,可从市场/URL/本地快速安装 UI 类插件——`plugins.rs` 放开 `dsh.client`/UI 包名/`dependencies` 拒装(依赖分层解析:`@deepseek-ai/*` 经 vendor junction,第三方尽力解析),registry 新增 `dshClient`/`builtin` 字段;内置插件(client-nav/host-static/tool-context/tools)幂等注册、不可启停/卸载、不进 runtime 组合;`web.rs` spawn 前把启用中的 dsh.client 用户插件按包名 junction 进 `profiles/node_modules` 并在 patch 追加 entry 行(实测自建 UI 插件进入 `__DSH_BOOT__`、bundle 200,dsh 内核零改动);市场 UI/主题/皮肤类收录;插件 tab 显示 UI/内置徽标、内置启停/卸载禁用、UI 风险文案区分;`docs/插件体系打通方案-dsh插件统一.md` 记录实现) |
+| 当前版本 | v0.76.0(**设置面板两列化(用户要求)**:dsh 设置侧栏中 StarHub 改为可展开分组(点击分组头展开/收起、默认展开),5 个子项(AI 助手/插件/审计日志/告警规则/关于)各自以独立 `settings.section` 注册、点选右侧直渲内容,无面板内部嵌套列——旧版 SettingsPanel(面板内 rail + 内容区)删除;实现上扩展 vendored dsh 内核:ui-slots list 槽 `KindOptions` 增加可选 `group`/`groupLabel`(经 StoredEntry 投影透传),ui-settings-general 的 SettingsRoot 侧栏渲染可折叠分组(`buildNavItems` 聚合排序 + 折叠态组件局部 state + chevron/缩进样式),两处测试同步补齐(ledger 分组投影、分组渲染/折叠/回退/排序),client-nav/ui-settings-general/ui-slots 三包 per-file 100% 覆盖率) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-16 (v0.75.0)*
+*最后更新: 2026-08-16 (v0.76.0)*

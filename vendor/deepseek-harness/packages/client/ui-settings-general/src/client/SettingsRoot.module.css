@@ -159,6 +159,59 @@
   text-overflow: ellipsis;
 }
 
+/* Collapsible nav group (e.g. StarHub): a group header row + indented members. */
+.navGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 6px 12px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  text-align: left;
+}
+
+.navGroup:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.navGroupLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chevron,
+.chevronOpen {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform 0.15s ease;
+}
+
+.chevron {
+  transform: rotate(-90deg);
+}
+
+.chevronOpen {
+  transform: rotate(0deg);
+}
+
+/* Group member rows: indented under the group header. */
+.navCell.navSub {
+  padding-left: 30px;
+}
+
 /* Content column (figma Content 501:29980): header + options. */
 .content {
   flex: 1;

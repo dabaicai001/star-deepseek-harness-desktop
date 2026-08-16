@@ -91,6 +91,8 @@
 
 v0.72.0 起 Settings 已以两种 embed 形态进壳(dsh 设置面板的 StarHub 分区 + 连接管理 overlay)。**React 化时按 tab 逐个迁,而不是整页迁**:AI / 通用 / 插件 / 审计 / 告警 / 关于 6 个 tab 各自成为 dsh 设置面板的独立 section(就是现在的 `settings.section` 注册,只是内容从 iframe 换 React);资产 tab 变为工具区的连接管理面板(React)。`visibleTabs` / `chrome=inline` 参数机制保留到全部 tab 迁完。
 
+v0.76.0 起设置面板为**两列**:左侧 dsh 设置导航中 StarHub 为可展开分组(`settings.section` 注册带 `group: 'starhub'` + `groupLabel`,由 vendored `ui-settings-general` 的 SettingsRoot 渲染为折叠分组头,点击展开/收起,默认展开),5 个子项(AI 助手 / 插件 / 审计日志 / 告警规则 / 关于)各自直渲右侧内容,无面板内部嵌套列;旧版 SettingsPanel(面板内 rail + 内容区)已删除。
+
 ### 3.3 事实表更新规则
 
 `vendor/deepseek-harness/packages/starhub/client-nav/src/client/sections.ts` 是「大类 → 子类 → 资产路由」唯一事实表。每迁一页,在该页的路由条目上加「壳内组件」分支(建议:`renderMode: 'iframe' | 'native'`),切换 = 改这一行,回退 = 改回来。禁止在别处硬编码「这页已迁移」。
@@ -199,7 +201,7 @@ v0.72.0 起 Settings 已以两种 embed 形态进壳(dsh 设置面板的 StarHub
 | Docker | iframe | 未开始 | — | |
 | Elasticsearch | iframe | 未开始 | — | |
 | WebBrowser | iframe | 未开始 | — | 低频 |
-| Settings(按 tab 拆) | native | **已迁移**(5 个 React tab) | 0.74.0 | AI(白名单/记忆)/插件/审计/告警/关于 壳内直渲;通用/外观由 dsh 设置接管;资产 tab 暂留 iframe(连接管理 overlay) |
+| Settings(按 tab 拆) | native | **已迁移**(5 个 React tab) | 0.74.0 | AI(白名单/记忆)/插件/审计/告警/关于 壳内直渲;通用/外观由 dsh 设置接管;资产 tab 暂留 iframe(连接管理 overlay);0.76.0 起设置面板两列,StarHub 为左侧可展开分组(见 §3.2) |
 | SSH/SFTP | iframe | 未开始 | — | D2 硬指标 |
 | DbView | iframe | 未开始 | — | 压轴 |
 

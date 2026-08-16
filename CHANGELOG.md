@@ -13,6 +13,11 @@
 
 ---
 
+## [0.76.0] - 2026-08-16
+
+### 新增
+- **设置面板两列化(用户要求)**:dsh 设置侧栏中 StarHub 改为可展开分组(点击分组头展开/收起、默认展开),5 个子项(AI 助手/插件/审计日志/告警规则/关于)各自以独立 `settings.section` 注册、点选右侧直渲内容,无面板内部嵌套列——旧版 SettingsPanel(面板内 rail + 内容区)删除;实现上扩展 vendored dsh 内核:ui-slots list 槽 `KindOptions` 增加可选 `group`/`groupLabel`(经 StoredEntry 投影透传),ui-settings-general 的 SettingsRoot 侧栏渲染可折叠分组(`buildNavItems` 聚合排序 + 折叠态组件局部 state + chevron/缩进样式),两处测试同步补齐(ledger 分组投影、分组渲染/折叠/回退/排序),client-nav/ui-settings-general/ui-slots 三包 per-file 100% 覆盖率
+
 ## [0.75.0] - 2026-08-16
 
 ### 新增
