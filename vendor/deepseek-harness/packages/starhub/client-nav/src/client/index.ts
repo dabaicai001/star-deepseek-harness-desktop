@@ -39,9 +39,9 @@ export function apply(ctx: Context): void {
     label: 'StarHub',
     store,
     inject: () => ({
-      // Path B Phase 0 Step 2: open the docked StarHub tool workspace in the
-      // details column (the sidebar entry above the section rows).
-      openWorkspace: () => { ctx.layout.openDetails() },
+      // Path B Phase 0 Step 2: toggle the docked StarHub tool workspace in
+      // the details column (click once to open, again to close).
+      openWorkspace: () => { ctx.layout.toggleDetails() },
     }),
   }, StarHubNav))
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({

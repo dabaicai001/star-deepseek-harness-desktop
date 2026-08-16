@@ -13,6 +13,13 @@
 
 ---
 
+## [0.69.0] - 2026-08-15
+
+### 新增
+- 侧栏「工具工作区」入口改为 toggle 交互:点一下展开右侧工具工作区,再点一下关闭(`ctx.layout.toggleDetails()`,ui-layout 新增 `toggleDetails` action 与 service 方法,补齐 layout-store / service 测试)
+
+---
+
 ## [0.68.1] - 2026-08-15
 
 ### 修复
