@@ -13,6 +13,7 @@
 //! `dsh_web_url` command 暴露。就绪探测:轮询 GET / 直到 200(超时 30s)。
 //! P4a 起 dsh web 是唯一主壳(旧外壳与 STARHUB_DSH_WEB=0 逃生门已退役)。
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -200,7 +201,8 @@ impl DshWebManager {
         .map_err(|e| DshWebError::PathResolve(format!("物化 cordis.patch.yml 失败: {e}")))?;
 
         // 3. 本地包 junction(已存在则复用,目标本就固定指向 vendor)
-        let link_base = dsh_home.join("profiles").join("node_modules").join("@deepseek-ai");
+        let node_modules_root = dsh_home.join("profiles").join("node_modules");
+        let link_base = node_modules_root.join("@deepseek-ai");
         std::fs::create_dir_all(&link_base)
             .map_err(|e| DshWebError::PathResolve(format!("创建 profiles/node_modules 失败: {e}")))?;
         for dir_name in LOCAL_PACKAGES {
@@ -224,6 +226,22 @@ impl DshWebManager {
                 ))
             })?;
         }
+
+        // 3.5 用户 UI 插件注入(dsh 插件体系打通):内置插件注册进 registry,
+        // 启用中的 dsh.client 用户插件按包名 junction 进 profiles/node_modules
+        // (dsh web 内核的 ClientModuleRegistry 依 entry 名 require.resolve
+        // 包根并读 dsh.client 声明,把其 client bundle 扫进 __DSH_BOOT__),
+        // 依赖同样 junction 到该锚点,并在 cordis.patch.yml 的 insert 块追加
+        // entry 行(name 用完整包名)。
+        let plugin_paths = plugins::PluginPaths::resolve(app)
+            .map_err(|e| DshWebError::PathResolve(e.to_string()))?;
+        plugins::ensure_builtin_plugins(&plugin_paths, &runtime_dir)
+            .map_err(|e| DshWebError::PathResolve(format!("内置插件注册失败: {e}")))?;
+        let mut patch_content = std::fs::read_to_string(profile_dir.join("cordis.patch.yml"))
+            .map_err(|e| DshWebError::PathResolve(format!("读取 patch 失败: {e}")))?;
+        sync_user_client_plugins(&plugin_paths, &node_modules_root, &runtime_dir, &mut patch_content)?;
+        std::fs::write(profile_dir.join("cordis.patch.yml"), patch_content)
+            .map_err(|e| DshWebError::PathResolve(format!("写回 patch 失败: {e}")))?;
 
         // 4. spawn dsh web 组合
         let starhub_dist = resolve_starhub_dist(&dist_root)?;
@@ -307,6 +325,154 @@ async fn drain_lines(tag: &'static str, io: impl tokio::io::AsyncRead + Unpin) {
     }
 }
 
+/// YAML 单引号标量转义(`'` 双写)。id 已过 [a-z0-9-_] charset 校验,
+/// entry 已过 Normal 组件校验;这里仍防御性转义,保证任何输入不破坏 yml。
+fn yaml_single_quoted(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+/// 同步用户 UI 插件到 dsh web 组合:
+/// 1. 清理失效 junction(指向 plugins/ 但不在当前启用集的,深度 ≤2 递归);
+/// 2. 为启用中的 dsh.client 用户插件按包名建 junction
+///    (profiles/node_modules/<pkgname>,带 scope 则多级),并解析其依赖
+///    到同一锚点(web 进程的解析起点);
+/// 3. 在 patch 的 insert 块末尾追加 entry 行(name 用完整包名,与本地包同形)。
+fn sync_user_client_plugins(
+    plugin_paths: &plugins::PluginPaths,
+    node_modules_root: &Path,
+    vendor_root: &Path,
+    patch: &mut String,
+) -> Result<(), DshWebError> {
+    let enabled = plugins::user_client_plugins(plugin_paths)
+        .map_err(|e| DshWebError::PathResolve(e.to_string()))?;
+
+    // 1. 陈旧清理:junction 指向 app_data/plugins 且不在当前启用插件集 → 移除
+    let plugins_root = plugin_paths.plugins_dir();
+    let enabled_ids: std::collections::HashSet<String> =
+        enabled.iter().map(|p| p.id.clone()).collect();
+    let mut stale: Vec<PathBuf> = Vec::new();
+    collect_stale_links(node_modules_root, &plugins_root, &enabled_ids, &mut stale, 0);
+    for path in stale {
+        tracing::info!("移除失效的用户 UI 插件 junction: {}", path.display());
+        let _ = fs::remove_dir(&path);
+    }
+
+    // 2/3. 建 junction(按包名,带 scope 多级)+ 依赖解析 + 追加 patch entry
+    for record in &enabled {
+        // 包名路径化:scope 展开为子目录(profiles/node_modules/@scope/name)
+        let rel = plugin_link_rel(&record.name);
+        let link = node_modules_root.join(&rel);
+        if !link.exists() {
+            let target = plugin_paths.plugin_dir(&record.id);
+            if let Some(parent) = link.parent() {
+                fs::create_dir_all(parent).map_err(|e| {
+                    DshWebError::PathResolve(format!("创建插件 junction 父目录失败: {e}"))
+                })?;
+            }
+            if let Err(error) = plugins::create_dir_link(&link, &target) {
+                // 诊断:junction 失败时捕获 cmd stderr(定位权限/路径问题)
+                let diag = std::process::Command::new("cmd")
+                    .args(["/C", "mklink", "/J"])
+                    .arg(&link)
+                    .arg(&target)
+                    .output();
+                match diag {
+                    Ok(out) => {
+                        tracing::error!(
+                            "用户 UI 插件 junction 失败({} → {}): {error}\nstderr: {}\nstdout: {}",
+                            link.display(),
+                            target.display(),
+                            String::from_utf8_lossy(&out.stderr),
+                            String::from_utf8_lossy(&out.stdout),
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("用户 UI 插件 junction 诊断失败: {e}");
+                    }
+                }
+                return Err(DshWebError::PathResolve(format!(
+                    "用户 UI 插件 junction 失败({} → {}): {error}",
+                    link.display(),
+                    target.display()
+                )));
+            }
+            tracing::info!(
+                "用户 UI 插件注入 dsh web: {} → {}",
+                link.display(),
+                target.display()
+            );
+            // 依赖 junction 到 web 进程解析锚点(与运行时 plugins/node_modules 同策略)
+            if let Err(error) =
+                plugins::resolve_plugin_dependencies_into(&target, vendor_root, node_modules_root)
+            {
+                tracing::warn!("用户 UI 插件依赖解析失败(可忽略): {error}");
+            }
+        }
+        patch.push_str(&format!(
+            "    - id: {}\n      name: {}\n",
+            yaml_single_quoted(&record.id),
+            yaml_single_quoted(&record.name),
+        ));
+    }
+    Ok(())
+}
+
+/// 包名 → node_modules 相对路径(@scope/name → @scope/name;name → name)。
+/// 只保留前两段,防御异常包名。
+fn plugin_link_rel(name: &str) -> PathBuf {
+    let mut rel = PathBuf::new();
+    for (index, segment) in name.split('/').enumerate() {
+        if index > 2 || segment.is_empty() {
+            break;
+        }
+        rel.push(segment);
+    }
+    rel
+}
+
+/// 递归(深度 ≤2)收集指向 plugins/ 且不在启用插件集(按插件 id)的 junction。
+fn collect_stale_links(
+    dir: &Path,
+    plugins_root: &Path,
+    enabled_ids: &std::collections::HashSet<String>,
+    out: &mut Vec<PathBuf>,
+    depth: usize,
+) {
+    if depth > 2 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() && !path.is_symlink() && depth < 2 {
+            // 普通目录(scope 层或真实包目录):继续递归
+            collect_stale_links(&path, plugins_root, enabled_ids, out, depth + 1);
+            continue;
+        }
+        if !path.is_symlink() {
+            continue;
+        }
+        // junction 目标形态:plugins/<id>(首层子目录)
+        let target = fs::canonicalize(&path).ok();
+        let target_name = target
+            .as_ref()
+            .and_then(|t| t.file_name())
+            .and_then(|n| n.to_str())
+            .map(str::to_string);
+        let points_to_plugins = target
+            .as_ref()
+            .zip(fs::canonicalize(plugins_root).ok())
+            .is_some_and(|(target, root)| target.parent() == Some(root.as_path()));
+        let stale = points_to_plugins
+            && !target_name
+                .as_ref()
+                .is_some_and(|id| enabled_ids.contains(id));
+        if stale {
+            out.push(path);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,5 +520,82 @@ mod tests {
         // base 刚释放,正常应直接命中;被别的进程瞬时抢走则递增,两种结果都合法
         let port = find_free_port(base, MAX_PORT_OFFSET).expect("应有可用端口");
         assert!((base..=base + MAX_PORT_OFFSET).contains(&port));
+    }
+
+    /// 用户 UI 插件注入:建 junction、追加 patch entry、清理失效 junction。
+    #[test]
+    fn sync_user_client_plugins_injects_and_cleans() {
+        use std::fs;
+        use super::plugins::{self, PluginPaths};
+        let root = std::env::temp_dir().join(format!(
+            "starhub-web-sync-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let app_data = root.join("app-data");
+        let vendor_root = root.join("vendor/deepseek-harness");
+        // 假 vendor peer 布局(install_local_dir 会建 peer junction)
+        for pkg in ["cordis", "cosmokit", "schemastery"] {
+            let dir = vendor_root.join("vendor").join(pkg);
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(
+                dir.join("package.json"),
+                format!("{{\"name\": \"@deepseek-ai/{pkg}\"}}"),
+            )
+            .unwrap();
+        }
+        let paths = PluginPaths::at(app_data.clone());
+        paths.ensure_layout().unwrap();
+
+        // 安装两个 UI 插件:一个启用、一个禁用
+        let write_ui_plugin = |dir: &Path, name: &str| {
+            fs::create_dir_all(dir.join("lib")).unwrap();
+            fs::write(
+                dir.join("package.json"),
+                format!(
+                    r#"{{"name": "{name}", "main": "lib/index.js",
+                        "dsh": {{"bundle": {{"patch": "./p.yml"}}, "client": {{"entry": "./ui.js"}}}}}}"#
+                ),
+            )
+            .unwrap();
+            fs::write(dir.join("lib/index.js"), "export default {}\n").unwrap();
+        };
+        let src_a = root.join("src-ui-a");
+        write_ui_plugin(&src_a, "dsh-ui-a");
+        let src_b = root.join("src-ui-b");
+        write_ui_plugin(&src_b, "dsh-ui-b");
+        plugins::install_local_dir(&paths, &src_a, &vendor_root).unwrap();
+        plugins::install_local_dir(&paths, &src_b, &vendor_root).unwrap();
+        plugins::set_enabled(&paths, "dsh-ui-a", true).unwrap();
+
+        let node_modules_root = root.join("profiles").join("node_modules");
+        fs::create_dir_all(&node_modules_root).unwrap();
+        let mut patch = String::from("- insert:\n    - id: client-nav\n      name: '@x'\n");
+        sync_user_client_plugins(&paths, &node_modules_root, &vendor_root, &mut patch).unwrap();
+
+        // 启用的插件:按包名 junction 建立 + patch 行(完整包名)+ 依赖解析到同锚点
+        assert!(
+            node_modules_root.join("dsh-ui-a").exists(),
+            "启用插件应按包名 junction"
+        );
+        assert!(
+            !node_modules_root.join("dsh-ui-b").exists(),
+            "禁用插件不应 junction"
+        );
+        assert!(
+            patch.contains("    - id: 'dsh-ui-a'\n      name: 'dsh-ui-a'"),
+            "patch 应追加 entry 行(完整包名):\n{patch}"
+        );
+
+        // 禁用后再次同步 → junction 清理
+        plugins::set_enabled(&paths, "dsh-ui-a", false).unwrap();
+        let mut patch2 = String::from("- insert:\n");
+        sync_user_client_plugins(&paths, &node_modules_root, &vendor_root, &mut patch2).unwrap();
+        assert!(
+            !node_modules_root.join("dsh-ui-a").exists(),
+            "禁用后 junction 应清理"
+        );
+        assert!(!patch2.contains("dsh-ui-a"), "禁用后 patch 不再追加");
+        let _ = fs::remove_dir_all(&root);
     }
 }

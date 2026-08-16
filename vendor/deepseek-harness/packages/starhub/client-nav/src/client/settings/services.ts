@@ -180,6 +180,10 @@ export interface DshPluginInfo {
   enabled: boolean
   installedAt?: string
   missing?: boolean
+  /** 浏览器端 UI 插件(manifest 声明 dsh.client;由 dsh web 进程加载) */
+  dshClient?: boolean
+  /** 内置插件(壳依赖,随应用发布;不可启停/卸载) */
+  builtin?: boolean
 }
 
 export interface DshMarketPlugin {

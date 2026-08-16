@@ -46,16 +46,26 @@ afterEach(() => {
 describe('StarHubSettingsPanel', () => {
   it('defaults to the AI tab and switches content on rail clicks', () => {
     render(<StarHubSettingsPanel />)
-    expect(screen.getByRole('tab', { name: /AI 助手/ }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('button', { name: /AI 助手/ }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByText('命令白名单')).toBeTruthy()
-    fireEvent.click(screen.getByRole('tab', { name: /插件/ }))
+    fireEvent.click(screen.getByText('插件'))
     expect(screen.getByText('已安装插件')).toBeTruthy()
-    fireEvent.click(screen.getByRole('tab', { name: /审计日志/ }))
+    fireEvent.click(screen.getByText('审计日志'))
     expect(screen.getByText('操作历史')).toBeTruthy()
-    fireEvent.click(screen.getByRole('tab', { name: /告警规则/ }))
+    fireEvent.click(screen.getByText('告警规则'))
     expect(screen.getByText('新建规则')).toBeTruthy()
-    fireEvent.click(screen.getByRole('tab', { name: /关于/ }))
-    expect(screen.getByText('StarHub')).toBeTruthy()
+    fireEvent.click(screen.getByText('关于'))
+    expect(screen.getByText('应用版本')).toBeTruthy() // AboutTab 特有
+  })
+
+  it('collapses and re-expands the StarHub submenu on the group header', () => {
+    render(<StarHubSettingsPanel />)
+    expect(screen.getByText('插件')).toBeTruthy() // 默认展开
+    fireEvent.click(screen.getByText('StarHub')) // 折叠
+    expect(screen.queryByText('插件')).toBeNull()
+    expect(screen.getByText('命令白名单')).toBeTruthy() // 内容区保留当前项
+    fireEvent.click(screen.getByText('StarHub')) // 再点展开
+    expect(screen.getByText('插件')).toBeTruthy()
   })
 })
 
@@ -254,6 +264,31 @@ describe('PluginsTab', () => {
     }
   })
 
+  it('shows type badges, protects builtin plugins and distinguishes UI risk copy', async () => {
+    const restore = stubTauriInternals({
+      dsh_plugin_list: () => [
+        { id: 'ui-plugin', name: '面板增强', version: '1', source: { kind: 'url' }, entry: 'lib/index.js', enabled: false, dshClient: true },
+        { id: 'dsh-starhub-client-nav', name: '@deepseek-ai/dsh-starhub-client-nav', version: '0.0.1', source: { kind: 'builtin' }, entry: 'lib/index.js', enabled: true, dshClient: true, builtin: true },
+      ],
+      dsh_plugin_market_fetch: () => ({ stale: false, categories: [] }),
+    })
+    try {
+      render(<PluginsTab />)
+      expect(await screen.findByText('面板增强')).toBeTruthy()
+      // 两个 dshClient 插件都有 UI 徽标;内置插件有内置徽标(徽标+来源两处)
+      expect(screen.getAllByText('UI').length).toBeGreaterThanOrEqual(2)
+      expect(screen.getAllByText('内置').length).toBeGreaterThanOrEqual(1)
+      // 内置插件:启停/卸载按钮禁用
+      expect(screen.getAllByTitle('禁用').some((b) => b.hasAttribute('disabled'))).toBe(true)
+      expect(screen.getAllByLabelText('卸载').some((b) => b.hasAttribute('disabled'))).toBe(true)
+      // UI 插件首次启用 → 风险提示文案区分
+      fireEvent.click(screen.getAllByLabelText('启用')[0])
+      expect(await screen.findByText(/浏览器端 UI/)).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
   it('imports a local directory through the native dialog', async () => {
     const install = vi.fn(() => ({ id: 'p1', name: 'n', version: '1', source: { kind: 'local-dir' }, entry: 'i.js', enabled: false }))
     const restore = stubTauriInternals({
@@ -369,23 +404,17 @@ describe('AiTab', () => {
     expect(stored.settings.commandWhitelist).toEqual(['ls'])
   })
 
-  it('writes memory/context fields immediately with validation', async () => {
+  it('writes memory toggles immediately', async () => {
     render(<AiTab />)
     fireEvent.click(screen.getByText('启用长期记忆'))
     const stored = () => JSON.parse(localStorage.getItem(AI_STORAGE_KEY) ?? '{}') as {
-      settings: { memoryEnabled: boolean; contextBudgetChars: number; agentMaxSteps: number; compactTriggerRatio: number }
+      settings: { memoryEnabled: boolean }
     }
     expect(stored().settings.memoryEnabled).toBe(false)
-    fireEvent.change(screen.getByLabelText(/上下文预算/), { target: { value: '5000' } })
-    expect(stored().settings.contextBudgetChars).toBe(5000)
-    fireEvent.change(screen.getByLabelText(/上下文预算/), { target: { value: '100' } })
-    expect(stored().settings.contextBudgetChars).toBe(5000) // < 4000 忽略
-    fireEvent.change(screen.getByLabelText(/最大工具迭代步数/), { target: { value: '30' } })
-    expect(stored().settings.agentMaxSteps).toBe(30)
-    fireEvent.change(screen.getByLabelText(/最大工具迭代步数/), { target: { value: '500' } })
-    expect(stored().settings.agentMaxSteps).toBe(30) // > 100 忽略
-    fireEvent.change(screen.getByLabelText(/压缩触发阈值/), { target: { value: '60' } })
-    expect(stored().settings.compactTriggerRatio).toBe(0.6)
+    // 上下文预算/迭代步数/压缩阈值由 dsh harness 接管,AI tab 不再出现
+    expect(screen.queryByLabelText(/上下文预算/)).toBeNull()
+    expect(screen.queryByLabelText(/最大工具迭代步数/)).toBeNull()
+    expect(screen.queryByLabelText(/压缩触发阈值/)).toBeNull()
   })
 
   it('manages memories: group by scope, edit with audit, two-step delete', async () => {

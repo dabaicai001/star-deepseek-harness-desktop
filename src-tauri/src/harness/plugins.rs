@@ -102,7 +102,19 @@ pub struct PluginRecord {
     pub entry: String,
     /// 启停状态,落在生成的 cordis.yml entry 的 disabled 字段
     pub enabled: bool,
+    /// 浏览器端 UI 插件(manifest 声明 `dsh.client`;由 dsh web 进程加载,
+    /// 经 profiles/node_modules junction 进 __DSH_BOOT__)
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub dsh_client: bool,
+    /// 内置插件(runtime 自带包,如 client-nav;不可卸载,来源 kind="builtin")
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub builtin: bool,
     pub installed_at: String,
+}
+
+/// serde skip 谓词:false 时跳过字段(保持旧 registry 兼容,不写死缺省值)。
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// registry.json 文件格式。
@@ -156,13 +168,15 @@ impl PluginPaths {
         self.app_data.join("dsh-cordis.generated.yml")
     }
 
-    fn plugin_dir(&self, id: &str) -> PathBuf {
+    /// 单个用户插件的安装目录。pub(crate):web.rs 的 UI 插件注入用它定位 junction 目标。
+    pub(crate) fn plugin_dir(&self, id: &str) -> PathBuf {
         self.plugins_dir().join(id)
     }
 
     /// 确保基础布局存在:plugins/ 目录、空 entries 文件(include 的
     /// `initial: []` 也会兜底,这里先生成以保证内容是我们约定的形态)。
-    fn ensure_layout(&self) -> Result<(), PluginError> {
+    /// pub(crate):web.rs 的 UI 插件注入测试会直接构造 PluginPaths。
+    pub(crate) fn ensure_layout(&self) -> Result<(), PluginError> {
         fs::create_dir_all(self.plugins_dir())?;
         if !self.entries_path().exists() {
             fs::write(self.entries_path(), EMPTY_ENTRIES_YML)?;
@@ -190,12 +204,9 @@ struct ValidatedManifest {
     description: Option<String>,
     license: Option<String>,
     entry: String,
+    /// manifest 是否声明 `dsh.client`(浏览器端 UI 插件)
+    dsh_client: bool,
 }
-
-/// 包名分段命中这些词即判定为 UI/皮肤类,拒绝安装(启发式双保险之一;
-/// 另一条是 manifest 含 `dsh.client` 字段)。只匹配 `-`/`/` 分隔的完整分段,
-/// 避免误伤名字里碰巧含子串的运行时插件。
-const UI_NAME_SEGMENTS: [&str; 5] = ["skin", "theme", "client", "webui", "ui"];
 
 /// 把包名清洗为插件 id(目录名 / entry id):去 scope、小写、
 /// 非法字符折成 `-`;charset 收紧到 [a-z0-9-_],从源头杜绝 yml 注入。
@@ -287,29 +298,10 @@ fn validate_plugin_dir(dir: &Path) -> Result<ValidatedManifest, PluginError> {
             "缺少 dsh.bundle 字段,不是可安装的 dsh 插件包".into(),
         ));
     }
-    // UI/皮肤类拒装(双保险之一):manifest 声明了 dsh.client
-    if dsh.and_then(|d| d.get("client")).is_some() {
-        return Err(PluginError::Manifest(
-            "该插件声明了 dsh.client(UI/皮肤类),StarHub 只支持运行时类插件".into(),
-        ));
-    }
-    // 双保险之二:包名分段启发式
-    let name_lower = name.to_lowercase();
-    let segments: Vec<&str> = name_lower.split(['-', '/', '_', '.']).collect();
-    if let Some(seg) = segments.iter().find(|seg| UI_NAME_SEGMENTS.contains(*seg)) {
-        return Err(PluginError::Manifest(format!(
-            "包名含「{seg}」,疑似 UI/皮肤类插件;StarHub 只支持运行时类插件"
-        )));
-    }
-    // 首版只支持零依赖插件
-    if let Some(deps) = manifest.get("dependencies").and_then(|d| d.as_object()) {
-        if !deps.is_empty() {
-            return Err(PluginError::Manifest(format!(
-                "暂不支持带依赖的插件(dependencies: {})",
-                deps.keys().cloned().collect::<Vec<_>>().join(", ")
-            )));
-        }
-    }
+    // UI 类插件(dsh.client)合法:插件体系与 dsh 打通后,浏览器端插件
+    // 由 dsh web 进程加载(web.rs 会 junction 进 profiles/node_modules)。
+    let dsh_client = dsh.and_then(|d| d.get("client")).is_some();
+    // 依赖不再构成安装障碍:分层解析见 resolve_plugin_dependencies。
 
     let entry = resolve_entry(&manifest, dir)?;
     let version = manifest
@@ -335,6 +327,7 @@ fn validate_plugin_dir(dir: &Path) -> Result<ValidatedManifest, PluginError> {
         description,
         license,
         entry,
+        dsh_client,
     })
 }
 
@@ -383,8 +376,17 @@ fn save_registry(paths: &PluginPaths, registry: &Registry) -> Result<(), PluginE
         paths.registry_path(),
         serde_json::to_string_pretty(registry)?,
     )?;
-    // registry 与 entries 清单保持同事务语义:先落 registry 再重写 yml
-    fs::write(paths.entries_path(), render_entries_yml(&registry.plugins))?;
+    // registry 与 entries 清单保持同事务语义:先落 registry 再重写 yml。
+    // 内置插件不进 entries yml(runtime 组合只加载用户插件;内置的 web 侧
+    // 插件由 web.rs 的 LOCAL_PACKAGES junction + cordis.patch.yml 提供,
+    // host-static 等依赖 web 进程的 webServer,进 runtime 组合会 fail-loud)。
+    let user_records: Vec<PluginRecord> = registry
+        .plugins
+        .iter()
+        .filter(|p| !p.builtin)
+        .cloned()
+        .collect();
+    fs::write(paths.entries_path(), render_entries_yml(&user_records))?;
     Ok(())
 }
 
@@ -484,9 +486,194 @@ fn copy_dir_all(src: &Path, dst: &Path, skip_node_modules: bool) -> std::io::Res
     Ok(())
 }
 
+// ============================== 依赖分层解析 ==============================
+
+/// 在 vendor 树内按包名定位一个 `@deepseek-ai/<name>` 包目录。
+/// 遍历 packages/*/* 与 vendor/* 的 package.json name 字段匹配;
+/// vendor 树几百个包,单次安装线性扫描开销可接受(毫秒级)。
+fn find_vendor_package(vendor_root: &Path, spec: &str) -> Option<PathBuf> {
+    let mut found = None;
+    for base in ["packages", "vendor"] {
+        let base_dir = vendor_root.join(base);
+        let Ok(entries) = fs::read_dir(&base_dir) else { continue };
+        for group in entries.flatten() {
+            if !group.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let Ok(pkgs) = fs::read_dir(group.path()) else { continue };
+            for pkg in pkgs.flatten() {
+                let pkg_dir = pkg.path();
+                if !pkg.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    continue;
+                }
+                let manifest_path = pkg_dir.join("package.json");
+                let Ok(content) = fs::read_to_string(&manifest_path) else { continue };
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else { continue };
+                if value.get("name").and_then(|n| n.as_str()) == Some(spec) {
+                    found = Some(pkg_dir);
+                }
+            }
+        }
+        if found.is_some() {
+            break;
+        }
+    }
+    found
+}
+
+/// 为插件目录解析 `dependencies`(含 peerDependencies)到指定 node_modules 根:
+/// - `@deepseek-ai/*`:定位 vendor 树内同名包 → junction(与 peer junction 同机制);
+/// - 第三方:尽力从 vendor/node_modules 解析(junction);解析不到仅告警——
+///   插件自带构建产物时第三方已被内联进 bundle,node 半缺失依赖由运行时 fail-loud。
+/// 返回未解析的依赖清单(供调用方告警;不阻塞安装)。
+/// pub(crate):web.rs 的用户 UI 插件注入用同一逻辑把依赖 junction 进
+/// profiles/node_modules(web 进程的解析锚点)。
+pub(crate) fn resolve_plugin_dependencies_into(
+    plugin_dir: &Path,
+    vendor_root: &Path,
+    link_base: &Path,
+) -> Result<Vec<String>, PluginError> {
+    let manifest_path = plugin_dir.join("package.json");
+    let content = fs::read_to_string(&manifest_path)?;
+    let manifest: serde_json::Value = serde_json::from_str(&content)?;
+    let mut specs: Vec<String> = Vec::new();
+    for field in ["dependencies", "peerDependencies"] {
+        if let Some(deps) = manifest.get(field).and_then(|d| d.as_object()) {
+            specs.extend(deps.keys().cloned());
+        }
+    }
+    specs.sort();
+    specs.dedup();
+
+    let mut unresolved: Vec<String> = Vec::new();
+    for spec in specs {
+        // 已解析过(peer junction 或此前依赖)则跳过
+        let link = link_base.join(&spec);
+        if link.exists() {
+            continue;
+        }
+        let target = if spec.starts_with("@deepseek-ai/") {
+            find_vendor_package(vendor_root, &spec)
+        } else {
+            let in_vendor_nm = vendor_root.join("node_modules").join(&spec);
+            in_vendor_nm.is_dir().then_some(in_vendor_nm)
+        };
+        match target {
+            Some(target) => {
+                fs::create_dir_all(&link_base)?;
+                if let Err(error) = create_dir_link(&link, &target) {
+                    tracing::warn!(
+                        "dsh 插件依赖 junction 失败({} → {}),回退整目录复制: {error}",
+                        link.display(),
+                        target.display()
+                    );
+                    copy_dir_all(&target, &link, true)?;
+                }
+            }
+            None => unresolved.push(spec),
+        }
+    }
+    Ok(unresolved)
+}
+
+/// 依赖解析到 runtime 组合的 plugins/node_modules(运行时插件的解析锚点)。
+fn resolve_plugin_dependencies(
+    plugin_dir: &Path,
+    vendor_root: &Path,
+) -> Result<Vec<String>, PluginError> {
+    let link_base = plugin_dir
+        .parent()
+        .unwrap_or_else(|| Path::new("plugins"))
+        .join("node_modules");
+    resolve_plugin_dependencies_into(plugin_dir, vendor_root, &link_base)
+}
+
+// ============================== 内置插件 ==============================
+
+/// 内置插件:StarHub 自带、随应用发布(packages/starhub/ 下的本地包)。
+/// registry 里可见、默认启用、不可卸载;目录在 runtime_dir/packages/starhub/<dir>。
+pub const BUILTIN_PLUGIN_DIRS: [&str; 4] = ["client-nav", "host-static", "tool-context", "tools"];
+
+/// 把内置插件幂等注册进 registry(缺则补,已有跳过)。
+/// `runtime_dir` 为 vendor 根(内置包目录所在);builtin 记录 entry/dsh_client
+/// 均从各包 package.json 读取。
+pub fn ensure_builtin_plugins(
+    paths: &PluginPaths,
+    runtime_dir: &Path,
+) -> Result<(), PluginError> {
+    let mut registry = load_registry(paths)?;
+    let mut changed = false;
+    for dir_name in BUILTIN_PLUGIN_DIRS {
+        let pkg_dir = runtime_dir.join("packages").join("starhub").join(dir_name);
+        let manifest_path = pkg_dir.join("package.json");
+        let Ok(content) = fs::read_to_string(&manifest_path) else { continue };
+        let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) else { continue };
+        let name = manifest
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(dir_name)
+            .to_string();
+        if registry.plugins.iter().any(|p| p.builtin && p.name == name) {
+            continue;
+        }
+        let id = sanitize_id(&name).unwrap_or_else(|| dir_name.to_string());
+        let entry = manifest
+            .get("main")
+            .and_then(|v| v.as_str())
+            .unwrap_or("lib/index.js")
+            .to_string();
+        let dsh_client = manifest
+            .get("dsh")
+            .and_then(|d| d.get("client"))
+            .is_some();
+        let version = manifest
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0.0.0")
+            .to_string();
+        let description = manifest
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        registry.plugins.push(PluginRecord {
+            id,
+            name,
+            version,
+            description,
+            license: None,
+            source: PluginSource {
+                kind: "builtin".into(),
+                location: None,
+            },
+            entry,
+            enabled: true,
+            dsh_client,
+            builtin: true,
+            installed_at: now_rfc3339(),
+        });
+        changed = true;
+    }
+    if changed {
+        save_registry(paths, &registry)?;
+    }
+    Ok(())
+}
+
+/// 当前应注入 dsh web 进程的用户 UI 插件(启用、声明 dsh.client、非内置)。
+/// 内置 client 插件(client-nav)已由 web.rs 的 LOCAL_PACKAGES junction 提供。
+pub fn user_client_plugins(paths: &PluginPaths) -> Result<Vec<PluginRecord>, PluginError> {
+    let registry = load_registry(paths)?;
+    Ok(registry
+        .plugins
+        .into_iter()
+        .filter(|p| p.enabled && p.dsh_client && !p.builtin)
+        .collect())
+}
+
 // ============================== 安装 / 启停 / 卸载 ==============================
 
-/// 已安装插件列表(registry 事实源;目录缺失的条目标 missing,交由前端提示)。
+/// 已安装插件列表(registry 事实源;目录缺失的条目标 missing,交由前端提示;
+/// 内置插件目录在 vendor,不做 missing 标记)。
 pub fn list_plugins(paths: &PluginPaths) -> Result<serde_json::Value, PluginError> {
     paths.ensure_layout()?;
     let registry = load_registry(paths)?;
@@ -498,7 +685,9 @@ pub fn list_plugins(paths: &PluginPaths) -> Result<serde_json::Value, PluginErro
             if let serde_json::Value::Object(ref mut map) = value {
                 map.insert(
                     "missing".into(),
-                    serde_json::Value::Bool(!paths.plugin_dir(&record.id).is_dir()),
+                    serde_json::Value::Bool(
+                        !record.builtin && !paths.plugin_dir(&record.id).is_dir(),
+                    ),
                 );
             }
             value
@@ -538,6 +727,12 @@ fn finalize_install(
     }
     copy_dir_all(staged, &target, false)?;
 
+    // 依赖分层解析(@deepseek-ai/* junction 到 vendor;第三方尽力解析)。
+    // 未解析依赖不阻塞安装:UI 插件 bundle 自带产物,node 半缺失由运行时提示。
+    if let Err(error) = resolve_plugin_dependencies(&target, vendor_root) {
+        tracing::warn!("dsh 插件依赖解析失败(可忽略,运行时按 fail-loud 提示): {error}");
+    }
+
     let record = PluginRecord {
         id: manifest.id,
         name: manifest.name,
@@ -548,6 +743,8 @@ fn finalize_install(
         entry: manifest.entry,
         // 新装默认关闭:首次启用由前端弹风险提示
         enabled: false,
+        dsh_client: manifest.dsh_client,
+        builtin: false,
         installed_at: now_rfc3339(),
     };
     registry.plugins.push(record.clone());
@@ -815,6 +1012,7 @@ pub async fn install_from_url(
 }
 
 /// 逐项启停:更新 registry 并重写 entries yml(需重启 runtime 生效)。
+/// 内置插件(壳依赖,如 client-nav)不可禁用,禁用会导致壳功能缺失。
 pub fn set_enabled(paths: &PluginPaths, id: &str, enabled: bool) -> Result<(), PluginError> {
     let mut registry = load_registry(paths)?;
     let record = registry
@@ -822,13 +1020,24 @@ pub fn set_enabled(paths: &PluginPaths, id: &str, enabled: bool) -> Result<(), P
         .iter_mut()
         .find(|p| p.id == id)
         .ok_or_else(|| PluginError::NotFound(id.to_string()))?;
+    if record.builtin {
+        return Err(PluginError::Manifest(format!(
+            "内置插件 {id} 不可启停(壳依赖,随应用发布)"
+        )));
+    }
     record.enabled = enabled;
     save_registry(paths, &registry)
 }
 
 /// 卸载:移除目录 + registry 记录并重写 yml(需重启 runtime 生效)。
+/// 内置插件不可卸载。
 pub fn uninstall(paths: &PluginPaths, id: &str) -> Result<(), PluginError> {
     let mut registry = load_registry(paths)?;
+    if registry.plugins.iter().any(|p| p.id == id && p.builtin) {
+        return Err(PluginError::Manifest(format!(
+            "内置插件 {id} 不可卸载(壳依赖,随应用发布)"
+        )));
+    }
     let before = registry.plugins.len();
     registry.plugins.retain(|p| p.id != id);
     if registry.plugins.len() == before {
@@ -945,16 +1154,15 @@ pub struct MarketCatalog {
     pub categories: Vec<MarketCategory>,
 }
 
-/// 市场侧分类过滤:UI/皮肤/客户端/娱乐类不收录(与安装侧 UI 拒装双保险对齐)。
+/// 市场分类过滤:插件体系与 dsh 打通后不再剔除 UI/主题/皮肤类(它们与
+/// 运行时插件一样是可安装的 dsh 插件)。仅剔除明显与 dsh 插件无关的
+/// 「客户端」聚合项(如桌面客户端汇总目录),避免误导性条目。
 fn is_ui_category(name: &str) -> bool {
     let lower = name.to_lowercase();
-    name.contains("主题")
-        || name.contains("皮肤")
-        || name.contains("客户端")
-        || name.contains("娱乐")
+    name.contains("客户端")
         || lower
             .split(|c: char| !c.is_ascii_alphanumeric())
-            .any(|seg| matches!(seg, "ui" | "theme" | "themes" | "skin" | "skins" | "tui"))
+            .any(|seg| matches!(seg, "clients" | "desktop" | "tui"))
 }
 
 /// 解析 awesome markdown 列表:`### 分类` 开分类,

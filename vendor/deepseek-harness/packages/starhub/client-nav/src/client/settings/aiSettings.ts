@@ -43,12 +43,9 @@ export interface AiSettings {
   commandWhitelist: string[]
   commandWhitelistVersion: number
   memoryStoreToolOutputs: boolean
-  contextBudgetChars: number
-  agentMaxSteps: number
   memoryEnabled: boolean
   memoryWriteNeedsConfirm: boolean
   memoryAutoReview: boolean
-  compactTriggerRatio: number
 }
 
 /** 默认值(与 aiStore settings 初始值一致;commandWhitelistVersion 初始 2 触发一次 v3 迁移)。 */
@@ -57,18 +54,16 @@ function defaultAiSettings(): AiSettings {
     commandWhitelist: [...DEFAULT_COMMAND_WHITELIST],
     commandWhitelistVersion: 2,
     memoryStoreToolOutputs: false,
-    contextBudgetChars: 120_000,
-    agentMaxSteps: 20,
     memoryEnabled: true,
     memoryWriteNeedsConfirm: false,
     memoryAutoReview: true,
-    compactTriggerRatio: 0.5,
   }
 }
 
 /**
  * 归一化一次持久化 settings(与 aiStore ensureSettingsShape 的白名单/记忆字段逐条对齐)。
  * 空数据同样走迁移流(默认 version=2 → 合并 V3 预设并置 3,与 Vue 首次 ensureSettingsShape 一致)。
+ * 上下文预算/迭代步数/压缩阈值等字段由 dsh harness 接管,不再读也不写。
  * @param raw - 从 localStorage 读出的 settings 对象(可能缺字段/类型错)。
  * @returns 归一化后的设置(缺省回落默认值)。
  */
@@ -85,14 +80,9 @@ export function normalizeAiSettings(raw: Partial<AiSettings> | null | undefined)
     next.commandWhitelistVersion = 3
   }
   if (typeof next.memoryStoreToolOutputs !== 'boolean') next.memoryStoreToolOutputs = false
-  if (!Number.isFinite(next.contextBudgetChars) || next.contextBudgetChars < 4_000) next.contextBudgetChars = 120_000
-  if (!Number.isFinite(next.agentMaxSteps) || next.agentMaxSteps < 1 || next.agentMaxSteps > 100) next.agentMaxSteps = 20
   if (typeof next.memoryEnabled !== 'boolean') next.memoryEnabled = true
   if (typeof next.memoryWriteNeedsConfirm !== 'boolean') next.memoryWriteNeedsConfirm = false
   if (typeof next.memoryAutoReview !== 'boolean') next.memoryAutoReview = true
-  if (!Number.isFinite(next.compactTriggerRatio) || next.compactTriggerRatio <= 0 || next.compactTriggerRatio > 1) {
-    next.compactTriggerRatio = 0.5
-  }
   return next
 }
 

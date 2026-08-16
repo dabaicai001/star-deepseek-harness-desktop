@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.74.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.75.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -118,6 +118,9 @@
 ---
 
 ## 当前版本
+
+### v0.75.0 (2026-08-16)
+- ✨ **插件体系与 dsh 打通**:StarHub 插件 = dsh 插件,市场 = dsh 市场,可从市场/URL/本地快速安装 UI 类插件——`plugins.rs` 放开 `dsh.client`/UI 包名/`dependencies` 拒装(依赖分层解析:`@deepseek-ai/*` 经 vendor junction,第三方尽力解析),registry 新增 `dshClient`/`builtin` 字段;内置插件(client-nav/host-static/tool-context/tools)幂等注册、不可启停/卸载、不进 runtime 组合;`web.rs` spawn 前把启用中的 dsh.client 用户插件按包名 junction 进 `profiles/node_modules` 并在 patch 追加 entry 行(实测自建 UI 插件进入 `__DSH_BOOT__`、bundle 200,dsh 内核零改动);市场 UI/主题/皮肤类收录;插件 tab 显示 UI/内置徽标、内置启停/卸载禁用、UI 风险文案区分;`docs/插件体系打通方案-dsh插件统一.md` 记录实现
 
 ### v0.74.0 (2026-08-16)
 - ✨ **Settings 页按 tab 完成 Vue→React 壳内迁移(§3.2 特例)**:dsh 设置面板 StarHub 分区改为壳内 React 面板(tab 导轨 + 内容区,不再 embed iframe)——插件(列表/URL/目录/Zip 导入/市场/风险确认/卸载)、审计(操作历史/统计/清理)、告警(规则 CRUD/Webhook 测试)、关于(版本/更新检查安装)、AI(命令白名单 + 记忆与上下文 + 记忆管理弹窗)5 个 tab 直渲;通用/外观由 dsh 设置接管不做,资产 tab 暂留 iframe(连接管理 overlay);服务层逐文件复制去 Pinia 耦合(审计/告警/插件/updater/记忆,updater 走 plugin:updater|* invoke + Channel 桥),AI 设置读写沿用 ai-v2 localStorage 无缝承接;client-nav 152 个测试全绿、per-file 100% 覆盖率

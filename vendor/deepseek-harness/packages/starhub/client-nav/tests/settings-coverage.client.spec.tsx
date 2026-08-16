@@ -633,8 +633,6 @@ describe('ai extra branches', () => {
       expect(stored().settings.memoryStoreToolOutputs).toBe(true)
       expect(stored().settings.memoryWriteNeedsConfirm).toBe(true)
       expect(stored().settings.memoryAutoReview).toBe(false)
-      // 压缩阈值非法输入被忽略
-      fireEvent.change(screen.getByLabelText(/压缩触发阈值/), { target: { value: '200' } })
       // 记忆管理:asset scope 分组 + 超容量标红 + 编辑/删除字符串失败
       fireEvent.click(screen.getByText('管理记忆'))
       expect(await screen.findByText('ASSET — abc')).toBeTruthy()
@@ -683,7 +681,7 @@ describe('ai extra branches', () => {
     }
   })
 
-  it('covers Error-path memory failures, compact NaN guard, dialog close and edit cancel', async () => {
+  it('covers Error-path memory failures, dialog close and edit cancel', async () => {
     const restore = stubTauriInternals({
       ai_memory_list: () => [{ id: 'm1', scope: 'user', content: 'c', created_at: 0, updated_at: 0 }],
       ai_memory_update: () => { throw new Error('save boom') },
@@ -691,8 +689,6 @@ describe('ai extra branches', () => {
     })
     try {
       render(<AiTab />)
-      // 压缩阈值 NaN 输入被忽略
-      fireEvent.change(screen.getByLabelText(/压缩触发阈值/), { target: { value: 'abc' } })
       // 记忆编辑 Error 失败 + 编辑态取消
       fireEvent.click(screen.getByText('管理记忆'))
       fireEvent.click(await screen.findByLabelText('编辑'))

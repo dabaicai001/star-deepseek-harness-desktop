@@ -22,10 +22,14 @@ fn vendor_root() -> Result<PathBuf, String> {
         .map_err(|e| format!("无法定位 dsh runtime(vendor)目录,当前布局暂不支持插件安装: {e}"))
 }
 
-/// 已安装插件列表(registry 事实源,附 missing 标记表示目录已被外部删除)。
+/// 已安装插件列表(registry 事实源,附 missing 标记表示目录已被外部删除;
+/// 首次调用会幂等注册内置插件 client-nav/host-static/tool-context/tools)。
 #[tauri::command]
 pub async fn dsh_plugin_list(app: AppHandle) -> Result<Value, String> {
-    plugins::list_plugins(&plugin_paths(&app)?).map_err(|e| e.to_string())
+    let paths = plugin_paths(&app)?;
+    let vendor = vendor_root()?;
+    plugins::ensure_builtin_plugins(&paths, &vendor).map_err(|e| e.to_string())?;
+    plugins::list_plugins(&paths).map_err(|e| e.to_string())
 }
 
 /// 本地导入:path 可以是插件目录或 .zip 文件。

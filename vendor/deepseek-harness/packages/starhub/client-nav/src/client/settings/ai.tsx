@@ -1,9 +1,9 @@
 /**
  * Settings AI 助手 tab(React 壳内版,只做 dsh 未接管的两块)——自
- * SettingsView.vue 迁移:命令白名单(05)+ 记忆与上下文(06,含记忆管理弹窗)。
- * 模型/MCP/技能区由 dsh harness 接管,不做。记忆 6 字段直接写 localStorage
- * 即时持久化(与 Vue aiStore.updateSettings 直写语义一致);白名单经保存
- * 按钮落盘。
+ * SettingsView.vue 迁移:命令白名单(05)+ 记忆管理(06,含记忆管理弹窗)。
+ * 模型/MCP/技能/上下文预算/迭代步数/压缩阈值由 dsh harness 接管,不做。
+ * 记忆 4 开关直接写 localStorage 即时持久化(与 Vue aiStore.updateSettings
+ * 直写语义一致);白名单经保存按钮落盘。
  */
 import { useEffect, useMemo, useState } from 'react'
 import { IconCloseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -223,50 +223,6 @@ export function AiTab() {
             />
             自动沉淀记忆
           </label>
-        </div>
-        <div className={s.formGrid}>
-          <div className={s.formField}>
-            <label className={s.fieldLabel} htmlFor="ai-context-budget">上下文预算(字符)</label>
-            <input
-              id="ai-context-budget"
-              className={s.input} type="number" min={4000} step={10000}
-              value={aiSettings.contextBudgetChars}
-              onChange={(event) => {
-                const value = Number(event.target.value)
-                if (!Number.isFinite(value) || value < 4000) return
-                updateSettings({ contextBudgetChars: Math.floor(value) })
-              }}
-            />
-          </div>
-          <div className={s.formField}>
-            <label className={s.fieldLabel} htmlFor="ai-agent-max-steps">最大工具迭代步数</label>
-            <input
-              id="ai-agent-max-steps"
-              className={s.input} type="number" min={1} max={100}
-              value={aiSettings.agentMaxSteps}
-              onChange={(event) => {
-                const value = Number(event.target.value)
-                if (!Number.isFinite(value) || value < 1 || value > 100) return
-                updateSettings({ agentMaxSteps: Math.floor(value) })
-              }}
-            />
-          </div>
-          <div className={s.formField}>
-            <label className={s.fieldLabel} htmlFor="ai-compact-ratio">
-              压缩触发阈值: {Math.round(aiSettings.compactTriggerRatio * 100)}%
-            </label>
-            <input
-              id="ai-compact-ratio"
-              className={s.range} type="range" min={10} max={100}
-              value={Math.round(aiSettings.compactTriggerRatio * 100)}
-              onChange={(event) => {
-                const value = Number(event.target.value) / 100
-                // v8 ignore next -- range 输入恒为有限数值,NaN 分支为防御守卫
-                if (!Number.isFinite(value) || value < 0.1 || value > 1) return
-                updateSettings({ compactTriggerRatio: Math.round(value * 100) / 100 })
-              }}
-            />
-          </div>
         </div>
       </div>
 

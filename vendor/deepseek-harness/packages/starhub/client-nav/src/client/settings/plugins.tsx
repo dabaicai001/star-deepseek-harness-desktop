@@ -17,13 +17,14 @@ import s from './settings.module.css'
 /** 首次启用风险提示的确认记录(localStorage,按插件 id 记一次)。 */
 const PLUGIN_ACK_KEY = 'starhub.plugins.enable-acknowledged'
 
-/** 插件来源文案(Vue pluginSourceLabel)。 */
+/** 插件来源文案(Vue pluginSourceLabel;builtin 为内置插件)。 */
 function pluginSourceLabel(kind: string): string {
   switch (kind) {
     case 'market': return '市场'
     case 'url': return 'URL'
     case 'local-dir': return '目录'
     case 'local-zip': return 'Zip'
+    case 'builtin': return '内置'
     default: return kind
   }
 }
@@ -250,6 +251,8 @@ export function PluginsTab() {
                   <span className={plugin.enabled ? s.badge : s.badgeOff}>
                     {plugin.enabled ? '已启用' : '已禁用'}
                   </span>
+                  {plugin.dshClient === true && <span className={s.badge}>UI</span>}
+                  {plugin.builtin === true && <span className={s.badgeOff}>内置</span>}
                   <span className={s.badgeOff}>未验证</span>
                   {plugin.missing === true && <span className={s.badgeOff}>缺失</span>}
                   <span className={s.cardActions}>
@@ -257,7 +260,7 @@ export function PluginsTab() {
                       type="button" className={s.iconButton}
                       title={plugin.enabled ? '禁用' : '启用'}
                       aria-label={plugin.enabled ? '禁用' : '启用'}
-                      disabled={pluginBusyId === plugin.id || plugin.missing === true}
+                      disabled={pluginBusyId === plugin.id || plugin.missing === true || plugin.builtin === true}
                       onClick={() => onTogglePlugin(plugin)}
                     >
                       {pluginBusyId === plugin.id ? '…' : plugin.enabled ? '⏻' : '○'}
@@ -265,7 +268,7 @@ export function PluginsTab() {
                     <button
                       type="button" className={s.iconButton}
                       title="卸载" aria-label="卸载"
-                      disabled={pluginBusyId === plugin.id}
+                      disabled={pluginBusyId === plugin.id || plugin.builtin === true}
                       onClick={() => setUninstallDialogPlugin(plugin)}
                     >
                       <IconCloseOutline16 size={13} />
@@ -374,7 +377,9 @@ export function PluginsTab() {
       {riskDialogPlugin !== null && (
         <ConfirmActionDialog
           title="启用插件"
-          message={`${riskDialogPlugin.name}\n\n该插件来自第三方,启用后其代码将在本机执行。请确认来源可信。`}
+          message={riskDialogPlugin.dshClient === true
+            ? `${riskDialogPlugin.name}\n\n该插件声明了浏览器端 UI(dsh.client),启用后其前端代码将在本机应用界面内加载。请确认来源可信。`
+            : `${riskDialogPlugin.name}\n\n该插件来自第三方,启用后其代码将在本机执行。请确认来源可信。`}
           confirmText="启用"
           danger
           onCancel={() => setRiskDialogPlugin(null)}

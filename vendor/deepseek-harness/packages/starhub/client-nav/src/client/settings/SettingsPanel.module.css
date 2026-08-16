@@ -19,6 +19,51 @@
   background: var(--dsw-alias-bg-layer-2);
 }
 
+.railGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.railGroup:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.groupLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron,
+.chevronOpen {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform 0.15s ease;
+}
+
+.chevron {
+  transform: rotate(-90deg);
+}
+
+.chevronOpen {
+  transform: rotate(0deg);
+}
+
 .railItem,
 .railItemActive {
   display: flex;
@@ -27,6 +72,7 @@
   width: 100%;
   height: 30px;
   padding: 0 10px;
+  padding-left: 24px;
   border: none;
   border-radius: 6px;
   background: transparent;
