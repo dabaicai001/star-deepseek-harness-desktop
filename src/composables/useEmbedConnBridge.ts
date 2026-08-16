@@ -64,8 +64,13 @@ export function useEmbedConnBridge(options: EmbedConnBridgeOptions): () => void 
   }
 }
 
-/** 组件卸载清理:与 onBeforeUnmount 配套的便捷封装。 */
-export function useEmbedConnBridgeOnUnmount(options: EmbedConnBridgeOptions): void {
+/**
+ * 组件卸载清理:与 onBeforeUnmount 配套的便捷封装。
+ * @param options - 状态来源与动作回调。
+ * @returns 停止函数(组件卸载时自动调用;视图也可持有它做主动 teardown)。
+ */
+export function useEmbedConnBridgeOnUnmount(options: EmbedConnBridgeOptions): () => void {
   const stop = useEmbedConnBridge(options)
   onBeforeUnmount(stop)
+  return stop
 }

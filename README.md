@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.72.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.72.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,6 +119,9 @@
 
 ## 当前版本
 
+### v0.72.1 (2026-08-16)
+- 🐛 **CI 构建类型错误(TS2322 ×4)**:`useEmbedConnBridgeOnUnmount` 声明返回 `void`,但 SshTerminal / DbView / DockerView / RedisView 四个视图把返回值赋给 `(() => void) | null` 的 `stopEmbedConnBridge` 并做主动 teardown;改为返回停止函数(卸载仍经 onBeforeUnmount 自动清理)
+
 ### v0.72.0 (2026-08-16)
 - ✨ **连接管理入口进工具工作区列(侧栏红框区功能补全)**:子类列头带资产数徽标、刷新与「新建连接」按钮;新建/编辑/删除走连接管理 overlay(设置页只挂资产 tab 的整幅 iframe,`settingsEmbedUrl(['assets'],'assets')`),空态页按钮同路;overlay 开关跨 root/session-maybe 两个 scope 走 apply 持有的裸 source 桥(`createConnectionManagerOverlay`,与选择桥同范式)
 - ✨ **StarHub 设置融入 dsh 底部设置齿轮**:client-nav 注册 `settings.section` 的 StarHub 分区(order 30,排在 通用/模型/插件/Agent 预设 之后),embed StarHub 设置页——可见 tab 去掉资产/外观(资产经工具区管理、外观由 dsh 主题设置负责),落地 AI 助手 tab,`chrome=inline` 隐藏页内关闭钮(关闭由 dsh 对话框负责);StarHub 侧 SettingsView 新增 `visibleTabs`/`hideEmbedClose` props(tab 条改 v-for 数据驱动),`/settings` 路由支持 `?tabs=&tab=&chrome=` query 过滤
@@ -134,9 +137,6 @@
 - 🐛 **iframe 重载风险(P1)**:`assetInstanceUrl` 渲染期 `Date.now()` 改为 openAsset 时一次性生成 instanceId
 - 🐛 **资产列表不刷新 / 空态新建不跳转 / Broker 归属与遗留条目(P2)**:挂载与切换子类重拉 get_assets;空态/资产条新建成功后直接跳进新资产实例页;Broker 归「终端」子类(方案 2.1);清理 redis/es/broker 扁平遗留条目
 - 🐛 **构建链修复**:根 package.json 显式锁 rxjs ^7.8.2(pnpm 把 univer 的 peer 解析成 7.0.0,其根入口不导出 filter 导致 embed 构建失败);入包脚本与 web.rs 的本地包清单补 `tool-context`(v0.71 注册进组合但未入包,junction 目标缺失时跳过并 warn)
-
-### v0.71.0 (2026-08-15)
-- ✨ AI 上下文绑定落地:新增 host 插件 starhub-tool-context(agent/pre-step 注入当前 StarHub 工具/资产到每个请求),client-nav 经 settings 通道同步工具选择
 
 ---
 

@@ -13,6 +13,11 @@
 
 ---
 
+## [0.72.1] - 2026-08-16
+
+### 修复
+- **CI 构建类型错误(TS2322 ×4)**:`useEmbedConnBridgeOnUnmount` 声明返回 `void`,但 SshTerminal / DbView / DockerView / RedisView 四个视图把返回值赋给 `(() => void) | null` 的 `stopEmbedConnBridge` 并做主动 teardown;改为返回停止函数(卸载仍经 onBeforeUnmount 自动清理)
+
 ## [0.72.0] - 2026-08-16
 
 ### 新增

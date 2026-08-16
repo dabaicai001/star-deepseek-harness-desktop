@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.72.0(**连接管理入口进工具工作区列(侧栏红框区功能补全)**:子类列头带资产数徽标、刷新与「新建连接」按钮;新建/编辑/删除走连接管理 overlay(设置页只挂资产 tab 的整幅 iframe,`settingsEmbedUrl(['assets'],'assets')`),空态页按钮同路;overlay 开关跨 root/session-maybe 两个 scope 走 apply 持有的裸 source 桥(`createConnectionManagerOverlay`,与选择桥同范式)) |
+| 当前版本 | v0.72.1(**CI 构建类型错误(TS2322 ×4)**:`useEmbedConnBridgeOnUnmount` 声明返回 `void`,但 SshTerminal / DbView / DockerView / RedisView 四个视图把返回值赋给 `(() => void) | null` 的 `stopEmbedConnBridge` 并做主动 teardown;改为返回停止函数(卸载仍经 onBeforeUnmount 自动清理)) |
 
 ---
 
@@ -490,4 +490,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-16 (v0.72.0)*
+*最后更新: 2026-08-16 (v0.72.1)*
