@@ -18,8 +18,9 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// 程序化创建主窗口(声明式 app.windows 挂不上 on_download:WebView2 默认
 /// 丢弃 webview 内下载,dsh GUI 的「会话日志导出」等 anchor 下载会静默失败。
-/// 窗口属性与原 tauri.conf.json 声明逐项对齐;Requested 不打断默认落盘
-/// (系统下载目录 + webview 建议文件名),返回 true 放行)。
+/// 窗口属性与原 tauri.conf.json 声明逐项对齐;Requested 弹「另存为」对话框
+/// 让用户选保存位置(webview 默认下载目录不可见,下载完找不到文件),
+/// 取消对话框 = 中止下载;Finished 落日志)。
 fn create_main_window(app: &tauri::App) -> tauri::Result<()> {
     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("StarHub")
@@ -31,18 +32,39 @@ fn create_main_window(app: &tauri::App) -> tauri::Result<()> {
         .transparent(false)
         .shadow(true)
         .background_color(tauri::window::Color(8, 13, 20, 255))
-        .on_download(|_webview, event| {
+        .on_download(|webview, event| {
+            use tauri_plugin_dialog::DialogExt;
             match event {
                 tauri::webview::DownloadEvent::Requested { url, destination } => {
-                    tracing::info!("下载开始: {url} -> {}", destination.display());
+                    let suggested = destination
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    tracing::info!("下载请求: {url} (建议文件名 {suggested})");
+                    let picked = webview
+                        .app_handle()
+                        .dialog()
+                        .file()
+                        .set_file_name(&suggested)
+                        .blocking_save_file();
+                    match picked.and_then(|p| p.into_path().ok()) {
+                        Some(path) => {
+                            *destination = path;
+                            true
+                        }
+                        None => {
+                            tracing::info!("下载已取消(用户关闭另存为): {url}");
+                            false
+                        }
+                    }
                 }
                 tauri::webview::DownloadEvent::Finished { url, path, success } => {
                     tracing::info!("下载结束: {url} -> {path:?} success={success}");
+                    true
                 }
                 // DownloadEvent 是 non_exhaustive,未来变体一律放行
-                _ => {}
+                _ => true,
             }
-            true
         })
         .build()?;
     Ok(())

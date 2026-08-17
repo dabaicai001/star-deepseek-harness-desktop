@@ -14,6 +14,13 @@
 
 ---
 
+## [0.80.1] - 2026-08-17
+
+### 已完成(待升版)
+- **session log 下载改「另存为」对话框(用户反馈:程序内下载不生效、不知存到哪)**:主窗口 on_download 的 Requested 分支从「静默放行进系统下载目录」改为弹原生另存为对话框(预填 webview 建议文件名),用户选路径后写入 `destination` 放行;取消对话框 = 中止下载。宿主链路体检结论:`/api/session.export` 端点与 dsh-session-log-export 客户端插件在两端实例均健康(3085 实测 GET 下载 883KB zip 成功),问题纯在 webview 下载落盘不可见
+- **v0.80.0 遗留清理**:①`src-tauri/Cargo.lock` starhub 条目缺 `name = "starhub"` 行(cargo check/build 全挂,TOML 解析失败);②`DbView.vue` 导出 Excel 后注册 excel 资产并 `router.push('excel')` 跳已随 Excel 退役删除的路由(改为仅完成通知);③`assetRouting.ts` 残留 `excel` 路由名映射(删除);④client-nav `starhub-shell-state` 测试残留 excel 前缀断言(改为只测非字符串 dbType 回退)
+- **starhub-approval 瘦身改名为 starhub-approval-bridge(用户拍板)**:策略本体归 dsh 权限 preset(本包只消费 `permission.defaultPreset`:danger-full-access→never,其余→ask),保留风险门(starhub 域工具唯一 ask 来源,防误删核心)与 `starhub/approval.request` 应答桥;包目录 `packages/starhub/approval` → `approval-bridge`,examples/package.json、python/sdk-runtime、tsconfig.host.json、cordis.yml 引用同步
+
 ## [0.80.0] - 2026-08-17
 
 ### 新增
