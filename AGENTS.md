@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.80.1(**session log 下载改「另存为」对话框(用户反馈:程序内下载不生效、不知存到哪)**:主窗口 on_download 的 Requested 分支从「静默放行进系统下载目录」改为弹原生另存为对话框(预填 webview 建议文件名),用户选路径后写入 `destination` 放行;取消对话框 = 中止下载。宿主链路体检结论:`/api/session.export` 端点与 dsh-session-log-export 客户端插件在两端实例均健康(3085 实测 GET 下载 883KB zip 成功),问题纯在 webview 下载落盘不可见) |
+| 当前版本 | v0.81.0(**StarHub × dsh 联动实施(方案 B 控制面收敛 dsh / 数据面留 Rust+Go)**:按 `docs/联动设计-dsh中枢-2026-08-17.md` 与 `docs/联动实施-桥接契约-2026-08-17.md` 四方施工完成——①dsh 侧:`sdk-jsonrpc-server` 本地补丁暴露 `sdk-notifications` 服务(入站 notification 按 method 多路分发、订阅者异常隔离);新包 `session-registry`(订阅 `starhub/registry.sync` 全量快照,`list()`/`forAsset()`)、`domain-events`(订阅 `starhub/domain.event`,每资产环形缓冲 50 + 全局桶,`recent()` ts 倒序)、`live-context`(agent/pre-step 注入 registry 快照 + 事件摘要 + `starhub/live.snapshot` pull,按 maxSnapshotChars 截断、pull 失败降级);`starhub-tools` 新增 `open_connection`/`focus_terminal` 模型工具(桥 `starhub/open.asset`/`starhub/focus.tool`);`examples/starhub-agent/cordis.yml` 组合接线三插件;②Rust 侧:stdio 新增 `starhub/live.snapshot`/`open.asset`/`focus.tool` request 与 `registry.sync`/`domain.event` 出站 notify;AI 工具执行成功自动生成 origin=ai 领域事件(notify dsh + 广播 `starhub://domain-event` + recentExecs 缓存);Tauri command 新增 `ssh_attach`/`ssh_detach`(附着引用计数,归零才真断)、`dsh_report_domain_event`(强制 user、summary 截断)、`starhub_ask_ai`;③client-nav:`@` 资产 source(`starhub-asset`,ui-input-trigger 流水线,onPick ReferenceInsert `<asset id=…>` + 轻绑定工具上下文不切窗)、监听 `starhub://open-asset`(聚焦/开窗,窗口 label 带资产 id)与 `starhub://ask-ai`(聚焦会话 + prefill composer);④Vue 面板:SshTerminal/DbView/SftpPanel 工具栏「问 AI」按钮、`starhub://domain-event`(origin=ai)监听(网格刷新/终端横幅 `.cyber-ai-banner`/SFTP 列表刷新)、SSH 命令/DB 查询/表打开用户起源上报(`dsh_report_domain_event`);新增 `src/services/linkage.ts` 封装与 `tests/linkage.test.ts`;三方测试/类型检查全绿(cargo 148 测试、dsh 三新包 50 测试 100% 覆盖、client-nav 224 测试、Vue 22 测试)) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-17 (v0.80.1)*
+*最后更新: 2026-08-17 (v0.81.0)*
