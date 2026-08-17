@@ -172,32 +172,6 @@ function createDefaultAgent(): AiAgent {
   }
 }
 
-const LOCAL_COMMAND_WHITELIST_V3 = [
-  'Get-ChildItem', 'Get-Content', 'Select-String', 'Get-Item', 'Get-Location',
-  'Get-Process', 'Get-Service', 'Get-CimInstance', 'Get-ComputerInfo',
-  'Test-Path', 'Resolve-Path', 'Measure-Object', 'Compare-Object',
-  'Get-NetTCPConnection', 'Get-NetIPAddress', 'Get-DnsClientCache'
-]
-
-const DEFAULT_COMMAND_WHITELIST = [
-  'ls', 'cat', 'head', 'tail', 'less', 'more', 'grep', 'find', 'pwd',
-  'echo', 'df', 'du', 'free', 'top', 'ps', 'uptime', 'uname', 'whoami',
-  'date', 'wc', 'sort', 'uniq', 'awk', 'cut', 'tr', 'stat', 'file',
-  'which', 'whereis', 'type', 'id', 'env', 'printenv', 'hostname',
-  'netstat', 'ss', 'ip', 'ifconfig', 'route', 'ping', 'traceroute',
-  'curl', 'wget', 'nslookup', 'dig', 'host',
-  'systemctl status', 'systemctl is-active', 'systemctl is-enabled',
-  'journalctl', 'dmesg', 'lsof',
-  'docker ps', 'docker logs', 'docker inspect', 'docker images',
-  'docker network ls', 'docker volume ls',
-  'git status', 'git log', 'git diff', 'git show', 'git branch',
-  'mysql -e "SELECT', 'mysql -e "SHOW', 'mysql -e "DESCRIBE',
-  'redis-cli GET', 'redis-cli HGET', 'redis-cli HGETALL', 'redis-cli LRANGE',
-  'redis-cli SMEMBERS', 'redis-cli ZRANGE', 'redis-cli KEYS',
-  // Windows PowerShell 只读命令（匹配不区分大小写）
-  ...LOCAL_COMMAND_WHITELIST_V3,
-]
-
 export interface AiModelConfig {
   id: string
   name: string
@@ -239,13 +213,6 @@ export interface AiSettings {
   customSkills: AiCustomSkill[]
   /** 外部 MCP Server；env/header 的值存入系统 Keyring，不进入持久化配置。 */
   mcpServers: McpServerConfig[]
-  /**
-   * 白名单:匹配的命令前缀不需要再弹确认对话框。
-   * 风险词命中的命令即使加进白名单也会被强制拦截。
-   */
-  commandWhitelist: string[]
-  /** 命令白名单预设迁移版本；用户删除预设后不会在每次启动时被重新加入。 */
-  commandWhitelistVersion: number
   /** 会话存档是否落库 tool 消息与 assistant 的 tool_calls(默认只存 user/assistant 文本)。 */
   memoryStoreToolOutputs: boolean
   /** runAgent 回发历史的字符预算(滑窗截断,超出部分省略并插注记)。 */
@@ -570,9 +537,6 @@ export const useAiStore = defineStore('ai', () => {
     mcpServers: [],
     models: [],
     activeModelId: '',
-    commandWhitelist: [...DEFAULT_COMMAND_WHITELIST],
-    // 初始值保留在上一版,确保首次创建和旧持久化状态都执行一次 v3 跨平台预设迁移。
-    commandWhitelistVersion: 2,
     memoryStoreToolOutputs: false,
     contextBudgetChars: 120_000,
     agentMaxSteps: 20,
@@ -681,13 +645,6 @@ export const useAiStore = defineStore('ai', () => {
 
   function ensureSettingsShape() {
     const s = settings.value
-    if (!Array.isArray(s.commandWhitelist)) {
-      s.commandWhitelist = [...DEFAULT_COMMAND_WHITELIST]
-    }
-    if (!Number.isFinite(s.commandWhitelistVersion) || s.commandWhitelistVersion < 3) {
-      s.commandWhitelist = Array.from(new Set([...s.commandWhitelist, ...LOCAL_COMMAND_WHITELIST_V3]))
-      s.commandWhitelistVersion = 3
-    }
     if (!Array.isArray(s.enabledSkillIds)) {
       s.enabledSkillIds = [...DEFAULT_ENABLED_SKILL_IDS]
     }
@@ -1343,18 +1300,6 @@ export const useAiStore = defineStore('ai', () => {
   async function migrateModelApiKeys() {
     const migrated = await persistModelApiKeys(settings.value.models)
     settings.value.models = migrated
-  }
-
-  function addToWhitelist(command: string) {
-    ensureSettingsShape()
-    if (!settings.value.commandWhitelist.includes(command)) {
-      settings.value.commandWhitelist.push(command)
-    }
-  }
-
-  function removeFromWhitelist(command: string) {
-    ensureSettingsShape()
-    settings.value.commandWhitelist = settings.value.commandWhitelist.filter(c => c !== command)
   }
 
   function setSkillEnabled(skillId: string, enabled: boolean) {
@@ -2039,8 +1984,6 @@ export const useAiStore = defineStore('ai', () => {
     updateSettings,
     setMcpServers,
     getMcpServers,
-    addToWhitelist,
-    removeFromWhitelist,
     setSkillEnabled,
     upsertCustomSkill,
     getSkillsForAsset,

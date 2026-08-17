@@ -7,12 +7,11 @@ import { useNotifyStore } from '@/stores/notify'
 import UniverGrid from '@/components/excel/UniverGrid.vue'
 import ExcelSheetBar from '@/components/excel/ExcelSheetBar.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
-import AiChat from '@/components/ai/AiChat.vue'
-import { EXCEL_SYSTEM_PROMPT, excelTools } from '@/utils/aiTools'
-import { useAiChatHost } from '@/composables/useAiChatHost'
+import AiDshChat from '@/components/ai/AiDshChat.vue'
+import { EXCEL_SYSTEM_PROMPT } from '@/utils/aiPrompts'
+import { useAiDshHost } from '@/composables/useAiDshHost'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { parseInstanceId } from '@/utils/tabId'
-import type { LlmToolCall } from '@/services/ai'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 
 const route = useRoute()
@@ -40,19 +39,22 @@ const fileFormat = computed<'xlsx' | 'csv'>(() => {
 const isCsvFile = computed(() => fileFormat.value === 'csv')
 const rpcPrefix = computed(() => isCsvFile.value ? 'file.csv' : 'file.excel')
 const fileKindLabel = computed(() => isCsvFile.value ? 'CSV' : 'Excel')
-// ====== AI 助手(共用聊天编排 composable;Excel 工具直接作用于当前工作簿,暂不需要命令白名单确认,也不接 MCP) ======
-const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
-  instanceId,
-  getAssetId: () => asset.value?.id ?? '',
+// ====== AI 助手(dsh 内核;Excel 工具直接作用于当前工作簿,经 dsh://tool-exec 桥回本面板执行) ======
+const {
+  blocks: aiBlocks,
+  sending: aiSending,
+  sendError: aiSendError,
+  pendingApproval: aiPendingApproval,
+  lastUsage: aiLastUsage,
+  send: onAiSend,
+  stop: onAiStop,
+  newChat: onAiNewChat,
+  resolveApproval: onAiResolveApproval
+} = useAiDshHost({
   assetType: 'excel',
-  enabled: () => !!asset.value,
-  tools: excelTools,
-  confirm: false,
-  mcp: false,
-  retryMode: 'rerun',
-  makeToolExecutor: () => executeExcelTool,
-  getBasePrompt: () => EXCEL_SYSTEM_PROMPT,
-  logTag: 'excel-ai'
+  assetId: () => asset.value?.id ?? null,
+  makeSystemPrompt: () => EXCEL_SYSTEM_PROMPT,
+  excelExecute: (name, args) => executeExcelTool(name, args)
 })
 
 const loading = ref(false)
@@ -697,9 +699,8 @@ function excelContextJson(): string {
   }, null, 2)
 }
 
-async function executeExcelTool(call: LlmToolCall): Promise<string> {
-  const args = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>
-  switch (call.function.name) {
+async function executeExcelTool(name: string, args: Record<string, unknown>): Promise<string> {
+  switch (name) {
     case 'excel_get_context':
       return excelContextJson()
     case 'excel_read_range': {
@@ -822,7 +823,7 @@ async function executeExcelTool(call: LlmToolCall): Promise<string> {
       await saveFile()
       return '已保存文件'
     default:
-      return `[Error] Unknown Excel tool: ${call.function.name}`
+      return `[Error] Unknown Excel tool: ${name}`
   }
 }
 
@@ -1013,14 +1014,16 @@ watch(
           :tabs="rightPanelTabs"
         >
           <template #tab-ai>
-            <AiChat
-              v-if="aiSession"
-              :session="aiSession"
+            <AiDshChat
+              v-if="asset"
+              :blocks="aiBlocks"
               :sending="aiSending"
+              :send-error="aiSendError"
+              :pending-approval="aiPendingApproval"
+              :last-usage="aiLastUsage"
               placeholder="让 AI 操作当前表格,例如: 按金额降序、筛选状态为成功、把 B2 改成 100"
               @send="onAiSend"
-              @retry="onAiRetry"
-              @confirm-tool="onAiConfirmTool"
+              @resolve-approval="onAiResolveApproval"
               @new-chat="onAiNewChat"
               @stop="onAiStop"
             />

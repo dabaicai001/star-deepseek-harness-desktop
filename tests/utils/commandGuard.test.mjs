@@ -41,19 +41,19 @@ test('stripShellPrompt returns empty string when no prompt marker', () => {
 })
 
 test('checkCommand flags tab-completed rm -rf target', () => {
-  const result = checkCommand('rm -rf elasticsearch/', [])
+  const result = checkCommand('rm -rf elasticsearch/')
   assert.equal(result.isRisky, true)
   assert.equal(result.needsConfirm, true)
   assert.match(result.confirmMessage, /rm -rf elasticsearch\//)
 })
 
 test('checkCommand flags pasted dangerous command', () => {
-  const result = checkCommand('rm -rf /var/lib/mysql', [])
+  const result = checkCommand('rm -rf /var/lib/mysql')
   assert.equal(result.isRisky, true)
 })
 
-test('checkCommand passes safe commands through whitelist path', () => {
-  const safe = checkCommand('ls -la /home', ['ls'])
+test('checkCommand passes safe commands through (no whitelist)', () => {
+  const safe = checkCommand('ls -la /home')
   assert.equal(safe.isRisky, false)
   assert.equal(safe.needsConfirm, false)
 })

@@ -1,22 +1,20 @@
 /**
- * 命令风险检测 + 白名单匹配
+ * 命令风险检测(纯风险拦截,无白名单)
  *
  * 设计目标:
- *  - 风险词命中的命令:无论白名单如何,必须弹确认对话框
- *  - 白名单命中的命令:免确认直接执行
- *  - 都不命中:弹确认(默认行为)
+ *  - 风险词命中的命令:强制拦截,必须人工确认后才能执行
+ *  - 未命中:放行(终端手动命令无需确认;AI 工具执行的审批由 dsh 审批门统一负责)
  *
- * 风险词是写死的系统级安全规则,白名单可由用户在 Settings → AI 配置。
+ * 命令审批已整体移交 deepseek-harness 权限体系(设置 → 通用 → 权限),StarHub
+ * 侧不再维护命令白名单;这里只保留系统级风险词,供 SSH 终端手动输入时拦截。
  */
 
 export interface CommandCheckResult {
-  /** 是否被风险词命中(命中后必须确认,不能加白名单绕过) */
+  /** 是否被风险词命中(命中后必须人工确认,不可绕过) */
   isRisky: boolean
   /** 命中的风险词(用于提示用户) */
   riskReason?: string
-  /** 是否在白名单(免确认) */
-  isWhitelisted: boolean
-  /** 是否需要弹确认对话框 */
+  /** 是否需要人工确认 */
   needsConfirm: boolean
   /** 用于确认对话框的展示文本 */
   confirmMessage: string
@@ -83,45 +81,28 @@ const RISKY_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 ]
 
 /**
- * 检查命令,返回拦截结果
+ * 检查命令是否命中系统级风险词。
+ * 命中 → needsConfirm=true 且 mustConfirm(风险命令必须人工确认);未命中 → 放行。
  */
-export function checkCommand(
-  command: string,
-  whitelist: string[]
-): CommandCheckResult {
+export function checkCommand(command: string): CommandCheckResult {
   const cmd = command.trim()
 
-  // 1. 风险词检测(优先级最高)
+  // 风险词检测(系统级安全规则,不可绕过)
   for (const { pattern, reason } of RISKY_PATTERNS) {
     if (pattern.test(cmd)) {
       return {
         isRisky: true,
         riskReason: reason,
-        isWhitelisted: false,
         needsConfirm: true,
-        confirmMessage: `⚠️ 风险命令: ${reason}\n\n${cmd}\n\n此命令已被系统规则标记为高风险,白名单无法绕过,必须人工确认。`
+        confirmMessage: `⚠️ 风险命令: ${reason}\n\n${cmd}\n\n此命令已被系统规则标记为高风险,必须人工确认后才能执行。`
       }
     }
   }
 
-  // 2. 白名单匹配(前缀匹配)
-  for (const prefix of whitelist) {
-    if (matchesWhitelist(cmd, prefix)) {
-      return {
-        isRisky: false,
-        isWhitelisted: true,
-        needsConfirm: false,
-        confirmMessage: ''
-      }
-    }
-  }
-
-  // 3. 都不命中:弹确认(默认行为)
   return {
     isRisky: false,
-    isWhitelisted: false,
-    needsConfirm: true,
-    confirmMessage: `即将执行命令:\n\n${cmd}\n\n请确认是否执行。`
+    needsConfirm: false,
+    confirmMessage: ''
   }
 }
 
@@ -135,20 +116,6 @@ export function checkCommand(
 export function stripShellPrompt(line: string): string {
   const m = line.trim().match(/^.*?[$#❯%➜>\]]\s+(.*)$/)
   return (m?.[1] ?? '').trim()
-}
-
-/**
- * 白名单前缀匹配:支持简单的开头匹配,自动 trim 空白
- */
-function matchesWhitelist(command: string, prefix: string): boolean {
-  const p = prefix.trim().toLowerCase()
-  if (!p) return false
-  const normalized = command.toLowerCase()
-  // 完整命令以 p 开头(允许前导空格)
-  if (normalized === p) return true
-  // 允许 "ls" 匹配 "ls -la"(任意 ls 开头的命令)
-  if (normalized.startsWith(p + ' ')) return true
-  return false
 }
 
 /**
@@ -176,30 +143,6 @@ export class PendingConfirmError extends Error {
     this.message = opts.message
     this.resolve = () => { /* noop, set by executeTool */ }
   }
-}
-
-/**
- * 从命令中提取白名单前缀
- * 例如: "rm -rf /tmp" → "rm"
- *       "docker ps -a" → "docker ps"
- *       "ls -la /home" → "ls"
- */
-export function extractWhitelistPrefix(command: string): string {
-  const cmd = command.trim()
-  if (!cmd) return ''
-
-  // 分割命令参数
-  const parts = cmd.split(/\s+/)
-  if (parts.length === 0) return ''
-
-  // 对于 docker/kubectl 等子命令，取前两段
-  const multiWordCommands = ['docker', 'kubectl', 'systemctl', 'journalctl', 'git', 'mysql', 'redis-cli']
-  if (multiWordCommands.includes(parts[0]) && parts.length >= 2) {
-    return `${parts[0]} ${parts[1]}`
-  }
-
-  // 其他命令取第一段
-  return parts[0]
 }
 
 // ── 只读判定:Agent「自动批准(仅查询)」的安全边界 ──

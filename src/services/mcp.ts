@@ -1,7 +1,17 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { LlmJsonSchemaProperty, LlmTool, LlmToolCall } from '@/services/ai'
 import type { McpServerConfig } from '@/stores/ai'
-import type { ToolConfirmFn } from '@/utils/aiTools'
+
+/** 工具调用等待确认时传给父组件的上下文(供弹窗渲染) */
+export interface ToolConfirmCtx {
+  toolName: string
+  args: Record<string, unknown>
+  reason: 'risk' | 'whitelist-miss' | 'always-confirm'
+  message: string
+}
+
+/** confirmFn 签名: 异步等用户决策(弹窗/对话框),返回 true 批准 / false 拒绝 */
+export type ToolConfirmFn = (ctx: ToolConfirmCtx) => Promise<boolean>
 
 export interface McpToolDefinition {
   name: string
@@ -82,7 +92,8 @@ export async function callMcpTool(
   return invoke('mcp_call_tool', { server, toolName, arguments: args })
 }
 
-function formatMcpResult(result: Record<string, unknown>): string {
+/** MCP 调用结果 → 回给 LLM 的文本(内容数组拼接 + structuredContent + isError 标记)。 */
+export function formatMcpResult(result: Record<string, unknown>): string {
   const parts: string[] = []
   if (Array.isArray(result.content)) {
     for (const item of result.content) {

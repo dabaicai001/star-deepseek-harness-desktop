@@ -209,7 +209,6 @@ onMounted(async () => {
 function cloneAiSettings(settings: AiSettings): AiSettings {
   return {
     ...settings,
-    commandWhitelist: [...settings.commandWhitelist],
     enabledSkillIds: [...settings.enabledSkillIds],
     customSkills: settings.customSkills.map(skill => ({
       ...skill,
@@ -227,7 +226,6 @@ function cloneAiSettings(settings: AiSettings): AiSettings {
 }
 
 const aiLocal = ref<AiSettings>(cloneAiSettings(aiStore.settings))
-const newWhitelistItem = ref('')
 const saved = ref(false)
 const testing = ref(false)
 const testResult = ref<string | null>(null)
@@ -373,19 +371,6 @@ async function onTestConnection() {
   } finally {
     testing.value = false
   }
-}
-
-function addWhitelist() {
-  const cmd = newWhitelistItem.value.trim()
-  if (!cmd) return
-  if (!aiLocal.value.commandWhitelist.includes(cmd)) {
-    aiLocal.value.commandWhitelist.push(cmd)
-  }
-  newWhitelistItem.value = ''
-}
-
-function removeWhitelist(cmd: string) {
-  aiLocal.value.commandWhitelist = aiLocal.value.commandWhitelist.filter(c => c !== cmd)
 }
 
 function addMcpServer() {
@@ -1617,7 +1602,7 @@ async function onTestWebhook(url: string) {
 
       <div class="section">
         <div class="section-header">
-          <span class="section-number">04</span>
+          <span class="section-number">03</span>
           <span class="section-title">MCP Servers</span>
         </div>
         <p class="section-desc">
@@ -1734,35 +1719,7 @@ async function onTestWebhook(url: string) {
 
       <div class="section">
         <div class="section-header">
-          <span class="section-number">05</span>
-          <span class="section-title">命令白名单</span>
-        </div>
-        <p class="section-desc">
-          在白名单内的命令前缀,AI 执行时不再弹确认。风险词(rm -rf / DROP / 关机 / 防火墙等)无法加入白名单,系统强制确认。
-        </p>
-
-        <div class="whitelist-input">
-          <input v-model="newWhitelistItem" class="cyber-input" placeholder="例如: ls -la" @keydown.enter="addWhitelist" />
-          <button class="cyber-btn-secondary" @click="addWhitelist">
-            <v-icon size="14">mdi-plus</v-icon>
-            添加
-          </button>
-        </div>
-
-        <div class="whitelist-grid">
-          <div v-for="cmd in aiLocal.commandWhitelist" :key="cmd" class="whitelist-chip">
-            <v-icon size="11">mdi-check-circle-outline</v-icon>
-            <code>{{ cmd }}</code>
-            <button class="chip-remove" @click="removeWhitelist(cmd)">
-              <v-icon size="11">mdi-close</v-icon>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-header">
-          <span class="section-number">06</span>
+          <span class="section-number">04</span>
           <span class="section-title">记忆与上下文</span>
         </div>
         <p class="section-desc">

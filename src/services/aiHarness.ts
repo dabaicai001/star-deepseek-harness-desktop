@@ -123,6 +123,52 @@ export function onSessionEvent(
   return listen<DshSessionEventParams>('dsh://session-event', (event) => handler(event.payload))
 }
 
+// ====== 宿主协议:dsh 工具 ask 门 → 宿主确认、域工具 → 宿主执行 ======
+
+/** 审批请求(dsh 工具的 ask 门触发,宿主面板展示确认卡后应答) */
+export interface DshApprovalParams {
+  requestId?: string
+  sessionId?: string
+  toolName?: string
+  /** ask 门关联的 tool/call callId(可空,宿主可按 callId 反查投影里的 arguments 展示) */
+  callId?: string
+  /** ask 门给出的原因/说明文案 */
+  reason?: string
+}
+
+/** 域工具执行请求(拥有该 sessionId 的面板执行并应答,命令 dsh_tool_exec_reply) */
+export interface DshToolExecParams {
+  requestId?: string
+  sessionId?: string
+  name?: string
+  args?: Record<string, unknown>
+}
+
+/** 订阅 dsh://approval 审批请求通知,返回取消订阅函数 */
+export function onApproval(handler: (params: DshApprovalParams) => void): Promise<UnlistenFn> {
+  return listen<DshApprovalParams>('dsh://approval', (event) => handler(event.payload))
+}
+
+/** 订阅 dsh://tool-exec 域工具执行请求通知,返回取消订阅函数 */
+export function onToolExec(handler: (params: DshToolExecParams) => void): Promise<UnlistenFn> {
+  return listen<DshToolExecParams>('dsh://tool-exec', (event) => handler(event.payload))
+}
+
+/** 应答审批请求(approved=false 即拒绝该工具调用) */
+export async function replyApproval(requestId: string, approved: boolean): Promise<void> {
+  await invoke('dsh_approval_reply', { requestId, approved })
+}
+
+/** 应答域工具执行结果(ok=false 时 text 为错误信息,原样回给模型) */
+export async function replyToolExec(requestId: string, ok: boolean, text: string): Promise<void> {
+  await invoke('dsh_tool_exec_reply', { requestId, ok, text })
+}
+
+/** 会话绑定资产:initialize 后、首个 prompt 前调用一次,通知 dsh 本会话归哪个面板 */
+export async function bindSession(sessionId: string, assetType: string, assetId: string): Promise<void> {
+  await invoke('dsh_bind_session', { sessionId, assetType, assetId })
+}
+
 /** 订阅 session.status 通知(running / idle),返回取消订阅函数 */
 export function onSessionStatus(
   handler: (params: DshSessionStatusParams) => void

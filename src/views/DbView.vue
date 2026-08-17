@@ -6,18 +6,17 @@ import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useDbStore } from '@/stores/db'
 import { useObjectTreeStore, type ObjectAction, type ObjectKind } from '@/stores/objectTree'
-import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
 import { useDialogStore } from '@/stores/dialog'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import ProductIcon from '@/components/common/ProductIcon.vue'
-import AiChat from '@/components/ai/AiChat.vue'
+import AiDshChat from '@/components/ai/AiDshChat.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
 import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
 import { extractFromTables } from '@/utils/sqlTables'
 import { usePersistentPanelState } from '@/utils/panelState'
-import { DB_SYSTEM_PROMPT, dbTools, makeDbToolCaller } from '@/utils/aiTools'
-import { useAiChatHost } from '@/composables/useAiChatHost'
+import { DB_SYSTEM_PROMPT } from '@/utils/aiPrompts'
+import { useAiDshHost } from '@/composables/useAiDshHost'
 import { useEmbedConnBridgeOnUnmount } from '@/composables/useEmbedConnBridge'
 import SqlEditor from '@/components/db/SqlEditor.vue'
 import DataGrid from '@/components/db/DataGrid.vue'
@@ -43,7 +42,6 @@ const modKey = computed(() => isMac.value ? '⌘' : 'Ctrl')
 const assetStore = useAssetStore()
 const appStore = useAppStore()
 const dbStore = useDbStore()
-const aiStore = useAiStore()
 const notify = useNotifyStore()
 const dlg = useDialogStore()
 const rightPanelOpen = usePersistentPanelState('db', true)
@@ -2107,61 +2105,6 @@ const rightPanelTabs = computed(() => [
   { key: 'ai', label: t('db.aiAssistant'), icon: 'mdi-robot-outline' }
 ])
 
-async function executeDbSql(sql: string): Promise<string> {
-  if (!connId.value) throw new Error('数据库未连接')
-  const startedAt = Date.now()
-  const dbType = asset.value?.config.dbType || 'mysql'
-  try {
-    if (dbType === 'redis') {
-      const r = await dbService.redisExecute(connId.value, sql)
-      logAudit({
-        category: 'db', action: 'execute_sql', target: sql.slice(0, 120),
-        detail: {
-          sql: truncateForAudit(sql),
-          source: 'ai',
-          durationMs: Date.now() - startedAt,
-          error: r.error ?? null
-        },
-        sessionId: connId.value, assetId: asset.value?.id, success: !r.error
-      })
-      if (r.error) return `[Error] ${r.error}`
-      return r.result == null ? '(无输出)' : (typeof r.result === 'string' ? r.result : JSON.stringify(r.result, null, 2))
-    }
-    const r = isClickhouse.value
-      ? await dbService.clickhouseExecute(connId.value, sql, selectedDb.value || undefined)
-      : await dbService.mysqlExecute(connId.value, sql, selectedDb.value || undefined)
-    logAudit({
-      category: 'db', action: 'execute_sql', target: sql.slice(0, 120),
-      detail: sqlAuditDetail(sql, startedAt, { database: selectedDb.value || undefined, source: 'ai', result: r }),
-      sessionId: connId.value, assetId: asset.value?.id, success: !r.error
-    })
-    if (r.error) return `[Error] ${r.error}`
-    if (r.rows.length === 0) {
-      return `(0 行${r.rowsAffected ? `, ${r.rowsAffected} 行受影响` : ''})`
-    }
-    // QueryResult.rows 是 unknown[][](行是值的数组),columns 是 ColumnInfo[]
-    const colNames = r.columns.map(c => c.name)
-    const sample = r.rows.slice(0, 20)
-    const formatted = sample.map(row =>
-      row.map((v, i) => `${colNames[i] || i}=${formatVal(v)}`).join(' | ')
-    ).join('\n')
-    return `列: ${colNames.join(', ')}\n${formatted}${r.rows.length > 20 ? `\n… (共 ${r.rows.length} 行)` : ''}`
-  } catch (err: unknown) {
-    logAudit({
-      category: 'db', action: 'execute_sql', target: sql.slice(0, 120),
-      detail: {
-        sql: truncateForAudit(sql),
-        database: selectedDb.value || null,
-        source: 'ai',
-        durationMs: Date.now() - startedAt,
-        error: errMsg(err)
-      },
-      sessionId: connId.value, assetId: asset.value?.id, success: false
-    })
-    throw err
-  }
-}
-
 function formatVal(v: unknown): string {
   if (v === null || v === undefined) return 'NULL'
   if (typeof v === 'object') return JSON.stringify(v)
@@ -2169,26 +2112,23 @@ function formatVal(v: unknown): string {
   return s.length > 100 ? s.slice(0, 100) + '…' : s
 }
 
-// ====== AI 助手(共用聊天编排 composable,差异点经参数注入) ======
-const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
-  instanceId,
-  getAssetId: () => asset.value?.id ?? '',
+// ====== AI 助手(dsh 内核;域工具经 dsh://tool-exec 桥回本面板执行,审批走 dsh 审批门) ======
+const {
+  blocks: aiBlocks,
+  sending: aiSending,
+  sendError: aiSendError,
+  pendingApproval: aiPendingApproval,
+  lastUsage: aiLastUsage,
+  send: onAiSend,
+  stop: onAiStop,
+  newChat: onAiNewChat,
+  resolveApproval: onAiResolveApproval
+} = useAiDshHost({
   assetType: 'db',
-  enabled: () => !!asset.value,
-  tools: dbTools,
-  makeToolExecutor: (confirmFn) => {
-    const caller = makeDbToolCaller(
-      executeDbSql,
-      () => aiStore.settings.commandWhitelist,
-      confirmFn
-    )
-    return (call) => caller({ function: { name: call.function.name, arguments: call.function.arguments } })
-  },
-  getBasePrompt: () => selectedDb.value
+  assetId: () => asset.value?.id ?? null,
+  makeSystemPrompt: () => selectedDb.value
     ? DB_SYSTEM_PROMPT.replace('当前已连接到数据库', `当前已连接到数据库,当前数据库: ${selectedDb.value}`)
-    : DB_SYSTEM_PROMPT,
-  extractWhitelistPrefix: (rec) => String(rec.args.sql ?? '').trim().split(/\s+/)[0]?.toUpperCase() || '',
-  logTag: 'db-ai'
+    : DB_SYSTEM_PROMPT
 })
 </script>
 
@@ -2575,14 +2515,16 @@ const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat
         />
       </template>
       <template #tab-ai>
-        <AiChat
-          v-if="aiSession"
-          :session="aiSession"
+        <AiDshChat
+          v-if="connected"
+          :blocks="aiBlocks"
           :sending="aiSending"
+          :send-error="aiSendError"
+          :pending-approval="aiPendingApproval"
+          :last-usage="aiLastUsage"
           :placeholder="t('db.askAiPlaceholder')"
           @send="onAiSend"
-          @retry="onAiRetry"
-          @confirm-tool="onAiConfirmTool"
+          @resolve-approval="onAiResolveApproval"
           @new-chat="onAiNewChat"
           @stop="onAiStop"
         />

@@ -18,7 +18,7 @@
 
 import { chatWithTools, type ChatMessage, type NewChatRequest } from '@/services/ai'
 import { isTauriRuntime } from '@/services/aiMemory'
-import { makeMemoryToolCaller, memoryTools } from '@/utils/aiTools'
+import { makeMemoryToolCaller, memoryTools } from '@/utils/aiMemoryTools'
 import { snapshotChatMessages } from '@/utils/aiContext'
 import type { AiSession } from '@/stores/ai'
 import { shouldFlush, shouldReview } from '@/services/aiMemoryReviewGates'

@@ -3,12 +3,11 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useDbStore } from '@/stores/db'
 import { useAssetStore } from '@/stores/asset'
-import { useAiStore } from '@/stores/ai'
 import { useI18n } from 'vue-i18n'
 import * as esService from '@/services/db'
-import { ES_SYSTEM_PROMPT, esTools, makeEsToolCaller } from '@/utils/aiTools'
-import { useAiChatHost } from '@/composables/useAiChatHost'
-import AiChat from '@/components/ai/AiChat.vue'
+import { ES_SYSTEM_PROMPT } from '@/utils/aiPrompts'
+import { useAiDshHost } from '@/composables/useAiDshHost'
+import AiDshChat from '@/components/ai/AiDshChat.vue'
 import NewIndexDialog from '@/components/es/NewIndexDialog.vue'
 import EsOverview from '@/components/es/EsOverview.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
@@ -24,7 +23,6 @@ const { t } = useI18n()
 const route = useRoute()
 const dbStore = useDbStore()
 const assetStore = useAssetStore()
-const aiStore = useAiStore()
 
 // 冻结路由参数:keep-alive 缓存的组件实例不应跟踪全局路由变化
 const _frozenInstanceId = route.params.id as string
@@ -94,99 +92,24 @@ const rightPanelTabs = computed<RightPanelTab[]>(() => [
   { key: 'ai', label: t('db.aiAssistant'), icon: 'mdi-robot-outline' }
 ])
 
-// ====== AI 助手(共用聊天编排 composable,差异点经参数注入) ======
-const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
-  instanceId,
-  getAssetId: () => assetId.value || '',
-  assetType: 'db',
-  enabled: () => !!connId.value,
-  tools: esTools,
-  makeToolExecutor: (confirmFn) => {
-    const caller = makeEsToolCaller(
-      executeEsTool,
-      () => aiStore.settings.commandWhitelist,
-      confirmFn
-    )
-    return (call) => caller({ function: { name: call.function.name, arguments: call.function.arguments } })
-  },
-  getBasePrompt: () => selectedIndex.value
+// ====== AI 助手(dsh 内核;域工具经 dsh://tool-exec 桥回本面板执行,审批走 dsh 审批门) ======
+const {
+  blocks: aiBlocks,
+  sending: aiSending,
+  sendError: aiSendError,
+  pendingApproval: aiPendingApproval,
+  lastUsage: aiLastUsage,
+  send: onAiSend,
+  stop: onAiStop,
+  newChat: onAiNewChat,
+  resolveApproval: onAiResolveApproval
+} = useAiDshHost({
+  assetType: 'elasticsearch',
+  assetId,
+  makeSystemPrompt: () => selectedIndex.value
     ? ES_SYSTEM_PROMPT.replace('Elasticsearch 集群', `Elasticsearch 集群,当前选中的索引是 "${selectedIndex.value}"`)
-    : ES_SYSTEM_PROMPT,
-  extractWhitelistPrefix: (rec) => rec.name,
-  logTag: 'es-ai'
+    : ES_SYSTEM_PROMPT
 })
-
-async function executeEsTool(name: string, args: Record<string, unknown>): Promise<string> {
-  if (!connId.value) throw new Error('ES 未连接')
-  try {
-    switch (name) {
-      case 'es_list_indices': {
-        const idxs = await esService.esListIndices(connId.value)
-        return JSON.stringify(idxs.map(i => ({ name: i.name, docs: i.docsCount, size: i.storeSize, health: i.health, status: i.status })), null, 2)
-      }
-      case 'es_cluster_health': {
-        const h = await esService.esClusterHealth(connId.value)
-        return JSON.stringify(h, null, 2)
-      }
-      case 'es_get_mapping': {
-        const m = await esService.esGetMapping(connId.value, String(args.index))
-        if (m && m.fields) {
-          return JSON.stringify(m.fields.map(f => ({ name: f.name, type: f.type, children: f.children })), null, 2)
-        }
-        return JSON.stringify(m, null, 2)
-      }
-      case 'es_search': {
-        let body: Record<string, unknown>
-        try { body = JSON.parse(String(args.query)) } catch { return '[Error] Invalid JSON in query DSL' }
-        const size = args.size ? Number(args.size) : 20
-        const from = args.from ? Number(args.from) : 0
-        const index = String(args.index)
-        const startedAt = Date.now()
-        try {
-          const r = await esService.esSearch(connId.value, index, body, from, size)
-          logAudit({ category: 'db', action: 'es_search', target: index, detail: { query: body, index, durationMs: Date.now() - startedAt }, assetId: assetId.value, success: true })
-          const hits = r.hits?.map(h => ({ _id: h.id, _index: h.index, _score: h.score, ...h.source })) || []
-          return `总计: ${r.totalHits} 条, 耗时: ${r.took}ms\n${JSON.stringify(hits.slice(0, 20), null, 2)}${r.totalHits > 20 ? `\n... (还有 ${r.totalHits - 20} 条)` : ''}`
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e)
-          logAudit({ category: 'db', action: 'es_search', target: index, detail: { query: body, index, durationMs: Date.now() - startedAt, error: msg }, assetId: assetId.value, success: false })
-          throw e
-        }
-      }
-      case 'es_get_document': {
-        const doc = await esService.esGetDocument(connId.value, String(args.index), String(args.id))
-        return JSON.stringify(doc, null, 2)
-      }
-      case 'es_count': {
-        let body: Record<string, unknown> | undefined
-        if (args.query) {
-          try { body = JSON.parse(String(args.query)) } catch { return '[Error] Invalid JSON in query' }
-        }
-        const r = await esService.esCount(connId.value, String(args.index), body)
-        return `count: ${r.count}`
-      }
-      case 'es_index_document_confirmed': {
-        let body: Record<string, unknown>
-        try { body = JSON.parse(String(args.body)) } catch { return '[Error] Invalid JSON in body' }
-        const id = args.id ? String(args.id) : undefined
-        const r = await esService.esIndexDocument(connId.value, String(args.index), body, id)
-        return JSON.stringify(r, null, 2)
-      }
-      case 'es_delete_document_confirmed': {
-        const r = await esService.esDeleteDocument(connId.value, String(args.index), String(args.id))
-        return JSON.stringify(r, null, 2)
-      }
-      case 'es_delete_index_confirmed': {
-        const r = await esService.esDeleteIndex(connId.value, String(args.index))
-        return JSON.stringify(r, null, 2)
-      }
-      default:
-        return `[Unknown tool] ${name}`
-    }
-  } catch (e: any) {
-    return `[Error] ${e?.message || String(e)}`
-  }
-}
 
 async function initConnection() {
   if (!assetId.value) {
@@ -460,14 +383,16 @@ onBeforeUnmount(() => {
           />
         </template>
         <template #tab-ai>
-          <AiChat
-            v-if="aiSession"
-            :session="aiSession"
+          <AiDshChat
+            v-if="connId"
+            :blocks="aiBlocks"
             :sending="aiSending"
+            :send-error="aiSendError"
+            :pending-approval="aiPendingApproval"
+            :last-usage="aiLastUsage"
             placeholder="问我关于 ES 的任何事,例如'列出所有索引'或'在 logs-* 中搜索最近1小时的错误日志'"
             @send="onAiSend"
-            @retry="onAiRetry"
-            @confirm-tool="onAiConfirmTool"
+            @resolve-approval="onAiResolveApproval"
             @new-chat="onAiNewChat"
             @stop="onAiStop"
           />

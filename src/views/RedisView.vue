@@ -4,15 +4,14 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAssetStore } from '@/stores/asset'
 import { useDbStore } from '@/stores/db'
-import { useAiStore } from '@/stores/ai'
 import { useAppStore } from '@/stores/app'
 import { useNotifyStore } from '@/stores/notify'
 import { parseInstanceId } from '@/utils/tabId'
 import { usePersistentPanelState } from '@/utils/panelState'
 import * as dbService from '@/services/db'
 import { useDialogStore } from '@/stores/dialog'
-import { REDIS_SYSTEM_PROMPT, redisTools, makeRedisToolCaller } from '@/utils/aiTools'
-import { useAiChatHost } from '@/composables/useAiChatHost'
+import { REDIS_SYSTEM_PROMPT } from '@/utils/aiPrompts'
+import { useAiDshHost } from '@/composables/useAiDshHost'
 import { useEmbedConnBridgeOnUnmount } from '@/composables/useEmbedConnBridge'
 import { useObjectTreeStore, type ObjectAction, type ObjectKind } from '@/stores/objectTree'
 import RedisValueEditor from '@/components/redis/RedisValueEditor.vue'
@@ -21,7 +20,7 @@ import RedisTools from '@/components/redis/RedisTools.vue'
 import NewKeyDialog from '@/components/redis/NewKeyDialog.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
-import AiChat from '@/components/ai/AiChat.vue'
+import AiDshChat from '@/components/ai/AiDshChat.vue'
 import type { RightPanelTab } from '@/components/layout/RightPanel.vue'
 import ProductIcon from '@/components/common/ProductIcon.vue'
 
@@ -29,7 +28,6 @@ const { t } = useI18n()
 const route = useRoute()
 const assetStore = useAssetStore()
 const dbStore = useDbStore()
-const aiStore = useAiStore()
 const appStore = useAppStore()
 const dlg = useDialogStore()
 const rightPanelOpen = usePersistentPanelState('redis', true)
@@ -83,31 +81,21 @@ const rightPanelTabs = computed<RightPanelTab[]>(() => [
 
 const activeRightTab = ref('dashboard')
 
-async function executeRedisCmd(command: string): Promise<string> {
-  if (!connId.value) throw new Error('Redis 未连接')
-  const r = await dbService.redisExecute(connId.value, command)
-  if (r.error) return `[Error] ${r.error}`
-  return r.result == null ? '(无输出)' : (typeof r.result === 'string' ? r.result : JSON.stringify(r.result, null, 2))
-}
-
-// ====== AI 助手(共用聊天编排 composable,差异点经参数注入) ======
-const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
-  instanceId,
-  getAssetId: () => assetId.value,
-  assetType: 'db',
-  enabled: () => !!connId.value,
-  tools: redisTools,
-  makeToolExecutor: (confirmFn) => {
-    const caller = makeRedisToolCaller(
-      executeRedisCmd,
-      () => aiStore.settings.commandWhitelist,
-      confirmFn
-    )
-    return (call) => caller({ function: { name: call.function.name, arguments: call.function.arguments } })
-  },
-  getBasePrompt: () => REDIS_SYSTEM_PROMPT.replace('db0', `db${currentDb.value}`),
-  extractWhitelistPrefix: (rec) => String(rec.args.command ?? '').trim().split(/\s+/)[0]?.toUpperCase() || '',
-  logTag: 'redis-ai'
+// ====== AI 助手(dsh 内核;域工具经 dsh://tool-exec 桥回本面板执行,审批走 dsh 审批门) ======
+const {
+  blocks: aiBlocks,
+  sending: aiSending,
+  sendError: aiSendError,
+  pendingApproval: aiPendingApproval,
+  lastUsage: aiLastUsage,
+  send: onAiSend,
+  stop: onAiStop,
+  newChat: onAiNewChat,
+  resolveApproval: onAiResolveApproval
+} = useAiDshHost({
+  assetType: 'redis',
+  assetId,
+  makeSystemPrompt: () => REDIS_SYSTEM_PROMPT.replace('db0', `db${currentDb.value}`)
 })
 
 function isStaleConnect(attemptId: number): boolean {
@@ -451,14 +439,16 @@ onBeforeUnmount(() => {
         />
       </template>
       <template #tab-ai>
-        <AiChat
-          v-if="aiSession"
-          :session="aiSession"
+        <AiDshChat
+          v-if="connId"
+          :blocks="aiBlocks"
           :sending="aiSending"
+          :send-error="aiSendError"
+          :pending-approval="aiPendingApproval"
+          :last-usage="aiLastUsage"
           placeholder="问我关于 Redis 的任何事,例如'列出所有以 user: 开头的 key'"
           @send="onAiSend"
-          @retry="onAiRetry"
-          @confirm-tool="onAiConfirmTool"
+          @resolve-approval="onAiResolveApproval"
           @new-chat="onAiNewChat"
           @stop="onAiStop"
         />

@@ -8,11 +8,10 @@ import { useAssetStore } from '@/stores/asset'
 import { useAppStore } from '@/stores/app'
 import { useDockerStore } from '@/stores/docker'
 import { useObjectTreeStore } from '@/stores/objectTree'
-import { useAiStore } from '@/stores/ai'
 import { useNotifyStore } from '@/stores/notify'
 import { useDialogStore } from '@/stores/dialog'
 import RightPanel from '@/components/layout/RightPanel.vue'
-import AiChat from '@/components/ai/AiChat.vue'
+import AiDshChat from '@/components/ai/AiDshChat.vue'
 import DockerDashboard from '@/components/dashboard/DockerDashboard.vue'
 import HostKeyConfirmDialog, { type HostKeyInfo } from '@/components/ssh/HostKeyConfirmDialog.vue'
 import KbInteractiveDialog from '@/components/ssh/KbInteractiveDialog.vue'
@@ -21,8 +20,8 @@ import { parseInstanceId } from '@/utils/tabId'
 import { buildDockerConnectParams } from '@/utils/dockerConnect'
 import { logAudit } from '@/services/audit'
 import { usePersistentPanelState } from '@/utils/panelState'
-import { DOCKER_SYSTEM_PROMPT, dockerTools, makeDockerToolCaller } from '@/utils/aiTools'
-import { useAiChatHost } from '@/composables/useAiChatHost'
+import { DOCKER_SYSTEM_PROMPT } from '@/utils/aiPrompts'
+import { useAiDshHost } from '@/composables/useAiDshHost'
 import { useEmbedConnBridgeOnUnmount } from '@/composables/useEmbedConnBridge'
 import * as dockerService from '@/services/docker'
 import { assetConfigToSshConfig, type KbInteractiveEvent } from '@/services/ssh'
@@ -36,7 +35,6 @@ const assetStore = useAssetStore()
 const appStore = useAppStore()
 const dockerStore = useDockerStore()
 const objectTree = useObjectTreeStore()
-const aiStore = useAiStore()
 const rightPanelOpen = usePersistentPanelState('docker', true)
 const notify = useNotifyStore()
 const dlg = useDialogStore()
@@ -458,67 +456,21 @@ const rightPanelTabs = computed(() => [
   { key: 'ai', label: 'AI 助手', icon: 'mdi-robot-outline' }
 ])
 
-async function executeDockerTool(name: string, args: Record<string, unknown>): Promise<string> {
-  const connId = dockerStore.currentConnId
-  if (!connId) throw new Error('Docker 未连接')
-  if (name === 'docker_list_containers') {
-    const showAll = args.all !== 'false'
-    const list = await dockerService.listContainers(connId, showAll)
-    if (list.length === 0) return '(没有容器)'
-    return list.slice(0, 50).map((c: any) =>
-      `${(c.id || '').slice(0, 12)} | ${(c.name || '').padEnd(20)} | ${(c.image || '').padEnd(30)} | ${(c.state || '').padEnd(10)} | ${c.ports || ''}`
-    ).join('\n') + (list.length > 50 ? `\n… (共 ${list.length} 个)` : '')
-  }
-  if (name === 'docker_logs') {
-    const container = String(args.container ?? '')
-    const tail = String(args.tail ?? '200')
-    const logs = await dockerService.containerLogs(connId, container, tail)
-    if (logs.length === 0) return '(无日志)'
-    return logs.map((l: any) => `[${l.stream}] ${l.message}`).join('\n')
-  }
-  if (name === 'docker_inspect') {
-    return `inspect ${args.target} - 后端暂未实现,可以用 docker_list_containers 替代`
-  }
-  if (name === 'docker_exec' || name === 'docker_exec_confirmed') {
-    const container = String(args.container ?? '')
-    const command = String(args.command ?? '').trim()
-    if (!container || !command) {
-      return '[Error] docker_exec 需要 container 和 command 参数'
-    }
-    const result = await dockerService.dockerExec(
-      connId,
-      container,
-      ['sh', '-c', command],  // shell -c 支持多命令组合(管道、&&、重定向)
-      { timeoutSec: 30 }
-    )
-    const parts: string[] = []
-    if (result.stdout) parts.push(result.stdout)
-    if (result.stderr) parts.push(`[stderr]\n${result.stderr}`)
-    if (parts.length === 0) parts.push('(无输出)')
-    if (result.exitCode !== 0) parts.push(`\n[exit ${result.exitCode}]`)
-    return parts.join('\n')
-  }
-  return `[Unknown tool] ${name}`
-}
-
-// ====== AI 助手(共用聊天编排 composable,差异点经参数注入) ======
-const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat, onAiStop, onAiConfirmTool } = useAiChatHost({
-  instanceId,
-  getAssetId: () => asset.value?.id ?? '',
+// ====== AI 助手(dsh 内核;域工具经 dsh://tool-exec 桥回本面板执行,审批走 dsh 审批门) ======
+const {
+  blocks: aiBlocks,
+  sending: aiSending,
+  sendError: aiSendError,
+  pendingApproval: aiPendingApproval,
+  lastUsage: aiLastUsage,
+  send: onAiSend,
+  stop: onAiStop,
+  newChat: onAiNewChat,
+  resolveApproval: onAiResolveApproval
+} = useAiDshHost({
   assetType: 'docker',
-  enabled: () => !!asset.value,
-  tools: dockerTools,
-  makeToolExecutor: (confirmFn) => {
-    const caller = makeDockerToolCaller(
-      executeDockerTool,
-      () => aiStore.settings.commandWhitelist,
-      confirmFn
-    )
-    return (call) => caller({ function: { name: call.function.name, arguments: call.function.arguments } })
-  },
-  getBasePrompt: () => DOCKER_SYSTEM_PROMPT,
-  extractWhitelistPrefix: (rec) => String(rec.args.command ?? '').trim().split(/\s+/).slice(0, 2).join(' '),
-  logTag: 'docker-ai'
+  assetId: () => asset.value?.id ?? null,
+  makeSystemPrompt: () => DOCKER_SYSTEM_PROMPT
 })
 </script>
 
@@ -800,14 +752,16 @@ const { session: aiSession, sending: aiSending, onAiSend, onAiRetry, onAiNewChat
         />
       </template>
       <template #tab-ai>
-        <AiChat
-          v-if="aiSession"
-          :session="aiSession"
+        <AiDshChat
+          v-if="connected"
+          :blocks="aiBlocks"
           :sending="aiSending"
+          :send-error="aiSendError"
+          :pending-approval="aiPendingApproval"
+          :last-usage="aiLastUsage"
           placeholder="问我关于这个 Docker 主机的任何事,例如'列一下所有容器'"
           @send="onAiSend"
-          @retry="onAiRetry"
-          @confirm-tool="onAiConfirmTool"
+          @resolve-approval="onAiResolveApproval"
           @new-chat="onAiNewChat"
           @stop="onAiStop"
         />
