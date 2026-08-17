@@ -614,9 +614,9 @@ importers:
       '@deepseek-ai/dsh-spill-policy':
         specifier: workspace:*
         version: link:../packages/spill/spill-policy
-      '@deepseek-ai/dsh-starhub-approval':
+      '@deepseek-ai/dsh-starhub-approval-bridge':
         specifier: workspace:*
-        version: link:../packages/starhub/approval
+        version: link:../packages/starhub/approval-bridge
       '@deepseek-ai/dsh-starhub-tools':
         specifier: workspace:*
         version: link:../packages/starhub/tools
@@ -6905,7 +6905,7 @@ importers:
         specifier: workspace:^
         version: link:../../core/tools
 
-  packages/starhub/approval:
+  packages/starhub/approval-bridge:
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -8744,9 +8744,9 @@ importers:
       '@deepseek-ai/dsh-spill':
         specifier: workspace:^
         version: link:../../packages/spill/spill
-      '@deepseek-ai/dsh-starhub-approval':
+      '@deepseek-ai/dsh-starhub-approval-bridge':
         specifier: workspace:^
-        version: link:../../packages/starhub/approval
+        version: link:../../packages/starhub/approval-bridge
       '@deepseek-ai/dsh-starhub-tools':
         specifier: workspace:^
         version: link:../../packages/starhub/tools

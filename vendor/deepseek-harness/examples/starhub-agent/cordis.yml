@@ -1,8 +1,8 @@
 # StarHub AI 工作区(内嵌 AI 助手)专用组合(内核替换 P1-3 起)。
 # 安全边界:不挂 bash/fs 工具——StarHub 的资产工具经 starhub-tools 插件接入,
-# 审批语义走 ctx.approval 桥(方案 5.2):starhub-approval 负责风险门 +
-# 确认卡应答桥;会话审批策略(ask/never)由 dsh「设置 → 通用 → 权限」
-# 经共享 settings.yaml 供给(StarHub 不再有自己的命令白名单)。
+# 审批语义走 ctx.approval 桥(方案 5.2):审批策略由 dsh 权限 preset 供给
+# (设置 → 通用 → 权限,共享 settings.yaml);starhub-approval-bridge 只做
+# preset 消费 + 风险门(防误删:starhub 域工具唯一的 ask 来源)+ 确认卡应答桥。
 # stdout 只走 JSON-RPC;不要加 console logger。
 
 - id: sdk-jsonrpc-server
@@ -17,7 +17,7 @@
   config:
     path: !!js "process.env.DSH_SETTINGS_PATH ?? './.settings.yaml'"
 
-# 审批服务(策略 + 审计对);answerer 由 starhub-approval 桥到宿主确认卡。
+# 审批服务(策略 + 审计对);answerer 由 starhub-approval-bridge 桥到宿主确认卡。
 - id: approval
   name: '@deepseek-ai/dsh-user-approval'
 
@@ -76,11 +76,12 @@
 - id: starhub-tools
   name: '@deepseek-ai/dsh-starhub-tools'
 
-# 审批桥(Phase 2):会话权限固定(共享 settings.yaml 的 permission preset)
-# + starhub_* 工具风险门 + approval/request 应答桥(前端确认卡)。
+# 审批桥(Phase 2;2026-08-17 瘦身改名):消费共享 settings.yaml 的
+# permission preset(策略本体在 dsh 侧)+ starhub_* 工具风险门 +
+# approval/request 应答桥(前端确认卡)。
 # 必须排在 sdk-jsonrpc-server / settings / approval 之后。
-- id: starhub-approval
-  name: '@deepseek-ai/dsh-starhub-approval'
+- id: starhub-approval-bridge
+  name: '@deepseek-ai/dsh-starhub-approval-bridge'
 
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'

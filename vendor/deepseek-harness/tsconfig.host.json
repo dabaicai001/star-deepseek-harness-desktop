@@ -275,7 +275,7 @@
     { "path": "./packages/workflow/tool-ralph" },
     { "path": "./packages/todo/tool-todo" },
     { "path": "./packages/starhub/tools" },
-    { "path": "./packages/starhub/approval" },
+    { "path": "./packages/starhub/approval-bridge" },
     { "path": "./packages/starhub/host-static" },
     { "path": "./packages/starhub/tool-context" },
     { "path": "./packages/plan/plan-mode" },

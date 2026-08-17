@@ -74,7 +74,7 @@
     "@deepseek-ai/dsh-skill": "workspace:^",
     "@deepseek-ai/dsh-skill-filesystem": "workspace:^",
     "@deepseek-ai/dsh-starhub-tools": "workspace:^",
-    "@deepseek-ai/dsh-starhub-approval": "workspace:^",
+    "@deepseek-ai/dsh-starhub-approval-bridge": "workspace:^",
     "@deepseek-ai/dsh-subagent": "workspace:^",
     "@deepseek-ai/dsh-subagent-acp": "workspace:^",
     "@deepseek-ai/dsh-subagent-fork-in-process": "workspace:^",

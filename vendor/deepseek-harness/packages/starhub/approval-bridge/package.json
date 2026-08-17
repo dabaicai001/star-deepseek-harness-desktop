@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-starhub-approval",
-  "description": "StarHub approval bridge: session policy pin from shared settings, starhub_* tool risk gate, and approval answerer bridged to the Tauri host over the SDK transport (StarHub-local package, not upstream)",
+  "name": "@deepseek-ai/dsh-starhub-approval-bridge",
+  "description": "StarHub approval bridge: consumes the dsh permission preset from shared settings (no own policy), keeps the starhub_* tool risk gate (anti-misdelete), and bridges approval answers to the Tauri host over the SDK transport (StarHub-local package, not upstream)",
   "private": true,
   "version": "0.0.1",
   "type": "module",

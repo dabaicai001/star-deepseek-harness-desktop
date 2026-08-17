@@ -563,7 +563,7 @@ async fn memory(
         }
     }
 
-    // 写路径直写(scope 已含 asset:{id});风险确认由 dsh 侧 starhub-approval
+    // 写路径直写(scope 已含 asset:{id});风险确认由 dsh 侧 starhub-approval-bridge
     // 插件的 tools/pre-execute 风险门承接(ALWAYS_ASK 含 memory),Rust 桥不再重复确认。
 
     let result = match action {

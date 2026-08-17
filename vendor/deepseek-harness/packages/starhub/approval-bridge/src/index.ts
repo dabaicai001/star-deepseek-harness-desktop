@@ -1,15 +1,17 @@
 /**
- * StarHub 审批桥(内核替换 Phase 2,方案 5.2 / D3;StarHub 本地包,不在上游)。
- * 一个插件承担三件事:
+ * StarHub 审批桥(内核替换 Phase 2,方案 5.2 / D3;StarHub 本地包,不在上游。
+ * 2026-08-17 由 starhub-approval 瘦身改名:策略层完全交给 dsh 权限 preset,
+ * 本包只保留「消费 preset + 风险门 + 应答桥」三件最小职责):
  *
- * 1. 会话权限固定:session/created 时读取共享 settings.yaml 的 `permission`
+ * 1. preset 消费:session/created 时读取共享 settings.yaml 的 `permission`
  *    命名空间(dsh web GUI「设置 → 通用 → 权限」写入的 defaultPreset),
  *    把会话审批策略固定为 ask/never——StarHub 侧不再有自己的命令白名单,
  *    审核策略统一由 dsh 权限体系供给。
- * 2. starhub_* 工具风险门:tools/pre-execute 上把「需要人工确认」的调用
- *    升级为 ask(写操作恒 ask;命令/SQL 按只读判定放行、风险词命中或不确定
- *    一律 ask)。策略为 never(danger-full-access)时不拦,与 dsh 自家
- *    「全访问不弹审批」语义对齐。
+ * 2. starhub_* 工具风险门(防误删核心):tools/pre-execute 上把「需要人工
+ *    确认」的调用升级为 ask(写操作恒 ask;命令/SQL 按只读判定放行、风险词
+ *    命中或不确定一律 ask)。策略为 never(danger-full-access)时不拦,与
+ *    dsh 自家「全访问不弹审批」语义对齐。注意:preset 只提供策略,
+ *    「哪些调用该问」的决定只由本门产生——删除本门 = 域工具不再有任何确认。
  * 3. 审批应答桥:approval/request 经 SDK stdio 双向 request
  *    (方法 `starhub/approval.request`)桥回 StarHub Rust 主进程,由前端
  *    确认卡给出 allowed-once / rejected;桥不可用一律 fail closed。
@@ -17,7 +19,7 @@
  * 风险词与只读判定移植自 StarHub `src/utils/commandGuard.ts`(同源 TS),
  * 语义不变:宁可误拦不误放。
  *
- * @module @deepseek-ai/dsh-starhub-approval
+ * @module @deepseek-ai/dsh-starhub-approval-bridge
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -33,7 +35,7 @@ import {
   type ApprovalPolicy,
 } from '@deepseek-ai/dsh-user-approval'
 
-export const name = 'starhub-approval'
+export const name = 'starhub-approval-bridge'
 export const inject = ['approval', 'settings']
 
 /** 桥方法名;Rust 侧实现见 src-tauri/src/harness/mod.rs。 */
@@ -256,7 +258,7 @@ function sessionPolicy(ctx: Context, session: Session): ApprovalPolicy {
 export function apply(ctx: Context): void {
   const transport = ctx.get('sdk-transport') as JsonRpcTransportPeer | undefined
   if (!transport) {
-    throw new Error('starhub-approval requires sdk-jsonrpc-server (sdk-transport service) in the same composition')
+    throw new Error('starhub-approval-bridge requires sdk-jsonrpc-server (sdk-transport service) in the same composition')
   }
 
   // 1. 会话权限固定:读取共享 settings.yaml 的 permission.defaultPreset。

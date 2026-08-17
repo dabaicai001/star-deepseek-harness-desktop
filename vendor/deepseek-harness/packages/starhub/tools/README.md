@@ -11,7 +11,7 @@ es_*/docker_*/excel_*/mcp_*/skill_save)+ 四个 Rust 侧全局工具
 工具分发给拥有该会话的前端面板执行(连接/凭据/工作簿都在前端),全局工具在
 Rust 内直接执行(`src-tauri/src/harness/`)。
 
-确认语义不在本包:`starhub-approval` 插件在 tools/pre-execute 按只读/风险分级
+确认语义不在本包:`starhub-approval-bridge` 插件在 tools/pre-execute 按只读/风险分级
 升级为 ask,经 ctx.approval 桥到前端确认卡(方案 5.2);`_confirmed` 双工具
 形态随之退役(旧前端 aiTools.ts 的 ssh_exec_confirmed 等不再存在)。
 

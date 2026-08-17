@@ -7,7 +7,7 @@
  * 等域工具)或在 Rust 内直接执行(全局工具:list_capabilities / list_assets /
  * session_search / memory)。
  *
- * 确认语义:本包不做确认;`starhub-approval` 插件在 tools/pre-execute 上按
+ * 确认语义:本包不做确认;`starhub-approval-bridge` 插件在 tools/pre-execute 上按
  * 只读/风险分级把调用升级为 ask,经 ctx.approval 桥到前端确认卡(方案 5.2)。
  * 依赖同组合的 sdk-jsonrpc-server 插件提供的 `sdk-transport` 服务
  * (StarHub 对 sdk/server 的本地补丁);缺失时加载即失败(fail loud)。

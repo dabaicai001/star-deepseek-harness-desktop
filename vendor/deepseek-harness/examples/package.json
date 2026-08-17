@@ -105,7 +105,7 @@
     "@deepseek-ai/dsh-tool-jobs": "workspace:*",
     "@deepseek-ai/dsh-tool-todo": "workspace:*",
     "@deepseek-ai/dsh-starhub-tools": "workspace:*",
-    "@deepseek-ai/dsh-starhub-approval": "workspace:*",
+    "@deepseek-ai/dsh-starhub-approval-bridge": "workspace:*",
     "@deepseek-ai/dsh-tool-web": "workspace:*",
     "@deepseek-ai/dsh-tool-workflow": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*",
