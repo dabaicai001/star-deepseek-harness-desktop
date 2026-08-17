@@ -300,29 +300,22 @@ describe('AboutTab', () => {
 })
 
 describe('AiTab', () => {
-  it('renders the whitelist and memory settings in preview; memory manager is desktop-only', async () => {
+  it('renders memory settings in preview (whitelist removed); memory manager is desktop-only', async () => {
     render(<AiTab />)
-    expect(screen.getByText('命令白名单')).toBeTruthy()
+    expect(screen.queryByText('命令白名单')).toBeNull()
     expect(screen.getByText('记忆与上下文')).toBeTruthy()
     fireEvent.click(screen.getByText('管理记忆'))
     expect(await screen.findByText(/记忆功能仅在 StarHub 桌面端可用/)).toBeTruthy()
   })
 
-  it('adds/removes whitelist entries and saves to localStorage', async () => {
+  it('ignores legacy whitelist entries from stored data and keeps memory toggles', async () => {
     localStorage.setItem(AI_STORAGE_KEY, JSON.stringify({
       settings: { commandWhitelist: ['ls'], commandWhitelistVersion: 3 },
     }))
     render(<AiTab />)
-    expect(screen.getByText('ls')).toBeTruthy()
-    fireEvent.change(screen.getByPlaceholderText(/输入命令前缀/), { target: { value: 'docker ps' } })
-    fireEvent.click(screen.getByText('添加'))
-    expect(screen.getByText('docker ps')).toBeTruthy()
-    fireEvent.click(screen.getByLabelText('移除 docker ps'))
-    expect(screen.queryByText('docker ps')).toBeNull()
-    fireEvent.click(screen.getByText('保存'))
-    expect(await screen.findByText('已保存')).toBeTruthy()
-    const stored = JSON.parse(localStorage.getItem(AI_STORAGE_KEY) ?? '{}') as { settings: { commandWhitelist: string[] } }
-    expect(stored.settings.commandWhitelist).toEqual(['ls'])
+    expect(screen.queryByText('ls')).toBeNull()
+    expect(screen.queryByPlaceholderText(/输入命令前缀/)).toBeNull()
+    expect(screen.getByText('启用长期记忆')).toBeTruthy()
   })
 
   it('writes memory toggles immediately', async () => {

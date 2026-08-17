@@ -543,6 +543,19 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Powered-by credit pill (dsh harness): muted badge variant for the hero. */
+.aboutBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .aboutDesc {
   max-width: 460px;
   margin: 0;

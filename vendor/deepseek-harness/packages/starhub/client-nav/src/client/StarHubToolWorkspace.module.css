@@ -194,3 +194,8 @@
 .retryButton:hover {
   background: var(--dsw-alias-interactive-bg-hover-accent);
 }
+
+/* 右键菜单的 Menu 包装 span:display:contents 让空 anchor 不参与行布局。 */
+.menuRoot {
+  display: contents;
+}

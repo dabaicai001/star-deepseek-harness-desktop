@@ -29,6 +29,7 @@ function navProps() {
     useStore: (<S,>(sel: (s: { categoryOpen: boolean }) => S) => sel(instance.getSnapshot())) as never,
     actions: instance.actions,
     selectSubcategory: vi.fn(),
+    openSubcategoryPage: vi.fn(),
     useSelection: (<S,>(sel: (s: ToolSelection) => S) => sel(bridge.source.getSnapshot())) as never,
     useSessions: (() => undefined) as never,
     useWorkspaces: (() => undefined) as never,
@@ -87,6 +88,19 @@ describe('StarHubNav', () => {
     expect(screen.queryByText('终端')).toBeNull()
     expect(screen.getByTitle('工具')).toBeTruthy()
     expect(screen.getByTitle('终端')).toBeTruthy()
+  })
+
+  it('opens a right-click menu on a subcategory row and dispatches open / open-new', () => {
+    const props = navProps()
+    render(<StarHubNav {...props} />)
+    fireEvent.contextMenu(screen.getByTitle('数据库'))
+    expect(screen.getByText('打开')).toBeTruthy()
+    expect(screen.getByText('新窗口打开')).toBeTruthy()
+    fireEvent.click(screen.getByText('打开'))
+    expect(props.selectSubcategory).toHaveBeenCalledWith('database')
+    fireEvent.contextMenu(screen.getByTitle('数据库'))
+    fireEvent.click(screen.getByText('新窗口打开'))
+    expect(props.openSubcategoryPage).toHaveBeenCalledWith('database')
   })
 })
 

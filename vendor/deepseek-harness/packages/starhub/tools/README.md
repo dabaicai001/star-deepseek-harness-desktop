@@ -1,11 +1,19 @@
 # @deepseek-ai/dsh-starhub-tools
 
-StarHub 本地包(内核替换 P1-4,不在上游):把 StarHub 宿主能力注册为 dsh 模型工具
+StarHub 本地包(内核替换 P1-4 起,Phase 2 扩展全域工具,不在上游):把 StarHub
+宿主能力注册为 dsh 模型工具——全域桥接工具(ssh_*/sftp_*/db_query/redis_exec/
+es_*/docker_*/excel_*/mcp_*/skill_save)+ 四个 Rust 侧全局工具
 (`starhub_list_capabilities` / `starhub_list_assets` / `session_search` / `memory`)。
 
 工具不在 dsh 进程内执行;`execute` 经 SDK stdio JSON-RPC 的双向 request
-(方法 `starhub/tool.execute`,参数 `{ name, args }`,结果为模型可读文本)桥回
-StarHub Rust 主进程(实现见 `src-tauri/src/harness/tools.rs`)。
+(方法 `starhub/tool.execute`,参数 `{ sessionId, name, args }`,sessionId 取自
+`exec.agent.session.id`,结果为模型可读文本)桥回 StarHub 主进程;主进程把域
+工具分发给拥有该会话的前端面板执行(连接/凭据/工作簿都在前端),全局工具在
+Rust 内直接执行(`src-tauri/src/harness/`)。
+
+确认语义不在本包:`starhub-approval` 插件在 tools/pre-execute 按只读/风险分级
+升级为 ask,经 ctx.approval 桥到前端确认卡(方案 5.2);`_confirmed` 双工具
+形态随之退役(旧前端 aiTools.ts 的 ssh_exec_confirmed 等不再存在)。
 
 依赖同组合的 `@deepseek-ai/dsh-sdk-jsonrpc-server` 提供的 `sdk-transport` 服务
 (StarHub 对 sdk/server 的本地补丁,见 `docs/AI内核替换方案-deepseek-harness.md`
@@ -13,5 +21,12 @@ StarHub Rust 主进程(实现见 `src-tauri/src/harness/tools.rs`)。
 
 ## Model Experience
 
-工具 schema 与描述沿用旧前端实现(原 `src/utils/aiTools.ts` 与 AiView.vue),
-模型可见文本未变;工具结果是宿主生成的中文文本,进入会话历史。
+工具 schema 与描述移植自旧前端实现(原 `src/utils/aiTools.ts` 与
+`aiSftpTools.ts`),模型可见描述随确认语义更新(白名单措辞改为审批措辞);
+工具结果是宿主生成的中文文本,进入会话历史。
+
+## Known Limitations and Deferred Work
+
+- 全部工具注册在一个 runtime 注册表,不按会话绑定过滤工具清单;域不匹配的
+  调用由宿主侧执行器报错引导(会话绑定由前端面板持有)。
+

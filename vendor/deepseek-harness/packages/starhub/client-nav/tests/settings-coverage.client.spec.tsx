@@ -99,7 +99,7 @@ describe('services extra branches', () => {
 })
 
 describe('aiSettings extra branches', () => {
-  it('recovers non-array whitelist and non-boolean memory flags', () => {
+  it('recovers non-boolean memory flags and drops whitelist fields', () => {
     const settings = normalizeAiSettings({
       commandWhitelist: 'nope' as never,
       commandWhitelistVersion: 3,
@@ -107,8 +107,8 @@ describe('aiSettings extra branches', () => {
       memoryWriteNeedsConfirm: 'x' as never,
       memoryAutoReview: 'x' as never,
     })
-    expect(Array.isArray(settings.commandWhitelist)).toBe(true)
-    expect(settings.commandWhitelist.length).toBeGreaterThan(0)
+    expect('commandWhitelist' in settings).toBe(false)
+    expect('commandWhitelistVersion' in settings).toBe(false)
     expect(settings.memoryEnabled).toBe(true)
     expect(settings.memoryWriteNeedsConfirm).toBe(false)
     expect(settings.memoryAutoReview).toBe(true)
@@ -494,10 +494,7 @@ describe('plugins extra branches', () => {
 })
 
 describe('ai extra branches', () => {
-  it('covers asset-scope labels, whitelist edge cases, all memory toggles and string failures', async () => {
-    localStorage.setItem(AI_STORAGE_KEY, JSON.stringify({
-      settings: { commandWhitelist: ['ls'], commandWhitelistVersion: 3 },
-    }))
+  it('covers asset-scope labels, all memory toggles and string failures (whitelist removed)', async () => {
     const restore = stubTauriInternals({
       ai_memory_list: () => [
         { id: 'm1', scope: 'asset:abc', content: 'A'.repeat(2400), created_at: 0, updated_at: 0 },
@@ -508,26 +505,9 @@ describe('ai extra branches', () => {
     })
     try {
       render(<AiTab />)
-      // 白名单边界:空输入不添加;重复项不添加;Enter 添加
-      fireEvent.click(screen.getByText('添加'))
-      expect(screen.getAllByText('ls').length).toBeGreaterThanOrEqual(1)
-      fireEvent.change(screen.getByPlaceholderText(/输入命令前缀/), { target: { value: '  ' } })
-      fireEvent.keyDown(screen.getByPlaceholderText(/输入命令前缀/), { key: 'Enter' })
-      fireEvent.keyDown(screen.getByPlaceholderText(/输入命令前缀/), { key: 'a' })
-      expect(screen.queryAllByText('ls').length).toBeGreaterThanOrEqual(1)
-      fireEvent.change(screen.getByPlaceholderText(/输入命令前缀/), { target: { value: 'ls' } })
-      fireEvent.keyDown(screen.getByPlaceholderText(/输入命令前缀/), { key: 'Enter' })
-      expect(screen.getAllByText('ls').length).toBe(1) // 重复不重复添加
-      fireEvent.change(screen.getByPlaceholderText(/输入命令前缀/), { target: { value: 'docker ps' } })
-      fireEvent.keyDown(screen.getByPlaceholderText(/输入命令前缀/), { key: 'Enter' })
-      expect(screen.getByText('docker ps')).toBeTruthy()
-      // 保存反馈 1.6s 后消失
-      vi.useFakeTimers()
-      fireEvent.click(screen.getByText('保存'))
-      await act(async () => { await vi.advanceTimersByTimeAsync(1600) })
-      expect(screen.queryByText('已保存')).toBeNull()
-      vi.useRealTimers()
-      // 其余三个记忆开关
+      // 白名单已移除:不再出现输入框与保存反馈
+      expect(screen.queryByPlaceholderText(/输入命令前缀/)).toBeNull()
+      // 四个记忆开关
       fireEvent.click(screen.getByText('存档 tool 消息与工具调用'))
       fireEvent.click(screen.getByText('记忆写入需逐条确认'))
       fireEvent.click(screen.getByText('自动沉淀记忆'))

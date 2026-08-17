@@ -1,9 +1,10 @@
 /**
- * Settings AI 助手 tab(React 壳内版,只做 dsh 未接管的两块)——自
- * SettingsView.vue 迁移:命令白名单(05)+ 记忆管理(06,含记忆管理弹窗)。
- * 模型/MCP/技能/上下文预算/迭代步数/压缩阈值由 dsh harness 接管,不做。
+ * Settings AI 助手 tab(React 壳内版,只做 dsh 未接管的区块)——自
+ * SettingsView.vue 迁移:记忆管理(05,含记忆管理弹窗)。
+ * 模型/MCP/技能/上下文预算/迭代步数/压缩阈值由 dsh harness 接管,不做;
+ * 命令白名单已随「统一走 deepseek-harness 权限体系」移除。
  * 记忆 4 开关直接写 localStorage 即时持久化(与 Vue aiStore.updateSettings
- * 直写语义一致);白名单经保存按钮落盘。
+ * 直写语义一致)。
  */
 import { useEffect, useMemo, useState } from 'react'
 import { IconCloseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -27,13 +28,11 @@ function memoryScopeLabel(scope: string): string {
 }
 
 /**
- * 渲染 AI 助手设置:命令白名单 + 记忆与上下文(即时生效)+ 记忆管理弹窗。
+ * 渲染 AI 助手设置:记忆与上下文(即时生效)+ 记忆管理弹窗。
  * @returns AI tab 内容。
  */
 export function AiTab() {
   const [aiSettings, setAiSettings] = useState<AiSettings>(loadAiSettings)
-  const [newWhitelistItem, setNewWhitelistItem] = useState('')
-  const [whitelistSaved, setWhitelistSaved] = useState(false)
 
   // 记忆管理弹窗
   const [memoryDialog, setMemoryDialog] = useState(false)
@@ -45,7 +44,7 @@ export function AiTab() {
   const [memoryConfirmDeleteId, setMemoryConfirmDeleteId] = useState('')
   const memoryDesktopAvailable = isTauriRuntime()
 
-  // 归一化结果持久化一次(白名单 v3 迁移等,与 Vue ensureSettingsShape 落盘一致)
+  // 归一化结果持久化一次(与 Vue ensureSettingsShape 落盘一致)
   useEffect(() => {
     saveAiSettings(aiSettings)
   }, [aiSettings])
@@ -53,25 +52,6 @@ export function AiTab() {
   /** 记忆/上下文字段:直接写 localStorage 即时持久化。 */
   const updateSettings = (patch: Partial<AiSettings>) => {
     setAiSettings((current) => ({ ...current, ...patch }))
-  }
-
-  const onSaveWhitelist = () => {
-    updateSettings({ commandWhitelist: aiSettings.commandWhitelist })
-    setWhitelistSaved(true)
-    setTimeout(() => { setWhitelistSaved(false) }, 1600)
-  }
-
-  const addWhitelist = () => {
-    const cmd = newWhitelistItem.trim()
-    if (cmd === '') return
-    if (!aiSettings.commandWhitelist.includes(cmd)) {
-      updateSettings({ commandWhitelist: [...aiSettings.commandWhitelist, cmd] })
-    }
-    setNewWhitelistItem('')
-  }
-
-  const removeWhitelist = (cmd: string) => {
-    updateSettings({ commandWhitelist: aiSettings.commandWhitelist.filter((item) => item !== cmd) })
   }
 
   const loadMemories = async () => {
@@ -158,38 +138,6 @@ export function AiTab() {
       <div className={s.section}>
         <div className={s.sectionHeader}>
           <span className={s.sectionNumber}>05</span>
-          <span className={s.sectionTitle}>命令白名单</span>
-          <span className={s.sectionDesc}>匹配的命令前缀不再弹确认对话框</span>
-        </div>
-        <div className={s.toolbar}>
-          <input
-            className={s.input} placeholder="输入命令前缀,回车添加"
-            value={newWhitelistItem}
-            onChange={(event) => setNewWhitelistItem(event.target.value)}
-            onKeyDown={(event) => { if (event.key === 'Enter') addWhitelist() }}
-          />
-          <button type="button" className={s.btnSecondary} onClick={addWhitelist}>添加</button>
-          <button type="button" className={s.btn} onClick={onSaveWhitelist}>保存</button>
-          {whitelistSaved && <span className={s.resultText}>已保存</span>}
-        </div>
-        <div className={s.whitelistGrid}>
-          {aiSettings.commandWhitelist.map((cmd) => (
-            <span key={cmd} className={s.whitelistChip}>
-              <code className={s.mono}>{cmd}</code>
-              <button
-                type="button" className={s.chipRemove} aria-label={`移除 ${cmd}`}
-                onClick={() => removeWhitelist(cmd)}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <div className={s.section}>
-        <div className={s.sectionHeader}>
-          <span className={s.sectionNumber}>06</span>
           <span className={s.sectionTitle}>记忆与上下文</span>
           <span className={s.spacer} />
           <button type="button" className={s.btnSecondary} onClick={openMemoryManager}>管理记忆</button>

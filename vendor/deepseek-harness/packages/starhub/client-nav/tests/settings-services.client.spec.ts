@@ -235,34 +235,30 @@ describe('memory services', () => {
 describe('aiSettings persistence bridge', () => {
   it('returns defaults when nothing is stored', () => {
     const settings = loadAiSettings()
-    expect(settings.commandWhitelist.length).toBeGreaterThan(0)
-    expect(settings.commandWhitelistVersion).toBe(3)
     expect(settings.memoryEnabled).toBe(true)
+    // 命令白名单已移除,随「统一走 deepseek-harness 权限体系」
+    expect('commandWhitelist' in settings).toBe(false)
     // 上下文预算/迭代步数/压缩阈值由 dsh harness 接管,不参与读写
     expect('compactTriggerRatio' in settings).toBe(false)
   })
 
-  it('merges the V3 PowerShell preset when the stored version is below 3', () => {
+  it('drops legacy whitelist fields from stored data', () => {
     localStorage.setItem(AI_STORAGE_KEY, JSON.stringify({
-      settings: { commandWhitelist: ['ls'], commandWhitelistVersion: 2 },
+      settings: { commandWhitelist: ['ls'], commandWhitelistVersion: 3 },
     }))
     const settings = loadAiSettings()
-    expect(settings.commandWhitelist).toContain('ls')
-    expect(settings.commandWhitelist).toContain('Get-ChildItem')
-    expect(settings.commandWhitelistVersion).toBe(3)
+    expect('commandWhitelist' in settings).toBe(false)
+    expect('commandWhitelistVersion' in settings).toBe(false)
+    expect(settings.memoryEnabled).toBe(true)
   })
 
   it('normalizes malformed fields back to defaults', () => {
     const settings = normalizeAiSettings({
-      commandWhitelist: [42] as never,
-      commandWhitelistVersion: 1,
       memoryStoreToolOutputs: 'yes' as never,
       memoryEnabled: false,
       memoryWriteNeedsConfirm: true,
       memoryAutoReview: false,
     })
-    expect(settings.commandWhitelist.every((item) => typeof item === 'string')).toBe(true)
-    expect(settings.commandWhitelistVersion).toBe(3)
     expect(settings.memoryStoreToolOutputs).toBe(false)
     expect(settings.memoryEnabled).toBe(false)
     expect(settings.memoryWriteNeedsConfirm).toBe(true)
@@ -275,13 +271,14 @@ describe('aiSettings persistence bridge', () => {
       agents: [{ id: 'a1' }],
       conversationSummaries: [{ id: 'c1' }],
     }))
-    saveAiSettings(normalizeAiSettings({ commandWhitelist: ['ls', 'cat'], commandWhitelistVersion: 3 }))
+    saveAiSettings(normalizeAiSettings({ memoryEnabled: false }))
     const stored = JSON.parse(localStorage.getItem(AI_STORAGE_KEY) ?? '{}') as {
-      settings: { commandWhitelist: string[] }
+      settings: { memoryEnabled: boolean; commandWhitelist?: string[] }
       agents: unknown[]
       conversationSummaries: unknown[]
     }
-    expect(stored.settings.commandWhitelist).toEqual(['ls', 'cat'])
+    expect(stored.settings.memoryEnabled).toBe(false)
+    expect(stored.settings.commandWhitelist).toBeUndefined()
     expect(stored.agents).toEqual([{ id: 'a1' }])
     expect(stored.conversationSummaries).toEqual([{ id: 'c1' }])
   })

@@ -63,6 +63,7 @@ export function AboutTab() {
         <div className={s.aboutVersion}>
           <code className={s.mono}>v{appVersion}</code>
           <span className={s.hint}>应用版本</span>
+          <span className={s.aboutBadge}>deepseek harness</span>
         </div>
         <p className={s.aboutDesc}>
           跨平台开发运维工具箱:数据库客户端 · SSH 终端 · SFTP · Docker · AI 助手

@@ -6,6 +6,10 @@
  * openConnectionManager(asset) 打开连接对话框的编辑模式;列头带资产数、
  * 刷新与「新建连接」入口(openConnectionManager())。
  *
+ * 资产行右键菜单(与任务 3 的 dsh 右键菜单同款 Menu 原语):打开 / 编辑 /
+ * 复制连接信息(名称 + user@host 到剪贴板)/ 删除(删除复用连接对话框编辑
+ * 模式内的两步确认删除入口,不在菜单里直接执行破坏性操作)。
+ *
  * 浏览器预览(无 Tauri IPC)时 refresh 落入 preview 态,这里展示预览提示
  * 而不是红错;其他拉取失败给错误 + 重试。
  *
@@ -15,16 +19,21 @@
  * 走注入回调(openAsset / refreshAssets / openConnectionManager)。挂载与
  * 切换子类时调 refreshAssets 重拉 get_assets,保证新建/删除连接后列表新鲜。
  */
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the 'workspace' / 'details.workspace' SlotMap rows.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { IconEditOutline16, IconPlusOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconCopyOutline16, IconEditOutline16, IconPlusOutline16,
+  IconRefreshOutline14, IconRightUpOutline16, IconTrashOutline16,
+  writeClipboard, type MenuEntry,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import { STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
 import type { RustAsset, StarHubAssetListState, ToolSelection } from './store.ts'
+import { ContextMenu, useContextMenu } from './ContextMenu.tsx'
 import css from './StarHubToolWorkspace.module.css'
 
 /** Settings namespace written by the shell (host reads it per request). */
@@ -56,6 +65,70 @@ function assetSubtitle(asset: { config: Record<string, unknown> }): string {
   if (host !== '' && username !== '') return `${username}@${host}`
   if (host !== '') return host
   return typeof c.database === 'string' ? c.database : ''
+}
+
+/** 单个资产行:主按钮(打开)+ 行尾编辑钮 + 右键菜单(打开/编辑/复制/删除)。 */
+function AssetRow({ asset, badgeLabel, onOpen, onEdit, onDelete }: {
+  asset: RustAsset
+  badgeLabel: string
+  onOpen: () => void
+  onEdit: () => void
+  /** 删除走连接对话框编辑模式(内含两步确认的 delete_asset 入口)。 */
+  onDelete: () => void
+}) {
+  const menu = useContextMenu()
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => { setCopied(false) }, 1500)
+    return () => { window.clearTimeout(timer) }
+  }, [copied])
+  const subtitle = assetSubtitle(asset)
+  const items: MenuEntry[] = [
+    { id: 'open', label: '打开', icon: <IconRightUpOutline16 /> },
+    { id: 'edit', label: '编辑', icon: <IconEditOutline16 /> },
+    { id: 'copy', label: copied ? '已复制' : '复制连接信息', icon: <IconCopyOutline16 /> },
+    { type: 'separator', id: 'asset-delete-separator' },
+    // 删除不直接执行:复用连接对话框编辑模式内的两步确认删除入口
+    // (delete_asset 命令),避免右键菜单里的无确认破坏性操作。
+    { id: 'delete', label: '删除', icon: <IconTrashOutline16 />, danger: true },
+  ]
+  return (
+    <div className={css.rowWrap} onContextMenu={menu.onContextMenu}>
+      <button
+        type="button"
+        className={css.row}
+        title={`打开 ${asset.name}(新窗口)`}
+        onClick={onOpen}
+      >
+        <span className={css.badge}>{badgeLabel}</span>
+        <span className={css.rowName}>{asset.name}</span>
+        <span className={css.rowSub}>{subtitle}</span>
+      </button>
+      <button
+        type="button"
+        className={css.rowEdit}
+        title={`编辑 ${asset.name}`}
+        aria-label={`编辑 ${asset.name}`}
+        onClick={onEdit}
+      >
+        <IconEditOutline16 size={13} />
+      </button>
+      <ContextMenu
+        menu={menu}
+        items={items}
+        onSelect={(id) => {
+          if (id === 'open') onOpen()
+          else if (id === 'edit') onEdit()
+          else if (id === 'copy') {
+            const text = subtitle === '' ? asset.name : `${asset.name} ${subtitle}`
+            void writeClipboard(text).then((ok) => { if (ok) setCopied(true) })
+          } else if (id === 'delete') onDelete()
+        }}
+        className={css.menuRoot}
+      />
+    </div>
+  )
 }
 
 /**
@@ -149,27 +222,14 @@ export function StarHubToolWorkspace({
       {!loading && !preview && error === null && matched.length > 0 && (
         <div className={css.list}>
           {matched.map((asset) => (
-            <div key={asset.id} className={css.rowWrap}>
-              <button
-                type="button"
-                className={css.row}
-                title={`打开 ${asset.name}(新窗口)`}
-                onClick={() => openAsset(asset)}
-              >
-                <span className={css.badge}>{subcategory.label}</span>
-                <span className={css.rowName}>{asset.name}</span>
-                <span className={css.rowSub}>{assetSubtitle(asset)}</span>
-              </button>
-              <button
-                type="button"
-                className={css.rowEdit}
-                title={`编辑 ${asset.name}`}
-                aria-label={`编辑 ${asset.name}`}
-                onClick={() => openConnectionManager(asset)}
-              >
-                <IconEditOutline16 size={13} />
-              </button>
-            </div>
+            <AssetRow
+              key={asset.id}
+              asset={asset}
+              badgeLabel={subcategory.label}
+              onOpen={() => openAsset(asset)}
+              onEdit={() => openConnectionManager(asset)}
+              onDelete={() => openConnectionManager(asset)}
+            />
           ))}
         </div>
       )}

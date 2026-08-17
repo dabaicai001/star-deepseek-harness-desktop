@@ -1,18 +1,21 @@
 /**
  * Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
- * time->ellipsis, action buttons) are CSS-only. Row ... menus are visual-only
- * except workspace Rename/Delete and session Rename/Fork/Archive; the session
- * and workspace hover cards are suppressed while a menu is open.
+ * time->ellipsis, action buttons) are CSS-only. Row menus are visual-only
+ * except workspace Rename/Delete/Create and session Rename/Fork/Archive; the
+ * session and workspace hover cards are suppressed while a menu is open. The
+ * ellipsis button and a right-click on the row both open the same menu (the
+ * right-click anchors it at the pointer via the Menu portal).
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import {
-  HoverCard, IconArchiveOutline20, IconBranchOutline16, IconEditOutline16,
-  IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16,
-  IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
+  HoverCard, IconArchiveOutline20, IconBranchOutline16, IconCopyOutline16,
+  IconEditOutline16, IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16,
+  IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu,
+  StateDot, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MenuEntry, StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
 import { relativeTime } from '../tree.ts'
@@ -20,6 +23,28 @@ import css from './Rows.module.css'
 
 /** The standard locale seat, prop-passed from the browser root. */
 type RowTranslate = WorkspaceBrowserProps['t']
+
+/** Right-click anchor: the pointer position that opened a row's context menu. */
+interface RowContextAnchor {
+  x: number
+  y: number
+}
+
+/** A zero-area rect at the stored pointer position (the Menu portal's fixed anchor). */
+function contextMenuRect(anchor: RowContextAnchor): DOMRect {
+  return { left: anchor.x, top: anchor.y, right: anchor.x, bottom: anchor.y, width: 0, height: 0 } as DOMRect
+}
+
+/** Flip a label to the copied confirmation for a beat after a clipboard write. */
+function useCopiedFeedback(): [boolean, () => void] {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => { setCopied(false) }, 1500)
+    return () => { window.clearTimeout(timer) }
+  }, [copied])
+  return [copied, () => { setCopied(true) }]
+}
 
 /** Row display title: blank rows show the localized New Session label. */
 function displayTitle(node: SessionNode, t: RowTranslate): string {
@@ -122,7 +147,10 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, t }: 
   const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
   const active = group.expanded && group.containsCurrent
   const [menuOpen, setMenuOpen] = useState(false)
-  const workspaceMenuItems = [
+  const [contextAnchor, setContextAnchor] = useState<RowContextAnchor | null>(null)
+  const workspaceMenuItems: MenuEntry[] = [
+    { id: 'create', label: t('session.new'), icon: <IconPlusOutline16 /> },
+    { type: 'separator', id: 'ws-create-separator' },
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutline16 />, danger: true },
   ]
@@ -132,6 +160,15 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, t }: 
       role="treeitem"
       aria-expanded={row.expanded}
       onClick={onToggle}
+      onContextMenu={actions === undefined
+        ? undefined
+        : (e) => {
+          // Right-click opens the same row menu at the pointer; the ungrouped
+          // bucket has no backing Workspace, so it stays inert.
+          e.preventDefault()
+          setContextAnchor({ x: e.clientX, y: e.clientY })
+          setMenuOpen(true)
+        }}
       draggable={drag !== undefined}
       onDragStart={drag === undefined
         ? undefined
@@ -155,25 +192,28 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, t }: 
         {actions !== undefined && (
           <Menu
             open={menuOpen}
-            onClose={() => { setMenuOpen(false) }}
+            onClose={() => { setMenuOpen(false); setContextAnchor(null) }}
             items={workspaceMenuItems}
             onSelect={(id) => {
               setMenuOpen(false)
+              setContextAnchor(null)
               // Unknown ids leave before the dispatch: a future menu row must
               // not inherit the destructive branch as an else fallback.
-              /* v8 ignore next -- workspaceMenuItems carries exactly these two rows today. */
-              if (id !== 'rename' && id !== 'delete') return
-              if (id === 'rename') actions.rename()
+              /* v8 ignore next -- workspaceMenuItems carries exactly these three rows today. */
+              if (id !== 'create' && id !== 'rename' && id !== 'delete') return
+              if (id === 'create') onCreate()
+              else if (id === 'rename') actions.rename()
               else actions.delete()
             }}
             portal
             closeOnPointerLeave
+            {...(contextAnchor === null ? {} : { getAnchorRect: () => contextMenuRect(contextAnchor) })}
             anchor={(
               <button
                 type="button"
                 className={css.iconButton}
                 aria-label={t('actions.workspace.aria', { name: label })}
-                onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
+                onClick={(e) => { e.stopPropagation(); setContextAnchor(null); setMenuOpen(v => !v) }}
               >
                 <IconEllipsisOutline16 />
               </button>
@@ -374,14 +414,26 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   const primaryStatus = statuses[0]
   const showStatus = primaryStatus.state !== 'done' || row.completed
   const [menuOpen, setMenuOpen] = useState(false)
+  const [contextAnchor, setContextAnchor] = useState<RowContextAnchor | null>(null)
+  const [copied, copyFeedback] = useCopiedFeedback()
   // Archive hides the row through the registry-global archive set and never
   // touches the session log, so it is not styled as destructive and needs no
-  // confirmation dialog.
-  const sessionMenuItems = [
+  // confirmation dialog. Delete stays disabled: the Host exposes no
+  // session-destroy RPC (sessions.ts covers list/search/create/history/
+  // models/selectModel/rename/fork/prompt/attachment/updateQueue/cancel),
+  // so the entry is a visible placeholder for the missing seam rather than a
+  // dead click.
+  const sessionMenuItems: MenuEntry[] = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
+    { id: 'copy', label: copied ? t('hover.copied') : t('menu.copySessionId'), icon: <IconCopyOutline16 /> },
+    { type: 'separator', id: 'session-edit-separator' },
     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
     // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
     { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
+    { type: 'separator', id: 'session-destructive-separator' },
+    // TODO(session-delete): wire to a future host `session.delete` RPC (and a
+    // confirmation dialog); the session log currently has no destroy path.
+    { id: 'delete', label: t('menu.deleteSession'), icon: <IconTrashOutline16 />, danger: true, disabled: true },
   ]
   // Figma session cell: pad 8, status slot 16, then a 4px title gap.
   const ownRow = (
@@ -394,6 +446,14 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
       role="treeitem"
       aria-selected={selected}
       onClick={() => { onOpen(node.id) }}
+      onContextMenu={(e) => {
+        // Blank New Session rows are provisional placeholders (no content to
+        // act on); the row verbs stay off, and so does the right-click menu.
+        if (row.blank) return
+        e.preventDefault()
+        setContextAnchor({ x: e.clientX, y: e.clientY })
+        setMenuOpen(true)
+      }}
       draggable={drag !== undefined}
       onDragStart={drag === undefined
         ? undefined
@@ -437,22 +497,28 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
         <span className={css.rowActions}>
           <Menu
             open={menuOpen}
-            onClose={() => { setMenuOpen(false) }}
+            onClose={() => { setMenuOpen(false); setContextAnchor(null) }}
             items={sessionMenuItems}
             onSelect={(id) => {
               setMenuOpen(false)
+              setContextAnchor(null)
               if (id === 'rename') onRename(node.id, row.title)
+              if (id === 'copy') {
+                // Copy is a client-side clipboard write (no host round-trip).
+                void writeClipboard(node.id).then((ok) => { if (ok) copyFeedback() })
+              }
               if (id === 'fork') onFork(node.id)
               if (id === 'archive') onArchive(node.id)
             }}
             portal
             closeOnPointerLeave
+            {...(contextAnchor === null ? {} : { getAnchorRect: () => contextMenuRect(contextAnchor) })}
             anchor={(
               <button
                 type="button"
                 className={css.iconButton}
                 aria-label={t('actions.session.aria', { name: title })}
-                onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
+                onClick={(e) => { e.stopPropagation(); setContextAnchor(null); setMenuOpen(v => !v) }}
               >
                 <IconEllipsisOutline16 />
               </button>
