@@ -61,7 +61,9 @@
 
 .btn,
 .btnSecondary,
-.btnDanger {
+.btnDanger,
+.btnPrimary,
+.btnOutline {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -82,6 +84,32 @@
 
 .btn:hover {
   filter: brightness(1.1);
+}
+
+/* 高对比主按钮(对话框「创建/保存」):加重字重 + 主色微光,与普通 .btn 区分。 */
+.btnPrimary {
+  background: var(--dsw-accent);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-weight: 600;
+  min-width: 72px;
+  justify-content: center;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-accent) 55%, transparent),
+    0 2px 10px color-mix(in srgb, var(--dsw-accent) 30%, transparent);
+}
+
+.btnPrimary:hover {
+  filter: brightness(1.12);
+}
+
+/* 描边次按钮(「测试连接」):透明底 + 主色描边,与实心主按钮视觉区分。 */
+.btnOutline {
+  background: transparent;
+  color: var(--dsw-accent);
+  border: 1px solid color-mix(in srgb, var(--dsw-accent) 60%, transparent);
+}
+
+.btnOutline:hover {
+  background: color-mix(in srgb, var(--dsw-accent) 12%, transparent);
 }
 
 .btnSecondary {
@@ -105,10 +133,48 @@
 
 .btn:disabled,
 .btnSecondary:disabled,
-.btnDanger:disabled {
+.btnDanger:disabled,
+.btnPrimary:disabled,
+.btnOutline:disabled {
   opacity: 0.5;
   cursor: default;
   filter: none;
+}
+
+/* 测试连接状态行(成功/失败/进行中)。 */
+.testOk,
+.testFail,
+.testPending {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.testOk {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.testFail {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.testPending {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* keyboard-interactive(MFA/2FA)内联验证码面板。 */
+.kbPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--dsw-accent) 40%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dsw-accent) 6%, transparent);
 }
 
 .iconButton {

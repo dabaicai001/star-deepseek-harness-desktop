@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.79.3(**自定义模型沙箱升级报错**:`sandbox escalation to "workspace-write" is not strictly wider than this call's current "danger-full-access" mode` —— 根因:会话文件策略已是(或切到)最宽 `danger-full-access` 时,弱模型在 bash 调用里带 `sandbox_permissions` 升级字段,升级到更窄模式被 `approveEscalation` 拒绝。修复:dsh-sandbox `escalation.ts` 新增 `modeCovers()`——请求模式已被当前模式覆盖(相等或更窄)时按 no-op 放行(返回 effectiveMode),仅未知模式仍 fail-closed) |
+| 当前版本 | v0.79.4(**新建连接对话框增强**:SSH 认证三档对齐 Vue(password/key/mfa,mfaEnabled+mfaPassword 契约)+ 「测试连接」全类型接线(kb-interactive 内联验证码面板 / hostkey 自动接受 / db_*_test / broker_test / docker_test),「创建/保存」升级高对比主按钮;右侧栏资产行 .rowSub 主机名溢出截断修复) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-17 (v0.79.3)*
+*最后更新: 2026-08-17 (v0.79.4)*

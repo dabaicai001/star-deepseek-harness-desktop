@@ -5,10 +5,20 @@
  * delete_asset,与 src/services/asset.ts 同契约)。编辑模式从资产行预填,
  * 留空的密码/私钥字段不随更新提交(后端 merge 语义下保持原值),并多一个
  * 两步确认的删除入口。浏览器预览(无 Tauri IPC)只展示提示、禁用提交。
+ *
+ * SSH 认证三档与 Vue 版 SshConnectionForm.vue 对齐:password / key / mfa。
+ * mfa 档写 `authMode:'mfa'` + `mfaEnabled:true` + `mfaPassword`(MFA 主密码,
+ * 连接时另弹 TOTP 键盘交互;后端契约见 src-tauri/src/ssh/mod.rs 的
+ * `SshConfig.kb_interactive` 与 src/services/ssh.ts 的 buildAuth/buildConfig)。
+ *
+ * 「测试连接」直连后端 test 命令(ssh 用 test_ssh_connection,db 用
+ * db_<type>_test,docker 用 docker_test,kafka/nsq 用 broker_test),显示
+ * 测试中/成功/失败原因;ssh 测试期间订阅 kb-interactive(内联验证码输入)
+ * 与 hostkey-confirm(自动接受、不持久化)事件,与 Vue 版 onTestConnection 一致。
  */
 import { useRef, useState } from 'react'
 import { IconCloseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { tauriInvoke } from './tauri.ts'
+import { tauriInvoke, tauriListen } from './tauri.ts'
 import type { RustAsset } from './store.ts'
 import s from './settings/settings.module.css'
 
@@ -36,6 +46,26 @@ function kindOfAsset(asset: RustAsset): ConnKind {
   const hit = CONN_KINDS.find(k => k.kind === dbType)
   return hit !== undefined ? hit.kind : 'mysql'
 }
+
+/** SSH 认证方式(与 Vue SshConnectionForm 的 authMode 对齐)。 */
+type SshAuth = 'password' | 'key' | 'mfa'
+
+/** test_ssh_connection 期间后端推送的 keyboard-interactive 事件负载。 */
+interface KbInteractiveEvent {
+  instructions: string
+  prompts: Array<{ prompt: string; echo: boolean }>
+  autoFill: Array<string | null>
+}
+
+/** 各后端 test 命令的返回契约(ok/message/elapsed_ms)。 */
+interface TestResult {
+  ok: boolean
+  message?: string
+  elapsed_ms?: number
+}
+
+/** 测试连接状态机:idle 不展示,testing/success/fail 各对应一行提示。 */
+type TestStatus = 'idle' | 'testing' | 'success' | 'fail'
 
 /** 字符串配置字段读取(非串归空)。 */
 function str(config: Record<string, unknown>, key: string): string {
@@ -82,8 +112,12 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
   const [database, setDatabase] = useState(() => (asset === null ? '' : str(asset.config, 'database')))
   const [redisDb, setRedisDb] = useState(() => (asset === null ? 0 : num(asset.config, 'db', 0)))
   const [ssl, setSsl] = useState(() => asset?.config.ssl === true)
-  const [sshAuth, setSshAuth] = useState<'password' | 'key'>(() =>
-    asset !== null && (asset.config.useKeyAuth === true || asset.config.authMode === 'key') ? 'key' : 'password')
+  const [sshAuth, setSshAuth] = useState<SshAuth>(() => {
+    if (asset === null) return 'password'
+    if (asset.config.authMode === 'mfa' || asset.config.mfaEnabled === true) return 'mfa'
+    return asset.config.useKeyAuth === true || asset.config.authMode === 'key' ? 'key' : 'password'
+  })
+  const [mfaPassword, setMfaPassword] = useState('')
   const [privateKey, setPrivateKey] = useState('')
   const [privateKeyName, setPrivateKeyName] = useState('')
   const [passphrase, setPassphrase] = useState('')
@@ -96,8 +130,14 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [testStatus, setTestStatus] = useState<TestStatus>('idle')
+  const [testMessage, setTestMessage] = useState('')
+  const [kbPrompt, setKbPrompt] = useState<KbInteractiveEvent | null>(null)
+  const [kbAnswers, setKbAnswers] = useState<string[]>([])
+  const testSessionIdRef = useRef('')
   const keyFileRef = useRef<HTMLInputElement | null>(null)
 
+  /* v8 ignore next -- kind 恒取自 CONN_KINDS,find 必命中;回退仅是类型安全兜底 */
   const kindMeta = CONN_KINDS.find(k => k.kind === kind) ?? CONN_KINDS[0]
   const isDb = kind !== 'ssh' && kind !== 'docker'
   const needsUsername = kind === 'ssh' || kind === 'mysql' || kind === 'postgresql' || kind === 'clickhouse'
@@ -105,7 +145,12 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
   const canSubmit = !preview && !busy && name.trim() !== ''
     && (kind === 'docker' ? dockerTransport === 'socket' || dockerAddress.trim() !== '' : host.trim() !== '')
     && (!needsUsername || username.trim() !== '')
-    && (kind !== 'ssh' || sshAuth === 'password' || editing || privateKey !== '')
+    && (kind !== 'ssh' || sshAuth !== 'key' || editing || privateKey !== '')
+  // 测试连接不要求名称;其余必填与提交一致(私钥档新建必须先选文件)。
+  const canTest = !preview && !busy
+    && (kind === 'docker' ? dockerTransport === 'socket' || dockerAddress.trim() !== '' : host.trim() !== '')
+    && (!needsUsername || username.trim() !== '')
+    && (kind !== 'ssh' || sshAuth !== 'key' || editing || privateKey !== '')
 
   /** 切换类型(仅新建):带出缺省端口。 */
   const onKindChange = (next: ConnKind) => {
@@ -123,6 +168,7 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
     }
     const reader = new FileReader()
     reader.onload = () => {
+      /* v8 ignore next -- readAsText 的 result 恒为 string */
       setPrivateKey(typeof reader.result === 'string' ? reader.result : '')
       setPrivateKeyName(file.name)
       setError('')
@@ -134,6 +180,21 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
   /** 组装 create/update 的 config(编辑模式留空的密码/私钥不提交,保持原值)。 */
   const buildConfig = (): Record<string, unknown> => {
     if (kind === 'ssh') {
+      if (sshAuth === 'mfa') {
+        // 字段命名严格对齐 Vue SshConnectionForm.onSubmit 的 mfa 分支:
+        // mfaEnabled + mfaPassword,主密码同时写入 password 作第一阶段认证。
+        return {
+          host: host.trim(),
+          port,
+          username: username.trim(),
+          authMode: 'mfa',
+          usePasswordAuth: true,
+          useKeyAuth: false,
+          mfaEnabled: true,
+          password: mfaPassword !== '' ? mfaPassword : undefined,
+          mfaPassword: mfaPassword !== '' ? mfaPassword : undefined,
+        }
+      }
       return {
         host: host.trim(),
         port,
@@ -166,6 +227,7 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
   }
 
   const onSubmit = async () => {
+    /* v8 ignore next -- 提交按钮 disabled(!canSubmit)时已不可触发,防御性保留 */
     if (!canSubmit) return
     setBusy(true)
     setError('')
@@ -193,6 +255,7 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
   }
 
   const onDelete = async () => {
+    /* v8 ignore next -- 删除按钮只在编辑模式渲染且 busy 时 disabled,防御性保留 */
     if (!editing || preview || busy) return
     if (!confirmingDelete) {
       setConfirmingDelete(true)
@@ -210,6 +273,145 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
     } finally {
       setBusy(false)
     }
+  }
+
+  /**
+   * 非 ssh 类型的测试连接请求(db 用 db_<type>_test,docker 用 docker_test,
+   * kafka/nsq 用 broker_test;入参与 src/services/db.ts / docker.ts /
+   * broker.ts 的 test 封装同契约)。
+   */
+  const buildTestRequest = (): { cmd: string; args: Record<string, unknown> } => {
+    if (kind === 'docker') {
+      return {
+        cmd: 'docker_test',
+        args: {
+          params: {
+            transport: dockerTransport,
+            socketPath: dockerTransport === 'socket' ? (dockerAddress.trim() || '/var/run/docker.sock') : undefined,
+            host: dockerTransport === 'tcp' ? dockerAddress.trim() : undefined,
+          },
+        },
+      }
+    }
+    if (kind === 'kafka' || kind === 'nsq') {
+      return {
+        cmd: 'broker_test',
+        args: { kind, params: { host: host.trim(), port, username: username.trim(), password, ssl } },
+      }
+    }
+    const params: Record<string, unknown> = { host: host.trim(), port, password }
+    let cmd: string
+    switch (kind) {
+      case 'mysql':
+      case 'postgresql':
+      case 'clickhouse':
+        cmd = kind === 'postgresql' ? 'db_postgres_test' : `db_${kind}_test`
+        params.username = username.trim()
+        params.database = database.trim()
+        params.ssl = ssl
+        break
+      case 'redis':
+        cmd = 'db_redis_test'
+        params.db = redisDb
+        params.ssl = ssl
+        break
+      default:
+        // elasticsearch:字段名对齐 ESConnInfo(useSSL)
+        cmd = 'db_es_test'
+        params.username = username.trim()
+        params.useSSL = ssl
+        break
+    }
+    return { cmd, args: { params } }
+  }
+
+  /** 应用 test 命令结果到状态行(成功/失败 + 耗时)。 */
+  const applyTestResult = (result: TestResult) => {
+    setTestStatus(result.ok ? 'success' : 'fail')
+    const ms = result.elapsed_ms !== undefined ? ` (${result.elapsed_ms}ms)` : ''
+    setTestMessage((result.message ?? (result.ok ? '连接成功' : '连接失败')) + ms)
+  }
+
+  /**
+   * 测试连接(与 Vue 版 onTestConnection 一致):ssh 走 test_ssh_connection
+   * 并订阅本次 testSessionId 的 kb-interactive(内联验证码输入)与
+   * hostkey-confirm(自动接受、不持久化)事件;编辑模式密钥字段留空表示
+   * 「保持不变」,后端没有可测的凭据,直接提示先输入。
+   */
+  const onTestConnection = async () => {
+    /* v8 ignore next -- 测试按钮 disabled 时已不可触发,防御性保留 */
+    if (!canTest || testStatus === 'testing') return
+    setError('')
+    if (kind === 'ssh' && editing) {
+      if (sshAuth === 'password' && password === '') {
+        setTestStatus('fail')
+        setTestMessage('编辑模式下密码留空表示不修改;测试前请输入密码。')
+        return
+      }
+      if (sshAuth === 'mfa' && mfaPassword === '') {
+        setTestStatus('fail')
+        setTestMessage('编辑模式下 MFA 主密码留空表示不修改;测试前请输入 MFA 主密码。')
+        return
+      }
+      if (sshAuth === 'key' && privateKey === '') {
+        setTestStatus('fail')
+        setTestMessage('编辑模式下不选私钥表示不修改;测试前请选择私钥文件。')
+        return
+      }
+    }
+    setTestStatus('testing')
+    setTestMessage('')
+    let unlistenKb: (() => Promise<void>) | null = null
+    let unlistenHostkey: (() => Promise<void>) | null = null
+    try {
+      if (kind === 'ssh') {
+        const testSessionId = `test-${Date.now()}`
+        testSessionIdRef.current = testSessionId
+        unlistenKb = await tauriListen<KbInteractiveEvent>(
+          `ssh:kb-interactive:${testSessionId}`,
+          (payload) => {
+            setKbAnswers(payload.autoFill.map(v => v ?? ''))
+            setKbPrompt(payload)
+          },
+        )
+        // 测试连接自动接受 host key(不持久化),与 Vue 版一致
+        unlistenHostkey = await tauriListen(`ssh:hostkey-confirm:${testSessionId}`, () => {
+          void tauriInvoke('ssh_hostkey_response', { id: testSessionId, allowed: true, persist: false })
+        })
+        // MFA 档用 mfaPassword 做主认证密码,并启用 keyboard-interactive
+        const auth: Record<string, unknown> = sshAuth === 'key'
+          ? { PrivateKey: { key: privateKey, passphrase: passphrase !== '' ? passphrase : null } }
+          : { Password: sshAuth === 'mfa' ? mfaPassword : password }
+        const config: Record<string, unknown> = {
+          host: host.trim(),
+          port,
+          username: username.trim(),
+          auth,
+        }
+        if (sshAuth === 'mfa') {
+          config.kb_interactive = { enabled: true, password: mfaPassword !== '' ? mfaPassword : null }
+        }
+        applyTestResult(await tauriInvoke<TestResult>('test_ssh_connection', { config, testSessionId }))
+      } else {
+        const request = buildTestRequest()
+        applyTestResult(await tauriInvoke<TestResult>(request.cmd, request.args))
+      }
+    } catch (e: unknown) {
+      setTestStatus('fail')
+      setTestMessage(e instanceof Error ? e.message : String(e))
+    } finally {
+      if (unlistenKb !== null) void unlistenKb()
+      if (unlistenHostkey !== null) void unlistenHostkey()
+      setKbPrompt(null)
+      testSessionIdRef.current = ''
+    }
+  }
+
+  /** 提交 keyboard-interactive 应答(MFA 测试连接期间的 TOTP 输入)。 */
+  const onKbSubmit = () => {
+    // 面板只在测试进行中渲染,此时 testSessionIdRef 已赋值
+    void tauriInvoke('ssh_kb_response', { id: testSessionIdRef.current, responses: kbAnswers })
+    setKbPrompt(null)
   }
 
   return (
@@ -330,12 +532,38 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
                 className={s.select}
                 value={sshAuth}
                 disabled={preview}
-                onChange={(event) => setSshAuth(event.target.value === 'key' ? 'key' : 'password')}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setSshAuth(value === 'key' ? 'key' : value === 'mfa' ? 'mfa' : 'password')
+                }}
               >
                 <option value="password">密码</option>
                 <option value="key">私钥</option>
+                <option value="mfa">MFA/2FA(键盘交互)</option>
               </select>
             </div>
+          )}
+          {kind === 'ssh' && sshAuth === 'mfa' && (
+            <>
+              <div className={s.formField}>
+                <label className={s.fieldLabel} htmlFor="conn-mfa-password">
+                  MFA 主密码{editing ? '(留空保持不变)' : ''}
+                </label>
+                <input
+                  id="conn-mfa-password"
+                  className={s.input}
+                  type="password"
+                  value={mfaPassword}
+                  disabled={preview}
+                  onChange={(event) => setMfaPassword(event.target.value)}
+                />
+              </div>
+              <div className={s.formField}>
+                <span className={s.fieldHint}>
+                  连接时将在主密码认证后弹出一次性验证码(TOTP)输入。
+                </span>
+              </div>
+            </>
           )}
           {kind !== 'docker' && (kind !== 'ssh' || sshAuth === 'password') && (
             <div className={s.formField}>
@@ -361,6 +589,7 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
                     type="button"
                     className={s.btnSecondary}
                     disabled={preview}
+                    /* v8 ignore next -- 隐藏 input 与本按钮同块渲染,ref 必已挂载 */
                     onClick={() => keyFileRef.current?.click()}
                   >
                     选择文件
@@ -430,6 +659,38 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
           )}
         </div>
         {error !== '' && <div className={s.errorText}>{error}</div>}
+        {testStatus !== 'idle' && (
+          <div
+            className={testStatus === 'success' ? s.testOk : testStatus === 'fail' ? s.testFail : s.testPending}
+            role="status"
+          >
+            {testStatus === 'testing' ? '测试中…' : testMessage}
+          </div>
+        )}
+        {kbPrompt !== null && (
+          <div className={s.kbPanel}>
+            {kbPrompt.instructions !== '' && <div className={s.fieldHint}>{kbPrompt.instructions}</div>}
+            {kbPrompt.prompts.map((prompt, index) => (
+              <div className={s.formField} key={`${index}-${prompt.prompt}`}>
+                <label className={s.fieldLabel} htmlFor={`kb-answer-${index}`}>
+                  {prompt.prompt !== '' ? prompt.prompt : '验证码'}
+                </label>
+                <input
+                  id={`kb-answer-${index}`}
+                  className={s.input}
+                  type={prompt.echo ? 'text' : 'password'}
+                  value={kbAnswers[index] ?? ''}
+                  onChange={(event) => {
+                    const next = [...kbAnswers]
+                    next[index] = event.target.value
+                    setKbAnswers(next)
+                  }}
+                />
+              </div>
+            ))}
+            <button type="button" className={s.btnPrimary} onClick={onKbSubmit}>提交验证码</button>
+          </div>
+        )}
         <div className={s.actionRow}>
           {editing && (
             <button
@@ -442,8 +703,16 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
             </button>
           )}
           <span className={s.spacer} />
+          <button
+            type="button"
+            className={s.btnOutline}
+            disabled={!canTest || testStatus === 'testing'}
+            onClick={() => void onTestConnection()}
+          >
+            {testStatus === 'testing' ? '测试中…' : '测试连接'}
+          </button>
           <button type="button" className={s.btnSecondary} disabled={busy} onClick={onClose}>取消</button>
-          <button type="button" className={s.btn} disabled={!canSubmit} onClick={() => void onSubmit()}>
+          <button type="button" className={s.btnPrimary} disabled={!canSubmit} onClick={() => void onSubmit()}>
             {busy ? '保存中…' : editing ? '保存' : '创建'}
           </button>
         </div>

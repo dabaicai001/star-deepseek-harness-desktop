@@ -14,6 +14,17 @@
 
 ---
 
+## [0.79.4] - 2026-08-17
+
+### 新增
+- **新建连接对话框 SSH 支持 MFA/2FA(六项需求 2)**:client-nav `NewConnectionDialog.tsx` 认证方式对齐 Vue 版三档(password/key/mfa);mfa 档显示「MFA 主密码」输入,config 写入 `authMode:'mfa'` + `mfaEnabled:true` + `mfaPassword`(契约对齐 `SshConnectionForm.vue` 与 `src/services/ssh.ts`);编辑模式留空不提交(merge 保持原值)
+- **新建连接对话框「测试连接」+ 主按钮明显化(六项需求 4)**:actionRow 新增描边「测试连接」按钮(`.btnOutline`),「创建/保存」升级为高对比主按钮(`.btnPrimary`);测试命令全类型接线——ssh `test_ssh_connection`(含 kb-interactive 内联验证码面板 + hostkey 自动接受不持久化,`tauri.ts` 新增 `tauriListen` 事件桥)、db 各类型 `db_<type>_test`、kafka/nsq `broker_test`、docker `docker_test`;状态行显示 测试中…/成功(耗时)/失败原因,编辑模式密钥留空时拦截并提示;`NewConnectionDialog.tsx` / `tauri.ts` 覆盖率 per-file 100%(含历史缺口补齐)
+
+### 修复
+- **右侧栏资产行主机名溢出(六项需求 1)**:client-nav `StarHubToolWorkspace.module.css` 的 `.rowSub` 补 `min-width:0` / `overflow:hidden` / `text-overflow:ellipsis` / `max-width:55%`——名称优先完整可见,`username@host` 溢出省略号截断、不撑破行布局
+
+---
+
 ## [0.79.3] - 2026-08-17
 
 ### 修复

@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.79.3-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.79.4-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -119,6 +119,11 @@
 
 ## 当前版本
 
+### v0.79.4 (2026-08-17)
+- ✨ **新建连接对话框 SSH 支持 MFA/2FA(六项需求 2)**:client-nav `NewConnectionDialog.tsx` 认证方式对齐 Vue 版三档(password/key/mfa);mfa 档显示「MFA 主密码」输入,config 写入 `authMode:'mfa'` + `mfaEnabled:true` + `mfaPassword`(契约对齐 `SshConnectionForm.vue` 与 `src/services/ssh.ts`);编辑模式留空不提交(merge 保持原值)
+- ✨ **新建连接对话框「测试连接」+ 主按钮明显化(六项需求 4)**:actionRow 新增描边「测试连接」按钮(`.btnOutline`),「创建/保存」升级为高对比主按钮(`.btnPrimary`);测试命令全类型接线——ssh `test_ssh_connection`(含 kb-interactive 内联验证码面板 + hostkey 自动接受不持久化,`tauri.ts` 新增 `tauriListen` 事件桥)、db 各类型 `db_<type>_test`、kafka/nsq `broker_test`、docker `docker_test`;状态行显示 测试中…/成功(耗时)/失败原因,编辑模式密钥留空时拦截并提示;`NewConnectionDialog.tsx` / `tauri.ts` 覆盖率 per-file 100%(含历史缺口补齐)
+- 🐛 **右侧栏资产行主机名溢出(六项需求 1)**:client-nav `StarHubToolWorkspace.module.css` 的 `.rowSub` 补 `min-width:0` / `overflow:hidden` / `text-overflow:ellipsis` / `max-width:55%`——名称优先完整可见,`username@host` 溢出省略号截断、不撑破行布局
+
 ### v0.79.3 (2026-08-17)
 - 🐛 **自定义模型沙箱升级报错**:`sandbox escalation to "workspace-write" is not strictly wider than this call's current "danger-full-access" mode` —— 根因:会话文件策略已是(或切到)最宽 `danger-full-access` 时,弱模型在 bash 调用里带 `sandbox_permissions` 升级字段,升级到更窄模式被 `approveEscalation` 拒绝。修复:dsh-sandbox `escalation.ts` 新增 `modeCovers()`——请求模式已被当前模式覆盖(相等或更窄)时按 no-op 放行(返回 effectiveMode),仅未知模式仍 fail-closed
 - 🐛 **自定义模型不支持图片输入**:pi-ai 模型 profile 默认 `input: ['text']` 且模型编辑 UI 无图片开关。修复:ui-settings-models 的 DeepSeekModelsEditor / ModelListEditor 高级区新增「支持图片输入」复选框(写 `input: ['text','image']` / 删除),locales 加 `imageInput`/`imageInputHint`(en+zh)
@@ -127,36 +132,6 @@
 ### v0.79.2 (2026-08-17)
 - 🐛 **CI 全量类型检查失败(白名单移除的 vendor 侧遗留)**:aiSettings.ts 的 legacy 字段删除断言用双转换(`as unknown as Record<string, unknown>`);测试用例的 legacy 字段对象改 `as unknown as Partial<AiSettings>` 并补 `AiSettings` 类型导入——`pnpm run build`(vendor 全量 tsc + tsdown)恢复绿
 
-### v0.79.0 (2026-08-17)
-- ✨ **内嵌 AI 助手全面迁移到 deepseek-harness(用户要求「全面拥抱 deepseek harness」)**:SSH/数据库/Redis/ES/Docker/Excel 六个宿主面板的 AI 助手统一走 dsh 运行时——会话由 dsh 事件内核驱动,消息经事件投影渲染,子代理/待办/工具结果/用量全部进投影块;域工具(ssh/sftp/db/redis/es/docker/excel/mcp/skill_save)经 `dsh://tool-exec` 桥回前端面板执行(复用既有连接与凭证逻辑,Excel 作用于当前工作簿),全局工具(list_capabilities/list_assets/session_search/memory)在 Rust 主进程执行;新聊天面板 AiDshChat(消息右键复制、历史存档弹窗重命名/删除/复制标题、确认 dock 只有「批准/拒绝」)
-- ✨ **命令白名单移除,审批统一走 dsh 权限体系(用户要求)**:设置 → AI 不再有「命令白名单」区块;工具审批由 dsh 审批门(共享 settings.yaml 的 permission preset,设置 → 通用 → 权限)统一管控——新建会话时按 preset 固定策略(默认 ask,危险全权限 never),starhub-approval 插件做 starhub_* 工具风险门(ssh/db 写命令、redis 写命令、es 写操作、sftp 传文件、mcp 调用、记忆/skill 写入等恒确认),确认卡经 `dsh://approval` 桥回宿主面板,只做一次性批准/拒绝,无免确认白名单
-- ✨ **dsh 品牌融合(用户要求)**:左上角字标改为「StarHub」+ 右侧「deepseek harness」角标,浏览器标题与设置 About 同步显示
-- ✨ **右键菜单完善(用户要求)**:右侧栏资产/连接行右键(打开/编辑/复制/删除)、AI 会话右键(重命名/复制/归档/分叉)、左侧 StarHub 工具导航与工作区文件夹右键(新建/重命名/删除工作区)
-- 🔧 **旧 AI 内核退役**:删除 useAiChatHost/AiChat.vue/aiTools/aiSftpTools/aiLocal/aiWorkspace 及 runAgent 会话运行时(白名单、确认卡加白、@/# mention、会话级模型切换不再保留);SSH 终端「静默模式」保留,命令执行路由到终端自身通道(可见 PTY / 静默 exec),cwd 跟踪与审计钩子保留;记忆自动沉淀服务改用独立 memory 工具定义
-- 🔧 **dsh 审批/工具桥**:Rust 主进程新增 `dsh_approval_reply` / `dsh_tool_exec_reply` / `dsh_bind_session` 命令与 `dsh://approval` / `dsh://tool-exec` 事件(180s 超时,失败按拒绝收口);会话-资产绑定与子代理父链支持 memory 资产作用域;`DSH_SETTINGS_PATH` 注入与 dsh web GUI 共享同一份 settings.yaml
-- 🔧 **cargo-env.bat 编码修复**:批处理注释改纯 ASCII——cmd 用 OEM 代码页解析 .bat,UTF-8 中文注释会导致 `npm run cargo:check/test` 解析错乱
-- 🐛 **dsh starhub-tools 插件加载失败**:mcp_call 的 arguments schema 缺显式 `additionalProperties`,dsh 工具 schema 编译器要求显式 true/false——补上后插件树正常加载(此前 initialize 成功但首轮 prompt 即崩)
-
-### v0.78.1 (2026-08-17)
-- 🐛 **安装包 dsh web 启动失败(「dsh web 未就绪:dsh web 未运行(重试中…)」,v0.78.0 安装包整体不可用)**:`package-dsh-runtime.ts` 的构建步骤只跑 `build:lib`,从未构建 `apps/web` 的 vite 产物——`dsh-web-frontend` 的 `files` 只放行 `dist`,`pnpm deploy --prod` 闭包里只剩 `package.json`,运行时 `dsh-web-app` 经 `require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html')` 定位浏览器入口必炸("web-app: frontend dist not built");构建改为完整 `build`(build:lib + build:web),并在组装后 fail-loud 校验 `dsh-web-frontend/dist/index.html` 已入包,打包期拦截此类坏包
-
-### v0.78.0 (2026-08-16)
-- ✨ **资产实例操作页改为新开独立窗口(用户要求)**:侧栏工具区点击已有连接不再用整幅 overlay 盖住 dsh 主壳——桌面端经 `plugin:webview|create_webview_window` 开独立 webview 窗口(label 走 capability `starhub-*` glob,embed 页保有 IPC 授权),浏览器预览退化为新标签页;选择桥仍记录当前资产供 AI 工具上下文注入
-- ✨ **新建/编辑连接改为 dsh 风格小对话框(用户要求)**:原「设置页资产 tab 整幅 iframe」连接管理退役,换成壳内 React 小对话框(类型下拉:SSH/MySQL/PostgreSQL/ClickHouse/Redis/Elasticsearch/Kafka/NSQ/Docker,公共 + 专有字段,SSL/Redis DB 索引/SSH 私钥文件);支持编辑(资产行 hover 编辑钮,预填,密码/私钥留空保持不变)与两步确认删除;IPC 契约与 `src/services/asset.ts` 一致
-- 🐛 **「资产加载失败:Command get_assets not allowed by ACL」**:tauri 2.x 起 remote origin(127.0.0.1 的 dsh 主壳)的 app command 也强制走 ACL——新增 `src-tauri/permissions/commands.toml` 权限文件,单条 `starhub-commands` 权限集中列出全部 236 个 app command,default capability 引用它;capability `windows` 增加 `starhub-*` glob(新开的资产窗口同属授权范围)
-- 🐛 **session log 下载桌面端静默失败**:WebView2 默认丢弃 webview 内 anchor 下载——主窗口改为程序化创建(声明式 `app.windows` 挂不上 `on_download`),挂 `on_download` 钩子放行下载(Requested/Finished 落日志);窗口属性与原声明逐项对齐
-- 🐛 **侧栏切换子类误收起右侧工作区列**:子类点击从一律 `toggleDetails` 改为「切到不同子类只 `openDetails`(保持展开换内容),重复点击当前子类才 toggle 收起」
-- 🐛 **设置面板 StarHub 分组子项去掉 star- 前缀(用户要求,回退 0.76.1 的命名)**:分组头「StarHub」已承担归属标识,子项恢复 AI 助手/插件/审计日志/告警规则/关于
-- 🐛 **插件 tab 移除「已安装插件」列表(用户要求)**:启停/卸载入口随之下线,已装列表仅静默拉取用于市场项「已安装」标记;插件市场/导入空列表随 ACL 修复恢复有数据
-
-### v0.76.2 (2026-08-16)
-- 🐛 **GitHub CI Linux 打包失败(junction 清理)**:`harness::web::tests::sync_user_client_plugins_injects_and_cleans` 在 Linux 上断言「禁用后 junction 应清理」失败——失效用户 UI 插件链接的移除用 `fs::remove_dir`(Unix 底层 rmdir 对目录 symlink 返回 ENOTDIR,错误被 `let _ =` 吞掉导致链接残留),改为 Windows 用 `remove_dir` / Unix 用 `remove_file`(unlink);WSL 实测确认 rmdir 对 symlink 的行为,Windows 本地全量 cargo test 通过
-
-### v0.76.1 (2026-08-16)
-- 🔧 **设置面板 StarHub 条目加 star- 标识(用户要求)**:dsh 设置侧栏 StarHub 分组下的 5 个子项 label 统一加 `star-` 前缀(star-AI 助手 / star-插件 / star-审计日志 / star-告警规则 / star-关于),与 dsh 原生条目(通用/模型/插件/Agent 预设)区分
-
-### v0.76.0 (2026-08-16)
-- ✨ **设置面板两列化(用户要求)**:dsh 设置侧栏中 StarHub 改为可展开分组(点击分组头展开/收起、默认展开),5 个子项(AI 助手/插件/审计日志/告警规则/关于)各自以独立 `settings.section` 注册、点选右侧直渲内容,无面板内部嵌套列——旧版 SettingsPanel(面板内 rail + 内容区)删除;实现上扩展 vendored dsh 内核:ui-slots list 槽 `KindOptions` 增加可选 `group`/`groupLabel`(经 StoredEntry 投影透传),ui-settings-general 的 SettingsRoot 侧栏渲染可折叠分组(`buildNavItems` 聚合排序 + 折叠态组件局部 state + chevron/缩进样式),两处测试同步补齐(ledger 分组投影、分组渲染/折叠/回退/排序),client-nav/ui-settings-general/ui-slots 三包 per-file 100% 覆盖率
 
 ---
 

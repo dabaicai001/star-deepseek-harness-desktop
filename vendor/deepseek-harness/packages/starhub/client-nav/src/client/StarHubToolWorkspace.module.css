@@ -121,7 +121,14 @@
   white-space: nowrap;
 }
 
+/* 副标题(username@host)让位:名称 rowName flex:1(basis 0)不参与收缩,
+   空间不足时先收缩本行;min-width:0 + ellipsis 溢出截断,max-width 给名称留足空间。 */
 .rowSub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  max-width: 55%;
   font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;

@@ -11,6 +11,8 @@
 /** Tauri IPC surface injected into the top frame by the desktop shell. */
 interface TauriInternals {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
+  /** Callback registry used by the event plugin (present in the real runtime). */
+  transformCallback?: (callback: unknown, once?: boolean) => number
 }
 
 /**
@@ -26,6 +28,44 @@ export function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Pro
     return Promise.reject(new Error('Tauri IPC unavailable (browser preview)'))
   }
   return internals.invoke(cmd, args) as Promise<T>
+}
+
+/** Event payload envelope delivered by the Tauri event plugin to listen callbacks. */
+interface TauriEventEnvelope<T> {
+  event: string
+  id: number
+  payload: T
+}
+
+/**
+ * Subscribe to a Tauri event through the event plugin (`plugin:event|listen`),
+ * mirroring `@tauri-apps/api/event.listen` over the injected IPC bridge (the
+ * client bundle cannot import the api package). The callback registration
+ * requires `transformCallback`, which exists in the real desktop runtime;
+ * without it (browser preview or stubbed internals) the subscription is a
+ * no-op and the returned disposer resolves immediately.
+ * @param event - event name (e.g. `ssh:hostkey-confirm:<id>`).
+ * @param handler - receives each event payload until disposed.
+ * @returns disposer that unlistens from the event plugin.
+ */
+export async function tauriListen<T>(
+  event: string,
+  handler: (payload: T) => void,
+): Promise<() => Promise<void>> {
+  const internals = (window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__
+  const transform = internals?.transformCallback
+  if (internals === undefined || typeof transform !== 'function') {
+    return () => Promise.resolve()
+  }
+  const callbackId = transform((envelope: TauriEventEnvelope<T>) => { handler(envelope.payload) }, false)
+  const eventId = await internals.invoke('plugin:event|listen', {
+    event,
+    target: { kind: 'Any' },
+    handler: callbackId,
+  }) as number
+  return async () => {
+    await internals.invoke('plugin:event|unlisten', { event, eventId })
+  }
 }
 
 /**
