@@ -72,3 +72,51 @@ pub async fn dsh_web_url(
 ) -> Result<String, String> {
     manager.url().await.map_err(|e| e.to_string())
 }
+
+/// 应答一条 `dsh://approval` 事件对应的审批请求(requestId 来自事件 payload)。
+/// approved=true → 桥返回 `{outcome: "allowed-once"}`,false → `"rejected"`;
+/// 已超时/未知 requestId 时幂等成功(前端可能重复应答或应答晚到)。
+#[tauri::command]
+pub async fn dsh_approval_reply(
+    manager: State<'_, HarnessManager>,
+    request_id: String,
+    approved: bool,
+) -> Result<Value, String> {
+    manager
+        .bridge()
+        .resolve_approval(&request_id, approved)
+        .await;
+    Ok(Value::Null)
+}
+
+/// 应答一条 `dsh://tool-exec` 事件对应的域工具执行(requestId 来自事件 payload)。
+/// ok=true 时 text 作为工具结果返回给 dsh;ok=false 时 text 作为工具失败信息。
+#[tauri::command]
+pub async fn dsh_tool_exec_reply(
+    manager: State<'_, HarnessManager>,
+    request_id: String,
+    ok: bool,
+    text: String,
+) -> Result<Value, String> {
+    manager
+        .bridge()
+        .resolve_tool_exec(&request_id, ok, text)
+        .await;
+    Ok(Value::Null)
+}
+
+/// 记录 会话→资产 绑定(sessionId 关联到 assetId;asset_id 传空串解除绑定)。
+/// tools.rs 的 memory 工具 asset scope 用 sessionId 沿 subagent 父链解析该绑定
+/// (子代理会话继承父会话绑定);assetType 仅作调试信息。
+#[tauri::command]
+pub async fn dsh_bind_session(
+    manager: State<'_, HarnessManager>,
+    session_id: String,
+    asset_type: String,
+    asset_id: String,
+) -> Result<Value, String> {
+    manager
+        .bridge()
+        .bind_session(&session_id, &asset_type, &asset_id);
+    Ok(Value::Null)
+}

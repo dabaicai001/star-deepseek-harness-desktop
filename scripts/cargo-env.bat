@@ -1,13 +1,17 @@
 @echo off
-rem cargo check / test 便捷入口:先加载 MSVC 环境(vcvars64),再在 src-tauri 下跑 cargo。
+rem cargo check / test helper: load the MSVC environment (vcvars64) first,
+rem then run cargo under src-tauri.
 rem
-rem 解决 Git Bash 里直接 `cargo check` 报 "failed to find tool cl.exe" 的问题
-rem (ring / aws-lc-sys / libsqlite3-sys 等 C 依赖需要 MSVC 工具链)。
+rem Fixes "failed to find tool cl.exe" when running cargo from Git Bash
+rem (C dependencies like ring / aws-lc-sys / libsqlite3-sys need MSVC).
 rem
-rem vcvars64.bat 路径取用户环境变量 STARHUB_VCVARS(新机器上 setx 一次即可),
-rem 未设置时回退到本机默认 D:\c++1 的安装位置。
+rem NOTE: keep this file ASCII-only. cmd parses .bat in the OEM codepage;
+rem UTF-8 Chinese comments break the parser (stray fragments get executed).
 rem
-rem 用法:
+rem vcvars64.bat path comes from the STARHUB_VCVARS user env var (setx once
+rem on a new machine); falls back to the local default under D:\c++1.
+rem
+rem Usage:
 rem   scripts\cargo-env.bat check
 rem   scripts\cargo-env.bat test
 rem   scripts\cargo-env.bat build --release

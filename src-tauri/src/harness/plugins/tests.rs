@@ -397,10 +397,7 @@ fn install_resolves_vendor_dependencies_via_junction() {
     let paths = PluginPaths::at(app_data.clone());
     paths.ensure_layout().unwrap();
     // 假 vendor 里放一个 @deepseek-ai 依赖包(packages/client/runtime 形态)
-    let dep_dir = vendor_root
-        .join("packages")
-        .join("client")
-        .join("runtime");
+    let dep_dir = vendor_root.join("packages").join("client").join("runtime");
     fs::create_dir_all(&dep_dir).unwrap();
     fs::write(
         dep_dir.join("package.json"),
@@ -500,9 +497,8 @@ fn ensure_builtin_plugins_seeds_registry_idempotently() {
     ] {
         let pkg = vendor_root.join("packages").join("starhub").join(dir);
         fs::create_dir_all(pkg.join("lib")).unwrap();
-        let mut manifest = format!(
-            r#"{{"name": "{name}", "version": "0.0.1", "main": "lib/index.js""#
-        );
+        let mut manifest =
+            format!(r#"{{"name": "{name}", "version": "0.0.1", "main": "lib/index.js""#);
         if client {
             manifest.push_str(r#", "dsh": {"client": {"platform": "web"}}"#);
         }

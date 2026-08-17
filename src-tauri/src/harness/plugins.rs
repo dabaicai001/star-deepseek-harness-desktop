@@ -495,20 +495,28 @@ fn find_vendor_package(vendor_root: &Path, spec: &str) -> Option<PathBuf> {
     let mut found = None;
     for base in ["packages", "vendor"] {
         let base_dir = vendor_root.join(base);
-        let Ok(entries) = fs::read_dir(&base_dir) else { continue };
+        let Ok(entries) = fs::read_dir(&base_dir) else {
+            continue;
+        };
         for group in entries.flatten() {
             if !group.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 continue;
             }
-            let Ok(pkgs) = fs::read_dir(group.path()) else { continue };
+            let Ok(pkgs) = fs::read_dir(group.path()) else {
+                continue;
+            };
             for pkg in pkgs.flatten() {
                 let pkg_dir = pkg.path();
                 if !pkg.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                     continue;
                 }
                 let manifest_path = pkg_dir.join("package.json");
-                let Ok(content) = fs::read_to_string(&manifest_path) else { continue };
-                let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else { continue };
+                let Ok(content) = fs::read_to_string(&manifest_path) else {
+                    continue;
+                };
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
+                    continue;
+                };
                 if value.get("name").and_then(|n| n.as_str()) == Some(spec) {
                     found = Some(pkg_dir);
                 }
@@ -597,17 +605,18 @@ pub const BUILTIN_PLUGIN_DIRS: [&str; 4] = ["client-nav", "host-static", "tool-c
 /// 把内置插件幂等注册进 registry(缺则补,已有跳过)。
 /// `runtime_dir` 为 vendor 根(内置包目录所在);builtin 记录 entry/dsh_client
 /// 均从各包 package.json 读取。
-pub fn ensure_builtin_plugins(
-    paths: &PluginPaths,
-    runtime_dir: &Path,
-) -> Result<(), PluginError> {
+pub fn ensure_builtin_plugins(paths: &PluginPaths, runtime_dir: &Path) -> Result<(), PluginError> {
     let mut registry = load_registry(paths)?;
     let mut changed = false;
     for dir_name in BUILTIN_PLUGIN_DIRS {
         let pkg_dir = runtime_dir.join("packages").join("starhub").join(dir_name);
         let manifest_path = pkg_dir.join("package.json");
-        let Ok(content) = fs::read_to_string(&manifest_path) else { continue };
-        let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) else { continue };
+        let Ok(content) = fs::read_to_string(&manifest_path) else {
+            continue;
+        };
+        let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) else {
+            continue;
+        };
         let name = manifest
             .get("name")
             .and_then(|v| v.as_str())
@@ -622,10 +631,7 @@ pub fn ensure_builtin_plugins(
             .and_then(|v| v.as_str())
             .unwrap_or("lib/index.js")
             .to_string();
-        let dsh_client = manifest
-            .get("dsh")
-            .and_then(|d| d.get("client"))
-            .is_some();
+        let dsh_client = manifest.get("dsh").and_then(|d| d.get("client")).is_some();
         let version = manifest
             .get("version")
             .and_then(|v| v.as_str())

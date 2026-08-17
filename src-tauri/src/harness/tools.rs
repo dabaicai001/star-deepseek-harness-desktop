@@ -1,10 +1,17 @@
-//! StarHub 宿主工具执行端(内核替换 P1-4)。
+//! StarHub 宿主工具执行端(内核替换 P1-4,Phase 2 扩展全域工具)。
 //!
 //! dsh 侧 `@deepseek-ai/dsh-starhub-tools` 插件把工具调用经 SDK stdio 双向
-//! request 桥回本进程:方法 `starhub/tool.execute`,参数 `{ name, args }`,
+//! request 桥回本进程:方法 `starhub/tool.execute`,参数 `{ sessionId, name, args }`,
 //! result 为模型可读文本字符串;硬错误回 JSON-RPC error(-32603)。
 //! 软错误([DUPLICATE]/[FULL]/[NOMATCH]/[AMBIGUOUS]/[Error] …)按旧前端语义
 //! 原样作为文本返回,不 throw,由模型自行纠正后重试。
+//!
+//! 分发:全局工具(starhub_list_capabilities / starhub_list_assets /
+//! session_search / memory)在 Rust 内执行;其余域工具(ssh_*/sftp_*/db_query/
+//! redis_exec/es_*/docker_*/excel_*/mcp_*/skill_save)emit `dsh://tool-exec`
+//! 事件转发给拥有该会话的前端面板,经 `dsh_tool_exec_reply` 应答等待结果
+//! (超时 180s)。memory 工具的 asset scope 用 sessionId 沿 subagent 父链
+//! 查会话资产绑定(mod.rs 的 HostBridgeState),绑不到资产时提示绑定。
 //!
 //! 工具语义对齐旧前端实现(src/utils/aiTools.ts 与 AiView.vue workspaceTools);
 //! 写路径复用 commands::ai_memory,资产查询直读 assets 表(不 hydrate,
@@ -16,6 +23,10 @@ use crate::commands::ai_memory::{
 use crate::db;
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
+use std::sync::Arc;
+use std::time::Duration;
+
+use super::HostBridgeState;
 
 /// 桥方法名(与 vendor/deepseek-harness/packages/starhub/tools/src/index.ts 对齐)。
 pub const BRIDGE_METHOD: &str = "starhub/tool.execute";
@@ -23,38 +34,178 @@ pub const BRIDGE_METHOD: &str = "starhub/tool.execute";
 /// [DUPLICATE]/[FULL]/[NOMATCH]/[AMBIGUOUS] 是策展交互信号,原样回给模型自行纠正
 const MEMORY_SOFT_ERROR_PREFIXES: [&str; 4] = ["[DUPLICATE]", "[FULL]", "[NOMATCH]", "[AMBIGUOUS]"];
 
+/// 域工具执行超时(前端面板确认/执行 180s 未应答视为失败)。
+const TOOL_EXEC_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// 不在 Rust 内执行的域工具:经 `dsh://tool-exec` 事件转发前端。
+/// (与 vendor packages/starhub/tools/src/index.ts 的 BRIDGED_TOOLS 对齐)
+const FORWARDED_TOOLS: &[&str] = &[
+    // SSH(会话绑定 SSH 资产)
+    "ssh_exec",
+    "ssh_exec_background",
+    "ssh_wait_task",
+    // SFTP(复用会话绑定的 SSH 资产)
+    "sftp_list",
+    "sftp_stat",
+    "sftp_upload",
+    "sftp_download",
+    // 数据库(会话绑定 DB 资产)
+    "db_query",
+    // Redis
+    "redis_exec",
+    // Elasticsearch
+    "es_list_indices",
+    "es_cluster_health",
+    "es_get_mapping",
+    "es_search",
+    "es_get_document",
+    "es_count",
+    "es_index_document",
+    "es_delete_document",
+    "es_delete_index",
+    // Docker
+    "docker_list_containers",
+    "docker_logs",
+    "docker_inspect",
+    "docker_exec",
+    // Excel(当前工作簿,前端执行)
+    "excel_get_context",
+    "excel_write_range",
+    "excel_fill_formula",
+    "excel_read_range",
+    "excel_set_headers",
+    "excel_find_replace",
+    "excel_add_sheet",
+    "excel_remove_sheet",
+    "excel_rename_sheet",
+    "excel_switch_sheet",
+    "excel_style_header",
+    "excel_auto_filter",
+    "excel_write_cell",
+    "excel_insert_rows",
+    "excel_delete_rows",
+    "excel_insert_cols",
+    "excel_delete_cols",
+    "excel_sort",
+    "excel_filter",
+    "excel_clear_filter",
+    "excel_freeze",
+    "excel_remove_duplicates",
+    "excel_dedup_to_sheet",
+    "excel_save",
+    // MCP(设置里配置的外部 MCP server 工具)
+    "mcp_list",
+    "mcp_call",
+    // 自定义 Skill 沉淀(前端执行,恒确认)
+    "skill_save",
+];
+
+use tokio::sync::oneshot;
+
 /// 入站桥请求入口(read_loop spawn):校验方法与参数形状后分发执行。
-pub async fn execute_bridge_request(method: &str, params: Value) -> Result<Value, String> {
+/// 全局工具在 Rust 内执行;域工具转发前端面板并等待应答。
+pub async fn execute_bridge_request(
+    method: &str,
+    params: Value,
+    bridge: Arc<HostBridgeState>,
+) -> Result<Value, String> {
     if method != BRIDGE_METHOD {
         return Err(format!("unknown StarHub bridge method: {method}"));
     }
+    let session_id = params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "starhub/tool.execute 缺少 sessionId".to_string())?;
     let name = params
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| "starhub/tool.execute 缺少 name".to_string())?;
     let args = params.get("args").cloned().unwrap_or(Value::Null);
-    // list_capabilities 是静态内容,不需要数据库;其余工具惰性解析全局 pool
+
+    // 域工具不在 Rust 内执行:emit dsh://tool-exec 转发前端面板,await 应答
+    if FORWARDED_TOOLS.contains(&name) {
+        let text = forward_to_frontend(&bridge, session_id, name, &args).await?;
+        return Ok(Value::String(text));
+    }
+
+    // 全局工具在 Rust 内执行;list_capabilities 是静态内容,不需要数据库
     // (测试环境可能没有初始化全局 pool)
     let text = if name == "starhub_list_capabilities" {
         list_capabilities()
     } else {
         let pool = db::get_pool()?;
-        execute_tool(pool, name, &args).await?
+        execute_tool(pool, name, &args, session_id, &bridge).await?
     };
     Ok(Value::String(text))
 }
 
+/// 域工具转发:emit `dsh://tool-exec` `{requestId, sessionId, name, args}`,
+/// 把 pending 存入 map 后 await `dsh_tool_exec_reply`;
+/// ok=true 返回 text 作为桥结果,ok=false 把 text 作为工具失败抛回桥;
+/// 超时(180s)或应答通道关闭返回固定错误文本。
+async fn forward_to_frontend(
+    bridge: &HostBridgeState,
+    session_id: &str,
+    name: &str,
+    args: &Value,
+) -> Result<String, String> {
+    forward_to_frontend_with_timeout(bridge, session_id, name, args, TOOL_EXEC_TIMEOUT).await
+}
+
+/// 带超时的域工具转发(测试注入短超时;生产走 [`forward_to_frontend`])。
+async fn forward_to_frontend_with_timeout(
+    bridge: &HostBridgeState,
+    session_id: &str,
+    name: &str,
+    args: &Value,
+    timeout: Duration,
+) -> Result<String, String> {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    bridge
+        .emit(
+            "dsh://tool-exec",
+            serde_json::json!({
+                "requestId": request_id,
+                "sessionId": session_id,
+                "name": name,
+                "args": args,
+            }),
+        )
+        .await;
+    let (response_tx, response_rx) = oneshot::channel();
+    bridge
+        .tool_execs
+        .lock()
+        .await
+        .insert(request_id.clone(), response_tx);
+    match tokio::time::timeout(timeout, response_rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => {
+            tracing::warn!("工具执行应答通道已关闭: {name}");
+            Err("前端执行通道已关闭".to_string())
+        }
+        Err(_) => {
+            bridge.tool_execs.lock().await.remove(&request_id);
+            tracing::warn!("工具执行超时({}s): {name}", timeout.as_secs());
+            Err("前端执行超时或窗口已关闭".to_string())
+        }
+    }
+}
+
 /// 工具分发核心(可注入 pool,便于单测)。返回模型可读文本;Err 为硬错误。
+/// `session_id` 供 memory 的 asset scope 沿 subagent 父链解析会话资产绑定。
 pub(crate) async fn execute_tool(
     pool: &SqlitePool,
     name: &str,
     args: &Value,
+    session_id: &str,
+    bridge: &HostBridgeState,
 ) -> Result<String, String> {
     match name {
         "starhub_list_capabilities" => Ok(list_capabilities()),
         "starhub_list_assets" => list_assets(pool, args).await,
         "session_search" => session_search(pool, args).await,
-        "memory" => memory(pool, args).await,
+        "memory" => memory(pool, args, session_id, bridge).await,
         other => Err(format!("unsupported StarHub tool: {other}")),
     }
 }
@@ -353,7 +504,12 @@ async fn session_search(pool: &SqlitePool, args: &Value) -> Result<String, Strin
 // 写路径复用 commands::ai_memory;软错误原样透传为文本。
 // ============================================================
 
-async fn memory(pool: &SqlitePool, args: &Value) -> Result<String, String> {
+async fn memory(
+    pool: &SqlitePool,
+    args: &Value,
+    session_id: &str,
+    bridge: &HostBridgeState,
+) -> Result<String, String> {
     let action = args.get("action").and_then(Value::as_str).unwrap_or("");
     let target = args.get("target").and_then(Value::as_str).unwrap_or("");
     if !["add", "replace", "remove"].contains(&action) {
@@ -367,11 +523,18 @@ async fn memory(pool: &SqlitePool, args: &Value) -> Result<String, String> {
         ));
     }
 
-    // asset 级:绑定机制在 Phase 2(P2-7)才重建,与旧前端未绑定时的提示一致
-    if target == "asset" {
-        return Ok("当前会话未绑定资产,无法写入资产级记忆,请让用户用 # 绑定资产后重试".to_string());
-    }
-    let scope = target;
+    // asset 级:沿 subagent 父链解析会话绑定的资产(子代理继承父会话绑定,
+    // 由 dsh_bind_session 写入);绑不到资产时提示用 # 绑定,与旧前端一致。
+    let scope = if target == "asset" {
+        let Some((_asset_type, asset_id)) = bridge.resolve_asset(session_id) else {
+            return Ok(
+                "当前会话未绑定资产,无法写入资产级记忆,请让用户用 # 绑定资产后重试".to_string(),
+            );
+        };
+        format!("asset:{asset_id}")
+    } else {
+        target.to_string()
+    };
 
     let content = args
         .get("content")
@@ -400,15 +563,15 @@ async fn memory(pool: &SqlitePool, args: &Value) -> Result<String, String> {
         }
     }
 
-    // TODO(D3 审批桥):旧前端在此走工作区内嵌确认卡(memoryWriteNeedsConfirm);
-    // 待 D3 审批桥落地后接入 dsh ctx.approval,本期直写(与 P1-4 范围约定一致)。
+    // 写路径直写(scope 已含 asset:{id});风险确认由 dsh 侧 starhub-approval
+    // 插件的 tools/pre-execute 风险门承接(ALWAYS_ASK 含 memory),Rust 桥不再重复确认。
 
     let result = match action {
-        "add" => add_memory(pool, scope, content).await.map(|_| ()),
-        "replace" => replace_memory(pool, scope, old_text, content)
+        "add" => add_memory(pool, &scope, content).await.map(|_| ()),
+        "replace" => replace_memory(pool, &scope, old_text, content)
             .await
             .map(|_| ()),
-        _ => remove_memory(pool, scope, old_text).await.map(|_| ()),
+        _ => remove_memory(pool, &scope, old_text).await.map(|_| ()),
     };
     if let Err(message) = result {
         if MEMORY_SOFT_ERROR_PREFIXES
@@ -622,6 +785,12 @@ fn scan_memory_content(content: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
+    use tokio::sync::{mpsc, oneshot};
+
+    /// 无绑定/无父链的空桥(测试默认);全局工具不需要绑定解析。
+    fn empty_bridge() -> HostBridgeState {
+        HostBridgeState::default()
+    }
 
     /// 建立 in-memory SQLite 池并执行完整 CREATE_TABLES(单连接,保证同一份内存库)
     async fn setup_pool() -> SqlitePool {
@@ -671,9 +840,15 @@ mod tests {
     #[tokio::test]
     async fn list_capabilities_is_static_json() {
         let pool = setup_pool().await;
-        let text = execute_tool(&pool, "starhub_list_capabilities", &Value::Null)
-            .await
-            .expect("list_capabilities");
+        let text = execute_tool(
+            &pool,
+            "starhub_list_capabilities",
+            &Value::Null,
+            "sess-1",
+            &empty_bridge(),
+        )
+        .await
+        .expect("list_capabilities");
         let parsed: Value = serde_json::from_str(&text).expect("合法 JSON");
         for key in [
             "ssh",
@@ -706,9 +881,15 @@ mod tests {
         .await
         .expect("insert assets");
 
-        let all = execute_tool(&pool, "starhub_list_assets", &serde_json::json!({}))
-            .await
-            .expect("list all");
+        let all = execute_tool(
+            &pool,
+            "starhub_list_assets",
+            &serde_json::json!({}),
+            "sess-1",
+            &empty_bridge(),
+        )
+        .await
+        .expect("list all");
         let parsed: Value = serde_json::from_str(&all).expect("合法 JSON");
         assert_eq!(parsed.as_array().expect("数组").len(), 2);
 
@@ -716,6 +897,8 @@ mod tests {
             &pool,
             "starhub_list_assets",
             &serde_json::json!({"type": "ssh"}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("list ssh");
@@ -740,6 +923,8 @@ mod tests {
             &pool,
             "session_search",
             &serde_json::json!({"query": "slow_query_log"}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("discovery");
@@ -749,8 +934,9 @@ mod tests {
         let text = execute_tool(
             &pool,
             "session_search",
-            &serde_json::json!({"query": "不存在的词"}
-            ),
+            &serde_json::json!({"query": "不存在的词"}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("no hit");
@@ -760,6 +946,8 @@ mod tests {
             &pool,
             "session_search",
             &serde_json::json!({"conversation_id": "c1"}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("browse");
@@ -771,15 +959,23 @@ mod tests {
             &pool,
             "session_search",
             &serde_json::json!({"conversation_id": "c1", "before_rowid": 3}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("scroll");
         assert!(text.contains("会话 c1 的消息("), "{text}");
 
         // 两者都不传
-        let text = execute_tool(&pool, "session_search", &serde_json::json!({}))
-            .await
-            .expect("empty");
+        let text = execute_tool(
+            &pool,
+            "session_search",
+            &serde_json::json!({}),
+            "sess-1",
+            &empty_bridge(),
+        )
+        .await
+        .expect("empty");
         assert!(text.contains("请提供 query"), "{text}");
 
         // 只含引号的搜索词
@@ -787,6 +983,8 @@ mod tests {
             &pool,
             "session_search",
             &serde_json::json!({"query": "\"\""}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("sanitize empty");
@@ -803,6 +1001,8 @@ mod tests {
             &pool,
             "memory",
             &serde_json::json!({"action": "add", "target": "user", "content": "生产库 DDL 前先备份"}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("add");
@@ -813,6 +1013,8 @@ mod tests {
             &pool,
             "memory",
             &serde_json::json!({"action": "add", "target": "user", "content": "生产库 DDL 前先备份"}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("duplicate");
@@ -823,6 +1025,8 @@ mod tests {
             &pool,
             "memory",
             &serde_json::json!({"action": "remove", "target": "user", "old_text": "不存在"}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("nomatch");
@@ -833,6 +1037,8 @@ mod tests {
             &pool,
             "memory",
             &serde_json::json!({"action": "replace", "target": "user", "old_text": "DDL", "content": "生产库变更前先备份"}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("replace");
@@ -843,6 +1049,8 @@ mod tests {
             &pool,
             "memory",
             &serde_json::json!({"action": "x", "target": "user"}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("bad action");
@@ -851,20 +1059,94 @@ mod tests {
             &pool,
             "memory",
             &serde_json::json!({"action": "add", "target": "x"}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("bad target");
         assert!(text.starts_with("[Error] 未知 target"), "{text}");
+    }
 
-        // asset 级:Phase 2 前固定返回未绑定提示
+    /// asset 级记忆:会话未绑定资产时返回提示(与旧前端一致)。
+    #[tokio::test]
+    async fn memory_asset_scope_unbound_returns_hint() {
+        let pool = setup_pool().await;
+        let bridge = empty_bridge();
         let text = execute_tool(
             &pool,
             "memory",
             &serde_json::json!({"action": "add", "target": "asset", "content": "资产事实"}),
+            "sess-nobody",
+            &bridge,
         )
         .await
-        .expect("asset");
+        .expect("unbound");
         assert!(text.contains("当前会话未绑定资产"), "{text}");
+    }
+
+    /// asset 级记忆:用会话绑定解析 assetId,写入 asset:{id} scope。
+    #[tokio::test]
+    async fn memory_asset_scope_uses_session_binding() {
+        let pool = setup_pool().await;
+        let bridge = empty_bridge();
+        bridge.bind_session("sess-1", "ssh", "a1");
+        let text = execute_tool(
+            &pool,
+            "memory",
+            &serde_json::json!({"action": "add", "target": "asset", "content": "这台是生产库"}),
+            "sess-1",
+            &bridge,
+        )
+        .await
+        .expect("add asset memory");
+        assert!(text.starts_with("已记住(asset):"), "{text}");
+        let rows = sqlx::query("SELECT scope FROM ai_memories WHERE content = '这台是生产库'")
+            .fetch_all(&pool)
+            .await
+            .expect("query scope");
+        assert_eq!(rows[0].get::<String, _>("scope"), "asset:a1");
+
+        // replace / remove 同样落在 asset:{id} scope
+        let text = execute_tool(
+            &pool,
+            "memory",
+            &serde_json::json!({"action": "replace", "target": "asset", "old_text": "生产库", "content": "这台是测试库"}),
+            "sess-1",
+            &bridge,
+        )
+        .await
+        .expect("replace asset memory");
+        assert!(text.starts_with("记忆已更新(asset):"), "{text}");
+        let rows = sqlx::query("SELECT scope FROM ai_memories WHERE content = '这台是测试库'")
+            .fetch_all(&pool)
+            .await
+            .expect("query scope 2");
+        assert_eq!(rows[0].get::<String, _>("scope"), "asset:a1");
+    }
+
+    /// asset 级记忆:子代理会话沿 subagent 父链继承父会话的资产绑定。
+    #[tokio::test]
+    async fn memory_asset_scope_walks_subagent_parent_chain() {
+        let pool = setup_pool().await;
+        let bridge = empty_bridge();
+        bridge.bind_session("parent", "db", "a2");
+        bridge.record_subagent_parent("child", "parent");
+        bridge.record_subagent_parent("grandchild", "child");
+        let text = execute_tool(
+            &pool,
+            "memory",
+            &serde_json::json!({"action": "add", "target": "asset", "content": "只读副本勿写"}),
+            "grandchild",
+            &bridge,
+        )
+        .await
+        .expect("add via parent chain");
+        assert!(text.starts_with("已记住(asset):"), "{text}");
+        let rows = sqlx::query("SELECT scope FROM ai_memories WHERE content = '只读副本勿写'")
+            .fetch_all(&pool)
+            .await
+            .expect("query scope");
+        assert_eq!(rows[0].get::<String, _>("scope"), "asset:a2");
     }
 
     #[tokio::test]
@@ -886,6 +1168,8 @@ mod tests {
                 &pool,
                 "memory",
                 &serde_json::json!({"action": "add", "target": "user", "content": bad}),
+                "sess-1",
+                &empty_bridge(),
             )
             .await
             .expect("scan");
@@ -899,6 +1183,8 @@ mod tests {
             &pool,
             "memory",
             &serde_json::json!({"action": "add", "target": "user", "content": "正常内容\u{200b}尾巴"}),
+            "sess-1",
+            &empty_bridge(),
         )
         .await
         .expect("invisible");
@@ -921,9 +1207,143 @@ mod tests {
     #[tokio::test]
     async fn execute_tool_rejects_unknown() {
         let pool = setup_pool().await;
-        let err = execute_tool(&pool, "no_such_tool", &Value::Null)
-            .await
-            .expect_err("未知工具应报硬错误");
+        let err = execute_tool(
+            &pool,
+            "no_such_tool",
+            &Value::Null,
+            "sess-1",
+            &empty_bridge(),
+        )
+        .await
+        .expect_err("未知工具应报硬错误");
         assert!(err.contains("unsupported StarHub tool"), "{err}");
+    }
+
+    // ---------- 域工具转发(dsh://tool-exec → dsh_tool_exec_reply) ----------
+
+    /// 域工具桥:emit `dsh://tool-exec` 事件(requestId/sessionId/name/args),
+    /// 应答(ok=true)后文本作为桥结果返回。
+    #[tokio::test]
+    async fn domain_tool_forwards_to_frontend_and_returns_text() {
+        let (emit_tx, mut emit_rx) = mpsc::channel::<(String, serde_json::Value)>(10);
+        let bridge = Arc::new(HostBridgeState::new(Arc::new(move |event, payload| {
+            let _ = emit_tx.try_send((event.to_string(), payload));
+        })));
+        let params = serde_json::json!({
+            "sessionId": "sess-1",
+            "name": "ssh_exec",
+            "args": { "command": "ls -la" },
+        });
+        let handle = tokio::spawn({
+            let bridge = bridge.clone();
+            async move { execute_bridge_request("starhub/tool.execute", params, bridge).await }
+        });
+
+        let (event, payload) = emit_rx.recv().await.expect("应收到 dsh://tool-exec 事件");
+        assert_eq!(event, "dsh://tool-exec");
+        let request_id = payload["requestId"]
+            .as_str()
+            .expect("requestId")
+            .to_string();
+        assert_eq!(payload["sessionId"], "sess-1");
+        assert_eq!(payload["name"], "ssh_exec");
+        assert_eq!(payload["args"]["command"], "ls -la");
+        assert!(bridge.tool_execs.lock().await.contains_key(&request_id));
+
+        bridge
+            .resolve_tool_exec(
+                &request_id,
+                true,
+                "total 0\n-rw-r--r-- 1 u u 0 f".to_string(),
+            )
+            .await;
+        let result = handle
+            .await
+            .expect("桥执行完成")
+            .expect("应答 ok=true 应返回文本");
+        assert_eq!(result, "total 0\n-rw-r--r-- 1 u u 0 f");
+        assert!(!bridge.tool_execs.lock().await.contains_key(&request_id));
+    }
+
+    /// 域工具桥:ok=false 时 text 作为工具失败抛回桥(Err)。
+    #[tokio::test]
+    async fn domain_tool_reply_error_propagates_as_failure() {
+        let (emit_tx, mut emit_rx) = mpsc::channel::<(String, serde_json::Value)>(10);
+        let bridge = Arc::new(HostBridgeState::new(Arc::new(move |event, payload| {
+            let _ = emit_tx.try_send((event.to_string(), payload));
+        })));
+        let handle = tokio::spawn({
+            let bridge = bridge.clone();
+            async move {
+                execute_bridge_request(
+                    "starhub/tool.execute",
+                    serde_json::json!({
+                        "sessionId": "sess-1",
+                        "name": "db_query",
+                        "args": { "sql": "DELETE FROM t" },
+                    }),
+                    bridge,
+                )
+                .await
+            }
+        });
+        let (_event, payload) = emit_rx.recv().await.expect("应收到事件");
+        let request_id = payload["requestId"]
+            .as_str()
+            .expect("requestId")
+            .to_string();
+        bridge
+            .resolve_tool_exec(&request_id, false, "用户拒绝:高风险 SQL".to_string())
+            .await;
+        let err = handle
+            .await
+            .expect("桥执行完成")
+            .expect_err("ok=false 应把 text 作为错误抛给桥");
+        assert_eq!(err, "用户拒绝:高风险 SQL");
+    }
+
+    /// 域工具桥:180s 生产常量不可等,走带超时的内部实现验证超时错误文本。
+    #[tokio::test]
+    async fn domain_tool_timeout_returns_error_text() {
+        let bridge = empty_bridge();
+        let err = forward_to_frontend_with_timeout(
+            &bridge,
+            "sess-1",
+            "ssh_exec",
+            &serde_json::json!({ "command": "sleep 1" }),
+            Duration::from_millis(50),
+        )
+        .await
+        .expect_err("超时应失败");
+        assert_eq!(err, "前端执行超时或窗口已关闭");
+        assert!(
+            bridge.tool_execs.lock().await.is_empty(),
+            "超时后 pending 应清理"
+        );
+    }
+
+    /// 未知 requestId 的工具执行应答:幂等成功。
+    #[tokio::test]
+    async fn tool_exec_reply_unknown_request_id_is_noop() {
+        let bridge = empty_bridge();
+        assert!(
+            !bridge
+                .resolve_tool_exec("missing", true, "x".to_string())
+                .await
+        );
+    }
+
+    /// 缺 sessionId 的桥请求:硬错误(与插件失败语义一致)。
+    #[tokio::test]
+    async fn execute_bridge_request_requires_session_id() {
+        let bridge = Arc::new(empty_bridge());
+        let err = execute_bridge_request(
+            "starhub/tool.execute",
+            serde_json::json!({ "name": "ssh_exec", "args": {} }),
+            bridge,
+        )
+        .await
+        .expect_err("缺 sessionId 应报错");
+        assert!(err.contains("sessionId"), "{err}");
     }
 }

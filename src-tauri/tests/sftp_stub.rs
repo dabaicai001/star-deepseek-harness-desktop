@@ -69,7 +69,10 @@ async fn sftp_stub_roundtrip() {
     let mut file = sftp.open("/russh_probe.txt").await.expect("open");
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).await.expect("read back");
-    assert_eq!(buf, b"hello-russh-sftp", "downloaded bytes must match upload");
+    assert_eq!(
+        buf, b"hello-russh-sftp",
+        "downloaded bytes must match upload"
+    );
     // Windows 上不能删除仍打开的文件:显式关掉句柄再删
     drop(file);
     tokio::time::sleep(Duration::from_millis(200)).await;

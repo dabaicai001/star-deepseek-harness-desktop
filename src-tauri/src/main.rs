@@ -3,7 +3,6 @@
     windows_subsystem = "windows"
 )]
 
-mod ai;
 mod commands;
 mod db;
 mod harness;
@@ -341,9 +340,7 @@ fn main() {
             commands::local::local_copy_file,
             commands::local::local_move_path,
             commands::local::local_remove_path,
-            // AI
-            commands::ai::ai_chat,
-            commands::ai::ai_list_models,
+            // AI(内核已迁移 dsh;此段只剩密钥与记忆持久化)
             commands::secret::set_ai_api_key,
             commands::secret::get_ai_api_key,
             commands::secret::delete_ai_api_key,
@@ -362,6 +359,10 @@ fn main() {
             commands::harness::dsh_prompt,
             commands::harness::dsh_cancel,
             commands::harness::dsh_shutdown,
+            // dsh 双向 request 桥应答(审批确认卡 / 域工具执行面板)+ 会话资产绑定
+            commands::harness::dsh_approval_reply,
+            commands::harness::dsh_tool_exec_reply,
+            commands::harness::dsh_bind_session,
             // dsh web GUI 管理器(主壳融合 P1)
             commands::harness::dsh_web_url,
             // dsh 用户插件(支线 B):市场 / URL / 本地三入口 + 逐项启停

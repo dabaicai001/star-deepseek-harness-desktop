@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use tauri::Manager;
 use thiserror::Error;
 use tokio::process::{Child, Command};
 
@@ -67,11 +68,27 @@ pub struct DshWebManager {
     start_lock: tokio::sync::Mutex<()>,
 }
 
+/// DSH_HOME 目录(`STARHUB_DSH_WEB_HOME` 覆盖优先,缺省 `<app_data_dir>/dsh-web-home`)。
+/// 嵌入 runtime 的 `DSH_SETTINGS_PATH` 复用同一解析(harness::mod.rs
+/// build_spawn_env),保证两端共享同一份 settings.yaml(权限 preset)。
+pub fn dsh_home_dir(app: &tauri::AppHandle) -> Result<PathBuf, DshWebError> {
+    match std::env::var("STARHUB_DSH_WEB_HOME") {
+        Ok(dir) => Ok(PathBuf::from(dir)),
+        Err(_) => app
+            .path()
+            .app_data_dir()
+            .map(|dir| dir.join("dsh-web-home"))
+            .map_err(|e| DshWebError::PathResolve(format!("app_data_dir 失败: {e}"))),
+    }
+}
+
 /// 在 base..=base+max_offset 里找第一个可绑定端口(占位进程占着 3085 时递增)。
 fn find_free_port(base: u16, max_offset: u16) -> Option<u16> {
     (0..=max_offset).find_map(|offset| {
         let port = base.checked_add(offset)?;
-        std::net::TcpListener::bind(("127.0.0.1", port)).ok().map(|_| port)
+        std::net::TcpListener::bind(("127.0.0.1", port))
+            .ok()
+            .map(|_| port)
     })
 }
 
@@ -173,14 +190,7 @@ impl DshWebManager {
         }
 
         // 1. DSH_HOME 与 profile 物化
-        let dsh_home = match std::env::var("STARHUB_DSH_WEB_HOME") {
-            Ok(dir) => PathBuf::from(dir),
-            Err(_) => app
-                .path()
-                .app_data_dir()
-                .map_err(|e| DshWebError::PathResolve(format!("app_data_dir 失败: {e}")))?
-                .join("dsh-web-home"),
-        };
+        let dsh_home = dsh_home_dir(app)?;
         let profile_dir = dsh_home.join("profiles").join("web");
         std::fs::create_dir_all(&profile_dir)
             .map_err(|e| DshWebError::PathResolve(format!("创建 profile 目录失败: {e}")))?;
@@ -193,7 +203,9 @@ impl DshWebManager {
         // 2. 选端口并改写 patch
         let port = find_free_port(DEFAULT_PORT, MAX_PORT_OFFSET).ok_or(DshWebError::NoFreePort)?;
         let patch_template = std::fs::read_to_string(example_dir.join("cordis.patch.yml"))
-            .map_err(|e| DshWebError::PathResolve(format!("读取 cordis.patch.yml 模板失败: {e}")))?;
+            .map_err(|e| {
+                DshWebError::PathResolve(format!("读取 cordis.patch.yml 模板失败: {e}"))
+            })?;
         std::fs::write(
             profile_dir.join("cordis.patch.yml"),
             rewrite_patch_port(&patch_template, port)?,
@@ -203,8 +215,9 @@ impl DshWebManager {
         // 3. 本地包 junction(已存在则复用,目标本就固定指向 vendor)
         let node_modules_root = dsh_home.join("profiles").join("node_modules");
         let link_base = node_modules_root.join("@deepseek-ai");
-        std::fs::create_dir_all(&link_base)
-            .map_err(|e| DshWebError::PathResolve(format!("创建 profiles/node_modules 失败: {e}")))?;
+        std::fs::create_dir_all(&link_base).map_err(|e| {
+            DshWebError::PathResolve(format!("创建 profiles/node_modules 失败: {e}"))
+        })?;
         for dir_name in LOCAL_PACKAGES {
             let link = link_base.join(format!("dsh-starhub-{dir_name}"));
             if link.exists() {
@@ -239,7 +252,12 @@ impl DshWebManager {
             .map_err(|e| DshWebError::PathResolve(format!("内置插件注册失败: {e}")))?;
         let mut patch_content = std::fs::read_to_string(profile_dir.join("cordis.patch.yml"))
             .map_err(|e| DshWebError::PathResolve(format!("读取 patch 失败: {e}")))?;
-        sync_user_client_plugins(&plugin_paths, &node_modules_root, &runtime_dir, &mut patch_content)?;
+        sync_user_client_plugins(
+            &plugin_paths,
+            &node_modules_root,
+            &runtime_dir,
+            &mut patch_content,
+        )?;
         std::fs::write(profile_dir.join("cordis.patch.yml"), patch_content)
             .map_err(|e| DshWebError::PathResolve(format!("写回 patch 失败: {e}")))?;
 
@@ -278,7 +296,11 @@ impl DshWebManager {
             runtime_dir.display()
         );
         let mut child = cmd.spawn().map_err(|e| {
-            DshWebError::Spawn(format!("{} {}: {e}", paths.node_path.display(), cli_bin.display()))
+            DshWebError::Spawn(format!(
+                "{} {}: {e}",
+                paths.node_path.display(),
+                cli_bin.display()
+            ))
         })?;
         if let Some(stdout) = child.stdout.take() {
             tokio::spawn(drain_lines("stdout", stdout));
@@ -304,7 +326,11 @@ impl DshWebManager {
             }
         }
 
-        tracing::info!("dsh web 就绪: {url}(DSH_HOME={},dist={})", dsh_home.display(), starhub_dist.display());
+        tracing::info!(
+            "dsh web 就绪: {url}(DSH_HOME={},dist={})",
+            dsh_home.display(),
+            starhub_dist.display()
+        );
         Ok(DshWebHandle { url, child })
     }
 
@@ -351,7 +377,13 @@ fn sync_user_client_plugins(
     let enabled_ids: std::collections::HashSet<String> =
         enabled.iter().map(|p| p.id.clone()).collect();
     let mut stale: Vec<PathBuf> = Vec::new();
-    collect_stale_links(node_modules_root, &plugins_root, &enabled_ids, &mut stale, 0);
+    collect_stale_links(
+        node_modules_root,
+        &plugins_root,
+        &enabled_ids,
+        &mut stale,
+        0,
+    );
     for path in stale {
         tracing::info!("移除失效的用户 UI 插件 junction: {}", path.display());
         // Windows 目录 junction 用 rmdir 语义移除;Unix 目录 symlink 必须用
@@ -453,7 +485,9 @@ fn collect_stale_links(
     if depth > 2 {
         return;
     }
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() && !path.is_symlink() && depth < 2 {
@@ -537,8 +571,8 @@ mod tests {
     /// 用户 UI 插件注入:建 junction、追加 patch entry、清理失效 junction。
     #[test]
     fn sync_user_client_plugins_injects_and_cleans() {
-        use std::fs;
         use super::plugins::{self, PluginPaths};
+        use std::fs;
         let root = std::env::temp_dir().join(format!(
             "starhub-web-sync-{}-{}",
             std::process::id(),

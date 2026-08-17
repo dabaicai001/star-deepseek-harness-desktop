@@ -16,6 +16,14 @@
 //!
 //! cancel 语义(方案 D1 / 附录 11.3):SDK 协议无 mid-turn cancel,
 //! `HarnessManager::cancel` 直接杀进程并清空单例,下一轮 initialize 时重启 runtime。
+//!
+//! 双向 request 桥(Phase 2 / 方案 5.2):dsh 侧经 sdk-transport 发回两个方法,
+//! 都在 [`HostBridgeState`] 上挂 pending 并 await 前端应答——
+//! - `starhub/approval.request`(`{sessionId, toolName, callId?, reason?}`):
+//!   emit `dsh://approval` 事件,前端确认卡经 `dsh_approval_reply` 应答,
+//!   结果 `{outcome: "allowed-once" | "rejected"}`;超时(300s)或通道关闭按拒绝。
+//! - `starhub/tool.execute`(`{sessionId, name, args}`):见 `tools` 模块,
+//!   全局工具在 Rust 内执行,域工具 emit `dsh://tool-exec` 转发前端面板。
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -44,6 +52,11 @@ pub mod web;
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
 /// 单行帧上限,超出即判定 runtime 异常,防止异常输出打爆内存。
 const MAX_FRAME_LINE_BYTES: usize = 64 * 1024 * 1024;
+
+/// 审批桥方法名(与 vendor/deepseek-harness/packages/starhub/approval/src/index.ts 对齐)。
+pub const APPROVAL_BRIDGE_METHOD: &str = "starhub/approval.request";
+/// 审批应答超时:前端确认卡 300s 未应答按拒绝处理(与插件 fail-closed 语义一致)。
+const APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// dsh runtime 仓库内相对路径(Phase 0 POC 验证过的启动命令)。
 const RUNTIME_BIN_REL: &str = "packages/examples/jsonrpc-demo/lib/bin.js";
@@ -151,8 +164,149 @@ struct IncomingFrame {
 /// 通知回调:(method, params)。生产环境接到 tauri emit,测试接到 mpsc。
 type NotificationSink = Arc<dyn Fn(String, serde_json::Value) + Send + Sync>;
 
+/// 桥事件回调:(event, payload)。生产环境 tauri emit 到所有 webview,测试接到 mpsc。
+type EventSink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+
 type ResponseSender = oneshot::Sender<Result<serde_json::Value, HarnessError>>;
 type PendingResponses = Arc<tokio::sync::Mutex<HashMap<u64, ResponseSender>>>;
+
+/// 宿主桥共享状态(Phase 2):入站双向 request 的应答 pending 表 + 会话资产绑定。
+/// 由 [`HarnessManager`] 持有,spawn 时把 Arc 克隆进 [`HarnessRuntime`]
+/// (read_loop 分发入站请求用),Tauri command 层经 `HarnessManager::bridge()`
+/// resolve 前端应答;`bindings` / `subagent_parents` 用 std Mutex 以便
+/// 同步闭包(emit_notification)直接写入。
+pub struct HostBridgeState {
+    /// pending 审批应答:requestId(uuid)→ 应答通道(true = allowed-once)。
+    pub approvals: tokio::sync::Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    /// pending 域工具执行:requestId(uuid)→ 应答通道(Ok(text) = 成功,Err = 前端报错)。
+    pub tool_execs: tokio::sync::Mutex<HashMap<String, oneshot::Sender<Result<String, String>>>>,
+    /// 会话→资产绑定:sessionId → (assetType, assetId),由 `dsh_bind_session` 写入。
+    pub bindings: std::sync::Mutex<HashMap<String, (String, String)>>,
+    /// subagent 子→父会话映射:childSessionId → parentSessionId,
+    /// 由 `subagent.started` / `subagent.finished` 通知记录。
+    pub subagent_parents: std::sync::Mutex<HashMap<String, String>>,
+    /// 前端事件发射:`dsh://approval` / `dsh://tool-exec`;生产为 webview emit,
+    /// 测试为 mpsc。initialize 时由 manager 设置。
+    emit: tokio::sync::Mutex<EventSink>,
+}
+
+impl Default for HostBridgeState {
+    /// 空桥:no-op 事件发射器(生产环境在 initialize 时经 [`Self::set_emit`] 覆盖;
+    /// 测试可直接用或注入 mpsc)。
+    fn default() -> Self {
+        Self::new(Arc::new(|_event, _payload| {}))
+    }
+}
+
+impl HostBridgeState {
+    /// 用指定事件发射器构造(测试注入 mpsc;生产用 [`Self::set_emit`])。
+    pub fn new(emit: EventSink) -> Self {
+        Self {
+            approvals: tokio::sync::Mutex::new(HashMap::new()),
+            tool_execs: tokio::sync::Mutex::new(HashMap::new()),
+            bindings: std::sync::Mutex::new(HashMap::new()),
+            subagent_parents: std::sync::Mutex::new(HashMap::new()),
+            emit: tokio::sync::Mutex::new(emit),
+        }
+    }
+
+    /// 设置事件发射器(每次 initialize spawn 前调用,覆盖默认 no-op)。
+    pub async fn set_emit(&self, emit: EventSink) {
+        *self.emit.lock().await = emit;
+    }
+
+    /// 发射一条桥事件(approval / tool-exec);发射器缺失时静默丢弃。
+    pub async fn emit(&self, event: &str, payload: serde_json::Value) {
+        let sink = self.emit.lock().await.clone();
+        sink(event, payload);
+    }
+
+    /// 记录 会话→资产 绑定;asset_id 为空视为解除绑定。
+    pub fn bind_session(&self, session_id: &str, asset_type: &str, asset_id: &str) {
+        let mut bindings = self.bindings.lock().unwrap();
+        if asset_id.trim().is_empty() {
+            bindings.remove(session_id);
+        } else {
+            bindings.insert(
+                session_id.to_string(),
+                (asset_type.to_string(), asset_id.to_string()),
+            );
+        }
+    }
+
+    /// 记录 subagent 子→父会话映射(子代理会话继承父会话的资产绑定)。
+    pub fn record_subagent_parent(&self, child_session_id: &str, parent_session_id: &str) {
+        self.subagent_parents
+            .lock()
+            .unwrap()
+            .insert(child_session_id.to_string(), parent_session_id.to_string());
+    }
+
+    /// 沿 subagent 父链向上解析会话的资产绑定(子代理继承父会话绑定);
+    /// 无绑定返回 None。环引用(异常通知)以 visited 集防御。
+    pub fn resolve_asset(&self, session_id: &str) -> Option<(String, String)> {
+        let mut current = session_id.to_string();
+        let mut visited = std::collections::HashSet::new();
+        loop {
+            if let Some(binding) = self.bindings.lock().unwrap().get(&current) {
+                return Some(binding.clone());
+            }
+            if !visited.insert(current.clone()) {
+                return None;
+            }
+            let parent = self.subagent_parents.lock().unwrap().get(&current)?.clone();
+            current = parent;
+        }
+    }
+
+    /// resolve 一条审批应答;未知 requestId(已超时/重复应答)记日志并返回 false。
+    pub async fn resolve_approval(&self, request_id: &str, approved: bool) -> bool {
+        match self.approvals.lock().await.remove(request_id) {
+            Some(response_tx) => {
+                let _ = response_tx.send(approved);
+                true
+            }
+            None => {
+                tracing::warn!("收到未知 requestId 的审批应答: {request_id}");
+                false
+            }
+        }
+    }
+
+    /// resolve 一条域工具执行应答;未知 requestId(已超时/重复应答)记日志并返回 false。
+    pub async fn resolve_tool_exec(&self, request_id: &str, ok: bool, text: String) -> bool {
+        match self.tool_execs.lock().await.remove(request_id) {
+            Some(response_tx) => {
+                let result = if ok { Ok(text) } else { Err(text) };
+                let _ = response_tx.send(result);
+                true
+            }
+            None => {
+                tracing::warn!("收到未知 requestId 的工具执行应答: {request_id}");
+                false
+            }
+        }
+    }
+
+    /// 清空全部未决桥请求:审批按拒绝、工具执行按失败,避免前端应答悬空
+    /// 或等待方长时间挂起(cancel / shutdown / 重启重建时调用)。
+    async fn drain(&self) {
+        let approvals: Vec<oneshot::Sender<bool>> = {
+            let mut map = self.approvals.lock().await;
+            map.drain().map(|(_, tx)| tx).collect()
+        };
+        for response_tx in approvals {
+            let _ = response_tx.send(false);
+        }
+        let tool_execs: Vec<oneshot::Sender<Result<String, String>>> = {
+            let mut map = self.tool_execs.lock().await;
+            map.drain().map(|(_, tx)| tx).collect()
+        };
+        for response_tx in tool_execs {
+            let _ = response_tx.send(Err("dsh runtime 已关闭,工具未执行".to_string()));
+        }
+    }
+}
 
 /// 出站帧:已预序列化;request_id 仅我们发出的请求携带(写失败时定位 pending),
 /// 入站 request 的响应帧为 None。
@@ -167,20 +321,24 @@ pub struct HarnessRuntime {
     pending: PendingResponses,
     child: Mutex<Child>,
     next_id: AtomicU64,
+    /// 宿主桥共享状态(入站 request 分发用;与 manager / command 层同一 Arc)。
+    bridge: Arc<HostBridgeState>,
 }
 
 impl HarnessRuntime {
     /// spawn 便携 node + jsonrpc-demo bin(cwd = runtime_dir),stderr 转发 tracing。
     ///
     /// `extra_env` 注入模型凭证(DEEPSEEK_API_KEY/DEEPSEEK_BASE_URL)、persona
-    /// (DSH_SYSTEM_PROMPT)、DSH_SESSION_ROOT / DSH_CWD 与测试 mock LLM 配置;
-    /// 未注入的项靠进程环境自然继承。
+    /// (DSH_SYSTEM_PROMPT)、DSH_SESSION_ROOT / DSH_CWD / DSH_SETTINGS_PATH 与
+    /// 测试 mock LLM 配置;未注入的项靠进程环境自然继承。
+    /// `bridge` 为宿主桥共享状态(审批/工具执行应答 + 会话绑定),与 manager 同 Arc。
     pub fn spawn(
         runtime_dir: PathBuf,
         node_path: PathBuf,
         config_path: PathBuf,
         extra_env: Vec<(String, String)>,
         on_notification: NotificationSink,
+        bridge: Arc<HostBridgeState>,
     ) -> Result<Arc<Self>, HarnessError> {
         let mut cmd = Command::new(&node_path);
         let bin_rel = runtime_bin_rel(&runtime_dir);
@@ -225,6 +383,7 @@ impl HarnessRuntime {
             pending.clone(),
             on_notification,
             tx.clone(),
+            bridge.clone(),
         ));
         tokio::spawn(Self::stderr_drain(stderr));
 
@@ -238,6 +397,7 @@ impl HarnessRuntime {
             pending,
             child: Mutex::new(child),
             next_id: AtomicU64::new(1),
+            bridge,
         }))
     }
 
@@ -273,6 +433,7 @@ impl HarnessRuntime {
         pending: PendingResponses,
         on_notification: NotificationSink,
         tx: mpsc::Sender<OutboundFrame>,
+        bridge: Arc<HostBridgeState>,
     ) {
         let mut reader = BufReader::new(stdout);
         let mut line: Vec<u8> = Vec::new();
@@ -298,7 +459,8 @@ impl HarnessRuntime {
                     let consumed = pos + 1;
                     match serde_json::from_slice::<IncomingFrame>(&line) {
                         Ok(frame) => {
-                            Self::dispatch_frame(frame, &pending, &on_notification, &tx).await
+                            Self::dispatch_frame(frame, &pending, &on_notification, &tx, &bridge)
+                                .await
                         }
                         Err(error) => {
                             tracing::warn!("dsh runtime 帧解析失败: {error}");
@@ -326,15 +488,17 @@ impl HarnessRuntime {
         pending: &PendingResponses,
         on_notification: &NotificationSink,
         tx: &mpsc::Sender<OutboundFrame>,
+        bridge: &Arc<HostBridgeState>,
     ) {
-        // 入站 request(method+id 同现,P1-4 工具执行回调桥):spawn 执行并回写响应帧,
-        // 不阻塞 read_loop(工具可能查库,id 原样回写——dsh 侧是字符串)
+        // 入站 request(method+id 同现,审批桥 / 工具执行回调):spawn 执行并回写响应帧,
+        // 不阻塞 read_loop(工具可能查库/等前端,id 原样回写——dsh 侧是字符串)
         if let (Some(id), Some(method)) = (frame.id.clone(), frame.method.clone()) {
             if frame.result.is_none() && frame.error.is_none() {
                 let tx = tx.clone();
                 let params = frame.params.unwrap_or(serde_json::Value::Null);
+                let bridge = bridge.clone();
                 tokio::spawn(async move {
-                    let payload = match tools::execute_bridge_request(&method, params).await {
+                    let payload = match handle_inbound_request(&method, params, bridge).await {
                         Ok(result) => {
                             serde_json::json!({"jsonrpc": "2.0", "id": id, "result": result})
                         }
@@ -488,6 +652,82 @@ impl HarnessRuntime {
     }
 }
 
+/// 入站双向 request 分发:审批桥(`starhub/approval.request`)与工具执行桥
+/// (`starhub/tool.execute`,见 tools 模块);其余方法报 JSON-RPC 错误。
+async fn handle_inbound_request(
+    method: &str,
+    params: serde_json::Value,
+    bridge: Arc<HostBridgeState>,
+) -> Result<serde_json::Value, String> {
+    match method {
+        APPROVAL_BRIDGE_METHOD => handle_approval_request(params, bridge).await,
+        tools::BRIDGE_METHOD => tools::execute_bridge_request(method, params, bridge).await,
+        other => Err(format!("unknown StarHub bridge method: {other}")),
+    }
+}
+
+/// `starhub/approval.request`:生成 requestId(uuid),emit `dsh://approval`
+/// `{requestId, sessionId, toolName, callId?, reason?}` 到所有 webview,把 pending
+/// 存入 map 后 await 前端应答;`dsh_approval_reply` 应答后返回
+/// `{outcome: "allowed-once" | "rejected"}`;超时(300s)或应答通道关闭一律按拒绝。
+async fn handle_approval_request(
+    params: serde_json::Value,
+    bridge: Arc<HostBridgeState>,
+) -> Result<serde_json::Value, String> {
+    handle_approval_request_with_timeout(params, bridge, APPROVAL_TIMEOUT).await
+}
+
+/// 带超时的审批桥实现(测试注入短超时;生产走 [`handle_approval_request`])。
+async fn handle_approval_request_with_timeout(
+    params: serde_json::Value,
+    bridge: Arc<HostBridgeState>,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let session_id = params
+        .get("sessionId")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "starhub/approval.request 缺少 sessionId".to_string())?;
+    let tool_name = params
+        .get("toolName")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "starhub/approval.request 缺少 toolName".to_string())?;
+
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let mut payload = serde_json::json!({
+        "requestId": request_id,
+        "sessionId": session_id,
+        "toolName": tool_name,
+    });
+    if let Some(call_id) = params.get("callId").and_then(serde_json::Value::as_str) {
+        payload["callId"] = serde_json::Value::String(call_id.to_string());
+    }
+    if let Some(reason) = params.get("reason").and_then(serde_json::Value::as_str) {
+        payload["reason"] = serde_json::Value::String(reason.to_string());
+    }
+    bridge.emit("dsh://approval", payload).await;
+
+    let (response_tx, response_rx) = oneshot::channel();
+    bridge
+        .approvals
+        .lock()
+        .await
+        .insert(request_id.clone(), response_tx);
+    let approved = match tokio::time::timeout(timeout, response_rx).await {
+        Ok(Ok(approved)) => approved,
+        Ok(Err(_)) => {
+            tracing::warn!("审批应答通道已关闭,按拒绝处理: {tool_name}");
+            false
+        }
+        Err(_) => {
+            bridge.approvals.lock().await.remove(&request_id);
+            tracing::warn!("审批超时({}s),按拒绝处理: {tool_name}", timeout.as_secs());
+            false
+        }
+    };
+    let outcome = if approved { "allowed-once" } else { "rejected" };
+    Ok(serde_json::json!({ "outcome": outcome }))
+}
+
 /// dsh runtime 路径配置(env 覆盖优先,见模块注释)。
 pub struct HarnessPaths {
     pub node_path: PathBuf,
@@ -590,9 +830,12 @@ pub struct HarnessManager {
     runtime: tokio::sync::Mutex<Option<Arc<HarnessRuntime>>>,
     /// 串行化 initialize,消除并发 spawn 的 TOCTOU
     start_lock: tokio::sync::Mutex<()>,
-    /// 上次 spawn 的环境指纹(api_key/base_url/persona/session_root/cwd);
+    /// 上次 spawn 的环境指纹(api_key/base_url/persona/session_root/cwd/settings);
     /// 这些只能经 env 在进程启动时注入,变化即重启 runtime。
     spawn_fingerprint: tokio::sync::Mutex<Option<String>>,
+    /// 宿主桥共享状态(审批/工具执行应答 + 会话资产绑定 + subagent 父链);
+    /// command 层(dsh_approval_reply 等)经 [`Self::bridge`] 访问。
+    bridge: Arc<HostBridgeState>,
 }
 
 impl HarnessManager {
@@ -601,12 +844,19 @@ impl HarnessManager {
             runtime: tokio::sync::Mutex::new(None),
             start_lock: tokio::sync::Mutex::new(()),
             spawn_fingerprint: tokio::sync::Mutex::new(None),
+            bridge: Arc::new(HostBridgeState::default()),
         }
+    }
+
+    /// 宿主桥共享状态(审批/工具执行应答、会话绑定);Tauri command 层用它 resolve。
+    pub fn bridge(&self) -> Arc<HostBridgeState> {
+        self.bridge.clone()
     }
 
     /// 组装 dsh 子进程 env:模型凭证(DEEPSEEK_API_KEY/DEEPSEEK_BASE_URL)、
     /// persona(DSH_SYSTEM_PROMPT)、会话持久化根(DSH_SESSION_ROOT,默认应用数据目录,
-    /// 缺省会落到 runtime 目录 ./.sessions 污染 vendor)与工作目录(DSH_CWD)。
+    /// 缺省会落到 runtime 目录 ./.sessions 污染 vendor)、工作目录(DSH_CWD)与
+    /// 共享设置文件(DSH_SETTINGS_PATH = <dsh-web-home>/settings.yaml,与 web GUI 同一份)。
     fn build_spawn_env(
         app: &tauri::AppHandle,
         cwd: &Option<String>,
@@ -643,6 +893,15 @@ impl HarnessManager {
         env.push((
             "DSH_SESSION_ROOT".into(),
             session_root.to_string_lossy().into_owned(),
+        ));
+        // 与 dsh web GUI 共享同一份 settings.yaml(权限 preset):
+        // 路径解析复用 harness::web::dsh_home_dir(STARHUB_DSH_WEB_HOME 覆盖同源)。
+        let settings_path = crate::harness::web::dsh_home_dir(app)
+            .map_err(|e| HarnessError::PathResolve(format!("DSH_HOME 解析失败: {e}")))?
+            .join("settings.yaml");
+        env.push((
+            "DSH_SETTINGS_PATH".into(),
+            settings_path.to_string_lossy().into_owned(),
         ));
         Ok(env)
     }
@@ -683,15 +942,27 @@ impl HarnessManager {
                     .map_err(|e| HarnessError::PathResolve(e.to_string()))?
             };
             let app_handle = app.clone();
+            let bridge = self.bridge.clone();
             let on_notification: NotificationSink = Arc::new(move |method, params| {
-                emit_notification(&app_handle, &method, params);
+                emit_notification(&app_handle, &bridge, &method, params);
             });
+            // 桥事件发射器指向 webview(approval 确认卡 / 域工具执行面板)
+            let emit_app = app.clone();
+            self.bridge
+                .set_emit(Arc::new(move |event, payload| {
+                    use tauri::Emitter;
+                    if let Err(error) = emit_app.emit(event, payload) {
+                        tracing::warn!("dsh 事件 {event} 发送失败: {error}");
+                    }
+                }))
+                .await;
             let runtime = HarnessRuntime::spawn(
                 paths.runtime_dir,
                 paths.node_path,
                 config_path,
                 env,
                 on_notification,
+                self.bridge.clone(),
             )?;
             *self.runtime.lock().await = Some(runtime);
             *self.spawn_fingerprint.lock().await = Some(fingerprint);
@@ -744,6 +1015,8 @@ impl HarnessManager {
     pub async fn cancel(&self) {
         let runtime = self.runtime.lock().await.take();
         *self.spawn_fingerprint.lock().await = None;
+        // 未决桥请求一并清空:审批按拒绝、工具执行按失败,避免前端应答悬空
+        self.bridge.drain().await;
         if let Some(runtime) = runtime {
             runtime.abort().await;
         }
@@ -753,6 +1026,7 @@ impl HarnessManager {
     pub async fn shutdown(&self) -> Result<(), HarnessError> {
         let runtime = self.runtime.lock().await.take();
         *self.spawn_fingerprint.lock().await = None;
+        self.bridge.drain().await;
         match runtime {
             Some(runtime) => runtime.shutdown().await,
             None => Ok(()),
@@ -761,13 +1035,31 @@ impl HarnessManager {
 }
 
 /// 通知事件转发到前端:`session.event` → `dsh://session-event`,
-/// `session.status` → `dsh://session-status`,subagent 生命周期 → `dsh://subagent`,其余仅记日志。
-fn emit_notification(app: &tauri::AppHandle, method: &str, params: serde_json::Value) {
+/// `session.status` → `dsh://session-status`,subagent 生命周期 → `dsh://subagent`
+/// (顺带记录 childSessionId → parentSessionId 映射,tools.rs 资产绑定沿父链继承),
+/// 其余仅记日志。
+fn emit_notification(
+    app: &tauri::AppHandle,
+    bridge: &Arc<HostBridgeState>,
+    method: &str,
+    params: serde_json::Value,
+) {
     use tauri::Emitter;
     let event = match method {
         "session.event" => "dsh://session-event",
         "session.status" => "dsh://session-status",
         "subagent.started" | "subagent.finished" => {
+            // 记录子→父映射:子代理会话继承父会话的资产绑定(dsh_bind_session)
+            if let (Some(child), Some(parent)) = (
+                params
+                    .get("childSessionId")
+                    .and_then(serde_json::Value::as_str),
+                params
+                    .get("parentSessionId")
+                    .and_then(serde_json::Value::as_str),
+            ) {
+                bridge.record_subagent_parent(child, parent);
+            }
             // 注入 kind 区分 started/finished,前端按 parentSessionId 路由
             let payload = match params {
                 serde_json::Value::Object(mut map) => {
@@ -928,6 +1220,7 @@ mod tests {
                 ("DSH_CWD".into(), workdir.to_string_lossy().into_owned()),
             ],
             sink,
+            Arc::new(HostBridgeState::default()),
         )
         .expect("spawn dsh runtime");
 
@@ -1051,6 +1344,7 @@ mod tests {
                 ("DSH_CWD".into(), workdir.to_string_lossy().into_owned()),
             ],
             sink,
+            Arc::new(HostBridgeState::default()),
         )
         .expect("spawn dsh runtime");
 
@@ -1174,6 +1468,7 @@ mod tests {
                 ),
             ],
             sink,
+            Arc::new(HostBridgeState::default()),
         )
         .expect("spawn dsh runtime(包装配置)");
 
@@ -1194,5 +1489,189 @@ mod tests {
         );
         eprintln!("wrapper config boot ok: {server_info}");
         runtime.shutdown().await.expect("shutdown");
+    }
+
+    // ---------- 审批桥(starhub/approval.request) ----------
+
+    /// 审批桥端到端:模拟 dsh 侧 server→client request → emit `dsh://approval`
+    /// 事件 → 前端经 resolve_approval 应答 → 桥返回 allowed-once / rejected。
+    #[tokio::test]
+    async fn approval_bridge_emits_event_and_resolves_outcome() {
+        let (emit_tx, mut emit_rx) = mpsc::channel::<(String, serde_json::Value)>(10);
+        let bridge = Arc::new(HostBridgeState::new(Arc::new(move |event, payload| {
+            let _ = emit_tx.try_send((event.to_string(), payload));
+        })));
+
+        // 允许路径:带 callId / reason
+        let handle = tokio::spawn({
+            let bridge = bridge.clone();
+            async move {
+                handle_approval_request(
+                    serde_json::json!({
+                        "sessionId": "sess-1",
+                        "toolName": "db_query",
+                        "callId": "call-1",
+                        "reason": "写 SQL,需要确认",
+                    }),
+                    bridge,
+                )
+                .await
+            }
+        });
+        let (event, payload) = emit_rx.recv().await.expect("应收到 dsh://approval 事件");
+        assert_eq!(event, "dsh://approval");
+        let request_id = payload["requestId"]
+            .as_str()
+            .expect("requestId")
+            .to_string();
+        assert_eq!(payload["sessionId"], "sess-1");
+        assert_eq!(payload["toolName"], "db_query");
+        assert_eq!(payload["callId"], "call-1");
+        assert_eq!(payload["reason"], "写 SQL,需要确认");
+        // 应答前应处于 pending
+        assert!(bridge.approvals.lock().await.contains_key(&request_id));
+
+        bridge.resolve_approval(&request_id, true).await;
+        let result = handle
+            .await
+            .expect("审批处理完成")
+            .expect("应答后应返回结果");
+        assert_eq!(result, serde_json::json!({ "outcome": "allowed-once" }));
+        assert!(!bridge.approvals.lock().await.contains_key(&request_id));
+
+        // 拒绝路径:无 callId/reason(事件 payload 应省略这两键)
+        let handle = tokio::spawn({
+            let bridge = bridge.clone();
+            async move {
+                handle_approval_request(
+                    serde_json::json!({ "sessionId": "sess-1", "toolName": "ssh_exec" }),
+                    bridge,
+                )
+                .await
+            }
+        });
+        let (_event, payload) = emit_rx.recv().await.expect("第二个审批事件");
+        assert!(
+            payload.get("callId").is_none(),
+            "缺 callId 不应出现在 payload"
+        );
+        assert!(
+            payload.get("reason").is_none(),
+            "缺 reason 不应出现在 payload"
+        );
+        let request_id = payload["requestId"]
+            .as_str()
+            .expect("requestId")
+            .to_string();
+        bridge.resolve_approval(&request_id, false).await;
+        let result = handle
+            .await
+            .expect("审批处理完成")
+            .expect("应答后应返回结果");
+        assert_eq!(result, serde_json::json!({ "outcome": "rejected" }));
+    }
+
+    /// 审批超时:300s 生产常量不可等,走带超时的内部实现验证超时按拒绝处理。
+    #[tokio::test]
+    async fn approval_timeout_rejects() {
+        let bridge = Arc::new(HostBridgeState::default());
+        let result = handle_approval_request_with_timeout(
+            serde_json::json!({ "sessionId": "sess-1", "toolName": "db_query" }),
+            bridge.clone(),
+            Duration::from_millis(50),
+        )
+        .await
+        .expect("超时应返回结果而非错误");
+        assert_eq!(result, serde_json::json!({ "outcome": "rejected" }));
+        assert!(
+            bridge.approvals.lock().await.is_empty(),
+            "超时后 pending 应被清理"
+        );
+    }
+
+    /// 审批请求缺参:桥应报硬错误(插件侧 catch 后 fail closed)。
+    #[tokio::test]
+    async fn approval_request_requires_params() {
+        let bridge = Arc::new(HostBridgeState::default());
+        let err = handle_approval_request(serde_json::json!({}), bridge)
+            .await
+            .expect_err("缺 sessionId 应报错");
+        assert!(err.contains("sessionId"), "{err}");
+    }
+
+    /// 未知 requestId 的应答:幂等成功(已超时/重复应答不报错)。
+    #[tokio::test]
+    async fn approval_reply_unknown_request_id_is_noop() {
+        let bridge = HostBridgeState::default();
+        assert!(!bridge.resolve_approval("missing", true).await);
+    }
+
+    /// cancel/shutdown 路径:未决审批 drain 后按拒绝处理,等待方立即返回。
+    #[tokio::test]
+    async fn drain_rejects_pending_approval() {
+        let (emit_tx, mut emit_rx) = mpsc::channel::<(String, serde_json::Value)>(10);
+        let bridge = Arc::new(HostBridgeState::new(Arc::new(move |event, payload| {
+            let _ = emit_tx.try_send((event.to_string(), payload));
+        })));
+        let handle = tokio::spawn({
+            let bridge = bridge.clone();
+            async move {
+                handle_approval_request(
+                    serde_json::json!({ "sessionId": "sess-1", "toolName": "db_query" }),
+                    bridge,
+                )
+                .await
+            }
+        });
+        let (_event, payload) = emit_rx.recv().await.expect("审批事件");
+        let request_id = payload["requestId"].as_str().expect("requestId");
+        assert!(bridge.approvals.lock().await.contains_key(request_id));
+        bridge.drain().await;
+        let result = handle
+            .await
+            .expect("审批处理完成")
+            .expect("drain 后应返回 rejected 结果");
+        assert_eq!(result, serde_json::json!({ "outcome": "rejected" }));
+        assert!(!bridge.approvals.lock().await.contains_key(request_id));
+    }
+
+    // ---------- 会话绑定与 subagent 父链 ----------
+
+    /// 资产绑定解析:直绑 + 沿 subagent 父链向上继承,未绑定返回 None。
+    #[test]
+    fn subagent_parent_chain_resolves_binding() {
+        let bridge = HostBridgeState::default();
+        assert_eq!(bridge.resolve_asset("unknown"), None, "未绑定返回 None");
+
+        bridge.bind_session("root", "db", "a1");
+        bridge.record_subagent_parent("child-1", "root");
+        bridge.record_subagent_parent("child-2", "child-1");
+        assert_eq!(
+            bridge.resolve_asset("root"),
+            Some(("db".into(), "a1".into()))
+        );
+        assert_eq!(
+            bridge.resolve_asset("child-1"),
+            Some(("db".into(), "a1".into()))
+        );
+        assert_eq!(
+            bridge.resolve_asset("child-2"),
+            Some(("db".into(), "a1".into()))
+        );
+
+        // 子会话可覆盖父会话绑定
+        bridge.bind_session("child-1", "ssh", "a2");
+        assert_eq!(
+            bridge.resolve_asset("child-2"),
+            Some(("ssh".into(), "a2".into()))
+        );
+
+        // 空 asset_id 解除绑定
+        bridge.bind_session("root", "db", "");
+        assert_eq!(bridge.resolve_asset("root"), None);
+        assert_eq!(
+            bridge.resolve_asset("child-1"),
+            Some(("ssh".into(), "a2".into()))
+        );
     }
 }
