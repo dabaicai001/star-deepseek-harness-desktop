@@ -8,6 +8,7 @@ mod db;
 mod harness;
 mod keyring;
 mod mcp;
+mod registry;
 mod sftp;
 mod sidecar;
 mod ssh;
@@ -110,6 +111,8 @@ fn main() {
         .manage(sidecar_manager)
         .manage(harness::HarnessManager::new())
         .manage(harness::web::DshWebManager::new())
+        // 联动 M1:会话附着注册表(ssh_attach/ssh_detach + live.snapshot 快照源)
+        .manage(registry::SessionRegistry::new())
         // 主窗口销毁 = 应用退出:主动回收 dsh web 子进程(kill_on_drop 之外的确定性路径)
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) && window.label() == "main" {
@@ -385,6 +388,12 @@ fn main() {
             commands::harness::dsh_approval_reply,
             commands::harness::dsh_tool_exec_reply,
             commands::harness::dsh_bind_session,
+            // 联动:用户起源事件上报 + 面板「问 AI」入口(契约 §4)
+            commands::harness::dsh_report_domain_event,
+            commands::harness::starhub_ask_ai,
+            // 联动 M1:session 附着 / 解除附着(契约 §4)
+            commands::ssh::ssh_attach,
+            commands::ssh::ssh_detach,
             // dsh web GUI 管理器(主壳融合 P1)
             commands::harness::dsh_web_url,
             // dsh 用户插件(支线 B):市场 / URL / 本地三入口 + 逐项启停

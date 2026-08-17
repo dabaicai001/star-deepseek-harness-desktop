@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -39,6 +39,9 @@ use tokio::sync::{mpsc, oneshot};
 
 /// P1-4:StarHub 宿主工具执行端(dsh starhub-tools 插件的桥请求在此分发)。
 pub mod tools;
+
+/// StarHub × dsh 联动:领域事件 schema(契约 §1,四方共用)。
+pub mod events;
 
 /// 支线 B:dsh 用户插件管理(插件目录、registry、entries yml 生成、
 /// peer junction、市场目录、zip 安装、spawn 前包装配置生成)。
@@ -57,6 +60,28 @@ const MAX_FRAME_LINE_BYTES: usize = 64 * 1024 * 1024;
 pub const APPROVAL_BRIDGE_METHOD: &str = "starhub/approval.request";
 /// 审批应答超时:前端确认卡 300s 未应答按拒绝处理(与插件 fail-closed 语义一致)。
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
+
+// ── 联动(docs/联动实施-桥接契约-2026-08-17.md)方法/事件名 ──
+// §2.1 Rust → dsh notification(单向无响应,经 JsonRpcLineTransport.notify 出站,
+// dsh 侧 sdk-notifications 按方法名分发给订阅插件;无活跃 runtime 静默跳过)。
+/// 注册表全量快照(注册表每次变更:attach/detach/断线剔除)。
+pub const REGISTRY_SYNC_METHOD: &str = "starhub/registry.sync";
+/// 领域事件(事件产生即报,payload 为 events::DomainEvent)。
+pub const DOMAIN_EVENT_METHOD: &str = "starhub/domain.event";
+// §2.2 dsh → Rust request(在 handle_inbound_request 注册)。
+/// 活性快照:`{}` → `{ sessions, transfers, recentExecs }`。
+pub const LIVE_SNAPSHOT_METHOD: &str = "starhub/live.snapshot";
+/// 打开资产页面(tool 缺省 "auto")。
+pub const OPEN_ASSET_METHOD: &str = "starhub/open.asset";
+/// 聚焦工具页(tool 必填)。
+pub const FOCUS_TOOL_METHOD: &str = "starhub/focus.tool";
+// §3 Tauri 事件(Rust → 前端)。
+/// 领域事件广播(全部窗口)。
+pub const DOMAIN_EVENT_EVENT: &str = "starhub://domain-event";
+/// 开窗/聚焦指令(主壳 emit_to("main"),client-nav 消费)。
+pub const OPEN_ASSET_EVENT: &str = "starhub://open-asset";
+/// 「问 AI」入口(主壳 emit_to("main"),client-nav prefill composer)。
+pub const ASK_AI_EVENT: &str = "starhub://ask-ai";
 
 /// dsh runtime 仓库内相对路径(Phase 0 POC 验证过的启动命令)。
 const RUNTIME_BIN_REL: &str = "packages/examples/jsonrpc-demo/lib/bin.js";
@@ -185,9 +210,19 @@ pub struct HostBridgeState {
     /// subagent 子→父会话映射:childSessionId → parentSessionId,
     /// 由 `subagent.started` / `subagent.finished` 通知记录。
     pub subagent_parents: std::sync::Mutex<HashMap<String, String>>,
-    /// 前端事件发射:`dsh://approval` / `dsh://tool-exec`;生产为 webview emit,
-    /// 测试为 mpsc。initialize 时由 manager 设置。
+    /// 前端事件发射:`dsh://approval` / `dsh://tool-exec` / `starhub://domain-event`;
+    /// 生产为 webview emit,测试为 mpsc。initialize 时由 manager 设置。
     emit: tokio::sync::Mutex<EventSink>,
+    /// 当前 runtime 的弱引用(联动:Rust → dsh notification 出站)。
+    /// spawn 后由 manager 写入;runtime 回收后 upgrade 失败 = 无活跃 runtime,
+    /// notify 静默跳过(契约 §8)。Weak 避免与 HarnessRuntime.bridge 形成 Arc 环。
+    dsh_runtime: std::sync::Mutex<Weak<HarnessRuntime>>,
+    /// AppHandle(open.asset emit_to("main") / live.snapshot 取 SshManager 等 state 用);
+    /// initialize 时写入,测试环境为空(相关 handler 返回降级结果)。
+    app: std::sync::Mutex<Option<tauri::AppHandle>>,
+    /// AI 工具执行缓存:assetId → 最近一次执行的摘要 + 输出尾部(≤2KB),
+    /// 契约 §2.2 live.snapshot 的 recentExecs;内存环形,每资产只留 1 条。
+    recent_execs: std::sync::Mutex<HashMap<String, events::RecentExec>>,
 }
 
 impl Default for HostBridgeState {
@@ -207,6 +242,9 @@ impl HostBridgeState {
             bindings: std::sync::Mutex::new(HashMap::new()),
             subagent_parents: std::sync::Mutex::new(HashMap::new()),
             emit: tokio::sync::Mutex::new(emit),
+            dsh_runtime: std::sync::Mutex::new(Weak::new()),
+            app: std::sync::Mutex::new(None),
+            recent_execs: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -215,10 +253,49 @@ impl HostBridgeState {
         *self.emit.lock().await = emit;
     }
 
-    /// 发射一条桥事件(approval / tool-exec);发射器缺失时静默丢弃。
+    /// 发射一条桥事件(approval / tool-exec / domain-event);发射器缺失时静默丢弃。
     pub async fn emit(&self, event: &str, payload: serde_json::Value) {
         let sink = self.emit.lock().await.clone();
         sink(event, payload);
+    }
+
+    /// 写入当前 runtime 的弱引用(每次 spawn 后由 manager 调用)。
+    pub fn set_runtime(&self, runtime: &Arc<HarnessRuntime>) {
+        *self.dsh_runtime.lock().unwrap() = Arc::downgrade(runtime);
+    }
+
+    /// Rust → dsh notification(契约 §2.1,单向无响应);
+    /// 无活跃 runtime(runtime 未启动/已回收/写入失败)时静默跳过,不报错。
+    pub async fn notify_dsh(&self, method: &str, params: serde_json::Value) {
+        let runtime = self.dsh_runtime.lock().unwrap().upgrade();
+        if let Some(runtime) = runtime {
+            if let Err(error) = runtime.notify(method, params).await {
+                tracing::warn!("dsh 通知 {method} 发送失败: {error}");
+            }
+        }
+    }
+
+    /// 写入 AppHandle(initialize 时调用;open.asset / live.snapshot 取 state 用)。
+    pub fn set_app(&self, app: tauri::AppHandle) {
+        *self.app.lock().unwrap() = Some(app);
+    }
+
+    /// 当前 AppHandle(测试环境为 None,相关 handler 走降级路径)。
+    pub fn app(&self) -> Option<tauri::AppHandle> {
+        self.app.lock().unwrap().clone()
+    }
+
+    /// 记录一个资产最近一次 AI 工具执行(每资产只留 1 条,覆盖式)。
+    pub fn record_recent_exec(&self, exec: events::RecentExec) {
+        self.recent_execs
+            .lock()
+            .unwrap()
+            .insert(exec.asset_id.clone(), exec);
+    }
+
+    /// recentExecs 缓存快照(live.snapshot 用)。
+    pub fn recent_execs(&self) -> Vec<events::RecentExec> {
+        self.recent_execs.lock().unwrap().values().cloned().collect()
     }
 
     /// 记录 会话→资产 绑定;asset_id 为空视为解除绑定。
@@ -502,7 +579,12 @@ impl HarnessRuntime {
                         Ok(result) => {
                             serde_json::json!({"jsonrpc": "2.0", "id": id, "result": result})
                         }
-                        Err(message) => serde_json::json!({
+                        Err(InboundError::MethodNotFound(message)) => serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32601, "message": message },
+                        }),
+                        Err(InboundError::Failed(message)) => serde_json::json!({
                             "jsonrpc": "2.0",
                             "id": id,
                             "error": { "code": -32603, "message": message },
@@ -588,6 +670,25 @@ impl HarnessRuntime {
             .await
     }
 
+    /// 发送 notification(单向、无 id、无响应;契约 §2.1:
+    /// `starhub/registry.sync` / `starhub/domain.event` 经此出站,
+    /// dsh 侧 sdk-notifications 按方法名分发给订阅插件)。
+    pub async fn notify(&self, method: &str, params: serde_json::Value) -> Result<(), HarnessError> {
+        let payload = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        })
+        .to_string();
+        self.tx
+            .send(OutboundFrame {
+                request_id: None,
+                payload,
+            })
+            .await
+            .map_err(|_| HarnessError::Disconnected("dsh runtime 未运行".into()))
+    }
+
     async fn call_with_timeout(
         &self,
         method: &str,
@@ -652,18 +753,149 @@ impl HarnessRuntime {
     }
 }
 
-/// 入站双向 request 分发:审批桥(`starhub/approval.request`)与工具执行桥
-/// (`starhub/tool.execute`,见 tools 模块);其余方法报 JSON-RPC 错误。
+/// 入站 request 错误:未知方法走 JSON-RPC method-not-found(-32601),
+/// 执行失败走 internal error(-32603)。
+#[derive(Debug, Error)]
+pub enum InboundError {
+    #[error("unknown StarHub bridge method: {0}")]
+    MethodNotFound(String),
+    #[error("{0}")]
+    Failed(String),
+}
+
+impl From<String> for InboundError {
+    fn from(message: String) -> Self {
+        Self::Failed(message)
+    }
+}
+
+/// 入站双向 request 分发:审批桥(`starhub/approval.request`)、工具执行桥
+/// (`starhub/tool.execute`,见 tools 模块)与联动三个新方法
+/// (`starhub/live.snapshot` / `starhub/open.asset` / `starhub/focus.tool`,
+/// 契约 §2.2);其余方法报 JSON-RPC method-not-found(-32601)。
 async fn handle_inbound_request(
     method: &str,
     params: serde_json::Value,
     bridge: Arc<HostBridgeState>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, InboundError> {
     match method {
-        APPROVAL_BRIDGE_METHOD => handle_approval_request(params, bridge).await,
-        tools::BRIDGE_METHOD => tools::execute_bridge_request(method, params, bridge).await,
-        other => Err(format!("unknown StarHub bridge method: {other}")),
+        APPROVAL_BRIDGE_METHOD => handle_approval_request(params, bridge)
+            .await
+            .map_err(InboundError::Failed),
+        tools::BRIDGE_METHOD => tools::execute_bridge_request(method, params, bridge)
+            .await
+            .map_err(InboundError::Failed),
+        LIVE_SNAPSHOT_METHOD => handle_live_snapshot(bridge).await,
+        OPEN_ASSET_METHOD => handle_open_asset(params, bridge, false),
+        FOCUS_TOOL_METHOD => handle_open_asset(params, bridge, true),
+        other => Err(InboundError::MethodNotFound(format!(
+            "unknown StarHub bridge method: {other}"
+        ))),
     }
+}
+
+/// `starhub/live.snapshot`(契约 §2.2):注册表快照 + 传输任务 + recentExecs。
+/// sessions 来源是 SessionRegistry(附着语义层)按 SshManager 存活表剔除断线条目;
+/// transfers 来自 TransferManager 全量任务(assetId 经注册表按 sessionId 反查,
+/// 查不到即省略);recentExecs 来自桥上的每资产最近一条 AI 执行缓存。
+/// 快照时若剔除断线条目(注册表变更),顺带补发一次 registry.sync。
+async fn handle_live_snapshot(
+    bridge: Arc<HostBridgeState>,
+) -> Result<serde_json::Value, InboundError> {
+    let mut sessions = Vec::new();
+    let mut transfers = Vec::new();
+    if let Some(app) = bridge.app() {
+        use tauri::Manager;
+        let registry = app.state::<crate::registry::SessionRegistry>();
+        let live_ids: std::collections::HashSet<String> = {
+            // guard 绑定为局部变量,在块尾先于 state 绑定释放(避免 E0597)
+            let ssh = app.state::<crate::commands::ssh::SshManager>();
+            let guard = ssh.sessions.lock().await;
+            guard.keys().cloned().collect()
+        };
+        let (snapshot, pruned) = registry.snapshot(&live_ids);
+        sessions = snapshot;
+        if pruned {
+            // 剔除断线条目属于注册表变更:向 dsh 补发全量快照(无 runtime 静默跳过)
+            let params = serde_json::json!({ "sessions": sessions });
+            bridge.notify_dsh(REGISTRY_SYNC_METHOD, params).await;
+        }
+        let transfer_manager = app.state::<crate::sftp::transfer::TransferManager>();
+        for task in transfer_manager.list_all_tasks().await {
+            let mut item = serde_json::json!({
+                "id": task.id,
+                "direction": task.direction,
+                "bytes": task.transferred_bytes,
+                "totalBytes": task.total_bytes,
+                "state": task.status,
+            });
+            if let Some(asset_id) = registry.asset_for_session(&task.session_id) {
+                item["assetId"] = serde_json::Value::String(asset_id);
+            }
+            transfers.push(item);
+        }
+    }
+    let recent_execs = bridge.recent_execs();
+    Ok(serde_json::json!({
+        "sessions": sessions,
+        "transfers": transfers,
+        "recentExecs": recent_execs,
+    }))
+}
+
+/// `starhub/open.asset` / `starhub/focus.tool`(契约 §2.2/M5):
+/// emit `starhub://open-asset` 到主壳(emit_to("main")),由 client-nav 真正
+/// 开窗/聚焦;fire-and-forget,立即返回 `{ ok: true, action }`。
+/// action 由注册表的开窗记录预判(已有该资产窗口 = focused,否则 opened);
+/// `require_tool` 区分 focus.tool(tool 必填)与 open.asset(tool 缺省 "auto")。
+fn handle_open_asset(
+    params: serde_json::Value,
+    bridge: Arc<HostBridgeState>,
+    require_tool: bool,
+) -> Result<serde_json::Value, InboundError> {
+    let method = if require_tool {
+        FOCUS_TOOL_METHOD
+    } else {
+        OPEN_ASSET_METHOD
+    };
+    let asset_id = params
+        .get("assetId")
+        .and_then(serde_json::Value::as_str)
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| InboundError::Failed(format!("{method} 缺少 assetId")))?;
+    let tool = match params
+        .get("tool")
+        .and_then(serde_json::Value::as_str)
+        .filter(|v| !v.trim().is_empty())
+    {
+        Some(tool) => tool.to_string(),
+        None if require_tool => {
+            return Err(InboundError::Failed(format!("{method} 缺少 tool")));
+        }
+        None => "auto".to_string(),
+    };
+
+    let Some(app) = bridge.app() else {
+        // 测试/未初始化环境:无窗口可开,按 opened 立即返回(契约 fire-and-forget)
+        return Ok(serde_json::json!({ "ok": true, "action": "opened" }));
+    };
+    use tauri::{Emitter, Manager};
+    let registry = app.state::<crate::registry::SessionRegistry>();
+    let action = registry.open_or_focus(asset_id, &tool);
+    if let Err(error) = app.emit_to(
+        "main",
+        OPEN_ASSET_EVENT,
+        serde_json::json!({
+            "assetId": asset_id,
+            "tool": tool,
+            "action": action,
+        }),
+    ) {
+        // Tauri emit 失败记日志不 panic(契约 §8)
+        tracing::warn!("事件 {OPEN_ASSET_EVENT} 发送失败: {error}");
+    }
+    let result_action = if action == "open" { "opened" } else { "focused" };
+    Ok(serde_json::json!({ "ok": true, "action": result_action }))
 }
 
 /// `starhub/approval.request`:生成 requestId(uuid),emit `dsh://approval`
@@ -964,6 +1196,9 @@ impl HarnessManager {
                 on_notification,
                 self.bridge.clone(),
             )?;
+            // 联动:桥上挂 runtime 弱引用(出站 notify)与 AppHandle(open.asset / live.snapshot)
+            self.bridge.set_runtime(&runtime);
+            self.bridge.set_app(app.clone());
             *self.runtime.lock().await = Some(runtime);
             *self.spawn_fingerprint.lock().await = Some(fingerprint);
             restarted = true;
@@ -1030,6 +1265,17 @@ impl HarnessManager {
         match runtime {
             Some(runtime) => runtime.shutdown().await,
             None => Ok(()),
+        }
+    }
+
+    /// Rust → dsh notification(command 层入口,契约 §2.1);
+    /// 无活跃 runtime 或写入失败时静默跳过(记日志),不报错。
+    pub async fn notify(&self, method: &str, params: serde_json::Value) {
+        let runtime = self.runtime.lock().await.clone();
+        if let Some(runtime) = runtime {
+            if let Err(error) = runtime.notify(method, params).await {
+                tracing::warn!("dsh 通知 {method} 发送失败: {error}");
+            }
         }
     }
 }
@@ -1673,5 +1919,86 @@ mod tests {
             bridge.resolve_asset("child-1"),
             Some(("ssh".into(), "a2".into()))
         );
+    }
+
+    // ---------- 联动:live.snapshot / open.asset / focus.tool(契约 §2.2) ----------
+
+    /// live.snapshot 在无 AppHandle(测试环境)时:sessions/transfers 为空数组,
+    /// recentExecs 返回桥上缓存的每资产最近一次 AI 执行。
+    #[tokio::test]
+    async fn live_snapshot_without_app_returns_empty_views_and_recent_execs() {
+        let bridge = Arc::new(HostBridgeState::default());
+        bridge.record_recent_exec(events::RecentExec {
+            asset_id: "a1".into(),
+            tool_name: "ssh_exec".into(),
+            summary: "ssh_exec: ls -la".into(),
+            tail: "file1\nfile2".into(),
+            ts: 1724000000,
+        });
+        let snapshot = handle_live_snapshot(bridge).await.expect("live.snapshot");
+        assert_eq!(snapshot["sessions"], serde_json::json!([]));
+        assert_eq!(snapshot["transfers"], serde_json::json!([]));
+        let recents = snapshot["recentExecs"].as_array().expect("数组");
+        assert_eq!(recents.len(), 1);
+        assert_eq!(recents[0]["assetId"], "a1");
+        assert_eq!(recents[0]["toolName"], "ssh_exec");
+        assert_eq!(recents[0]["tail"], "file1\nfile2");
+    }
+
+    /// open.asset 缺 assetId:硬错误(契约 §2.2 参数校验)。
+    #[test]
+    fn open_asset_requires_asset_id() {
+        let bridge = Arc::new(HostBridgeState::default());
+        let err = handle_open_asset(serde_json::json!({}), bridge, false)
+            .expect_err("缺 assetId 应报错");
+        assert!(err.to_string().contains("assetId"), "{err}");
+    }
+
+    /// focus.tool 缺 tool:硬错误(契约 §2.2 tool 必填)。
+    #[test]
+    fn focus_tool_requires_tool() {
+        let bridge = Arc::new(HostBridgeState::default());
+        let err = handle_open_asset(
+            serde_json::json!({ "assetId": "a1" }),
+            bridge,
+            true,
+        )
+        .expect_err("focus.tool 缺 tool 应报错");
+        assert!(err.to_string().contains("tool"), "{err}");
+    }
+
+    /// open.asset 在无 AppHandle(测试环境)时:fire-and-forget 立即返回
+    /// `{ ok: true, action: "opened" }`(无窗口可开,契约 §2.2 不等待)。
+    #[test]
+    fn open_asset_without_app_returns_opened() {
+        let bridge = Arc::new(HostBridgeState::default());
+        let result = handle_open_asset(
+            serde_json::json!({ "assetId": "a1", "tool": "auto" }),
+            bridge,
+            false,
+        )
+        .expect("open.asset 应成功");
+        assert_eq!(result, serde_json::json!({ "ok": true, "action": "opened" }));
+    }
+
+    /// 未注册的入站方法:JSON-RPC method-not-found(-32601,由 dispatch_frame 映射)。
+    #[tokio::test]
+    async fn inbound_unknown_method_is_method_not_found() {
+        let bridge = Arc::new(HostBridgeState::default());
+        match handle_inbound_request("starhub/no.such", serde_json::json!({}), bridge).await {
+            Err(InboundError::MethodNotFound(message)) => {
+                assert!(message.contains("no.such"), "{message}");
+            }
+            other => panic!("预期 MethodNotFound,实际 {other:?}"),
+        }
+    }
+
+    /// notify_dsh 在无活跃 runtime(runtime 未初始化/已回收)时静默跳过,不报错。
+    #[tokio::test]
+    async fn notify_dsh_silently_skips_without_runtime() {
+        let bridge = Arc::new(HostBridgeState::default());
+        bridge
+            .notify_dsh(REGISTRY_SYNC_METHOD, serde_json::json!({ "sessions": [] }))
+            .await;
     }
 }

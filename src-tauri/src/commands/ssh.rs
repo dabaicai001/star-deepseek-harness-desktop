@@ -1,8 +1,12 @@
+use crate::harness::HarnessManager;
+use crate::registry::{DetachOutcome, SessionRegistry};
 use crate::sftp::transfer::TransferManager;
 use crate::ssh::session::SshSession;
 use crate::ssh::{
-    PendingHostKeyResponses, PendingKeyboardResponses, SshConfig, SshSessionInfo, SshWriteChannels,
+    KeyboardInteractiveConfig, PendingHostKeyResponses, PendingKeyboardResponses, SftpLaunchMode,
+    SshAuth, SshConfig, SshSessionInfo, SshWriteChannels,
 };
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::State;
@@ -272,10 +276,264 @@ async fn connect_session(
     Ok(info)
 }
 
+// ── 联动 M1(docs/联动实施-桥接契约-2026-08-17.md §4):ssh_attach / ssh_detach ──
+// 附着语义:SessionRegistry 维护 assetId → sessionId 视图(refcount + attachedBy);
+// 有活 session 复用(refcount+1),否则按资产存档建连;detach 归零才真断。
+// 每次变更后向 dsh 补发 `starhub/registry.sync` 全量快照(无 runtime 静默跳过)。
+
+/// `ssh_attach` 的返回形状(契约 §4):`{ sessionId, reused }`。
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshAttachResult {
+    pub session_id: String,
+    pub reused: bool,
+}
+
+/// 向 dsh 补发注册表全量快照(契约 §2.1);无活跃 runtime 时 HarnessManager::notify
+/// 静默跳过(记日志),不报错。快照同时以 SshManager 存活表剔除断线条目。
+async fn notify_registry_sync(harness: &HarnessManager, registry: &SessionRegistry, ssh: &SshManager) {
+    let live_ids: std::collections::HashSet<String> = {
+        let sessions = ssh.sessions.lock().await;
+        sessions.keys().cloned().collect()
+    };
+    let (snapshot, _pruned) = registry.snapshot(&live_ids);
+    harness
+        .notify(
+            crate::harness::REGISTRY_SYNC_METHOD,
+            serde_json::json!({ "sessions": snapshot }),
+        )
+        .await;
+}
+
+/// 按资产存档组装 SSH 连接配置(与前端 src/services/ssh.ts assetConfigToSshConfig
+/// 语义对齐;密码/私钥等敏感字段从 Keyring 合并,绝不落日志)。
+/// 返回 (资产名, 配置);资产不存在 / 类型不是 ssh / 配置不完整时报错。
+async fn asset_ssh_config(asset_id: &str) -> Result<(String, SshConfig), String> {
+    let pool = crate::db::get_pool()?;
+    let row = sqlx::query("SELECT type, name, config_json, key_id FROM assets WHERE id = ?")
+        .bind(asset_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("读取资产失败: {e}"))?
+        .ok_or_else(|| format!("资产不存在: {asset_id}"))?;
+    use sqlx::Row;
+    let asset_type: String = row.try_get("type").map_err(|e| e.to_string())?;
+    if asset_type != "ssh" {
+        return Err(format!("资产 {asset_id} 类型不是 ssh: {asset_type}"));
+    }
+    let name: String = row.try_get("name").map_err(|e| e.to_string())?;
+    let config_json: String = row.try_get("config_json").map_err(|e| e.to_string())?;
+    let key_id: Option<String> = row.try_get("key_id").map_err(|e| e.to_string())?;
+    let mut config: Value = serde_json::from_str(&config_json)
+        .unwrap_or_else(|_| Value::Object(Default::default()));
+    if let Some(key_id) = key_id {
+        let secrets = crate::keyring::load(key_id).await?;
+        config = crate::keyring::merge_config(config, secrets);
+    }
+
+    let get = |key: &str| config.get(key).and_then(Value::as_str).unwrap_or("");
+    let get_bool = |key: &str, default: bool| {
+        config.get(key).and_then(Value::as_bool).unwrap_or(default)
+    };
+    let port = config
+        .get("port")
+        .and_then(Value::as_u64)
+        .map(|p| p as u16)
+        .unwrap_or(22);
+    let username = get("username");
+    if get("host").is_empty() || username.is_empty() {
+        return Err(format!("SSH 资产「{name}」配置不完整(缺 host 或 username)"));
+    }
+
+    let use_password = get_bool("usePasswordAuth", true);
+    let use_key = get_bool("useKeyAuth", false);
+    let password = get("password");
+    let private_key = get("privateKey");
+    let passphrase = {
+        let value = get("passphrase");
+        (!value.is_empty()).then(|| value.to_string())
+    };
+    let auth = if use_password && use_key && !password.is_empty() && !private_key.is_empty() {
+        SshAuth::PasswordAndKey {
+            password: password.to_string(),
+            key: private_key.to_string(),
+            passphrase,
+        }
+    } else if use_password && !password.is_empty() {
+        SshAuth::Password(password.to_string())
+    } else if use_key && !private_key.is_empty() {
+        SshAuth::PrivateKey {
+            key: private_key.to_string(),
+            passphrase,
+        }
+    } else {
+        SshAuth::Password(String::new())
+    };
+
+    let kb_interactive = if get_bool("mfaEnabled", false) {
+        let mfa_password = get("mfaPassword");
+        Some(KeyboardInteractiveConfig {
+            enabled: true,
+            password: (!mfa_password.is_empty()).then(|| mfa_password.to_string()),
+        })
+    } else {
+        None
+    };
+
+    let jump_host = get("jumpHost");
+    let jump_auth = if jump_host.is_empty() {
+        None
+    } else {
+        let jump_password = get("jumpPassword");
+        let jump_private_key = get("jumpPrivateKey");
+        let jump_passphrase = {
+            let value = get("jumpPassphrase");
+            (!value.is_empty()).then(|| value.to_string())
+        };
+        Some(if !jump_private_key.is_empty() {
+            SshAuth::PrivateKey {
+                key: jump_private_key.to_string(),
+                passphrase: jump_passphrase,
+            }
+        } else if !jump_password.is_empty() {
+            SshAuth::Password(jump_password.to_string())
+        } else {
+            auth.clone()
+        })
+    };
+
+    let sftp_launch_mode = match get("sftpLaunchMode") {
+        "subsystem" => SftpLaunchMode::Subsystem,
+        "custom" => SftpLaunchMode::Custom,
+        _ => SftpLaunchMode::Auto,
+    };
+
+    Ok((
+        name,
+        SshConfig {
+            host: get("host").to_string(),
+            port,
+            username: username.to_string(),
+            auth,
+            pty_cols: None,
+            pty_rows: None,
+            sftp_timeout_sec: config
+                .get("sftpTimeoutSec")
+                .and_then(Value::as_u64)
+                .unwrap_or(crate::ssh::DEFAULT_SFTP_TIMEOUT_SEC),
+            sftp_launch_mode,
+            sftp_server_path: {
+                let value = get("sftpServerPath");
+                (!value.is_empty()).then(|| value.to_string())
+            },
+            kb_interactive,
+            jump_host: (!jump_host.is_empty()).then(|| jump_host.to_string()),
+            jump_port: config
+                .get("jumpPort")
+                .and_then(Value::as_u64)
+                .map(|p| p as u16)
+                .or(Some(22)),
+            jump_username: {
+                let value = get("jumpUsername");
+                if value.is_empty() {
+                    Some(username.to_string())
+                } else {
+                    Some(value.to_string())
+                }
+            },
+            jump_auth,
+        },
+    ))
+}
+
+/// M1 附着(契约 §4):按 assetId 复用或建立一条共享 SSH 会话。
+/// 有活 session(注册表已有且 SshManager 存活)则 refcount+1 返回 `{reused: true}`;
+/// 否则按资产存档建连(无 PTY,一次性命令通道),附着后返回 `{reused: false}`。
+/// 注册表变更后向 dsh 补发 `starhub/registry.sync`。
+#[tauri::command]
+pub async fn ssh_attach(
+    manager: State<'_, SshManager>,
+    transfer_manager: State<'_, TransferManager>,
+    registry: State<'_, SessionRegistry>,
+    harness: State<'_, HarnessManager>,
+    app_handle: tauri::AppHandle,
+    asset_id: String,
+) -> Result<SshAttachResult, String> {
+    // 复用路径:注册表已有该资产的 session 且 SshManager 中仍存活
+    if let Some(session_id) = registry.session_for_asset(&asset_id) {
+        let live = manager.sessions.lock().await.contains_key(&session_id);
+        if live {
+            registry.attach(&asset_id, &session_id, "ssh", "frontend");
+            notify_registry_sync(&harness, &registry, &manager).await;
+            return Ok(SshAttachResult {
+                session_id,
+                reused: true,
+            });
+        }
+    }
+
+    // 建连路径:按资产存档连接,会话 id 固定为该资产 id(多方共享,registry 反查用)
+    let (_asset_name, config) = asset_ssh_config(&asset_id).await?;
+    let session_id = asset_id.clone();
+    connect_session(
+        &manager,
+        &transfer_manager,
+        session_id.clone(),
+        config,
+        app_handle,
+        false,
+    )
+    .await?;
+    registry.attach(&asset_id, &session_id, "ssh", "frontend");
+    notify_registry_sync(&harness, &registry, &manager).await;
+    Ok(SshAttachResult {
+        session_id,
+        reused: false,
+    })
+}
+
+/// M1 解除附着(契约 §4):refcount-1;归零才真正断开 session。
+/// 注册表变更后向 dsh 补发 `starhub/registry.sync`;未跟踪的 sessionId 幂等成功。
+#[tauri::command]
+pub async fn ssh_detach(
+    manager: State<'_, SshManager>,
+    transfer_manager: State<'_, TransferManager>,
+    registry: State<'_, SessionRegistry>,
+    harness: State<'_, HarnessManager>,
+    session_id: String,
+) -> Result<(), String> {
+    match registry.detach(&session_id, "frontend") {
+        DetachOutcome::Removed { .. } => {
+            // 归零:与 ssh_disconnect 相同的清理路径(SFTP 通道先注销,再断 session)
+            transfer_manager.unregister_sftp(&session_id).await;
+            let session_arc = {
+                let mut sessions = manager.sessions.lock().await;
+                sessions.remove(&session_id)
+            };
+            if let Some(session) = session_arc {
+                let mut session = session.lock().await;
+                session.disconnect();
+            }
+            let invalidated = manager.invalidate_attempt(&session_id).await;
+            manager
+                .remove_channel_for_attempt(&session_id, invalidated.wrapping_sub(1))
+                .await;
+            notify_registry_sync(&harness, &registry, &manager).await;
+        }
+        DetachOutcome::StillAttached { .. } => {
+            notify_registry_sync(&harness, &registry, &manager).await;
+        }
+        DetachOutcome::NotTracked => {}
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn ssh_disconnect(
     manager: State<'_, SshManager>,
     transfer_manager: State<'_, TransferManager>,
+    registry: State<'_, SessionRegistry>,
+    harness: State<'_, HarnessManager>,
     id: String,
 ) -> Result<(), String> {
     // SFTP 通道由 TransferManager 单独持有；先移除，避免关闭 SSH 后仍残留失效句柄。
@@ -299,6 +557,12 @@ pub async fn ssh_disconnect(
     manager
         .remove_channel_for_attempt(&id, invalidated_generation.wrapping_sub(1))
         .await;
+
+    // 联动 M1(契约 §2.1「断线」):断开的是受跟踪会话时,注册表条目一并移除,
+    // 并向 dsh 补发 registry.sync 全量快照(无 runtime 静默跳过)。
+    if registry.remove_session(&id).is_some() {
+        notify_registry_sync(&harness, &registry, &manager).await;
+    }
 
     Ok(())
 }

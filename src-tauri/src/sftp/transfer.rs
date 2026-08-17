@@ -186,6 +186,11 @@ impl TransferManager {
             .collect()
     }
 
+    /// 全量任务(跨全部 session;dsh 联动 `starhub/live.snapshot` 的 transfers 用)。
+    pub async fn list_all_tasks(&self) -> Vec<TransferTask> {
+        self.tasks.lock().await.values().cloned().collect()
+    }
+
     pub async fn upload(
         &self,
         session_id: &str,

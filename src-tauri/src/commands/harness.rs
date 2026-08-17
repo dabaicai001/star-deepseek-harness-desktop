@@ -1,7 +1,10 @@
 use serde_json::Value;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
-use crate::harness::{DshModelConfig, HarnessManager};
+use crate::harness::events::DomainEvent;
+use crate::harness::{
+    DshModelConfig, HarnessManager, ASK_AI_EVENT, DOMAIN_EVENT_EVENT, DOMAIN_EVENT_METHOD,
+};
 
 /// 初始化 dsh runtime(未运行或 env 指纹已变则先 spawn/重启),返回
 /// `{ serverInfo, restarted }`;restarted=true 时前端必须用全新 sessionId(G-3)。
@@ -118,5 +121,46 @@ pub async fn dsh_bind_session(
     manager
         .bridge()
         .bind_session(&session_id, &asset_type, &asset_id);
+    Ok(Value::Null)
+}
+
+/// 用户起源领域事件上报(契约 §1/§4):前端面板在用户操作(SSH 命令提交、DB 查询
+/// 完成、表打开等)时调用。Rust 侧强制 origin=user、summary 单行 ≤200 字符截断、
+/// ts 补当前时间,然后:1) notify dsh(`starhub/domain.event`,无 runtime 静默跳过);
+/// 2) 广播 `starhub://domain-event` 给全部窗口(其他窗口按 assetId 过滤投影刷新)。
+/// 敏感值由前端上报前脱敏(summary 不含密码/密钥,契约 §8)。
+#[tauri::command]
+pub async fn dsh_report_domain_event(
+    manager: State<'_, HarnessManager>,
+    event: DomainEvent,
+) -> Result<Value, String> {
+    let event = DomainEvent::now(event.kind, event.asset_id, &event.summary, event.data, Some("user"));
+    let payload = serde_json::to_value(&event).map_err(|e| format!("序列化领域事件失败: {e}"))?;
+    manager.notify(DOMAIN_EVENT_METHOD, payload.clone()).await;
+    manager.bridge().emit(DOMAIN_EVENT_EVENT, payload).await;
+    Ok(Value::Null)
+}
+
+/// 面板「问 AI」入口(契约 §3/§7):把当前选中行 / 屏幕片段 / 报错文本发到壳内
+/// AI。Rust emit `starhub://ask-ai` 到主壳(client-nav prefill composer 并聚焦);
+/// 主壳窗口不存在时记日志,不 panic,command 仍成功返回。
+#[tauri::command]
+pub async fn starhub_ask_ai(
+    app: AppHandle,
+    text: String,
+    asset_id: Option<String>,
+    asset_name: Option<String>,
+) -> Result<Value, String> {
+    let mut payload = serde_json::Map::new();
+    payload.insert("text".into(), Value::String(text));
+    if let Some(asset_id) = asset_id {
+        payload.insert("assetId".into(), Value::String(asset_id));
+    }
+    if let Some(asset_name) = asset_name {
+        payload.insert("assetName".into(), Value::String(asset_name));
+    }
+    if let Err(error) = app.emit_to("main", ASK_AI_EVENT, Value::Object(payload)) {
+        tracing::warn!("事件 {ASK_AI_EVENT} 发送失败: {error}");
+    }
     Ok(Value::Null)
 }
