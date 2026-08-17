@@ -188,7 +188,11 @@ class DshRuntimePackage {
     // dsh web GUI 运行时需要 client-nav 的 node 半(lib/index.js)与浏览器
     // bundle(lib/client.js),两者都是 client 面产物;仅 build:lib:host 会在全新
     // checkout 上缺 client-nav/lib。这里构建完整 lib(host + client)。
-    await this.run('build', pnpmBin(), ['run', 'build:lib'])
+    // 还必须跑 build:web:dsh-web-app 经 require.resolve(
+    // '@deepseek-ai/dsh-web-frontend/dist/index.html') 定位浏览器入口,而
+    // dsh-web-frontend 的 files 只放行 dist;缺 vite 产物时 deploy 闭包里只剩
+    // package.json,安装包内 dsh web 必炸(v0.78.0 事故)。
+    await this.run('build', pnpmBin(), ['run', 'build'])
   }
 
   async deployStaging(): Promise<void> {
@@ -415,7 +419,23 @@ class DshRuntimePackage {
       await cp(join(root, 'packages', 'starhub', dir), destination, { recursive: true })
     }
     await this.installWebRuntimePackages()
+    this.verifyWebFrontendDist()
     return this.outDir
+  }
+
+  /** fail-loud 校验:dsh web 浏览器入口必须已随闭包入包。
+   * dsh-web-app 运行时 require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html'),
+   * 缺失则 dsh web 启动即抛 "frontend dist not built",安装包整体不可用;
+   * 在打包期拦截,避免再发出 v0.78.0 那样的坏包。 */
+  private verifyWebFrontendDist(): void {
+    const distIndex = join(
+      this.outDir, 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist', 'index.html',
+    )
+    if (!existsSync(distIndex)) {
+      throw new Error(
+        `package-dsh-runtime: dsh-web-frontend/dist/index.html 未入包(缺 build:web 产物或 deploy 未带出 dist): ${distIndex}`,
+      )
+    }
   }
 
   /** dsh web GUI 需要、但 deploy 根(dsh-jsonrpc-agent-pkg)依赖闭包里没有的

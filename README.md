@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.78.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.78.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -118,6 +118,9 @@
 ---
 
 ## 当前版本
+
+### v0.78.1 (2026-08-17)
+- 🐛 **安装包 dsh web 启动失败(「dsh web 未就绪:dsh web 未运行(重试中…)」,v0.78.0 安装包整体不可用)**:`package-dsh-runtime.ts` 的构建步骤只跑 `build:lib`,从未构建 `apps/web` 的 vite 产物——`dsh-web-frontend` 的 `files` 只放行 `dist`,`pnpm deploy --prod` 闭包里只剩 `package.json`,运行时 `dsh-web-app` 经 `require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html')` 定位浏览器入口必炸("web-app: frontend dist not built");构建改为完整 `build`(build:lib + build:web),并在组装后 fail-loud 校验 `dsh-web-frontend/dist/index.html` 已入包,打包期拦截此类坏包
 
 ### v0.78.0 (2026-08-16)
 - ✨ **资产实例操作页改为新开独立窗口(用户要求)**:侧栏工具区点击已有连接不再用整幅 overlay 盖住 dsh 主壳——桌面端经 `plugin:webview|create_webview_window` 开独立 webview 窗口(label 走 capability `starhub-*` glob,embed 页保有 IPC 授权),浏览器预览退化为新标签页;选择桥仍记录当前资产供 AI 工具上下文注入
