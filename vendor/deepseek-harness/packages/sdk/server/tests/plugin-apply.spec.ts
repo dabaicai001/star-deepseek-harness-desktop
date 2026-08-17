@@ -302,4 +302,57 @@ describe('dsh-sdk-jsonrpc-server plugin apply', () => {
       await rm(storageDir, { recursive: true, force: true })
     }
   })
+
+  it('exposes sdk-notifications and dispatches inbound notification frames to subscribers', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-notification-'))
+    const harness = await mountPlugin(storageDir)
+    try {
+      const notifications = harness.ctx.get('sdk-notifications') as {
+        subscribe(method: string, handler: (params: unknown) => void): () => void
+      } | undefined
+      expect(notifications).toBeDefined()
+
+      const received: unknown[] = []
+      const dispose = notifications?.subscribe('starhub/registry.sync', (params) => { received.push(params) })
+      const params = { sessions: [{ assetId: 'a1', sessionId: 's1', kind: 'ssh', attachedBy: ['shell'] }] }
+      harness.send({ jsonrpc: '2.0', method: 'starhub/registry.sync', params })
+
+      await waitFor(() => received.length > 0 ? received[0] : undefined, 'registry.sync delivery')
+      expect(received[0]).toEqual(params)
+      dispose?.()
+
+      // After the disposer, the same frame reaches nobody (silent drop).
+      const before = received.length
+      harness.send({ jsonrpc: '2.0', method: 'starhub/registry.sync', params })
+      await settle()
+      expect(received.length).toBe(before)
+    } finally {
+      await harness.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('isolates a throwing notification subscriber without breaking the read loop', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-notification-throw-'))
+    const harness = await mountPlugin(storageDir)
+    try {
+      const notifications = harness.ctx.get('sdk-notifications') as {
+        subscribe(method: string, handler: (params: unknown) => void): () => void
+      } | undefined
+      notifications?.subscribe('starhub/domain.event', () => { throw new Error('subscriber exploded') })
+
+      harness.send({ jsonrpc: '2.0', method: 'starhub/domain.event', params: { kind: 'ssh.exec_completed' } })
+      // The throwing subscriber must not surface as an error frame or kill the loop.
+      await settle()
+
+      harness.send({ jsonrpc: '2.0', id: 'after-notification', method: 'initialize', params: { cwd: storageDir, provider: 'deepseek-official', model: 'post-throw-model' } })
+      const response = await harness.waitForFrame(frame => frame.id === 'after-notification', 'request after throwing notification')
+      expect(response.result).toEqual({ serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } })
+      // No error frames were written for the dropped notification.
+      expect(harness.frames().filter(frame => frame.error !== undefined)).toEqual([])
+    } finally {
+      await harness.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
 })

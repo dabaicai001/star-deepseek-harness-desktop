@@ -8,6 +8,10 @@ The `jsonrpc` plugin serves newline-delimited JSON-RPC over stdio so out-of-proc
 
 `inject: ['agents']`. The server gets or creates one agent per `sessionId`. It forwards subagent completions only when the service-snapshotted lifecycle `local` flag is true; provider names, child ids, and durable lineage never establish locality. A registered adapter wins, an unowned `deepseek-official` route mounts `dsh-llm-deepseek`, and any other unowned provider fails initialization. Other capabilities come from the surrounding `cordis.yml`.
 
+## Host services (StarHub local patch)
+
+The plugin exposes two optional, host-private services via `ctx.get(...)` (never through Context interface merging): `sdk-transport` is the stdio transport itself, letting sibling plugins issue reverse JSON-RPC requests to the host process, and `sdk-notifications` (`subscribe(method, handler) => disposer`) multiplexes inbound notifications — id-less frames — by method name to sibling plugins. Unsubscribed methods are dropped silently and a throwing subscriber is isolated, so neither can break the transport read loop. Both ride the plugin fiber's lifecycle and vanish on unload.
+
 ## Config
 
 `maxTokensAsSuccess` defaults to `false` and affects only the deployment-mapped status on `subagent.finished`; root-session prompts have no prompt-level status. `JsonRpcConfig.input`, `output`, and `exit` are runtime-only transport hooks; production uses process stdio and `process.exit`.

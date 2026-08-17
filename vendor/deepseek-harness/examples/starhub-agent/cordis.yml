@@ -76,6 +76,20 @@
 - id: starhub-tools
   name: '@deepseek-ai/dsh-starhub-tools'
 
+# 联动(契约 §5,排在 starhub-tools 之后):session-registry / domain-events
+# 经 sdk-jsonrpc-server 暴露的 sdk-notifications(本地补丁)订阅 Rust 推送的
+# 入站 notification(starhub/registry.sync 全量快照、starhub/domain.event 事件流),
+# 各自提供只读服务;live-context 在 agent/pre-step 消费这两个服务 + 经
+# sdk-transport 反向 pull starhub/live.snapshot,注入「当前在发生什么」。
+- id: starhub-session-registry
+  name: '@deepseek-ai/dsh-starhub-session-registry'
+
+- id: starhub-domain-events
+  name: '@deepseek-ai/dsh-starhub-domain-events'
+
+- id: starhub-live-context
+  name: '@deepseek-ai/dsh-starhub-live-context'
+
 # 审批桥(Phase 2;2026-08-17 瘦身改名):消费共享 settings.yaml 的
 # permission preset(策略本体在 dsh 侧)+ starhub_* 工具风险门 +
 # approval/request 应答桥(前端确认卡)。
