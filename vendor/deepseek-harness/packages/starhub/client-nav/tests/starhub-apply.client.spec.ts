@@ -89,7 +89,9 @@ describe('client-nav apply', () => {
     expect(injected.openConnectionManager).toBeTypeOf('function')
     expect(injected.closeConnectionManager).toBeTypeOf('function')
     expect(injected.refreshAssets).toBeTypeOf('function')
+    expect(injected.closeSshTerminal).toBeTypeOf('function')
     expect(injected.hooks.connectionManager.getSnapshot()).toEqual({ open: false, asset: null })
+    expect(injected.hooks.sshTerminal.getSnapshot()).toEqual({ open: false, asset: null })
   })
 
   it('workspace inject wires the api face, bridge callbacks and asset holder', () => {
@@ -105,21 +107,25 @@ describe('client-nav apply', () => {
     expect(injected.hooks.assets.getSnapshot()).toHaveProperty('assets')
   })
 
-  it('workspace openAsset records the selection and opens a new page (browser: new tab)', () => {
+  it('workspace opens SSH assets in the shell instead of a browser window', () => {
     const { ctx, register } = fakeContext()
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
       applyPlugin(ctx)
       const injected = register.mock.calls[2]![0]!.inject()
-      injected.openAsset({ id: 'a1', type: 'ssh', name: 'web-1', config: { host: '1.1.1.1' } })
+      const fullAsset = {
+        id: 'a1', type: 'ssh', name: 'web-1', group_id: null, config: { host: '1.1.1.1' },
+        key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
+      }
+      injected.hooks.assets.update((draft) => { draft.assets = [fullAsset] })
+      injected.openAsset(fullAsset)
       const sel = injected.hooks.selection.getSnapshot()
       expect(sel.assetId).toBe('a1')
       expect(sel.routePrefix).toBe('/ssh')
       expect(sel.instanceId).toMatch(/^a1__\d+$/)
-      expect(openSpy).toHaveBeenCalledTimes(1)
-      const url = openSpy.mock.calls[0]![0] as string
-      expect(url).toContain('/starhub/index.html?embed=1')
-      expect(url).toContain(encodeURIComponent(`/ssh/${sel.instanceId}`))
+      const overlay = register.mock.calls[1]![0]!.inject()
+      expect(overlay.hooks.sshTerminal.getSnapshot()).toEqual({ open: true, asset: fullAsset })
+      expect(openSpy).not.toHaveBeenCalled()
     } finally {
       openSpy.mockRestore()
     }

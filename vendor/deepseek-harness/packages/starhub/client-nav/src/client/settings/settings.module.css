@@ -688,6 +688,41 @@
   gap: 8px;
 }
 
+.marketPage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px;
+  min-height: 172px;
+}
+
+.marketPager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.marketPageDots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.marketPageDot,
+.marketPageDotActive {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-l3);
+  cursor: pointer;
+}
+
+.marketPageDotActive {
+  background: var(--dsw-accent);
+}
+
 .confirmMessage {
   margin: 0;
   white-space: pre-wrap;

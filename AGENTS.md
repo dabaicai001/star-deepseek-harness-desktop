@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.79.4(**新建连接对话框增强**:SSH 认证三档对齐 Vue(password/key/mfa,mfaEnabled+mfaPassword 契约)+ 「测试连接」全类型接线(kb-interactive 内联验证码面板 / hostkey 自动接受 / db_*_test / broker_test / docker_test),「创建/保存」升级高对比主按钮;右侧栏资产行 .rowSub 主机名溢出截断修复) |
+| 当前版本 | v0.80.0(**DB 结果网格 HTML 虚拟化**:移除 Univer Canvas,支持排序/调宽/编辑/NULL/右键操作;**Excel 功能退役**:删除前端工作簿路由/视图/依赖;**壳内 SSH 终端**:client-nav xterm 直连 SSH,输入/输出/尺寸同步与关闭清理;插件市场分页展示) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-17 (v0.79.4)*
+*最后更新: 2026-08-17 (v0.80.0)*

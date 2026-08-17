@@ -94,12 +94,6 @@ const router = createRouter({
           props: true,
         },
         {
-          path: 'excel/:id',
-          name: 'excel',
-          component: () => import('@/views/ExcelView.vue'),
-          props: true,
-        },
-        {
           path: 'web/:id',
           name: 'web-browser',
           component: () => import('@/views/WebBrowserView.vue'),
@@ -118,7 +112,6 @@ const router = createRouter({
           ['db/postgresql', 'postgresql'],
           ['docker', 'docker'],
           ['broker', 'broker'],
-          ['excel', 'excel'],
         ] as const).map(([path, section]) => ({
           path,
           name: `embed-section-${section}`,

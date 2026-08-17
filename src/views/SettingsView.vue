@@ -597,6 +597,8 @@ const pluginUrlInstalling = ref(false)
 const marketCatalog = ref<DshMarketCatalog | null>(null)
 const marketLoading = ref(false)
 const marketSearch = ref('')
+const marketPage = ref(0)
+const marketPageSize = 6
 const riskDialogPlugin = ref<DshPluginInfo | null>(null)
 const uninstallDialogPlugin = ref<DshPluginInfo | null>(null)
 
@@ -655,6 +657,22 @@ const marketFiltered = computed(() => {
         || (plugin.npm || '').toLowerCase().includes(keyword))
     }))
     .filter(category => category.plugins.length > 0)
+})
+
+const marketItems = computed(() => marketFiltered.value.flatMap(category =>
+  category.plugins.map(plugin => ({ category: category.name, plugin }))
+))
+const marketPageCount = computed(() => Math.max(1, Math.ceil(marketItems.value.length / marketPageSize)))
+const visibleMarketItems = computed(() => marketItems.value.slice(
+  marketPage.value * marketPageSize,
+  (marketPage.value + 1) * marketPageSize,
+))
+
+watch([marketSearch, marketCatalog], () => {
+  marketPage.value = 0
+})
+watch(marketPageCount, (count) => {
+  if (marketPage.value >= count) marketPage.value = count - 1
 })
 
 /** 变更后收尾:关 runtime(下次对话重启生效)+ 提示 + 刷新列表 */
@@ -1915,34 +1933,49 @@ async function onTestWebhook(url: string) {
             {{ marketLoading ? t('common.loading') : t('common.refresh') }}
           </button>
         </div>
-        <div v-if="marketFiltered.length === 0" class="audit-empty">{{ t('settings.plugins.marketEmpty') }}</div>
-        <div v-for="category in marketFiltered" :key="category.name" class="plugin-market-category">
-          <div class="plugin-market-category-name">{{ category.name }}</div>
-          <div class="alert-rule-list">
-            <div v-for="item in category.plugins" :key="item.url" class="alert-rule-card">
+        <div v-if="marketItems.length === 0" class="audit-empty">{{ t('settings.plugins.marketEmpty') }}</div>
+        <template v-else>
+          <div class="plugin-market-page" aria-live="polite">
+            <div v-for="entry in visibleMarketItems" :key="entry.plugin.url" class="alert-rule-card">
               <div class="alert-rule-head">
-                <span class="alert-rule-name">{{ item.name }}</span>
-                <span v-if="item.stars !== undefined" class="alert-rule-metric">★ {{ item.stars }}</span>
+                <span class="alert-rule-name">{{ entry.plugin.name }}</span>
+                <span v-if="entry.plugin.stars !== undefined" class="alert-rule-metric">★ {{ entry.plugin.stars }}</span>
                 <span class="cyber-badge badge-off">{{ t('settings.plugins.unverified') }}</span>
                 <div class="alert-rule-actions">
                   <button
                     class="action-btn"
                     :aria-label="t('settings.plugins.installUrl')"
                     :data-tooltip="t('settings.plugins.installUrl')"
-                    :disabled="pluginUrlInstalling || pluginList.some(p => item.url.includes(p.id))"
-                    @click="onInstallUrl(item.url)"
+                    :disabled="pluginUrlInstalling || pluginList.some(p => entry.plugin.url.includes(p.id))"
+                    @click="onInstallUrl(entry.plugin.url)"
                   >
                     <v-icon size="14">{{ pluginUrlInstalling ? 'mdi-loading mdi-spin' : 'mdi-download-outline' }}</v-icon>
                   </button>
                 </div>
               </div>
               <div class="alert-rule-meta">
-                <span v-if="item.description">{{ item.description }}</span>
-                <span v-if="item.npm">npm: {{ item.npm }}</span>
+                <span>{{ entry.category }}</span>
+                <span v-if="entry.plugin.description">{{ entry.plugin.description }}</span>
+                <span v-if="entry.plugin.npm">npm: {{ entry.plugin.npm }}</span>
               </div>
             </div>
           </div>
-        </div>
+          <div class="plugin-market-pager" aria-label="插件市场分页">
+            <button class="cyber-btn-secondary" :disabled="marketPage === 0" @click="marketPage--">上一页</button>
+            <div class="plugin-market-page-dots">
+              <button
+                v-for="page in marketPageCount"
+                :key="page"
+                class="plugin-market-page-dot"
+                :class="{ active: page - 1 === marketPage }"
+                :aria-label="`第 ${page} 页`"
+                :aria-current="page - 1 === marketPage ? 'page' : undefined"
+                @click="marketPage = page - 1"
+              />
+            </div>
+            <button class="cyber-btn-secondary" :disabled="marketPage >= marketPageCount - 1" @click="marketPage++">下一页</button>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -2493,6 +2526,41 @@ async function onTestWebhook(url: string) {
 .plugin-url-input {
   flex: 1;
   min-width: 220px;
+}
+
+.plugin-market-page {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  min-height: 188px;
+}
+
+.plugin-market-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.plugin-market-page-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plugin-market-page-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line-2);
+  cursor: pointer;
+}
+
+.plugin-market-page-dot.active {
+  background: var(--cyan);
 }
 
 .plugin-market-category {

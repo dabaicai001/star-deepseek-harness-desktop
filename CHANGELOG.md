@@ -14,7 +14,17 @@
 
 ---
 
-## [0.79.4] - 2026-08-17
+## [0.80.0] - 2026-08-17
+
+### 新增
+- **壳内 SSH 终端(六项需求 3)**:client-nav 的 SSH 资产改为在 dsh `shell.overlay` 内以 xterm 直渲;接入 `ssh_connect`、`ssh_write`、`ssh_resize`、`ssh_disconnect` 与 `ssh:data:*`/`ssh:close:*` 事件,终端连接生命周期提升到 root scope,切换会话不受 session scope 影响。
+- **插件市场分页滑动展示(六项需求 6)**:React 壳内设置和 Vue 回退设置同步改为每页 6 张市场卡片,提供前后翻页与页码指示;搜索和刷新会复位到第一页。
+
+### 变更
+- **数据库结果网格重构(六项需求 5)**:删除 DB Univer Canvas,以 `DbSimpleGrid.vue` 原生 HTML 表格和虚拟滚动替代,保留排序、列宽调节、字段提示、NULL、编辑、右键行操作和现有 DataGrid 保存/分页接口。
+- **Excel 功能退役**:删除 Excel/CSV 工作簿前端路由、视图、store、组件和 Univer 集成,移除 `@univerjs/*` 与 `rxjs` 前端依赖;数据库 XLSX/CSV 导入导出仍由 Sidecar `excelize` 提供。
+
+---
 
 ### 新增
 - **新建连接对话框 SSH 支持 MFA/2FA(六项需求 2)**:client-nav `NewConnectionDialog.tsx` 认证方式对齐 Vue 版三档(password/key/mfa);mfa 档显示「MFA 主密码」输入,config 写入 `authMode:'mfa'` + `mfaEnabled:true` + `mfaPassword`(契约对齐 `SshConnectionForm.vue` 与 `src/services/ssh.ts`);编辑模式留空不提交(merge 保持原值)

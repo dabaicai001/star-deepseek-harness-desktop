@@ -27,7 +27,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import {
-  createConnectionManagerOverlay, createStarHubAssets, createStarHubNavStore,
+  createConnectionManagerOverlay, createSshTerminalOverlay, createStarHubAssets, createStarHubNavStore,
   createToolSelectionBridge,
 } from './store.ts'
 import { assetInstanceUrl, STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
@@ -60,9 +60,15 @@ export function apply(ctx: Context): void {
   const assets = createStarHubAssets()
   const selection = createToolSelectionBridge()
   const connectionManager = createConnectionManagerOverlay()
+  const sshTerminal = createSshTerminalOverlay()
   /** 打开资产实例操作页:记录选择桥(供 AI 工具上下文)+ 新开独立窗口/标签页。 */
   const openAssetPage = (asset: StarHubAsset): void => {
     selection.openAsset(asset)
+    if (asset.type === 'ssh') {
+      const fullAsset = assets.source.getSnapshot().assets.find((item) => item.id === asset.id)
+      if (fullAsset !== undefined) sshTerminal.open(fullAsset)
+      return
+    }
     const sel = selection.source.getSnapshot()
     if (sel.routePrefix === null || sel.instanceId === null) return
     openNewPage(assetInstanceUrl(sel.routePrefix, sel.instanceId), asset.name)
@@ -103,9 +109,11 @@ export function apply(ctx: Context): void {
     inject: () => ({
       openConnectionManager: () => connectionManager.open(),
       closeConnectionManager: connectionManager.close,
+      closeSshTerminal: sshTerminal.close,
       refreshAssets: assets.refresh,
       hooks: {
         connectionManager: connectionManager.source,
+        sshTerminal: sshTerminal.source,
       },
     }),
   }, StarHubOverlay))

@@ -47,7 +47,6 @@ export interface StarHubSubcategory {
 export function routeNameForAsset(asset: { type: string; config: Record<string, unknown> }): string {
   if (asset.type === 'ssh') return 'ssh-terminal'
   if (asset.type === 'docker') return 'docker'
-  if (asset.type === 'excel') return 'excel'
   if (asset.type === 'local') return 'local'
   const dbType = typeof asset.config.dbType === 'string' ? asset.config.dbType : 'mysql'
   if (dbType === 'redis') return 'db-redis'
@@ -68,7 +67,6 @@ export const ROUTE_NAME_PREFIX: Readonly<Record<string, string>> = {
   'db-elasticsearch': '/db/elasticsearch',
   'db-broker': '/broker',
   docker: '/docker',
-  excel: '/excel',
 }
 
 /** 渲染模式:迁移事实表记录(壳内 native 组件 vs embed iframe)。 */
@@ -80,7 +78,7 @@ export type StarHubRenderMode = 'iframe' | 'native'
  * 注:当前实例操作页一律经 openNewPage 开独立窗口(embed URL),native
  * 集合暂不参与渲染分派,仅作迁移进度事实表保留(含 BrokerView 及其测试)。
  */
-export const NATIVE_ROUTE_NAMES: ReadonlySet<string> = new Set(['db-broker'])
+export const NATIVE_ROUTE_NAMES: ReadonlySet<string> = new Set(['db-broker', 'ssh-terminal'])
 
 /**
  * 资产 → 渲染模式:路由在 NATIVE_ROUTE_NAMES 里走壳内组件,否则 iframe。

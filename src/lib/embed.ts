@@ -71,7 +71,6 @@ export const EMBED_SECTIONS: readonly EmbedSectionDef[] = [
   { key: 'postgresql', pathPrefix: '/db/postgresql', routeName: 'db-postgresql', icon: 'mdi-database-outline' },
   { key: 'docker', pathPrefix: '/docker', routeName: 'docker', icon: 'mdi-docker' },
   { key: 'broker', pathPrefix: '/broker', routeName: 'db-broker', icon: 'mdi-graph-outline' },
-  { key: 'excel', pathPrefix: '/excel', routeName: 'excel', icon: 'mdi-file-excel-outline' },
   { key: 'settings', pathPrefix: '/settings', routeName: null, icon: 'mdi-cog-outline' },
 ]
 

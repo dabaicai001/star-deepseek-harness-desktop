@@ -26,6 +26,8 @@ export function PluginsTab() {
   const [marketCatalog, setMarketCatalog] = useState<DshMarketCatalog | null>(null)
   const [marketLoading, setMarketLoading] = useState(false)
   const [marketSearch, setMarketSearch] = useState('')
+  const [marketPage, setMarketPage] = useState(0)
+  const marketPageSize = 6
 
   // 静默拉取已装列表:只服务市场项的「已安装」标记,失败不打扰(空集即全可装)。
   const loadPlugins = useCallback(async () => {
@@ -71,6 +73,19 @@ export function PluginsTab() {
       }))
       .filter((category) => category.plugins.length > 0)
   }, [marketCatalog, marketSearch])
+
+  const marketItems = useMemo(() => marketFiltered.flatMap((category) =>
+    category.plugins.map((plugin) => ({ category: category.name, plugin }))), [marketFiltered])
+  const marketPageCount = Math.max(1, Math.ceil(marketItems.length / marketPageSize))
+  const visibleMarketItems = marketItems.slice(marketPage * marketPageSize, (marketPage + 1) * marketPageSize)
+
+  useEffect(() => {
+    setMarketPage(0)
+  }, [marketSearch, marketCatalog])
+
+  useEffect(() => {
+    if (marketPage >= marketPageCount) setMarketPage(marketPageCount - 1)
+  }, [marketPage, marketPageCount])
 
   /** 变更后收尾:关 runtime(下次对话重启生效)+ 刷新已装标记。 */
   const afterPluginMutation = useCallback(async (message: string) => {
@@ -185,40 +200,51 @@ export function PluginsTab() {
             刷新
           </button>
         </div>
-        {marketFiltered.length === 0 ? (
+        {marketItems.length === 0 ? (
           <div className={s.empty}>暂无市场插件。</div>
         ) : (
-          marketFiltered.map((category) => (
-            <div key={category.name} className={s.marketCategory}>
-              <div className={s.sectionDesc}>{category.name}</div>
-              <div className={s.cardList}>
-                {category.plugins.map((plugin) => (
-                  <div key={plugin.url} className={s.card}>
-                    <div className={s.cardHead}>
-                      <span className={s.cardName}>{plugin.name}</span>
-                      {plugin.stars !== undefined && (
-                        <span className={s.cardMetric}>★ {plugin.stars}</span>
-                      )}
-                      <span className={s.badgeOff}>未验证</span>
-                      <span className={s.cardActions}>
-                        <button
-                          type="button" className={s.btnSecondary}
-                          disabled={pluginUrlInstalling || installedByUrl(plugin.url)}
-                          onClick={() => void onInstallUrlFromMarket(plugin.url, setPluginUrlInstalling, setPluginError, afterPluginMutation)}
-                        >
-                          {installedByUrl(plugin.url) ? '已安装' : '安装'}
-                        </button>
-                      </span>
-                    </div>
-                    <div className={s.cardMeta}>
-                      {plugin.description !== '' && <span>{plugin.description}</span>}
-                      {plugin.npm !== undefined && <span>npm: {plugin.npm}</span>}
-                    </div>
+          <>
+            <div className={s.marketPage} aria-live="polite">
+              {visibleMarketItems.map(({ category, plugin }) => (
+                <div key={plugin.url} className={s.card}>
+                  <div className={s.cardHead}>
+                    <span className={s.cardName}>{plugin.name}</span>
+                    {plugin.stars !== undefined && (
+                      <span className={s.cardMetric}>★ {plugin.stars}</span>
+                    )}
+                    <span className={s.badgeOff}>未验证</span>
+                    <span className={s.cardActions}>
+                      <button
+                        type="button" className={s.btnSecondary}
+                        disabled={pluginUrlInstalling || installedByUrl(plugin.url)}
+                        onClick={() => void onInstallUrlFromMarket(plugin.url, setPluginUrlInstalling, setPluginError, afterPluginMutation)}
+                      >
+                        {installedByUrl(plugin.url) ? '已安装' : '安装'}
+                      </button>
+                    </span>
                   </div>
+                  <div className={s.cardMeta}>
+                    <span>{category}</span>
+                    {plugin.description !== '' && <span>{plugin.description}</span>}
+                    {plugin.npm !== undefined && <span>npm: {plugin.npm}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className={s.marketPager} aria-label="插件市场分页">
+              <button type="button" className={s.btnSecondary} disabled={marketPage === 0} onClick={() => setMarketPage((page) => page - 1)}>上一页</button>
+              <div className={s.marketPageDots}>
+                {Array.from({ length: marketPageCount }, (_, page) => (
+                  <button
+                    key={page} type="button" className={page === marketPage ? s.marketPageDotActive : s.marketPageDot}
+                    aria-label={`第 ${page + 1} 页`} aria-current={page === marketPage ? 'page' : undefined}
+                    onClick={() => setMarketPage(page)}
+                  />
                 ))}
               </div>
+              <button type="button" className={s.btnSecondary} disabled={marketPage >= marketPageCount - 1} onClick={() => setMarketPage((page) => page + 1)}>下一页</button>
             </div>
-          ))
+          </>
         )}
       </div>
     </div>

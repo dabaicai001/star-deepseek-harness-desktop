@@ -9,20 +9,18 @@
  * - 默认 pageSize 1000,可在 toolbar 切换 [100, 500, 1000, 2000, 5000]
  * - 显示总行数(从 props.totalRows 拿,没传就显示 result.rows.length)
  * - 单击列名排序(触发 sort-change)
- * - editable=true + pkCols 非空时,Univer 单元格编辑进入 dirty 集合并批量保存
+ * - editable=true + pkCols 非空时,DOM 网格单元格编辑进入 dirty 集合并批量保存
  */
-import { ref, computed, defineAsyncComponent, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useThemeStore } from '@/stores/theme'
 import type { ColumnMeta, QueryResult } from '@/types/db'
+import DbSimpleGrid from '@/components/db/DbSimpleGrid.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import { normalizeDataRowIndices } from '@/utils/dbRowSelection'
 
 const { t } = useI18n()
-const themeStore = useThemeStore()
-const DbUniverGrid = defineAsyncComponent(() => import('@/components/db/DbUniverGrid.vue'))
-const univerGridRef = ref<{ flushPendingEdit: () => Promise<void> } | null>(null)
+const simpleGridRef = ref<{ flushPendingEdit: () => Promise<void> } | null>(null)
 
 const props = withDefaults(defineProps<{
   result: QueryResult | null
@@ -258,7 +256,7 @@ async function onKeyDown(e: KeyboardEvent) {
     e.preventDefault()
     // Force-commit any active cell edit so the typed value
     // is in Univer's model before we read dirty cells.
-    await univerGridRef.value?.flushPendingEdit()
+    await simpleGridRef.value?.flushPendingEdit()
     saveAll()
   }
 }
@@ -487,17 +485,15 @@ defineExpose({ clearDirty, hasDirty })
 
     <template v-else>
       <div class="db-grid-stage">
-        <DbUniverGrid
-          ref="univerGridRef"
+        <DbSimpleGrid
+          ref="simpleGridRef"
           :columns="columns"
           :rows="pagedRows"
           :page-offset="(page || 0) * (pageSize || 1000)"
           :editable="editable"
           :sort-column="sortColumn"
           :sort-direction="sortDir"
-          :theme-key="themeStore.theme"
           :column-metadata="columnMetadata"
-          :style="{ fontSize: themeStore.fontSize + 'px' }"
           @cell-change="onUniverCellChange"
           @sort-change="toggleSort"
           @column-selected="selectedActionColumn = $event"

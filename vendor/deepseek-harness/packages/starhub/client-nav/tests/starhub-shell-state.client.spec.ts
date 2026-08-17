@@ -80,7 +80,7 @@ describe('renderModeForAsset', () => {
   it('renders migrated routes natively and everything else in an iframe', () => {
     expect(renderModeForAsset(asset('db', 'kafka'))).toBe('native')
     expect(renderModeForAsset(asset('db', 'nsq'))).toBe('native')
-    expect(renderModeForAsset(asset('ssh'))).toBe('iframe')
+    expect(renderModeForAsset(asset('ssh'))).toBe('native')
     expect(renderModeForAsset(asset('db', 'mysql'))).toBe('iframe')
     expect(renderModeForAsset(asset('docker'))).toBe('iframe')
     expect(renderModeForAsset(asset('local'))).toBe('iframe')

@@ -6,10 +6,10 @@
 
 **All-in-One DevOps Desktop Command Center**
 
-数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
+数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.79.4-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.80.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -53,11 +53,10 @@
 - ✅ 备份恢复、SQL 审计与告警
 - 🚧 **Oracle / MongoDB / 国产库 ODBC 桥** (规划中)
 
-数据库结果网格 (DbUniverGrid) 基于 Univer Sheets 渲染,已支持:
-- 表头纯字段名展示,类型/可空/键/默认值/备注在 hover tooltip 中
-- 数据行/列网格线 (低饱和青色 `--gridline` token)
-- 数字右对齐 / 文本左对齐
-- 表内整列排序、单列过滤
+数据库结果网格 (`DbSimpleGrid`) 使用原生 HTML 表格和虚拟滚动渲染,已支持:
+- 表头字段名、类型/可空/键/默认值/备注 hover 提示
+- 数字右对齐 / NULL 显式显示 / 数据行列网格线
+- 列排序、拖拽调宽、表内搜索与服务端列筛选
 - 复制 INSERT 语句、删除行、批量编辑保存 (Ctrl/Cmd+S)
 
 ### SSH 终端
@@ -79,15 +78,6 @@
 - 本地 Docker 主机 + SSH 通道连远程 Docker
 - **Docker Exec 交互式 TTY**:可持续读写的终端会话,支持窗口尺寸同步、命令历史、Tab 补全、Ctrl 组合键
 - Docker Compose、镜像加速
-
-### Excel / CSV 工具
-- Univer Sheets 0.25.1 完整封装:
-  - 工作簿编辑、公式、格式、筛选、排序、查找替换
-  - 数据验证、条件格式、超链接、批注、表格
-  - 跨表公式、Office 风格自动填充
-- **去重工具**:保留 StarHub 自有的按选中列去重到新 Sheet 功能
-- Sheet 切换复用同一 Workbench 实例,不再每次销毁重建
-- 与数据库查询结果共用 `src/lib/univer.ts` 集成层
 
 ### 本地工作区
 - 导入文件夹 / 文件为工作区,目录树懒加载 + 缩进参考线、明细列表(大小/修改时间)
@@ -118,6 +108,11 @@
 ---
 
 ## 当前版本
+
+### v0.80.0 (2026-08-17)
+- ✨ **壳内 SSH 终端(六项需求 3)**:SSH 资产在 dsh `shell.overlay` 内使用 xterm 直渲,接通连接、输入输出、尺寸同步与关闭清理。
+- ✨ **插件市场分页展示(六项需求 6)**:React 壳内和 Vue 回退设置同步提供每页 6 张卡片、翻页和页码点,搜索与刷新自动复位。
+- 🔧 **DB 网格与 Excel 调整(六项需求 5)**:DB 结果区切换为 HTML 虚拟表格;Excel/CSV 工作簿功能与 Univer 前端依赖退役,数据库导入导出仍可用。
 
 ### v0.79.4 (2026-08-17)
 - ✨ **新建连接对话框 SSH 支持 MFA/2FA(六项需求 2)**:client-nav `NewConnectionDialog.tsx` 认证方式对齐 Vue 版三档(password/key/mfa);mfa 档显示「MFA 主密码」输入,config 写入 `authMode:'mfa'` + `mfaEnabled:true` + `mfaPassword`(契约对齐 `SshConnectionForm.vue` 与 `src/services/ssh.ts`);编辑模式留空不提交(merge 保持原值)

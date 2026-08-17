@@ -12,7 +12,8 @@ import type { PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { NewConnectionDialog } from './NewConnectionDialog.tsx'
-import type { ConnectionManagerState } from './store.ts'
+import { SshTerminalOverlay } from './terminal/SshTerminalOverlay.tsx'
+import type { ConnectionManagerState, SshTerminalOverlayState } from './store.ts'
 
 /** Business face injected by the registration: dialog open/close + asset-list refresh. */
 export interface StarHubOverlayInjected {
@@ -21,8 +22,10 @@ export interface StarHubOverlayInjected {
   closeConnectionManager: () => void
   /** 提交/删除成功后刷新工作区资产列表(裸 source 桥,见 store.ts)。 */
   refreshAssets: () => void
+  closeSshTerminal: () => void
   hooks: {
     connectionManager: SnapshotStore<ConnectionManagerState>
+    sshTerminal: SnapshotStore<SshTerminalOverlayState>
   }
 }
 
@@ -41,9 +44,10 @@ const EMBED_OPEN_SECTION_MESSAGE = 'starhub-embed-open-section'
  * @returns null when closed; otherwise the dialog layer.
  */
 export function StarHubOverlay({
-  openConnectionManager, closeConnectionManager, refreshAssets, useConnectionManager,
+  openConnectionManager, closeConnectionManager, refreshAssets, closeSshTerminal, useConnectionManager, useSshTerminal,
 }: StarHubOverlayProps) {
   const state = useConnectionManager(s => s)
+  const terminal = useSshTerminal(s => s)
 
   // embed 资产条「去设置添加」→ 打开连接对话框(常驻监听:消息可能在
   // 对话框关闭时到达——embed 页在 iframe 里时父帧是本壳)。
@@ -69,6 +73,9 @@ export function StarHubOverlay({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [state.open, closeConnectionManager])
 
+  if (terminal.open && terminal.asset !== null) {
+    return <SshTerminalOverlay asset={terminal.asset} onClose={closeSshTerminal} />
+  }
   if (!state.open) return null
 
   return (

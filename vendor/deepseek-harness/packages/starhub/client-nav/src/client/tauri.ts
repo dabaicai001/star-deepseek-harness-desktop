@@ -37,6 +37,9 @@ interface TauriEventEnvelope<T> {
   payload: T
 }
 
+/** Async disposer returned by a Tauri event subscription. */
+export type TauriUnlisten = () => Promise<void>
+
 /**
  * Subscribe to a Tauri event through the event plugin (`plugin:event|listen`),
  * mirroring `@tauri-apps/api/event.listen` over the injected IPC bridge (the
@@ -51,7 +54,7 @@ interface TauriEventEnvelope<T> {
 export async function tauriListen<T>(
   event: string,
   handler: (payload: T) => void,
-): Promise<() => Promise<void>> {
+): Promise<TauriUnlisten> {
   const internals = (window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__
   const transform = internals?.transformCallback
   if (internals === undefined || typeof transform !== 'function') {

@@ -148,6 +148,30 @@ export function createConnectionManagerOverlay(): ConnectionManagerOverlay {
   }
 }
 
+
+/** Root-scope native SSH terminal overlay state. */
+export interface SshTerminalOverlayState {
+  open: boolean
+  asset: RustAsset | null
+}
+
+/** Apply-owned terminal overlay bridge; it never crosses a DSH store scope. */
+export interface SshTerminalOverlay {
+  source: SnapshotStore<SshTerminalOverlayState>
+  open: (asset: RustAsset) => void
+  close: () => void
+}
+
+/** Create the root-scope SSH terminal overlay bridge. */
+export function createSshTerminalOverlay(): SshTerminalOverlay {
+  const source = createSnapshotStore<SshTerminalOverlayState>({ open: false, asset: null })
+  return {
+    source,
+    open: (asset) => source.set({ open: true, asset }),
+    close: () => source.set({ open: false, asset: null }),
+  }
+}
+
 /** 跨 scope 的当前工具选择:子类 + 打开的资产实例(含派生好的路由前缀)。 */
 export interface ToolSelection {
   /** 当前选中的子类 key(STARHUB_SUBCATEGORIES[].key);null = 未选。 */
