@@ -11,8 +11,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { fireEvent } from '@testing-library/react'
 import {
-  createConnectionManagerOverlay, createStarHubNavStore, createToolSelectionBridge,
-  type ConnectionManagerState, type ToolSelection,
+  createConnectionManagerOverlay, createSshTerminalOverlay, createStarHubNavStore, createToolSelectionBridge,
+  type ConnectionManagerState, type SshTerminalOverlayState, type ToolSelection,
 } from '../src/client/store.ts'
 import { StarHubNav } from '../src/client/StarHubNav.tsx'
 import { StarHubOverlay } from '../src/client/StarHubOverlay.tsx'
@@ -39,12 +39,16 @@ function navProps() {
 /** 组装 StarHubOverlay 的完整 props(连接对话框桥 + 框架席位 stub)。 */
 function overlayProps() {
   const manager = createConnectionManagerOverlay()
+  const terminal = createSshTerminalOverlay()
   return {
     manager,
+    terminal,
     openConnectionManager: vi.fn(),
     closeConnectionManager: vi.fn(),
+    closeSshTerminal: vi.fn(),
     refreshAssets: vi.fn(),
     useConnectionManager: (<S,>(sel: (s: ConnectionManagerState) => S) => sel(manager.source.getSnapshot())) as never,
+    useSshTerminal: (<S,>(sel: (s: SshTerminalOverlayState) => S) => sel(terminal.source.getSnapshot())) as never,
     useSessions: (() => undefined) as never,
     useWorkspaces: (() => undefined) as never,
   }

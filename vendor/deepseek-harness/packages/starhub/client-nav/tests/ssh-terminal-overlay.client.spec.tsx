@@ -72,7 +72,7 @@ describe('SshTerminalOverlay', () => {
         return callbacks.length
       },
     }
-    ;(globalThis as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+    ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
 
     const { unmount } = render(<SshTerminalOverlay asset={asset} onClose={vi.fn()} />)
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('ssh_connect', {

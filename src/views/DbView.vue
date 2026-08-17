@@ -12,7 +12,7 @@ import RightPanel from '@/components/layout/RightPanel.vue'
 import ProductIcon from '@/components/common/ProductIcon.vue'
 import AiDshChat from '@/components/ai/AiDshChat.vue'
 import DbDashboard from '@/components/dashboard/DbDashboard.vue'
-import { parseInstanceId, generateInstanceId } from '@/utils/tabId'
+import { parseInstanceId } from '@/utils/tabId'
 import { extractFromTables } from '@/utils/sqlTables'
 import { usePersistentPanelState } from '@/utils/panelState'
 import { DB_SYSTEM_PROMPT } from '@/utils/aiPrompts'
@@ -1864,16 +1864,7 @@ async function handleExportExcel(columns: string[], rows: string[][]) {
       params: { filePath, columns, rows: allRows },
     })
 
-    // ─── 7. 注册资产 + 打开新 tab ───
-    const asset = await assetStore.createAsset({
-      type: 'excel',
-      name: result.filePath.split(/[/\\]/).pop() || defaultName,
-      config: { filePath: result.filePath, format: 'xlsx' },
-    })
-    const instanceId = generateInstanceId(asset.id)
-    appStore.addTab({ id: instanceId, assetId: asset.id, title: asset.name, type: 'excel' })
-    router.push({ name: 'excel', params: { id: instanceId } })
-
+    // ─── 7. 完成通知(Excel 工作簿已退役,不再注册资产/打开预览 tab) ───
     const duration = Date.now() - startTime
     exportProgress.value = { ...exportProgress.value, active: false, stage: 'done' }
     notify.notify({

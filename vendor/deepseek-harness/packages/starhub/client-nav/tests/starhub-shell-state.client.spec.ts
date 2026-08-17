@@ -35,8 +35,7 @@ describe('routePrefixForAsset', () => {
     expect(routePrefixForAsset(asset('db', 'nsq'))).toBe('/broker')
   })
 
-  it('maps excel and falls back to mysql for a non-string dbType', () => {
-    expect(routePrefixForAsset(asset('excel'))).toBe('/excel')
+  it('falls back to mysql for a non-string dbType', () => {
     expect(routeNameForAsset({ type: 'db', config: { dbType: 5 } })).toBe('db-mysql')
   })
 

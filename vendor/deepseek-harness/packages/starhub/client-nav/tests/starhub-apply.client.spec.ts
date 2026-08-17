@@ -117,7 +117,7 @@ describe('client-nav apply', () => {
         id: 'a1', type: 'ssh', name: 'web-1', group_id: null, config: { host: '1.1.1.1' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
-      injected.hooks.assets.update((draft) => { draft.assets = [fullAsset] })
+      injected.hooks.assets.set({ assets: [fullAsset], loading: false, error: null, preview: false })
       injected.openAsset(fullAsset)
       const sel = injected.hooks.selection.getSnapshot()
       expect(sel.assetId).toBe('a1')

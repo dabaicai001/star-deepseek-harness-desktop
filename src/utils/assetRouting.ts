@@ -9,11 +9,10 @@ import { generateInstanceId } from '@/utils/tabId'
 import { useAppStore } from '@/stores/app'
 import { useAssetStore } from '@/stores/asset'
 
-/** 资产 → 路由名(kafka/nsq 共用 db-broker;未知 dbType 回退 db-mysql) */
+/** 资产 → 路由名(kafka/nsq 共用 db-broker;未知 dbType 回退 db-mysql;excel 已随工作簿功能退役) */
 export function routeNameForAsset(asset: Asset): string {
   if (asset.type === 'ssh') return 'ssh-terminal'
   if (asset.type === 'docker') return 'docker'
-  if (asset.type === 'excel') return 'excel'
   if (asset.type === 'local') return 'local'
   const dbType = asset.config.dbType || 'mysql'
   if (dbType === 'redis') return 'db-redis'
