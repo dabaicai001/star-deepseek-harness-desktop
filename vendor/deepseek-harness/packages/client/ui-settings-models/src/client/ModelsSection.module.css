@@ -518,6 +518,15 @@
   line-height: 18px;
 }
 
+/* The image-input toggle row: checkbox plus hint on one line. */
+.modelCheckbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  cursor: pointer;
+}
+
 .modelEmpty {
   padding: 12px;
   border: 1px dashed var(--dsw-alias-border-l3);

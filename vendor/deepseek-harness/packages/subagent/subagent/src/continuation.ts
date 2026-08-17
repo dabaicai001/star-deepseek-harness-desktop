@@ -410,8 +410,12 @@ export class SubagentContinuationManager {
     const childDepth = resolveChildDepth(parent, request.maxDepth)
     // Snapshot before any await: invalid descriptor JSON rejects the call
     // before a child exists, and the detached value is what reaches the log.
-    const agentProvider = request.agentOptions?.provider ?? parent.options.provider
-    const agentModel = request.agentOptions?.model ?? parent.options.model
+    // The parent's CURRENT route (its logged request header, falling back to
+    // its creation options) is what the child inherits — see
+    // resolveChildAgentOptions for why the header wins.
+    const headerConfig = parent.session.requestHeader()?.config
+    const agentProvider = request.agentOptions?.provider ?? headerConfig?.provider ?? parent.options.provider
+    const agentModel = request.agentOptions?.model ?? headerConfig?.model ?? parent.options.model
     const descriptor = snapshotSubagentDescriptor({
       mode: 'continuable',
       provider: spec.provider,

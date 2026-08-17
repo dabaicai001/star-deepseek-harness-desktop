@@ -44,6 +44,12 @@ function numberOf(model: ModelDraft, key: string): number | undefined {
   return typeof value === 'number' ? value : undefined
 }
 
+/** Whether a model draft declares the image input modality (`input` contains 'image'). */
+function supportsImage(model: ModelDraft): boolean {
+  const input = model['input']
+  return Array.isArray(input) && input.includes('image')
+}
+
 /** What an interrogation needs, taken from the live form. */
 export interface ProbeTarget {
   /** Settings namespace whose adapter family answers. */
@@ -210,7 +216,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     })
   }
 
-  const patch = (index: number, next: Record<string, string | number | undefined>): void => {
+  const patch = (index: number, next: Record<string, string | number | readonly unknown[] | undefined>): void => {
     onChange(models.map((model, at) => {
       if (at !== index) return model
       // Rebuilt rather than spread over: an emptied optional field has to leave
@@ -416,6 +422,23 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     disabled={disabled}
                     onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}
                   />
+                </label>
+                <label className={styles['modelField']}>
+                  <span className={styles['modelFieldLabel']}>{t('imageInput')}</span>
+                  <label className={styles['modelCheckbox']}>
+                    <input
+                      type="checkbox"
+                      checked={supportsImage(model)}
+                      aria-label={`${t('imageInput')} ${index + 1}`}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        // Declare (or drop) the image input modality; the
+                        // pi-ai schema reads `input` from the model profile.
+                        patch(index, { input: event.target.checked ? ['text', 'image'] : undefined })
+                      }}
+                    />
+                    <span className={styles['modelFieldLabel']}>{t('imageInputHint')}</span>
+                  </label>
                 </label>
               </div>
             )

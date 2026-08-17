@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.79.2(**CI 全量类型检查失败(白名单移除的 vendor 侧遗留)**:aiSettings.ts 的 legacy 字段删除断言用双转换(`as unknown as Record<string, unknown>`);测试用例的 legacy 字段对象改 `as unknown as Partial<AiSettings>` 并补 `AiSettings` 类型导入——`pnpm run build`(vendor 全量 tsc + tsdown)恢复绿) |
+| 当前版本 | v0.79.3(**自定义模型沙箱升级报错**:`sandbox escalation to "workspace-write" is not strictly wider than this call's current "danger-full-access" mode` —— 根因:会话文件策略已是(或切到)最宽 `danger-full-access` 时,弱模型在 bash 调用里带 `sandbox_permissions` 升级字段,升级到更窄模式被 `approveEscalation` 拒绝。修复:dsh-sandbox `escalation.ts` 新增 `modeCovers()`——请求模式已被当前模式覆盖(相等或更窄)时按 no-op 放行(返回 effectiveMode),仅未知模式仍 fail-closed) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-17 (v0.79.2)*
+*最后更新: 2026-08-17 (v0.79.3)*

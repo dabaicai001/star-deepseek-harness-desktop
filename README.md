@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.79.2-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.79.3-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -118,6 +118,11 @@
 ---
 
 ## 当前版本
+
+### v0.79.3 (2026-08-17)
+- 🐛 **自定义模型沙箱升级报错**:`sandbox escalation to "workspace-write" is not strictly wider than this call's current "danger-full-access" mode` —— 根因:会话文件策略已是(或切到)最宽 `danger-full-access` 时,弱模型在 bash 调用里带 `sandbox_permissions` 升级字段,升级到更窄模式被 `approveEscalation` 拒绝。修复:dsh-sandbox `escalation.ts` 新增 `modeCovers()`——请求模式已被当前模式覆盖(相等或更窄)时按 no-op 放行(返回 effectiveMode),仅未知模式仍 fail-closed
+- 🐛 **自定义模型不支持图片输入**:pi-ai 模型 profile 默认 `input: ['text']` 且模型编辑 UI 无图片开关。修复:ui-settings-models 的 DeepSeekModelsEditor / ModelListEditor 高级区新增「支持图片输入」复选框(写 `input: ['text','image']` / 删除),locales 加 `imageInput`/`imageInputHint`(en+zh)
+- 🐛 **subagent 默认走 deepseek 而非指定模型**:`resolveChildAgentOptions` 继承父 agent 创建时 options(默认模型),用户切模型只更新会话 request header。修复:child-agent.ts / continuation.ts 优先读 `parent.session.requestHeader()?.config` 的 provider/model/maxTokens,回退 `parent.options`;新增模型切换继承单测
 
 ### v0.79.2 (2026-08-17)
 - 🐛 **CI 全量类型检查失败(白名单移除的 vendor 侧遗留)**:aiSettings.ts 的 legacy 字段删除断言用双转换(`as unknown as Record<string, unknown>`);测试用例的 legacy 字段对象改 `as unknown as Partial<AiSettings>` 并补 `AiSettings` 类型导入——`pnpm run build`(vendor 全量 tsc + tsdown)恢复绿
