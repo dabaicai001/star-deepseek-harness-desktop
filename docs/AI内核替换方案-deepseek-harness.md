@@ -1,6 +1,6 @@
 # AI 内核替换方案:迁移至 deepseek-harness(dsh)
 
-> 状态:**方案草案(部分实施)**——Phase 0/1/2 与主壳融合 P0~P5 已完成(v0.66.0),剩余 P2 工具桥 / D3 内核切换见 `docs/AI内核替换-实施任务清单.md`
+> 状态:**方案草案(部分实施)**——Phase 0/1/2 与主壳融合 P0~P5 已完成(v0.66.0);v0.79.0(2026-08-17)完成 P2-2~P2-5/P2-8/P3-2/P3-4/P3-5(内嵌 AI 助手六宿主全面迁移 dsh,审批统一走 dsh 权限体系,命令白名单移除),剩余 P2-1/P2-7/P3-1/P3-3/P3-6 见 `docs/AI内核替换-实施任务清单.md`
 > 调研日期:2026-08-14
 > 调研对象:
 > - `deepseek-ai/deepseek-harness` master(fork: dabaicai001/deepseek-harness),版本 `0.1.0-rc.5`(developer preview)

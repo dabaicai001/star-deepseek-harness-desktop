@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.78.1(**安装包 dsh web 启动失败(「dsh web 未就绪:dsh web 未运行(重试中…)」,v0.78.0 安装包整体不可用)**:`package-dsh-runtime.ts` 的构建步骤只跑 `build:lib`,从未构建 `apps/web` 的 vite 产物——`dsh-web-frontend` 的 `files` 只放行 `dist`,`pnpm deploy --prod` 闭包里只剩 `package.json`,运行时 `dsh-web-app` 经 `require.resolve('@deepseek-ai/dsh-web-frontend/dist/index.html')` 定位浏览器入口必炸("web-app: frontend dist not built");构建改为完整 `build`(build:lib + build:web),并在组装后 fail-loud 校验 `dsh-web-frontend/dist/index.html` 已入包,打包期拦截此类坏包) |
+| 当前版本 | v0.79.0(**内嵌 AI 助手全面迁移到 deepseek-harness(用户要求「全面拥抱 deepseek harness」)**:SSH/数据库/Redis/ES/Docker/Excel 六个宿主面板的 AI 助手统一走 dsh 运行时——会话由 dsh 事件内核驱动,消息经事件投影渲染,子代理/待办/工具结果/用量全部进投影块;域工具(ssh/sftp/db/redis/es/docker/excel/mcp/skill_save)经 `dsh://tool-exec` 桥回前端面板执行(复用既有连接与凭证逻辑,Excel 作用于当前工作簿),全局工具(list_capabilities/list_assets/session_search/memory)在 Rust 主进程执行;新聊天面板 AiDshChat(消息右键复制、历史存档弹窗重命名/删除/复制标题、确认 dock 只有「批准/拒绝」)) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-17 (v0.78.1)*
+*最后更新: 2026-08-17 (v0.79.0)*

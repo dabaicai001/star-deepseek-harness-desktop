@@ -31,27 +31,27 @@
 ## Phase 2:本地工作区与资产绑定
 
 - [ ] P2-1 #LOCAL 切换 dsh fs/bash 工具(方案 5.1 方案 A);LocalView 目录 = session cwd
-- [ ] P2-2 starhub-ssh-tools 包(SSH/SFTP 工具,含 hostkey 确认桥);SshTerminal 宿主切换
-- [ ] P2-3 starhub-db-tools 包(MySQL/PG/SQLite/ClickHouse/MSSQL)+ DbView 宿主切换
-- [ ] P2-4 redis / es 工具包 + 对应宿主视图
-- [ ] P2-5 docker 工具包 + DockerView 宿主切换
+- [x] P2-2 starhub-ssh-tools 包(SSH/SFTP 工具,含 hostkey 确认桥);SshTerminal 宿主切换——✅ v0.79.0(2026-08-17):ssh_exec/ssh_exec_background/ssh_wait_task + sftp_list/stat/upload/download 并入 starhub-tools 全域工具,经 `dsh://tool-exec` 桥回前端面板;SSH 面板命令执行路由到终端自身通道(可见 PTY / 静默 exec),hostkey 确认桥复用 aiWorkspace 语义(确认后持久化)
+- [x] P2-3 starhub-db-tools 包(MySQL/PG/SQLite/ClickHouse/MSSQL)+ DbView 宿主切换——✅ v0.79.0(2026-08-17):db_query 并入 starhub-tools;DbView 面板切换 useAiDshHost(执行器自建连接,mysql/postgres/clickhouse;SQLite/MSSQL 等暂不支持,报错引导)
+- [x] P2-4 redis / es 工具包 + 对应宿主视图——✅ v0.79.0(2026-08-17):redis_exec + es_* 9 工具并入 starhub-tools;RedisView / ElasticsearchView 切换 useAiDshHost
+- [x] P2-5 docker 工具包 + DockerView 宿主切换——✅ v0.79.0(2026-08-17):docker_list_containers/logs/inspect/exec 并入 starhub-tools;DockerView 切换 useAiDshHost(连接参数复用 aiWorkspace 逻辑,socket/tcp/ssh 三传输)
 - [ ] P2-7 绑定集合的 agent-scoped 插件机制落地(方案 D4)
-- [ ] P2-8 确认/安全语义迁移逐项核对(方案 5.2:commandGuard 平移 + 测试)
+- [x] P2-8 确认/安全语义迁移逐项核对(方案 5.2:commandGuard 平移 + 测试)——✅ v0.79.0(2026-08-17):命令审批移交 dsh 权限体系——starhub-approval 插件做风险门(ALWAYS_ASK 工具 + ssh/db/redis 写命令判定,判定逻辑从 commandGuard 的 isReadOnlySql/isReadOnlyShellCommand 平移)+ 审批应答桥;commandGuard.ts 改为纯风险检测(白名单参数移除),`tests/utils/commandGuard.test.mjs` 同步更新;SSH 终端手动输入的风险拦截保留
 
 ## Phase 3:收尾与退役
 
-- [ ] P3-1 三级记忆卡系统接入 dsh(方案 5.3 / D5 / D8)
-- [ ] P3-2 SettingsView AI tab 改造(模型配置 → dsh route,方案 4.3)
-- [ ] P3-3 MCP 归并(方案 D7)
-- [ ] P3-4 退役 `src/stores/ai.ts` runAgent/Planner/压缩、`src/services/ai.ts`、`aiWorkspace.ts`、`aiLocal.ts`(方案 3.4)
-- [ ] P3-5 退役 Rust 旧 AI 网关
-- [ ] P3-6 测试补齐:桥层协议单测、工具 schema 快照测试、事件投影渲染测试;`tests/ai-*.test.mjs` 按新架构重写
+- [ ] P3-1 三级记忆卡系统接入 dsh(方案 5.3 / D5 / D8)——⚠️ 部分:v0.79.0 起记忆卡由 useAiDshHost 组装注入(memoryEnabled 开关),memory 工具恒确认走 dsh 审批门;记忆自动沉淀服务保留独立 memory 工具定义(`src/utils/aiMemoryTools.ts`)
+- [x] P3-2 SettingsView AI tab 改造(模型配置 → dsh route,方案 4.3)——✅ v0.79.0(2026-08-17):命令白名单区块移除;React 壳设置 AI tab 只保留「记忆与上下文」+ 记忆管理弹窗(白名单相关 UI/持久化/迁移代码删除,legacy 白名单字段读取时丢弃);Vue 冻结版 SettingsView 同步;权限管理由 dsh「设置 → 通用 → 权限」承载(permission.defaultPreset → 共享 settings.yaml,会话创建时固定 ask/never)
+- [ ] P3-3 MCP 归并(方案 D7)——⚠️ 部分:mcp_list/mcp_call 已并入 starhub-tools(恒确认走审批门),设置页 MCP Server 管理仍在 SettingsView AI tab
+- [x] P3-4 退役 `src/stores/ai.ts` runAgent/Planner/压缩、`src/services/ai.ts`、`aiWorkspace.ts`、`aiLocal.ts`(方案 3.4)——✅ v0.79.0(2026-08-17):删除 useAiChatHost.ts / AiChat.vue / aiTools.ts / aiSftpTools.ts / aiLocal.ts / aiWorkspace.ts;stores/ai.ts 的白名单字段/迁移/增删接口移除(settings/models/Keyring/agents/memory/记忆自动沉淀保留;runAgent 会话运行时已无调用方,内部休眠待后续清理);`src/services/ai.ts` 低层 LLM 客户端保留(压缩/记忆 review 仍用)
+- [x] P3-5 退役 Rust 旧 AI 网关——✅ v0.79.0(2026-08-17):`src-tauri/src/commands/ai.rs` + `src-tauri/src/ai/mod.rs` 删除;Rust 侧新增审批桥(approval 事件 + dsh_approval_reply / dsh_tool_exec_reply / dsh_bind_session)与全域工具转发,`cargo:test` 125 passed
+- [ ] P3-6 测试补齐:桥层协议单测、工具 schema 快照测试、事件投影渲染测试;`tests/ai-*.test.mjs` 按新架构重写——⚠️ 部分:事件投影测试(`tests/ai-dsh-projection.test.mjs` 11 用例)、Rust 审批/工具桥测试(harness::tests 全绿)、commandGuard 白名单移除测试已更新;vendor 侧 starhub-tools/approval 的 per-file 覆盖率与工具 schema 快照待补(上游 vendoring 记录在案)
 
 ## 支线 A:设计语言与前端改造(方案 9,可与主线并行)
 
 - [x] D0 token 层合并(方案 9.3 映射表落地到 `src/styles/cyber.css`)——✅ 2026-08-14:`--shadow-1/2/3` 克制档(`--shadow`/`--shadow-soft` 改别名)、`--line`/`--line-2` 改 hairline(暗 0.06/0.12、亮 0.04/0.10)、新增 `--hover-neutral`/`--active-neutral`、`--radius-chip/control/menu/card/modal/pill`、`--font-sans/mono/display`(等宽去裸 monospace)、`--text-2xs~xl` 字号梯度、`--scrollbar-thumb*`;`--glow-*` 标注仪式场景专用;亮主题同步重做;支线 C 三候选评审并入:`--radius-bubble`、`--ease-emphasize`+`--dur-emphasize`、`@keyframes cyber-chase`(均只入定义层,D2 引用)
 - [x] D1 按钮 / 输入框 / 标签 / 卡片组件类改造(胶囊按钮、hairline 边框等)——✅ 2026-08-14:`.cyber-btn*` 胶囊化 + 阴影 lv1/lv2、`.cyber-panel`/`.cyber-card`/`.connection-card` 圆角 16、`.context-menu` 圆角 12 + 修复无效 box-shadow、`.cyber-input`/`.cyber-select`/`.cyber-search` 圆角 token 化、核心类 hover 全面中性化(tree-item / action-btn / context-menu / cyber-tab / auth-chip / segment / win-btn / input-suffix-btn),交互过渡统一 `var(--dur-fast) var(--ease-standard)`(0.2s standard)
-- [ ] D2 AiView / 聊天气泡 / 设置页按 dsh 信息架构重做
+- [x] D2 AiView / 聊天气泡 / 设置页按 dsh 信息架构重做——✅ v0.79.0(2026-08-17,内嵌宿主版):新面板 `src/components/ai/AiDshChat.vue`(投影块渲染、工具卡折叠、消息右键复制、历史存档弹窗右键重命名/删除/复制标题、确认 dock 仅批准/拒绝、cyber.css token 化);AiView 已于 P1-3 退役
 - [x] D3 表格 / 终端等重组件仅在受益点轻量对齐——✅ 2026-08-14:全局滚动条契约落地(8px / thumb 圆角 4px / track 透明,色走 `--scrollbar-thumb*`);hairline 随 token 级联生效;transfer-dock pill / zmodem 条 / alert-rule-card / db-grid-loading-pill / tab-detach-hint / docker-transport-switch / terminal-quick-btn 的光晕阴影收敛为 `--shadow-*` 档;未动任何 `.ai-workspace-*` 结构
 - [x] D-VERIFY 每个 D 节点执行方案 9.4 的验证清单(视觉走查 + 组件抽检 + 对比截图)——✅ 2026-08-14(代码级替代:环境无浏览器自动化):`npm run build`(vue-tsc + vite)绿;`git diff` 抽检新增颜色字面量仅出现在 `:root` token 定义,组件类零新增硬编码色/阴影;裸 `monospace` 全量清除(73 处 → `var(--font-mono)`);视觉走查与对比截图待真实浏览器回归(AGENTS.md 7.3)补做
 

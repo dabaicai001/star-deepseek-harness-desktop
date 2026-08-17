@@ -10,8 +10,25 @@
 ### 计划中
 - Settings 补「代理」「安全」2 个 tab
 - SQL 查询结果可编辑及无主键报错提示（转 K3）
+- 左侧 dsh 会话列表右键「删除」待 dsh host 侧 session.delete RPC 落地后启用(当前置灰,仅归档)
 
 ---
+
+## [0.79.0] - 2026-08-17
+
+### 新增
+- **内嵌 AI 助手全面迁移到 deepseek-harness(用户要求「全面拥抱 deepseek harness」)**:SSH/数据库/Redis/ES/Docker/Excel 六个宿主面板的 AI 助手统一走 dsh 运行时——会话由 dsh 事件内核驱动,消息经事件投影渲染,子代理/待办/工具结果/用量全部进投影块;域工具(ssh/sftp/db/redis/es/docker/excel/mcp/skill_save)经 `dsh://tool-exec` 桥回前端面板执行(复用既有连接与凭证逻辑,Excel 作用于当前工作簿),全局工具(list_capabilities/list_assets/session_search/memory)在 Rust 主进程执行;新聊天面板 AiDshChat(消息右键复制、历史存档弹窗重命名/删除/复制标题、确认 dock 只有「批准/拒绝」)
+- **命令白名单移除,审批统一走 dsh 权限体系(用户要求)**:设置 → AI 不再有「命令白名单」区块;工具审批由 dsh 审批门(共享 settings.yaml 的 permission preset,设置 → 通用 → 权限)统一管控——新建会话时按 preset 固定策略(默认 ask,危险全权限 never),starhub-approval 插件做 starhub_* 工具风险门(ssh/db 写命令、redis 写命令、es 写操作、sftp 传文件、mcp 调用、记忆/skill 写入等恒确认),确认卡经 `dsh://approval` 桥回宿主面板,只做一次性批准/拒绝,无免确认白名单
+- **dsh 品牌融合(用户要求)**:左上角字标改为「StarHub」+ 右侧「deepseek harness」角标,浏览器标题与设置 About 同步显示
+- **右键菜单完善(用户要求)**:右侧栏资产/连接行右键(打开/编辑/复制/删除)、AI 会话右键(重命名/复制/归档/分叉)、左侧 StarHub 工具导航与工作区文件夹右键(新建/重命名/删除工作区)
+
+### 变更
+- **旧 AI 内核退役**:删除 useAiChatHost/AiChat.vue/aiTools/aiSftpTools/aiLocal/aiWorkspace 及 runAgent 会话运行时(白名单、确认卡加白、@/# mention、会话级模型切换不再保留);SSH 终端「静默模式」保留,命令执行路由到终端自身通道(可见 PTY / 静默 exec),cwd 跟踪与审计钩子保留;记忆自动沉淀服务改用独立 memory 工具定义
+- **dsh 审批/工具桥**:Rust 主进程新增 `dsh_approval_reply` / `dsh_tool_exec_reply` / `dsh_bind_session` 命令与 `dsh://approval` / `dsh://tool-exec` 事件(180s 超时,失败按拒绝收口);会话-资产绑定与子代理父链支持 memory 资产作用域;`DSH_SETTINGS_PATH` 注入与 dsh web GUI 共享同一份 settings.yaml
+- **cargo-env.bat 编码修复**:批处理注释改纯 ASCII——cmd 用 OEM 代码页解析 .bat,UTF-8 中文注释会导致 `npm run cargo:check/test` 解析错乱
+
+### 修复
+- **dsh starhub-tools 插件加载失败**:mcp_call 的 arguments schema 缺显式 `additionalProperties`,dsh 工具 schema 编译器要求显式 true/false——补上后插件树正常加载(此前 initialize 成功但首轮 prompt 即崩)
 
 ## [0.78.1] - 2026-08-17
 
