@@ -15,7 +15,7 @@ import { AiTab } from '../src/client/settings/ai.tsx'
 import {
   checkForUpdates, logAudit,
 } from '../src/client/settings/services.ts'
-import { AI_STORAGE_KEY, loadAiSettings, normalizeAiSettings, saveAiSettings } from '../src/client/settings/aiSettings.ts'
+import { AI_STORAGE_KEY, loadAiSettings, normalizeAiSettings, saveAiSettings, type AiSettings } from '../src/client/settings/aiSettings.ts'
 
 /** jsdom 全局下的 Tauri IPC stub:按命令返回 map 里的值。 */
 function stubTauriInternals(handlers: Record<string, (args?: unknown) => unknown>): () => void {
@@ -100,13 +100,14 @@ describe('services extra branches', () => {
 
 describe('aiSettings extra branches', () => {
   it('recovers non-boolean memory flags and drops whitelist fields', () => {
-    const settings = normalizeAiSettings({
-      commandWhitelist: 'nope' as never,
+    const legacyRaw = {
+      commandWhitelist: 'nope',
       commandWhitelistVersion: 3,
-      memoryEnabled: 'x' as never,
-      memoryWriteNeedsConfirm: 'x' as never,
-      memoryAutoReview: 'x' as never,
-    })
+      memoryEnabled: 'x',
+      memoryWriteNeedsConfirm: 'x',
+      memoryAutoReview: 'x',
+    } as unknown as Partial<AiSettings>
+    const settings = normalizeAiSettings(legacyRaw)
     expect('commandWhitelist' in settings).toBe(false)
     expect('commandWhitelistVersion' in settings).toBe(false)
     expect(settings.memoryEnabled).toBe(true)

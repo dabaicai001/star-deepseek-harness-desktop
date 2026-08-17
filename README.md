@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · Excel 工具 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.79.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.79.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -118,6 +118,9 @@
 ---
 
 ## 当前版本
+
+### v0.79.2 (2026-08-17)
+- 🐛 **CI 全量类型检查失败(白名单移除的 vendor 侧遗留)**:aiSettings.ts 的 legacy 字段删除断言用双转换(`as unknown as Record<string, unknown>`);测试用例的 legacy 字段对象改 `as unknown as Partial<AiSettings>` 并补 `AiSettings` 类型导入——`pnpm run build`(vendor 全量 tsc + tsdown)恢复绿
 
 ### v0.79.0 (2026-08-17)
 - ✨ **内嵌 AI 助手全面迁移到 deepseek-harness(用户要求「全面拥抱 deepseek harness」)**:SSH/数据库/Redis/ES/Docker/Excel 六个宿主面板的 AI 助手统一走 dsh 运行时——会话由 dsh 事件内核驱动,消息经事件投影渲染,子代理/待办/工具结果/用量全部进投影块;域工具(ssh/sftp/db/redis/es/docker/excel/mcp/skill_save)经 `dsh://tool-exec` 桥回前端面板执行(复用既有连接与凭证逻辑,Excel 作用于当前工作簿),全局工具(list_capabilities/list_assets/session_search/memory)在 Rust 主进程执行;新聊天面板 AiDshChat(消息右键复制、历史存档弹窗重命名/删除/复制标题、确认 dock 只有「批准/拒绝」)

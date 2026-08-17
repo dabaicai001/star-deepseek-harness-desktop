@@ -42,8 +42,9 @@ export function normalizeAiSettings(raw: Partial<AiSettings> | null | undefined)
     ...(raw ?? {}),
   }
   // 旧版白名单字段随「统一走 deepseek-harness 权限体系」移除,写回时不再保留
-  delete (next as Record<string, unknown>).commandWhitelist
-  delete (next as Record<string, unknown>).commandWhitelistVersion
+  const legacy = next as unknown as Record<string, unknown>
+  delete legacy.commandWhitelist
+  delete legacy.commandWhitelistVersion
   if (typeof next.memoryStoreToolOutputs !== 'boolean') next.memoryStoreToolOutputs = false
   if (typeof next.memoryEnabled !== 'boolean') next.memoryEnabled = true
   if (typeof next.memoryWriteNeedsConfirm !== 'boolean') next.memoryWriteNeedsConfirm = false

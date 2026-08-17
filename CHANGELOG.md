@@ -14,6 +14,11 @@
 
 ---
 
+## [0.79.2] - 2026-08-17
+
+### 修复
+- **CI 全量类型检查失败(白名单移除的 vendor 侧遗留)**:aiSettings.ts 的 legacy 字段删除断言用双转换(`as unknown as Record<string, unknown>`);测试用例的 legacy 字段对象改 `as unknown as Partial<AiSettings>` 并补 `AiSettings` 类型导入——`pnpm run build`(vendor 全量 tsc + tsdown)恢复绿
+
 ## [0.79.0] - 2026-08-17
 
 ### 新增
