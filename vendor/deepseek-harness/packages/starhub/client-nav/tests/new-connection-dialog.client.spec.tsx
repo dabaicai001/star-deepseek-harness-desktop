@@ -642,7 +642,7 @@ describe('NewConnectionDialog test connection', () => {
 
   it('drives the kb-interactive prompt and auto-accepts the hostkey during an mfa test', async () => {
     const pending = deferred<{ ok: boolean; message: string }>()
-    const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = []
+    const calls: Array<{ cmd: string; args: Record<string, unknown> | undefined }> = []
     const stub = stubFullInternals({
       test_ssh_connection: (args) => {
         calls.push({ cmd: 'test_ssh_connection', args })
@@ -716,13 +716,13 @@ describe('NewConnectionDialog test connection', () => {
   })
 
   it('tests mysql / postgres / redis / elasticsearch with per-type commands', async () => {
-    const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = []
+    const calls: Array<{ cmd: string; args: Record<string, unknown> | undefined }> = []
     const restore = stubTauriInternals({
       // mysql 不带 message → 缺省「连接成功」文案
-      db_mysql_test: (args) => { calls.push({ cmd: 'db_mysql_test', args }); return { ok: true } },
-      db_postgres_test: (args) => { calls.push({ cmd: 'db_postgres_test', args }); return { ok: true, message: 'OK' } },
-      db_redis_test: (args) => { calls.push({ cmd: 'db_redis_test', args }); return { ok: true, message: 'OK' } },
-      db_es_test: (args) => { calls.push({ cmd: 'db_es_test', args }); return { ok: true, message: 'OK' } },
+      db_mysql_test: (args) => { calls.push({ cmd: 'db_mysql_test', args: args as Record<string, unknown> | undefined }); return { ok: true } },
+      db_postgres_test: (args) => { calls.push({ cmd: 'db_postgres_test', args: args as Record<string, unknown> | undefined }); return { ok: true, message: 'OK' } },
+      db_redis_test: (args) => { calls.push({ cmd: 'db_redis_test', args: args as Record<string, unknown> | undefined }); return { ok: true, message: 'OK' } },
+      db_es_test: (args) => { calls.push({ cmd: 'db_es_test', args: args as Record<string, unknown> | undefined }); return { ok: true, message: 'OK' } },
     })
     try {
       const view = render(<NewConnectionDialog asset={null} onClose={() => {}} onSaved={() => {}} />)
@@ -775,10 +775,10 @@ describe('NewConnectionDialog test connection', () => {
   })
 
   it('tests kafka / nsq through broker_test and docker through docker_test', async () => {
-    const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = []
+    const calls: Array<{ cmd: string; args: Record<string, unknown> | undefined }> = []
     const restore = stubTauriInternals({
-      broker_test: (args) => { calls.push({ cmd: 'broker_test', args }); return { ok: true, message: 'OK' } },
-      docker_test: (args) => { calls.push({ cmd: 'docker_test', args }); return { ok: true, message: 'OK' } },
+      broker_test: (args) => { calls.push({ cmd: 'broker_test', args: args as Record<string, unknown> | undefined }); return { ok: true, message: 'OK' } },
+      docker_test: (args) => { calls.push({ cmd: 'docker_test', args: args as Record<string, unknown> | undefined }); return { ok: true, message: 'OK' } },
     })
     try {
       const view = render(<NewConnectionDialog asset={null} onClose={() => {}} onSaved={() => {}} />)
