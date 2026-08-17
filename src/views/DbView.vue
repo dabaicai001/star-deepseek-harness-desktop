@@ -29,6 +29,16 @@ import NewTableDialog from '@/components/db/NewTableDialog.vue'
 import { addHistory } from '@/utils/sqlHistory'
 import * as dbService from '@/services/db'
 import { logAudit } from '@/services/audit'
+import {
+  askAi,
+  isAiEvent,
+  isEventForAsset,
+  isTauriRuntime,
+  listenDomainEvent,
+  normalizeSummary,
+  reportDomainEvent,
+} from '@/services/linkage'
+import { isReadOnlySql } from '@/utils/commandGuard'
 import type { AssetConfig } from '@/types/asset'
 import type { TableInfo, ColumnMeta, QueryResult } from '@/types/db'
 
@@ -55,6 +65,10 @@ const assetId = computed(() => parseInstanceId(_frozenInstanceId).assetId)
 const asset = computed(() => assetStore.assets.find(a => a.id === assetId.value))
 /** 连接上下文头部桥的停止函数(方案 3.1) */
 let stopEmbedConnBridge: (() => void) | null = null
+/** `starhub://domain-event` 订阅(契约 §7.2:按 assetId 过滤,只处理 origin=ai) */
+let unlistenDomainEvent: (() => void) | null = null
+/** 非 Tauri 环境隐藏「问 AI」入口(契约 §7.1) */
+const askAiAvailable = isTauriRuntime()
 
 const isClickhouse = computed(() => asset.value?.config.dbType === 'clickhouse')
 
@@ -1555,6 +1569,7 @@ async function executeSql(sql: string) {
     } finally {
       editorTab.loading = false
       isExecutingAny.value = subTabs.value.some(t => (t.kind === 'sql' || t.kind === 'sql-editor') && t.loading)
+      reportQueryEvent(sql, db, editorTab.result, startedAt)
     }
     return
   }
@@ -1607,6 +1622,142 @@ async function executeSql(sql: string) {
   } finally {
     tab.loading = false
     isExecutingAny.value = subTabs.value.some(t => (t.kind === 'sql' || t.kind === 'sql-editor') && t.loading)
+    reportQueryEvent(sql, selectedDb.value || undefined, tab.result, startedAt)
+  }
+}
+
+// ====== 联动:「问 AI」入口 + 领域事件(契约 §7) ======
+
+/** 上报 db.query_executed 用户起源事件(契约 §7.3;summary 单行 ≤200 字符,失败静默) */
+function reportQueryEvent(sql: string, db: string | undefined, result: QueryResult | null, startedAt: number) {
+  const summary = normalizeSummary(sql)
+  if (!summary) return
+  void reportDomainEvent({
+    kind: 'db.query_executed',
+    assetId: asset.value?.id,
+    ts: Math.floor(Date.now() / 1000),
+    summary,
+    data: {
+      database: db ?? null,
+      rowCount: result?.rows.length ?? 0,
+      rowsAffected: result?.rowsAffected ?? 0,
+      durationMs: result?.durationMs ?? Math.max(0, Date.now() - startedAt),
+      isSelect: result?.isSelect ?? false,
+      error: result?.error ?? null,
+    },
+  })
+}
+
+/** 上报 db.table_opened 用户起源事件(契约 §7.3) */
+function reportTableOpened(db: string, table: string) {
+  void reportDomainEvent({
+    kind: 'db.table_opened',
+    assetId: asset.value?.id,
+    ts: Math.floor(Date.now() / 1000),
+    summary: normalizeSummary(`打开表 ${db}.${table}`),
+    data: { database: db, table },
+  })
+}
+
+/** 收集「问 AI」上下文:当前激活 tab(表 / SQL 结果)+ 最近报错 */
+function collectAiContext(): string {
+  const parts: string[] = []
+  const tableTab = activeTableTab.value
+  if (tableTab && connId.value) {
+    parts.push(`当前查看表: ${tableTab.db}.${tableTab.table}`)
+    if (tableTab.whereClause) parts.push(`WHERE 过滤: ${tableTab.whereClause}`)
+    if (Object.keys(tableTab.columnFilters).length > 0) {
+      parts.push(`列过滤: ${JSON.stringify(tableTab.columnFilters)}`)
+    }
+    parts.push(`当前页 ${tableTab.data?.rows.length ?? 0} 行,共 ${tableTab.dataTotal} 行`)
+  }
+  const editorTab = activeSqlEditorTab.value
+  if (editorTab) {
+    if (editorTab.lastSql) parts.push(`最近执行的 SQL: ${editorTab.lastSql}`)
+    const r = editorTab.result
+    if (r?.error) {
+      parts.push(`SQL 错误: ${r.error}`)
+    } else if (r) {
+      parts.push(`SQL 结果: ${r.rows.length} 行`)
+    } else if (editorTab.sqlText.trim()) {
+      parts.push(`编辑器 SQL: ${editorTab.sqlText.trim().slice(0, 500)}`)
+    }
+  } else {
+    const sqlTab = activeSqlTab.value
+    if (sqlTab) {
+      parts.push(`SQL: ${sqlTab.sql}`)
+      if (sqlTab.result?.error) parts.push(`SQL 错误: ${sqlTab.result.error}`)
+      else if (sqlTab.result) parts.push(`SQL 结果: ${sqlTab.result.rows.length} 行`)
+    }
+  }
+  // 最近报错(通知历史兜底,优先带错误详情)
+  const recentError = notify.history.find(h => h.color === 'error')
+  if (recentError) parts.push(`最近报错: ${recentError.message}`)
+  return parts.join('\n')
+}
+
+/** 「问 AI」入口:把当前选中行 / 最近报错等上下文发到壳内 AI 会话 */
+async function askAiFromDb() {
+  const text = collectAiContext()
+  if (!text) {
+    notify.notify({ message: t('linkage.askAiNoContext'), color: 'warning', timeout: 3000 })
+    return
+  }
+  const ok = await askAi({ text, assetId: asset.value?.id, assetName: asset.value?.name })
+  if (ok) {
+    notify.notify({ message: t('linkage.askAiSent'), color: 'success', timeout: 3000 })
+  } else {
+    notify.notify({ message: t('linkage.askAiFailed'), color: 'error', timeout: 5000 })
+  }
+}
+
+/**
+ * 契约 §7.2:AI 执行 db.query_executed 后自动刷新当前结果网格。
+ * 写语句(INSERT/UPDATE/DELETE/DDL)不自动重放,只刷新表数据视图;
+ * SQL 结果 tab 仅当最近 SQL 为只读时原地重跑。
+ */
+function refreshGridAfterAiEvent() {
+  if (!connId.value) return
+  const tableTab = activeTableTab.value
+  if (tableTab) {
+    void loadTableDataFor(tableTab, true)
+    return
+  }
+  const editorTab = activeSqlEditorTab.value
+  if (editorTab && editorTab.lastSql && isReadOnlySql(editorTab.lastSql)) {
+    editorTab.dataPage = 0
+    void executeSql(editorTab.lastSql)
+    return
+  }
+  const sqlTab = activeSqlTab.value
+  if (sqlTab && sqlTab.sql && isReadOnlySql(sqlTab.sql)) {
+    // 原地重跑(executeSql 在无编辑器 tab 时会新建,这里直接刷新当前 tab)
+    const db = selectedDb.value || undefined
+    sqlTab.loading = true
+    const startedAt = Date.now()
+    void (async () => {
+      try {
+        const result = isClickhouse.value
+          ? await dbService.clickhouseExecute(connId.value!, sqlTab.sql, db)
+          : await dbService.mysqlExecute(connId.value!, sqlTab.sql, db)
+        sqlTab.result = result
+        sqlTab.error = Boolean(result?.error)
+        logAudit({ category: 'db', action: 'execute_sql', target: sqlTab.sql.slice(0, 120), detail: sqlAuditDetail(sqlTab.sql, startedAt, { database: db, result }), sessionId: connId.value, assetId: asset.value?.id, success: !result?.error })
+      } catch (err: unknown) {
+        sqlTab.error = true
+        sqlTab.result = {
+          columns: [],
+          rows: [],
+          rowsAffected: 0,
+          durationMs: 0,
+          isSelect: true,
+          error: err instanceof Error ? err.message : String(err)
+        }
+      } finally {
+        sqlTab.loading = false
+        reportQueryEvent(sqlTab.sql, db, sqlTab.result, startedAt)
+      }
+    })()
   }
 }
 

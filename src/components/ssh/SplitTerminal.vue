@@ -215,6 +215,11 @@ function readActiveCursorLine(): string {
   return getActivePane()?.readCursorLine() ?? ''
 }
 
+/** 读取活动 pane 的终端选区文本(「问 AI」上下文收集用);无选区返回空串。 */
+function getSelection(): string {
+  return getActivePane()?.getSelection() ?? ''
+}
+
 // ====== 拖拽分隔条 ======
 
 const draggingDivider = ref<number | null>(null)
@@ -304,7 +309,8 @@ defineExpose({
   closePane,
   closeActivePane,
   paneCount,
-  readActiveCursorLine
+  readActiveCursorLine,
+  getSelection
 })
 </script>
 

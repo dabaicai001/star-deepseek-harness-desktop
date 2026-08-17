@@ -25,13 +25,18 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: the connection service merge (ctx.get('connection') typing).
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ISessions, IWorkspaces } from '@deepseek-ai/dsh-client-runtime/client'
+import type { InputTriggerServiceContract } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import { createStarHubAssetSource } from './asset-source.ts'
+import { createAskAiHandler, createOpenAssetHandler, subscribeHostEvents } from './host-events.ts'
 import {
   createConnectionManagerOverlay, createSshTerminalOverlay, createStarHubAssets, createStarHubNavStore,
   createToolSelectionBridge,
 } from './store.ts'
 import { assetInstanceUrl, STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
-import { openNewPage } from './tauri.ts'
+import { focusWindowByKey, openNewPage } from './tauri.ts'
 import { StarHubNav } from './StarHubNav.tsx'
 import { StarHubOverlay } from './StarHubOverlay.tsx'
 import { StarHubToolWorkspace } from './StarHubToolWorkspace.tsx'
@@ -41,8 +46,12 @@ import { AlertTab } from './settings/alert.tsx'
 import { AuditTab } from './settings/audit.tsx'
 import { PluginsTab } from './settings/plugins.tsx'
 
-/** Required services: the slot registry, the layout panel-action face, and the connection wire. */
-export const inject = ['slots', 'layout', 'connection']
+/**
+ * Required services: the slot registry, the layout panel-action face, the
+ * connection wire, the input-trigger pipeline (for the `@` source) and the
+ * session/workspace/conversation services (for `starhub://ask-ai`).
+ */
+export const inject = ['slots', 'layout', 'connection', 'inputTriggers', 'sessions', 'workspaces', 'conversation']
 
 /**
  * Client plugin body: one root-scope store handle (sidebar) plus the
@@ -61,6 +70,12 @@ export function apply(ctx: Context): void {
   const selection = createToolSelectionBridge()
   const connectionManager = createConnectionManagerOverlay()
   const sshTerminal = createSshTerminalOverlay()
+  // 服务面:注入数组已声明依赖,读取必然非空;conversation 在预填时退化处理。
+  const connection = ctx.get('connection') as ConnectionHandle
+  const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract
+  const sessions = ctx.get('sessions') as ISessions
+  const workspaces = ctx.get('workspaces') as IWorkspaces
+  const conversation = ctx.get('conversation') as IConversation | undefined
   /** 打开资产实例操作页:记录选择桥(供 AI 工具上下文)+ 新开独立窗口/标签页。 */
   const openAssetPage = (asset: StarHubAsset): void => {
     selection.openAsset(asset)
@@ -71,7 +86,8 @@ export function apply(ctx: Context): void {
     }
     const sel = selection.source.getSnapshot()
     if (sel.routePrefix === null || sel.instanceId === null) return
-    openNewPage(assetInstanceUrl(sel.routePrefix, sel.instanceId), asset.name)
+    // 窗口 label 携带资产 id 作为 key,供 starhub://open-asset 的 focus 复用。
+    openNewPage(assetInstanceUrl(sel.routePrefix, sel.instanceId), asset.name, asset.id)
       // 开窗失败(如 IPC 未授权)打日志,不阻断主壳交互
       .catch((e: unknown) => { console.error('打开资产页面失败:', e) })
   }
@@ -120,7 +136,7 @@ export function apply(ctx: Context): void {
   const workspaceInject = () => ({
     // The connection wire face for syncing the current tool context to
     // host settings (Path B plan 4.3).
-    api: (ctx.get('connection') as ConnectionHandle).api,
+    api: connection.api,
     openAsset: openAssetPage,
     refreshAssets: assets.refresh,
     openConnectionManager: connectionManager.open,
@@ -136,6 +152,29 @@ export function apply(ctx: Context): void {
     name: 'details.workspace',
     inject: workspaceInject,
   }, StarHubToolWorkspace))
+  // 契约 §6.1:`@` 资产 source(ui-input-trigger 流水线);pick 轻绑定上下文,
+  // 不切窗口。ctx.effect 保证 HMR 卸载时反注册 source。
+  ctx.effect(
+    () => inputTriggers.registerSource(createStarHubAssetSource({ api: connection.api, assets, selection })),
+    'starhub: @ asset source',
+  )
+  // 契约 §6.2-6.3:监听 Tauri 宿主事件(open-asset / ask-ai);订阅经
+  // ctx.effect 注册,dispose 卸载监听(HMR 安全)。
+  ctx.effect(() => subscribeHostEvents({
+    onOpenAsset: createOpenAssetHandler({
+      assets,
+      sshTerminal,
+      openAssetPage,
+      focusWindow: focusWindowByKey,
+    }),
+    onAskAi: createAskAiHandler({
+      api: connection.api,
+      selection,
+      sessions,
+      workspaces,
+      conversation,
+    }),
+  }), 'starhub: tauri host events')
   // 设置融入底部设置齿轮:dsh 设置面板侧栏的 StarHub 可展开分组(点击
   // 分组头展开/收起,点子项右侧直渲对应 tab——两列,无内部嵌套列)。
   // group='starhub' 由 ui-settings-general 的 SettingsRoot 渲染为折叠分组;

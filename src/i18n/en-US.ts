@@ -585,5 +585,12 @@ export default {
     copyFailed: 'Copy failed',
     runCommand: 'Run',
     runCommandTip: 'Run this command in the terminal'
+ },
+  linkage: {
+    askAi: 'Ask AI',
+    askAiNoContext: 'Nothing to send (select some text / a row / a file, or wait for an error)',
+    askAiSent: 'Sent to AI assistant',
+    askAiFailed: 'Failed to send — make sure the deepseek-harness host is attached',
+    aiExecuted: 'AI executed {summary}'
  }
 }

@@ -72,6 +72,17 @@ export async function tauriListen<T>(
 }
 
 /**
+ * Window-label prefix for one keyed StarHub page (`starhub-page-<key>-`).
+ * The key (asset id for asset pages) lets `starhub://open-asset` focus an
+ * already-opened window by scanning `plugin:webview|get_all_webviews`.
+ * @param key - stable page identity (e.g. the asset id).
+ * @returns the label prefix; the full label appends a timestamp.
+ */
+export function starhubPageLabelPrefix(key: string): string {
+  return `starhub-page-${key}-`
+}
+
+/**
  * Open a StarHub page in a NEW window instead of overlaying the dsh shell.
  * Desktop: a real Tauri webview window (label must match the capability
  * glob `starhub-*` so the embed page inside keeps its IPC grants). Browser
@@ -80,11 +91,14 @@ export async function tauriListen<T>(
  * an absolute URL, so it is resolved against the current origin.
  * @param path - same-origin page path (absolute path, not full URL).
  * @param title - new window title (asset name).
+ * @param key - optional stable identity embedded in the window label so a
+ *   later `starhub://open-asset` focus can find this window; omit for pages
+ *   with no focus semantics (e.g. subcategory section pages).
  * @returns after the window/tab has been requested.
  * @throws when the desktop window creation IPC fails (no silent fallback —
  *   a failed open must surface, not quietly do nothing).
  */
-export async function openNewPage(path: string, title: string): Promise<void> {
+export async function openNewPage(path: string, title: string, key?: string): Promise<void> {
   const internals = (window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__
   if (internals === undefined) {
     window.open(path, '_blank', 'noopener')
@@ -92,7 +106,7 @@ export async function openNewPage(path: string, title: string): Promise<void> {
   }
   await internals.invoke('plugin:webview|create_webview_window', {
     options: {
-      label: `starhub-page-${Date.now()}`,
+      label: key === undefined ? `starhub-page-${Date.now()}` : `${starhubPageLabelPrefix(key)}${Date.now()}`,
       url: new URL(path, window.location.origin).toString(),
       title,
       width: 1280,
@@ -100,4 +114,30 @@ export async function openNewPage(path: string, title: string): Promise<void> {
       center: true,
     },
   })
+}
+
+/**
+ * Focus an already-opened keyed StarHub window, best-effort. Scans the live
+ * webview registry for a label matching `starhub-page-<key>-` and raises its
+ * window (`plugin:window|set_focus`); any IPC failure or a missing window
+ * reports false so the caller falls back to opening the page.
+ * @param key - the page identity embedded at open time (asset id).
+ * @returns true when a matching window was focused; false in preview, when
+ *   no window matches, or when the focus IPC fails.
+ */
+export async function focusWindowByKey(key: string): Promise<boolean> {
+  const internals = (window as unknown as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__
+  if (internals === undefined) return false
+  try {
+    const webviews = await internals.invoke('plugin:webview|get_all_webviews') as unknown
+    const match = (webviews as ReadonlyArray<{ label: string; windowLabel: string }>)
+      .find(w => w.label.startsWith(starhubPageLabelPrefix(key)))
+    if (match === undefined) return false
+    await internals.invoke('plugin:window|set_focus', { label: match.windowLabel })
+    return true
+  } catch {
+    // IPC 失败(如能力缺失/窗口已关):按「无可聚焦窗口」处理,由调用方
+    // 回退打开页面——聚焦是尽力而为,失败不吞掉打开动作。
+    return false
+  }
 }

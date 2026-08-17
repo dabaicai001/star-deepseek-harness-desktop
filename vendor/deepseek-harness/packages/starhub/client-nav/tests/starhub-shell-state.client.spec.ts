@@ -14,7 +14,7 @@ import {
   type StarHubAsset,
 } from '../src/client/sections.ts'
 import {
-  createConnectionManagerOverlay, createStarHubAssets, createToolSelectionBridge,
+  createConnectionManagerOverlay, createSshTerminalOverlay, createStarHubAssets, createToolSelectionBridge,
 } from '../src/client/store.ts'
 
 /** 构造一个最小资产(只带匹配所需的字段)。 */
@@ -224,6 +224,21 @@ describe('createConnectionManagerOverlay', () => {
     expect(overlay.source.getSnapshot()).toEqual({ open: false, asset: null })
     overlay.open()
     expect(overlay.source.getSnapshot()).toEqual({ open: true, asset: null })
+    const target = {
+      id: 'a1', type: 'ssh', name: 'web-1', group_id: null, config: { host: 'h' },
+      key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
+    }
+    overlay.open(target)
+    expect(overlay.source.getSnapshot()).toEqual({ open: true, asset: target })
+    overlay.close()
+    expect(overlay.source.getSnapshot()).toEqual({ open: false, asset: null })
+  })
+})
+
+describe('createSshTerminalOverlay', () => {
+  it('opens with the target asset and closes back to the empty state', () => {
+    const overlay = createSshTerminalOverlay()
+    expect(overlay.source.getSnapshot()).toEqual({ open: false, asset: null })
     const target = {
       id: 'a1', type: 'ssh', name: 'web-1', group_id: null, config: { host: 'h' },
       key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,

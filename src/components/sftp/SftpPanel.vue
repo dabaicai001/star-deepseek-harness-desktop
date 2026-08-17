@@ -13,6 +13,13 @@ import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import { useTransferStore } from '@/stores/transfer'
 import { logAudit } from '@/services/audit'
+import {
+  askAi,
+  isAiEvent,
+  isEventForAsset,
+  isTauriRuntime,
+  listenDomainEvent,
+} from '@/services/linkage'
 
 const { t } = useI18n()
 
@@ -46,12 +53,59 @@ const connected = ref(false)
 const connecting = ref(false)
 const lastError = ref<string | null>(null)
 let unlistenClose: UnlistenFn | null = null
+/** `starhub://domain-event` 订阅(契约 §7.2:按 assetId 过滤,只处理 origin=ai) */
+let unlistenDomainEvent: UnlistenFn | null = null
 let currentConnectId = 0
 let ownsSession = true
 
 // SFTP 专用 session ID（与 SSH terminal 的 session 完全独立）
 // onMounted 时生成一次，生命周期内不变
 let sftpSessionId: string | null = null
+
+/** 非 Tauri 环境隐藏「问 AI」入口(契约 §7.1) */
+const askAiAvailable = isTauriRuntime()
+
+// ====== 联动:「问 AI」入口 + 领域事件(契约 §7) ======
+
+/** 收集「问 AI」上下文:选中文件路径 / 当前目录,或最近传输错误 */
+function collectAiContext(): string {
+  const parts: string[] = []
+  if (selectedPaths.value.size > 0) {
+    parts.push(`选中的文件: ${[...selectedPaths.value].join(', ')}`)
+  }
+  if (currentPath.value) {
+    parts.push(`当前目录: ${currentPath.value}`)
+  }
+  // 最近传输错误(全局任务条历史兜底)
+  const failed = [...transferStore.tasks.values()]
+    .filter(t => t.status === 'failed' && t.error)
+    .sort((a, b) => (b.finishTime ?? b.startTime) - (a.finishTime ?? a.startTime))
+  const recentFailed = failed[0]
+  if (recentFailed?.error) {
+    parts.push(`最近传输错误: ${recentFailed.error}`)
+  }
+  return parts.join('\n')
+}
+
+/** 「问 AI」入口:把选中文件 / 报错上下文发到壳内 AI 会话 */
+async function askAiFromSftp() {
+  const text = collectAiContext()
+  if (!text) {
+    notify.notify({ message: t('linkage.askAiNoContext'), color: 'warning', timeout: 3000 })
+    return
+  }
+  const ok = await askAi({ text, assetId: props.assetId, assetName: asset.value?.name })
+  if (ok) {
+    notify.notify({ message: t('linkage.askAiSent'), color: 'success', timeout: 3000 })
+  } else {
+    notify.notify({ message: t('linkage.askAiFailed'), color: 'error', timeout: 5000 })
+  }
+}
+
+/** 契约 §7.2:AI 完成 sftp.transfer_completed → 刷新当前目录列表 */
+function refreshAfterAiTransfer() {
+  if (connected.value) void loadDir(currentPath.value)
+}
 
 const statusKind = computed<'connecting' | 'online' | 'offline' | 'error'>(() => {
   if (connecting.value) return 'connecting'
@@ -607,10 +661,22 @@ onMounted(async () => {
       }
     }
   })
+
+  // 联动契约 §7.2:监听 `starhub://domain-event`,按本面板 assetId 过滤、
+  // 只处理 origin=ai 的 sftp.transfer_completed → 刷新当前目录列表
+  if (askAiAvailable) {
+    void listenDomainEvent((event) => {
+      if (!isAiEvent(event) || !isEventForAsset(event, props.assetId)) return
+      if (event.kind !== 'sftp.transfer_completed') return
+      refreshAfterAiTransfer()
+    }).then((un) => { unlistenDomainEvent = un })
+  }
 })
 
 onBeforeUnmount(async () => {
   unlistenDragDrop?.()
+  unlistenDomainEvent?.()
+  unlistenDomainEvent = null
   await disconnect()
 })
 
@@ -690,6 +756,10 @@ watch(() => [props.assetId, props.sessionId, props.sshConnected], async ([newId,
           <v-icon size="14">mdi-pencil-outline</v-icon>
         </button>
         <div class="tb-separator" />
+        <!-- 联动:「问 AI」入口(契约 §7.1;非 Tauri 环境隐藏) -->
+        <button v-if="askAiAvailable" class="tb-btn" :title="t('linkage.askAi')" :aria-label="t('linkage.askAi')" @click="askAiFromSftp">
+          <v-icon size="14">mdi-robot-outline</v-icon>
+        </button>
         <button class="tb-btn" :title="t('sftp.transfers')" @click="transferStore.toggleExpanded()">
           <v-icon size="14">mdi-progress-download</v-icon>
         </button>
