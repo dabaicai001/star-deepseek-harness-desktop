@@ -14,6 +14,14 @@
 
 ---
 
+## [0.83.1] - 2026-08-18
+
+### 已完成(待升版)
+- **SSH/SFTP 接上 SFTP 跟随终端**:React 终端上报 cwd(OSC7/pwd 解析 + 懒注入),SftpPanel 跟随加载
+  - 新增 `terminal-cwd.ts`(extractOsc7Cwd/parsePwdOutput/OSC7_INJECT_COMMAND/isShellPromptLine/createHiddenEchoFilter/createCwdTracker)
+  - SshTerminalOverlay:`ssh:data` 解析 cwd + `ssh_exec('pwd')` 初始化 + prompt 后懒注入 OSC7,透传 sshCwd/onFollowTerminal
+  - SftpPanel:`onFollowTerminal` 回调 + 跟随按钮启用(不再置灰),跟随 cwd 自动 loadDir
+
 ## [0.83.0] - 2026-08-18
 
 ### 已完成(待升版)

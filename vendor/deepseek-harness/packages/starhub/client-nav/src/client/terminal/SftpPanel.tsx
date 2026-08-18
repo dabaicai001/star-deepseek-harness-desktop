@@ -34,6 +34,8 @@ export interface SftpPanelProps {
   sshConnected: boolean
   /** Terminal current working dir for the follow-terminal toggle. */
   sshCwd?: string
+  /** Fired when the follow-terminal toggle flips; enables OSC 7 injection. */
+  onFollowTerminal?: (enabled: boolean) => void
 }
 
 const FOLLOW_TERMINAL_KEY = 'starhub.sftp.followTerminal'
@@ -68,7 +70,7 @@ async function pickPath(kind: 'file' | 'folder' | 'files'): Promise<string[] | n
  * @param props - asset, live terminal session id, connected state and cwd.
  * @returns the SFTP panel markup.
  */
-export function SftpPanel({ asset, sessionId, sshConnected, sshCwd }: SftpPanelProps) {
+export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerminal }: SftpPanelProps) {
   const [connected, setConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -217,6 +219,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd }: SftpPanelP
     const next = !followTerminal
     setFollowTerminal(next)
     try { localStorage.setItem(FOLLOW_TERMINAL_KEY, String(next)) } catch { /* ignore */ }
+    onFollowTerminal?.(next)
     if (next && sshCwd !== undefined && sshCwd !== '' && sshCwd !== path && connectedRef.current) {
       void loadDir(sshCwd)
     }
@@ -365,7 +368,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd }: SftpPanelP
             <button type="button" className={css.tbBtn} title="下载" disabled={selected.size === 0} onClick={() => void download(null, null)}>↓</button>
             <button type="button" className={css.tbBtn} title="新建文件夹" onClick={newFolder}>＋</button>
             <span className={css.sep} />
-            <button type="button" className={`${css.tbBtn} ${followTerminal ? css.active : ''}`} title="跟随终端路径" disabled={sshCwd === undefined} onClick={toggleFollow}>⌁</button>
+            <button type="button" className={`${css.tbBtn} ${followTerminal ? css.active : ''}`} title="跟随终端路径" disabled={!sshConnected} onClick={toggleFollow}>⌁</button>
             <button type="button" className={css.tbBtn} title="编辑路径" onClick={() => { setPathInput(path); setPathEditing(true) }}>✎</button>
             <span className={css.sep} />
             <button type="button" className={css.tbBtn} title="传输任务" onClick={() => setShowTransfers(v => !v)}>⟲</button>

@@ -4,8 +4,13 @@
  * Opened in-page (no new window) when an SSH asset is clicked. Owns one xterm
  * instance connected via the StarHub interactive SSH session, and exposes a
  * second tab with the native SFTP file-transfer panel that reuses the same live
- * session (`sftp_ensure_session` opens the channel on it). SSH terminal and
- * SFTP inherently share one connection, so they ride the same overlay.
+ * session. SSH terminal and SFTP inherently share one connection, so they ride
+ * the same overlay.
+ *
+ * cwd tracking (SFTP「跟随终端」): the terminal tracks the remote cwd from the
+ * PTY stream (OSC 7 + `pwd` fallback) and lazily injects an OSC 7 hook into the
+ * running shell once follow is enabled and a prompt is seen, so `cd` reports
+ * cwd live. The tracked `sshCwd` is handed to the SFTP panel for follow-nav.
  *
  * @module StarHub SSH/SFTP overlay (client)
  */
@@ -16,6 +21,9 @@ import '@xterm/xterm/css/xterm.css'
 import { tauriInvoke, tauriListen, type TauriUnlisten } from '../tauri.ts'
 import type { RustAsset } from '../store.ts'
 import { SftpPanel } from './SftpPanel.tsx'
+import {
+  OSC7_INJECT_COMMAND, OSC7_INJECT_ECHO_TEXT, createCwdTracker, createHiddenEchoFilter, isShellPromptLine, parsePwdOutput,
+} from './terminal-cwd.ts'
 import css from './SshTerminalOverlay.module.css'
 
 /** Props for one native SSH/SFTP terminal overlay. */
@@ -29,9 +37,8 @@ type OverlayTab = 'terminal' | 'sftp'
 /**
  * Build the Rust `SshAuth` variant from an asset config, mirroring the Vue
  * `buildAuth` (src/services/ssh.ts): password / private key / both, with the
- * usePasswordAuth / useKeyAuth flags; falls back to an empty password so the
- * connect still reaches the Rust auth negotiation.
- * @param config - the hydrated asset config (get_assets merges keyring secrets).
+ * usePasswordAuth / useKeyAuth flags.
+ * @param config - the hydrated asset config.
  * @returns the serde `SshAuth` tagged object.
  */
 function buildSshAuth(config: Record<string, unknown>): Record<string, unknown> {
@@ -49,9 +56,8 @@ function buildSshAuth(config: Record<string, unknown>): Record<string, unknown> 
 }
 
 /**
- * Render one xterm instance backed by a StarHub interactive SSH session.
- * The component owns the Tauri event subscriptions, resize observer, and
- * session cleanup for the selected asset.
+ * Render one xterm instance backed by a StarHub interactive SSH session, with
+ * cwd tracking for the SFTP follow-terminal flow.
  * @param props - selected SSH asset and overlay close callback.
  * @returns the native SSH/SFTP terminal overlay.
  */
@@ -60,6 +66,41 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
   const [error, setError] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
   const [tab, setTab] = useState<OverlayTab>('terminal')
+  const [sshCwd, setSshCwd] = useState('')
+
+  const sessionId = asset.id
+  // cwd / injection state shared between the effect and the follow callback.
+  const isConnectedRef = useRef(false)
+  const osc7InjectPendingRef = useRef(false)
+  const osc7InjectedRef = useRef(false)
+  const shellPromptSeenRef = useRef(false)
+  const cwdRef = useRef('')
+  const disposedRef = useRef(false)
+
+  const applyCwd = (next: string) => {
+    if (!next || next === cwdRef.current) return
+    cwdRef.current = next
+    if (!disposedRef.current) setSshCwd(next)
+  }
+
+  /** Lazily inject the OSC 7 hook after the shell reaches a prompt. */
+  const tryInjectOsc7 = () => {
+    if (!osc7InjectPendingRef.current || osc7InjectedRef.current || !isConnectedRef.current) return
+    osc7InjectPendingRef.current = false
+    osc7InjectedRef.current = true
+    void tauriInvoke('ssh_write', { id: sessionId, data: OSC7_INJECT_COMMAND }).catch(() => {
+      // allow a later retry on the next follow toggle
+      osc7InjectedRef.current = false
+      osc7InjectPendingRef.current = true
+    })
+  }
+
+  /** SFTP「跟随终端」toggle → request OSC 7 injection (once, after prompt). */
+  const onFollowTerminal = (enabled: boolean) => {
+    if (!enabled || osc7InjectedRef.current || disposedRef.current) return
+    osc7InjectPendingRef.current = true
+    if (shellPromptSeenRef.current) tryInjectOsc7()
+  }
 
   useEffect(() => {
     const term = new Terminal({
@@ -75,29 +116,60 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
       addon.fit()
     }
 
-    const sessionId = asset.id
     let disposed = false
-    let isConnected = false
+    disposedRef.current = false
     let resizeObserver: ResizeObserver | undefined
     let unlistenData: TauriUnlisten | undefined
     let unlistenClose: TauriUnlisten | undefined
+
+    const cwdTracker = createCwdTracker()
+    const decoder = new TextDecoder()
+    const hiddenEcho = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
+
     const input = term.onData((data) => {
-      if (isConnected) void tauriInvoke('ssh_write', { id: sessionId, data }).catch(() => {})
+      if (isConnectedRef.current) void tauriInvoke('ssh_write', { id: sessionId, data }).catch(() => {})
     })
 
     const resize = () => {
       addon.fit()
-      if (isConnected) void tauriInvoke('ssh_resize', { id: sessionId, cols: term.cols, rows: term.rows }).catch(() => {})
+      if (isConnectedRef.current) void tauriInvoke('ssh_resize', { id: sessionId, cols: term.cols, rows: term.rows }).catch(() => {})
+    }
+
+    /** Handle one decoded terminal chunk: render + track cwd + detect prompt. */
+    const handleChunk = (chunk: string) => {
+      if (!chunk) return
+      const visible = hiddenEcho(chunk)
+      if (visible) term.write(visible)
+      const next = cwdTracker.onChunk(chunk)
+      if (next !== null) applyCwd(next)
+      if (!shellPromptSeenRef.current) {
+        const lastLine = chunk.split('\n').pop() ?? ''
+        if (isShellPromptLine(lastLine.trimEnd())) shellPromptSeenRef.current = true
+      } else if (osc7InjectPendingRef.current) {
+        tryInjectOsc7()
+      }
+    }
+
+    /** Initialize cwd from a silent exec `pwd` (login dir) right after connect. */
+    const initCwdFromExec = async () => {
+      if (disposed) return
+      try {
+        const out = await tauriInvoke<string>('ssh_exec', { id: sessionId, command: 'pwd', timeoutSec: 5 })
+        const cwd = parsePwdOutput(out)
+        // OSC 7 may have reported a fresher dir; only fill when empty
+        if (cwd !== null && cwdRef.current === '') applyCwd(cwd)
+      } catch { /* fall back to later OSC 7 / pwd parsing */ }
     }
 
     const connect = async () => {
       try {
         [unlistenData, unlistenClose] = await Promise.all([
           tauriListen<number[]>(`ssh:data:${sessionId}`, (bytes) => {
-            if (!disposed) term.write(new Uint8Array(bytes))
+            term.write(new Uint8Array(bytes))
+            handleChunk(decoder.decode(new Uint8Array(bytes), { stream: true }))
           }),
           tauriListen<string>(`ssh:close:${sessionId}`, (reason) => {
-            isConnected = false
+            isConnectedRef.current = false
             setConnected(false)
             if (!disposed) term.writeln(`\r\n[连接已关闭: ${reason}]`)
           }),
@@ -120,12 +192,13 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
           void tauriInvoke('ssh_disconnect', { id: sessionId }).catch(() => {})
           return
         }
-        isConnected = true
+        isConnectedRef.current = true
         setConnected(true)
         resizeObserver = new ResizeObserver(resize)
         if (host.current !== null) resizeObserver.observe(host.current)
         resize()
         term.focus()
+        void initCwdFromExec()
       } catch (caught) {
         if (!disposed) setError(caught instanceof Error ? caught.message : String(caught))
       }
@@ -134,14 +207,18 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
     void connect()
     return () => {
       disposed = true
-      isConnected = false
+      disposedRef.current = true
+      isConnectedRef.current = false
       input.dispose()
       resizeObserver?.disconnect()
       void unlistenData?.()
       void unlistenClose?.()
+      const tail = decoder.decode()
+      if (tail) handleChunk(tail)
       void tauriInvoke('ssh_disconnect', { id: sessionId }).catch(() => {})
       term.dispose()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asset])
 
   return (
@@ -170,7 +247,13 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
           <div ref={host} className={css.terminal} />
         ) : (
           <div className={css.sftpHost}>
-            <SftpPanel asset={asset} sessionId={asset.id} sshConnected={connected} />
+            <SftpPanel
+              asset={asset}
+              sessionId={sessionId}
+              sshConnected={connected}
+              sshCwd={sshCwd}
+              onFollowTerminal={onFollowTerminal}
+            />
           </div>
         )}
       </section>
