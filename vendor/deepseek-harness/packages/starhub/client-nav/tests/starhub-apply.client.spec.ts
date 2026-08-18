@@ -142,25 +142,25 @@ describe('client-nav apply', () => {
     expect(overlay.hooks.sshTerminal.getSnapshot()).toEqual({ open: false, asset: null })
   })
 
-  it('opens a non-DB asset page in a new tab (preview) and no-ops on route-less types', () => {
+  it('opens a non-DB, non-SSH asset page in a new tab (preview) and no-ops on route-less types', () => {
     const { ctx, register } = fakeContext()
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
       applyPlugin(ctx)
       const injected = register.mock.calls[2]![0]!.inject()
-      const sshAsset = {
-        id: 's1', type: 'ssh', name: 'web-1', group_id: null,
+      const dockerAsset = {
+        id: 'd1', type: 'docker', name: 'docker-1', group_id: null,
         config: { host: 'h' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
       // local 资产:无功能路由 → openAsset 是 no-op,不开窗
-      injected.openAsset({ ...sshAsset, id: 'l1', type: 'local', config: {} })
+      injected.openAsset({ ...dockerAsset, id: 'l1', type: 'local', config: {} })
       expect(openSpy).not.toHaveBeenCalled()
-      // ssh 资产(非 db → 不走原生工作台):预览模式 → window.open 新标签页
-      injected.hooks.assets.set({ assets: [sshAsset], loading: false, error: null, preview: false })
-      injected.openAsset(sshAsset)
+      // docker 资产(非 db/非 ssh → 不走原生):预览模式 → window.open 新标签页
+      injected.hooks.assets.set({ assets: [dockerAsset], loading: false, error: null, preview: false })
+      injected.openAsset(dockerAsset)
       expect(openSpy).toHaveBeenCalledTimes(1)
-      expect(openSpy.mock.calls[0]![0]).toContain('route=%2Fssh')
+      expect(openSpy.mock.calls[0]![0]).toContain('route=%2Fdocker')
     } finally {
       openSpy.mockRestore()
     }
@@ -195,13 +195,13 @@ describe('client-nav apply', () => {
       const { ctx, register } = fakeContext()
       applyPlugin(ctx)
       const injected = register.mock.calls[2]![0]!.inject()
-      const sshAsset = {
-        id: 's1', type: 'ssh', name: 'web-1', group_id: null,
+      const dockerAsset = {
+        id: 'd1', type: 'docker', name: 'docker-1', group_id: null,
         config: { host: 'h' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
-      injected.hooks.assets.set({ assets: [sshAsset], loading: false, error: null, preview: false })
-      injected.openAsset(sshAsset)
+      injected.hooks.assets.set({ assets: [dockerAsset], loading: false, error: null, preview: false })
+      injected.openAsset(dockerAsset)
       await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledWith('打开资产页面失败:', expect.any(Error)))
     } finally {
       delete w.__TAURI_INTERNALS__
@@ -255,7 +255,7 @@ describe('client-nav apply', () => {
     expect(injected.hooks.assets.getSnapshot()).toHaveProperty('assets')
   })
 
-  it('workspace opens SSH assets in a new window like other assets', () => {
+  it('workspace opens SSH assets in the in-page overlay (terminal), not a new window', () => {
     const { ctx, register } = fakeContext()
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
@@ -269,12 +269,10 @@ describe('client-nav apply', () => {
       injected.openAsset(fullAsset)
       const sel = injected.hooks.selection.getSnapshot()
       expect(sel.assetId).toBe('a1')
-      expect(sel.routePrefix).toBe('/ssh')
-      expect(sel.instanceId).toMatch(/^a1__\d+$/)
       const overlay = register.mock.calls[1]![0]!.inject()
-      expect(overlay.hooks.sshTerminal.getSnapshot()).toEqual({ open: false, asset: null })
-      expect(openSpy).toHaveBeenCalledTimes(1)
-      expect(openSpy.mock.calls[0]![0]).toContain('route=%2Fssh')
+      expect(overlay.hooks.sshTerminal.getSnapshot()).toEqual({ open: true, asset: fullAsset })
+      // 原页面弹框:绝不新开窗口
+      expect(openSpy).not.toHaveBeenCalled()
     } finally {
       openSpy.mockRestore()
     }

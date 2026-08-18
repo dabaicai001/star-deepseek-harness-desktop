@@ -35,7 +35,7 @@ import {
   createConnectionManagerOverlay, createDbWorkbench, createSshTerminalOverlay, createStarHubAssets, createStarHubNavStore,
   createToolSelectionBridge,
 } from './store.ts'
-import { assetInstanceUrl, isDatabaseAsset, STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
+import { assetInstanceUrl, isDatabaseAsset, isSshTerminalAsset, STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
 import { focusWindowByKey, openNewPage } from './tauri.ts'
 import { StarHubNav } from './StarHubNav.tsx'
 import { StarHubOverlay } from './StarHubOverlay.tsx'
@@ -77,14 +77,19 @@ export function apply(ctx: Context): void {
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
   const conversation = ctx.get('conversation') as IConversation | undefined
-  /** 打开资产实例操作页:记录选择桥(供 AI 工具上下文)+新开独立窗口/标签页。
-   *  需求 5(数据库 React 化):db-* 资产走壳内 DbWorkbench(React native),
+  /** 打开资产实例操作页:记录选择桥(供 AI 工具上下文)后按类型分派——
+   *  需求 5(数据库 React 化):db-* 资产走壳内 DbWorkbench(React native);
+   *  SSH 终端走壳内 SshTerminalOverlay(当前壳内弹框,原页面 overlay,不再新开窗口);
    *  其余资产维持 openNewPage 独立窗口(Vue embed)。 */
   const openAssetPage = (asset: StarHubAsset): void => {
     selection.openAsset(asset)
+    const fullAsset = assets.source.getSnapshot().assets.find((item) => item.id === asset.id)
     if (isDatabaseAsset(asset)) {
-      const fullAsset = assets.source.getSnapshot().assets.find((item) => item.id === asset.id)
       if (fullAsset !== undefined) dbWorkbench.open(fullAsset)
+      return
+    }
+    if (isSshTerminalAsset(asset)) {
+      if (fullAsset !== undefined) sshTerminal.open(fullAsset)
       return
     }
     const sel = selection.source.getSnapshot()

@@ -205,8 +205,8 @@ v0.78.0 起两个形态变更:**连接管理不再是 embed overlay**——「�
 | WebBrowser | iframe | 未开始 | — | 低频 |
 | Settings(按 tab 拆) | native | **已迁移**(5 个 React tab) | 0.74.0 | AI(白名单/记忆)/插件/审计/告警/关于 壳内直渲;通用/外观由 dsh 设置接管;0.76.0 起设置面板两列,StarHub 为左侧可展开分组(见 §3.2);0.78.0 起资产 tab 的 embed 形态退役,连接管理 = 壳内小对话框 |
 | 连接管理(资产新建/编辑) | native | **已迁移** | 0.78.0 | 壳内 React 小对话框(NewConnectionDialog),直调 asset IPC;替代原设置页资产 tab 整幅 iframe |
-| SSH/SFTP | iframe | 未开始 | — | D2 硬指标 |
-| DbView | iframe | 未开始 | — | 压轴 |
+| SSH/SFTP | native(壳内弹框) | **已迁移**(终端 + SFTP 双 tab) | 0.83.0 | 点击 SSH 资产在当前壳内 overlay 弹框打开(不再新开独立窗口),`SshTerminalOverlay` 带「终端/文件(SFTP)」tab,SSH 与 SFTP 共用同一 live session(`sftp_ensure_session` 复用,不重复认证);SFTP 面板 SftpPanel.tsx 覆盖浏览/多选/右键/流式上传下载/传输列表,复用全部 `sftp_*` 命令 |
+| DbView | native | **已迁移** | 0.81.7→0.82.0 | 压轴;连接树/SQL 编辑器(CM6)/结果网格/建表/改列/索引 + 后端 Excel 导出 |
 
 ---
 

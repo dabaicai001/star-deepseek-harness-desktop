@@ -95,6 +95,11 @@ export function isDatabaseAsset(asset: { type: string; config: Record<string, un
   return routeNameForAsset(asset).startsWith('db-')
 }
 
+/** 是否为 SSH 终端资产(SshTerminalOverlay 壳内弹框的接线判定用)。 */
+export function isSshTerminalAsset(asset: { type: string; config: Record<string, unknown> }): boolean {
+  return routeNameForAsset(asset) === 'ssh-terminal'
+}
+
 /**
  * 资产 → 渲染模式:路由在 NATIVE_ROUTE_NAMES 里走壳内组件,否则 iframe。
  * @param asset - 目标资产(只需 type + config 判定路由)。

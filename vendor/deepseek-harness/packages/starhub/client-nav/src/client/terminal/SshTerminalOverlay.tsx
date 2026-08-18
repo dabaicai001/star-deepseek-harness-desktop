@@ -1,16 +1,30 @@
+/**
+ * Shell-native SSH/SFTP terminal overlay.
+ *
+ * Opened in-page (no new window) when an SSH asset is clicked. Owns one xterm
+ * instance connected via the StarHub interactive SSH session, and exposes a
+ * second tab with the native SFTP file-transfer panel that reuses the same live
+ * session (`sftp_ensure_session` opens the channel on it). SSH terminal and
+ * SFTP inherently share one connection, so they ride the same overlay.
+ *
+ * @module StarHub SSH/SFTP overlay (client)
+ */
 import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { tauriInvoke, tauriListen, type TauriUnlisten } from '../tauri.ts'
 import type { RustAsset } from '../store.ts'
+import { SftpPanel } from './SftpPanel.tsx'
 import css from './SshTerminalOverlay.module.css'
 
-/** Props for one native SSH terminal overlay. */
+/** Props for one native SSH/SFTP terminal overlay. */
 export interface SshTerminalOverlayProps {
   asset: RustAsset
   onClose: () => void
 }
+
+type OverlayTab = 'terminal' | 'sftp'
 
 /**
  * Build the Rust `SshAuth` variant from an asset config, mirroring the Vue
@@ -39,11 +53,13 @@ function buildSshAuth(config: Record<string, unknown>): Record<string, unknown> 
  * The component owns the Tauri event subscriptions, resize observer, and
  * session cleanup for the selected asset.
  * @param props - selected SSH asset and overlay close callback.
- * @returns the native SSH terminal overlay.
+ * @returns the native SSH/SFTP terminal overlay.
  */
 export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) {
   const host = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
+  const [connected, setConnected] = useState(false)
+  const [tab, setTab] = useState<OverlayTab>('terminal')
 
   useEffect(() => {
     const term = new Terminal({
@@ -61,17 +77,17 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
 
     const sessionId = asset.id
     let disposed = false
-    let connected = false
+    let isConnected = false
     let resizeObserver: ResizeObserver | undefined
     let unlistenData: TauriUnlisten | undefined
     let unlistenClose: TauriUnlisten | undefined
     const input = term.onData((data) => {
-      if (connected) void tauriInvoke('ssh_write', { id: sessionId, data }).catch(() => {})
+      if (isConnected) void tauriInvoke('ssh_write', { id: sessionId, data }).catch(() => {})
     })
 
     const resize = () => {
       addon.fit()
-      if (connected) void tauriInvoke('ssh_resize', { id: sessionId, cols: term.cols, rows: term.rows }).catch(() => {})
+      if (isConnected) void tauriInvoke('ssh_resize', { id: sessionId, cols: term.cols, rows: term.rows }).catch(() => {})
     }
 
     const connect = async () => {
@@ -81,7 +97,8 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
             if (!disposed) term.write(new Uint8Array(bytes))
           }),
           tauriListen<string>(`ssh:close:${sessionId}`, (reason) => {
-            connected = false
+            isConnected = false
+            setConnected(false)
             if (!disposed) term.writeln(`\r\n[连接已关闭: ${reason}]`)
           }),
         ])
@@ -103,7 +120,8 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
           void tauriInvoke('ssh_disconnect', { id: sessionId }).catch(() => {})
           return
         }
-        connected = true
+        isConnected = true
+        setConnected(true)
         resizeObserver = new ResizeObserver(resize)
         if (host.current !== null) resizeObserver.observe(host.current)
         resize()
@@ -116,7 +134,7 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
     void connect()
     return () => {
       disposed = true
-      connected = false
+      isConnected = false
       input.dispose()
       resizeObserver?.disconnect()
       void unlistenData?.()
@@ -129,9 +147,32 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
   return (
     <div className={css.backdrop}>
       <section className={css.panel} aria-label={`SSH 终端 ${asset.name}`}>
-        <header><strong>{asset.name}</strong><button type="button" onClick={onClose}>关闭</button></header>
+        <header>
+          <div className={css.headLeft}>
+            <span className={css.title}>{asset.name}</span>
+            <nav className={css.tabs}>
+              <button
+                type="button"
+                className={tab === 'terminal' ? css.tabActive : ''}
+                onClick={() => setTab('terminal')}
+              >终端</button>
+              <button
+                type="button"
+                className={tab === 'sftp' ? css.tabActive : ''}
+                onClick={() => setTab('sftp')}
+              >文件 (SFTP){connected ? '' : ' · 未连接'}</button>
+            </nav>
+          </div>
+          <button type="button" onClick={onClose}>关闭</button>
+        </header>
         {error !== null && <div className={css.error}>{error}</div>}
-        <div ref={host} className={css.terminal} />
+        {tab === 'terminal' ? (
+          <div ref={host} className={css.terminal} />
+        ) : (
+          <div className={css.sftpHost}>
+            <SftpPanel asset={asset} sessionId={asset.id} sshConnected={connected} />
+          </div>
+        )}
       </section>
     </div>
   )

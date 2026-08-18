@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 
 const xterm = vi.hoisted(() => ({
   dispose: vi.fn(),
@@ -96,5 +96,51 @@ describe('SshTerminalOverlay', () => {
     expect(invoke).toHaveBeenCalledWith('ssh_disconnect', { id: 'ssh-1' })
     expect(invoke).toHaveBeenCalledWith('plugin:event|unlisten', { event: 'ssh:data:ssh-1', eventId: 1 })
     expect(invoke).toHaveBeenCalledWith('plugin:event|unlisten', { event: 'ssh:close:ssh-1', eventId: 2 })
+  })
+
+  it('switches to the SFTP tab which reuses the live terminal session', async () => {
+    const callbacks: Array<(event: unknown) => void> = []
+    const invoke = vi.fn((command: string, args?: Record<string, unknown>) => {
+      if (command === 'plugin:event|listen') return Promise.resolve(callbacks.length)
+      if (command === 'sftp_ensure_session') return Promise.resolve({ mode: 'subsystem' })
+      if (command === 'sftp_home_dir') return Promise.resolve('/home/deploy')
+      if (command === 'sftp_list') {
+        const path = (args?.path as string) ?? ''
+        return Promise.resolve(path === '/home/deploy'
+          ? [{ name: 'docs', path: '/home/deploy/docs', isDir: true, size: 0, permissions: 0o755, modified: 0 }]
+          : [])
+      }
+      if (command === 'sftp_list_transfers') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    ;(window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: typeof invoke
+        transformCallback: (callback: (event: unknown) => void) => number
+      }
+    }).__TAURI_INTERNALS__ = {
+      invoke,
+      transformCallback: (callback) => {
+        callbacks.push(callback)
+        return callbacks.length
+      },
+    }
+    ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+      observe() {}
+      disconnect() {}
+    }
+
+    const { getByText, getByRole, unmount } = render(<SshTerminalOverlay asset={asset} onClose={vi.fn()} />)
+    // two tabs offered: 终端 + 文件 (SFTP)
+    expect(getByText('终端')).toBeTruthy()
+    // wait for the terminal to connect (so the SFTP tab reuses a live session)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('ssh_connect', expect.any(Object)))
+    // click the SFTP tab
+    fireEvent.click(getByRole('button', { name: /文件/ }))
+    // SFTP panel connects on the same session id (never a separate session)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('sftp_ensure_session', { id: 'ssh-1' }))
+    expect(invoke).toHaveBeenCalledWith('sftp_list', { id: 'ssh-1', path: '/home/deploy' })
+    await waitFor(() => expect(getByText('docs')).toBeTruthy())
+    unmount()
   })
 })
