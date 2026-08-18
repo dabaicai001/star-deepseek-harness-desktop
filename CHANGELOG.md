@@ -14,6 +14,25 @@
 
 ---
 
+## [0.81.9] - 2026-08-18
+
+### 已完成(待升版)
+- **数据库工作台 React 化(需求 5,批次 2+3 + 连接树修复)**:
+  - 修复连接树:db_mysql_list_databases 返回 string[],之前误按对象行解析导致库名
+    空白、无法选表——改为 string[] 解析(库名/表名正常显示可选)
+  - 结果网格 DbDataGrid(批次 3):手写 DOM 虚拟滚动(ROW_HEIGHT=28/OVERSCAN=8)、
+    服务端分页(limit/offset/totalRows)、列头排序(orderBy/orderDir)、NULL 高亮、
+    数字右对齐;行按 Positional Array 渲染
+  - SQL 编辑器 SqlEditor(批次 2):引入 CodeMirror 6(@codemirror/state/view/
+    lang-sql/autocomplete/commands,与 Vue 端同款),SQL 语法高亮(MySQL/PG)、
+    schema 表/列补全、Mod-Enter 执行 / Shift-Mod-e EXPLAIN、Tab 缩进;工作台
+    连接后显示,执行结果小表格展示
+  - DbWorkbench 布局:左侧连接树 + 右侧 SQL 编辑器/表数据网格两分;点库展开表、
+    点表加载数据
+  - 测试:新增 db-data-grid.spec(虚拟滚动/排序/分页/NULL/JSON/失败)与
+    sql-editor.spec(挂载/受控/方言/schema),db-workbench.spec 全部覆盖;client-nav
+    bundle 含 CM6 正常打包(2.17MB)
+
 ## [0.81.8] - 2026-08-18
 
 ### 已完成(待升版)

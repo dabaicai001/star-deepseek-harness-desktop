@@ -16,10 +16,26 @@
  * @module StarHub DB workbench (client)
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RustAsset } from './store.ts'
 import { tauriInvoke } from './tauri.ts'
+import { DbDataGrid } from './DbDataGrid.tsx'
+import { SqlEditor, type SqlCompletionSchema } from './SqlEditor.tsx'
 import css from './DbWorkbench.module.css'
+
+/** db_mysql_execute 的返回(与 QueryResult 同构;SQL 执行结果复用)。 */
+interface SqlQueryResult { columns?: unknown; rows?: unknown; error?: string }
+
+/** 惰性列缓存:表名 → 列名[];首次点表时经 list_columns 填充。 */
+const columnCache = new Map<string, string[]>()
+
+/** 从 db_mysql_list_columns 结果提取列名(返回元素为 {name} 对象行)。 */
+function extractColumnNames(rows: unknown): string[] {
+  if (!Array.isArray(rows)) return []
+  return rows
+    .map((r) => (typeof r === 'object' && r !== null ? (r as Record<string, unknown>).name : undefined))
+    .filter((n): n is string => typeof n === 'string')
+}
 
 /** db 资产可复用的 connect 参数(与 Vue src/types/asset.ts + services/db.ts 同构)。 */
 interface DbConnectParams {
@@ -49,6 +65,9 @@ interface DbObjectRow {
 type TreeNode =
   | { kind: 'database'; name: string; expanded: boolean; tables: string[]; loading: boolean }
   | { kind: 'table'; name: string }
+
+/** 当前选中的表(带其父库,给 get_table_data 的 database 参数)。 */
+interface SelectedTable { table: string; database?: string }
 
 /** DB 类型 → connect 命令名(与 Vue services/db.ts 对齐;各型有独立 connect)。 */
 function connectCommand(dbType: string): string {
@@ -96,10 +115,16 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
   const [connectError, setConnectError] = useState<string | null>(null)
   const [dbs, setDbs] = useState<TreeNode[]>([])
   const [dbsLoading, setDbsLoading] = useState(false)
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<SelectedTable | null>(null)
+  // SQL 查询区状态(批次 2):编辑器文本 / 执行结果 / 加载 / 错误。
+  const [sql, setSql] = useState('')
+  const [sqlResult, setSqlResult] = useState<SqlQueryResult | null>(null)
+  const [sqlLoading, setSqlLoading] = useState(false)
+  const [sqlError, setSqlError] = useState<string | null>(null)
   // 最新 connId(供 list_tables 与卸载 cleanup 断连;效应闭包拿不到最新异步态)。
   const connRef = useRef<string | null>(null)
-  const setConn = useCallback((id: string) => { connRef.current = id }, [])
+  const [connected, setConnected] = useState(false)
+  const setConn = useCallback((id: string) => { connRef.current = id; setConnected(true) }, [])
 
   const dbTypeLabel = asset.type === 'postgresql' ? 'PostgreSQL' : asset.type.toUpperCase()
 
@@ -107,8 +132,9 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     setDbsLoading(true)
     setConnectError(null)
     try {
-      const rows = await tauriInvoke<DbObjectRow[]>('db_mysql_list_databases', { connId: id })
-      setDbs((rows ?? []).map((r) => ({ kind: 'database', name: r.name, expanded: false, tables: [], loading: false })))
+      // db_mysql_list_databases 直接返回库名字符串数组(非 [{name}] 对象行)。
+      const names = await tauriInvoke<string[]>('db_mysql_list_databases', { connId: id })
+      setDbs((names ?? []).map((name) => ({ kind: 'database', name, expanded: false, tables: [], loading: false })))
     } catch (e) {
       setConnectError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -174,12 +200,60 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     setDbs((prev) => prev.map((d) => (d.kind === 'database' && d.name === node.name ? { ...d, expanded: true } : d)))
   }, [])
 
+  // SQL 执行(Mod-Enter 执行 / Shift-Mod-e EXPLAIN):调 db_mysql_execute / explain。
+  const executeSql = useCallback(async (statement: string, explain: boolean) => {
+    const id = connRef.current
+    if (id === null) {
+      setSqlError('未连接数据库')
+      return
+    }
+    if (statement.trim() === '') return
+    setSqlLoading(true)
+    setSqlError(null)
+    try {
+      const cmd = explain ? 'db_mysql_explain' : 'db_mysql_execute'
+      const res = await tauriInvoke<SqlQueryResult>(cmd, { connId: id, sql: statement })
+      setSqlResult(res)
+      if (res.error !== undefined && res.error !== '') setSqlError(res.error)
+    } catch (e) {
+      setSqlError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSqlLoading(false)
+    }
+  }, [])
+
+  // 把已展开库的表拼成补全 schema(表名 → 列名;列名在展开时惰性拉取)。
+  const sqlSchema: SqlCompletionSchema = useMemo(() => {
+    const out: SqlCompletionSchema = {}
+    for (const db of dbs) {
+      if (db.kind !== 'database') continue
+      for (const table of db.tables) out[table] = columnCache.get(table) ?? []
+    }
+    return out
+  }, [dbs])
+  // 展开库时懒加载列到 cache(供 SQL 补全)。
+  useEffect(() => {
+    const id = connRef.current
+    if (id === null) return
+    for (const db of dbs) {
+      if (db.kind !== 'database') continue
+      for (const table of db.tables) {
+        if (columnCache.has(table)) continue
+        void tauriInvoke<unknown>('db_mysql_list_columns', {
+          connId: id, table, ...(db.name !== undefined ? { database: db.name } : {}),
+        })
+          .then((cols) => { columnCache.set(table, extractColumnNames(cols)) })
+          .catch(() => { /* 补全失败静默 */ })
+      }
+    }
+  }, [dbs])
+
   return (
     <div className={css.backdrop}>
       <div className={css.panel}>
         <header className={css.header}>
           <span className={css.title}>{asset.name} · {dbTypeLabel}</span>
-          <span className={css.sub}>React 原生工作台(批次 1:连接树)</span>
+          <span className={css.sub}>React 原生工作台 · 连接树 / SQL / 数据网格</span>
           <span className={css.spacer} />
           <button type="button" className={css.closeBtn} onClick={onClose}>关闭</button>
         </header>
@@ -204,8 +278,8 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
                             <li key={t}>
                               <button
                                 type="button"
-                                className={`${css.treeRow} ${css.tableRow} ${selected === t ? css.selected : ''}`}
-                                onClick={() => setSelected(t)}
+                                className={`${css.treeRow} ${css.tableRow} ${selected !== null && selected.table === t ? css.selected : ''}`}
+                                onClick={() => setSelected({ table: t, database: node.name })}
                               >
                                 <span className={css.chevron}>&nbsp;</span>
                                 <span>{t}</span>
@@ -220,11 +294,38 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
               ))}
             </ul>
           </aside>
-          <section className={css.content}>
-            {selected === null ? (
-              <div className={css.placeholder}>选择一个表查看详情 / 编辑数据(SQL 编辑器与结果网格将在后续批次接入)</div>
+          <section className={css.contentGrid}>
+            {connected ? (
+              <div className={css.sqlPane}>
+                <div className={css.sqlBar}>
+                  <span className={css.sqlLabel}>SQL</span>
+                  <span className={css.hint}>Mod-Enter 执行 · Shift-Mod-e EXPLAIN · Tab 缩进</span>
+                  {sqlLoading && <span className={css.hint}>执行中…</span>}
+                </div>
+                <SqlEditor
+                  value={sql}
+                  onChange={setSql}
+                  dialect={asset.type === 'postgresql' ? 'postgresql' : 'mysql'}
+                  onExecute={executeSql}
+                  schema={sqlSchema}
+                  placeholder="SELECT * FROM users WHERE …"
+                />
+                {sqlError !== null && <div className={css.error}>{sqlError}</div>}
+                {sqlResult !== null && sqlError === null && (
+                  <SqlQueryResultView result={sqlResult} connId={connRef.current ?? ''} />
+                )}
+              </div>
             ) : (
-              <div className={css.placeholder}>表「{selected}」— 结构/数据视图待接入</div>
+              <div className={css.placeholder}>连接数据库后将在此显示 SQL 编辑器</div>
+            )}
+            {selected === null ? (
+              <div className={css.placeholder}>选择左侧一个表查看数据(排序 / 分页 / NULL 高亮已就位)</div>
+            ) : (
+              <DbDataGrid
+                connId={connRef.current ?? ''}
+                table={selected.table}
+                {...(selected.database !== undefined ? { database: selected.database } : {})}
+              />
             )}
           </section>
         </div>
@@ -234,3 +335,51 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
 }
 
 export default DbWorkbench
+
+/** 顶部 SQL 区与底部表网格之间的样式名引用(sqlPane/sqlBar 等见 css)。 */
+
+/**
+ * 渲染一次 SQL 执行的原始结果(execute 返回全量 QueryResult):一行渲染列头,
+ * 数据行直接展示,NULL 灰显;rowCount 上限防爆。SQL 结果不走服务端分页
+ * (execute 一次性返回),因此不做虚拟滚动。
+ */
+function SqlQueryResultView({ result, connId: _connId }: { result: SqlQueryResult; connId: string }) {
+  const columns = Array.isArray(result.columns)
+    ? (result.columns as Array<{ name?: string; type?: string; nullable?: boolean }>)
+    : []
+  const rows = Array.isArray(result.rows) ? (result.rows as unknown[][]) : []
+  const display = rows.slice(0, 200)
+  const truncated = rows.length > display.length
+  return (
+    <div className={css.sqlResult}>
+      <div className={css.sqlResultBar}>
+        <span>执行结果{columns.length > 0 ? ` · ${columns.length} 列` : ''}{rows.length > 0 ? ` · ${rows.length} 行` : ''}</span>
+      </div>
+      {columns.length === 0 ? (
+        <div className={css.hint}>完成{rows.length > 0 ? `,影响 ${rows.length} 行` : ''}</div>
+      ) : (
+        <div className={css.sqlTableWrap}>
+          <table className={css.sqlTable}>
+            <thead>
+              <tr>{columns.map((c, i) => <th key={c.name ?? i}>{c.name}</th>)}</tr>
+            </thead>
+            <tbody>
+              {display.map((row, ri) => (
+                <tr key={ri}>
+                  {columns.map((_c, ci) => (
+                    <td key={ci} className={row[ci] === null || row[ci] === undefined ? css.tdNull : undefined}>
+                      {row[ci] === null || row[ci] === undefined
+                        ? 'NULL'
+                        : typeof row[ci] === 'object' ? JSON.stringify(row[ci]) : String(row[ci])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {truncated && <div className={css.hint}>仅显示前 200 行</div>}
+    </div>
+  )
+}

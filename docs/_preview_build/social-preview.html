@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>StarHub — Social Preview</title>
+<style>
+  /* === design tokens (mirrors src/styles/cyber.css :root) === */
+  :root {
+    --bg: #080d14;
+    --bg-2: #0d1420;
+    --panel: rgba(14, 22, 32, .76);
+    --panel-solid: #101822;
+    --panel-solid-2: #152032;
+    --line: rgba(255, 255, 255, .06);
+    --line-2: rgba(255, 255, 255, .12);
+    --text: #dce7f3;
+    --text-2: #9aa8ba;
+    --muted: #607082;
+    --cyan: #5dd6d6;
+    --cyan-2: #3fb6b6;
+    --purple: #8f7bd8;
+    --pink: #d68fbd;
+    --green: #6dcf8e;
+    --yellow: #d6c45d;
+    --red: #d67a6d;
+    --grad-primary: 135deg, #5dd6d6 0%, #8f7bd8 100%;
+    --grad-accent: 135deg, #5dd6d6 0%, #d68fbd 100%;
+    --font-sans: 'Segoe UI', -apple-system, 'PingFang SC', sans-serif;
+    --font-mono: 'Consolas', 'JetBrains Mono', 'SF Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 1280px;
+    height: 640px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
+  }
+
+  /* === background: deep navy + grid + cyan radial glow === */
+  .bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 1100px 600px at 78% 30%, rgba(93, 214, 214, .18) 0%, rgba(93, 214, 214, 0) 60%),
+      radial-gradient(ellipse 900px 500px at 18% 80%, rgba(143, 123, 216, .14) 0%, rgba(143, 123, 216, 0) 65%),
+      linear-gradient(180deg, #0a121e 0%, #060a12 100%);
+  }
+  .grid {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(93, 214, 214, .05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(93, 214, 214, .05) 1px, transparent 1px);
+    background-size: 40px 40px;
+    background-position: -1px -1px;
+    mask-image: radial-gradient(ellipse 900px 500px at 60% 50%, #000 35%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse 900px 500px at 60% 50%, #000 35%, transparent 80%);
+  }
+  .scan {
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(
+      180deg,
+      transparent 0,
+      transparent 3px,
+      rgba(255, 255, 255, .012) 3px,
+      rgba(255, 255, 255, .012) 4px
+    );
+    pointer-events: none;
+  }
+
+  /* === layout === */
+  .frame {
+    position: relative;
+    width: 1280px;
+    height: 640px;
+    padding: 56px 64px;
+    display: grid;
+    grid-template-columns: 540px 1fr;
+    gap: 48px;
+    z-index: 1;
+  }
+
+  /* === left: brand === */
+  .brand { display: flex; flex-direction: column; }
+
+  .brand-mark {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 28px;
+  }
+  .brand-mark .star {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(93,214,214,.16) 0%, rgba(143,123,216,.16) 100%);
+    border: 1px solid var(--line-2);
+    display: grid; place-items: center;
+    box-shadow: inset 0 0 0 1px rgba(93, 214, 214, .08);
+  }
+  .brand-mark .star svg { width: 26px; height: 26px; }
+  .brand-mark .word {
+    font-size: 22px; font-weight: 600;
+    letter-spacing: .04em;
+    color: var(--text);
+  }
+  .brand-mark .word b {
+    font-weight: 700;
+    background: var(--grad-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--cyan);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .kicker::before {
+    content: '> ';
+    color: var(--muted);
+  }
+
+  .title {
+    font-size: 56px;
+    font-weight: 700;
+    line-height: 1.06;
+    letter-spacing: -.01em;
+    margin-bottom: 22px;
+  }
+  .title .grad {
+    background: var(--grad-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .subtitle {
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--text-2);
+    max-width: 460px;
+    margin-bottom: 32px;
+  }
+  .subtitle b { color: var(--text); font-weight: 600; }
+
+  .chips {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 36px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 30px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: var(--panel-solid);
+    border: 1px solid var(--line-2);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-2);
+    letter-spacing: .02em;
+  }
+  .chip .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--cyan);
+    box-shadow: 0 0 8px rgba(93, 214, 214, .6);
+  }
+  .chip.alt .dot { background: var(--purple); box-shadow: 0 0 8px rgba(143, 123, 216, .5); }
+  .chip.alt2 .dot { background: var(--green); box-shadow: 0 0 8px rgba(109, 207, 142, .5); }
+  .chip.alt3 .dot { background: var(--yellow); box-shadow: 0 0 8px rgba(214, 196, 93, .5); }
+  .chip.alt4 .dot { background: var(--pink); box-shadow: 0 0 8px rgba(214, 143, 189, .5); }
+
+  .stats {
+    display: flex; gap: 32px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+  }
+  .stat {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .stat .k {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+  .stat .v {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    color: var(--text);
+    letter-spacing: .02em;
+  }
+  .stat .v .ac { color: var(--cyan); }
+
+  /* === right: faux app window === */
+  .app {
+    position: relative;
+    width: 100%;
+    height: 528px;
+    border-radius: 18px;
+    background: var(--panel-solid);
+    border: 1px solid var(--line-2);
+    box-shadow:
+      0 24px 60px rgba(0, 0, 0, .55),
+      0 4px 14px rgba(0, 0, 0, .4),
+      inset 0 1px 0 rgba(255, 255, 255, .04);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .app::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--cyan), var(--purple), transparent);
+    opacity: .9;
+  }
+
+  /* titlebar */
+  .titlebar {
+    height: 38px;
+    background: var(--panel-solid-2);
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center;
+    padding: 0 14px;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+  .dots { display: flex; gap: 7px; }
+  .dots span {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--panel-solid);
+    border: 1px solid var(--line-2);
+  }
+  .dots span:nth-child(1) { background: #d67a6d; border-color: #d67a6d; }
+  .dots span:nth-child(2) { background: #d6c45d; border-color: #d6c45d; }
+  .dots span:nth-child(3) { background: #6dcf8e; border-color: #6dcf8e; }
+  .tb-tab {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 24px; padding: 0 12px;
+    background: var(--panel-solid);
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--text);
+  }
+  .tb-tab .icon { color: var(--cyan); }
+  .tb-spacer { flex: 1; }
+  .tb-url {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: .02em;
+  }
+
+  /* body: sidebar + main */
+  .body {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .sidebar {
+    background: var(--panel-solid);
+    border-right: 1px solid var(--line);
+    padding: 12px 10px;
+    overflow: hidden;
+  }
+  .sb-section {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    padding: 6px 8px 8px;
+  }
+  .sb-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .sb-item.active {
+    background: rgba(93, 214, 214, .08);
+    color: var(--text);
+    position: relative;
+  }
+  .sb-item.active::before {
+    content: '';
+    position: absolute; left: -10px; top: 4px; bottom: 4px;
+    width: 2px; background: var(--cyan);
+    border-radius: 1px;
+  }
+  .sb-item .ico {
+    width: 18px; height: 18px;
+    display: grid; place-items: center;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--cyan);
+    background: rgba(93, 214, 214, .1);
+  }
+  .sb-item.db .ico { color: #f0b56b; background: rgba(240, 181, 107, .1); }
+  .sb-item.ssh .ico { color: var(--green); background: rgba(109, 207, 142, .1); }
+  .sb-item.sftp .ico { color: var(--yellow); background: rgba(214, 196, 93, .1); }
+  .sb-item.docker .ico { color: var(--purple); background: rgba(143, 123, 216, .1); }
+  .sb-item .pill {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .sb-item.active .pill { color: var(--cyan); }
+
+  /* main area */
+  .main {
+    display: flex; flex-direction: column;
+    background: var(--bg-2);
+    overflow: hidden;
+  }
+  .main-tabs {
+    height: 30px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: stretch;
+    background: var(--panel-solid);
+  }
+  .mt {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 12px;
+    font-size: 11px;
+    color: var(--muted);
+    border-right: 1px solid var(--line);
+  }
+  .mt.active {
+    color: var(--text);
+    background: var(--bg-2);
+    position: relative;
+  }
+  .mt.active::after {
+    content: '';
+    position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+    background: var(--cyan);
+  }
+  .mt .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px rgba(109, 207, 142, .6); }
+
+  .main-body {
+    flex: 1;
+    display: grid;
+    grid-template-rows: 1fr 90px;
+    min-height: 0;
+  }
+
+  /* terminal */
+  .terminal {
+    padding: 14px 16px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text);
+    overflow: hidden;
+    background:
+      linear-gradient(180deg, rgba(93, 214, 214, .02) 0%, transparent 40%),
+      var(--bg-2);
+  }
+  .term-line { white-space: pre; }
+  .term-prompt { color: var(--cyan); }
+  .term-host { color: var(--text-2); }
+  .term-path { color: var(--purple); }
+  .term-ok { color: var(--green); }
+  .term-warn { color: var(--yellow); }
+  .term-dim { color: var(--muted); }
+  .term-cursor {
+    display: inline-block;
+    width: 7px; height: 13px;
+    background: var(--cyan);
+    vertical-align: -2px;
+    margin-left: 1px;
+    box-shadow: 0 0 8px rgba(93, 214, 214, .6);
+  }
+
+  /* bottom panel: feature cards */
+  .bottom {
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+  }
+  .bcard {
+    background: var(--panel-solid);
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 4px;
+    position: relative;
+  }
+  .bcard::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    opacity: .5;
+  }
+  .bcard .lab {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }
+  .bcard .val {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    color: var(--text);
+    letter-spacing: .02em;
+  }
+  .bcard .val .ac { color: var(--cyan); }
+  .bcard .val .g  { color: var(--green); }
+  .bcard .val .p  { color: var(--purple); }
+  .bcard .val .y  { color: var(--yellow); }
+  .bcard .sub {
+    font-size: 10px;
+    color: var(--text-2);
+  }
+
+  /* statusbar */
+  .statusbar {
+    height: 22px;
+    background: var(--panel-solid-2);
+    border-top: 1px solid var(--line);
+    display: flex; align-items: center;
+    padding: 0 12px;
+    gap: 14px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .sb-item-s {
+    display: flex; align-items: center; gap: 5px;
+  }
+  .sb-item-s .d { width: 5px; height: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 5px rgba(109, 207, 142, .7); }
+  .sb-item-s .d.cyan { background: var(--cyan); box-shadow: 0 0 5px rgba(93, 214, 214, .7); }
+  .sb-item-s .d.purple { background: var(--purple); box-shadow: 0 0 5px rgba(143, 123, 216, .7); }
+  .sb-item-s .ac { color: var(--cyan); }
+</style>
+</head>
+<body>
+  <div class="bg"></div>
+  <div class="grid"></div>
+  <div class="scan"></div>
+
+  <div class="frame">
+    <!-- LEFT: brand -->
+    <div class="brand">
+      <div class="brand-mark">
+        <div class="star">
+          <!-- inline 5-point star, cyber tinted -->
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2.6l2.86 5.8 6.4.93-4.63 4.51 1.09 6.37L12 17.27 6.28 20.21l1.09-6.37L2.74 9.33l6.4-.93L12 2.6z"
+                  stroke="#5dd6d6" stroke-width="1.4" stroke-linejoin="round"
+                  fill="rgba(93,214,214,0.18)"/>
+            <circle cx="12" cy="12" r="1.6" fill="#5dd6d6"/>
+          </svg>
+        </div>
+        <div class="word">Star<b>Hub</b></div>
+      </div>
+
+      <div class="kicker">cyber command center</div>
+
+      <div class="title">
+        All your <span class="grad">devops tools</span><br>
+        in one window.
+      </div>
+
+      <div class="subtitle">
+        A cross-platform <b>desktop workbench</b> that unifies database clients,
+        SSH terminals, SFTP, Docker, and an AI agent — with a single
+        cyber-styled shell.
+      </div>
+
+      <div class="chips">
+        <span class="chip"><span class="dot"></span>MySQL</span>
+        <span class="chip alt"><span class="dot"></span>PostgreSQL</span>
+        <span class="chip alt2"><span class="dot"></span>Redis</span>
+        <span class="chip alt3"><span class="dot"></span>ClickHouse</span>
+        <span class="chip alt4"><span class="dot"></span>SQL Server</span>
+        <span class="chip alt2"><span class="dot"></span>SSH · SFTP</span>
+        <span class="chip alt"><span class="dot"></span>Docker</span>
+        <span class="chip"><span class="dot"></span>AI Agent</span>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="k">version</div>
+          <div class="v">v<span class="ac">0.81.8</span></div>
+        </div>
+        <div class="stat">
+          <div class="k">platforms</div>
+          <div class="v">Windows / macOS / Linux</div>
+        </div>
+        <div class="stat">
+          <div class="k">license</div>
+          <div class="v">MIT</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: faux app window -->
+    <div class="app">
+      <div class="titlebar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="tb-tab">
+          <span class="icon">›</span> db · analytics
+        </div>
+        <div class="tb-spacer"></div>
+        <div class="tb-url">starhub · dabaicai001/starhub</div>
+      </div>
+
+      <div class="body">
+        <!-- sidebar -->
+        <div class="sidebar">
+          <div class="sb-section">connections</div>
+          <div class="sb-item db active">
+            <span class="ico">DB</span>
+            <span>analytics_pg</span>
+            <span class="pill">●</span>
+          </div>
+          <div class="sb-item db">
+            <span class="ico">DB</span>
+            <span>cache_redis</span>
+            <span class="pill">●</span>
+          </div>
+          <div class="sb-item ssh">
+            <span class="ico">SSH</span>
+            <span>prod-web-01</span>
+            <span class="pill">●</span>
+          </div>
+          <div class="sb-item sftp">
+            <span class="ico">SFT</span>
+            <span>cdn-edge</span>
+            <span class="pill">●</span>
+          </div>
+          <div class="sb-item docker">
+            <span class="ico">DKR</span>
+            <span>k8s-node-03</span>
+            <span class="pill">●</span>
+          </div>
+
+          <div class="sb-section" style="margin-top: 14px;">recent</div>
+          <div class="sb-item">
+            <span class="ico">DB</span>
+            <span>orders_mysql</span>
+          </div>
+          <div class="sb-item">
+            <span class="ico">DB</span>
+            <span>logs_clickhouse</span>
+          </div>
+        </div>
+
+        <!-- main -->
+        <div class="main">
+          <div class="main-tabs">
+            <div class="mt active"><span class="dot"></span> analytics_pg</div>
+            <div class="mt">users</div>
+            <div class="mt">orders</div>
+            <div class="mt">+</div>
+          </div>
+
+          <div class="main-body">
+            <div class="terminal">
+              <div class="term-line"><span class="term-prompt">starhub</span><span class="term-dim">@</span><span class="term-host">analytics_pg</span> <span class="term-dim">~</span><span class="term-path">/queries</span><span class="term-dim">$</span> SELECT count(*) FROM events GROUP BY 1;</div>
+              <div class="term-line"><span class="term-dim">  count</span>  |          hour</div>
+              <div class="term-line"><span class="term-dim">--------+---------------------</span></div>
+              <div class="term-line"><span class="term-ok">  1 248</span>  | 2026-08-18 00:00:00</div>
+              <div class="term-line"><span class="term-ok">  1 802</span>  | 2026-08-18 01:00:00</div>
+              <div class="term-line"><span class="term-ok">  2 167</span>  | 2026-08-18 02:00:00</div>
+              <div class="term-line"><span class="term-warn">  3 421</span>  | 2026-08-18 03:00:00</div>
+              <div class="term-line"><span class="term-ok">  2 089</span>  | 2026-08-18 04:00:00</div>
+              <div class="term-line"><span class="term-dim">  47 rows in set (0.082 s)</span></div>
+              <div class="term-line" style="margin-top: 4px;"><span class="term-prompt">starhub</span><span class="term-dim">@</span><span class="term-host">analytics_pg</span> <span class="term-dim">~</span><span class="term-path">/queries</span><span class="term-dim">$</span> <span class="term-cursor"></span></div>
+            </div>
+
+            <div class="bottom">
+              <div class="bcard">
+                <div class="lab">queries</div>
+                <div class="val"><span class="ac">2 481</span>/day</div>
+                <div class="sub">avg 18ms</div>
+              </div>
+              <div class="bcard">
+                <div class="lab">transfers</div>
+                <div class="val"><span class="g">3</span> running</div>
+                <div class="sub">12.4 MB/s</div>
+              </div>
+              <div class="bcard">
+                <div class="lab">containers</div>
+                <div class="val"><span class="p">17</span>/22 up</div>
+                <div class="sub">0 unhealthy</div>
+              </div>
+              <div class="bcard">
+                <div class="lab">ai agent</div>
+                <div class="val"><span class="y">idle</span></div>
+                <div class="sub">mcp · 4 tools</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="statusbar">
+        <div class="sb-item-s"><span class="d"></span>5 online</div>
+        <div class="sb-item-s"><span class="d cyan"></span>2 syncing</div>
+        <div class="sb-item-s"><span class="d purple"></span>1 AI plan</div>
+        <div class="sb-item-s" style="margin-left: auto;">v0.81.8</div>
+        <div class="sb-item-s">UTF-8</div>
+        <div class="sb-item-s">14:54:13</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

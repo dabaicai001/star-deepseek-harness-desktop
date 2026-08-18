@@ -4,7 +4,7 @@
  * config 建连(db_mysql_connect),列库(list_databases),展开库懒加载表
  * (list_tables);卸载断连(disconnect)。覆盖连接成功/缺 host / 树交互。
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { DbWorkbench } from '../src/client/DbWorkbench.tsx'
 import type { RustAsset } from '../src/client/store.ts'
@@ -15,15 +15,23 @@ const dbAsset: RustAsset = {
   key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
 }
 
-function stubInvoke(scenario: { connect?: unknown; databases?: unknown; tables?: unknown; fail?: boolean }) {
+function stubInvoke(scenario: { connect?: unknown; databases?: unknown; tables?: unknown; tableData?: unknown; columns?: unknown; fail?: boolean }) {
   const calls: string[] = []
-  const invoke = vi.fn((cmd: string, args?: Record<string, unknown>) => {
+  const invoke = vi.fn((cmd: string) => {
     calls.push(cmd)
     if (scenario.fail) return Promise.reject(new Error('boom'))
     switch (cmd) {
       case 'db_mysql_connect': return Promise.resolve(scenario.connect ?? { connId: 'c1', host: 'h', port: 3306 })
-      case 'db_mysql_list_databases': return Promise.resolve(scenario.databases ?? [{ name: 'app' }, { name: 'sys' }])
+      // list_databases 返回库名字符串数组。
+      case 'db_mysql_list_databases': return Promise.resolve(scenario.databases ?? ['app', 'sys'])
       case 'db_mysql_list_tables': return Promise.resolve(scenario.tables ?? [{ name: 'users' }])
+      case 'db_mysql_list_columns': return Promise.resolve(scenario.columns ?? [{ name: 'id' }, { name: 'name' }])
+      case 'db_mysql_get_table_data': return Promise.resolve(scenario.tableData ?? {
+        columns: [{ name: 'id', type: 'BIGINT' }, { name: 'name', type: 'VARCHAR' }],
+        rows: [[1, 'alice'], [2, null]],
+        totalRows: 2,
+        isSelect: true,
+      })
       case 'db_mysql_disconnect': return Promise.resolve(null)
       default: return Promise.reject(new Error(`unexpected ${cmd}`))
     }
@@ -32,10 +40,22 @@ function stubInvoke(scenario: { connect?: unknown; databases?: unknown; tables?:
   return { invoke, calls }
 }
 
+/** jsdom 无 ResizeObserver;CM6 SqlEditor(连接后挂载)需要它。 */
+class ResizeObserverMock {
+  observe() {}
+  disconnect() {}
+  unobserve() {}
+}
+
+beforeEach(() => {
+  ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+})
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+  delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver
 })
 
 describe('DbWorkbench', () => {
@@ -52,6 +72,11 @@ describe('DbWorkbench', () => {
     fireEvent.click(screen.getByText('app'))
     await waitFor(() => expect(calls).toContain('db_mysql_list_tables'))
     await waitFor(() => expect(screen.getByText('users')).toBeTruthy())
+    // 点表 → 原生数据网格(get_table_data + 列头 + 值 + NULL 展示)
+    fireEvent.click(screen.getByText('users'))
+    await waitFor(() => expect(calls).toContain('db_mysql_get_table_data'))
+    await waitFor(() => expect(screen.getByText('alice')).toBeTruthy())
+    await waitFor(() => expect(screen.getAllByText('NULL').length).toBeGreaterThan(0))
     // 卸载 → disconnect
     unmount()
     await waitFor(() => expect(calls).toContain('db_mysql_disconnect'))

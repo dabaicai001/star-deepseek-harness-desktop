@@ -1,0 +1,25 @@
+.root { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; height: 100%; }
+
+.meta { display: flex; align-items: center; gap: 10px; padding: 6px 10px; color: var(--dsw-alias-label-secondary); font-size: 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+.hint { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.error { padding: 6px 10px; color: var(--dsw-alias-state-error-primary); font-size: 12px; }
+
+.grid { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+
+.thead { display: flex; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); flex: none; }
+.th { display: flex; align-items: center; gap: 4px; flex: none; padding: 0 8px; height: 28px; border: 0; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; text-align: left; cursor: pointer; overflow: hidden; box-sizing: border-box; border-right: 1px solid var(--dsw-alias-border-l1); }
+.th:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.th:first-child { cursor: default; }
+.thLabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sortMark { flex: none; color: var(--dsw-accent); }
+
+.tbody { flex: 1; overflow: auto; position: relative; }
+.tr { display: flex; box-sizing: border-box; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.td { flex: none; padding: 0 8px; line-height: 28px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; border-right: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-label-primary); font-variant-numeric: tabular-nums; }
+.td.null { color: var(--dsw-alias-label-tertiary); font-style: italic; }
+.td.num { font-family: 'JetBrains Mono', Consolas, monospace; text-align: right; }
+
+.pager { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-top: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.pager button { border: 0; border-radius: 6px; padding: 4px 10px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); cursor: pointer; }
+.pager button:disabled { opacity: 0.4; cursor: default; }
+.sizeSelect { border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font-size: 12px; padding: 2px 4px; }
