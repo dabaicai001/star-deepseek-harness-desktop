@@ -15,7 +15,7 @@ const dbAsset: RustAsset = {
   key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
 }
 
-function stubInvoke(scenario: { connect?: unknown; databases?: unknown; tables?: unknown; tableData?: unknown; columns?: unknown; fail?: boolean }) {
+function stubInvoke(scenario: { connect?: unknown; databases?: unknown; tables?: unknown; tableData?: unknown; columns?: unknown; indexes?: unknown; execute?: unknown; savePath?: unknown; fail?: boolean }) {
   const calls: string[] = []
   const invoke = vi.fn((cmd: string) => {
     calls.push(cmd)
@@ -26,6 +26,8 @@ function stubInvoke(scenario: { connect?: unknown; databases?: unknown; tables?:
       case 'db_mysql_list_databases': return Promise.resolve(scenario.databases ?? ['app', 'sys'])
       case 'db_mysql_list_tables': return Promise.resolve(scenario.tables ?? [{ name: 'users' }])
       case 'db_mysql_list_columns': return Promise.resolve(scenario.columns ?? [{ name: 'id' }, { name: 'name' }])
+      case 'db_mysql_list_indexes': return Promise.resolve(scenario.indexes ?? [])
+      case 'db_mysql_execute': return Promise.resolve(scenario.execute ?? {})
       case 'db_mysql_get_table_data': return Promise.resolve(scenario.tableData ?? {
         columns: [{ name: 'id', type: 'BIGINT' }, { name: 'name', type: 'VARCHAR' }],
         rows: [[1, 'alice'], [2, null]],
@@ -35,6 +37,8 @@ function stubInvoke(scenario: { connect?: unknown; databases?: unknown; tables?:
       case 'db_mysql_get_table_ddl': return Promise.resolve({ ddl: 'CREATE TABLE users (id BIGINT)' })
       case 'db_mysql_drop_table': return Promise.resolve(null)
       case 'db_mysql_truncate_table': return Promise.resolve(null)
+      case 'db_mysql_export_excel': return Promise.resolve({ filePath: '/tmp/out.xlsx', totalRows: 2, durationMs: 10 })
+      case 'plugin:dialog|save': return Promise.resolve(scenario.savePath ?? '/tmp/out.xlsx')
       case 'db_mysql_disconnect': return Promise.resolve(null)
       default: return Promise.reject(new Error(`unexpected ${cmd}`))
     }
@@ -52,6 +56,8 @@ class ResizeObserverMock {
 
 beforeEach(() => {
   ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+  vi.spyOn(window, 'alert').mockImplementation(() => {})
+  vi.spyOn(window, 'confirm').mockImplementation(() => true)
 })
 
 afterEach(() => {
@@ -114,6 +120,79 @@ describe('DbWorkbench', () => {
     fireEvent.click(screen.getByText('查看 DDL'))
     await waitFor(() => expect(calls).toContain('db_mysql_get_table_ddl'))
     await waitFor(() => expect(screen.getByText(/CREATE TABLE users/)).toBeTruthy())
+    unmount()
+  })
+
+  it('right-clicks a database to create a new table', async () => {
+    const { calls } = stubInvoke({})
+    const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    // 右键库 → 新建表
+    fireEvent.contextMenu(screen.getByText('app'))
+    await waitFor(() => expect(screen.getByText('新建表')).toBeTruthy())
+    fireEvent.click(screen.getByText('新建表'))
+    await waitFor(() => expect(screen.getByText('表名')).toBeTruthy())
+    // 填表名 → 创建 → db_mysql_execute 收到 CREATE TABLE;树追加新表
+    const nameInput = screen.getByPlaceholderText('请输入表名')
+    fireEvent.change(nameInput, { target: { value: 'new_tbl' } })
+    fireEvent.click(screen.getByRole('button', { name: /创建/ }))
+    await waitFor(() => {
+      const execCalls = calls.filter((c) => c === 'db_mysql_execute')
+      expect(execCalls.length).toBeGreaterThan(0)
+    })
+    const createArgs = calls.filter((c) => c === 'db_mysql_execute')
+    const args = (window as unknown as { __TAURI_INTERNALS__: { invoke: ReturnType<typeof vi.fn> } }).__TAURI_INTERNALS__.invoke.mock.calls
+    const createCall = args.find((a) => a[0] === 'db_mysql_execute')
+    expect(String(createCall?.[1]?.sql ?? '')).toContain('CREATE TABLE')
+    expect(String(createCall?.[1]?.sql ?? '')).toContain('`new_tbl`')
+    // 建表成功 → 表列表里出现新表(库行已展开)
+    await waitFor(() => expect(screen.getByText('new_tbl')).toBeTruthy())
+    void createArgs
+    unmount()
+  })
+
+  it('right-clicks a table to edit columns and applies changes', async () => {
+    const { calls } = stubInvoke({ columns: [
+      { name: 'id', type: 'BIGINT', dataType: 'bigint', nullable: 'NO', key: 'PRI', defaultValue: null, extra: '', comment: '', ordinalPosition: 1 },
+      { name: 'name', type: 'VARCHAR(255)', dataType: 'varchar', nullable: 'YES', key: '', defaultValue: null, extra: '', comment: '', ordinalPosition: 2 },
+    ] })
+    const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    fireEvent.click(screen.getByText('app'))
+    await waitFor(() => expect(screen.getByText('users')).toBeTruthy())
+    // 右键表 → 编辑列 → 对话框载入列
+    fireEvent.contextMenu(screen.getByText('users'))
+    await waitFor(() => expect(screen.getByText('编辑列')).toBeTruthy())
+    fireEvent.click(screen.getByText('编辑列'))
+    await waitFor(() => expect(calls).toContain('db_mysql_list_columns'))
+    // 改第一列类型触发 dirty → 应用 → ALTER TABLE execute
+    const renameInput = screen.getAllByPlaceholderText('VARCHAR(255)')[0]!
+    fireEvent.change(renameInput, { target: { value: 'VARCHAR(100)' } })
+    fireEvent.click(screen.getByRole('button', { name: /应用更改/ }))
+    await waitFor(() => {
+      const args = (window as unknown as { __TAURI_INTERNALS__: { invoke: ReturnType<typeof vi.fn> } }).__TAURI_INTERNALS__.invoke.mock.calls
+      expect(args.some((a) => a[0] === 'db_mysql_execute' && String(a[1]?.sql ?? '').includes('ALTER TABLE'))).toBe(true)
+    })
+    void calls
+    unmount()
+  })
+
+  it('exports the selected table to Excel via the backend command', async () => {
+    const { calls } = stubInvoke({ savePath: 'C:/tmp/out.xlsx' })
+    const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    fireEvent.click(screen.getByText('app'))
+    await waitFor(() => expect(screen.getByText('users')).toBeTruthy())
+    fireEvent.click(screen.getByText('users'))
+    await waitFor(() => expect(screen.getByText('导出 Excel')).toBeTruthy())
+    fireEvent.click(screen.getByText('导出 Excel'))
+    await waitFor(() => expect(calls).toContain('plugin:dialog|save'))
+    await waitFor(() => expect(calls).toContain('db_mysql_export_excel'))
+    const args = (window as unknown as { __TAURI_INTERNALS__: { invoke: ReturnType<typeof vi.fn> } }).__TAURI_INTERNALS__.invoke.mock.calls
+    const exportCall = args.find((a) => a[0] === 'db_mysql_export_excel')
+    expect(exportCall?.[1]?.table).toBe('users')
+    expect(exportCall?.[1]?.database).toBe('app')
+    expect(exportCall?.[1]?.filePath).toBe('C:/tmp/out.xlsx')
     unmount()
   })
 

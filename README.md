@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.81.10-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.82.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -109,58 +109,14 @@
 
 ## 当前版本
 
+### v0.82.0 (2026-08-18)
+- 🔧 **数据库工作台 React 化(需求 5,批次 4b:建表/改列/索引对话框 + 后端全量 Excel 导出)**:移植 ddlGenerator 与新建表/改列/索引对话框;后端 Go sidecar + Rust 新增 Excel 全量直写导出,React 工作台表格「导出 Excel」入口
+
 ### v0.81.10 (2026-08-18)
 - 🔧 **数据库工作台 React 化(需求 5,批次 4a:表操作入口)**:连接树表行右键菜单——
 
 ### v0.81.9 (2026-08-18)
 - 🔧 **数据库工作台 React 化(需求 5,批次 2+3 + 连接树修复)**:
-
-### v0.81.8 (2026-08-18)
-- 🔧 **Windows 打包根治(NSIS failed opening file,真根因 = 路径超 260 字符)**:CI
-
-### v0.81.7 (2026-08-18)
-- 🔧 **数据库工作台 React 化(需求 5,批次 1:骨架 + 连接树)**:新增壳内全屏 React
-
-### v0.81.6 (2026-08-18)
-- 🔧 **Windows 打包修复(NSIS "failed opening file …getMachineId-unsupported.d.ts")**:CI 全新
-
-### v0.81.5 (2026-08-18)
-- 🔧 **starhub-tools 传输解析改懒加载(修复壳内组合启动竞态)**:sdk-jsonrpc-server 与
-
-### v0.81.4 (2026-08-18)
-- 🔧 **@ 资产引用改纯文本(用户反馈)**:`@` pick 序列化从 `<asset id=…>name</asset>` 改为
-- 🔧 **壳内(web)会话可调用 starhub 工具(用户反馈:@ 本质是调工具内 AI 助手/Agent 操作)**:
-
-### v0.81.3 (2026-08-18)
-- 🔧 **SSH 资产点击改回新开独立窗口(用户反馈)**:壳内终端 overlay 改为统一新开
-- 🔧 **shell 终端 ssh_connect 修复 missing field auth(用户反馈)**:`SshTerminalOverlay`
-- 🔧 **右侧工作区列恢复「AI 助手」入口(用户反馈)**:工具工作区列头部新增 AI 助手
-
-### v0.81.2 (2026-08-18)
-- 🔧 **插件市场分页改固定指示器(用户反馈:分页没显示页码且圆点溢出)**:圆点列随页数无限增长会溢出,改为固定的「第 X / Y 页 · 共 N 个插件」指示器(上一页/下一页保留);React 壳(plugins.tsx)与 Vue 嵌入页(SettingsView.vue)同步,窄窗自动换行。dsw/cyber token 分别就位
-- 🔧 **联动 M6 任务锚点补全(契约 §2.2)**:`starhub/open.asset` / `starhub/focus.tool` 带 `sessionId` 时,处理器把该会话重锚到目标资产(域工具路由跟随)+ 记录有界任务资产轨迹(taskTrails ≤20,去重保序);`starhub/live.snapshot` 返回 `taskTrails`;live-context 插件注入 `[Task trails]` 段。编排链路「打开 web-1 终端→SSH exec→切到 db 库跑查询」现在跨窗口保持任务连续性
-- 🔧 **联动 M3 活性快照超时保护**:live-context 反向 `starhub/live.snapshot` pull 加 2s 超时(宿主未响应时不再阻塞 agent pre-step,降级为本地 registry+events)
-- 🔧 **联动桥出站通知修复**:`HarnessRuntime::spawn` 后挂桥 weak 引用(`HostBridgeState::set_runtime`),`notify_dsh`(registry.sync / domain.event 出站)在测试与实际桌面运行时都生效
-- 🔧 **Rust harness 测试**:移除冗余 `oneshot` 导入;新增 M6 重锚 + 任务轨迹测试
-
-### v0.81.1 (2026-08-17)
-- 🔧 **tag 构建修复(client tsdown 缺 @tsdown/css)**:client-nav `SshTerminalOverlay` 自 v0.80.0 就 import `@xterm/xterm/css/xterm.css`,但 `@tsdown/css` 是 tsdown 的 optional peer,仓库未显式声明,pnpm 默认不装;此前 CI 均挂在 tsc 阶段没跑到 client tsdown,本次 v0.81.0 tag 构建 tsc 通过后暴露。修复:DSH_ROOT 根 devDependencies 显式声明 `@tsdown/css@0.22.2`(对齐 tsdown peer),`pnpm run build:lib:client` 恢复全绿、client-nav 束产物含 style.css
-
-### v0.81.0 (2026-08-17)
-- 🔧 **StarHub × dsh 联动实施(方案 B 控制面收敛 dsh / 数据面留 Rust+Go)**:按 `docs/联动设计-dsh中枢-2026-08-17.md` 与 `docs/联动实施-桥接契约-2026-08-17.md` 四方施工完成——①dsh 侧:`sdk-jsonrpc-server` 本地补丁暴露 `sdk-notifications` 服务(入站 notification 按 method 多路分发、订阅者异常隔离);新包 `session-registry`(订阅 `starhub/registry.sync` 全量快照,`list()`/`forAsset()`)、`domain-events`(订阅 `starhub/domain.event`,每资产环形缓冲 50 + 全局桶,`recent()` ts 倒序)、`live-context`(agent/pre-step 注入 registry 快照 + 事件摘要 + `starhub/live.snapshot` pull,按 maxSnapshotChars 截断、pull 失败降级);`starhub-tools` 新增 `open_connection`/`focus_terminal` 模型工具(桥 `starhub/open.asset`/`starhub/focus.tool`);`examples/starhub-agent/cordis.yml` 组合接线三插件;②Rust 侧:stdio 新增 `starhub/live.snapshot`/`open.asset`/`focus.tool` request 与 `registry.sync`/`domain.event` 出站 notify;AI 工具执行成功自动生成 origin=ai 领域事件(notify dsh + 广播 `starhub://domain-event` + recentExecs 缓存);Tauri command 新增 `ssh_attach`/`ssh_detach`(附着引用计数,归零才真断)、`dsh_report_domain_event`(强制 user、summary 截断)、`starhub_ask_ai`;③client-nav:`@` 资产 source(`starhub-asset`,ui-input-trigger 流水线,onPick ReferenceInsert `<asset id=…>` + 轻绑定工具上下文不切窗)、监听 `starhub://open-asset`(聚焦/开窗,窗口 label 带资产 id)与 `starhub://ask-ai`(聚焦会话 + prefill composer);④Vue 面板:SshTerminal/DbView/SftpPanel 工具栏「问 AI」按钮、`starhub://domain-event`(origin=ai)监听(网格刷新/终端横幅 `.cyber-ai-banner`/SFTP 列表刷新)、SSH 命令/DB 查询/表打开用户起源上报(`dsh_report_domain_event`);新增 `src/services/linkage.ts` 封装与 `tests/linkage.test.ts`;三方测试/类型检查全绿(cargo 148 测试、dsh 三新包 50 测试 100% 覆盖、client-nav 224 测试、Vue 22 测试)
-- 🔧 **client-nav 测试 exactOptionalPropertyTypes 修复(GitHub tag 构建报错)**:`new-connection-dialog.client.spec.tsx` 三处 `calls` 数组声明与 6 个 stub 处理器在严格 `exactOptionalPropertyTypes` 下不兼容(TS2379/TS2322),改为 `args: Record<string, unknown> | undefined` 并加收窄;`tsc -b tsconfig.client.json` 恢复干净
-- 🔧 **session-registry/domain-events 依赖注入修复**:两插件改为 `inject: ['sdk-notifications']` 声明依赖(cordis fiber 拓扑等待 sdk-jsonrpc-server ACTIVE 后 apply),修复 apply/effect 阶段 `ctx.get` 拿不到宿主私有服务导致插件树加载失败、agent 循环无输出的问题(E2E `dsh_stdio_roundtrip`/`dsh_tool_call_bridges` 恢复全绿)
-
-### v0.80.1 (2026-08-17)
-- 🔧 **session log 下载改「另存为」对话框(用户反馈:程序内下载不生效、不知存到哪)**:主窗口 on_download 的 Requested 分支从「静默放行进系统下载目录」改为弹原生另存为对话框(预填 webview 建议文件名),用户选路径后写入 `destination` 放行;取消对话框 = 中止下载。宿主链路体检结论:`/api/session.export` 端点与 dsh-session-log-export 客户端插件在两端实例均健康(3085 实测 GET 下载 883KB zip 成功),问题纯在 webview 下载落盘不可见
-- 🔧 **v0.80.0 遗留清理**:①`src-tauri/Cargo.lock` starhub 条目缺 `name = "starhub"` 行(cargo check/build 全挂,TOML 解析失败);②`DbView.vue` 导出 Excel 后注册 excel 资产并 `router.push('excel')` 跳已随 Excel 退役删除的路由(改为仅完成通知);③`assetRouting.ts` 残留 `excel` 路由名映射(删除);④client-nav `starhub-shell-state` 测试残留 excel 前缀断言(改为只测非字符串 dbType 回退)
-- 🔧 **starhub-approval 瘦身改名为 starhub-approval-bridge(用户拍板)**:策略本体归 dsh 权限 preset(本包只消费 `permission.defaultPreset`:danger-full-access→never,其余→ask),保留风险门(starhub 域工具唯一 ask 来源,防误删核心)与 `starhub/approval.request` 应答桥;包目录 `packages/starhub/approval` → `approval-bridge`,examples/package.json、python/sdk-runtime、tsconfig.host.json、cordis.yml 引用同步
-
-### v0.80.0 (2026-08-17)
-- ✨ **壳内 SSH 终端(六项需求 3)**:SSH 资产在 dsh `shell.overlay` 内使用 xterm 直渲,接通连接、输入输出、尺寸同步与关闭清理。
-- ✨ **插件市场分页展示(六项需求 6)**:React 壳内和 Vue 回退设置同步提供每页 6 张卡片、翻页和页码点,搜索与刷新自动复位。
-- 🔧 **DB 网格与 Excel 调整(六项需求 5)**:DB 结果区切换为 HTML 虚拟表格;Excel/CSV 工作簿功能与 Univer 前端依赖退役,数据库导入导出仍可用。
-
 
 ---
 

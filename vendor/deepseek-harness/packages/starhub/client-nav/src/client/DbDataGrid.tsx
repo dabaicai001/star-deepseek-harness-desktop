@@ -47,9 +47,13 @@ function cellText(value: unknown): string {
 /**
  * Render a virtualized, server-paginated DB result grid.
  * @param props - connection id, table name, and selected database.
+ * @param props.onExport - optional callback invoked with the current sort
+ *   state when the user clicks 导出 Excel; omitted to hide the button.
  * @returns the data grid (header + virtual rows + pager).
  */
-export function DbDataGrid({ connId, table, database }: { connId: string; table: string; database?: string }) {
+export function DbDataGrid({
+  connId, table, database, onExport,
+}: { connId: string; table: string; database?: string; onExport?: (orderBy: string | null, orderDir: 'asc' | 'desc') => void }) {
   const [result, setResult] = useState<QueryResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -111,6 +115,12 @@ export function DbDataGrid({ connId, table, database }: { connId: string; table:
     <div className={css.root}>
       <div className={css.meta}>
         <span>表 {table}{totalRows > 0 ? ` · ${totalRows.toLocaleString()} 行` : ''}</span>
+        <span className={css.spacer} />
+        {onExport !== undefined && (
+          <button type="button" className={css.exportBtn} onClick={() => onExport(orderBy, orderDir)} title="全量导出该表到 Excel(后端执行)">
+            导出 Excel
+          </button>
+        )}
         {loading && <span className={css.hint}>加载…</span>}
       </div>
       {error !== null && <div className={css.error}>{error}</div>}

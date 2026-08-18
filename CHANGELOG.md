@@ -14,6 +14,30 @@
 
 ---
 
+## [0.82.0] - 2026-08-18
+
+### 已完成(待升版)
+- **数据库工作台 React 化(需求 5,批次 4b:建表/改列/索引对话框 + 后端全量 Excel 导出)**:
+  - 移植 Vue `src/utils/ddlGenerator.ts` 到 client-nav(`ddlGenerator.ts`):generateCreateTableDDL
+    (MySQL/PostgreSQL/ClickHouse 方言、Nullable/ORDER BY/PRIMARY KEY、列/表注释)、
+    generateBatchColumnDDL(ADD/MODIFY/CHANGE/DROP 合并单条 ALTER TABLE)、
+    generateBatchIndexDDL(DROP+CREATE,isNew 索引不生成 DROP 避 Error 1091)、
+    generateAdd/Modify/DropColumnDDL、generateCreate/DropIndexDDL、renderColumnType
+  - 新增 3 个 React 模态框 `DbTableDialogs.tsx`:NewTableDialog(表名/Engine/Charset/列网格
+    ↑↓移动/删除)、ColumnListDialog(载入列定义批量编辑+类型 datalist+新增列)、IndexListDialog
+    (载入索引+列名,UNIQUE/类型下拉+datalist 补列)。均经 db_mysql_execute(db_clickhouse_execute)
+    逐条执行生成的 DDL
+  - DbWorkbench 接入:库行右键菜单(新建表/刷新表列表)、表行右键菜单新增(编辑列/索引,仅 MySQL,
+    与 Vue 端一致);建表成功自动并入树节点
+  - **后端全量 Excel 导出(导出从「前端分批拉数据+前端写盘」改为后端直写 xlsx)**:Go sidecar 新增
+    `db.mysql.exportExcel` / `db.clickhouse.exportExcel`(MySQL/ClickHouse 适配器 ExportExcel,
+    excelize 流式写入 + LIMIT/OFFSET 分批,服务端按表浏览语义支持 filter/columnFilters/orderBy),
+    Rust 新增 `db_mysql_export_excel` / `db_clickhouse_export_excel`(main.rs 注册 + commands.toml ACL)
+  - React 工作台表数据网格新增「导出 Excel」按钮:经 plugin:dialog|save 选目标路径 → 调后端命令
+    服务端直写 xlsx,返回 {filePath,totalRows,durationMs}
+  - 测试:新增 ddl-generator.client.spec(23 例,移植自 Vue node --test)、db-workbench.spec 新增
+    建表/编辑列/导出一体化用例;client-nav 全绿(315),host tsc 净,bundle 2.24MB
+
 ## [0.81.10] - 2026-08-18
 
 ### 已完成(待升版)

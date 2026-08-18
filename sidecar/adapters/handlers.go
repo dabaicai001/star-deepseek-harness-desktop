@@ -36,6 +36,7 @@ func RegisterDBHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("db.mysql.updateRows", handleMySQLUpdateRows(mgr))
 	server.Register("db.mysql.deleteRows", handleMySQLDeleteRows(mgr))
 	server.Register("db.mysql.exportData", handleMySQLExportData(mgr))
+	server.Register("db.mysql.exportExcel", handleMySQLExportExcel(mgr))
 	server.Register("db.mysql.getRowCount", handleMySQLGetRowCount(mgr))
 	server.Register("db.mysql.getTableMeta", handleMySQLGetTableMeta(mgr))
 	server.Register("db.mysql.createIndex", handleMySQLCreateIndex(mgr))
@@ -75,6 +76,7 @@ func RegisterDBHandlers(server ServerInterface, mgr *pool.Manager) {
 	server.Register("db.clickhouse.updateRows", handleClickHouseUpdateRows(mgr))
 	server.Register("db.clickhouse.deleteRows", handleClickHouseDeleteRows(mgr))
 	server.Register("db.clickhouse.exportData", handleClickHouseExportData(mgr))
+	server.Register("db.clickhouse.exportExcel", handleClickHouseExportExcel(mgr))
 	server.Register("db.clickhouse.getRowCount", handleClickHouseGetRowCount(mgr))
 	server.Register("db.clickhouse.getTableMeta", handleClickHouseGetTableMeta(mgr))
 	server.Register("db.clickhouse.createIndex", handleClickHouseCreateIndex(mgr))
@@ -655,6 +657,45 @@ func handleMySQLExportData(mgr *pool.Manager) Handler {
 	}
 }
 
+func handleMySQLExportExcel(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID        string            `json:"connId"`
+			Database      string            `json:"database,omitempty"`
+			Table         string            `json:"table"`
+			FilePath      string            `json:"filePath"`
+			Filter        string            `json:"filter,omitempty"`
+			ColumnFilters map[string]string `json:"columnFilters,omitempty"`
+			OrderBy       string            `json:"orderBy,omitempty"`
+			OrderDir      string            `json:"orderDir,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if p.Table == "" || p.FilePath == "" {
+			return nil, fmt.Errorf("table and filePath are required")
+		}
+		adapter, err := getRelationalAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		mysqlAdapter, ok := adapter.(*MySQLAdapter)
+		if !ok {
+			return nil, fmt.Errorf("connection %s is not a MySQL connection", p.ConnID)
+		}
+		start := time.Now()
+		totalRows, err := mysqlAdapter.ExportExcel(p.Database, p.Table, p.FilePath, p.Filter, p.ColumnFilters, p.OrderBy, p.OrderDir)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"filePath":   p.FilePath,
+			"totalRows":  totalRows,
+			"durationMs": time.Since(start).Milliseconds(),
+		}, nil
+	}
+}
+
 func handleMySQLGetRowCount(mgr *pool.Manager) Handler {
 	return func(params json.RawMessage) (interface{}, error) {
 		var p struct {
@@ -1109,6 +1150,41 @@ func handleClickHouseExportData(mgr *pool.Manager) Handler {
 			}
 			return map[string]interface{}{"result": result, "format": "csv"}, nil
 		}
+	}
+}
+
+func handleClickHouseExportExcel(mgr *pool.Manager) Handler {
+	return func(params json.RawMessage) (interface{}, error) {
+		var p struct {
+			ConnID        string            `json:"connId"`
+			Database      string            `json:"database,omitempty"`
+			Table         string            `json:"table"`
+			FilePath      string            `json:"filePath"`
+			Filter        string            `json:"filter,omitempty"`
+			ColumnFilters map[string]string `json:"columnFilters,omitempty"`
+			OrderBy       string            `json:"orderBy,omitempty"`
+			OrderDir      string            `json:"orderDir,omitempty"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if p.Table == "" || p.FilePath == "" {
+			return nil, fmt.Errorf("table and filePath are required")
+		}
+		adapter, err := getClickHouseAdapter(mgr, p.ConnID)
+		if err != nil {
+			return nil, err
+		}
+		start := time.Now()
+		totalRows, err := adapter.ExportExcel(p.Database, p.Table, p.FilePath, p.Filter, p.ColumnFilters, p.OrderBy, p.OrderDir)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"filePath":   p.FilePath,
+			"totalRows":  totalRows,
+			"durationMs": time.Since(start).Milliseconds(),
+		}, nil
 	}
 }
 

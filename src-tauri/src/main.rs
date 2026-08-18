@@ -243,6 +243,7 @@ fn main() {
             commands::db::db_mysql_update_rows,
             commands::db::db_mysql_delete_rows,
             commands::db::db_mysql_export_data,
+            commands::db::db_mysql_export_excel,
             commands::db::db_mysql_get_row_count,
             commands::db::db_mysql_get_table_meta,
             // Redis
@@ -307,6 +308,7 @@ fn main() {
             commands::db::db_clickhouse_update_rows,
             commands::db::db_clickhouse_delete_rows,
             commands::db::db_clickhouse_export_data,
+            commands::db::db_clickhouse_export_excel,
             commands::db::db_clickhouse_get_row_count,
             commands::db::db_clickhouse_get_table_meta,
             commands::db::db_clickhouse_get_partitions,
