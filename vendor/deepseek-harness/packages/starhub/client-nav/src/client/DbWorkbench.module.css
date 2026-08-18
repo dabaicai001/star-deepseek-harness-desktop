@@ -45,4 +45,11 @@
 .sqlTable th { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-weight: 600; }
 .tdNull { color: var(--dsw-alias-label-tertiary); font-style: italic; }
 
+.menuRoot { display: contents; }
+
+.ddlBackdrop { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: 40px; background: var(--dsw-alias-bg-mask-3); }
+.ddlPanel { display: flex; flex-direction: column; width: min(760px, 90vw); max-height: 80vh; border: 1px solid var(--dsw-alias-border-l3); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); overflow: hidden; }
+.ddlHeader { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+.ddlBody { flex: 1; min-height: 0; overflow: auto; padding: 14px; margin: 0; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 12px; color: var(--dsw-alias-label-primary); white-space: pre-wrap; word-break: break-all; }
+
 .placeholder { text-align: center; line-height: 1.7; }

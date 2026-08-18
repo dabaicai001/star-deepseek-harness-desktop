@@ -32,6 +32,9 @@ function stubInvoke(scenario: { connect?: unknown; databases?: unknown; tables?:
         totalRows: 2,
         isSelect: true,
       })
+      case 'db_mysql_get_table_ddl': return Promise.resolve({ ddl: 'CREATE TABLE users (id BIGINT)' })
+      case 'db_mysql_drop_table': return Promise.resolve(null)
+      case 'db_mysql_truncate_table': return Promise.resolve(null)
       case 'db_mysql_disconnect': return Promise.resolve(null)
       default: return Promise.reject(new Error(`unexpected ${cmd}`))
     }
@@ -97,4 +100,21 @@ describe('DbWorkbench', () => {
     unmount()
     expect(calls).toContain('db_mysql_connect')
   })
+
+  it('right-clicks a table to view its DDL', async () => {
+    const { calls } = stubInvoke({})
+    const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    // 展开库 → users 表行出现
+    fireEvent.click(screen.getByText('app'))
+    await waitFor(() => expect(screen.getByText('users')).toBeTruthy())
+    // 右键表行 → 菜单 → 查看 DDL
+    fireEvent.contextMenu(screen.getByText('users'))
+    await waitFor(() => expect(screen.getByText('查看 DDL')).toBeTruthy())
+    fireEvent.click(screen.getByText('查看 DDL'))
+    await waitFor(() => expect(calls).toContain('db_mysql_get_table_ddl'))
+    await waitFor(() => expect(screen.getByText(/CREATE TABLE users/)).toBeTruthy())
+    unmount()
+  })
+
 })

@@ -21,6 +21,8 @@ import type { RustAsset } from './store.ts'
 import { tauriInvoke } from './tauri.ts'
 import { DbDataGrid } from './DbDataGrid.tsx'
 import { SqlEditor, type SqlCompletionSchema } from './SqlEditor.tsx'
+import { ContextMenu, useContextMenu } from './ContextMenu.tsx'
+import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './DbWorkbench.module.css'
 
 /** db_mysql_execute 的返回(与 QueryResult 同构;SQL 执行结果复用)。 */
@@ -35,6 +37,53 @@ function extractColumnNames(rows: unknown): string[] {
   return rows
     .map((r) => (typeof r === 'object' && r !== null ? (r as Record<string, unknown>).name : undefined))
     .filter((n): n is string => typeof n === 'string')
+}
+
+/** 表行的右键动作集合(批次 4a)。 */
+interface TableRowActions {
+  onSelect: () => void
+  onShowDdl: () => void
+  onDrop: () => void
+  onTruncate: () => void
+}
+
+/** 单个表行:点击=选中,右键=菜单(查看 DDL / 删表 / 清空)。 */
+function TableRow({ table, selected, database, actions }: {
+  table: string
+  selected: boolean
+  database?: string
+  actions: TableRowActions
+}) {
+  const menu = useContextMenu()
+  const items: readonly MenuEntry[] = [
+    { id: 'ddl', label: '查看 DDL' },
+    { id: 'truncate', label: '清空表' },
+    { id: 'drop', label: '删除表', danger: true },
+  ]
+  return (
+    <li key={table}>
+      <button
+        type="button"
+        className={`${css.treeRow} ${css.tableRow} ${selected ? css.selected : ''}`}
+        title={database !== undefined ? `${database}.${table}` : table}
+        onClick={actions.onSelect}
+        onContextMenu={menu.onContextMenu}
+      >
+        <span className={css.chevron}>&nbsp;</span>
+        <span>{table}</span>
+      </button>
+      <ContextMenu
+        menu={menu}
+        items={items}
+        onSelect={(id) => {
+          if (id === 'ddl') actions.onShowDdl()
+          else if (id === 'truncate') actions.onTruncate()
+          else if (id === 'drop') actions.onDrop()
+        }}
+        className={css.menuRoot}
+      />
+    </li>
+  )
 }
 
 /** db 资产可复用的 connect 参数(与 Vue src/types/asset.ts + services/db.ts 同构)。 */
@@ -121,6 +170,8 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
   const [sqlResult, setSqlResult] = useState<SqlQueryResult | null>(null)
   const [sqlLoading, setSqlLoading] = useState(false)
   const [sqlError, setSqlError] = useState<string | null>(null)
+  // 表操作弹层(批次 4a):查看 DDL / 确认删除 / 清空。
+  const [ddl, setDdl] = useState<{ table: string; content: string; loading?: boolean } | null>(null)
   // 最新 connId(供 list_tables 与卸载 cleanup 断连;效应闭包拿不到最新异步态)。
   const connRef = useRef<string | null>(null)
   const [connected, setConnected] = useState(false)
@@ -222,6 +273,50 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     }
   }, [])
 
+  /** 查看表 DDL(get_table_ddl → 弹层)。 */
+  const showTableDdl = useCallback(async (table: string, database?: string) => {
+    const id = connRef.current
+    if (id === null) return
+    setDdl({ table, content: '', loading: true })
+    try {
+      const res = await tauriInvoke<{ ddl?: string }>('db_mysql_get_table_ddl', {
+        connId: id, table, ...(database !== undefined ? { database } : {}),
+      })
+      setDdl({ table, content: res.ddl ?? '(无 DDL)' })
+    } catch (e) {
+      setDdl({ table, content: `获取 DDL 失败: ${e instanceof Error ? e.message : String(e)}` })
+    }
+  }, [])
+
+  /** 删除表(危险,需二次确认;成功从树里移除,若正选中则清选中)。 */
+  const dropTable = useCallback(async (table: string, database?: string) => {
+    if (!window.confirm(`确定删除表「${table}」?此操作不可恢复。`)) return
+    const id = connRef.current
+    if (id === null) return
+    try {
+      await tauriInvoke('db_mysql_drop_table', { connId: id, table, ...(database !== undefined ? { database } : {}) })
+      setDbs((prev) => prev.map((d) => {
+        if (d.kind !== 'database' || !d.tables.includes(table)) return d
+        return { ...d, tables: d.tables.filter((t) => t !== table) }
+      }))
+      if (selected !== null && selected.table === table) setSelected(null)
+    } catch (e) {
+      setConnectError(`删除失败: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }, [selected])
+
+  /** 清空表(危险,需二次确认;成功后提示,不清选中)。 */
+  const truncateTable = useCallback(async (table: string, database?: string) => {
+    if (!window.confirm(`确定清空表「${table}」所有数据?此操作不可恢复。`)) return
+    const id = connRef.current
+    if (id === null) return
+    try {
+      await tauriInvoke('db_mysql_truncate_table', { connId: id, table, ...(database !== undefined ? { database } : {}) })
+    } catch (e) {
+      setConnectError(`清空失败: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }, [])
+
   // 把已展开库的表拼成补全 schema(表名 → 列名;列名在展开时惰性拉取)。
   const sqlSchema: SqlCompletionSchema = useMemo(() => {
     const out: SqlCompletionSchema = {}
@@ -275,16 +370,18 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
                       {node.expanded && (
                         <ul className={css.treeList}>
                           {node.tables.map((t) => (
-                            <li key={t}>
-                              <button
-                                type="button"
-                                className={`${css.treeRow} ${css.tableRow} ${selected !== null && selected.table === t ? css.selected : ''}`}
-                                onClick={() => setSelected({ table: t, database: node.name })}
-                              >
-                                <span className={css.chevron}>&nbsp;</span>
-                                <span>{t}</span>
-                              </button>
-                            </li>
+                            <TableRow
+                              key={t}
+                              table={t}
+                              database={node.name}
+                              selected={selected !== null && selected.table === t}
+                              actions={{
+                                onSelect: () => setSelected({ table: t, database: node.name }),
+                                onShowDdl: () => void showTableDdl(t, node.name),
+                                onDrop: () => void dropTable(t, node.name),
+                                onTruncate: () => void truncateTable(t, node.name),
+                              }}
+                            />
                           ))}
                         </ul>
                       )}
@@ -329,6 +426,18 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
             )}
           </section>
         </div>
+        {ddl !== null && (
+          <div className={css.ddlBackdrop}>
+            <div className={css.ddlPanel}>
+              <header className={css.ddlHeader}>
+                <span className={css.title}>DDL · {ddl.table}</span>
+                <span className={css.spacer} />
+                <button type="button" className={css.closeBtn} onClick={() => setDdl(null)}>关闭</button>
+              </header>
+              <pre className={css.ddlBody}>{ddl.loading === true ? '加载中…' : (ddl.content || '')}</pre>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
