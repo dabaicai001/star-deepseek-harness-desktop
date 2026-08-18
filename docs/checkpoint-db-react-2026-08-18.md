@@ -20,7 +20,7 @@
 | 1 | 壳内 DbWorkbench 骨架 + 连接树(库→表) + DB 资产走 React native(NATIVE_ROUTE_NAMES/isDatabaseAsset/openAssetPage 分派) | ✅ | v0.81.7 |
 | 2 | CM6 SQL 编辑器 SqlEditor(高亮/补全/Mod-Enter) | ✅ | v0.81.9 |
 | 3 | 结果网格 DbDataGrid(虚拟滚动/分页/排序/NULL) | ✅ | v0.81.9 |
-| 4a | 表右键菜单(查看DDL/删表/清空) + DDL 弹层 | 🔶 进行中(半成品) | 待 |
+| 4a | 表右键菜单(查看DDL弹层/删除表/清空表,均二次确认) + TableRow(角色:行点击=选中,右键=菜单) | ✅ | v0.81.10 |
 | 4b | 建表/改列/索引批量编辑对话框(移植 ddlGenerator) | ⬜ | 待 |
 | 5 | 收尾:3086 同步 client-nav bundle + 最终升版 y+1 + tag | ⬜ | 待 |
 
@@ -43,19 +43,23 @@
 - 测试:`tests/db-workbench.client.spec.tsx` / `db-data-grid.client.spec.tsx` / `sql-editor.client.spec.tsx`
 - `package.json`:新增 5 个 CM6 依赖(@codemirror/{lang-sql,state,view,autocomplete,commands})
 
-## 4. 批次 4a 半成品精确位置(DbWorkbench.tsx)
+## 4. 批次 4a 已实现(不要重复做)——DbWorkbench.tsx 现状
 
-**已加**(别再重复):
-- 行 24:`import { ContextMenu, useContextMenu, type ContextMenuState } from './ContextMenu.tsx'`
-- 行 25:`import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'`
-- 行 127:`const [ddl, setDdl] = useState<{table, content, loading?} | null>(null)`
+**已实现并提交(v0.81.10)**:
+- `showTableDdl(table, database?)`:`db_mysql_get_table_ddl` → `setDdl`
+- `dropTable(table, database?)`:`window.confirm` + `db_mysql_drop_table` + 从树移除/清选中
+- `truncateTable(table, database?)`:`window.confirm` + `db_mysql_truncate_table`
+- `TableRow` 子组件:行点击=选中,右键=ContextMenu(查看 DDL / 清空表 / 删除表[danger]);
+  用 `useContextMenu` + `ContextMenu` + `MenuEntry`
+- DDL 弹层:`ddl state → .ddlBackdrop/.ddlPanel`(顶部 .ddlHeader + pre.ddlBody)
+- CSS:.menuRoot{display:contents} + ddlBackdrop/ddlPanel/ddlHeader/ddlBody
+- 测试:db-workbench.spec 新增「right-clicks a table to view its DDL」(先展开库再右键)
+- imports(ContextMenu/useContextMenu/MenuEntry)已就位
 
-**待实现**:
-1. handlers(紧挨 executeSql 之后):`showTableDdl(table, database?)`(db_mysql_get_table_ddl → setDdl)、
-   `dropTable(table, database?)`(window.confirm + db_mysql_drop_table + 刷新树/清 selected)、
-   `truncateTable(table, database?)`(confirm + db_mysql_truncate_table)
-2. `TableRow` 子组件:表行 button(onClick=setSelected) + useContextMenu + ContextMenu(查 DDL/删/清空)
-3. render:表行包成 TableRow;DDL 弹层(ddl state → 展示面板,关闭钮清空)
+**待实现(批次 4b)**:建表/改列/索引批量编辑对话框——移植 Vue 端
+`src/utils/ddlGenerator.ts`(generateCreateTableDDL/generateBatchColumnDDL/
+generateBatchIndexDDL 等) + 对话框(NewTableDialog/ColumnListDialog/IndexListDialog),
+经 `db_mysql_execute` 跑生成的 DDL。
 
 ## 5. 命令要点(后端复用;invoke 参数名陷阱!)
 
