@@ -83,9 +83,9 @@ describe('renderModeForAsset', () => {
     // 需求 5(2026-08-18):数据库工作台 React 化,db-* 全部 native。
     expect(renderModeForAsset(asset('db', 'mysql'))).toBe('native')
     expect(renderModeForAsset(asset('db', 'postgresql'))).toBe('native')
-    // Redis / ES 在各自 React 工作台落地前回落 Vue embed(MySQL 风格
-    // DbWorkbench 无法呈现键树/索引树,见 sections.ts NATIVE_ROUTE_NAMES 注释)。
-    expect(renderModeForAsset(asset('db', 'redis'))).toBe('iframe')
+    // 批次 2(2026-08-18):Redis 工作台 React 化,redis 进 native。
+    expect(renderModeForAsset(asset('db', 'redis'))).toBe('native')
+    // Elasticsearch 尚未壳内 React 化 → 回落 Vue embed。
     expect(renderModeForAsset(asset('db', 'elasticsearch'))).toBe('iframe')
     // 批次 1(2026-08-18):Docker 全线 React 化,docker 进 native。
     expect(renderModeForAsset(asset('docker'))).toBe('native')

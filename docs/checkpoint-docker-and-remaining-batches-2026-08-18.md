@@ -10,7 +10,8 @@
 
 - ✅ **批次 0(Redis/ES 误路由)** :完成并验证(client-nav 264→312 例全绿)。
 - ✅ **批次 1(Docker 全线)** :完成。源码 + 接线 + 测试全部就绪;**docker 目录三文件(`docker-service.ts` / `DockerWorkbench.tsx` / `DockerExecTerminal.tsx`)per-file 100% 覆盖(语句/分支/函数/行)**,client-nav 全量 312 例通过,类型(tsc -b + tsconfig.host.json)与 bundle 构建均通过,已部署到 3086 测试实例。
-- ❌ 批次 2-6 + AI 面板:未开始,源文件与后端契约见 §5-§9。
+- ✅ **批次 2(Redis 工作台)** :完成并发布(v0.84.0)。`redis-service.ts` / `RedisValueEditor.tsx` / `RedisWorkbench.tsx` 三文件 per-file 100% 覆盖(语句/分支/函数/行),61 例全绿;`db-redis` 纳入 `NATIVE_ROUTE_NAMES` + `openAssetPage`/`store`/`StarHubOverlay` 接线;更新 apply/shell-state/nav-overlay 规格(redis→native,ES 维持 Vue embed);`tsc -b tsconfig.json` + `tsconfig.host.json` 净;tsdown bundle 重建成功。已 commit + push + 升 v0.84.0 + tag(批次 2 发布)。详见 §3.4。
+- ❌ 批次 3-6 + AI 面板:未开始,源文件与后端契约见 §5-§9。
 
 ---
 
@@ -84,6 +85,37 @@ coverage: {
 
 已按过往流程把 `lib/{client.js,style.css,client.js.map}` 复制到 `D:\StarHub\dsh-runtime-3086\node_modules\@deepseek-ai\dsh-starhub-client-nav\lib\`。3086 端口当前未监听,无需重启;启动后打开 http://127.0.0.1:3086 即可看到 Docker 原生工作台。
 
+### 3.4 ✅ 批次 2(Redis 工作台)已完成(2026-08-18,已发布 v0.84.0)
+
+> 完成 Redis 工作台 React 化 + 三文件 per-file 100% 覆盖 + 接线回归 + 发布。
+
+**新增源码(`.../client-nav/src/client/redis/`)**:
+- `redis-service.ts` — 12 个 `db_redis_*` 命令封装(connect/disconnect/select/db_size/scan/get_value/del/rename/set/execute/flush_db/info)+ `redisQuote` 纯函数(安全 token 直通,否则 JSON 转义)。**覆盖率 100%**。
+- `RedisWorkbench.tsx` — 壳内 overlay:连接/断连生命周期(绑定 asset.config→db_redis_connect)、DB 切换、键列表(SCAN 分页 + 搜索过滤 + 刷新/空态/错误重试)、键操作(打开值编辑器/重命名/删除+确认/FLUSHDB+确认/新建 key)、CLI(`db_redis_execute`,含 object→JSON/非 Error→String 输出)、toast。**覆盖率 100%**。
+- `RedisValueEditor.tsx` — tab 式值编辑器:打开 key 后按类型渲染 string 文本编辑(+TTL,可保存/还原)或结构类型(hash/list/set/zset)字段表(行增/删/改 + 新增行);结构保存按 Vue HashEditor 同契约拼原生命令(`redisQuote` 内联)→ HDEL/SREM/ZREM、HSET/SADD/ZADD/LSET;`ttlToInput`/`delVerb`/`rowsFromValue`/`revertRows` 纯函数。**覆盖率 100%**。
+- `RedisValueEditor.module.css` / `RedisWorkbench.module.css`。
+
+**接线改动**:
+- `sections.ts`:`db-redis` 纳入 `NATIVE_ROUTE_NAMES`。
+- `index.ts`:`openAssetPage` 加 `db-redis` → `redisWorkbench.open`(替换原回落 Vue embed 的 window 分支)。
+- `store.ts`:新增 `RedisWorkbenchState` / `createRedisWorkbench()`。
+- `StarHubOverlay.tsx`:注入面加 `redisWorkbench` + `closeRedisWorkbench`,渲染 `<RedisWorkbench>` 分支。
+
+**测试(全过,per-file 100%)**:
+- `tests/redis-service.client.spec.ts`(5 例)
+- `tests/redis-value-editor.client.spec.tsx`(31 例)
+- `tests/redis-workbench.client.spec.tsx`(25 例)
+- 更新 `starhub-apply.client.spec.ts`(redis→redisWorkbench 断言,ES 维持 window)、`starhub-shell-state.client.spec.ts`(renderModeForAsset redis→native)、`starhub-nav-overlay.client.spec.tsx`(overlayProps 补 redisWorkbench)。
+
+**验证结果**:
+- redis 三文件合并跑覆盖率 100%(语句/分支/函数/行)。
+- client-nav 全量 25 文件 / 378 例:除 `sql-editor`/`db-workbench` 两个**既有 pre-existing 失败**(CodeMirror 重复模块环境问题,已在干净 HEAD 复现确认,非本批回归)外,其余 369 例全绿。
+- `tsc -b tsconfig.json` + `tsconfig.host.json` 类型干净,EXIT 0。
+- `tsdown --config-loader tsx` bundle 构建成功(`lib/client.js` / `style.css` / `client.js.map`)。
+
+**发布(批次 2)**:
+- commit + push + 七处升版 v0.83.4→v0.84.0(minor,新功能)+ `git tag v0.84.0` + `git push origin v0.84.0`。
+
 ---
 
 ## 4. 批次划分总表(剩余)
@@ -91,7 +123,7 @@ coverage: {
 | 批次 | 内容 | 状态 |
 |---|---|---|
 | 1 | Docker 全线 | ✅ 完成(含 docker 三文件 100% 覆盖 + 接线回归修复,见 §3) |
-| 2 | Redis 工作台 | ❌ 未开始 |
+| 2 | Redis 工作台 | ✅ 完成并发布 v0.84.0(含 redis 三文件 100% 覆盖 + 接线回归修复,见 §3.4) |
 | 3 | Elasticsearch 工作台 | ❌ 未开始 |
 | 4 | DB 监控 Dashboard | ❌ 未开始 |
 | 5 | 结果网格 / SQL 编辑器补齐 | ❌ 未开始 |
@@ -102,14 +134,17 @@ coverage: {
 
 ## 5. 批次 2 — Redis 专用工作台
 
-**关键现状(批次 0 已修)**:Redis 资产已从 MySQL 风格 DbWorkbench 摘出,回落到 Vue embed iframe(`/db/redis/:id` → `RedisView.vue`)。**React 侧无 Redis 工作台。**
+> **✅ 已完成并发布 v0.84.0(2026-08-18)**:Redis 主工作台 + 值编辑器 + CLI 已壳内 React 化(见 §3.4),`db-redis` 不再回落 Vue embed。以下为历史上下文与**尚未迁移的辅助子工具**清单(新批次可用)。
 
-要迁移的 Vue 源(全在 `src/`):
-- `src/views/RedisView.vue` + `src/components/redis/` 下 `RedisValueEditor`、`RedisCli`、`RedisTools`、`NewKeyDialog`、`BigKeyScanner`、`MemoryAnalyzer`、`SlowlogViewer`、`PubSubMonitor`;`src/stores/objectTree.ts`(SCAN 游标分页)。
+**原现状(已完成前)**:Redis 资产曾从 MySQL 风格 DbWorkbench 摘出、回落 Vue embed iframe(`/db/redis/:id` → `RedisView.vue`);React 侧无 Redis 工作台。现已由 §3.4 的 React 原生工作台取代。
+
+**已 React 化**:主工作台(`RedisWorkbench.tsx`:连接/DB 切换/键列表/打开/重命名/删除/FLUSHDB/新建/CLI)+ 值编辑(`RedisValueEditor.tsx`:string 文本 + hash/list/set/zset 字段表)+ `redis-service.ts` 命令层。
+
+**未迁移的 Vue 辅助子工具**(仍停在 `src/`,新批次可逐项迁移):`src/components/redis/` 下 `RedisCli`、`RedisTools`、`NewKeyDialog`、`BigKeyScanner`、`MemoryAnalyzer`、`SlowlogViewer`、`PubSubMonitor`;`src/stores/objectTree.ts`(SCAN 游标分页,工作台键列表已内联实现)。若需完整复刻 RedisView.vue 的全部 Tab,按同套路新增子组件 + 100% 覆盖测试。
 
 Redis 后端命令(已授权,`src-tauri/permissions/commands.toml`):`db_redis_connect/disconnect/test`、`redis_*`(键树/SCAN/各类型读写/TTL/CLI 等);React 需确认 `redis_*` 是否都在授权集(建议 grep commands.toml)。
 
-**接线**:新增 `src/client/redis/`(service + 工作台 + 5 编辑器 + 工具),`sections.ts` 把 `db-redis` 加回 `NATIVE_ROUTE_NAMES`,`index.ts`/`store.ts`/`StarHubOverlay.tsx` 加 `redisWorkbench` 分支。类型可用 `src/types/`(无独立 types 时从 Rust 命令返回推断)。
+**接线(已完成)**:新增 `src/client/redis/`(service + 工作台 + 值编辑器),`sections.ts` 把 `db-redis` 加回 `NATIVE_ROUTE_NAMES`,`index.ts`/`store.ts`/`StarHubOverlay.tsx` 加 `redisWorkbench` 分支。类型可用 `src/types/`(无独立 types 时从 Rust 命令返回推断)。
 
 ---
 
@@ -156,16 +191,18 @@ Vue `src/components/db/DataGrid.vue` 与 `SqlEditor.vue`、`src/utils/sqlHistory
 2. **`noUncheckedIndexedAccess` 开启**:CSS module `css[computedKey]` / `css.someKey` 可能是 `string | undefined`,在需要 `string` 的函数返回里要处理(模板插值里没事)。
 3. **`hashrouter`/栈上 CSS**:别写死颜色,用 `--dsw-alias-*` token;danger 用 `--dsw-alias-state-error-primary`。
 4. **每文件 100% 覆盖率**(§2),防御分支用带理由的 `v8 ignore`,不要投机。
-5. **commit 约定**:用户要求「全部完成后再一次性 commit + 升一次版本号」(升版用 `node scripts/bump-version.mjs patch|minor`,七处同步)。当前工作区有未提交的 Batch0+1 改动,接手后要么并入最终 commit,要么先单独存一份。
+5. **commit 约定(已更新 2026-08-18)**:原交接要求「全部完成后再一次性 commit + 升一次版本号」;本次批次 2 用户明确要求「批次 2 发布」,故**已按批单独交付**——batch 2(Redis)已 commit + push + 升 v0.84.0 + tag(§3.4)。后续批次(3-6 + AI)按用户指示决定是逐批发布还是攒批一次发布;升版用 `node scripts/bump-version.mjs patch|minor`,七处同步。
 6. 远程仓有提示「repo moved to star-deepseek-harness-desktop.git」,push 仍成功,无需处理。
 
 ---
 
 ## 11. 接手后的建议清单(简短)
 
-1. ✅ ~~先跑一次 `git status` 确认工作区~~(批次 0+1 已全部完成,当前未提交改动见 §3.3)。
+1. ✅ ~~先跑一次 `git status` 确认工作区~~(批次 0+1 已全部完成)。
 2. ✅ ~~补完 `DockerWorkbench.tsx` 覆盖率 → 跑全套验证 → bundle → 部署 3086~~(批次 1 已交付,见 §3.2/§3.3)。
-3. 再逐块做 §5-§9(每块:源码 → 接线 → 100% 覆盖测试 → 类型/全量/bundle → 部署)。
-4. 全部完成后再一次性 commit + 升版(§10.5)。
+3. ✅ ~~批次 2(Redis):redis-service / RedisValueEditor / RedisWorkbench 三文件 100% 覆盖 → 全量验证 → bundle → commit+push+升版 v0.84.0+tag~~(已交付并发布,见 §3.4)。
+4. **注意**:`sql-editor`/`db-workbench` 两套测试为**既有 pre-existing 失败**(CodeMirror 重复模块/`@codemirror/state` 多个实例,已在干净 HEAD 复现),与 Redis 批次无关;新批次验证时勿误判为自身回归,也不要把这两套的「红」算进本批交付。
+5. 再逐块做 §6-§9(每块:源码 → 接线 → 100% 覆盖测试 → 类型/全量/bundle → 部署),批次 2 已发布的 v0.84.0 之后,后续每块视版本规则各自决定是否再升版。
+6. 全部完成后再一次性 commit + 升版(§10.5)。
 
 *供交接,勿把本文件当最终路线图——以实际的 `NATIVE_ROUTE_NAMES`/`openAssetPage` 分派为准。*

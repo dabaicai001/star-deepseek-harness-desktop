@@ -14,6 +14,14 @@
 
 ---
 
+## [0.84.0] - 2026-08-18
+
+### 已完成(待升版)
+- **Redis 专用工作台 React 化(批次 2)**:Redis 资产从 Vue embed 回落升级为壳内 React 原生工作台(替换 `RedisView.vue`)
+  - 新增 `src/client/redis/`:`redis-service.ts`(11 个 `db_redis_*` 命令封装 + `redisQuote` 内联转义)、`RedisWorkbench.tsx`(连接/断连生命周期、DB 切换、键列表 SCAN 分页 + 搜索 + 刷新/空态/错误、键操作[打开/重命名/删除/清空/新建]、CLI `db_redis_execute`、toast)、`RedisValueEditor.tsx`(tab 式编辑:string 文本编辑保存/还原/TTL,hash/list/set/zset 字段表增删改,拼装原生 HDEL/SREM/ZREM/HSET/SADD/ZADD/LSET 命令)
+  - 接线:`sections.ts` 把 `db-redis` 纳入 `NATIVE_ROUTE_NAMES`;`index.ts` `openAssetPage` 加 `db-redis` → `redisWorkbench.open`;`store.ts` 新增 `createRedisWorkbench`;`StarHubOverlay.tsx` 渲染 `<RedisWorkbench>` 分支
+  - 测试:`redis-service` / `RedisValueEditor` / `RedisWorkbench` 三文件 per-file 100% 覆盖(语句/分支/函数/行),61 例全绿;更新 `starhub-apply`/`starhub-shell-state`/`starhub-nav-overlay` 规格(redis→native 工作台断言,ES 维持 Vue embed);client-nav 全量除 sql-editor/db-workbench 两个既有 CodeMirror 重复模块环境失败外全绿;`tsc -b tsconfig.json` + `tsconfig.host.json` 净;tsdown bundle 重建成功
+
 ## [0.83.4] - 2026-08-18
 
 ### 已完成(待升版)

@@ -148,19 +148,19 @@ describe('client-nav apply', () => {
     try {
       applyPlugin(ctx)
       const injected = register.mock.calls[2]![0]!.inject()
-      const redisAsset = {
-        id: 'r1', type: 'db', name: 'redis-1', group_id: null,
-        config: { dbType: 'redis', host: 'h' },
+      const esAsset = {
+        id: 'es1', type: 'db', name: 'es-1', group_id: null,
+        config: { dbType: 'elasticsearch', host: 'h' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
       // local 资产:无功能路由 → openAsset 是 no-op,不开窗
-      injected.openAsset({ ...redisAsset, id: 'l1', type: 'local', config: {} })
+      injected.openAsset({ ...esAsset, id: 'l1', type: 'local', config: {} })
       expect(openSpy).not.toHaveBeenCalled()
-      // Redis/ES 在各自 React 工作台落地前仍走 Vue embed 独立窗口(批次 0)。
-      injected.hooks.assets.set({ assets: [redisAsset], loading: false, error: null, preview: false })
-      injected.openAsset(redisAsset)
+      // 未壳内 React 化的资产(如 Elasticsearch)仍走 Vue embed 独立窗口。
+      injected.hooks.assets.set({ assets: [esAsset], loading: false, error: null, preview: false })
+      injected.openAsset(esAsset)
       expect(openSpy).toHaveBeenCalledTimes(1)
-      expect(openSpy.mock.calls[0]![0]).toContain('route=%2Fdb%2Fredis')
+      expect(openSpy.mock.calls[0]![0]).toContain('route=%2Fdb%2Felasticsearch')
     } finally {
       openSpy.mockRestore()
     }
@@ -195,13 +195,13 @@ describe('client-nav apply', () => {
       const { ctx, register } = fakeContext()
       applyPlugin(ctx)
       const injected = register.mock.calls[2]![0]!.inject()
-      const redisAsset = {
-        id: 'r1', type: 'db', name: 'redis-1', group_id: null,
-        config: { dbType: 'redis', host: 'h' },
+      const esAsset = {
+        id: 'es1', type: 'db', name: 'es-1', group_id: null,
+        config: { dbType: 'elasticsearch', host: 'h' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
-      injected.hooks.assets.set({ assets: [redisAsset], loading: false, error: null, preview: false })
-      injected.openAsset(redisAsset)
+      injected.hooks.assets.set({ assets: [esAsset], loading: false, error: null, preview: false })
+      injected.openAsset(esAsset)
       await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledWith('打开资产页面失败:', expect.any(Error)))
     } finally {
       delete w.__TAURI_INTERNALS__
@@ -224,6 +224,27 @@ describe('client-nav apply', () => {
       injected.openAsset(dockerAsset)
       const overlay = register.mock.calls[1]![0]!.inject()
       expect(overlay.hooks.dockerWorkbench.getSnapshot()).toEqual({ open: true, asset: dockerAsset })
+      expect(openSpy).not.toHaveBeenCalled()
+    } finally {
+      openSpy.mockRestore()
+    }
+  })
+
+  it('opens Redis assets in the native React workbench instead of a window', () => {
+    const { ctx, register } = fakeContext()
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      applyPlugin(ctx)
+      const injected = register.mock.calls[2]![0]!.inject()
+      const redisAsset = {
+        id: 'r1', type: 'db', name: 'redis-1', group_id: null,
+        config: { dbType: 'redis', host: 'h' },
+        key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
+      }
+      injected.hooks.assets.set({ assets: [redisAsset], loading: false, error: null, preview: false })
+      injected.openAsset(redisAsset)
+      const overlay = register.mock.calls[1]![0]!.inject()
+      expect(overlay.hooks.redisWorkbench.getSnapshot()).toEqual({ open: true, asset: redisAsset })
       expect(openSpy).not.toHaveBeenCalled()
     } finally {
       openSpy.mockRestore()

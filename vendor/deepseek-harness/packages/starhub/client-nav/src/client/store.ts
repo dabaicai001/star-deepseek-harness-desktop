@@ -218,6 +218,29 @@ export function createDockerWorkbench(): DockerWorkbench {
   }
 }
 
+/** Root-scope native Redis workbench overlay state. */
+export interface RedisWorkbenchState {
+  open: boolean
+  asset: RustAsset | null
+}
+
+/** Apply-owned Redis workbench bridge (batch 2:React native). */
+export interface RedisWorkbench {
+  source: SnapshotStore<RedisWorkbenchState>
+  open: (asset: RustAsset) => void
+  close: () => void
+}
+
+/** Create the root-scope Redis workbench overlay bridge. */
+export function createRedisWorkbench(): RedisWorkbench {
+  const source = createSnapshotStore<RedisWorkbenchState>({ open: false, asset: null })
+  return {
+    source,
+    open: (asset) => source.set({ open: true, asset }),
+    close: () => source.set({ open: false, asset: null }),
+  }
+}
+
 /** 跨 scope 的当前工具选择:子类 + 打开的资产实例(含派生好的路由前缀)。 */
 export interface ToolSelection {
   /** 当前选中的子类 key(STARHUB_SUBCATEGORIES[].key);null = 未选。 */

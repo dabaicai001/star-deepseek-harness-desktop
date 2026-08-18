@@ -15,7 +15,8 @@ import { NewConnectionDialog } from './NewConnectionDialog.tsx'
 import { SshTerminalOverlay } from './terminal/SshTerminalOverlay.tsx'
 import { DbWorkbench } from './DbWorkbench.tsx'
 import { DockerWorkbench } from './docker/DockerWorkbench.tsx'
-import type { ConnectionManagerState, DbWorkbenchState, DockerWorkbenchState, SshTerminalOverlayState } from './store.ts'
+import { RedisWorkbench } from './redis/RedisWorkbench.tsx'
+import type { ConnectionManagerState, DbWorkbenchState, DockerWorkbenchState, RedisWorkbenchState, SshTerminalOverlayState } from './store.ts'
 
 /** Business face injected by the registration: dialog open/close + asset-list refresh. */
 export interface StarHubOverlayInjected {
@@ -29,11 +30,14 @@ export interface StarHubOverlayInjected {
   closeDbWorkbench: () => void
   /** 关闭原生 Docker 工作台(批次 1 React 化)。 */
   closeDockerWorkbench: () => void
+  /** 关闭原生 Redis 工作台(批次 2 React 化)。 */
+  closeRedisWorkbench: () => void
   hooks: {
     connectionManager: SnapshotStore<ConnectionManagerState>
     sshTerminal: SnapshotStore<SshTerminalOverlayState>
     dbWorkbench: SnapshotStore<DbWorkbenchState>
     dockerWorkbench: SnapshotStore<DockerWorkbenchState>
+    redisWorkbench: SnapshotStore<RedisWorkbenchState>
   }
 }
 
@@ -53,12 +57,14 @@ const EMBED_OPEN_SECTION_MESSAGE = 'starhub-embed-open-section'
  */
 export function StarHubOverlay({
   openConnectionManager, closeConnectionManager, refreshAssets, closeSshTerminal, closeDbWorkbench,
-  closeDockerWorkbench, useConnectionManager, useSshTerminal, useDbWorkbench, useDockerWorkbench,
+  closeDockerWorkbench, closeRedisWorkbench, useConnectionManager, useSshTerminal, useDbWorkbench, useDockerWorkbench,
+  useRedisWorkbench,
 }: StarHubOverlayProps) {
   const state = useConnectionManager(s => s)
   const terminal = useSshTerminal(s => s)
   const db = useDbWorkbench(s => s)
   const docker = useDockerWorkbench(s => s)
+  const redis = useRedisWorkbench(s => s)
 
   // embed 资产条「去设置添加」→ 打开连接对话框(常驻监听:消息可能在
   // 对话框关闭时到达——embed 页在 iframe 里时父帧是本壳)。
@@ -92,6 +98,9 @@ export function StarHubOverlay({
   }
   if (docker.open && docker.asset !== null) {
     return <DockerWorkbench asset={docker.asset} onClose={closeDockerWorkbench} />
+  }
+  if (redis.open && redis.asset !== null) {
+    return <RedisWorkbench asset={redis.asset} onClose={closeRedisWorkbench} />
   }
   if (!state.open) return null
 

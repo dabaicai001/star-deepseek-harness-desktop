@@ -92,6 +92,7 @@ export const NATIVE_ROUTE_NAMES: ReadonlySet<string> = new Set([
   'db-clickhouse',
   // 批次 1(2026-08-18):Docker 全线 React 化。docker 进入 native 集合,点击
   // Docker 资产改由壳内 React DockerWorkbench 承载(不再开 Vue embed 独立窗口)。
+  'db-redis',
   'docker',
 ])
 

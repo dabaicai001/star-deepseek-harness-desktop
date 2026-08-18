@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.83.4-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.84.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -109,17 +109,14 @@
 
 ## 当前版本
 
+### v0.84.0 (2026-08-18)
+- 🔧 **Redis 专用工作台 React 化(批次 2)**:Redis 资产从 Vue embed 回落升级为壳内 React 原生工作台(替换 `RedisView.vue`)
+
 ### v0.83.4 (2026-08-18)
 - 🔧 **修复新建/编辑连接对话框的 Elasticsearch 地址回显**(壳内 React NewConnectionDialog):
 
 ### v0.83.3 (2026-08-18)
 - 🔧 **修复 v0.83.2 tag 构建失败**:client-nav Docker 测试(DockerWorkbench / docker-service / DockerExecTerminal spec)在完整 `pnpm run build` 的 `tsc -b tsconfig.client.json` 阶段报类型错误,致 release 构建红
-
-### v0.83.2 (2026-08-18)
-- 🔧 **修复启动偶发「Failed to load plugins」**:启动时 webview 抓取插件 bundle 撞上 dsh web 进程更替/文件瞬时不读即永久拒启动;client-modules `defaultLoadBundle` 按 300ms/1200ms 有界退避重试,瞬态失败自愈,真缺失仍 fail loud
-
-### v0.83.1 (2026-08-18)
-- 🔧 **SSH/SFTP 接上 SFTP 跟随终端**:React 终端上报 cwd(OSC7/pwd 解析 + 懒注入),SftpPanel 跟随加载
 
 ---
 

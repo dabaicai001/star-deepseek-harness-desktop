@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.83.4(**修复新建/编辑连接对话框的 Elasticsearch 地址回显**:壳内 React NewConnectionDialog 补 ES 三态端点 host/address/multi,编辑回显 config.address/config.addresses、提交写回、db_es_test 携带地址、端点校验;per-file 100% 覆盖 + 类型净) |
+| 当前版本 | v0.84.0(**Redis 专用工作台 React 化(批次 2)**:Redis 资产从 Vue embed 回落升级为壳内 React 原生工作台(替换 `RedisView.vue`)) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-18 (v0.83.4)*
+*最后更新: 2026-08-18 (v0.84.0)*

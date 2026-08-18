@@ -32,7 +32,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { createStarHubAssetSource } from './asset-source.ts'
 import { createAskAiHandler, createOpenAssetHandler, focusShellConversation, subscribeHostEvents } from './host-events.ts'
 import {
-  createConnectionManagerOverlay, createDbWorkbench, createDockerWorkbench, createSshTerminalOverlay,
+  createConnectionManagerOverlay, createDbWorkbench, createDockerWorkbench, createRedisWorkbench, createSshTerminalOverlay,
   createStarHubAssets, createStarHubNavStore, createToolSelectionBridge,
 } from './store.ts'
 import { assetInstanceUrl, isDatabaseAsset, isDockerAsset, isSshTerminalAsset, routeNameForAsset, STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
@@ -72,6 +72,7 @@ export function apply(ctx: Context): void {
   const sshTerminal = createSshTerminalOverlay()
   const dbWorkbench = createDbWorkbench()
   const dockerWorkbench = createDockerWorkbench()
+  const redisWorkbench = createRedisWorkbench()
   // 服务面:注入数组已声明依赖,读取必然非空;conversation 在预填时退化处理。
   const connection = ctx.get('connection') as ConnectionHandle
   const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract
@@ -99,6 +100,10 @@ export function apply(ctx: Context): void {
     }
     if (isDockerAsset(asset)) {
       if (fullAsset !== undefined) dockerWorkbench.open(fullAsset)
+      return
+    }
+    if (route === 'db-redis') {
+      if (fullAsset !== undefined) redisWorkbench.open(fullAsset)
       return
     }
     const sel = selection.source.getSnapshot()
@@ -145,12 +150,14 @@ export function apply(ctx: Context): void {
       closeSshTerminal: sshTerminal.close,
       closeDbWorkbench: dbWorkbench.close,
       closeDockerWorkbench: dockerWorkbench.close,
+      closeRedisWorkbench: redisWorkbench.close,
       refreshAssets: assets.refresh,
       hooks: {
         connectionManager: connectionManager.source,
         sshTerminal: sshTerminal.source,
         dbWorkbench: dbWorkbench.source,
         dockerWorkbench: dockerWorkbench.source,
+        redisWorkbench: redisWorkbench.source,
       },
     }),
   }, StarHubOverlay))
