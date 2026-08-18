@@ -79,6 +79,12 @@ function num(config: Record<string, unknown>, key: string, fallback: number): nu
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
+/** 字符串数组配置字段读取(非字符串数组归空;ES 的 addresses 多节点)。 */
+function strList(config: Record<string, unknown>, key: string): string[] {
+  const value = config[key]
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
+}
+
 /** 对话框入参:打开状态由父层(overlay)控制,asset 非空进入编辑模式。 */
 export interface NewConnectionDialogProps {
   /** 编辑目标;null = 新建。 */
@@ -112,6 +118,17 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
   const [database, setDatabase] = useState(() => (asset === null ? '' : str(asset.config, 'database')))
   const [redisDb, setRedisDb] = useState(() => (asset === null ? 0 : num(asset.config, 'db', 0)))
   const [ssl, setSsl] = useState(() => asset?.config.ssl === true)
+  /** Elasticsearch 端点形态(Vue DbConnectionForm 三态对齐):host / address / multi。 */
+  const [esMode, setEsMode] = useState<'host' | 'address' | 'multi'>(() => {
+    if (asset === null) return 'host'
+    if (strList(asset.config, 'addresses').length > 0) return 'multi'
+    if (str(asset.config, 'address') !== '') return 'address'
+    return 'host'
+  })
+  /** ES Address URL 模式下的端点(单地址)。 */
+  const [esAddress, setEsAddress] = useState(() => (asset === null ? '' : str(asset.config, 'address')))
+  /** ES Multi Nodes 模式下的节点文本(每行一个,与 Vue esNodes 同契约)。 */
+  const [esNodes, setEsNodes] = useState(() => (asset === null ? '' : strList(asset.config, 'addresses').join('\n')))
   const [sshAuth, setSshAuth] = useState<SshAuth>(() => {
     if (asset === null) return 'password'
     if (asset.config.authMode === 'mfa' || asset.config.mfaEnabled === true) return 'mfa'
@@ -142,13 +159,21 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
   const isDb = kind !== 'ssh' && kind !== 'docker'
   const needsUsername = kind === 'ssh' || kind === 'mysql' || kind === 'postgresql' || kind === 'clickhouse'
   const hasDatabase = kind === 'mysql' || kind === 'postgresql' || kind === 'clickhouse'
+  /** 地址/端点有效性:docker 看 transport+地址;ES 看三态;其余看 host。 */
+  const addressValid = kind === 'docker'
+    ? dockerTransport === 'socket' || dockerAddress.trim() !== ''
+    : kind === 'elasticsearch'
+      ? (esMode === 'multi'
+          ? esNodes.split('\n').map(s => s.trim()).filter(Boolean).length > 0
+          : esMode === 'address' ? esAddress.trim() !== '' : host.trim() !== '')
+      : host.trim() !== ''
   const canSubmit = !preview && !busy && name.trim() !== ''
-    && (kind === 'docker' ? dockerTransport === 'socket' || dockerAddress.trim() !== '' : host.trim() !== '')
+    && addressValid
     && (!needsUsername || username.trim() !== '')
     && (kind !== 'ssh' || sshAuth !== 'key' || editing || privateKey !== '')
   // 测试连接不要求名称;其余必填与提交一致(私钥档新建必须先选文件)。
   const canTest = !preview && !busy
-    && (kind === 'docker' ? dockerTransport === 'socket' || dockerAddress.trim() !== '' : host.trim() !== '')
+    && addressValid
     && (!needsUsername || username.trim() !== '')
     && (kind !== 'ssh' || sshAuth !== 'key' || editing || privateKey !== '')
 
@@ -223,6 +248,14 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
       database: hasDatabase && database.trim() !== '' ? database.trim() : undefined,
       db: kind === 'redis' ? redisDb : undefined,
       ssl,
+      ...(kind === 'elasticsearch' && (esMode === 'address' || esMode === 'multi')
+        ? {
+            address: esMode === 'address' ? esAddress.trim() : undefined,
+            addresses: esMode === 'multi'
+              ? esNodes.split('\n').map(s => s.trim()).filter(Boolean)
+              : undefined,
+          }
+        : {}),
     }
   }
 
@@ -316,10 +349,12 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
         params.ssl = ssl
         break
       default:
-        // elasticsearch:字段名对齐 ESConnInfo(useSSL)
+        // elasticsearch:字段名对齐 ESConnInfo(useSSL + address/addresses)
         cmd = 'db_es_test'
         params.username = username.trim()
         params.useSSL = ssl
+        if (esMode === 'address') params.address = esAddress.trim()
+        else if (esMode === 'multi') params.addresses = esNodes.split('\n').map(s => s.trim()).filter(Boolean)
         break
     }
     return { cmd, args: { params } }
@@ -483,6 +518,78 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
                   onChange={(event) => setDockerAddress(event.target.value)}
                 />
               </div>
+            </>
+          ) : kind === 'elasticsearch' ? (
+            <>
+              <div className={s.formField}>
+                <label className={s.fieldLabel} htmlFor="conn-es-mode">端点方式</label>
+                <select
+                  id="conn-es-mode"
+                  className={s.select}
+                  value={esMode}
+                  disabled={preview}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    setEsMode(value === 'multi' ? 'multi' : value === 'address' ? 'address' : 'host')
+                  }}
+                >
+                  <option value="host">Host / Port</option>
+                  <option value="address">Address URL</option>
+                  <option value="multi">Multi Nodes</option>
+                </select>
+              </div>
+              {esMode === 'multi' ? (
+                <div className={s.formField}>
+                  <label className={s.fieldLabel} htmlFor="conn-es-nodes">节点地址 *</label>
+                  <textarea
+                    id="conn-es-nodes"
+                    className={s.input}
+                    rows={3}
+                    value={esNodes}
+                    disabled={preview}
+                    placeholder={'http://node1:9200\nhttp://node2:9200'}
+                    onChange={(event) => setEsNodes(event.target.value)}
+                  />
+                  <span className={s.fieldHint}>每行一个地址,支持轮询与故障转移</span>
+                </div>
+              ) : esMode === 'address' ? (
+                <div className={s.formField}>
+                  <label className={s.fieldLabel} htmlFor="conn-es-address">地址 *</label>
+                  <input
+                    id="conn-es-address"
+                    className={s.input}
+                    value={esAddress}
+                    disabled={preview}
+                    placeholder="http://127.0.0.1:9200"
+                    onChange={(event) => setEsAddress(event.target.value)}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className={s.formField}>
+                    <label className={s.fieldLabel} htmlFor="conn-host">主机 *</label>
+                    <input
+                      id="conn-host"
+                      className={s.input}
+                      value={host}
+                      disabled={preview}
+                      placeholder="127.0.0.1"
+                      onChange={(event) => setHost(event.target.value)}
+                    />
+                  </div>
+                  <div className={s.formField}>
+                    <label className={s.fieldLabel} htmlFor="conn-port">端口</label>
+                    <input
+                      id="conn-port"
+                      className={s.input}
+                      type="number"
+                      value={port}
+                      disabled={preview}
+                      onChange={(event) => setPort(Number(event.target.value) || kindMeta.defaultPort)}
+                    />
+                  </div>
+                </>
+              )}
             </>
           ) : (
             <>

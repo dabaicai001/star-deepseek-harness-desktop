@@ -835,3 +835,125 @@ describe('NewConnectionDialog test connection', () => {
     }
   })
 })
+
+describe('NewConnectionDialog elasticsearch address', () => {
+  it('creates an ES asset with a single Address URL and sends it to db_es_test', async () => {
+    const create = vi.fn((..._args: unknown[]) => ({}))
+    const esTest = vi.fn((_args?: unknown) => ({ ok: true, message: 'OK' }))
+    const restore = stubTauriInternals({
+      create_asset: (args) => create(args),
+      db_es_test: (args) => esTest(args),
+    })
+    try {
+      render(<NewConnectionDialog asset={null} onClose={() => {}} onSaved={() => {}} />)
+      fireEvent.change(screen.getByLabelText('类型'), { target: { value: 'elasticsearch' } })
+      fireEvent.change(screen.getByLabelText('名称 *'), { target: { value: 'es1' } })
+      fireEvent.change(screen.getByLabelText('端点方式'), { target: { value: 'address' } })
+      fireEvent.change(screen.getByLabelText('地址 *'), { target: { value: 'http://10.0.0.9:9200' } })
+      fireEvent.click(screen.getByText('测试连接'))
+      await screen.findByText('OK')
+      expect(esTest).toHaveBeenCalledWith({
+        params: { host: '', port: 9200, password: '', username: '', useSSL: false, address: 'http://10.0.0.9:9200' },
+      })
+      fireEvent.click(screen.getByText('创建'))
+      expect(create).toHaveBeenCalledWith({
+        params: {
+          type: 'db', name: 'es1', group_id: null, tags: [],
+          config: {
+            dbType: 'elasticsearch', host: '', port: 9200, username: undefined, password: undefined,
+            database: undefined, db: undefined, ssl: false, address: 'http://10.0.0.9:9200', addresses: undefined,
+          },
+        },
+      })
+    } finally {
+      restore()
+    }
+  })
+
+  it('creates an ES asset with Multi Nodes and echoes both nodes back on edit', async () => {
+    const create = vi.fn((..._args: unknown[]) => ({}))
+    const esTest = vi.fn((_args?: unknown) => ({ ok: true, message: 'OK' }))
+    const restore = stubTauriInternals({
+      create_asset: (args) => create(args),
+      db_es_test: (args) => esTest(args),
+    })
+    try {
+      const view = render(<NewConnectionDialog asset={null} onClose={() => {}} onSaved={() => {}} />)
+      fireEvent.change(screen.getByLabelText('类型'), { target: { value: 'elasticsearch' } })
+      fireEvent.change(screen.getByLabelText('名称 *'), { target: { value: 'es2' } })
+      fireEvent.change(screen.getByLabelText('端点方式'), { target: { value: 'multi' } })
+      fireEvent.change(screen.getByLabelText('节点地址 *'), { target: { value: 'http://a:9200\nhttp://b:9200' } })
+      fireEvent.click(screen.getByText('测试连接'))
+      await screen.findByText('OK')
+      expect(esTest).toHaveBeenCalledWith({
+        params: { host: '', port: 9200, password: '', username: '', useSSL: false, addresses: ['http://a:9200', 'http://b:9200'] },
+      })
+      fireEvent.click(screen.getByText('创建'))
+      const firstCall = create.mock.calls[0]
+      const cfg = firstCall === undefined
+        ? undefined
+        : (firstCall[0] as { params: { config: Record<string, unknown> } }).params.config
+      expect(cfg?.addresses).toEqual(['http://a:9200', 'http://b:9200'])
+      view.unmount()
+      cleanup()
+
+      // 编辑回显 multi addresses(用户报告的「地址没回显」正是此路径)
+      const editAsset = makeAsset({ type: 'db', name: 'es-edit', config: { dbType: 'elasticsearch', addresses: ['http://a:9200', 'http://b:9200'] } })
+      render(<NewConnectionDialog asset={editAsset} onClose={() => {}} onSaved={() => {}} />)
+      expect((screen.getByLabelText('端点方式') as HTMLSelectElement).value).toBe('multi')
+      expect((screen.getByLabelText('节点地址 *') as HTMLTextAreaElement).value).toBe('http://a:9200\nhttp://b:9200')
+    } finally {
+      restore()
+    }
+  })
+
+  it('echoes a single ES Address and a host-mode asset on mount', async () => {
+    const restore = stubTauriInternals({})
+    try {
+      const single = makeAsset({ type: 'db', name: 'es-addr', config: { dbType: 'elasticsearch', address: 'http://x:9200' } })
+      const view = render(<NewConnectionDialog asset={single} onClose={() => {}} onSaved={() => {}} />)
+      expect((screen.getByLabelText('端点方式') as HTMLSelectElement).value).toBe('address')
+      expect((screen.getByLabelText('地址 *') as HTMLInputElement).value).toBe('http://x:9200')
+      view.unmount()
+      cleanup()
+
+      const hostAsset = makeAsset({ type: 'db', name: 'es-host', config: { dbType: 'elasticsearch', host: 'es-host', port: 9201 } })
+      render(<NewConnectionDialog asset={hostAsset} onClose={() => {}} onSaved={() => {}} />)
+      expect((screen.getByLabelText('端点方式') as HTMLSelectElement).value).toBe('host')
+      expect((screen.getByLabelText('主机 *') as HTMLInputElement).value).toBe('es-host')
+      // host 模式下的端口输入(独立 onChange 分支)+ 空值回退缺省端口
+      fireEvent.change(screen.getByLabelText('端口'), { target: { value: '9222' } })
+      expect((screen.getByLabelText('端口') as HTMLInputElement).value).toBe('9222')
+      fireEvent.change(screen.getByLabelText('端口'), { target: { value: '' } })
+      expect((screen.getByLabelText('端口') as HTMLInputElement).value).toBe('9200')
+    } finally {
+      restore()
+    }
+  })
+
+  it('requires an ES address or node before create in address and multi modes', async () => {
+    const create = vi.fn((..._args: unknown[]) => ({}))
+    const restore = stubTauriInternals({ create_asset: (args) => create(args) })
+    try {
+      render(<NewConnectionDialog asset={null} onClose={() => {}} onSaved={() => {}} />)
+      fireEvent.change(screen.getByLabelText('类型'), { target: { value: 'elasticsearch' } })
+      fireEvent.change(screen.getByLabelText('名称 *'), { target: { value: 'es' } })
+      // address 模式空/全空白 → 创建禁用
+      fireEvent.change(screen.getByLabelText('端点方式'), { target: { value: 'address' } })
+      expect(screen.getByText('创建').hasAttribute('disabled')).toBe(true)
+      fireEvent.change(screen.getByLabelText('地址 *'), { target: { value: ' ' } })
+      expect(screen.getByText('创建').hasAttribute('disabled')).toBe(true)
+      // multi 模式空节点 → 禁用;填一个 → 启用
+      fireEvent.change(screen.getByLabelText('端点方式'), { target: { value: 'multi' } })
+      expect(screen.getByText('创建').hasAttribute('disabled')).toBe(true)
+      fireEvent.change(screen.getByLabelText('节点地址 *'), { target: { value: 'http://a:9200\n' } })
+      expect(screen.getByText('创建').hasAttribute('disabled')).toBe(false)
+      // 切回 host 模式(端点方式 select 的 host 分支)
+      fireEvent.change(screen.getByLabelText('端点方式'), { target: { value: 'host' } })
+      expect((screen.getByLabelText('主机 *') as HTMLInputElement).value).toBe('')
+      expect(create).not.toHaveBeenCalled()
+    } finally {
+      restore()
+    }
+  })
+})
