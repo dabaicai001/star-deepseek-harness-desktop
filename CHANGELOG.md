@@ -14,6 +14,15 @@
 
 ---
 
+## [0.83.3] - 2026-08-18
+
+### 已完成(待升版)
+- **修复 v0.83.2 tag 构建失败**:client-nav Docker 测试(DockerWorkbench / docker-service / DockerExecTerminal spec)在完整 `pnpm run build` 的 `tsc -b tsconfig.client.json` 阶段报类型错误,致 release 构建红
+  - `docker-exec-terminal.client.spec.tsx`:移除未使用 `args`/`invoke`;read 结果取数加 `??` 兜底
+  - `docker-service.client.spec.ts`:移除未使用 `DockerConnectParams` 导入;`stubInvoke` 返回类型修为 `() => void`(原声明成 invoke handler 致 `restore()` 报"期望 1-2 实参")
+  - `docker-workbench.client.spec.tsx`:移除未使用 `args`;`mockImplementation` 处 `vi.fn` 实现显式标注 `Promise<unknown>` 使两次实现类型对齐;`getAllByText().at(-1)` 加 undefined 守卫
+  - 验证:3 个 docker spec 47 例全绿;`tsc -b tsconfig.client.json` 净;已提交修复 + 升版 v0.83.3
+
 ## [0.83.2] - 2026-08-18
 
 ### 已完成(待升版)
