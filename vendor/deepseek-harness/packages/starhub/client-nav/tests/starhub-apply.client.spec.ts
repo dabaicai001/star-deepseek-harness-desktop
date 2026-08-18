@@ -142,7 +142,31 @@ describe('client-nav apply', () => {
     expect(overlay.hooks.sshTerminal.getSnapshot()).toEqual({ open: false, asset: null })
   })
 
-  it('opens a non-ssh asset page in a new tab (preview) and no-ops on route-less types', () => {
+  it('opens a non-DB asset page in a new tab (preview) and no-ops on route-less types', () => {
+    const { ctx, register } = fakeContext()
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      applyPlugin(ctx)
+      const injected = register.mock.calls[2]![0]!.inject()
+      const sshAsset = {
+        id: 's1', type: 'ssh', name: 'web-1', group_id: null,
+        config: { host: 'h' },
+        key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
+      }
+      // local 资产:无功能路由 → openAsset 是 no-op,不开窗
+      injected.openAsset({ ...sshAsset, id: 'l1', type: 'local', config: {} })
+      expect(openSpy).not.toHaveBeenCalled()
+      // ssh 资产(非 db → 不走原生工作台):预览模式 → window.open 新标签页
+      injected.hooks.assets.set({ assets: [sshAsset], loading: false, error: null, preview: false })
+      injected.openAsset(sshAsset)
+      expect(openSpy).toHaveBeenCalledTimes(1)
+      expect(openSpy.mock.calls[0]![0]).toContain('route=%2Fssh')
+    } finally {
+      openSpy.mockRestore()
+    }
+  })
+
+  it('opens DB assets in the native React workbench instead of a window', () => {
     const { ctx, register } = fakeContext()
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
@@ -153,20 +177,17 @@ describe('client-nav apply', () => {
         config: { dbType: 'postgresql', host: 'h' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
-      // local 资产:无功能路由 → openAsset 是 no-op,不开窗
-      injected.openAsset({ ...dbAsset, id: 'l1', type: 'local', config: {} })
-      expect(openSpy).not.toHaveBeenCalled()
-      // db 资产:预览模式 → window.open 新标签页(openNewPage 预览分支)
       injected.hooks.assets.set({ assets: [dbAsset], loading: false, error: null, preview: false })
       injected.openAsset(dbAsset)
-      expect(openSpy).toHaveBeenCalledTimes(1)
-      expect(openSpy.mock.calls[0]![0]).toContain('route=%2Fdb%2Fpostgresql')
+      const overlay = register.mock.calls[1]![0]!.inject()
+      expect(overlay.hooks.dbWorkbench.getSnapshot()).toEqual({ open: true, asset: dbAsset })
+      expect(openSpy).not.toHaveBeenCalled()
     } finally {
       openSpy.mockRestore()
     }
   })
 
-  it('logs when opening the asset window fails (IPC rejection)', async () => {
+  it('logs when opening a non-DB asset window fails (IPC rejection)', async () => {
     const w = window as unknown as { __TAURI_INTERNALS__?: { invoke: unknown } }
     w.__TAURI_INTERNALS__ = { invoke: () => Promise.reject(new Error('not allowed')) }
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -174,13 +195,13 @@ describe('client-nav apply', () => {
       const { ctx, register } = fakeContext()
       applyPlugin(ctx)
       const injected = register.mock.calls[2]![0]!.inject()
-      const dbAsset = {
-        id: 'pg1', type: 'db', name: 'prod-db', group_id: null,
-        config: { dbType: 'postgresql', host: 'h' },
+      const sshAsset = {
+        id: 's1', type: 'ssh', name: 'web-1', group_id: null,
+        config: { host: 'h' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
-      injected.hooks.assets.set({ assets: [dbAsset], loading: false, error: null, preview: false })
-      injected.openAsset(dbAsset)
+      injected.hooks.assets.set({ assets: [sshAsset], loading: false, error: null, preview: false })
+      injected.openAsset(sshAsset)
       await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledWith('打开资产页面失败:', expect.any(Error)))
     } finally {
       delete w.__TAURI_INTERNALS__

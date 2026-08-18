@@ -78,7 +78,22 @@ export type StarHubRenderMode = 'iframe' | 'native'
  * 注:当前实例操作页一律经 openNewPage 开独立窗口(embed URL),native
  * 集合暂不参与渲染分派,仅作迁移进度事实表保留(含 BrokerView 及其测试)。
  */
-export const NATIVE_ROUTE_NAMES: ReadonlySet<string> = new Set(['db-broker', 'ssh-terminal'])
+export const NATIVE_ROUTE_NAMES: ReadonlySet<string> = new Set([
+  'db-broker',
+  'ssh-terminal',
+  // 需求 5(2026-08-18):数据库工作台 React 化。db-* 进入 native 集合,DB 资产
+  // 点击改由壳内 React DbWorkbench 承载(不再开 Vue embed 独立窗口)。
+  'db-mysql',
+  'db-postgresql',
+  'db-clickhouse',
+  'db-redis',
+  'db-elasticsearch',
+])
+
+/** 是否为数据库资产(路由名以 db- 开头,DbWorkbench 的接线判定用)。 */
+export function isDatabaseAsset(asset: { type: string; config: Record<string, unknown> }): boolean {
+  return routeNameForAsset(asset).startsWith('db-')
+}
 
 /**
  * 资产 → 渲染模式:路由在 NATIVE_ROUTE_NAMES 里走壳内组件,否则 iframe。

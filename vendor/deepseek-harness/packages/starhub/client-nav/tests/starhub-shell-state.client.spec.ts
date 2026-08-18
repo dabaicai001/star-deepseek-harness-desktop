@@ -80,7 +80,10 @@ describe('renderModeForAsset', () => {
     expect(renderModeForAsset(asset('db', 'kafka'))).toBe('native')
     expect(renderModeForAsset(asset('db', 'nsq'))).toBe('native')
     expect(renderModeForAsset(asset('ssh'))).toBe('native')
-    expect(renderModeForAsset(asset('db', 'mysql'))).toBe('iframe')
+    // 需求 5(2026-08-18):数据库工作台 React 化,db-* 全部 native。
+    expect(renderModeForAsset(asset('db', 'mysql'))).toBe('native')
+    expect(renderModeForAsset(asset('db', 'postgresql'))).toBe('native')
+    expect(renderModeForAsset(asset('db', 'redis'))).toBe('native')
     expect(renderModeForAsset(asset('docker'))).toBe('iframe')
     expect(renderModeForAsset(asset('local'))).toBe('iframe')
   })

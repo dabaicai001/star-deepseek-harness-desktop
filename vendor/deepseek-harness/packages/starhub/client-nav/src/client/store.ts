@@ -172,6 +172,29 @@ export function createSshTerminalOverlay(): SshTerminalOverlay {
   }
 }
 
+/** Root-scope native database workbench overlay state. */
+export interface DbWorkbenchState {
+  open: boolean
+  asset: RustAsset | null
+}
+
+/** Apply-owned database workbench bridge (req 5:React 化,仿 hexhub)。 */
+export interface DbWorkbench {
+  source: SnapshotStore<DbWorkbenchState>
+  open: (asset: RustAsset) => void
+  close: () => void
+}
+
+/** Create the root-scope database workbench overlay bridge. */
+export function createDbWorkbench(): DbWorkbench {
+  const source = createSnapshotStore<DbWorkbenchState>({ open: false, asset: null })
+  return {
+    source,
+    open: (asset) => source.set({ open: true, asset }),
+    close: () => source.set({ open: false, asset: null }),
+  }
+}
+
 /** 跨 scope 的当前工具选择:子类 + 打开的资产实例(含派生好的路由前缀)。 */
 export interface ToolSelection {
   /** 当前选中的子类 key(STARHUB_SUBCATEGORIES[].key);null = 未选。 */

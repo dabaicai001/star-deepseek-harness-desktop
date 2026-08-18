@@ -32,10 +32,10 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { createStarHubAssetSource } from './asset-source.ts'
 import { createAskAiHandler, createOpenAssetHandler, focusShellConversation, subscribeHostEvents } from './host-events.ts'
 import {
-  createConnectionManagerOverlay, createSshTerminalOverlay, createStarHubAssets, createStarHubNavStore,
+  createConnectionManagerOverlay, createDbWorkbench, createSshTerminalOverlay, createStarHubAssets, createStarHubNavStore,
   createToolSelectionBridge,
 } from './store.ts'
-import { assetInstanceUrl, STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
+import { assetInstanceUrl, isDatabaseAsset, STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
 import { focusWindowByKey, openNewPage } from './tauri.ts'
 import { StarHubNav } from './StarHubNav.tsx'
 import { StarHubOverlay } from './StarHubOverlay.tsx'
@@ -70,15 +70,23 @@ export function apply(ctx: Context): void {
   const selection = createToolSelectionBridge()
   const connectionManager = createConnectionManagerOverlay()
   const sshTerminal = createSshTerminalOverlay()
+  const dbWorkbench = createDbWorkbench()
   // 服务面:注入数组已声明依赖,读取必然非空;conversation 在预填时退化处理。
   const connection = ctx.get('connection') as ConnectionHandle
   const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
   const conversation = ctx.get('conversation') as IConversation | undefined
-  /** 打开资产实例操作页:记录选择桥(供 AI 工具上下文)+ 新开独立窗口/标签页。 */
+  /** 打开资产实例操作页:记录选择桥(供 AI 工具上下文)+新开独立窗口/标签页。
+   *  需求 5(数据库 React 化):db-* 资产走壳内 DbWorkbench(React native),
+   *  其余资产维持 openNewPage 独立窗口(Vue embed)。 */
   const openAssetPage = (asset: StarHubAsset): void => {
     selection.openAsset(asset)
+    if (isDatabaseAsset(asset)) {
+      const fullAsset = assets.source.getSnapshot().assets.find((item) => item.id === asset.id)
+      if (fullAsset !== undefined) dbWorkbench.open(fullAsset)
+      return
+    }
     const sel = selection.source.getSnapshot()
     if (sel.routePrefix === null || sel.instanceId === null) return
     // 窗口 label 携带资产 id 作为 key,供 starhub://open-asset 的 focus 复用。
@@ -121,10 +129,12 @@ export function apply(ctx: Context): void {
       openConnectionManager: () => connectionManager.open(),
       closeConnectionManager: connectionManager.close,
       closeSshTerminal: sshTerminal.close,
+      closeDbWorkbench: dbWorkbench.close,
       refreshAssets: assets.refresh,
       hooks: {
         connectionManager: connectionManager.source,
         sshTerminal: sshTerminal.source,
+        dbWorkbench: dbWorkbench.source,
       },
     }),
   }, StarHubOverlay))

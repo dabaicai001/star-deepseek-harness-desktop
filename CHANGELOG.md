@@ -14,6 +14,18 @@
 
 ---
 
+## [0.81.7] - 2026-08-18
+
+### 已完成(待升版)
+- **数据库工作台 React 化(需求 5,批次 1:骨架 + 连接树)**:新增壳内全屏 React
+  `DbWorkbench`(复用 shell.overlay,仿 SshTerminalOverlay 机制)——DB 资产点击从
+  「openNewPage 开 Vue embed 独立窗口」改为「壳内原生工作台」;挂载即按资产 config
+  建连(db_<type>_connect,per-type 映射 mysql/pg/ch/redis/es)、列库
+  (list_databases)、展开库懒加载表(list_tables)、卸载断连;`NATIVE_ROUTE_NAMES`
+  纳入全部 db-* 路由 + 新增 `isDatabaseAsset()`;`openAssetPage` 加 native 分派分支。
+  测试:新增 db-workbench.spec(连接/列库/展开表/断连/缺 host/失败),更新
+  shell-state/overlay/apply 三份规格。SQL 编辑器、结果网格、表操作留后续批次
+
 ## [0.81.6] - 2026-08-18
 
 ### 已完成(待升版)
