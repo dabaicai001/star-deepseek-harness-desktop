@@ -9,12 +9,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  assetInstanceUrl, renderModeForAsset, routeNameForAsset,
+  assetWindowUrl, routeNameForAsset,
   routePrefixForAsset, STARHUB_SUBCATEGORIES,
   type StarHubAsset,
 } from '../src/client/sections.ts'
 import {
-  createConnectionManagerOverlay, createSshTerminalOverlay, createStarHubAssets, createToolSelectionBridge,
+  createConnectionManagerOverlay, createStarHubAssets, createToolSelectionBridge,
 } from '../src/client/store.ts'
 
 /** 构造一个最小资产(只带匹配所需的字段)。 */
@@ -56,6 +56,24 @@ describe('routePrefixForAsset', () => {
   })
 })
 
+describe('assetWindowUrl', () => {
+  it('builds a /starhub-react window URL with an asset id and workbench hint', () => {
+    expect(assetWindowUrl({ id: 'a1', type: 'ssh', name: 'n', config: {} }))
+      .toBe('/starhub-react/index.html?asset=a1&workbench=ssh')
+    expect(assetWindowUrl({ id: 'd1', type: 'docker', name: 'n', config: {} }))
+      .toBe('/starhub-react/index.html?asset=d1&workbench=docker')
+    expect(assetWindowUrl({ id: 'r1', type: 'db', name: 'n', config: { dbType: 'redis' } }))
+      .toBe('/starhub-react/index.html?asset=r1&workbench=db-redis')
+    expect(assetWindowUrl({ id: 'pg1', type: 'db', name: 'n', config: { dbType: 'postgresql' } }))
+      .toBe('/starhub-react/index.html?asset=pg1&workbench=db-postgresql')
+  })
+
+  it('omits the workbench hint for types without a React workbench', () => {
+    expect(assetWindowUrl({ id: 'es1', type: 'db', name: 'n', config: { dbType: 'elasticsearch' } }))
+      .toBe('/starhub-react/index.html?asset=es1')
+  })
+})
+
 describe('STARHUB_SUBCATEGORIES', () => {
   it('puts broker under terminal and merges the five databases (plan §2.1)', () => {
     const terminal = STARHUB_SUBCATEGORIES.find((s) => s.key === 'terminal')!
@@ -64,32 +82,6 @@ describe('STARHUB_SUBCATEGORIES', () => {
     expect(database.matches(asset('db', 'kafka'))).toBe(false)
     expect(database.matches(asset('db', 'redis'))).toBe(true)
     expect(terminal.matches(asset('ssh'))).toBe(true)
-  })
-})
-
-describe('assetInstanceUrl', () => {
-  it('embeds the given instance id verbatim (no render-time regeneration)', () => {
-    expect(assetInstanceUrl('/db/redis', 'a1__123')).toBe(
-      `/starhub/index.html?embed=1&route=${encodeURIComponent('/db/redis/a1__123')}`,
-    )
-  })
-})
-
-describe('renderModeForAsset', () => {
-  it('renders migrated routes natively and everything else in an iframe', () => {
-    expect(renderModeForAsset(asset('db', 'kafka'))).toBe('native')
-    expect(renderModeForAsset(asset('db', 'nsq'))).toBe('native')
-    expect(renderModeForAsset(asset('ssh'))).toBe('native')
-    // 需求 5(2026-08-18):数据库工作台 React 化,db-* 全部 native。
-    expect(renderModeForAsset(asset('db', 'mysql'))).toBe('native')
-    expect(renderModeForAsset(asset('db', 'postgresql'))).toBe('native')
-    // 批次 2(2026-08-18):Redis 工作台 React 化,redis 进 native。
-    expect(renderModeForAsset(asset('db', 'redis'))).toBe('native')
-    // Elasticsearch 尚未壳内 React 化 → 回落 Vue embed。
-    expect(renderModeForAsset(asset('db', 'elasticsearch'))).toBe('iframe')
-    // 批次 1(2026-08-18):Docker 全线 React 化,docker 进 native。
-    expect(renderModeForAsset(asset('docker'))).toBe('native')
-    expect(renderModeForAsset(asset('local'))).toBe('iframe')
   })
 })
 
@@ -231,21 +223,6 @@ describe('createConnectionManagerOverlay', () => {
     expect(overlay.source.getSnapshot()).toEqual({ open: false, asset: null })
     overlay.open()
     expect(overlay.source.getSnapshot()).toEqual({ open: true, asset: null })
-    const target = {
-      id: 'a1', type: 'ssh', name: 'web-1', group_id: null, config: { host: 'h' },
-      key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
-    }
-    overlay.open(target)
-    expect(overlay.source.getSnapshot()).toEqual({ open: true, asset: target })
-    overlay.close()
-    expect(overlay.source.getSnapshot()).toEqual({ open: false, asset: null })
-  })
-})
-
-describe('createSshTerminalOverlay', () => {
-  it('opens with the target asset and closes back to the empty state', () => {
-    const overlay = createSshTerminalOverlay()
-    expect(overlay.source.getSnapshot()).toEqual({ open: false, asset: null })
     const target = {
       id: 'a1', type: 'ssh', name: 'web-1', group_id: null, config: { host: 'h' },
       key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,

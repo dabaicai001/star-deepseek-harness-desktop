@@ -69,57 +69,6 @@ export const ROUTE_NAME_PREFIX: Readonly<Record<string, string>> = {
   docker: '/docker',
 }
 
-/** 渲染模式:迁移事实表记录(壳内 native 组件 vs embed iframe)。 */
-export type StarHubRenderMode = 'iframe' | 'native'
-
-/**
- * 已壳内 React 化的功能路由集合(迁移手册 §3.3 事实表规则:每迁一页,只改
- * 这一行/这一个集合——加路由名 = 切 native,删 = 一行回退 iframe)。
- * 注:当前实例操作页一律经 openNewPage 开独立窗口(embed URL),native
- * 集合暂不参与渲染分派,仅作迁移进度事实表保留(含 BrokerView 及其测试)。
- */
-export const NATIVE_ROUTE_NAMES: ReadonlySet<string> = new Set([
-  'db-broker',
-  'ssh-terminal',
-  // 需求 5(2026-08-18):数据库工作台 React 化。db-* 进入 native 集合,DB 资产
-  // 点击改由壳内 React DbWorkbench 承载(不再开 Vue embed 独立窗口)。
-  // 注:DbWorkbench 是 MySQL 方言的 SQL 工作台。Redis / Elasticsearch 用
-  // `db_mysql_*` 命令渲染「库→表」树是错误视图(它们应分别呈现键树/索引树),
-  // 因此在各自 React 工作台落地前,**移除出 native 集合**,回落 Vue embed
-  // 加载 RedisView / ElasticsearchView(避免功能回归)。
-  'db-mysql',
-  'db-postgresql',
-  'db-clickhouse',
-  // 批次 1(2026-08-18):Docker 全线 React 化。docker 进入 native 集合,点击
-  // Docker 资产改由壳内 React DockerWorkbench 承载(不再开 Vue embed 独立窗口)。
-  'db-redis',
-  'docker',
-])
-
-/** 是否为数据库资产(路由名以 db- 开头,DbWorkbench 的接线判定用)。 */
-export function isDatabaseAsset(asset: { type: string; config: Record<string, unknown> }): boolean {
-  return routeNameForAsset(asset).startsWith('db-')
-}
-
-/** 是否为 SSH 终端资产(SshTerminalOverlay 壳内弹框的接线判定用)。 */
-export function isSshTerminalAsset(asset: { type: string; config: Record<string, unknown> }): boolean {
-  return routeNameForAsset(asset) === 'ssh-terminal'
-}
-
-/** 是否为 Docker 资产(DockerWorkbench 壳内工作台的接线判定用)。 */
-export function isDockerAsset(asset: { type: string; config: Record<string, unknown> }): boolean {
-  return routeNameForAsset(asset) === 'docker'
-}
-
-/**
- * 资产 → 渲染模式:路由在 NATIVE_ROUTE_NAMES 里走壳内组件,否则 iframe。
- * @param asset - 目标资产(只需 type + config 判定路由)。
- * @returns 该资产实例操作页的渲染模式。
- */
-export function renderModeForAsset(asset: { type: string; config: Record<string, unknown> }): StarHubRenderMode {
-  return NATIVE_ROUTE_NAMES.has(routeNameForAsset(asset)) ? 'native' : 'iframe'
-}
-
 /**
  * 资产 → embed 段路由前缀。实例操作页必须按资产类型派生前缀:
  * 数据库子类下 MySQL / PG / CH / Redis / ES 各有独立功能路由(不同视图),
@@ -179,14 +128,21 @@ export const STARHUB_SUBCATEGORIES: readonly StarHubSubcategory[] = [
 ]
 
 /**
- * 组装实例操作页 URL(host-static 托管 StarHub embed dist 在 /starhub/)。
- * instanceId 由打开动作生成一次(`<assetId>__<timestamp>`,与 src/utils/tabId.ts
- * 同构,embed 侧经 parseInstanceId 反解资产 id)并随选择桥传递——不得在渲染期
- * 重新生成,否则任何重渲染都会改地址重载页面、丢终端会话。
- * @param routePrefix - 段路由前缀(按 routePrefixForAsset 派生)。
- * @param instanceId - 打开动作生成的实例 id。
- * @returns embed 入口 URL(站内路径)。
+ * 组装实例「React 独立程序窗口」URL(host-static 托管 starhub-window 在
+ * /starhub-react/)。独立窗口按资产 id 取整份资产并挂载对应 React 工作台,
+ * 不再回落 Vue embed / 壳内弹框。workbench 提示位供入口预判,缺省由资产类型推断。
+ * @param asset - 目标资产(只需 id + type/config 派生工作台)。
+ * @returns 独立窗口入口 URL。
  */
-export function assetInstanceUrl(routePrefix: string, instanceId: string): string {
-  return `/starhub/index.html?embed=1&route=${encodeURIComponent(`${routePrefix}/${instanceId}`)}`
+export function assetWindowUrl(asset: StarHubAsset): string {
+  const params = new URLSearchParams({ asset: asset.id })
+  const route = routeNameForAsset(asset)
+  // 仅对确有无 React 工作台的类型给提示位(窗口侧按资产兜底映射);ES/local
+  // 等无工作台的类型省略提示,入口按「不支持」处理而非挂 Vue。
+  const hint = route === 'ssh-terminal' || route === 'db-broker' ? 'ssh'
+    : route === 'db-redis' ? 'db-redis'
+      : route === 'docker' ? 'docker'
+        : (route === 'db-mysql' || route === 'db-postgresql' || route === 'db-clickhouse') ? route : ''
+  if (hint !== '') params.set('workbench', hint)
+  return `/starhub-react/index.html?${params.toString()}`
 }

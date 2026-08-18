@@ -125,48 +125,57 @@ describe('client-nav apply', () => {
     expect(injected.openConnectionManager).toBeTypeOf('function')
     expect(injected.closeConnectionManager).toBeTypeOf('function')
     expect(injected.refreshAssets).toBeTypeOf('function')
-    expect(injected.closeSshTerminal).toBeTypeOf('function')
     expect(injected.hooks.connectionManager.getSnapshot()).toEqual({ open: false, asset: null })
-    expect(injected.hooks.sshTerminal.getSnapshot()).toEqual({ open: false, asset: null })
     // 打开回调真的打开桥(覆盖箭头函数体)
     injected.openConnectionManager()
     expect(injected.hooks.connectionManager.getSnapshot()).toEqual({ open: true, asset: null })
   })
 
-  it('skips the SSH overlay when the full asset is missing from the snapshot', () => {
-    const { ctx, register } = fakeContext()
-    applyPlugin(ctx)
-    const injected = register.mock.calls[2]![0]!.inject()
-    injected.openAsset({ id: 'ghost', type: 'ssh', name: 'x', config: {} })
-    const overlay = register.mock.calls[1]![0]!.inject()
-    expect(overlay.hooks.sshTerminal.getSnapshot()).toEqual({ open: false, asset: null })
-  })
-
-  it('opens a non-native asset page in a new tab (preview) and no-ops on route-less types', () => {
+  it('opens every asset page in a React window (preview: new tab), no shell overlay hooks', () => {
     const { ctx, register } = fakeContext()
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
       applyPlugin(ctx)
       const injected = register.mock.calls[2]![0]!.inject()
+      const overlay = register.mock.calls[1]![0]!.inject()
+      // 壳内 overlay 不再承载 SSH/DB/Docker/Redis 工作台桥
+      expect(overlay.hooks.sshTerminal).toBeUndefined()
+      expect(overlay.hooks.dbWorkbench).toBeUndefined()
+      expect(overlay.hooks.dockerWorkbench).toBeUndefined()
+      expect(overlay.hooks.redisWorkbench).toBeUndefined()
+      // ES 资产 → 一律开 React 窗口
       const esAsset = {
         id: 'es1', type: 'db', name: 'es-1', group_id: null,
         config: { dbType: 'elasticsearch', host: 'h' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
-      // local 资产:无功能路由 → openAsset 是 no-op,不开窗
-      injected.openAsset({ ...esAsset, id: 'l1', type: 'local', config: {} })
-      expect(openSpy).not.toHaveBeenCalled()
-      // 未壳内 React 化的资产(如 Elasticsearch)仍走 Vue embed 独立窗口。
-      injected.hooks.assets.set({ assets: [esAsset], loading: false, error: null, preview: false })
       injected.openAsset(esAsset)
       expect(openSpy).toHaveBeenCalledTimes(1)
-      expect(openSpy.mock.calls[0]![0]).toContain('route=%2Fdb%2Felasticsearch')
+      expect(openSpy.mock.calls[0]![0]).toContain('starhub-react/index.html?asset=es1')
     } finally {
       openSpy.mockRestore()
     }
   })
 
-  it('opens DB assets in the native React workbench instead of a window', () => {
+  it('opens SSH assets in a React window (preview: new tab), not a shell modal', () => {
+    const { ctx, register } = fakeContext()
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      applyPlugin(ctx)
+      const injected = register.mock.calls[2]![0]!.inject()
+      const fullAsset = {
+        id: 'a1', type: 'ssh', name: 'web-1', group_id: null, config: { host: '1.1.1.1' },
+        key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
+      }
+      injected.openAsset(fullAsset)
+      expect(openSpy).toHaveBeenCalledTimes(1)
+      expect(openSpy.mock.calls[0]![0]).toContain('starhub-react/index.html?asset=a1&workbench=ssh')
+    } finally {
+      openSpy.mockRestore()
+    }
+  })
+
+  it('opens DB assets in a React window (preview: new tab), not a shell modal', () => {
     const { ctx, register } = fakeContext()
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
@@ -177,11 +186,9 @@ describe('client-nav apply', () => {
         config: { dbType: 'postgresql', host: 'h' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
-      injected.hooks.assets.set({ assets: [dbAsset], loading: false, error: null, preview: false })
       injected.openAsset(dbAsset)
-      const overlay = register.mock.calls[1]![0]!.inject()
-      expect(overlay.hooks.dbWorkbench.getSnapshot()).toEqual({ open: true, asset: dbAsset })
-      expect(openSpy).not.toHaveBeenCalled()
+      expect(openSpy).toHaveBeenCalledTimes(1)
+      expect(openSpy.mock.calls[0]![0]).toContain('starhub-react/index.html?asset=pg1&workbench=db-postgresql')
     } finally {
       openSpy.mockRestore()
     }
@@ -209,7 +216,7 @@ describe('client-nav apply', () => {
     }
   })
 
-  it('opens Docker assets in the native React workbench instead of a window', () => {
+  it('opens Docker assets in a React window (preview: new tab), not a shell modal', () => {
     const { ctx, register } = fakeContext()
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
@@ -220,17 +227,15 @@ describe('client-nav apply', () => {
         config: { dockerTransport: 'socket', socketPath: '/var/run/docker.sock' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
-      injected.hooks.assets.set({ assets: [dockerAsset], loading: false, error: null, preview: false })
       injected.openAsset(dockerAsset)
-      const overlay = register.mock.calls[1]![0]!.inject()
-      expect(overlay.hooks.dockerWorkbench.getSnapshot()).toEqual({ open: true, asset: dockerAsset })
-      expect(openSpy).not.toHaveBeenCalled()
+      expect(openSpy).toHaveBeenCalledTimes(1)
+      expect(openSpy.mock.calls[0]![0]).toContain('starhub-react/index.html?asset=d1&workbench=docker')
     } finally {
       openSpy.mockRestore()
     }
   })
 
-  it('opens Redis assets in the native React workbench instead of a window', () => {
+  it('opens Redis assets in a React window (preview: new tab), not a shell modal', () => {
     const { ctx, register } = fakeContext()
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
@@ -241,11 +246,9 @@ describe('client-nav apply', () => {
         config: { dbType: 'redis', host: 'h' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
-      injected.hooks.assets.set({ assets: [redisAsset], loading: false, error: null, preview: false })
       injected.openAsset(redisAsset)
-      const overlay = register.mock.calls[1]![0]!.inject()
-      expect(overlay.hooks.redisWorkbench.getSnapshot()).toEqual({ open: true, asset: redisAsset })
-      expect(openSpy).not.toHaveBeenCalled()
+      expect(openSpy).toHaveBeenCalledTimes(1)
+      expect(openSpy.mock.calls[0]![0]).toContain('starhub-react/index.html?asset=r1&workbench=db-redis')
     } finally {
       openSpy.mockRestore()
     }
@@ -297,27 +300,12 @@ describe('client-nav apply', () => {
     expect(injected.hooks.assets.getSnapshot()).toHaveProperty('assets')
   })
 
-  it('workspace opens SSH assets in the in-page overlay (terminal), not a new window', () => {
+  it('workspace openAiAssistant delegates to focusShellConversation without throwing', () => {
     const { ctx, register } = fakeContext()
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
-    try {
-      applyPlugin(ctx)
-      const injected = register.mock.calls[2]![0]!.inject()
-      const fullAsset = {
-        id: 'a1', type: 'ssh', name: 'web-1', group_id: null, config: { host: '1.1.1.1' },
-        key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
-      }
-      injected.hooks.assets.set({ assets: [fullAsset], loading: false, error: null, preview: false })
-      injected.openAsset(fullAsset)
-      const sel = injected.hooks.selection.getSnapshot()
-      expect(sel.assetId).toBe('a1')
-      const overlay = register.mock.calls[1]![0]!.inject()
-      expect(overlay.hooks.sshTerminal.getSnapshot()).toEqual({ open: true, asset: fullAsset })
-      // 原页面弹框:绝不新开窗口
-      expect(openSpy).not.toHaveBeenCalled()
-    } finally {
-      openSpy.mockRestore()
-    }
+    applyPlugin(ctx)
+    const injected = register.mock.calls[2]![0]!.inject()
+    // 无当前会话/最近工作区时 routeAskAi 清空会话选择;不抛错即覆盖该注入箭头。
+    expect(() => injected.openAiAssistant()).not.toThrow()
   })
 
   it('registers the five starhub settings sections under the starhub group at orders 30-34', () => {

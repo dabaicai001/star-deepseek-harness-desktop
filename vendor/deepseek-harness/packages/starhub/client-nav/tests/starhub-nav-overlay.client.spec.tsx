@@ -11,8 +11,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { fireEvent } from '@testing-library/react'
 import {
-  createConnectionManagerOverlay, createDbWorkbench, createDockerWorkbench, createRedisWorkbench, createSshTerminalOverlay, createStarHubNavStore, createToolSelectionBridge,
-  type ConnectionManagerState, type DbWorkbenchState, type DockerWorkbenchState, type RedisWorkbenchState, type SshTerminalOverlayState, type ToolSelection,
+  createConnectionManagerOverlay, createStarHubNavStore, createToolSelectionBridge,
+  type ConnectionManagerState, type ToolSelection,
 } from '../src/client/store.ts'
 import { StarHubNav } from '../src/client/StarHubNav.tsx'
 import { StarHubOverlay } from '../src/client/StarHubOverlay.tsx'
@@ -39,28 +39,12 @@ function navProps() {
 /** 组装 StarHubOverlay 的完整 props(连接对话框桥 + 框架席位 stub)。 */
 function overlayProps() {
   const manager = createConnectionManagerOverlay()
-  const terminal = createSshTerminalOverlay()
-  const db = createDbWorkbench()
-  const docker = createDockerWorkbench()
-  const redis = createRedisWorkbench()
   return {
     manager,
-    terminal,
-    db,
-    docker,
-    redis,
     openConnectionManager: vi.fn(),
     closeConnectionManager: vi.fn(),
-    closeSshTerminal: vi.fn(),
-    closeDbWorkbench: vi.fn(),
-    closeDockerWorkbench: vi.fn(),
-    closeRedisWorkbench: vi.fn(),
     refreshAssets: vi.fn(),
     useConnectionManager: (<S,>(sel: (s: ConnectionManagerState) => S) => sel(manager.source.getSnapshot())) as never,
-    useSshTerminal: (<S,>(sel: (s: SshTerminalOverlayState) => S) => sel(terminal.source.getSnapshot())) as never,
-    useDbWorkbench: (<S,>(sel: (s: DbWorkbenchState) => S) => sel(db.source.getSnapshot())) as never,
-    useDockerWorkbench: (<S,>(sel: (s: DockerWorkbenchState) => S) => sel(docker.source.getSnapshot())) as never,
-    useRedisWorkbench: (<S,>(sel: (s: RedisWorkbenchState) => S) => sel(redis.source.getSnapshot())) as never,
     useSessions: (() => undefined) as never,
     useWorkspaces: (() => undefined) as never,
   }
