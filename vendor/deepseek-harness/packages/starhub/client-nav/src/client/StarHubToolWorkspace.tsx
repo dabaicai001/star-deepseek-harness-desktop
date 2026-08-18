@@ -31,13 +31,11 @@ import {
   IconRefreshOutline14, IconRightUpOutline16, IconTrashOutline16,
   writeClipboard, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
+import { STARHUB_SUBCATEGORIES, assetSubtitle, type StarHubAsset } from './sections.ts'
 import type { RustAsset, StarHubAssetListState, ToolSelection } from './store.ts'
+import { TOOL_CONTEXT_NAMESPACE } from './tool-context.ts'
 import { ContextMenu, useContextMenu } from './ContextMenu.tsx'
 import css from './StarHubToolWorkspace.module.css'
-
-/** Settings namespace written by the shell (host reads it per request). */
-const TOOL_CONTEXT_NAMESPACE = 'starhub-tool-context'
 
 /** Business face injected by the registration: the connection wire + bridge/asset writes. */
 export interface StarHubToolWorkspaceInjected {
@@ -56,16 +54,6 @@ export interface StarHubToolWorkspaceInjected {
 export type StarHubToolWorkspaceProps =
   & PropsRuntime<'workspace'>
   & InjectFace<StarHubToolWorkspaceInjected>
-
-/** 资产副标题(user@host 之类,取最常用字段;没有就不显示)。 */
-function assetSubtitle(asset: { config: Record<string, unknown> }): string {
-  const c = asset.config
-  const host = typeof c.host === 'string' ? c.host : ''
-  const username = typeof c.username === 'string' ? c.username : ''
-  if (host !== '' && username !== '') return `${username}@${host}`
-  if (host !== '') return host
-  return typeof c.database === 'string' ? c.database : ''
-}
 
 /** 单个资产行:主按钮(打开)+ 行尾编辑钮 + 右键菜单(打开/编辑/复制/删除)。 */
 function AssetRow({ asset, badgeLabel, onOpen, onEdit, onDelete }: {
@@ -123,7 +111,9 @@ function AssetRow({ asset, badgeLabel, onOpen, onEdit, onDelete }: {
           else if (id === 'copy') {
             const text = subtitle === '' ? asset.name : `${asset.name} ${subtitle}`
             void writeClipboard(text).then((ok) => { if (ok) setCopied(true) })
+          /* v8 ignore start -- 菜单 id 枚举完备(open/edit/copy/delete),delete 条件的假分支不可达 */
           } else if (id === 'delete') onDelete()
+          /* v8 ignore stop */
         }}
         className={css.menuRoot}
       />

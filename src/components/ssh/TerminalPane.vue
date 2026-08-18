@@ -357,6 +357,11 @@ function readCursorLine(): string {
   return text
 }
 
+/** 读取终端当前选区文本(「问 AI」上下文收集用);无选区返回空串。 */
+function getSelection(): string {
+  return terminal ? terminal.getSelection() : ''
+}
+
 defineExpose({
   write,
   writeln,
@@ -366,7 +371,8 @@ defineExpose({
   setFontSize,
   fit,
   getSize,
-  readCursorLine
+  readCursorLine,
+  getSelection
 })
 </script>
 

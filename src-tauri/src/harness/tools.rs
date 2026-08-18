@@ -26,7 +26,8 @@ use sqlx::{Row, SqlitePool};
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::HostBridgeState;
+use super::events::{self, RecentExec};
+use super::{HostBridgeState, DOMAIN_EVENT_EVENT, DOMAIN_EVENT_METHOD};
 
 /// 桥方法名(与 vendor/deepseek-harness/packages/starhub/tools/src/index.ts 对齐)。
 pub const BRIDGE_METHOD: &str = "starhub/tool.execute";
@@ -125,6 +126,10 @@ pub async fn execute_bridge_request(
     // 域工具不在 Rust 内执行:emit dsh://tool-exec 转发前端面板,await 应答
     if FORWARDED_TOOLS.contains(&name) {
         let text = forward_to_frontend(&bridge, session_id, name, &args).await?;
+        // 联动 M4(契约 §1/§4):域工具成功后自动生成 origin=ai 领域事件,
+        // notify dsh + 广播 starhub://domain-event + 写 recentExecs 缓存。
+        // 失败路径不产生事件(用户拒绝/超时不代表 AI 动作完成)。
+        on_ai_tool_success(&bridge, session_id, name, &args, &text).await;
         return Ok(Value::String(text));
     }
 
@@ -189,6 +194,36 @@ async fn forward_to_frontend_with_timeout(
             tracing::warn!("工具执行超时({}s): {name}", timeout.as_secs());
             Err("前端执行超时或窗口已关闭".to_string())
         }
+    }
+}
+
+/// 域工具成功后的 AI 动作回写(契约 §1/M4):
+/// 1. 按工具名映射 kind,summary 单行 ≤200 字符且只取白名单参数(events::ai_tool_event);
+/// 2. notify dsh(`starhub/domain.event`,无活跃 runtime 静默跳过);
+/// 3. 广播 `starhub://domain-event`(emit 失败只记日志不 panic);
+/// 4. 写 recentExecs 缓存(每资产最近一次,输出尾部 ≤2KB;无资产绑定时跳过缓存)。
+async fn on_ai_tool_success(
+    bridge: &HostBridgeState,
+    session_id: &str,
+    name: &str,
+    args: &Value,
+    output: &str,
+) {
+    let asset_id = bridge.resolve_asset(session_id).map(|(_asset_type, id)| id);
+    let event = events::ai_tool_event(name, args, asset_id.clone());
+    let payload = serde_json::to_value(&event).unwrap_or_else(|_| {
+        serde_json::json!({ "kind": events::kind_for_tool(name), "ts": events::unix_now() })
+    });
+    bridge.notify_dsh(DOMAIN_EVENT_METHOD, payload.clone()).await;
+    bridge.emit(DOMAIN_EVENT_EVENT, payload).await;
+    if let Some(asset_id) = asset_id {
+        bridge.record_recent_exec(RecentExec {
+            asset_id,
+            tool_name: name.to_string(),
+            summary: event.summary.clone(),
+            tail: events::tail_of(output),
+            ts: event.ts,
+        });
     }
 }
 
@@ -1345,5 +1380,169 @@ mod tests {
         .await
         .expect_err("缺 sessionId 应报错");
         assert!(err.contains("sessionId"), "{err}");
+    }
+
+    // ---------- 联动 M4:AI 动作回写(origin=ai 领域事件 + recentExecs) ----------
+
+    /// 域工具成功后:广播 `starhub://domain-event`(origin=ai,assetId 来自会话绑定),
+    /// recentExecs 缓存写入(输出尾部 ≤2KB);notify dsh 无 runtime 时静默跳过。
+    #[tokio::test]
+    async fn domain_tool_success_generates_ai_domain_event_and_recent_exec() {
+        let (emit_tx, mut emit_rx) = mpsc::channel::<(String, serde_json::Value)>(10);
+        let bridge = Arc::new(HostBridgeState::new(Arc::new(move |event, payload| {
+            let _ = emit_tx.try_send((event.to_string(), payload));
+        })));
+        bridge.bind_session("sess-1", "ssh", "a1");
+
+        let handle = tokio::spawn({
+            let bridge = bridge.clone();
+            async move {
+                execute_bridge_request(
+                    "starhub/tool.execute",
+                    serde_json::json!({
+                        "sessionId": "sess-1",
+                        "name": "ssh_exec",
+                        "args": { "command": "ls -la" },
+                    }),
+                    bridge,
+                )
+                .await
+            }
+        });
+        let (_event, payload) = emit_rx.recv().await.expect("应收到 dsh://tool-exec 事件");
+        assert_eq!(payload["name"], "ssh_exec");
+        let request_id = payload["requestId"]
+            .as_str()
+            .expect("requestId")
+            .to_string();
+        bridge
+            .resolve_tool_exec(&request_id, true, "total 0\n-rw-r--r-- 1 u u 0 f".to_string())
+            .await;
+        let result = handle
+            .await
+            .expect("桥执行完成")
+            .expect("应答 ok=true 应返回文本");
+        assert_eq!(result, "total 0\n-rw-r--r-- 1 u u 0 f");
+
+        // 随后应收到 starhub://domain-event 广播
+        let (event, payload) = emit_rx.recv().await.expect("应收到 domain-event 广播");
+        assert_eq!(event, "starhub://domain-event");
+        assert_eq!(payload["origin"], "ai");
+        assert_eq!(payload["assetId"], "a1");
+        assert_eq!(payload["kind"], "ssh.exec_completed");
+        assert!(payload["summary"]
+            .as_str()
+            .expect("summary")
+            .starts_with("ssh_exec: ls -la"));
+        assert!(payload["ts"].as_i64().expect("ts") > 0);
+
+        // recentExecs 已缓存(每资产一条,tail 为输出尾部)
+        let recents = bridge.recent_execs();
+        assert_eq!(recents.len(), 1);
+        assert_eq!(recents[0].asset_id, "a1");
+        assert_eq!(recents[0].tool_name, "ssh_exec");
+        assert_eq!(recents[0].tail, "total 0\n-rw-r--r-- 1 u u 0 f");
+        assert!(recents[0].ts > 0);
+    }
+
+    /// 域工具失败(用户拒绝/超时):不产生 AI 事件、不写 recentExecs。
+    #[tokio::test]
+    async fn domain_tool_failure_does_not_generate_ai_event() {
+        let (emit_tx, mut emit_rx) = mpsc::channel::<(String, serde_json::Value)>(10);
+        let bridge = Arc::new(HostBridgeState::new(Arc::new(move |event, payload| {
+            let _ = emit_tx.try_send((event.to_string(), payload));
+        })));
+        bridge.bind_session("sess-1", "ssh", "a1");
+
+        let handle = tokio::spawn({
+            let bridge = bridge.clone();
+            async move {
+                execute_bridge_request(
+                    "starhub/tool.execute",
+                    serde_json::json!({
+                        "sessionId": "sess-1",
+                        "name": "db_query",
+                        "args": { "sql": "DELETE FROM t" },
+                    }),
+                    bridge,
+                )
+                .await
+            }
+        });
+        let (_event, payload) = emit_rx.recv().await.expect("应收到 tool-exec 事件");
+        let request_id = payload["requestId"]
+            .as_str()
+            .expect("requestId")
+            .to_string();
+        bridge
+            .resolve_tool_exec(&request_id, false, "用户拒绝:高风险 SQL".to_string())
+            .await;
+        let err = handle
+            .await
+            .expect("桥执行完成")
+            .expect_err("ok=false 应把 text 作为错误抛给桥");
+        assert_eq!(err, "用户拒绝:高风险 SQL");
+        // 不应有 domain-event 广播,recentExecs 为空
+        assert!(emit_rx.try_recv().is_err(), "失败路径不应产生领域事件");
+        assert!(bridge.recent_execs().is_empty(), "失败路径不应写 recentExecs");
+    }
+
+    /// 未绑定资产的会话执行域工具:事件 assetId 省略,recentExecs 不缓存(无 key)。
+    #[tokio::test]
+    async fn ai_event_without_asset_binding_omits_asset_id() {
+        let (emit_tx, mut emit_rx) = mpsc::channel::<(String, serde_json::Value)>(10);
+        let bridge = Arc::new(HostBridgeState::new(Arc::new(move |event, payload| {
+            let _ = emit_tx.try_send((event.to_string(), payload));
+        })));
+        let handle = tokio::spawn({
+            let bridge = bridge.clone();
+            async move {
+                execute_bridge_request(
+                    "starhub/tool.execute",
+                    serde_json::json!({
+                        "sessionId": "sess-nobody",
+                        "name": "ssh_exec",
+                        "args": { "command": "whoami" },
+                    }),
+                    bridge,
+                )
+                .await
+            }
+        });
+        let (_event, payload) = emit_rx.recv().await.expect("应收到 tool-exec 事件");
+        let request_id = payload["requestId"]
+            .as_str()
+            .expect("requestId")
+            .to_string();
+        bridge
+            .resolve_tool_exec(&request_id, true, "root".to_string())
+            .await;
+        handle.await.expect("桥执行完成").expect("成功");
+        let (event, payload) = emit_rx.recv().await.expect("应收到 domain-event 广播");
+        assert_eq!(event, "starhub://domain-event");
+        assert_eq!(payload["origin"], "ai");
+        assert!(payload.get("assetId").is_none(), "无资产上下文应省略 assetId");
+        assert!(bridge.recent_execs().is_empty(), "无 assetId 不应缓存");
+    }
+
+    /// 长输出写入 recentExecs 时 tail 被截断到 ≤2KB(char 边界安全)。
+    #[tokio::test]
+    async fn ai_recent_exec_tail_is_capped_at_2kb() {
+        let (emit_tx, _emit_rx) = mpsc::channel::<(String, serde_json::Value)>(10);
+        let bridge = Arc::new(HostBridgeState::new(Arc::new(move |event, payload| {
+            let _ = emit_tx.try_send((event.to_string(), payload));
+        })));
+        bridge.bind_session("sess-1", "ssh", "a1");
+        let long_output = "汉".repeat(3000);
+        on_ai_tool_success(&bridge, "sess-1", "ssh_exec", &serde_json::json!({ "command": "x" }), &long_output)
+            .await;
+        let recents = bridge.recent_execs();
+        assert_eq!(recents.len(), 1);
+        assert!(
+            recents[0].tail.len() <= events::MAX_EXEC_TAIL_BYTES,
+            "tail 应 ≤2KB,实际 {} 字节",
+            recents[0].tail.len()
+        );
+        assert!(long_output.ends_with(&recents[0].tail), "tail 应为输出尾部");
     }
 }

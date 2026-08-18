@@ -4,7 +4,9 @@
  * 浏览器预览(无 Tauri)reject。Broker 服务与资产 holder 都依赖这一层。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { openNewPage, tauriInvoke, tauriListen } from '../src/client/tauri.ts'
+import {
+  focusWindowByKey, openNewPage, starhubPageLabelPrefix, tauriInvoke, tauriListen,
+} from '../src/client/tauri.ts'
 
 /** jsdom 全局下的 Tauri IPC stub 挂载/卸载。 */
 function stubTauriInternals(invoke: unknown): () => void {
@@ -85,6 +87,79 @@ describe('openNewPage', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     await openNewPage('/starhub/index.html?embed=1', 'x')
     expect(openSpy).toHaveBeenCalledWith('/starhub/index.html?embed=1', '_blank', 'noopener')
+  })
+
+  it('embeds the page key into the window label for later focus', async () => {
+    const invoke = vi.fn((..._args: unknown[]) => Promise.resolve(null))
+    const restore = stubTauriInternals(invoke)
+    try {
+      await openNewPage('/starhub/index.html?embed=1&route=%2Fssh%2Fa1__1', 'web-1', 'a1')
+      const [, args] = invoke.mock.calls[0] as [string, { options: Record<string, unknown> }]
+      expect(args.options.label).toMatch(/^starhub-page-a1-\d+$/)
+    } finally {
+      restore()
+    }
+  })
+})
+
+describe('focusWindowByKey', () => {
+  it('raises the window whose webview label matches the key prefix', async () => {
+    const invoke = vi.fn((cmd: string) => {
+      if (cmd === 'plugin:webview|get_all_webviews') {
+        return Promise.resolve([
+          { label: 'main', windowLabel: 'main' },
+          { label: 'starhub-page-a1-1700000000', windowLabel: 'starhub-page-a1-1700000000' },
+          { label: 'starhub-page-a2-1700000001', windowLabel: 'starhub-page-a2-1700000001' },
+        ])
+      }
+      if (cmd === 'plugin:window|set_focus') return Promise.resolve(null)
+      return Promise.reject(new Error(`unexpected command: ${cmd}`))
+    })
+    const restore = stubTauriInternals(invoke)
+    try {
+      await expect(focusWindowByKey('a1')).resolves.toBe(true)
+      expect(invoke).toHaveBeenCalledWith('plugin:window|set_focus', {
+        label: 'starhub-page-a1-1700000000',
+      })
+    } finally {
+      restore()
+    }
+  })
+
+  it('returns false when no webview matches the key', async () => {
+    const invoke = vi.fn(() => Promise.resolve([{ label: 'main', windowLabel: 'main' }]))
+    const restore = stubTauriInternals(invoke)
+    try {
+      await expect(focusWindowByKey('nope')).resolves.toBe(false)
+      expect(invoke).not.toHaveBeenCalledWith('plugin:window|set_focus', expect.anything())
+    } finally {
+      restore()
+    }
+  })
+
+  it('returns false when the focus IPC fails (caller falls back to opening)', async () => {
+    const invoke = vi.fn((cmd: string) => {
+      if (cmd === 'plugin:webview|get_all_webviews') {
+        return Promise.resolve([{ label: 'starhub-page-a1-1', windowLabel: 'starhub-page-a1-1' }])
+      }
+      return Promise.reject(new Error('focus denied'))
+    })
+    const restore = stubTauriInternals(invoke)
+    try {
+      await expect(focusWindowByKey('a1')).resolves.toBe(false)
+    } finally {
+      restore()
+    }
+  })
+
+  it('returns false in a plain browser preview without Tauri internals', async () => {
+    await expect(focusWindowByKey('a1')).resolves.toBe(false)
+  })
+})
+
+describe('starhubPageLabelPrefix', () => {
+  it('renders the keyed prefix once', () => {
+    expect(starhubPageLabelPrefix('a1')).toBe('starhub-page-a1-')
   })
 })
 

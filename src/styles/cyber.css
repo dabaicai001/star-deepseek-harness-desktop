@@ -7572,3 +7572,55 @@ body.anim-decor-off .welcome-aurora-b {
 body.anim-decor-off .welcome-particle {
   display: none !important; /* 粒子直接隐藏 */
 }
+
+/* ===== AI 动作横幅(StarHub × dsh 联动:AI 执行了 xxx) =====
+ * 终端/面板顶部提示条,只引用 token,不写死颜色。
+ */
+.cyber-ai-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 10px;
+  font-size: var(--text-sm, 12px);
+  font-family: var(--font-mono);
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--cyan);
+  border-radius: var(--radius-control, 8px);
+  box-shadow: var(--shadow-1);
+}
+
+.cyber-ai-banner .cyber-ai-banner-icon {
+  color: var(--cyan);
+  display: inline-flex;
+}
+
+.cyber-ai-banner .cyber-ai-banner-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cyber-ai-banner .cyber-ai-banner-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all var(--dur-fast, 0.2s) var(--ease-standard);
+}
+
+.cyber-ai-banner .cyber-ai-banner-close:hover {
+  background: var(--hover-neutral);
+  color: var(--text);
+}

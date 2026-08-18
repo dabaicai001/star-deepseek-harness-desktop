@@ -100,6 +100,21 @@ export function routePrefixForAsset(asset: StarHubAsset): string | null {
   return ROUTE_NAME_PREFIX[routeNameForAsset(asset)] ?? null
 }
 
+/**
+ * 资产副标题(user@host 之类,取最常用字段;没有就不显示)。工作区资产行、
+ * `@` 资产 source 的候选/引用序列化共用这一个事实表。
+ * @param asset - 资产(只需 config 判定)。
+ * @returns 副标题文本;无可用字段时为空串。
+ */
+export function assetSubtitle(asset: { config: Record<string, unknown> }): string {
+  const c = asset.config
+  const host = typeof c.host === 'string' ? c.host : ''
+  const username = typeof c.username === 'string' ? c.username : ''
+  if (host !== '' && username !== '') return `${username}@${host}`
+  if (host !== '') return host
+  return typeof c.database === 'string' ? c.database : ''
+}
+
 /** 子类清单(展示顺序即数组顺序)。终端含 SSH/SFTP/Broker,数据库合并 MySQL / PG / CH / Redis / ES(方案 2.1)。 */
 export const STARHUB_SUBCATEGORIES: readonly StarHubSubcategory[] = [
   {

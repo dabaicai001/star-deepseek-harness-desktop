@@ -585,5 +585,12 @@ export default {
     copyFailed: '复制失败',
     runCommand: '执行',
     runCommandTip: '在终端执行此命令'
+ },
+  linkage: {
+    askAi: '问 AI',
+    askAiNoContext: '没有可发送的内容(请先选中文本 / 行 / 文件,或等待报错)',
+    askAiSent: '已发送到 AI 助手',
+    askAiFailed: '发送失败,请确认已接入 deepseek-harness 主壳',
+    aiExecuted: 'AI 执行了 {summary}'
  }
 }

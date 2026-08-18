@@ -24,6 +24,9 @@
       "path": "../../client/ui-conversation"
     },
     {
+      "path": "../../client/ui-input-trigger"
+    },
+    {
       "path": "../../client/connection/tsconfig.client.json"
     },
     {

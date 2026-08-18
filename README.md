@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.80.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.81.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -109,6 +109,14 @@
 
 ## 当前版本
 
+### v0.81.1 (2026-08-17)
+- 🔧 **tag 构建修复(client tsdown 缺 @tsdown/css)**:client-nav `SshTerminalOverlay` 自 v0.80.0 就 import `@xterm/xterm/css/xterm.css`,但 `@tsdown/css` 是 tsdown 的 optional peer,仓库未显式声明,pnpm 默认不装;此前 CI 均挂在 tsc 阶段没跑到 client tsdown,本次 v0.81.0 tag 构建 tsc 通过后暴露。修复:DSH_ROOT 根 devDependencies 显式声明 `@tsdown/css@0.22.2`(对齐 tsdown peer),`pnpm run build:lib:client` 恢复全绿、client-nav 束产物含 style.css
+
+### v0.81.0 (2026-08-17)
+- 🔧 **StarHub × dsh 联动实施(方案 B 控制面收敛 dsh / 数据面留 Rust+Go)**:按 `docs/联动设计-dsh中枢-2026-08-17.md` 与 `docs/联动实施-桥接契约-2026-08-17.md` 四方施工完成——①dsh 侧:`sdk-jsonrpc-server` 本地补丁暴露 `sdk-notifications` 服务(入站 notification 按 method 多路分发、订阅者异常隔离);新包 `session-registry`(订阅 `starhub/registry.sync` 全量快照,`list()`/`forAsset()`)、`domain-events`(订阅 `starhub/domain.event`,每资产环形缓冲 50 + 全局桶,`recent()` ts 倒序)、`live-context`(agent/pre-step 注入 registry 快照 + 事件摘要 + `starhub/live.snapshot` pull,按 maxSnapshotChars 截断、pull 失败降级);`starhub-tools` 新增 `open_connection`/`focus_terminal` 模型工具(桥 `starhub/open.asset`/`starhub/focus.tool`);`examples/starhub-agent/cordis.yml` 组合接线三插件;②Rust 侧:stdio 新增 `starhub/live.snapshot`/`open.asset`/`focus.tool` request 与 `registry.sync`/`domain.event` 出站 notify;AI 工具执行成功自动生成 origin=ai 领域事件(notify dsh + 广播 `starhub://domain-event` + recentExecs 缓存);Tauri command 新增 `ssh_attach`/`ssh_detach`(附着引用计数,归零才真断)、`dsh_report_domain_event`(强制 user、summary 截断)、`starhub_ask_ai`;③client-nav:`@` 资产 source(`starhub-asset`,ui-input-trigger 流水线,onPick ReferenceInsert `<asset id=…>` + 轻绑定工具上下文不切窗)、监听 `starhub://open-asset`(聚焦/开窗,窗口 label 带资产 id)与 `starhub://ask-ai`(聚焦会话 + prefill composer);④Vue 面板:SshTerminal/DbView/SftpPanel 工具栏「问 AI」按钮、`starhub://domain-event`(origin=ai)监听(网格刷新/终端横幅 `.cyber-ai-banner`/SFTP 列表刷新)、SSH 命令/DB 查询/表打开用户起源上报(`dsh_report_domain_event`);新增 `src/services/linkage.ts` 封装与 `tests/linkage.test.ts`;三方测试/类型检查全绿(cargo 148 测试、dsh 三新包 50 测试 100% 覆盖、client-nav 224 测试、Vue 22 测试)
+- 🔧 **client-nav 测试 exactOptionalPropertyTypes 修复(GitHub tag 构建报错)**:`new-connection-dialog.client.spec.tsx` 三处 `calls` 数组声明与 6 个 stub 处理器在严格 `exactOptionalPropertyTypes` 下不兼容(TS2379/TS2322),改为 `args: Record<string, unknown> | undefined` 并加收窄;`tsc -b tsconfig.client.json` 恢复干净
+- 🔧 **session-registry/domain-events 依赖注入修复**:两插件改为 `inject: ['sdk-notifications']` 声明依赖(cordis fiber 拓扑等待 sdk-jsonrpc-server ACTIVE 后 apply),修复 apply/effect 阶段 `ctx.get` 拿不到宿主私有服务导致插件树加载失败、agent 循环无输出的问题(E2E `dsh_stdio_roundtrip`/`dsh_tool_call_bridges` 恢复全绿)
+
 ### v0.80.1 (2026-08-17)
 - 🔧 **session log 下载改「另存为」对话框(用户反馈:程序内下载不生效、不知存到哪)**:主窗口 on_download 的 Requested 分支从「静默放行进系统下载目录」改为弹原生另存为对话框(预填 webview 建议文件名),用户选路径后写入 `destination` 放行;取消对话框 = 中止下载。宿主链路体检结论:`/api/session.export` 端点与 dsh-session-log-export 客户端插件在两端实例均健康(3085 实测 GET 下载 883KB zip 成功),问题纯在 webview 下载落盘不可见
 - 🔧 **v0.80.0 遗留清理**:①`src-tauri/Cargo.lock` starhub 条目缺 `name = "starhub"` 行(cargo check/build 全挂,TOML 解析失败);②`DbView.vue` 导出 Excel 后注册 excel 资产并 `router.push('excel')` 跳已随 Excel 退役删除的路由(改为仅完成通知);③`assetRouting.ts` 残留 `excel` 路由名映射(删除);④client-nav `starhub-shell-state` 测试残留 excel 前缀断言(改为只测非字符串 dbType 回退)
@@ -118,19 +126,6 @@
 - ✨ **壳内 SSH 终端(六项需求 3)**:SSH 资产在 dsh `shell.overlay` 内使用 xterm 直渲,接通连接、输入输出、尺寸同步与关闭清理。
 - ✨ **插件市场分页展示(六项需求 6)**:React 壳内和 Vue 回退设置同步提供每页 6 张卡片、翻页和页码点,搜索与刷新自动复位。
 - 🔧 **DB 网格与 Excel 调整(六项需求 5)**:DB 结果区切换为 HTML 虚拟表格;Excel/CSV 工作簿功能与 Univer 前端依赖退役,数据库导入导出仍可用。
-
-### v0.79.4 (2026-08-17)
-- ✨ **新建连接对话框 SSH 支持 MFA/2FA(六项需求 2)**:client-nav `NewConnectionDialog.tsx` 认证方式对齐 Vue 版三档(password/key/mfa);mfa 档显示「MFA 主密码」输入,config 写入 `authMode:'mfa'` + `mfaEnabled:true` + `mfaPassword`(契约对齐 `SshConnectionForm.vue` 与 `src/services/ssh.ts`);编辑模式留空不提交(merge 保持原值)
-- ✨ **新建连接对话框「测试连接」+ 主按钮明显化(六项需求 4)**:actionRow 新增描边「测试连接」按钮(`.btnOutline`),「创建/保存」升级为高对比主按钮(`.btnPrimary`);测试命令全类型接线——ssh `test_ssh_connection`(含 kb-interactive 内联验证码面板 + hostkey 自动接受不持久化,`tauri.ts` 新增 `tauriListen` 事件桥)、db 各类型 `db_<type>_test`、kafka/nsq `broker_test`、docker `docker_test`;状态行显示 测试中…/成功(耗时)/失败原因,编辑模式密钥留空时拦截并提示;`NewConnectionDialog.tsx` / `tauri.ts` 覆盖率 per-file 100%(含历史缺口补齐)
-- 🐛 **右侧栏资产行主机名溢出(六项需求 1)**:client-nav `StarHubToolWorkspace.module.css` 的 `.rowSub` 补 `min-width:0` / `overflow:hidden` / `text-overflow:ellipsis` / `max-width:55%`——名称优先完整可见,`username@host` 溢出省略号截断、不撑破行布局
-
-### v0.79.3 (2026-08-17)
-- 🐛 **自定义模型沙箱升级报错**:`sandbox escalation to "workspace-write" is not strictly wider than this call's current "danger-full-access" mode` —— 根因:会话文件策略已是(或切到)最宽 `danger-full-access` 时,弱模型在 bash 调用里带 `sandbox_permissions` 升级字段,升级到更窄模式被 `approveEscalation` 拒绝。修复:dsh-sandbox `escalation.ts` 新增 `modeCovers()`——请求模式已被当前模式覆盖(相等或更窄)时按 no-op 放行(返回 effectiveMode),仅未知模式仍 fail-closed
-- 🐛 **自定义模型不支持图片输入**:pi-ai 模型 profile 默认 `input: ['text']` 且模型编辑 UI 无图片开关。修复:ui-settings-models 的 DeepSeekModelsEditor / ModelListEditor 高级区新增「支持图片输入」复选框(写 `input: ['text','image']` / 删除),locales 加 `imageInput`/`imageInputHint`(en+zh)
-- 🐛 **subagent 默认走 deepseek 而非指定模型**:`resolveChildAgentOptions` 继承父 agent 创建时 options(默认模型),用户切模型只更新会话 request header。修复:child-agent.ts / continuation.ts 优先读 `parent.session.requestHeader()?.config` 的 provider/model/maxTokens,回退 `parent.options`;新增模型切换继承单测
-
-### v0.79.2 (2026-08-17)
-- 🐛 **CI 全量类型检查失败(白名单移除的 vendor 侧遗留)**:aiSettings.ts 的 legacy 字段删除断言用双转换(`as unknown as Record<string, unknown>`);测试用例的 legacy 字段对象改 `as unknown as Partial<AiSettings>` 并补 `AiSettings` 类型导入——`pnpm run build`(vendor 全量 tsc + tsdown)恢复绿
 
 
 ---

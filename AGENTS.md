@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.80.1(**session log 下载改「另存为」对话框(用户反馈:程序内下载不生效、不知存到哪)**:主窗口 on_download 的 Requested 分支从「静默放行进系统下载目录」改为弹原生另存为对话框(预填 webview 建议文件名),用户选路径后写入 `destination` 放行;取消对话框 = 中止下载。宿主链路体检结论:`/api/session.export` 端点与 dsh-session-log-export 客户端插件在两端实例均健康(3085 实测 GET 下载 883KB zip 成功),问题纯在 webview 下载落盘不可见) |
+| 当前版本 | v0.81.1(**tag 构建修复(client tsdown 缺 @tsdown/css)**:client-nav `SshTerminalOverlay` 自 v0.80.0 就 import `@xterm/xterm/css/xterm.css`,但 `@tsdown/css` 是 tsdown 的 optional peer,仓库未显式声明,pnpm 默认不装;此前 CI 均挂在 tsc 阶段没跑到 client tsdown,本次 v0.81.0 tag 构建 tsc 通过后暴露。修复:DSH_ROOT 根 devDependencies 显式声明 `@tsdown/css@0.22.2`(对齐 tsdown peer),`pnpm run build:lib:client` 恢复全绿、client-nav 束产物含 style.css) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-17 (v0.80.1)*
+*最后更新: 2026-08-17 (v0.81.1)*

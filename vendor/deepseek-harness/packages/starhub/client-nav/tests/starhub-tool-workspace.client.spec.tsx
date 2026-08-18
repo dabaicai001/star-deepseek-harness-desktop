@@ -8,7 +8,7 @@
  * 直接驱动这两份裸 source。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   createToolSelectionBridge, type StarHubAssetListState, type ToolSelection,
@@ -229,5 +229,80 @@ describe('StarHubToolWorkspace', () => {
     expect(props.openConnectionManager).toHaveBeenCalledWith(sshAsset)
     // 编辑钮不触发打开操作页
     expect(props.bridge.source.getSnapshot().assetId).toBeNull()
+  })
+
+  it('copies connection info from the row context menu and reverts the label after 1.5s', async () => {
+    vi.useFakeTimers()
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.assets = [sshAsset] })
+    const write = vi.fn(() => Promise.resolve(true))
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: write }, configurable: true })
+    try {
+      render(<StarHubToolWorkspace {...props} />)
+      const openMenu = () => fireEvent.contextMenu(screen.getByText('prod-server'))
+      openMenu()
+      fireEvent.click(screen.getByText('复制连接信息'))
+      // 剪贴板写成功 → copied 置位;菜单已关闭,重开可见「已复制」标签
+      await vi.advanceTimersByTimeAsync(0)
+      expect(write).toHaveBeenCalledWith('prod-server deploy@10.0.0.5')
+      openMenu()
+      expect(screen.getByText('已复制')).toBeTruthy()
+      // 1.5s 定时器回退标签
+      await vi.advanceTimersByTimeAsync(1500)
+      expect(screen.getByText('复制连接信息')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+      delete (navigator as { clipboard?: unknown }).clipboard
+    }
+  })
+
+  it('opens the connection dialog in edit mode from the row context menu delete entry', () => {
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.assets = [sshAsset] })
+    render(<StarHubToolWorkspace {...props} />)
+    fireEvent.contextMenu(screen.getByText('prod-server'))
+    fireEvent.click(screen.getByText('删除'))
+    expect(props.openConnectionManager).toHaveBeenCalledTimes(1)
+    expect(props.openConnectionManager).toHaveBeenCalledWith(sshAsset)
+  })
+
+  it('routes the row context-menu 打开 and 编辑 entries to their callbacks', () => {
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.assets = [{ ...sshAsset, id: 'e1', config: {} }] })
+    render(<StarHubToolWorkspace {...props} />)
+    const openMenu = () => fireEvent.contextMenu(screen.getByText('prod-server'))
+    // 打开:走 openAsset 回调,打开该资产实例(无副标题资产)
+    openMenu()
+    fireEvent.click(screen.getByText('打开'))
+    expect(props.bridge.source.getSnapshot().assetId).toBe('e1')
+    // 编辑:走连接对话框编辑模式
+    openMenu()
+    fireEvent.click(screen.getByText('编辑'))
+    expect(props.openConnectionManager).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1' }))
+  })
+
+  it('keeps the copy label when the clipboard write fails', async () => {
+    const props = workspaceProps()
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.assets = [{ ...sshAsset, config: {} }] })
+    // 剪贴板拒绝写(writeText reject)→ writeClipboard 返回 false → 不置 copied
+    const write = vi.fn(() => Promise.reject(new Error('denied')))
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: write }, configurable: true })
+    try {
+      render(<StarHubToolWorkspace {...props} />)
+      fireEvent.contextMenu(screen.getByText('prod-server'))
+      fireEvent.click(screen.getByText('复制连接信息'))
+      await vi.waitFor(() => expect(write).toHaveBeenCalled())
+      // 无副标题资产:复制文案只有名称;写失败不置 copied
+      expect(write).toHaveBeenCalledWith('prod-server')
+      fireEvent.contextMenu(screen.getByText('prod-server'))
+      expect(screen.getByText('复制连接信息')).toBeTruthy()
+      expect(screen.queryByText('已复制')).toBeNull()
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard
+    }
   })
 })

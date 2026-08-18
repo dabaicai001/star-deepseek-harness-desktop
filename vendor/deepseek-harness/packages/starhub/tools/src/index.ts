@@ -25,6 +25,10 @@ export const inject = ['tools']
 /** 桥方法名;宿主侧实现见 src-tauri/src/harness/(mod.rs 路由 + tools.rs 全局工具)。 */
 const BRIDGE_METHOD = 'starhub/tool.execute'
 
+/** UI 动作桥方法名(联动契约 §2.2 / M5);宿主侧实现见 src-tauri/src/harness/mod.rs。 */
+const OPEN_ASSET_METHOD = 'starhub/open.asset'
+const FOCUS_TOOL_METHOD = 'starhub/focus.tool'
+
 /** 工具的规范输出:宿主返回的模型可读文本原样透传。 */
 const TEXT_OUTPUT_SCHEMA = {
   type: 'object',
@@ -69,6 +73,37 @@ async function callHost(
     throw new Error(`starhub host returned a non-string result for ${toolName}`)
   }
   return { text: result }
+}
+
+/**
+ * 发起一次宿主 UI 动作调用(联动契约 §2.2 / M5:starhub/open.asset 与
+ * starhub/focus.tool)。宿主 fire-and-forget 返回 `{ ok: true, action:
+ * "opened"|"focused" }`,这里文本化为模型可读结果。
+ * @param transport - sdk-jsonrpc-server 暴露的 stdio transport。
+ * @param exec - 工具运行上下文(取 agent 会话 id)。
+ * @param method - 宿主 RPC 方法名(open.asset / focus.tool)。
+ * @param tool - 目标工具(open.asset 为 "auto",focus.tool 为具体工具名)。
+ * @param assetId - 目标资产 id。
+ * @returns 文本化结果;宿主返回非法结果(非 `{ok:true, action}`)抛为工具失败。
+ */
+async function callUiAction(
+  transport: JsonRpcTransportPeer,
+  exec: ToolRunContext,
+  method: string,
+  tool: string,
+  assetId: string,
+): Promise<TextOutput> {
+  const sessionId = exec.agent?.session.id
+  if (sessionId === undefined) {
+    throw new Error(`starhub tool ${method} requires an agent session`)
+  }
+  const result: unknown = await transport.request(method, { assetId, tool, sessionId: String(sessionId) })
+  const record = typeof result === 'object' && result !== null ? result as Record<string, unknown> : undefined
+  const action = record?.action
+  if (record?.ok !== true || (action !== 'opened' && action !== 'focused')) {
+    throw new Error(`starhub host returned an invalid ${method} result for asset ${assetId}`)
+  }
+  return { text: `StarHub: asset ${assetId} ${action}` }
 }
 
 /** 参数 schema 的简写(与 defineTool 的 ParameterSchemaSpec 对齐)。 */
@@ -558,6 +593,35 @@ export function apply(ctx: Context): void {
     output: TEXT_OUTPUT,
     async execute(args, exec) {
       return callHost(transport, exec, 'memory', args)
+    },
+  }))
+
+  // ── UI 动作(联动契约 §2.2 / M5:模型的手,非破坏性 UI 动作)──
+  ctx.tools.register(defineTool({
+    name: 'open_connection',
+    description:
+      '打开(或聚焦)指定 StarHub 资产的连接窗口(SSH 终端/SFTP/数据库),让后续操作有对应的工具界面。'
+      + '适合「帮我看一下 xxx 的日志/状态/数据」这类需要打开对应资产界面的请求;非破坏性 UI 动作,不执行任何命令。',
+    parameters: {
+      assetId: { type: 'string', required: true, description: '要打开的资产 id(可用 starhub_list_assets 查询)' },
+    },
+    output: TEXT_OUTPUT,
+    async execute(args, exec) {
+      return callUiAction(transport, exec, OPEN_ASSET_METHOD, 'auto', args.assetId)
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'focus_terminal',
+    description:
+      '打开(或聚焦)指定 StarHub 资产的 SSH 终端窗口。适合需要用户配合观察终端输出、'
+      + '或要在终端里执行交互式命令的场景;非破坏性 UI 动作,不执行任何命令。',
+    parameters: {
+      assetId: { type: 'string', required: true, description: '要聚焦的资产 id(可用 starhub_list_assets 查询)' },
+    },
+    output: TEXT_OUTPUT,
+    async execute(args, exec) {
+      return callUiAction(transport, exec, FOCUS_TOOL_METHOD, 'terminal', args.assetId)
     },
   }))
 }

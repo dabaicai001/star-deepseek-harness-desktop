@@ -8,6 +8,10 @@
 
 `inject: ['agents']`。服务器按 `sessionId` 获取或创建一个 agent。只有服务对生命周期建立快照时记录的 `local` 标志为 true，服务器才会转发 subagent 完成事件；提供方名称、子级 id 和持久化谱系均不能证明本地性。已注册的适配器优先；尚无适配器负责的 `deepseek-official` 路由会挂载 `dsh-llm-deepseek`，任何其他尚无适配器负责的提供方都会导致初始化失败。其他能力由外围 `cordis.yml` 提供。
 
+## 宿主服务(StarHub 本地补丁)
+
+插件通过 `ctx.get(...)` 暴露两个可选、宿主私有的服务(绝不经过 Context 接口声明合并):`sdk-transport` 即 stdio transport 本身,让同组合插件可向宿主进程发起反向 JSON-RPC request;`sdk-notifications`(`subscribe(method, handler) => disposer`)把入站 notification(无 id 帧)按方法名多路分发给订阅插件。未订阅的方法静默丢弃,订阅者抛错被隔离,两者都不会打断 transport 的读循环。两个服务的生命周期跟随本插件 fiber,卸载即摘除。
+
 ## 配置
 
 `maxTokensAsSuccess` 默认为 `false`，且只影响 `subagent.finished` 上由部署映射的状态；根会话提示词没有提示词级状态。`JsonRpcConfig.input`、`output` 和 `exit` 是仅供运行时使用的传输钩子；生产环境使用进程 stdio 和 `process.exit`。

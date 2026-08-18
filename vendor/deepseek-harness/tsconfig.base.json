@@ -225,6 +225,18 @@
       "@deepseek-ai/dsh-sdk-client": ["./packages/sdk/client/src"],
       "@deepseek-ai/dsh-sdk-protocol": ["./packages/sdk/protocol/src"],
       "@deepseek-ai/dsh-sdk-jsonrpc-server": ["./packages/sdk/server/src"],
+      // starhub/ packages are hyphenated past the wildcard's single capture
+      // (dsh-* → packages/starhub/<capture>/src would resolve the capture to
+      // "starhub-<pkg>", not "<pkg>"), so they get explicit mappings like the
+      // sdk/ group above.
+      "@deepseek-ai/dsh-starhub-tools": ["./packages/starhub/tools/src"],
+      "@deepseek-ai/dsh-starhub-session-registry": ["./packages/starhub/session-registry/src"],
+      "@deepseek-ai/dsh-starhub-domain-events": ["./packages/starhub/domain-events/src"],
+      "@deepseek-ai/dsh-starhub-live-context": ["./packages/starhub/live-context/src"],
+      "@deepseek-ai/dsh-starhub-approval-bridge": ["./packages/starhub/approval-bridge/src"],
+      "@deepseek-ai/dsh-starhub-host-static": ["./packages/starhub/host-static/src"],
+      "@deepseek-ai/dsh-starhub-tool-context": ["./packages/starhub/tool-context/src"],
+      "@deepseek-ai/dsh-starhub-client-nav": ["./packages/starhub/client-nav/src"],
       "@deepseek-ai/dsh-*": [
         "./packages/core/*/src",
         "./packages/prompt/*/src",

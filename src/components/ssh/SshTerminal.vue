@@ -41,6 +41,15 @@ import {
 } from '@/utils/sshPromptCapture'
 import { extractOsc7Cwd, OSC7_INJECT_COMMAND, OSC7_INJECT_ECHO_TEXT, parsePwdOutput } from '@/utils/terminalCwd'
 import { logAudit } from '@/services/audit'
+import {
+  askAi,
+  buildCommandExecutedEvent,
+  isAiEvent,
+  isEventForAsset,
+  isTauriRuntime,
+  listenDomainEvent,
+  reportDomainEvent,
+} from '@/services/linkage'
 import { usePersistentPanelState } from '@/utils/panelState'
 import ZmodemModule from 'zmodem.js/src/zmodem_browser.js'
 
@@ -141,6 +150,14 @@ let unlisten: (() => void) | null = null
 let unlistenKb: (() => void) | null = null
 let unlistenClose: (() => void) | null = null
 let unlistenHostkey: (() => void) | null = null
+/** `starhub://domain-event` 订阅(契约 §7.2:按 assetId 过滤,只处理 origin=ai) */
+let unlistenDomainEvent: (() => void) | null = null
+/** 「问 AI」入口的 AI 动作横幅状态 */
+const aiBanner = ref<string | null>(null)
+let aiBannerTimer: number | null = null
+const AI_BANNER_DURATION_MS = 8000
+/** 非 Tauri 环境隐藏「问 AI」入口(契约 §7.1) */
+const askAiAvailable = isTauriRuntime()
 let connectedAt =0
 let timerId: number | null = null
 //防止旧 connect() 的 finally误关新连接的状态
@@ -225,6 +242,54 @@ const statusText = computed(() => {
  case 'error': return 'ERROR'
  }
 })
+
+// ====== 联动:AI 动作横幅 + 「问 AI」入口(契约 §7) ======
+
+/** 展示「AI 执行了 <summary>」横幅,8s 后自动消失 */
+function showAiBanner(summary: string) {
+  aiBanner.value = summary
+  if (aiBannerTimer !== null) clearTimeout(aiBannerTimer)
+  aiBannerTimer = window.setTimeout(() => {
+    aiBanner.value = null
+    aiBannerTimer = null
+  }, AI_BANNER_DURATION_MS)
+}
+
+/** 手动关闭横幅(可关闭/自动消失,契约 §7.2) */
+function dismissAiBanner() {
+  aiBanner.value = null
+  if (aiBannerTimer !== null) {
+    clearTimeout(aiBannerTimer)
+    aiBannerTimer = null
+  }
+}
+
+/** 收集「问 AI」上下文:优先终端选区文本,否则取屏幕末行(光标所在逻辑行) */
+function collectAiContext(): string {
+  const selection = terminalRef.value?.getSelection() ?? ''
+  if (selection.trim()) return selection.trim()
+  const line = terminalRef.value?.readActiveCursorLine() ?? ''
+  return line.trim()
+}
+
+/** 「问 AI」入口:把当前选中文本 / 屏幕末行发到壳内 AI 会话 */
+async function askAiFromTerminal() {
+  const text = collectAiContext()
+  if (!text) {
+    notify.notify({ message: t('linkage.askAiNoContext'), color: 'warning', timeout: 3000 })
+    return
+  }
+  const ok = await askAi({
+    text,
+    assetId: asset.value?.id,
+    assetName: asset.value?.name,
+  })
+  if (ok) {
+    notify.notify({ message: t('linkage.askAiSent'), color: 'success', timeout: 3000 })
+  } else {
+    notify.notify({ message: t('linkage.askAiFailed'), color: 'error', timeout: 5000 })
+  }
+}
 
 const fontSize = computed(() => themeStore.fontSize)
 const showSearch = ref(false)
@@ -399,10 +464,26 @@ onMounted(async () => {
    connect: () => connect(),
    disconnect: () => disconnect(),
  })
+
+ // 联动契约 §7.2:监听 `starhub://domain-event`,按本面板 assetId 过滤、
+ // 只处理 origin=ai 的 ssh.* 事件 → 终端上方横幅「AI 执行了 <summary>」
+ if (askAiAvailable) {
+   void listenDomainEvent((event) => {
+     if (!isAiEvent(event) || !isEventForAsset(event, instanceInfo.value.assetId)) return
+     if (!event.kind.startsWith('ssh.')) return
+     if (event.summary) showAiBanner(event.summary)
+   }).then((un) => { unlistenDomainEvent = un })
+ }
 })
 
 onBeforeUnmount(async () => {
   stopEmbedConnBridge?.()
+  unlistenDomainEvent?.()
+  unlistenDomainEvent = null
+  if (aiBannerTimer !== null) {
+    clearTimeout(aiBannerTimer)
+    aiBannerTimer = null
+  }
   currentConnectId++
   if (beforeUnloadHandler) {
     window.removeEventListener('beforeunload', beforeUnloadHandler)
@@ -992,6 +1073,13 @@ async function handleData(data: string) {
         pendingRiskyCommand.value = { command, reason: result.riskReason ?? '风险命令' }
         return // 不发送回车,等待用户确认
       }
+    }
+    // 联动契约 §7.3:命令放行后上报用户起源事件(命中 commandGuard 敏感模式的
+    // 命令在上面已拦截,这里只报真正放行的命令;空白回车不产生事件)
+    const passedCommand = sources.find(s => s.trim())
+    if (passedCommand) {
+      const evt = buildCommandExecutedEvent(passedCommand, asset.value?.id)
+      if (evt) void reportDomainEvent(evt)
     }
   } else if (data === '\x7f' || data === '\b') {
     lineBuffer.value = lineBuffer.value.slice(0, -1)
@@ -1784,6 +1872,16 @@ function handleKbCancelled() {
 
 <template>
  <div class="ssh-terminal">
+ <!-- 联动:AI 动作横幅(契约 §7.2,origin=ai 的 ssh.* 事件;可关闭/自动消失) -->
+ <Transition name="ai-banner">
+  <div v-if="aiBanner" class="cyber-ai-banner">
+   <v-icon class="cyber-ai-banner-icon" size="14">mdi-robot-outline</v-icon>
+   <span class="cyber-ai-banner-text">{{ t('linkage.aiExecuted', { summary: aiBanner }) }}</span>
+   <button class="cyber-ai-banner-close" :title="t('common.close')" :aria-label="t('common.close')" @click="dismissAiBanner">
+    <v-icon size="12">mdi-close</v-icon>
+   </button>
+  </div>
+ </Transition>
  <div class="terminal-toolbar">
  <div class="info">
  <div class="title">
@@ -1874,6 +1972,18 @@ function handleKbCancelled() {
   @click="openWebBrowserTab"
   >
   <v-icon size="14">mdi-web</v-icon>
+  </button>
+
+  <!-- 联动:「问 AI」入口(契约 §7.1;非 Tauri 环境隐藏) -->
+  <button
+  v-if="askAiAvailable"
+  class="action-btn"
+  :data-tooltip="t('linkage.askAi')"
+  :title="t('linkage.askAi')"
+  :aria-label="t('linkage.askAi')"
+  @click="askAiFromTerminal"
+  >
+  <v-icon size="14">mdi-robot-outline</v-icon>
   </button>
 
   <span class="terminal-action-divider" />
@@ -2445,5 +2555,16 @@ function handleKbCancelled() {
 .ai-guide-btn:hover {
   color: var(--accent);
   background: var(--bg-3);
+}
+
+/* AI 动作横幅进出场(轻量 fade-slide,配合 .cyber-ai-banner) */
+.ai-banner-enter-active,
+.ai-banner-leave-active {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.ai-banner-enter-from,
+.ai-banner-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 </style>
