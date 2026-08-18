@@ -232,6 +232,6 @@ export interface ClientModuleSystemOptions {
   modules: BootModuleRow[]
   /** Module-table seed: platform-singleton specifier → shell instance. */
   staticModules: Record<string, unknown>
-  /** Bundle-load hook. Defaults to a same-origin classic `<script src>` element. */
+  /** Bundle-load hook. Defaults to a same-origin classic `<script src>` element, retried with bounded backoff so a transient boot-time fetch failure does not fail the whole boot. */
   loadBundle?: (url: string) => Promise<void>
 }

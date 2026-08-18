@@ -470,3 +470,7 @@ token 源:`packages/client/ui-theme/src/styles/`(三层命名:`--dsw-static-*` �
 
 3. `packages/sdk/server/src/index.ts`:`apply()` 里把私有 transport 以 `ctx.provide('sdk-transport', transport)` 暴露为可选服务,供同组合的 starhub-tools 插件发起 server→client 双向 request(方法 `starhub/tool.execute`,参数 `{ name, args }`,result 为模型可读文本);生命周期跟随插件 fiber。
 4. 新增本地包 `packages/starhub/tools/`(`@deepseek-ai/dsh-starhub-tools`,`private: true`,不在上游):注册 `starhub_list_capabilities` / `starhub_list_assets` / `session_search` / `memory` 四个工具,`execute` 经 `sdk-transport` 桥回 Rust 主进程(`src-tauri/src/harness/tools.rs` 执行);缺 `sdk-transport` 时加载即 fail loud。配套登记:`tsconfig.host.json` references、`tsconfig.base.json` 的 `dsh-*` paths 通配组、`examples/package.json` 依赖、`examples/starhub-agent/cordis.yml` 插件条目(排在 sdk-jsonrpc-server 之后)。
+
+**v0.83.2(web 启动鲁棒性,2026-08-18)**:
+
+5. `packages/client/modules/src/client/system.ts`:`defaultLoadBundle` 拆出单次抓取 `fetchBundle` 并按 `BUNDLE_RETRY_DELAYS`(300ms / 1200ms)做有界退避重试——安装版启动时 webview 请求插件 bundle 可能撞上 dsh web 进程更替/文件瞬时不读的窗口,首次 `error` 事件即永久拒启动("Failed to load plugins" 点名某个插件,重启即恢复);重试后瞬态失败自愈,真正缺失的 bundle 仍在 3 次尝试后以原报错 fail loud。`manifest.ts` 的 `loadBundle` seam 契约同步注明默认实现带重试。配套:Agent Note `.agents/notes/implemented/bug-fix/2026-08-18-client-bundle-load-retry.md`(三件套)、`loader.client.spec.ts` 重试成功/耗尽两用例。
