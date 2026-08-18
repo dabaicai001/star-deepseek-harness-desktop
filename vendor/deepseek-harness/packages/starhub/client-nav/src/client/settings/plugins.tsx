@@ -233,15 +233,9 @@ export function PluginsTab() {
             </div>
             <div className={s.marketPager} aria-label="插件市场分页">
               <button type="button" className={s.btnSecondary} disabled={marketPage === 0} onClick={() => setMarketPage((page) => page - 1)}>上一页</button>
-              <div className={s.marketPageDots}>
-                {Array.from({ length: marketPageCount }, (_, page) => (
-                  <button
-                    key={page} type="button" className={page === marketPage ? s.marketPageDotActive : s.marketPageDot}
-                    aria-label={`第 ${page + 1} 页`} aria-current={page === marketPage ? 'page' : undefined}
-                    onClick={() => setMarketPage(page)}
-                  />
-                ))}
-              </div>
+              <span className={s.marketPageIndicator} aria-live="polite">
+                第 {marketPage + 1} / {marketPageCount} 页 · 共 {marketItems.length} 个插件
+              </span>
               <button type="button" className={s.btnSecondary} disabled={marketPage >= marketPageCount - 1} onClick={() => setMarketPage((page) => page + 1)}>下一页</button>
             </div>
           </>

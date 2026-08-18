@@ -820,7 +820,7 @@ fn scan_memory_content(content: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
-    use tokio::sync::{mpsc, oneshot};
+    use tokio::sync::mpsc;
 
     /// 无绑定/无父链的空桥(测试默认);全局工具不需要绑定解析。
     fn empty_bridge() -> HostBridgeState {

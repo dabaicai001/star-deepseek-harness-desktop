@@ -223,6 +223,8 @@ pub struct HostBridgeState {
     /// AI 工具执行缓存:assetId → 最近一次执行的摘要 + 输出尾部(≤2KB),
     /// 契约 §2.2 live.snapshot 的 recentExecs;内存环形,每资产只留 1 条。
     recent_execs: std::sync::Mutex<HashMap<String, events::RecentExec>>,
+    /// M6:每个 dsh session 访问过的资产轨迹,去重保序且有界。
+    task_trails: std::sync::Mutex<HashMap<String, Vec<String>>>,
 }
 
 impl Default for HostBridgeState {
@@ -245,6 +247,7 @@ impl HostBridgeState {
             dsh_runtime: std::sync::Mutex::new(Weak::new()),
             app: std::sync::Mutex::new(None),
             recent_execs: std::sync::Mutex::new(HashMap::new()),
+            task_trails: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -296,6 +299,34 @@ impl HostBridgeState {
     /// recentExecs 缓存快照(live.snapshot 用)。
     pub fn recent_execs(&self) -> Vec<events::RecentExec> {
         self.recent_execs.lock().unwrap().values().cloned().collect()
+    }
+
+    /// 记录 M6 任务访问资产:去重保序,最多保留最近 20 个资产。
+    pub fn record_task_asset(&self, session_id: &str, asset_id: &str) {
+        if session_id.trim().is_empty() || asset_id.trim().is_empty() {
+            return;
+        }
+        let mut trails = self.task_trails.lock().unwrap();
+        let trail = trails.entry(session_id.to_string()).or_default();
+        trail.retain(|id| id != asset_id);
+        trail.push(asset_id.to_string());
+        if trail.len() > 20 {
+            let excess = trail.len() - 20;
+            trail.drain(..excess);
+        }
+    }
+
+    /// M6 任务轨迹快照(live.snapshot 用)。
+    pub fn task_trails(&self) -> Vec<serde_json::Value> {
+        self.task_trails
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(session_id, asset_ids)| serde_json::json!({
+                "sessionId": session_id,
+                "assetIds": asset_ids,
+            }))
+            .collect()
     }
 
     /// 记录 会话→资产 绑定;asset_id 为空视为解除绑定。
@@ -469,13 +500,15 @@ impl HarnessRuntime {
             node_path.display(),
             runtime_dir.display()
         );
-        Ok(Arc::new(Self {
+        let runtime = Arc::new(Self {
             tx,
             pending,
             child: Mutex::new(child),
             next_id: AtomicU64::new(1),
             bridge,
-        }))
+        });
+        runtime.bridge.set_runtime(&runtime);
+        Ok(runtime)
     }
 
     async fn write_loop(
@@ -840,6 +873,7 @@ async fn handle_live_snapshot(
         "sessions": sessions,
         "transfers": transfers,
         "recentExecs": recent_execs,
+        "taskTrails": bridge.task_trails(),
     }))
 }
 
@@ -874,6 +908,14 @@ fn handle_open_asset(
         }
         None => "auto".to_string(),
     };
+    if let Some(session_id) = params
+        .get("sessionId")
+        .and_then(serde_json::Value::as_str)
+        .filter(|v| !v.trim().is_empty())
+    {
+        bridge.bind_session(session_id, &tool, asset_id);
+        bridge.record_task_asset(session_id, asset_id);
+    }
 
     let Some(app) = bridge.app() else {
         // 测试/未初始化环境:无窗口可开,按 opened 立即返回(契约 fire-and-forget)
@@ -1979,6 +2021,32 @@ mod tests {
         )
         .expect("open.asset 应成功");
         assert_eq!(result, serde_json::json!({ "ok": true, "action": "opened" }));
+    }
+
+    /// open.asset 带 sessionId 时重锚域工具路由并记录 M6 任务资产轨迹。
+    #[test]
+    fn open_asset_reanchors_session_and_records_task_trail() {
+        let bridge = Arc::new(HostBridgeState::default());
+        handle_open_asset(
+            serde_json::json!({ "assetId": "web-1", "tool": "terminal", "sessionId": "task-1" }),
+            bridge.clone(),
+            false,
+        )
+        .expect("open.asset 应成功");
+        handle_open_asset(
+            serde_json::json!({ "assetId": "db-1", "tool": "db", "sessionId": "task-1" }),
+            bridge.clone(),
+            false,
+        )
+        .expect("第二次 open.asset 应成功");
+        assert_eq!(
+            bridge.resolve_asset("task-1"),
+            Some(("db".into(), "db-1".into()))
+        );
+        assert_eq!(
+            bridge.task_trails(),
+            vec![serde_json::json!({ "sessionId": "task-1", "assetIds": ["web-1", "db-1"] })]
+        );
     }
 
     /// 未注册的入站方法:JSON-RPC method-not-found(-32601,由 dispatch_frame 映射)。

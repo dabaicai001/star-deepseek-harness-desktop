@@ -697,30 +697,18 @@
 
 .marketPager {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 10px;
 }
 
-.marketPageDots {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.marketPageDot,
-.marketPageDotActive {
-  width: 8px;
-  height: 8px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: var(--dsw-alias-border-l3);
-  cursor: pointer;
-}
-
-.marketPageDotActive {
-  background: var(--dsw-accent);
+.marketPageIndicator {
+  min-width: 132px;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .confirmMessage {

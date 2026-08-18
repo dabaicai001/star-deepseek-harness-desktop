@@ -34,6 +34,9 @@ export const inject = ['agents']
 /** 桥方法名;Rust 侧实现见 src-tauri/src/harness/mod.rs(契约 §2.2)。 */
 const LIVE_SNAPSHOT_METHOD = 'starhub/live.snapshot'
 
+/** 反向宿主快照最多等待 2 秒;超时降级为本地 registry/events,不得阻断 agent turn。 */
+const LIVE_SNAPSHOT_TIMEOUT_MS = 2_000
+
 /** 截断时追加的省略号(截断后总长仍 ≤ maxSnapshotChars)。 */
 const TRUNCATION_ELLIPSIS = '…'
 
@@ -58,6 +61,7 @@ export const Config: z<Config> = z.object({
 interface LiveSnapshot {
   readonly transfers?: Array<Record<string, unknown>>
   readonly recentExecs?: Array<Record<string, unknown>>
+  readonly taskTrails?: Array<Record<string, unknown>>
 }
 
 /**
@@ -152,6 +156,11 @@ function renderSnapshotSections(snapshot: LiveSnapshot | undefined): string {
     sections.push('[Recent AI execs]')
     sections.push(...execs.map(renderExecLine))
   }
+  const trails = snapshot.taskTrails
+  if (Array.isArray(trails) && trails.length > 0) {
+    sections.push('[Task trails]')
+    sections.push(...trails.map((trail) => `- ${String(trail.sessionId)}: ${Array.isArray(trail.assetIds) ? trail.assetIds.map(String).join(' → ') : 'none'}`))
+  }
   return sections.join('\n')
 }
 
@@ -183,11 +192,20 @@ export async function composeLiveContext(
   if (local !== '') sections.push(local)
   let snapshot: LiveSnapshot | undefined
   if (transport !== undefined) {
+    let timeout: ReturnType<typeof setTimeout> | undefined
     try {
-      const result: unknown = await transport.request(LIVE_SNAPSHOT_METHOD, {})
+      const timeoutPromise = new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => { reject(new Error('starhub/live.snapshot timed out')) }, LIVE_SNAPSHOT_TIMEOUT_MS)
+      })
+      const result: unknown = await Promise.race([
+        transport.request(LIVE_SNAPSHOT_METHOD, {}),
+        timeoutPromise,
+      ])
       snapshot = typeof result === 'object' && result !== null ? result as LiveSnapshot : undefined
     } catch {
-      // pull 失败(宿主报错/进程断开)降级为本地 registry+events,不打断 pre-step。
+      // pull 失败/超时(宿主报错、进程断开或未实现)降级为本地 registry+events,不打断 pre-step。
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout)
     }
   }
   const live = renderSnapshotSections(snapshot)

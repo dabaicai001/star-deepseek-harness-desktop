@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.81.1(**tag 构建修复(client tsdown 缺 @tsdown/css)**:client-nav `SshTerminalOverlay` 自 v0.80.0 就 import `@xterm/xterm/css/xterm.css`,但 `@tsdown/css` 是 tsdown 的 optional peer,仓库未显式声明,pnpm 默认不装;此前 CI 均挂在 tsc 阶段没跑到 client tsdown,本次 v0.81.0 tag 构建 tsc 通过后暴露。修复:DSH_ROOT 根 devDependencies 显式声明 `@tsdown/css@0.22.2`(对齐 tsdown peer),`pnpm run build:lib:client` 恢复全绿、client-nav 束产物含 style.css) |
+| 当前版本 | v0.81.2(**插件市场分页改固定指示器(用户反馈:分页没显示页码且圆点溢出)**:圆点列随页数无限增长会溢出,改为固定的「第 X / Y 页 · 共 N 个插件」指示器(上一页/下一页保留);React 壳(plugins.tsx)与 Vue 嵌入页(SettingsView.vue)同步,窄窗自动换行。dsw/cyber token 分别就位) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-17 (v0.81.1)*
+*最后更新: 2026-08-18 (v0.81.2)*

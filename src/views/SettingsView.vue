@@ -1962,17 +1962,9 @@ async function onTestWebhook(url: string) {
           </div>
           <div class="plugin-market-pager" aria-label="插件市场分页">
             <button class="cyber-btn-secondary" :disabled="marketPage === 0" @click="marketPage--">上一页</button>
-            <div class="plugin-market-page-dots">
-              <button
-                v-for="page in marketPageCount"
-                :key="page"
-                class="plugin-market-page-dot"
-                :class="{ active: page - 1 === marketPage }"
-                :aria-label="`第 ${page} 页`"
-                :aria-current="page - 1 === marketPage ? 'page' : undefined"
-                @click="marketPage = page - 1"
-              />
-            </div>
+            <span class="plugin-market-page-indicator" aria-live="polite">
+              第 {{ marketPage + 1 }} / {{ marketPageCount }} 页 · 共 {{ marketItems.length }} 个插件
+            </span>
             <button class="cyber-btn-secondary" :disabled="marketPage >= marketPageCount - 1" @click="marketPage++">下一页</button>
           </div>
         </template>
@@ -2537,30 +2529,19 @@ async function onTestWebhook(url: string) {
 
 .plugin-market-pager {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 10px;
   margin-top: 14px;
 }
 
-.plugin-market-page-dots {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.plugin-market-page-dot {
-  width: 8px;
-  height: 8px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: var(--line-2);
-  cursor: pointer;
-}
-
-.plugin-market-page-dot.active {
-  background: var(--cyan);
+.plugin-market-page-indicator {
+  min-width: 132px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .plugin-market-category {

@@ -63,6 +63,9 @@ const SNAPSHOT = {
   recentExecs: [
     { assetId: 'a1', toolName: 'ssh_exec', summary: 'grep error', tail: 'line 1\nline 2', ts: 100 },
   ],
+  taskTrails: [
+    { sessionId: 'task-1', assetIds: ['a1', 'a2'] },
+  ],
 }
 
 describe('truncateText', () => {
@@ -94,6 +97,8 @@ describe('composeLiveContext', () => {
     expect(text).not.toContain('session.attached')
     expect(text).toContain('- t1: a1 upload 512/1024 bytes (running)')
     expect(text).toContain('- a1 ssh_exec: grep error tail: line 1\nline 2')
+    expect(text).toContain('[Task trails]')
+    expect(text).toContain('- task-1: a1 → a2')
     expect(transport.request).toHaveBeenCalledWith('starhub/live.snapshot', {})
     // Local sections precede the snapshot sections.
     expect(text?.indexOf('[Session registry]')).toBeLessThan(text?.indexOf('[Transfers]') ?? 0)

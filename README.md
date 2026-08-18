@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.81.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.81.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -108,6 +108,13 @@
 ---
 
 ## 当前版本
+
+### v0.81.2 (2026-08-18)
+- 🔧 **插件市场分页改固定指示器(用户反馈:分页没显示页码且圆点溢出)**:圆点列随页数无限增长会溢出,改为固定的「第 X / Y 页 · 共 N 个插件」指示器(上一页/下一页保留);React 壳(plugins.tsx)与 Vue 嵌入页(SettingsView.vue)同步,窄窗自动换行。dsw/cyber token 分别就位
+- 🔧 **联动 M6 任务锚点补全(契约 §2.2)**:`starhub/open.asset` / `starhub/focus.tool` 带 `sessionId` 时,处理器把该会话重锚到目标资产(域工具路由跟随)+ 记录有界任务资产轨迹(taskTrails ≤20,去重保序);`starhub/live.snapshot` 返回 `taskTrails`;live-context 插件注入 `[Task trails]` 段。编排链路「打开 web-1 终端→SSH exec→切到 db 库跑查询」现在跨窗口保持任务连续性
+- 🔧 **联动 M3 活性快照超时保护**:live-context 反向 `starhub/live.snapshot` pull 加 2s 超时(宿主未响应时不再阻塞 agent pre-step,降级为本地 registry+events)
+- 🔧 **联动桥出站通知修复**:`HarnessRuntime::spawn` 后挂桥 weak 引用(`HostBridgeState::set_runtime`),`notify_dsh`(registry.sync / domain.event 出站)在测试与实际桌面运行时都生效
+- 🔧 **Rust harness 测试**:移除冗余 `oneshot` 导入;新增 M6 重锚 + 任务轨迹测试
 
 ### v0.81.1 (2026-08-17)
 - 🔧 **tag 构建修复(client tsdown 缺 @tsdown/css)**:client-nav `SshTerminalOverlay` 自 v0.80.0 就 import `@xterm/xterm/css/xterm.css`,但 `@tsdown/css` 是 tsdown 的 optional peer,仓库未显式声明,pnpm 默认不装;此前 CI 均挂在 tsc 阶段没跑到 client tsdown,本次 v0.81.0 tag 构建 tsc 通过后暴露。修复:DSH_ROOT 根 devDependencies 显式声明 `@tsdown/css@0.22.2`(对齐 tsdown peer),`pnpm run build:lib:client` 恢复全绿、client-nav 束产物含 style.css

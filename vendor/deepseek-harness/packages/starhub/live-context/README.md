@@ -7,7 +7,7 @@ StarHub 本地包(联动契约 §2.2/§5,方案 M3,不在上游):`agent/pre-step
 2. **相关资产最近事件**:`starhub-domain-events` 服务的
    `recent(assetId, maxEvents)`(每资产默认 10 条,契约 §1);
 3. **活性快照 pull**:经 `sdk-transport` 反向 RPC `starhub/live.snapshot`
-   (契约 §2.2,transfers + recentExecs,与 `packages/starhub/tools` 同款宿主桥
+   (契约 §2.2,transfers + recentExecs + taskTrails,与 `packages/starhub/tools` 同款宿主桥
    调用写法)。
 
 整段文本按 `maxSnapshotChars`(默认 4000)截断,从头保留(registry/事件在前,
