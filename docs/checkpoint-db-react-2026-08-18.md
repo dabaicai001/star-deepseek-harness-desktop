@@ -21,15 +21,18 @@
 | 2 | CM6 SQL 编辑器 SqlEditor(高亮/补全/Mod-Enter) | ✅ | v0.81.9 |
 | 3 | 结果网格 DbDataGrid(虚拟滚动/分页/排序/NULL) | ✅ | v0.81.9 |
 | 4a | 表右键菜单(查看DDL弹层/删除表/清空表,均二次确认) + TableRow(角色:行点击=选中,右键=菜单) | ✅ | v0.81.10 |
-| 4b | 建表/改列/索引批量编辑对话框(移植 ddlGenerator) | ⬜ | 待 |
-| 5 | 收尾:3086 同步 client-nav bundle + 最终升版 y+1 + tag | ⬜ | 待 |
+| 4b | 建表/改列/索引批量编辑对话框(移植 ddlGenerator)+ 后端全量 Excel 导出 + React 导出入口 | ✅ | v0.82.0 |
+| 5 | 收尾:3086 同步 client-nav bundle + 最终升版 y+1 + tag | ⬜ 进行中(版本已升 0.82.0) | 待 |
 
-## 2. 本会话已提交版本(v0.81.x 序列)
+## 2. 本会话已提交版本(v0.81.x / v0.82.x 序列)
 
+- v0.82.0(331d7832):批次4b(建表/改列/索引对话框 + ddlGenerator 移植)+ 后端全量
+  Excel 导出(Go sidecar db.mysql/clickhouse.exportExcel + Rust db_mysql/clickhouse_export_excel)
+  + React 工作台「导出 Excel」入口,已推送
 - v0.81.9(c8ef9fce):批次2+3+连接树修复,已推送
 - v0.81.8(9637b0a4):Windows 打包根治(subst S:\ + 裁剪 .d.ts/.map)
 - v0.81.7(ee91a5a7):批次1
-- 仓库主线最新 = v0.81.9,已 push
+- 仓库主线最新 = v0.82.0,已 push
 
 ## 3. 关键文件(client-nav 包内)
 
@@ -101,10 +104,11 @@ cd D:\code\new_project\starhub && npx vue-tsc --noEmit                          
 
 ## 8. 下一步(按序)
 
-1. 完成批次 4a(上面 §4 的 handlers + TableRow + 弹层)
-2. 跑 §7 全绿 + 更新 db-workbench test(表右键动作覆盖)
-3. 攒到一批:批次 4a(+4b 若可行)合并升版 v0.81.10,CHANGELOG + commit + push
-4. 批次 5 收尾:3086 同步 bundle + 验证 + 最终 y+1 + tag
+1. ✅ 已完成批次 4a + 4b + 后端全量 Excel 导出 + React 导出入口(v0.82.0,已推送)
+2. 批次 5 收尾:3086 同步 client-nav bundle(copy client-nav/lib/* → dsh-runtime-3086
+   node_modules/@deepseek-ai/dsh-starhub-client-nav/lib/)+ 3086 实测验证
+3. 打最终 tag v0.82.0 并 push(单个推:`git tag v0.82.0 && git push origin v0.82.0`)
+4. 收尾后更新本 checkpoint 与 AGENTS.md「当前版本」
 
 ## 9. 环境备注
 
