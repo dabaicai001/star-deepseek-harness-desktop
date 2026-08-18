@@ -55,7 +55,7 @@ const logLine = { timestamp: '2026-01-01', stream: 'stdout', message: 'hello' }
 
 /** 安装 Tauri 调用分发 stub;`opts` 可覆盖各命令返回。 */
 function installTauri(opts?: { connectError?: unknown; listContainersError?: unknown; listImagesError?: unknown; logsError?: unknown; statsError?: unknown; pullError?: unknown; removeImageError?: unknown; pruneError?: unknown }) {
-  const invoke = vi.fn((cmd: string, args?: Record<string, unknown>) => {
+  const invoke = vi.fn((cmd: string) => {
     switch (cmd) {
       case 'docker_connect': return opts?.connectError ? Promise.reject(opts.connectError) : Promise.resolve({ connId: 'c', host: 'h' })
       case 'docker_list_containers': return opts?.listContainersError ? Promise.reject(opts.listContainersError) : Promise.resolve([running, stopped])
@@ -421,7 +421,7 @@ describe('DockerWorkbench', () => {
 
   it('surfaces a container-action failure with an Error and a string', async () => {
     ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
-    const invoke = vi.fn((cmd: string) => {
+    const invoke = vi.fn((cmd: string): Promise<unknown> => {
       if (cmd === 'docker_connect') return Promise.resolve({ connId: 'c', host: 'h' })
       if (cmd === 'docker_list_containers') return Promise.resolve([running])
       if (cmd === 'docker_list_images') return Promise.resolve([])
@@ -560,7 +560,9 @@ describe('DockerWorkbench', () => {
     await waitFor(() => expect(screen.getByText('暂无镜像。')).toBeTruthy())
     // 空态里的「拉取镜像」走 ImagesView.onPullOpen(340);工具栏还有一个同名按钮 → 取第二个
     const buttons = screen.getAllByText('拉取镜像')
-    fireEvent.click(buttons[buttons.length - 1])
+    const target = buttons[buttons.length - 1]
+    if (target === undefined) throw new Error('拉取镜像 button missing')
+    fireEvent.click(target)
     await waitFor(() => expect(screen.getByPlaceholderText('名称[:tag],如 nginx:latest')).toBeTruthy())
   })
 

@@ -61,11 +61,11 @@ function installObserver() {
 /** 安装 exec 会话 stub;`reads` 为依次返回的 read 结果队列。 */
 function installTauri(reads: Array<{ data: string; running: boolean }>) {
   let readIndex = 0
-  const invoke = vi.fn((cmd: string, args?: Record<string, unknown>) => {
+  const invoke = vi.fn((cmd: string) => {
     switch (cmd) {
       case 'docker_exec_session_start': return Promise.resolve({ sessionId: 's1' })
       case 'docker_exec_session_read': {
-        const r = reads[Math.min(readIndex, reads.length - 1)]
+        const r = reads[Math.min(readIndex, reads.length - 1)] ?? { data: '', running: false }
         readIndex += 1
         return Promise.resolve({ data: r.data, running: r.running })
       }
@@ -136,7 +136,7 @@ describe('DockerExecTerminal', () => {
 
   it('cleans up on unmount (close session + dispose xterm + disconnect observer)', async () => {
     ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
-    const invoke = installTauri([{ data: '', running: true }])
+    installTauri([{ data: '', running: true }])
     installObserver()
     const { unmount } = render(<DockerExecTerminal connId="c" container={container} onClose={vi.fn()} />)
     await waitFor(() => expect(xterm.open).toHaveBeenCalled())

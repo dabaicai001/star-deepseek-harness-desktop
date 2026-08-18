@@ -10,12 +10,12 @@ import {
   dockerExecSessionResize, dockerExecSessionStart, dockerExecSessionWrite, dockerInspectContainer,
   dockerListContainers, dockerListImages, dockerPruneImages, dockerPullImage, dockerRemoveContainer,
   dockerRemoveImage, dockerRestartContainer, dockerStartContainer, dockerStopContainer, dockerTest,
-  formatBytes, type DockerConnectParams,
+  formatBytes,
 } from '../src/client/docker/docker-service.ts'
 import { countContainers, formatAge, toDockerConnectParams } from '../src/client/docker/DockerWorkbench.tsx'
 
-/** 安装 Tauri IPC stub,记录 invoke 调用并返回预设结果。 */
-function stubInvoke(handler: (cmd: string, args?: Record<string, unknown>) => unknown): (cmd: string, args?: Record<string, unknown>) => unknown {
+/** 安装 Tauri IPC stub,记录 invoke 调用并返回预设结果;返回还原原状态的回调。 */
+function stubInvoke(handler: (cmd: string, args?: Record<string, unknown>) => unknown): () => void {
   const w = window as unknown as { __TAURI_INTERNALS__?: { invoke: unknown } }
   const prev = w.__TAURI_INTERNALS__
   w.__TAURI_INTERNALS__ = { invoke: handler }
