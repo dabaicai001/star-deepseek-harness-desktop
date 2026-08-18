@@ -56,15 +56,15 @@ afterEach(() => {
 })
 
 describe('renderAssetReference', () => {
-  it('renders name (user@host), host-only, database and bare-name forms', () => {
+  it('renders name (user@host), host-only, database and bare-name forms as plain text', () => {
     expect(renderAssetReference({ id: 'a1', name: 'web-1', config: { username: 'deploy', host: '10.0.0.5' } }))
-      .toBe('<asset id="a1">web-1 (deploy@10.0.0.5)</asset>')
+      .toBe('@web-1 (deploy@10.0.0.5)')
     expect(renderAssetReference({ id: 'a1', name: 'web-1', config: { host: '10.0.0.5' } }))
-      .toBe('<asset id="a1">web-1 (10.0.0.5)</asset>')
+      .toBe('@web-1 (10.0.0.5)')
     expect(renderAssetReference({ id: 'a1', name: 'web-1', config: { database: 'mydb' } }))
-      .toBe('<asset id="a1">web-1 (mydb)</asset>')
+      .toBe('@web-1 (mydb)')
     expect(renderAssetReference({ id: 'a1', name: 'web-1', config: {} }))
-      .toBe('<asset id="a1">web-1</asset>')
+      .toBe('@web-1')
   })
 })
 
@@ -201,7 +201,7 @@ describe('createStarHubAssetSource', () => {
     })
     const { source } = makeHarness(assets, vi.fn())
     await expect(source.codec!.serialize('a1', new AbortController().signal))
-      .resolves.toBe('<asset id="a1">web-1 (deploy@10.0.0.5)</asset>')
+      .resolves.toBe('@web-1 (deploy@10.0.0.5)')
     // 资产删除后:序列化失败 = 阻止发送(流水线契约,绝不静默降级)
     await expect(source.codec!.serialize('gone', new AbortController().signal))
       .rejects.toThrow(/已不存在/)

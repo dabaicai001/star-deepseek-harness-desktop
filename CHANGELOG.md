@@ -14,6 +14,21 @@
 
 ---
 
+## [0.81.4] - 2026-08-18
+
+### 已完成(待升版)
+- **@ 资产引用改纯文本(用户反馈)**:`@` pick 序列化从 `<asset id=…>name</asset>` 改为
+  纯文本 `@name (user@host)`——对话框中不再出现原始标记;资产 id 绑定仍经
+  starhub-tool-context settings 轻绑定,pre-step 注入带 id,模型据此解析目标资产
+- **壳内(web)会话可调用 starhub 工具(用户反馈:@ 本质是调工具内 AI 助手/Agent 操作)**:
+  ① starhub-web 组合补 sdk-jsonrpc-server + starhub-tools + approval-bridge +
+  session-registry/domain-events/live-context;② Rust 为 web 进程加 stdio JSON-RPC
+  桥(web.rs read/write loop + 共享 HostBridgeState 分发 starhub/tool.execute 等),
+  `notify_dsh` 同时投给嵌入 runtime 与 web 进程(web 退出自动摘除);③ approval-bridge
+  新增 `answerer` 配置(web 组合关应答,交给壳自己的浏览器确认框,避免双应答);
+  ④ web.rs LOCAL_PACKAGES 补齐 8 个本地包 junction。工作区会话 @ 资产后,壳内
+  Agent 可对目标资产执行 ssh/db/sftp 等操作
+
 ## [0.81.3] - 2026-08-18
 
 ### 已完成(待升版)

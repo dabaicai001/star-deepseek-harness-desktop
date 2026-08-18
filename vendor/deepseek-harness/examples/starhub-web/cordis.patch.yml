@@ -22,3 +22,23 @@
     # 选择(settings 里由 client-nav 写入)注入 agent 请求。
     - id: starhub-tool-context
       name: '@deepseek-ai/dsh-starhub-tool-context'
+    # 联动(2026-08-18):壳内(web)会话获得 starhub_* 域工具——sdk-jsonrpc-server
+    # 暴露 sdk-transport / sdk-notifications,starhub-tools 经 stdio 桥回 Rust 主
+    # 进程执行;session-registry / domain-events / live-context 消费 Rust 推送的
+    # 注册表与领域事件,pre-step 注入活性上下文;approval-bridge 只保留权限固定
+    # 与风险门(answerer:false,应答交给 web 自己的浏览器确认框,避免双应答)。
+    # 依赖:这些包在 vendor 仓库包清单内,web.rs 会为它们补 junction。
+    - id: sdk-jsonrpc-server
+      name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
+    - id: starhub-tools
+      name: '@deepseek-ai/dsh-starhub-tools'
+    - id: starhub-approval-bridge
+      name: '@deepseek-ai/dsh-starhub-approval-bridge'
+      config:
+        answerer: false
+    - id: starhub-session-registry
+      name: '@deepseek-ai/dsh-starhub-session-registry'
+    - id: starhub-domain-events
+      name: '@deepseek-ai/dsh-starhub-domain-events'
+    - id: starhub-live-context
+      name: '@deepseek-ai/dsh-starhub-live-context'

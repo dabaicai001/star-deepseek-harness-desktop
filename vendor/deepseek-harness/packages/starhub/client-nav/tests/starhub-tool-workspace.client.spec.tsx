@@ -34,6 +34,7 @@ function workspaceProps() {
     bridge,
     refreshAssets: vi.fn(),
     openConnectionManager: vi.fn(),
+    openAiAssistant: vi.fn(),
     useAssets,
     useSelection,
     // settings.update stub: the tool-context sync effect calls it and must

@@ -5,7 +5,13 @@
   "dependencies": {
     "@deepseek-ai/dsh-starhub-client-nav": "workspace:*",
     "@deepseek-ai/dsh-starhub-host-static": "workspace:*",
-    "@deepseek-ai/dsh-starhub-tool-context": "workspace:*"
+    "@deepseek-ai/dsh-starhub-tool-context": "workspace:*",
+    "@deepseek-ai/dsh-sdk-jsonrpc-server": "workspace:*",
+    "@deepseek-ai/dsh-starhub-tools": "workspace:*",
+    "@deepseek-ai/dsh-starhub-approval-bridge": "workspace:*",
+    "@deepseek-ai/dsh-starhub-session-registry": "workspace:*",
+    "@deepseek-ai/dsh-starhub-domain-events": "workspace:*",
+    "@deepseek-ai/dsh-starhub-live-context": "workspace:*"
   },
   "dsh": {
     "profile": {

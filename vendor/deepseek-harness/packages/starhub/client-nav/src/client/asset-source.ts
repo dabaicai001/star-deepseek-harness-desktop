@@ -28,14 +28,16 @@ export interface StarHubAssetSourceDeps {
 }
 
 /**
- * 序列化一个资产引用为模型可见形式(设计 M5.1 / 契约 §6.1):
- * `<asset id="…">name (user@host)</asset>`,无副标题时省略括号段。
+ * 序列化一个资产引用为模型可见形式(设计 M5.1 / 契约 §6.1,2026-08-18 改):
+ * 纯文本 `@name (user@host)`——用户要求对话框中不显示 `<asset id=…>` 标记。
+ * 资产 id 绑定不依赖该文本:pick 时已轻绑定到 starhub-tool-context settings,
+ * pre-step 注入会带上资产 id,模型据此解析目标资产;此处只负责干净展示。
  * @param asset - 目标资产(只需 id / name / config)。
- * @returns 模型可见引用文本。
+ * @returns 模型可见引用文本(纯文本,无标记)。
  */
 export function renderAssetReference(asset: { id: string; name: string; config: Record<string, unknown> }): string {
   const sub = assetSubtitle(asset)
-  return sub === '' ? `<asset id="${asset.id}">${asset.name}</asset>` : `<asset id="${asset.id}">${asset.name} (${sub})</asset>`
+  return sub === '' ? `@${asset.name}` : `@${asset.name} (${sub})`
 }
 
 /**

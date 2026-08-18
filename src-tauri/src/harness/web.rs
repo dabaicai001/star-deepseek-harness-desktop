@@ -22,8 +22,11 @@ use tauri::Manager;
 use thiserror::Error;
 use tokio::process::{Child, Command};
 
+use super::{IncomingFrame, OutboundFrame};
 use super::plugins;
-use super::HarnessPaths;
+use super::{handle_inbound_request, HarnessPaths, HostBridgeState};
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 /// dsh web 默认端口(与 examples/starhub-web/cordis.patch.yml 一致)。
 pub const DEFAULT_PORT: u16 = 3085;
@@ -38,8 +41,19 @@ const EXAMPLE_REL: &str = "examples/starhub-web";
 /// dsh CLI bin 相对 vendor 根的路径。
 const CLI_BIN_REL: &str = "apps/cli/lib/bin.js";
 /// 需要补 junction 的本地包(packages/starhub/ 下的目录名)。
-/// tool-context 自 v0.71 起被 examples/starhub-web/cordis.patch.yml 引用。
-const LOCAL_PACKAGES: [&str; 3] = ["client-nav", "host-static", "tool-context"];
+/// tool-context 自 v0.71 起被 examples/starhub-web/cordis.patch.yml 引用;
+/// 2026-08-18 起壳内会话可调 starhub 工具,starhub-tools / approval-bridge /
+/// session-registry / domain-events / live-context 一并入列(sdk 系包在安装闭包内)。
+const LOCAL_PACKAGES: [&str; 8] = [
+    "client-nav",
+    "host-static",
+    "tool-context",
+    "tools",
+    "approval-bridge",
+    "session-registry",
+    "domain-events",
+    "live-context",
+];
 
 #[derive(Debug, Error)]
 pub enum DshWebError {
@@ -151,19 +165,29 @@ impl DshWebManager {
     }
 
     /// 启动(如未运行)并等待就绪,返回 `http://127.0.0.1:<port>`。
-    /// 幂等:已在运行直接返回现有 URL。
-    pub async fn ensure_started(&self, app: &tauri::AppHandle) -> Result<String, DshWebError> {
+    /// 幂等:已在运行直接返回现有 URL。`bridge` 为共享宿主桥(与 HarnessManager 同一
+    /// Arc):web 进程的 `starhub/tool.execute` 请求经它分发执行,当前会话绑定沿
+    /// dsh_bind_session 语义共享,出站通知(registry.sync / domain.event)同时投给 web。
+    pub async fn ensure_started(
+        &self,
+        app: &tauri::AppHandle,
+        bridge: Arc<HostBridgeState>,
+    ) -> Result<String, DshWebError> {
         let _start_guard = self.start_lock.lock().await;
         if let Some(handle) = self.handle.lock().await.as_ref() {
             return Ok(handle.url.clone());
         }
-        let handle = self.spawn(app).await?;
+        let handle = self.spawn(app, bridge).await?;
         let url = handle.url.clone();
         *self.handle.lock().await = Some(handle);
         Ok(url)
     }
 
-    async fn spawn(&self, app: &tauri::AppHandle) -> Result<DshWebHandle, DshWebError> {
+    async fn spawn(
+        &self,
+        app: &tauri::AppHandle,
+        bridge: Arc<HostBridgeState>,
+    ) -> Result<DshWebHandle, DshWebError> {
         use tauri::Manager;
         let paths = HarnessPaths::resolve_for_app(app)
             .map_err(|e| DshWebError::PathResolve(e.to_string()))?;
@@ -269,7 +293,10 @@ impl DshWebManager {
         cmd.arg(CLI_BIN_REL)
             .arg("web")
             .current_dir(&runtime_dir)
-            .stdin(Stdio::null())
+            // 2026-08-18:stdin/stdout 接入共享 JSON-RPC 桥,让壳内(web)会话能经
+            // sdk-jsonrpc-server 反向调 starhub_* 工具(走 Rust 主进程执行);之前的
+            // Stdio::null() 会让 web 的 sdk-transport 进程内解析失败。
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
@@ -302,12 +329,33 @@ impl DshWebManager {
                 cli_bin.display()
             ))
         })?;
-        if let Some(stdout) = child.stdout.take() {
-            tokio::spawn(drain_lines("stdout", stdout));
-        }
-        if let Some(stderr) = child.stderr.take() {
-            tokio::spawn(drain_lines("stderr", stderr));
-        }
+        let (stdin, stdout, stderr) = match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
+            (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
+            _ => {
+                let _ = child.start_kill();
+                return Err(DshWebError::Spawn("web 子进程管道获取失败".into()));
+            }
+        };
+        // 与 HarnessRuntime 同款 stdio JSON-RPC 桥:读 web 进程 stdout 帧,
+        // 入站 request(starhub/tool.execute 等)经共享 handle_inbound_request 分发并回写
+        // 响应帧到 web 的 stdin;web 关停/退出(stdout EOF)时自动摘除 web_notify 出站,
+        // 避免向已关闭的 stdin 写报 EPIPE。
+        let bridge = bridge.clone();
+        let (notify_tx, notify_rx) = mpsc::unbounded_channel::<OutboundFrame>();
+        let notify_sink = notify_tx.clone();
+        let clear_web_notify = bridge.set_web_notify(bridge.clone(), Arc::new(move |method, params| {
+            let _ = notify_sink.send(OutboundFrame {
+                request_id: None,
+                payload: format!(
+                    "{{\"jsonrpc\":\"2.0\",\"method\":{},\"params\":{}}}",
+                    serde_json::to_string(&method).unwrap_or_else(|_| "\"\"".to_string()),
+                    params,
+                ),
+            });
+        }));
+        tokio::spawn(web_read_loop(stdout, bridge, notify_tx, clear_web_notify));
+        tokio::spawn(web_write_loop(stdin, notify_rx));
+        tokio::spawn(drain_lines("stderr", stderr));
 
         // 5. 就绪探测:轮询 GET / 直到 200
         let url = format!("http://127.0.0.1:{port}");
@@ -348,6 +396,93 @@ async fn drain_lines(tag: &'static str, io: impl tokio::io::AsyncRead + Unpin) {
     let mut lines = tokio::io::BufReader::new(io).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         tracing::info!("dsh web {tag}: {}", line.trim());
+    }
+}
+
+/// web 进程 stdout 的 JSON-RPC 读循环:逐行解析帧,入站 request(method + id,
+/// 无 result/error,即 shell 会话经 sdk-jsonrpc-server 反调 host 的工具执行)由
+/// 共享 `handle_inbound_request` 分发,响应帧经 outbound 通道回写 web 的 stdin;
+/// 通知/响应帧忽略(通知无对外下游,响应本进程不发起请求)。stdout EOF(web 退出)
+/// 时摘除 web_notify 出站,防止后续向已关闭 stdin 写报 EPIPE。
+async fn web_read_loop(
+    stdout: tokio::process::ChildStdout,
+    bridge: Arc<HostBridgeState>,
+    outbound: mpsc::UnboundedSender<OutboundFrame>,
+    clear_notify: impl Fn() + Send + 'static,
+) {
+    use tokio::io::AsyncBufReadExt;
+    let mut reader = tokio::io::BufReader::new(stdout);
+    let mut line: Vec<u8> = Vec::new();
+    loop {
+        let chunk = match reader.fill_buf().await {
+            Ok(chunk) => chunk,
+            Err(_) => break,
+        };
+        if chunk.is_empty() {
+            break; // EOF:web 进程退出
+        }
+        match chunk.iter().position(|byte| *byte == b'\n') {
+            Some(pos) => {
+                line.extend_from_slice(&chunk[..pos]);
+                reader.consume(pos + 1);
+                if let Ok(frame) = serde_json::from_slice::<IncomingFrame>(&line) {
+                    if let (Some(id), Some(method)) = (frame.id.as_ref(), frame.method.as_ref()) {
+                        if frame.result.is_none() && frame.error.is_none() {
+                            let params = frame.params.unwrap_or(serde_json::Value::Null);
+                            let bridge = bridge.clone();
+                            let outbound = outbound.clone();
+                            let id = id.clone();
+                            let method = method.clone();
+                            tokio::spawn(async move {
+                                let payload = match handle_inbound_request(&method, params, bridge).await {
+                                    Ok(result) => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+                                    Err(super::InboundError::MethodNotFound(message)) => serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "error": { "code": -32601, "message": message },
+                                    }),
+                                    Err(super::InboundError::Failed(message)) => serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "error": { "code": -32603, "message": message },
+                                    }),
+                                };
+                                let _ = outbound.send(OutboundFrame {
+                                    request_id: None,
+                                    payload: payload.to_string(),
+                                });
+                            });
+                        }
+                    }
+                }
+                line.clear();
+            }
+            None => {
+                line.extend_from_slice(chunk);
+                let consumed = chunk.len();
+                reader.consume(consumed);
+            }
+        }
+    }
+    clear_notify();
+}
+
+/// 把 outbound 帧逐行写入 web 进程 stdin;通道关闭(没有更多帧)即结束。
+async fn web_write_loop(
+    mut stdin: tokio::process::ChildStdin,
+    mut outbound: mpsc::UnboundedReceiver<OutboundFrame>,
+) {
+    use tokio::io::AsyncWriteExt;
+    while let Some(frame) = outbound.recv().await {
+        if stdin.write_all(frame.payload.as_bytes()).await.is_err() {
+            break;
+        }
+        if stdin.write_all(b"\n").await.is_err() {
+            break;
+        }
+        if stdin.flush().await.is_err() {
+            break;
+        }
     }
 }
 

@@ -38,6 +38,11 @@ import {
 export const name = 'starhub-approval-bridge'
 export const inject = ['approval', 'settings']
 
+/** 插件配置:answerer=false 时只留权限固定与风险门,应答交给组合内其它 answerer。 */
+export const Config: z<{ answerer?: boolean }> = z.object({
+  answerer: z.boolean().default(true),
+})
+
 /** 桥方法名;Rust 侧实现见 src-tauri/src/harness/mod.rs。 */
 const BRIDGE_METHOD = 'starhub/approval.request'
 
@@ -253,9 +258,12 @@ function sessionPolicy(ctx: Context, session: Session): ApprovalPolicy {
 
 /**
  * 注册审批桥:权限固定 + 风险门 + 应答桥。
+ * `answerer: false` 时只保留权限固定与风险门(应答交给组合内其它 answerer,
+ * 如 dsh web 的浏览器确认框;starhub-web 组合用),避免同一请求双应答。
  * @param ctx - plugin context;监听器随插件 fiber 卸载。
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: { answerer?: boolean } = {}): void {
+  const answerer = config.answerer !== false
   const transport = ctx.get('sdk-transport') as JsonRpcTransportPeer | undefined
   if (!transport) {
     throw new Error('starhub-approval-bridge requires sdk-jsonrpc-server (sdk-transport service) in the same composition')
@@ -280,6 +288,8 @@ export function apply(ctx: Context): void {
     if (sessionPolicy(ctx, agent.session) === 'never') return decision
     return verdict.reason === undefined ? { kind: 'ask' } : { kind: 'ask', reason: verdict.reason }
   })
+
+  if (!answerer) return
 
   // 3. 审批应答桥:桥回宿主确认卡;桥异常一律 fail closed(交回链尾 = unavailable)。
   ctx.on('approval/request', async (req, next): Promise<ApprovalOutcome> => {

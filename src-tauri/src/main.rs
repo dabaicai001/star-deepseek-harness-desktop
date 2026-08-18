@@ -148,9 +148,12 @@ fn main() {
                 let started = tauri::async_runtime::block_on({
                     let app_handle = app_handle.clone();
                     async move {
+                        let bridge = app_handle
+                            .state::<harness::HarnessManager>()
+                            .bridge();
                         app_handle
                             .state::<harness::web::DshWebManager>()
-                            .ensure_started(&app_handle)
+                            .ensure_started(&app_handle, bridge)
                             .await
                     }
                 });

@@ -170,20 +170,20 @@ struct JsonRpcRequest {
 }
 
 #[derive(Debug, Deserialize)]
-struct JsonRpcError {
-    code: i64,
-    message: String,
+pub(crate) struct JsonRpcError {
+    pub(crate) code: i64,
+    pub(crate) message: String,
 }
 
 /// 入站帧:响应(带 id)或通知(带 method)或入站 request(method+id 同现,
 /// P1-4 工具执行回调桥;dsh 侧 request id 是 `req_<uuid>` 字符串,原样回写)。
 #[derive(Debug, Deserialize)]
-struct IncomingFrame {
-    id: Option<serde_json::Value>,
-    result: Option<serde_json::Value>,
-    error: Option<JsonRpcError>,
-    method: Option<String>,
-    params: Option<serde_json::Value>,
+pub(crate) struct IncomingFrame {
+    pub(crate) id: Option<serde_json::Value>,
+    pub(crate) result: Option<serde_json::Value>,
+    pub(crate) error: Option<JsonRpcError>,
+    pub(crate) method: Option<String>,
+    pub(crate) params: Option<serde_json::Value>,
 }
 
 /// 通知回调:(method, params)。生产环境接到 tauri emit,测试接到 mpsc。
@@ -194,6 +194,9 @@ type EventSink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 
 type ResponseSender = oneshot::Sender<Result<serde_json::Value, HarnessError>>;
 type PendingResponses = Arc<tokio::sync::Mutex<HashMap<u64, ResponseSender>>>;
+
+/// dsh web 进程的 notification 出站回调(method, params);由 web.rs 注册。
+pub type WebNotifySink = Arc<dyn Fn(String, serde_json::Value) + Send + Sync>;
 
 /// 宿主桥共享状态(Phase 2):入站双向 request 的应答 pending 表 + 会话资产绑定。
 /// 由 [`HarnessManager`] 持有,spawn 时把 Arc 克隆进 [`HarnessRuntime`]
@@ -217,6 +220,10 @@ pub struct HostBridgeState {
     /// spawn 后由 manager 写入;runtime 回收后 upgrade 失败 = 无活跃 runtime,
     /// notify 静默跳过(契约 §8)。Weak 避免与 HarnessRuntime.bridge 形成 Arc 环。
     dsh_runtime: std::sync::Mutex<Weak<HarnessRuntime>>,
+    /// dsh web(壳)进程的 notification 出站(2026-08-18):web 组合同样挂
+    /// session-registry / domain-events,Rust 的 registry.sync / domain.event
+    /// 通知要同时投给嵌入 runtime 与 web 进程;web 关闭时由 manager 清除。
+    web_notify: std::sync::Mutex<Option<WebNotifySink>>,
     /// AppHandle(open.asset emit_to("main") / live.snapshot 取 SshManager 等 state 用);
     /// initialize 时写入,测试环境为空(相关 handler 返回降级结果)。
     app: std::sync::Mutex<Option<tauri::AppHandle>>,
@@ -248,6 +255,7 @@ impl HostBridgeState {
             app: std::sync::Mutex::new(None),
             recent_execs: std::sync::Mutex::new(HashMap::new()),
             task_trails: std::sync::Mutex::new(HashMap::new()),
+            web_notify: std::sync::Mutex::new(None),
         }
     }
 
@@ -268,12 +276,29 @@ impl HostBridgeState {
     }
 
     /// Rust → dsh notification(契约 §2.1,单向无响应);
-    /// 无活跃 runtime(runtime 未启动/已回收/写入失败)时静默跳过,不报错。
+    /// 同时投给嵌入 runtime 与 dsh web(壳)进程;对应进程未运行/已回收时静默跳过。
     pub async fn notify_dsh(&self, method: &str, params: serde_json::Value) {
         let runtime = self.dsh_runtime.lock().unwrap().upgrade();
         if let Some(runtime) = runtime {
-            if let Err(error) = runtime.notify(method, params).await {
+            if let Err(error) = runtime.notify(method, params.clone()).await {
                 tracing::warn!("dsh 通知 {method} 发送失败: {error}");
+            }
+        }
+        let web = self.web_notify.lock().unwrap().clone();
+        if let Some(web) = web {
+            web(method.to_string(), params);
+        }
+    }
+
+    /// 注册 dsh web(壳)进程的 notification 出站(web.rs spawn 后调用);返回一个
+    /// 把本字段清空的闭包(web 子进程退出时调用,避免 write 到已关闭的 pipe 报 EPIPE)。
+    /// `shared` 是与调用同一 Arc 的桥(测试可直接传临时 Arc)。
+    pub fn set_web_notify(&self, shared: Arc<Self>, sink: WebNotifySink) -> impl Fn() + Send + 'static {
+        *self.web_notify.lock().unwrap() = Some(sink);
+        let weak = Arc::downgrade(&shared);
+        move || {
+            if let Some(this) = weak.upgrade() {
+                *this.web_notify.lock().unwrap() = None;
             }
         }
     }
@@ -418,9 +443,9 @@ impl HostBridgeState {
 
 /// 出站帧:已预序列化;request_id 仅我们发出的请求携带(写失败时定位 pending),
 /// 入站 request 的响应帧为 None。
-struct OutboundFrame {
-    request_id: Option<u64>,
-    payload: String,
+pub(crate) struct OutboundFrame {
+    pub(crate) request_id: Option<u64>,
+    pub(crate) payload: String,
 }
 
 /// 单条 runtime 进程连接:写通道 + pending 请求表 + 子进程句柄。
@@ -806,7 +831,8 @@ impl From<String> for InboundError {
 /// (`starhub/tool.execute`,见 tools 模块)与联动三个新方法
 /// (`starhub/live.snapshot` / `starhub/open.asset` / `starhub/focus.tool`,
 /// 契约 §2.2);其余方法报 JSON-RPC method-not-found(-32601)。
-async fn handle_inbound_request(
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_inbound_request(
     method: &str,
     params: serde_json::Value,
     bridge: Arc<HostBridgeState>,
@@ -2068,5 +2094,30 @@ mod tests {
         bridge
             .notify_dsh(REGISTRY_SYNC_METHOD, serde_json::json!({ "sessions": [] }))
             .await;
+    }
+
+    /// notify_dsh 在有 web 出站 sink 时投给 web;清理闭包执行后不再投递。
+    #[tokio::test]
+    async fn notify_dsh_delivers_to_web_sink_and_cleanup_stops_it() {
+        let bridge = Arc::new(HostBridgeState::default());
+        let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let received_closure = received.clone();
+        let sink: WebNotifySink = Arc::new(move |method, params| {
+            received_closure
+                .lock()
+                .unwrap()
+                .push((method, params.to_string()));
+        });
+        let clear = bridge.set_web_notify(bridge.clone(), sink);
+        bridge
+            .notify_dsh(DOMAIN_EVENT_METHOD, serde_json::json!({ "kind": "ssh.exec_completed" }))
+            .await;
+        assert_eq!(received.lock().unwrap().len(), 1);
+        assert_eq!(received.lock().unwrap()[0].0, DOMAIN_EVENT_METHOD);
+        clear();
+        bridge
+            .notify_dsh(DOMAIN_EVENT_METHOD, serde_json::json!({ "kind": "db.query_executed" }))
+            .await;
+        assert_eq!(received.lock().unwrap().len(), 1, "清理后不应再投递");
     }
 }
