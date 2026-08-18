@@ -14,6 +14,15 @@
 
 ---
 
+## [0.82.1] - 2026-08-18
+
+### 已完成(待升版)
+- **Windows 打包 workflow 修复(v0.82.0 tag 构建失败)**:release.yml Windows job 把
+  `defaults.run.working-directory` 设为 `S:\`,导致「Map workspace to a short drive」
+  这一步在 `subst S:` 尚未建立映射时以 `S:\` 为 cwd 启动 pwsh,报
+  "directory name is invalid"。修复:该步显式 `working-directory: ${{ github.workspace }}`
+  先建 `subst S:` 映射,并校验映射已建立、失败即中止(subst S: 被占用时直接报错)。
+
 ## [0.82.0] - 2026-08-18
 
 ### 已完成(待升版)

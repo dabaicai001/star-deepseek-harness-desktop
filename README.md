@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.82.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.82.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -108,6 +108,9 @@
 ---
 
 ## 当前版本
+
+### v0.82.1 (2026-08-18)
+- 🔧 **Windows 打包 workflow 修复(v0.82.0 tag 构建失败)**:release.yml Windows job 把
 
 ### v0.82.0 (2026-08-18)
 - 🔧 **数据库工作台 React 化(需求 5,批次 4b:建表/改列/索引对话框 + 后端全量 Excel 导出)**:移植 ddlGenerator 与新建表/改列/索引对话框;后端 Go sidecar + Rust 新增 Excel 全量直写导出,React 工作台表格「导出 Excel」入口

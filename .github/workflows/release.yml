@@ -33,9 +33,18 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Map workspace to a short drive (Windows path-length fix)
+        # 必须先于 S:\ 默认 working-directory 生效:本步负责创建 subst 映射,
+        # 若沿用 job 默认的 S:\ 作为 cwd,pwsh 会因 S:\ 尚不存在而无法启动
+        # ("directory name is invalid")。故显式回到真实 checkout 目录执行 subst,
+        # 并校验映射确实建立,失败立即中止(否则下游会冒 "dir not found" 级联报错)。
         shell: pwsh
+        working-directory: ${{ github.workspace }}
         run: |
+          $ErrorActionPreference = 'Stop'
           subst S: $env:GITHUB_WORKSPACE
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path 'S:\')) {
+            throw "subst S: -> $env:GITHUB_WORKSPACE failed (drive may be in use)"
+          }
           Get-ChildItem S:\
           Write-Host "workspace mapped to S:\ ($env:GITHUB_WORKSPACE)"
 
