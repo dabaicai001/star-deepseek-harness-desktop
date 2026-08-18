@@ -14,6 +14,14 @@
 
 ---
 
+## [0.81.5] - 2026-08-18
+
+### 已完成(待升版)
+- **starhub-tools 传输解析改懒加载(修复壳内组合启动竞态)**:sdk-jsonrpc-server 与
+  starhub-tools 各自 fiber 并行加载,web 组合里启动期 `ctx.get('sdk-transport')`
+  可能取不到(服务尚未 provide)导致 starhub-tools 加载失败、dsh web 起不来;
+  改为每次工具调用时解析,失败信息与组合缺失一致(3086 实测修复启动)
+
 ## [0.81.4] - 2026-08-18
 
 ### 已完成(待升版)

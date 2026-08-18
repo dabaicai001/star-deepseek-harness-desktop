@@ -122,7 +122,7 @@ interface BridgedToolSpec {
  * @param transport - sdk-jsonrpc-server 暴露的 stdio transport。
  * @param spec - 工具名/描述/参数 schema。
  */
-function registerBridged(ctx: Context, transport: JsonRpcTransportPeer, spec: BridgedToolSpec): void {
+function registerBridged(ctx: Context, getTransport: () => JsonRpcTransportPeer, spec: BridgedToolSpec): void {
   ctx.tools.register(defineTool({
     name: spec.toolName,
     description: spec.description,
@@ -130,7 +130,7 @@ function registerBridged(ctx: Context, transport: JsonRpcTransportPeer, spec: Br
     parameters: spec.parameters as never,
     output: TEXT_OUTPUT,
     async execute(args, exec) {
-      return callHost(transport, exec, spec.toolName, args)
+      return callHost(getTransport(), exec, spec.toolName, args)
     },
   }))
 }
@@ -524,13 +524,18 @@ const BRIDGED_TOOLS: readonly BridgedToolSpec[] = [
  */
 export function apply(ctx: Context): void {
   // sdk-transport 是宿主私有服务名,不走 Context 接口声明合并,读取后窄化。
-  const transport = ctx.get('sdk-transport') as JsonRpcTransportPeer | undefined
-  if (!transport) {
-    throw new Error('starhub-tools requires sdk-jsonrpc-server (sdk-transport service) in the same composition')
+  // 延迟到每次调用时解析:web 组合里 sdk-jsonrpc-server 与 starhub-tools 各自
+  // fiber 并行加载,启动期读可能取不到(服务尚未 provide);失败信息与组合缺失一致。
+  const getTransport = (): JsonRpcTransportPeer => {
+    const transport = ctx.get('sdk-transport') as JsonRpcTransportPeer | undefined
+    if (!transport) {
+      throw new Error('starhub-tools requires sdk-jsonrpc-server (sdk-transport service) in the same composition')
+    }
+    return transport
   }
 
   for (const spec of BRIDGED_TOOLS) {
-    registerBridged(ctx, transport, spec)
+    registerBridged(ctx, getTransport, spec)
   }
 
   ctx.tools.register(defineTool({
@@ -539,7 +544,7 @@ export function apply(ctx: Context): void {
     parameters: {},
     output: TEXT_OUTPUT,
     async execute(args, exec) {
-      return callHost(transport, exec, 'starhub_list_capabilities', args)
+      return callHost(getTransport(), exec, 'starhub_list_capabilities', args)
     },
   }))
 
@@ -555,7 +560,7 @@ export function apply(ctx: Context): void {
     },
     output: TEXT_OUTPUT,
     async execute(args, exec) {
-      return callHost(transport, exec, 'starhub_list_assets', args)
+      return callHost(getTransport(), exec, 'starhub_list_assets', args)
     },
   }))
 
@@ -572,7 +577,7 @@ export function apply(ctx: Context): void {
     },
     output: TEXT_OUTPUT,
     async execute(args, exec) {
-      return callHost(transport, exec, 'session_search', args)
+      return callHost(getTransport(), exec, 'session_search', args)
     },
   }))
 
@@ -592,7 +597,7 @@ export function apply(ctx: Context): void {
     },
     output: TEXT_OUTPUT,
     async execute(args, exec) {
-      return callHost(transport, exec, 'memory', args)
+      return callHost(getTransport(), exec, 'memory', args)
     },
   }))
 
@@ -607,7 +612,7 @@ export function apply(ctx: Context): void {
     },
     output: TEXT_OUTPUT,
     async execute(args, exec) {
-      return callUiAction(transport, exec, OPEN_ASSET_METHOD, 'auto', args.assetId)
+      return callUiAction(getTransport(), exec, OPEN_ASSET_METHOD, 'auto', args.assetId)
     },
   }))
 
@@ -621,7 +626,7 @@ export function apply(ctx: Context): void {
     },
     output: TEXT_OUTPUT,
     async execute(args, exec) {
-      return callUiAction(transport, exec, FOCUS_TOOL_METHOD, 'terminal', args.assetId)
+      return callUiAction(getTransport(), exec, FOCUS_TOOL_METHOD, 'terminal', args.assetId)
     },
   }))
 }
