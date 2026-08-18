@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.81.5(**starhub-tools 传输解析改懒加载(修复壳内组合启动竞态)**:sdk-jsonrpc-server 与) |
+| 当前版本 | v0.81.6(**Windows 打包修复(NSIS "failed opening file …getMachineId-unsupported.d.ts")**:CI 全新) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-18 (v0.81.5)*
+*最后更新: 2026-08-18 (v0.81.6)*

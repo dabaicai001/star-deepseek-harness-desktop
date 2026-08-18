@@ -113,8 +113,19 @@ const WEB_STATIC_RELS = [
 /** web GUI 需要补 junction 的本地包(packages/starhub/ 下目录名),
  * 与 Rust web.rs 的 LOCAL_PACKAGES 对齐;入包后保持 dev 布局可复用 junction 逻辑。
  * tool-context 自 v0.71 起被 examples/starhub-web/cordis.patch.yml 引用,
+ * 2026-08-18 起壳内会话可调 starhub 工具,starhub-tools / approval-bridge /
+ * session-registry / domain-events / live-context 一并入列,
  * 不入包则 profile 启动时按 fail-loud 拒绝缺失插件。 */
-const WEB_LOCAL_PACKAGE_DIRS = ['client-nav', 'host-static', 'tool-context']
+const WEB_LOCAL_PACKAGE_DIRS = [
+  'client-nav',
+  'host-static',
+  'tool-context',
+  'tools',
+  'approval-bridge',
+  'session-registry',
+  'domain-events',
+  'live-context',
+]
 
 class BuildCli {
   private constructor(
@@ -289,7 +300,17 @@ class DshRuntimePackage {
         try {
           source = await realpath(destination)
         } catch {
-          continue // 已在 .bin 移除或前序物化中消失
+          // 悬空符号链接/junction(CI 全新 pnpm store 里平台可选文件缺失时出现):
+          // 目标已不存在,留在产物树会让 NSIS 遍历时报 "failed opening file" 打包失败;
+          // 运行时也用不到它(目标都没有),直接删除。
+          await rm(destination, { recursive: true, force: true })
+          removedBins += 1
+          continue
+        }
+        if (!existsSync(source)) {
+          await rm(destination, { recursive: true, force: true })
+          removedBins += 1
+          continue
         }
         const nestedNodeModules = join(source, 'node_modules')
         const nestedDistExe = join(source, 'dist-exe')
@@ -306,7 +327,7 @@ class DshRuntimePackage {
       }
     }
     if (materialized > 0 || removedBins > 0) {
-      console.log(`package-dsh-runtime: 已物化 ${materialized} 个符号链接、移除 ${removedBins} 个 .bin shim`)
+      console.log(`package-dsh-runtime: 已物化 ${materialized} 个符号链接、移除 ${removedBins} 个 .bin shim/悬空链接`)
     }
   }
 
@@ -330,6 +351,42 @@ class DshRuntimePackage {
       }
     }
     return result
+  }
+
+  /** 清扫整棵产物树里的悬空符号链接/junction(realpath 失败或目标不存在)。
+   * 这类条目会让 NSIS `File /r` 在遍历时报 "failed opening file" 中断打包;
+   * 目标都不存在,运行时也用不到,直接删除是唯一正确结局。 */
+  private async sweepDanglingLinks(directory: string): Promise<void> {
+    const stack: string[] = [directory]
+    const dangling: string[] = []
+    while (stack.length > 0) {
+      const current = stack.pop()!
+      let entries: Dirent[]
+      try {
+        entries = await readdir(current, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const entry of entries) {
+        const path = join(current, entry.name)
+        if (entry.isSymbolicLink()) {
+          try {
+            const target = await realpath(path)
+            if (!existsSync(target)) dangling.push(path)
+          } catch {
+            dangling.push(path)
+          }
+        } else if (entry.isDirectory()) {
+          stack.push(path)
+        }
+      }
+    }
+    for (const path of dangling) {
+      await rm(path, { recursive: true, force: true })
+    }
+    if (dangling.length > 0) {
+      console.log(`package-dsh-runtime: 清扫悬空链接 ${dangling.length} 个(NSIS 打包前置防线)`)
+    }
   }
 
   async downloadNodeExe(): Promise<string> {
@@ -404,6 +461,10 @@ class DshRuntimePackage {
       recursive: true,
       dereference: true,
     })
+    // 最后兜底:产物树里不应存在任何无法解析的符号链接/junction
+    // (dereference cp 对悬空链接在部分 Node 版本上会原样保留/报错,
+    // 这里是打包前最后的防线,确保 NSIS 不会在遍历时失败)。
+    await this.sweepDanglingLinks(join(this.outDir, 'node_modules'))
 
     await mkdir(join(this.outDir, dirname(CONFIG_DEST_REL)), { recursive: true })
     await copyFile(join(root, CONFIG_SOURCE_REL), join(this.outDir, CONFIG_DEST_REL))

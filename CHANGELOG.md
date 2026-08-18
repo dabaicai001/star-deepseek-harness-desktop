@@ -14,6 +14,17 @@
 
 ---
 
+## [0.81.6] - 2026-08-18
+
+### 已完成(待升版)
+- **Windows 打包修复(NSIS "failed opening file …getMachineId-unsupported.d.ts")**:CI 全新
+  pnpm store 下部分平台可选文件缺失,`package-dsh-runtime.ts` 物化符号链接时对悬空
+  链接是 `catch{continue}` 跳过,悬空 junction 留在产物树 → NSIS `File /r` 遍历到
+  "failed opening file" 中断打包。修复:物化时改为**删除**悬空链接(目标不存在,运行时
+  也用不到),并在最终产物上做整树悬空链接清扫(打包前最后防线);同时
+  `WEB_LOCAL_PACKAGE_DIRS` 补齐 8 个 starhub 本地包(与 Rust web.rs LOCAL_PACKAGES
+  对齐,安装包内的壳才能加载 starhub 工具插件)
+
 ## [0.81.5] - 2026-08-18
 
 ### 已完成(待升版)
