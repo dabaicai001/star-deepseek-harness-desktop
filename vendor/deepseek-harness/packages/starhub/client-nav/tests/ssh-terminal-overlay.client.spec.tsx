@@ -77,7 +77,11 @@ describe('SshTerminalOverlay', () => {
     const { unmount } = render(<SshTerminalOverlay asset={asset} onClose={vi.fn()} />)
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('ssh_connect', {
       id: 'ssh-1',
-      config: expect.objectContaining({ pty_cols: 80, pty_rows: 24 }),
+      config: expect.objectContaining({
+        pty_cols: 80,
+        pty_rows: 24,
+        auth: { Password: 'secret' },
+      }),
     }))
     expect(invoke.mock.calls.findIndex(([command]) => command === 'plugin:event|listen'))
       .toBeLessThan(invoke.mock.calls.findIndex(([command]) => command === 'ssh_connect'))

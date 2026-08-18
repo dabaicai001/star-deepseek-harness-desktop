@@ -14,6 +14,18 @@
 
 ---
 
+## [0.81.3] - 2026-08-18
+
+### 已完成(待升版)
+- **SSH 资产点击改回新开独立窗口(用户反馈)**:壳内终端 overlay 改为统一新开
+  embed 窗口(`/ssh/<instanceId>` 的 Vue SSH 页),与其它资产一致;`starhub://
+  open-asset` 的 focus 对 ssh 资产同样走窗口聚焦(不再特判 overlay)
+- **shell 终端 ssh_connect 修复 missing field auth(用户反馈)**:`SshTerminalOverlay`
+  直接把资产 config 透传,缺 Rust 必需的 `auth` 字段;现按资产配置(password /
+  privateKey / usePasswordAuth / useKeyAuth)构建 SshAuth(与 Vue buildAuth 同构)
+- **右侧工作区列恢复「AI 助手」入口(用户反馈)**:工具工作区列头部新增 AI 助手
+  按钮,聚焦(或新建)壳内 AI 会话,与 ask-ai 同一聚焦逻辑
+
 ## [0.81.2] - 2026-08-18
 
 ### 已完成(待升版)

@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.81.2-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.81.3-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -108,6 +108,11 @@
 ---
 
 ## 当前版本
+
+### v0.81.3 (2026-08-18)
+- 🔧 **SSH 资产点击改回新开独立窗口(用户反馈)**:壳内终端 overlay 改为统一新开
+- 🔧 **shell 终端 ssh_connect 修复 missing field auth(用户反馈)**:`SshTerminalOverlay`
+- 🔧 **右侧工作区列恢复「AI 助手」入口(用户反馈)**:工具工作区列头部新增 AI 助手
 
 ### v0.81.2 (2026-08-18)
 - 🔧 **插件市场分页改固定指示器(用户反馈:分页没显示页码且圆点溢出)**:圆点列随页数无限增长会溢出,改为固定的「第 X / Y 页 · 共 N 个插件」指示器(上一页/下一页保留);React 壳(plugins.tsx)与 Vue 嵌入页(SettingsView.vue)同步,窄窗自动换行。dsw/cyber token 分别就位

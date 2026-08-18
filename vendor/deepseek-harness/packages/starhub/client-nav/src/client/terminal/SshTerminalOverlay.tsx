@@ -13,6 +13,28 @@ export interface SshTerminalOverlayProps {
 }
 
 /**
+ * Build the Rust `SshAuth` variant from an asset config, mirroring the Vue
+ * `buildAuth` (src/services/ssh.ts): password / private key / both, with the
+ * usePasswordAuth / useKeyAuth flags; falls back to an empty password so the
+ * connect still reaches the Rust auth negotiation.
+ * @param config - the hydrated asset config (get_assets merges keyring secrets).
+ * @returns the serde `SshAuth` tagged object.
+ */
+function buildSshAuth(config: Record<string, unknown>): Record<string, unknown> {
+  const usePassword = config.usePasswordAuth !== false
+  const useKey = config.useKeyAuth === true
+  const password = typeof config.password === 'string' ? config.password : ''
+  const privateKey = typeof config.privateKey === 'string' ? config.privateKey : ''
+  const passphrase = typeof config.passphrase === 'string' ? config.passphrase : null
+  if (usePassword && useKey && password !== '' && privateKey !== '') {
+    return { PasswordAndKey: { password, key: privateKey, passphrase } }
+  }
+  if (password !== '' && usePassword) return { Password: password }
+  if (privateKey !== '' && useKey) return { PrivateKey: { key: privateKey, passphrase } }
+  return { Password: '' }
+}
+
+/**
  * Render one xterm instance backed by a StarHub interactive SSH session.
  * The component owns the Tauri event subscriptions, resize observer, and
  * session cleanup for the selected asset.
@@ -70,7 +92,12 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
         }
         await tauriInvoke('ssh_connect', {
           id: sessionId,
-          config: { ...asset.config, pty_cols: term.cols, pty_rows: term.rows },
+          config: {
+            ...asset.config,
+            auth: buildSshAuth(asset.config),
+            pty_cols: term.cols,
+            pty_rows: term.rows,
+          },
         })
         if (disposed) {
           void tauriInvoke('ssh_disconnect', { id: sessionId }).catch(() => {})

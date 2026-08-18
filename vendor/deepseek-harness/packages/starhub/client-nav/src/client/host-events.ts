@@ -11,7 +11,7 @@ import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/clie
 import type { ISessions, IWorkspaces } from '@deepseek-ai/dsh-client-runtime/client'
 import { tauriListen, type TauriUnlisten } from './tauri.ts'
 import type { StarHubAsset } from './sections.ts'
-import type { SshTerminalOverlay, StarHubAssets, ToolSelectionBridge } from './store.ts'
+import type { StarHubAssets, ToolSelectionBridge } from './store.ts'
 import { bindAssetContext } from './tool-context.ts'
 
 /** `starhub://open-asset` payload(契约 §3):tool 缺省 auto,action 由 Rust 注册表预判。 */
@@ -28,21 +28,19 @@ export interface AskAiPayload {
   readonly assetName?: string
 }
 
-/** open-asset 处理器依赖:资产快照 + ssh 窗口桥 + 开窗回调 + 聚焦实现。 */
+/** open-asset 处理器依赖:资产快照 + 开窗回调 + 聚焦实现。 */
 export interface OpenAssetDeps {
   assets: StarHubAssets
-  sshTerminal: SshTerminalOverlay
-  /** 打开资产操作页(按资产类型路由;ssh 走壳内 overlay,其余新开窗口)。 */
+  /** 打开资产操作页(按资产类型路由,一律新开独立窗口)。 */
   openAssetPage: (asset: StarHubAsset) => void
   /** 按 key 聚焦已开的 webview 窗口;找不到/不可聚焦返回 false(可注入以便测试)。 */
   focusWindow: (key: string) => Promise<boolean>
 }
 
 /**
- * Create the `starhub://open-asset` handler: focus the asset's window when
- * the shell already has one (in-shell SSH overlay for ssh assets, keyed
- * webview windows otherwise), else open the asset page (契约 §6.2).
- * @param deps - asset snapshot, ssh overlay bridge, open/focus faces.
+ * Create the `starhub://open-asset` handler: focus the asset's keyed webview
+ * window when the shell already has one, else open the asset page(契约 §6.2)。
+ * @param deps - asset snapshot, open/focus faces.
  * @returns the event payload handler.
  */
 export function createOpenAssetHandler(deps: OpenAssetDeps): (payload: OpenAssetPayload) => void {
@@ -55,9 +53,6 @@ export function createOpenAssetHandler(deps: OpenAssetDeps): (payload: OpenAsset
       return
     }
     if (payload.action === 'focus') {
-      const terminal = deps.sshTerminal.source.getSnapshot()
-      // ssh 资产的窗口形态是壳内终端 overlay:已开同一资产 = 已聚焦。
-      if (asset.type === 'ssh' && terminal.open && terminal.asset?.id === payload.assetId) return
       void deps.focusWindow(payload.assetId).then((focused) => {
         if (!focused) deps.openAssetPage(asset)
       })
@@ -126,6 +121,21 @@ async function routeAskAi(
   } catch (error) {
     console.warn('starhub://ask-ai 新建会话失败:', error)
   }
+}
+
+/**
+ * 聚焦(或新建)壳内 AI 会话,不携带 prefill 文本——右侧工作区列的
+ * 「AI 助手」入口用;与 ask-ai 共享同一聚焦逻辑(空文本 = 只聚焦不预填)。
+ * @param sessions - 会话列表服务。
+ * @param workspaces - 工作区服务。
+ * @param conversation - 会话输入注册表;未装载时退化为仅聚焦。
+ */
+export function focusShellConversation(
+  sessions: ISessions,
+  workspaces: IWorkspaces,
+  conversation: IConversation | undefined,
+): void {
+  void routeAskAi('', sessions, workspaces, conversation)
 }
 
 /** 把文本写进目标会话的 composer(binding 按需物化 scope;无输入服务则跳过)。 */

@@ -234,7 +234,7 @@ describe('client-nav apply', () => {
     expect(injected.hooks.assets.getSnapshot()).toHaveProperty('assets')
   })
 
-  it('workspace opens SSH assets in the shell instead of a browser window', () => {
+  it('workspace opens SSH assets in a new window like other assets', () => {
     const { ctx, register } = fakeContext()
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
@@ -251,8 +251,9 @@ describe('client-nav apply', () => {
       expect(sel.routePrefix).toBe('/ssh')
       expect(sel.instanceId).toMatch(/^a1__\d+$/)
       const overlay = register.mock.calls[1]![0]!.inject()
-      expect(overlay.hooks.sshTerminal.getSnapshot()).toEqual({ open: true, asset: fullAsset })
-      expect(openSpy).not.toHaveBeenCalled()
+      expect(overlay.hooks.sshTerminal.getSnapshot()).toEqual({ open: false, asset: null })
+      expect(openSpy).toHaveBeenCalledTimes(1)
+      expect(openSpy.mock.calls[0]![0]).toContain('route=%2Fssh')
     } finally {
       openSpy.mockRestore()
     }

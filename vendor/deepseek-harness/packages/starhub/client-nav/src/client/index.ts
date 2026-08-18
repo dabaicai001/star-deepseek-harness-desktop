@@ -30,7 +30,7 @@ import type { ISessions, IWorkspaces } from '@deepseek-ai/dsh-client-runtime/cli
 import type { InputTriggerServiceContract } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { createStarHubAssetSource } from './asset-source.ts'
-import { createAskAiHandler, createOpenAssetHandler, subscribeHostEvents } from './host-events.ts'
+import { createAskAiHandler, createOpenAssetHandler, focusShellConversation, subscribeHostEvents } from './host-events.ts'
 import {
   createConnectionManagerOverlay, createSshTerminalOverlay, createStarHubAssets, createStarHubNavStore,
   createToolSelectionBridge,
@@ -79,11 +79,6 @@ export function apply(ctx: Context): void {
   /** 打开资产实例操作页:记录选择桥(供 AI 工具上下文)+ 新开独立窗口/标签页。 */
   const openAssetPage = (asset: StarHubAsset): void => {
     selection.openAsset(asset)
-    if (asset.type === 'ssh') {
-      const fullAsset = assets.source.getSnapshot().assets.find((item) => item.id === asset.id)
-      if (fullAsset !== undefined) sshTerminal.open(fullAsset)
-      return
-    }
     const sel = selection.source.getSnapshot()
     if (sel.routePrefix === null || sel.instanceId === null) return
     // 窗口 label 携带资产 id 作为 key,供 starhub://open-asset 的 focus 复用。
@@ -140,6 +135,8 @@ export function apply(ctx: Context): void {
     openAsset: openAssetPage,
     refreshAssets: assets.refresh,
     openConnectionManager: connectionManager.open,
+    // 右侧栏「AI 助手」:聚焦(或新建)壳内 AI 会话。
+    openAiAssistant: () => focusShellConversation(sessions, workspaces, conversation),
     hooks: { selection: selection.source, assets: assets.source },
   })
   // 两座工作区席位都不声明注册侧 store:session-maybe 无会话分支不下发
@@ -163,7 +160,6 @@ export function apply(ctx: Context): void {
   ctx.effect(() => subscribeHostEvents({
     onOpenAsset: createOpenAssetHandler({
       assets,
-      sshTerminal,
       openAssetPage,
       focusWindow: focusWindowByKey,
     }),

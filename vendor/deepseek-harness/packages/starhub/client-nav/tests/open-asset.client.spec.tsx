@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 /**
- * `starhub://open-asset` 监听(host-events.ts 的 open-asset 半):按壳内窗口
- * 管理聚焦/打开——ssh 资产已开壳内终端 overlay = 已聚焦;其余资产经
- * focusWindowByKey 聚焦已有 webview 窗口,找不到才 openAssetPage;未知资产
- * 触发刷新并丢弃请求。另覆盖 subscribeHostEvents 的注册/卸载与 dispose 竞态。
+ * `starhub://open-asset` 监听(host-events.ts 的 open-asset 半):一律按
+ * focusWindowByKey 聚焦已有 webview 窗口(ssh 资产也是独立窗口,不再是壳内
+ * overlay),找不到才 openAssetPage;未知资产触发刷新并丢弃请求。另覆盖
+ * subscribeHostEvents 的注册/卸载与 dispose 竞态。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createStarHubAssets, createSshTerminalOverlay, type RustAsset } from '../src/client/store.ts'
+import { createStarHubAssets, type RustAsset } from '../src/client/store.ts'
 import {
   createOpenAssetHandler, subscribeHostEvents, type OpenAssetPayload,
 } from '../src/client/host-events.ts'
@@ -55,13 +55,12 @@ afterEach(() => {
 
 describe('createOpenAssetHandler', () => {
   function harness(assets: ReturnType<typeof createStarHubAssets>, focusWindow: (key: string) => Promise<boolean>) {
-    const sshTerminal = createSshTerminalOverlay()
     const openAssetPage = vi.fn()
-    const handler = createOpenAssetHandler({ assets, sshTerminal, openAssetPage, focusWindow })
-    return { sshTerminal, openAssetPage, handler }
+    const handler = createOpenAssetHandler({ assets, openAssetPage, focusWindow })
+    return { openAssetPage, handler }
   }
 
-  it('opens the asset page on action=open (non-ssh)', () => {
+  it('opens the asset page on action=open', () => {
     const assets = createStarHubAssets()
     assets.source.set({ assets: [rustAsset('a1', 'db')], loading: false, error: null, preview: false })
     const focusWindow = vi.fn(() => Promise.resolve(false))
@@ -72,35 +71,9 @@ describe('createOpenAssetHandler', () => {
     expect(focusWindow).not.toHaveBeenCalled()
   })
 
-  it('focus keeps the in-shell SSH overlay when it already shows the same asset', () => {
-    const assets = createStarHubAssets()
-    const full = rustAsset('a1', 'ssh', { host: 'h' })
-    assets.source.set({ assets: [full], loading: false, error: null, preview: false })
-    const focusWindow = vi.fn(() => Promise.resolve(true))
-    const { sshTerminal, openAssetPage, handler } = harness(assets, focusWindow)
-    sshTerminal.open(full)
-    handler({ assetId: 'a1', tool: 'auto', action: 'focus' })
-    expect(focusWindow).not.toHaveBeenCalled()
-    expect(openAssetPage).not.toHaveBeenCalled()
-  })
-
-  it('focus with a different SSH asset in the overlay falls back to opening', async () => {
-    const assets = createStarHubAssets()
-    assets.source.set({
-      assets: [rustAsset('a1', 'ssh'), rustAsset('a2', 'ssh')],
-      loading: false, error: null, preview: false,
-    })
-    const focusWindow = vi.fn(() => Promise.resolve(false))
-    const { sshTerminal, openAssetPage, handler } = harness(assets, focusWindow)
-    sshTerminal.open(rustAsset('a2', 'ssh'))
-    handler({ assetId: 'a1', tool: 'terminal', action: 'focus' })
-    await vi.waitFor(() => expect(openAssetPage).toHaveBeenCalledTimes(1))
-    expect(focusWindow).toHaveBeenCalledWith('a1')
-  })
-
   it('focus resolves to an existing webview window without opening a page', async () => {
     const assets = createStarHubAssets()
-    assets.source.set({ assets: [rustAsset('a1', 'db')], loading: false, error: null, preview: false })
+    assets.source.set({ assets: [rustAsset('a1', 'ssh', { host: 'h' })], loading: false, error: null, preview: false })
     const focusWindow = vi.fn(() => Promise.resolve(true))
     const { openAssetPage, handler } = harness(assets, focusWindow)
     handler({ assetId: 'a1', tool: 'auto', action: 'focus' })
@@ -111,7 +84,7 @@ describe('createOpenAssetHandler', () => {
 
   it('focus without a matching window opens the asset page', async () => {
     const assets = createStarHubAssets()
-    assets.source.set({ assets: [rustAsset('a1', 'db')], loading: false, error: null, preview: false })
+    assets.source.set({ assets: [rustAsset('a1', 'ssh')], loading: false, error: null, preview: false })
     const focusWindow = vi.fn(() => Promise.resolve(false))
     const { openAssetPage, handler } = harness(assets, focusWindow)
     handler({ assetId: 'a1', action: 'focus' })
