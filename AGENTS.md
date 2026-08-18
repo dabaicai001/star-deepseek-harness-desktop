@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.83.3(**修复 v0.83.2 tag 构建失败**:client-nav Docker 测试(DockerWorkbench / docker-service / DockerExecTerminal spec)在完整 `pnpm run build` 的 `tsc -b tsconfig.client.json` 阶段报类型错误,致 release 构建红) |
+| 当前版本 | v0.83.4(**修复新建/编辑连接对话框的 Elasticsearch 地址回显**:壳内 React NewConnectionDialog 补 ES 三态端点 host/address/multi,编辑回显 config.address/config.addresses、提交写回、db_es_test 携带地址、端点校验;per-file 100% 覆盖 + 类型净) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-18 (v0.83.3)*
+*最后更新: 2026-08-18 (v0.83.4)*

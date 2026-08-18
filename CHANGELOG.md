@@ -14,6 +14,14 @@
 
 ---
 
+## [0.83.4] - 2026-08-18
+
+### 已完成(待升版)
+- **修复新建/编辑连接对话框的 Elasticsearch 地址回显**(壳内 React NewConnectionDialog):
+  - 根因:React 对话框没处理 ES 的端点形态,编辑时只读 `config.host`,而 ES 资产地址实际存于 `config.address`(单 URL)或 `config.addresses`(多节点数组),导致地址编辑时不回显
+  - 修复:补 ES 三态端点(对齐 Vue `DbConnectionForm` 的 host/address/multi):编辑模式按 `addresses`/`address` 回显并自动选态;提交写回 `address`/`addresses`;测试连接 `db_es_test` 入参携带 `address`/`addresses`;端点校验(空地址/空节点禁用创建与测试)
+  - 验证:NewConnectionDialog.tsx 每文件 100% 覆盖率(+4 用例,31 全绿);`tsc -b tsconfig.client.json` 净;client-nav bundle 重建成功
+
 ## [0.83.3] - 2026-08-18
 
 ### 已完成(待升版)
