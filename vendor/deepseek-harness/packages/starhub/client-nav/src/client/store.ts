@@ -195,6 +195,29 @@ export function createDbWorkbench(): DbWorkbench {
   }
 }
 
+/** Root-scope native Docker workbench overlay state. */
+export interface DockerWorkbenchState {
+  open: boolean
+  asset: RustAsset | null
+}
+
+/** Apply-owned Docker workbench bridge (shell-native React Docker panel). */
+export interface DockerWorkbench {
+  source: SnapshotStore<DockerWorkbenchState>
+  open: (asset: RustAsset) => void
+  close: () => void
+}
+
+/** Create the root-scope Docker workbench overlay bridge. */
+export function createDockerWorkbench(): DockerWorkbench {
+  const source = createSnapshotStore<DockerWorkbenchState>({ open: false, asset: null })
+  return {
+    source,
+    open: (asset) => source.set({ open: true, asset }),
+    close: () => source.set({ open: false, asset: null }),
+  }
+}
+
 /** 跨 scope 的当前工具选择:子类 + 打开的资产实例(含派生好的路由前缀)。 */
 export interface ToolSelection {
   /** 当前选中的子类 key(STARHUB_SUBCATEGORIES[].key);null = 未选。 */

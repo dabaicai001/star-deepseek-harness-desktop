@@ -14,7 +14,8 @@ import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { NewConnectionDialog } from './NewConnectionDialog.tsx'
 import { SshTerminalOverlay } from './terminal/SshTerminalOverlay.tsx'
 import { DbWorkbench } from './DbWorkbench.tsx'
-import type { ConnectionManagerState, DbWorkbenchState, SshTerminalOverlayState } from './store.ts'
+import { DockerWorkbench } from './docker/DockerWorkbench.tsx'
+import type { ConnectionManagerState, DbWorkbenchState, DockerWorkbenchState, SshTerminalOverlayState } from './store.ts'
 
 /** Business face injected by the registration: dialog open/close + asset-list refresh. */
 export interface StarHubOverlayInjected {
@@ -26,10 +27,13 @@ export interface StarHubOverlayInjected {
   closeSshTerminal: () => void
   /** 关闭原生数据库工作台(需求 5 React 化)。 */
   closeDbWorkbench: () => void
+  /** 关闭原生 Docker 工作台(批次 1 React 化)。 */
+  closeDockerWorkbench: () => void
   hooks: {
     connectionManager: SnapshotStore<ConnectionManagerState>
     sshTerminal: SnapshotStore<SshTerminalOverlayState>
     dbWorkbench: SnapshotStore<DbWorkbenchState>
+    dockerWorkbench: SnapshotStore<DockerWorkbenchState>
   }
 }
 
@@ -49,11 +53,12 @@ const EMBED_OPEN_SECTION_MESSAGE = 'starhub-embed-open-section'
  */
 export function StarHubOverlay({
   openConnectionManager, closeConnectionManager, refreshAssets, closeSshTerminal, closeDbWorkbench,
-  useConnectionManager, useSshTerminal, useDbWorkbench,
+  closeDockerWorkbench, useConnectionManager, useSshTerminal, useDbWorkbench, useDockerWorkbench,
 }: StarHubOverlayProps) {
   const state = useConnectionManager(s => s)
   const terminal = useSshTerminal(s => s)
   const db = useDbWorkbench(s => s)
+  const docker = useDockerWorkbench(s => s)
 
   // embed 资产条「去设置添加」→ 打开连接对话框(常驻监听:消息可能在
   // 对话框关闭时到达——embed 页在 iframe 里时父帧是本壳)。
@@ -84,6 +89,9 @@ export function StarHubOverlay({
   }
   if (db.open && db.asset !== null) {
     return <DbWorkbench asset={db.asset} onClose={closeDbWorkbench} />
+  }
+  if (docker.open && docker.asset !== null) {
+    return <DockerWorkbench asset={docker.asset} onClose={closeDockerWorkbench} />
   }
   if (!state.open) return null
 

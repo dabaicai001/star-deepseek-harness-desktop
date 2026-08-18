@@ -83,11 +83,16 @@ export const NATIVE_ROUTE_NAMES: ReadonlySet<string> = new Set([
   'ssh-terminal',
   // 需求 5(2026-08-18):数据库工作台 React 化。db-* 进入 native 集合,DB 资产
   // 点击改由壳内 React DbWorkbench 承载(不再开 Vue embed 独立窗口)。
+  // 注:DbWorkbench 是 MySQL 方言的 SQL 工作台。Redis / Elasticsearch 用
+  // `db_mysql_*` 命令渲染「库→表」树是错误视图(它们应分别呈现键树/索引树),
+  // 因此在各自 React 工作台落地前,**移除出 native 集合**,回落 Vue embed
+  // 加载 RedisView / ElasticsearchView(避免功能回归)。
   'db-mysql',
   'db-postgresql',
   'db-clickhouse',
-  'db-redis',
-  'db-elasticsearch',
+  // 批次 1(2026-08-18):Docker 全线 React 化。docker 进入 native 集合,点击
+  // Docker 资产改由壳内 React DockerWorkbench 承载(不再开 Vue embed 独立窗口)。
+  'docker',
 ])
 
 /** 是否为数据库资产(路由名以 db- 开头,DbWorkbench 的接线判定用)。 */
@@ -98,6 +103,11 @@ export function isDatabaseAsset(asset: { type: string; config: Record<string, un
 /** 是否为 SSH 终端资产(SshTerminalOverlay 壳内弹框的接线判定用)。 */
 export function isSshTerminalAsset(asset: { type: string; config: Record<string, unknown> }): boolean {
   return routeNameForAsset(asset) === 'ssh-terminal'
+}
+
+/** 是否为 Docker 资产(DockerWorkbench 壳内工作台的接线判定用)。 */
+export function isDockerAsset(asset: { type: string; config: Record<string, unknown> }): boolean {
+  return routeNameForAsset(asset) === 'docker'
 }
 
 /**

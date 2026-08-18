@@ -11,8 +11,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { fireEvent } from '@testing-library/react'
 import {
-  createConnectionManagerOverlay, createDbWorkbench, createSshTerminalOverlay, createStarHubNavStore, createToolSelectionBridge,
-  type ConnectionManagerState, type DbWorkbenchState, type SshTerminalOverlayState, type ToolSelection,
+  createConnectionManagerOverlay, createDbWorkbench, createDockerWorkbench, createSshTerminalOverlay, createStarHubNavStore, createToolSelectionBridge,
+  type ConnectionManagerState, type DbWorkbenchState, type DockerWorkbenchState, type SshTerminalOverlayState, type ToolSelection,
 } from '../src/client/store.ts'
 import { StarHubNav } from '../src/client/StarHubNav.tsx'
 import { StarHubOverlay } from '../src/client/StarHubOverlay.tsx'
@@ -41,18 +41,22 @@ function overlayProps() {
   const manager = createConnectionManagerOverlay()
   const terminal = createSshTerminalOverlay()
   const db = createDbWorkbench()
+  const docker = createDockerWorkbench()
   return {
     manager,
     terminal,
     db,
+    docker,
     openConnectionManager: vi.fn(),
     closeConnectionManager: vi.fn(),
     closeSshTerminal: vi.fn(),
     closeDbWorkbench: vi.fn(),
+    closeDockerWorkbench: vi.fn(),
     refreshAssets: vi.fn(),
     useConnectionManager: (<S,>(sel: (s: ConnectionManagerState) => S) => sel(manager.source.getSnapshot())) as never,
     useSshTerminal: (<S,>(sel: (s: SshTerminalOverlayState) => S) => sel(terminal.source.getSnapshot())) as never,
     useDbWorkbench: (<S,>(sel: (s: DbWorkbenchState) => S) => sel(db.source.getSnapshot())) as never,
+    useDockerWorkbench: (<S,>(sel: (s: DockerWorkbenchState) => S) => sel(docker.source.getSnapshot())) as never,
     useSessions: (() => undefined) as never,
     useWorkspaces: (() => undefined) as never,
   }

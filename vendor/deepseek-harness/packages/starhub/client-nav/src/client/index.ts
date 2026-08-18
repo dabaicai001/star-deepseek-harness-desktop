@@ -32,10 +32,10 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { createStarHubAssetSource } from './asset-source.ts'
 import { createAskAiHandler, createOpenAssetHandler, focusShellConversation, subscribeHostEvents } from './host-events.ts'
 import {
-  createConnectionManagerOverlay, createDbWorkbench, createSshTerminalOverlay, createStarHubAssets, createStarHubNavStore,
-  createToolSelectionBridge,
+  createConnectionManagerOverlay, createDbWorkbench, createDockerWorkbench, createSshTerminalOverlay,
+  createStarHubAssets, createStarHubNavStore, createToolSelectionBridge,
 } from './store.ts'
-import { assetInstanceUrl, isDatabaseAsset, isSshTerminalAsset, STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
+import { assetInstanceUrl, isDatabaseAsset, isDockerAsset, isSshTerminalAsset, routeNameForAsset, STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
 import { focusWindowByKey, openNewPage } from './tauri.ts'
 import { StarHubNav } from './StarHubNav.tsx'
 import { StarHubOverlay } from './StarHubOverlay.tsx'
@@ -71,6 +71,7 @@ export function apply(ctx: Context): void {
   const connectionManager = createConnectionManagerOverlay()
   const sshTerminal = createSshTerminalOverlay()
   const dbWorkbench = createDbWorkbench()
+  const dockerWorkbench = createDockerWorkbench()
   // 服务面:注入数组已声明依赖,读取必然非空;conversation 在预填时退化处理。
   const connection = ctx.get('connection') as ConnectionHandle
   const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract
@@ -78,18 +79,26 @@ export function apply(ctx: Context): void {
   const workspaces = ctx.get('workspaces') as IWorkspaces
   const conversation = ctx.get('conversation') as IConversation | undefined
   /** 打开资产实例操作页:记录选择桥(供 AI 工具上下文)后按类型分派——
-   *  需求 5(数据库 React 化):db-* 资产走壳内 DbWorkbench(React native);
-   *  SSH 终端走壳内 SshTerminalOverlay(当前壳内弹框,原页面 overlay,不再新开窗口);
-   *  其余资产维持 openNewPage 独立窗口(Vue embed)。 */
+   *  需求 5(数据库 React 化):MySQL/PG/CH 走壳内 DbWorkbench(React native);
+   *  Redis/ES 在各自 React 工作台落地前回落 Vue embed(避免被 MySQL 风格
+   *  DbWorkbench 错误呈现);SSH 终端走壳内 SshTerminalOverlay;其余资产
+   *  维持 openNewPage 独立窗口(Vue embed)。 */
   const openAssetPage = (asset: StarHubAsset): void => {
     selection.openAsset(asset)
     const fullAsset = assets.source.getSnapshot().assets.find((item) => item.id === asset.id)
-    if (isDatabaseAsset(asset)) {
+    const route = routeNameForAsset(asset)
+    // DbWorkbench 是 SQL 方言工作台,仅承接 mysql/postgresql/clickhouse;
+    // redis/es/broker 等非 SQL 类型不得进入(见 sections.ts NATIVE_ROUTE_NAMES 注释)。
+    if (isDatabaseAsset(asset) && (route === 'db-mysql' || route === 'db-postgresql' || route === 'db-clickhouse')) {
       if (fullAsset !== undefined) dbWorkbench.open(fullAsset)
       return
     }
     if (isSshTerminalAsset(asset)) {
       if (fullAsset !== undefined) sshTerminal.open(fullAsset)
+      return
+    }
+    if (isDockerAsset(asset)) {
+      if (fullAsset !== undefined) dockerWorkbench.open(fullAsset)
       return
     }
     const sel = selection.source.getSnapshot()
@@ -135,11 +144,13 @@ export function apply(ctx: Context): void {
       closeConnectionManager: connectionManager.close,
       closeSshTerminal: sshTerminal.close,
       closeDbWorkbench: dbWorkbench.close,
+      closeDockerWorkbench: dockerWorkbench.close,
       refreshAssets: assets.refresh,
       hooks: {
         connectionManager: connectionManager.source,
         sshTerminal: sshTerminal.source,
         dbWorkbench: dbWorkbench.source,
+        dockerWorkbench: dockerWorkbench.source,
       },
     }),
   }, StarHubOverlay))

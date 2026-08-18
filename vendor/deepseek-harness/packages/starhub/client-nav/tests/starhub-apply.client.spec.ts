@@ -142,25 +142,25 @@ describe('client-nav apply', () => {
     expect(overlay.hooks.sshTerminal.getSnapshot()).toEqual({ open: false, asset: null })
   })
 
-  it('opens a non-DB, non-SSH asset page in a new tab (preview) and no-ops on route-less types', () => {
+  it('opens a non-native asset page in a new tab (preview) and no-ops on route-less types', () => {
     const { ctx, register } = fakeContext()
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
       applyPlugin(ctx)
       const injected = register.mock.calls[2]![0]!.inject()
-      const dockerAsset = {
-        id: 'd1', type: 'docker', name: 'docker-1', group_id: null,
-        config: { host: 'h' },
+      const redisAsset = {
+        id: 'r1', type: 'db', name: 'redis-1', group_id: null,
+        config: { dbType: 'redis', host: 'h' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
       // local 资产:无功能路由 → openAsset 是 no-op,不开窗
-      injected.openAsset({ ...dockerAsset, id: 'l1', type: 'local', config: {} })
+      injected.openAsset({ ...redisAsset, id: 'l1', type: 'local', config: {} })
       expect(openSpy).not.toHaveBeenCalled()
-      // docker 资产(非 db/非 ssh → 不走原生):预览模式 → window.open 新标签页
-      injected.hooks.assets.set({ assets: [dockerAsset], loading: false, error: null, preview: false })
-      injected.openAsset(dockerAsset)
+      // Redis/ES 在各自 React 工作台落地前仍走 Vue embed 独立窗口(批次 0)。
+      injected.hooks.assets.set({ assets: [redisAsset], loading: false, error: null, preview: false })
+      injected.openAsset(redisAsset)
       expect(openSpy).toHaveBeenCalledTimes(1)
-      expect(openSpy.mock.calls[0]![0]).toContain('route=%2Fdocker')
+      expect(openSpy.mock.calls[0]![0]).toContain('route=%2Fdb%2Fredis')
     } finally {
       openSpy.mockRestore()
     }
@@ -187,7 +187,7 @@ describe('client-nav apply', () => {
     }
   })
 
-  it('logs when opening a non-DB asset window fails (IPC rejection)', async () => {
+  it('logs when opening a non-native asset window fails (IPC rejection)', async () => {
     const w = window as unknown as { __TAURI_INTERNALS__?: { invoke: unknown } }
     w.__TAURI_INTERNALS__ = { invoke: () => Promise.reject(new Error('not allowed')) }
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -195,17 +195,38 @@ describe('client-nav apply', () => {
       const { ctx, register } = fakeContext()
       applyPlugin(ctx)
       const injected = register.mock.calls[2]![0]!.inject()
-      const dockerAsset = {
-        id: 'd1', type: 'docker', name: 'docker-1', group_id: null,
-        config: { host: 'h' },
+      const redisAsset = {
+        id: 'r1', type: 'db', name: 'redis-1', group_id: null,
+        config: { dbType: 'redis', host: 'h' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
       }
-      injected.hooks.assets.set({ assets: [dockerAsset], loading: false, error: null, preview: false })
-      injected.openAsset(dockerAsset)
+      injected.hooks.assets.set({ assets: [redisAsset], loading: false, error: null, preview: false })
+      injected.openAsset(redisAsset)
       await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledWith('打开资产页面失败:', expect.any(Error)))
     } finally {
       delete w.__TAURI_INTERNALS__
       errorSpy.mockRestore()
+    }
+  })
+
+  it('opens Docker assets in the native React workbench instead of a window', () => {
+    const { ctx, register } = fakeContext()
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      applyPlugin(ctx)
+      const injected = register.mock.calls[2]![0]!.inject()
+      const dockerAsset = {
+        id: 'd1', type: 'docker', name: 'docker-1', group_id: null,
+        config: { dockerTransport: 'socket', socketPath: '/var/run/docker.sock' },
+        key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
+      }
+      injected.hooks.assets.set({ assets: [dockerAsset], loading: false, error: null, preview: false })
+      injected.openAsset(dockerAsset)
+      const overlay = register.mock.calls[1]![0]!.inject()
+      expect(overlay.hooks.dockerWorkbench.getSnapshot()).toEqual({ open: true, asset: dockerAsset })
+      expect(openSpy).not.toHaveBeenCalled()
+    } finally {
+      openSpy.mockRestore()
     }
   })
 
