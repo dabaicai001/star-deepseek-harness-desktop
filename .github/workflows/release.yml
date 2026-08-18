@@ -17,10 +17,27 @@ jobs:
     name: Windows / x86_64
     runs-on: windows-2022
     timeout-minutes: 90
+    # 打包路径根治:仓库被 checkout 到 D:\a\<org>\<repo>\<repo>(~84 字符),叠加
+    # pnpm deploy 嵌套 node_modules 与 mistralai/otel 超长文件名,总路径超出
+    # Windows 260 字符上限 → NSIS `File /r` 报 "failed opening file" 打包失败。
+    # 这里把工作区 subst 到短盘符 S:\,所有 run 默认以 S:\ 为 working-directory,
+    # 最长路径被压到 ~200 字符内(方案 A;配合 package-dsh-runtime 的 .d.ts 裁剪)。
+    defaults:
+      run:
+        working-directory: 'S:\'
+    env:
+      DSH_BUILD_WORKSPACE: 'S:\'
 
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Map workspace to a short drive (Windows path-length fix)
+        shell: pwsh
+        run: |
+          subst S: $env:GITHUB_WORKSPACE
+          Get-ChildItem S:\
+          Write-Host "workspace mapped to S:\ ($env:GITHUB_WORKSPACE)"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -72,7 +89,7 @@ jobs:
         run: npm run package:dsh-runtime
 
       - name: Test Tauri backend
-        working-directory: src-tauri
+        working-directory: 'S:\src-tauri'
         run: cargo test --locked
 
       - name: Build Windows installer
@@ -82,7 +99,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: starhub-windows-x86_64-${{ github.ref_name }}
-          path: src-tauri/target/release/bundle/nsis/*.exe
+          path: S:\src-tauri\target\release\bundle\nsis\*.exe
           if-no-files-found: error
 
   linux:

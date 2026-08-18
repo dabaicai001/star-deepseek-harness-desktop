@@ -389,6 +389,40 @@ class DshRuntimePackage {
     }
   }
 
+  /** 删除 node_modules 全树里的类型/sourcemap 产物:`*.d.ts` / `*.d.ts.map` /
+   * `*.js.map`。运行时只 import 编译后的 .js,这些文件纯体积与路径负担。 */
+  private async stripTypeArtifacts(directory: string): Promise<void> {
+    const stack: string[] = [directory]
+    const stripped: string[] = []
+    while (stack.length > 0) {
+      const current = stack.pop()!
+      let entries: Dirent[]
+      try {
+        entries = await readdir(current, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const entry of entries) {
+        const path = join(current, entry.name)
+        if (entry.isDirectory()) {
+          stack.push(path)
+          continue
+        }
+        if (!entry.isFile()) continue
+        const name = entry.name
+        if (name.endsWith('.d.ts') || name.endsWith('.d.ts.map') || name.endsWith('.js.map')) {
+          stripped.push(path)
+        }
+      }
+    }
+    for (const path of stripped) {
+      await rm(path, { force: true })
+    }
+    if (stripped.length > 0) {
+      console.log(`package-dsh-runtime: 裁剪类型/sourcemap 产物 ${stripped.length} 个(体积 + 路径)`)
+    }
+  }
+
   async downloadNodeExe(): Promise<string> {
     const { archive: archiveName, binRel } = nodeDistSpec()
     const cacheDir = join(root, 'dist-exe', '.node-cache')
@@ -481,6 +515,11 @@ class DshRuntimePackage {
     }
     await this.installWebRuntimePackages()
     this.verifyWebFrontendDist()
+    // 产物裁剪:删除 node_modules 内全部 .d.ts / .d.ts.map / .js.map——运行时
+    // 只 import lib/index.js,不读类型与 sourcemap。一举两得:①安装包显著变小;
+    // ②消掉 mistralai/otel 等深层 long-path 类型文件,缓解 Windows NSIS 260 字符
+    // 路径上限(still 有 11 个 runtime .js 超限,根治见 release.yml 的 subst 短路径)。
+    await this.stripTypeArtifacts(join(this.outDir, 'node_modules'))
     return this.outDir
   }
 

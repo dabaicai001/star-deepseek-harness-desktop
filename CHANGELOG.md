@@ -14,6 +14,17 @@
 
 ---
 
+## [0.81.8] - 2026-08-18
+
+### 已完成(待升版)
+- **Windows 打包根治(NSIS failed opening file,真根因 = 路径超 260 字符)**:CI
+  checkout 前缀(~84 字符)+ pnpm deploy 嵌套 node_modules + mistralai/otel 超长
+  生成文件名,总路径超 Windows 路径上限 → NSIS `File /r` 中断。双管齐下:
+  ①release.yml Windows job 把工作区 `subst` 到短盘符 `S:\` 并以其为默认
+  working-directory(最长路径压到 ~200);②`package-dsh-runtime.ts` 组装后裁剪
+  node_modules 里全部 `.d.ts/.d.ts.map/.js.map`(运行时只读 .js,安装包也变小)。
+  v0.81.6 的悬空链接清扫作为打包前防线保留
+
 ## [0.81.7] - 2026-08-18
 
 ### 已完成(待升版)
