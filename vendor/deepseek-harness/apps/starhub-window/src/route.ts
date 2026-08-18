@@ -8,11 +8,11 @@ import type { RustAsset } from '@deepseek-ai/dsh-starhub-client-nav/src/client/s
 import { routeNameForAsset } from '@deepseek-ai/dsh-starhub-client-nav/src/client/sections.ts'
 
 /** The workbench kinds this standalone window can host. */
-export type WindowWorkbench = 'ssh' | 'db-mysql' | 'db-postgresql' | 'db-clickhouse' | 'db-redis' | 'docker'
+export type WindowWorkbench = 'ssh' | 'db-mysql' | 'db-postgresql' | 'db-clickhouse' | 'db-redis' | 'db-elasticsearch' | 'docker'
 
 /** All accepted workbench kinds (for the URL hint narrow). */
 const WINDOW_WORKBENCHES: readonly string[] = [
-  'ssh', 'db-mysql', 'db-postgresql', 'db-clickhouse', 'db-redis', 'docker',
+  'ssh', 'db-mysql', 'db-postgresql', 'db-clickhouse', 'db-redis', 'db-elasticsearch', 'docker',
 ]
 
 /** Narrow a string to a WindowWorkbench, or null. */
@@ -34,6 +34,8 @@ export function workbenchForRouteName(routeName: string): WindowWorkbench | null
       return 'db-clickhouse'
     case 'db-redis':
       return 'db-redis'
+    case 'db-elasticsearch':
+      return 'db-elasticsearch'
     case 'docker':
       return 'docker'
     default:

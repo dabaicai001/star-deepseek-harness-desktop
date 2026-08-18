@@ -38,11 +38,11 @@ describe('workbenchForRouteName', () => {
     expect(workbenchForRouteName('db-postgresql')).toBe('db-postgresql')
     expect(workbenchForRouteName('db-clickhouse')).toBe('db-clickhouse')
     expect(workbenchForRouteName('db-redis')).toBe('db-redis')
+    expect(workbenchForRouteName('db-elasticsearch')).toBe('db-elasticsearch')
     expect(workbenchForRouteName('docker')).toBe('docker')
   })
 
   it('returns null for routes with no React workbench', () => {
-    expect(workbenchForRouteName('db-elasticsearch')).toBeNull()
     expect(workbenchForRouteName('local')).toBeNull()
     expect(workbenchForRouteName('???')).toBeNull()
   })
@@ -50,7 +50,7 @@ describe('workbenchForRouteName', () => {
 
 describe('isWindowWorkbench', () => {
   it('accepts all kinds and rejects junk/null', () => {
-    for (const k of ['ssh', 'db-mysql', 'db-postgresql', 'db-clickhouse', 'db-redis', 'docker']) {
+    for (const k of ['ssh', 'db-mysql', 'db-postgresql', 'db-clickhouse', 'db-redis', 'db-elasticsearch', 'docker']) {
       expect(isWindowWorkbench(k)).toBe(true)
     }
     expect(isWindowWorkbench('nope')).toBe(false)
@@ -65,10 +65,10 @@ describe('workbenchForAsset', () => {
     expect(workbenchForAsset(asset('docker'))).toBe('docker')
     expect(workbenchForAsset(asset('db', 'mysql'))).toBe('db-mysql')
     expect(workbenchForAsset(asset('db', 'redis'))).toBe('db-redis')
+    expect(workbenchForAsset(asset('db', 'elasticsearch'))).toBe('db-elasticsearch')
   })
 
   it('returns null for assets without a React workbench', () => {
-    expect(workbenchForAsset(asset('db', 'elasticsearch'))).toBeNull()
     expect(workbenchForAsset(asset('local'))).toBeNull()
   })
 })

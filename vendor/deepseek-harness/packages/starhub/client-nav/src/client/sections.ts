@@ -141,8 +141,9 @@ export function assetWindowUrl(asset: StarHubAsset): string {
   // 等无工作台的类型省略提示,入口按「不支持」处理而非挂 Vue。
   const hint = route === 'ssh-terminal' || route === 'db-broker' ? 'ssh'
     : route === 'db-redis' ? 'db-redis'
-      : route === 'docker' ? 'docker'
-        : (route === 'db-mysql' || route === 'db-postgresql' || route === 'db-clickhouse') ? route : ''
+      : route === 'db-elasticsearch' ? 'db-elasticsearch'
+        : route === 'docker' ? 'docker'
+          : (route === 'db-mysql' || route === 'db-postgresql' || route === 'db-clickhouse') ? route : ''
   if (hint !== '') params.set('workbench', hint)
   return `/starhub-react/index.html?${params.toString()}`
 }

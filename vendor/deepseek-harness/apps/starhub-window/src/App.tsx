@@ -13,6 +13,7 @@ import type { RustAsset } from '@deepseek-ai/dsh-starhub-client-nav/src/client/s
 import { DbWorkbench } from '@deepseek-ai/dsh-starhub-client-nav/src/client/DbWorkbench.tsx'
 import { DockerWorkbench } from '@deepseek-ai/dsh-starhub-client-nav/src/client/docker/DockerWorkbench.tsx'
 import { RedisWorkbench } from '@deepseek-ai/dsh-starhub-client-nav/src/client/redis/RedisWorkbench.tsx'
+import { ElasticsearchWorkbench } from '@deepseek-ai/dsh-starhub-client-nav/src/client/es/ElasticsearchWorkbench.tsx'
 import { SshTerminalOverlay } from '@deepseek-ai/dsh-starhub-client-nav/src/client/terminal/SshTerminalOverlay.tsx'
 import {
   parseWindowParams, workbenchForAsset, workbenchForRouteName, type WindowWorkbench,
@@ -78,6 +79,8 @@ export function WindowShell() {
         return <DbWorkbench asset={asset} onClose={requestWindowClose} />
       case 'db-redis':
         return <RedisWorkbench asset={asset} onClose={requestWindowClose} />
+      case 'db-elasticsearch':
+        return <ElasticsearchWorkbench asset={asset} onClose={requestWindowClose} />
       case 'docker':
         return <DockerWorkbench asset={asset} onClose={requestWindowClose} />
     }

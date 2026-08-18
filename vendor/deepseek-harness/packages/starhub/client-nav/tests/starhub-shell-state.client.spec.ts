@@ -66,11 +66,13 @@ describe('assetWindowUrl', () => {
       .toBe('/starhub-react/index.html?asset=r1&workbench=db-redis')
     expect(assetWindowUrl({ id: 'pg1', type: 'db', name: 'n', config: { dbType: 'postgresql' } }))
       .toBe('/starhub-react/index.html?asset=pg1&workbench=db-postgresql')
+    expect(assetWindowUrl({ id: 'es1', type: 'db', name: 'n', config: { dbType: 'elasticsearch' } }))
+      .toBe('/starhub-react/index.html?asset=es1&workbench=db-elasticsearch')
   })
 
   it('omits the workbench hint for types without a React workbench', () => {
-    expect(assetWindowUrl({ id: 'es1', type: 'db', name: 'n', config: { dbType: 'elasticsearch' } }))
-      .toBe('/starhub-react/index.html?asset=es1')
+    expect(assetWindowUrl({ id: 'l1', type: 'local', name: 'n', config: {} }))
+      .toBe('/starhub-react/index.html?asset=l1')
   })
 })
 
