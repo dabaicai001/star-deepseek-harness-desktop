@@ -43,7 +43,7 @@ const CLI_BIN_REL: &str = "apps/cli/lib/bin.js";
 /// 需要补 junction 的本地包(packages/starhub/ 下的目录名)。
 /// tool-context 自 v0.71 起被 examples/starhub-web/cordis.patch.yml 引用;
 /// 2026-08-18 起壳内会话可调 starhub 工具,starhub-tools / approval-bridge /
-/// session-registry / domain-events / live-context 一并入列(sdk 系包在安装闭包内)。
+/// session-registry / domain-events / live-context 一并入列。
 const LOCAL_PACKAGES: [&str; 8] = [
     "client-nav",
     "host-static",
@@ -54,6 +54,15 @@ const LOCAL_PACKAGES: [&str; 8] = [
     "domain-events",
     "live-context",
 ];
+
+/// 由 `examples/starhub-web/cordis.patch.yml` 的 insert 块直接引用、但**不在**
+/// dsh 安装闭包(INSTALL_ANCHOR = apps/cli/package.json 的依赖闭包)内的包。
+/// dsh 的 `healProfilesModuleFallback` 只从该闭包 BFS 建链,闭包外的包它永不链接,
+/// 因此这些包必须由本 Rust 侧从 `runtime_dir/node_modules/@deepseek-ai/<名>` 补
+/// junction 到 `$DSH_HOME/profiles/node_modules`,否则 web profile 的裸 entry 经
+/// Node parent-walk 在 profiles/node_modules 停步即 ERR_MODULE_NOT_FOUND、dsh web
+/// 起不来。值取包名去 `@deepseek-ai/` 前缀后的子目录名(见 runtime 布局)。
+const RUNTIME_HOSTED_PATCH_DEPS: [&str; 1] = ["sdk-jsonrpc-server"];
 
 #[derive(Debug, Error)]
 pub enum DshWebError {
@@ -253,6 +262,32 @@ impl DshWebManager {
             // 两边都缺时由 loader 在启动时 fail-loud。
             if !target.exists() {
                 tracing::warn!("本地包目录缺失,跳过 junction: {}", target.display());
+                continue;
+            }
+            plugins::create_dir_link(&link, &target).map_err(|e| {
+                DshWebError::PathResolve(format!(
+                    "junction 创建失败({} → {}): {e}",
+                    link.display(),
+                    target.display()
+                ))
+            })?;
+        }
+        // 3.1 闭包外 patch 依赖 junction(sdk-jsonrpc-server 等):healProfilesModuleFallback
+        // 只从 apps/cli 安装闭包建链,web profile patch 直接引用的闭包外包永不落地到
+        // profiles/node_modules,裸 entry 解析即 ERR_MODULE_NOT_FOUND。这里同样从
+        // runtime 安装树锚点建 junction(目标 realpath 在 runtime/node_modules,其依赖
+        // 沿真实目录 parent-walk 自解析),使 prod 与全新 DSH_HOME 都能稳定启动。
+        for dir_name in RUNTIME_HOSTED_PATCH_DEPS {
+            let link = link_base.join(format!("dsh-{dir_name}"));
+            if link.exists() {
+                continue;
+            }
+            let target = runtime_dir
+                .join("node_modules")
+                .join("@deepseek-ai")
+                .join(format!("dsh-{dir_name}"));
+            if !target.exists() {
+                tracing::warn!("闭包外 patch 依赖目录缺失,跳过 junction: {}", target.display());
                 continue;
             }
             plugins::create_dir_link(&link, &target).map_err(|e| {
@@ -691,7 +726,8 @@ mod tests {
             std::net::TcpListener::bind(("127.0.0.1", base)).expect("测试前提:基准端口可占用");
         let port = find_free_port(base, MAX_PORT_OFFSET).expect("应有可用端口");
         assert!(port > base, "基准端口被占时应递增,得到 {port}");
-        assert!(port <= base + MAX_PORT_OFFSET);
+        // base 可能处于 OS 临时端口高位区间,用 u32 做上限比较避免 u16 溢出。
+        assert!(u32::from(port) <= u32::from(base) + u32::from(MAX_PORT_OFFSET));
         drop(blocker);
     }
 
@@ -700,7 +736,10 @@ mod tests {
         let base = ephemeral_base();
         // base 刚释放,正常应直接命中;被别的进程瞬时抢走则递增,两种结果都合法
         let port = find_free_port(base, MAX_PORT_OFFSET).expect("应有可用端口");
-        assert!((base..=base + MAX_PORT_OFFSET).contains(&port));
+        assert!(
+            u32::from(port) <= u32::from(base) + u32::from(MAX_PORT_OFFSET) && port >= base,
+            "端口应落在 [base, base+offset],得到 {port}(base={base})"
+        );
     }
 
     /// 用户 UI 插件注入:建 junction、追加 patch entry、清理失效 junction。
