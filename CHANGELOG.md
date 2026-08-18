@@ -14,6 +14,14 @@
 
 ---
 
+## [0.83.2] - 2026-08-18
+
+### 已完成(待升版)
+- **修复启动偶发「Failed to load plugins」**(报错形如 `failed to import loader entry … (@deepseek-ai/dsh-session-log-export): client-modules: bundle script /plugins/…/client.js?rev=… failed to load`):
+  - 根因:启动时 webview 抓取插件 bundle 可能撞上 dsh web 进程更替(旧实例退出/新实例重绑同端口)或 bundle 文件瞬时不可读的窗口,`<script>` 首次 `error` 事件即永久拒绝启动,重启应用即恢复
+  - 修复(vendor/deepseek-harness 本地补丁,清单 §11.9 第 5 条):`packages/client/modules` 的 `defaultLoadBundle` 拆出单次抓取 `fetchBundle`,按 300ms/1200ms 退避做有界重试(共 3 次尝试),瞬态失败自愈;真正缺失的 bundle 仍以原报错 fail loud;`manifest.ts` 的 `loadBundle` 契约同步注明
+  - 配套:Agent Note `2026-08-18-client-bundle-load-retry`(中英 + sidecar);`loader.client.spec.ts` 新增重试成功用例、失败用例改假定时器断言 3 次尝试;client-modules 28 例全绿、tsdown bundle 已重建
+
 ## [0.83.1] - 2026-08-18
 
 ### 已完成(待升版)

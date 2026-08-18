@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.83.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.83.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -109,14 +109,14 @@
 
 ## 当前版本
 
+### v0.83.2 (2026-08-18)
+- 🔧 **修复启动偶发「Failed to load plugins」**:启动时 webview 抓取插件 bundle 撞上 dsh web 进程更替/文件瞬时不读即永久拒启动;client-modules `defaultLoadBundle` 按 300ms/1200ms 有界退避重试,瞬态失败自愈,真缺失仍 fail loud
+
 ### v0.83.1 (2026-08-18)
 - 🔧 **SSH/SFTP 接上 SFTP 跟随终端**:React 终端上报 cwd(OSC7/pwd 解析 + 懒注入),SftpPanel 跟随加载
 
 ### v0.83.0 (2026-08-18)
 - 🔧 **SSH 终端 + SFTP 壳内 React 弹框化(需求:原页面弹框,不再新开独立窗口)**:①接线 `openAssetPage`/`starhub://open-asset`——点击 SSH 资产改为在当前壳内页面 overlay 打开(v0.81.3 曾回退到独立窗口,今回接),`NATIVE_ROUTE_NAMES` 新增 `isSshTerminalAsset` 判定;②`SshTerminalOverlay` 升级为带「终端 / 文件(SFTP)」双 tab 的弹框,SSH 与 SFTP 共用同一 live session(SFTP 经 `sftp_ensure_session` 复用,不重复认证);③新增 React SFTP 面板(SftpPanel.tsx)——目录浏览/面包屑/路径编辑/隐藏文件、单点+Ctrl/Shift 多选、右键菜单(打开/下载/上传/新建文件夹/重命名/删除/复制路径)、流式上传下载、传输任务列表(暂停/继续/取消/重试),复用后端全部 `sftp_*` 命令与 `sftp://transfer-status`/`transfer-progress` 事件;④测试:新增 sftp-panel.spec(连接/列目录/导航/未连接态)、ssh-terminal-overlay 增补 SFTP tab 复用 session 用例,更新 starhub-apply 三处 SSH 路由断言;client-nav 全绿(19 文件 264 例),host tsc 净,bundle 2.28MB
-
-### v0.82.1 (2026-08-18)
-- 🔧 **Windows 打包 workflow 修复(v0.82.0 tag 构建失败)**:release.yml Windows job 把
 
 ---
 

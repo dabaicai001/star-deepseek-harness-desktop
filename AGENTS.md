@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.83.1(**SSH/SFTP 接上 SFTP 跟随终端**:React 终端上报 cwd(OSC7/pwd 解析 + 懒注入),SftpPanel 跟随加载) |
+| 当前版本 | v0.83.2(**修复启动偶发「Failed to load plugins」**:启动时 webview 抓取插件 bundle 撞上 dsh web 进程更替/文件瞬时不读即永久拒启动;client-modules `defaultLoadBundle` 拆出 `fetchBundle` 并按 300ms/1200ms 有界退避重试,瞬态失败自愈,真缺失仍 fail loud;Agent Note + 重试用例,client-modules 28 例全绿) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-18 (v0.83.1)*
+*最后更新: 2026-08-18 (v0.83.2)*
