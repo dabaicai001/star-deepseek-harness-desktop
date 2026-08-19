@@ -14,6 +14,11 @@
 
 ---
 
+## [0.85.5] - 2026-08-19
+
+### 修复
+- 修复 `domain_tool_failure_does_not_generate_ai_event` 与 `ai_event_without_asset_binding_omits_asset_id` 仍使用已迁移至 Rust 进程内的 `db_query` / `ssh_exec` 并无限等待旧前端回调；改用仍桥接的 `skill_save`，恢复测试的同步回调路径。
+
 ## [0.85.4] - 2026-08-19
 
 ### 修复

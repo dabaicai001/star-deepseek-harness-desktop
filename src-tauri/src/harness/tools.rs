@@ -1499,8 +1499,8 @@ mod tests {
                     "starhub/tool.execute",
                     serde_json::json!({
                         "sessionId": "sess-1",
-                        "name": "db_query",
-                        "args": { "sql": "DELETE FROM t" },
+                        "name": "skill_save",
+                        "args": { "name": "my-skill", "prompt": "..." },
                     }),
                     bridge,
                 )
@@ -1539,8 +1539,8 @@ mod tests {
                     "starhub/tool.execute",
                     serde_json::json!({
                         "sessionId": "sess-nobody",
-                        "name": "ssh_exec",
-                        "args": { "command": "whoami" },
+                        "name": "skill_save",
+                        "args": { "name": "my-skill", "prompt": "..." },
                     }),
                     bridge,
                 )
