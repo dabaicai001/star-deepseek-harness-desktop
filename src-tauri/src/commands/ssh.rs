@@ -186,7 +186,9 @@ pub async fn ssh_connect_exec(
     connect_session(&manager, &transfer_manager, id, config, app_handle, false).await
 }
 
-async fn connect_session(
+/// 建立 SSH 会话(interactive=true 开 PTY shell,false 为一次性 exec 通道)。
+/// pub(crate):harness/domain.rs 进程内域工具执行器复用。
+pub(crate) async fn connect_session(
     manager: &SshManager,
     transfer_manager: &TransferManager,
     id: String,
@@ -308,7 +310,8 @@ async fn notify_registry_sync(harness: &HarnessManager, registry: &SessionRegist
 /// 按资产存档组装 SSH 连接配置(与前端 src/services/ssh.ts assetConfigToSshConfig
 /// 语义对齐;密码/私钥等敏感字段从 Keyring 合并,绝不落日志)。
 /// 返回 (资产名, 配置);资产不存在 / 类型不是 ssh / 配置不完整时报错。
-async fn asset_ssh_config(asset_id: &str) -> Result<(String, SshConfig), String> {
+/// pub(crate):harness/domain.rs 进程内域工具执行器复用。
+pub(crate) async fn asset_ssh_config(asset_id: &str) -> Result<(String, SshConfig), String> {
     let pool = crate::db::get_pool()?;
     let row = sqlx::query("SELECT type, name, config_json, key_id FROM assets WHERE id = ?")
         .bind(asset_id)
@@ -729,13 +732,24 @@ pub async fn ssh_exec(
     timeout_sec: Option<u64>,
     exec_id: Option<String>,
 ) -> Result<String, String> {
+    ssh_exec_core(&manager, &id, &command, timeout_sec, exec_id.as_deref()).await
+}
+
+/// ssh_exec 的进程内核心(harness/domain.rs 复用;State 解引用为 &SshManager)。
+pub(crate) async fn ssh_exec_core(
+    manager: &SshManager,
+    id: &str,
+    command: &str,
+    timeout_sec: Option<u64>,
+    exec_id: Option<&str>,
+) -> Result<String, String> {
     // 先从 sessions map 中取出 Arc(只持有主锁一瞬间),然后释放主锁,
     // 再对单个 session 加锁执行命令。这样不同 session 的 exec 和 connect
     // 不会互相阻塞。
     let session_arc = {
         let sessions = manager.sessions.lock().await;
         sessions
-            .get(&id)
+            .get(id)
             .cloned()
             .ok_or_else(|| format!("SSH session {} not found", id))?
     };
@@ -748,15 +762,15 @@ pub async fn ssh_exec(
                 .exec_aborts
                 .lock()
                 .await
-                .insert(eid.clone(), abort_tx);
+                .insert(eid.to_string(), abort_tx);
             let result = session
-                .exec_abortable(&command, timeout_sec.unwrap_or(10), abort_rx)
+                .exec_abortable(command, timeout_sec.unwrap_or(10), abort_rx)
                 .await;
             // 无论结果如何都清理注册,避免 map 泄漏
-            manager.exec_aborts.lock().await.remove(&eid);
+            manager.exec_aborts.lock().await.remove(eid);
             result
         }
-        None => session.exec(&command, timeout_sec.unwrap_or(10)).await,
+        None => session.exec(command, timeout_sec.unwrap_or(10)).await,
     }
 }
 
@@ -769,14 +783,23 @@ pub async fn ssh_exec_abort(
     id: String,
     exec_id: String,
 ) -> Result<bool, String> {
+    ssh_exec_abort_core(&manager, &id, &exec_id).await
+}
+
+/// ssh_exec_abort 的进程内核心(harness/domain.rs 复用;停止生成时中断在途命令)。
+pub(crate) async fn ssh_exec_abort_core(
+    manager: &SshManager,
+    id: &str,
+    exec_id: &str,
+) -> Result<bool, String> {
     // exec_id 由前端按 session 生成且全局唯一(uuid),这里只做防御性的存在性校验
     {
         let sessions = manager.sessions.lock().await;
-        if !sessions.contains_key(&id) {
+        if !sessions.contains_key(id) {
             return Err(format!("SSH session {} not found", id));
         }
     }
-    let tx = manager.exec_aborts.lock().await.remove(&exec_id);
+    let tx = manager.exec_aborts.lock().await.remove(exec_id);
     match tx {
         // 发送失败说明接收端(exec)已结束并清理,视为未中断
         Some(tx) => Ok(tx.send(()).is_ok()),

@@ -40,6 +40,9 @@ use tokio::sync::{mpsc, oneshot};
 /// P1-4:StarHub 宿主工具执行端(dsh starhub-tools 插件的桥请求在此分发)。
 pub mod tools;
 
+/// 方案1:进程内域工具执行器(域工具直接在 Rust 主进程执行,不再依赖前端面板)。
+mod domain;
+
 /// StarHub × dsh 联动:领域事件 schema(契约 §1,四方共用)。
 pub mod events;
 
@@ -198,6 +201,14 @@ type PendingResponses = Arc<tokio::sync::Mutex<HashMap<u64, ResponseSender>>>;
 /// dsh web 进程的 notification 出站回调(method, params);由 web.rs 注册。
 pub type WebNotifySink = Arc<dyn Fn(String, serde_json::Value) + Send + Sync>;
 
+/// 在途进程内域工具执行的取消句柄:key(request_id) → 中止动作。
+/// 停止生成(cancel)时逐个执行,让在 Rust 主进程内跑的命令(SSH exec)
+/// 真正被中断,而不是等它们自然结束。
+pub enum InflightAbort {
+    /// SSH exec:经 `ssh_exec_abort_core` 关掉远端 channel(带 exec_id)。
+    SshExec { conn_id: String, exec_id: String },
+}
+
 /// 宿主桥共享状态(Phase 2):入站双向 request 的应答 pending 表 + 会话资产绑定。
 /// 由 [`HarnessManager`] 持有,spawn 时把 Arc 克隆进 [`HarnessRuntime`]
 /// (read_loop 分发入站请求用),Tauri command 层经 `HarnessManager::bridge()`
@@ -208,6 +219,8 @@ pub struct HostBridgeState {
     pub approvals: tokio::sync::Mutex<HashMap<String, oneshot::Sender<bool>>>,
     /// pending 域工具执行:requestId(uuid)→ 应答通道(Ok(text) = 成功,Err = 前端报错)。
     pub tool_execs: tokio::sync::Mutex<HashMap<String, oneshot::Sender<Result<String, String>>>>,
+    /// 在途进程内域工具执行:request_id(uuid)→ 取消句柄(cancel 时逐个 abort)。
+    pub inflight_tools: std::sync::Mutex<HashMap<String, InflightAbort>>,
     /// 会话→资产绑定:sessionId → (assetType, assetId),由 `dsh_bind_session` 写入。
     pub bindings: std::sync::Mutex<HashMap<String, (String, String)>>,
     /// subagent 子→父会话映射:childSessionId → parentSessionId,
@@ -248,6 +261,7 @@ impl HostBridgeState {
         Self {
             approvals: tokio::sync::Mutex::new(HashMap::new()),
             tool_execs: tokio::sync::Mutex::new(HashMap::new()),
+            inflight_tools: std::sync::Mutex::new(HashMap::new()),
             bindings: std::sync::Mutex::new(HashMap::new()),
             subagent_parents: std::sync::Mutex::new(HashMap::new()),
             emit: tokio::sync::Mutex::new(emit),
@@ -423,6 +437,8 @@ impl HostBridgeState {
 
     /// 清空全部未决桥请求:审批按拒绝、工具执行按失败,避免前端应答悬空
     /// 或等待方长时间挂起(cancel / shutdown / 重启重建时调用)。
+    /// 同时中止全部在途进程内域工具(SSH exec abort / 任务 abort),
+    /// 让停止生成真正中断正在 Rust 主进程内跑的命令。
     async fn drain(&self) {
         let approvals: Vec<oneshot::Sender<bool>> = {
             let mut map = self.approvals.lock().await;
@@ -437,6 +453,28 @@ impl HostBridgeState {
         };
         for response_tx in tool_execs {
             let _ = response_tx.send(Err("dsh runtime 已关闭,工具未执行".to_string()));
+        }
+        // 中止在途进程内工具:SSH exec 走 ssh_exec_abort_core。
+        let inflight: Vec<(String, InflightAbort)> = {
+            let mut map = self.inflight_tools.lock().unwrap();
+            map.drain().collect()
+        };
+        let app = self.app();
+        for (_request_id, abort) in inflight {
+            match abort {
+                InflightAbort::SshExec { conn_id, exec_id } => {
+                    if let Some(app) = &app {
+                        use tauri::Manager;
+                        let manager = app.state::<crate::commands::ssh::SshManager>();
+                        if let Err(error) =
+                            crate::commands::ssh::ssh_exec_abort_core(&manager, &conn_id, &exec_id)
+                                .await
+                        {
+                            tracing::warn!("中止在途 SSH exec 失败({conn_id}): {error}");
+                        }
+                    }
+                }
+            }
         }
     }
 }

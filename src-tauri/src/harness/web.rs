@@ -156,6 +156,22 @@ fn resolve_starhub_dist(root: &Path) -> Result<PathBuf, DshWebError> {
     )))
 }
 
+/// StarHub 独立 React 窗口 app dist(starhub-window 构建,base /starhub-react/)。
+/// 与 embed dist 同理,这里经 STARHUB_WINDOW_DIST 显式钉死,避免 host-static
+/// 的 repo-root 发现(沿模块位置向上找 vendor/deepseek-harness)在打包部署
+/// (runtime 与仓库根分离)时失败、把 /starhub-react 降级成 404 处理。
+/// `root`:dev 下为仓库根,prod 下为 resource_dir(两者都直接含 dist-starhub-react)。
+fn resolve_starhub_window_dist(root: &Path) -> Result<PathBuf, DshWebError> {
+    let dir = root.join("dist-starhub-react");
+    if dir.join("index.html").exists() {
+        return Ok(dir);
+    }
+    Err(DshWebError::PathResolve(format!(
+        "未找到 StarHub React window dist(先构建 starhub-window): {}",
+        dir.display()
+    )))
+}
+
 impl DshWebManager {
     pub fn new() -> Self {
         Self {
@@ -322,6 +338,17 @@ impl DshWebManager {
 
         // 4. spawn dsh web 组合
         let starhub_dist = resolve_starhub_dist(&dist_root)?;
+        // React 独立窗口 dist 显式钉死(host-static 的 repo-root 发现在打包部署下
+        // 找不到仓库根,不设置会导致 /starhub-react 路由 404 —— 打开 ssh/db 连接页报
+        // 「找不到 127.0.0.1 页」)。best-effort:未构建时只记日志,不影响 web 启动
+        // (host-static 对 /starhub-react 缺 dist 本就有 404 兜底)。
+        let starhub_window_dist = match resolve_starhub_window_dist(&dist_root) {
+            Ok(dir) => dir,
+            Err(error) => {
+                tracing::warn!("{error}");
+                PathBuf::new()
+            }
+        };
         // 与 HarnessRuntime::spawn 一致:入口用相对路径 + current_dir,避免 Windows
         // 下绝对路径(盘符 + 反斜杠)经命令行传给 node 后被截断成盘符(如 "E:")。
         let mut cmd = Command::new(&paths.node_path);
@@ -338,6 +365,9 @@ impl DshWebManager {
             .env("DSH_HOME", &dsh_home)
             .env("DSH_TELEMETRY_DISABLED", "1")
             .env("STARHUB_DIST", &starhub_dist);
+        if !starhub_window_dist.as_os_str().is_empty() {
+            cmd.env("STARHUB_WINDOW_DIST", &starhub_window_dist);
+        }
         // 仅透传真实环境 key,不再注入占位 key(与 boot.mjs 一致)。
         // 否则 dsh 会把 key 判定为「由启动环境提供」(source=env,只读),
         // 首次进入不弹 key 引导、Models 页也锁死无法输入。

@@ -1,4 +1,5 @@
-//! StarHub 宿主工具执行端(内核替换 P1-4,Phase 2 扩展全域工具)。
+//! StarHub 宿主工具执行端(内核替换 P1-4,Phase 2 扩展全域工具;方案1 起
+//! 域工具改在 Rust 主进程内直接执行)。
 //!
 //! dsh 侧 `@deepseek-ai/dsh-starhub-tools` 插件把工具调用经 SDK stdio 双向
 //! request 桥回本进程:方法 `starhub/tool.execute`,参数 `{ sessionId, name, args }`,
@@ -6,12 +7,20 @@
 //! 软错误([DUPLICATE]/[FULL]/[NOMATCH]/[AMBIGUOUS]/[Error] …)按旧前端语义
 //! 原样作为文本返回,不 throw,由模型自行纠正后重试。
 //!
-//! 分发:全局工具(starhub_list_capabilities / starhub_list_assets /
-//! session_search / memory)在 Rust 内执行;其余域工具(ssh_*/sftp_*/db_query/
-//! redis_exec/es_*/docker_*/excel_*/mcp_*/skill_save)emit `dsh://tool-exec`
-//! 事件转发给拥有该会话的前端面板,经 `dsh_tool_exec_reply` 应答等待结果
-//! (超时 180s)。memory 工具的 asset scope 用 sessionId 沿 subagent 父链
-//! 查会话资产绑定(mod.rs 的 HostBridgeState),绑不到资产时提示绑定。
+//! 分发:
+//! - 全局工具(starhub_list_capabilities / starhub_list_assets /
+//!   session_search / memory)在 Rust 内执行(tools.rs 本体);
+//! - 方案1 域工具(ssh_*/sftp_*/db_query/redis_exec/es_*/docker_*)由
+//!   [`domain`](self::domain) 模块在 Rust 主进程内直接执行——连接走
+//!   SshManager / SidecarManager,exec 带 exec_id 注册到桥的 inflight,
+//!   停止生成时由 `bridge.drain()` 真正中断(不再有「前端执行超时或窗口
+//!   已关闭」);
+//! - 其余(excel_*/mcp_*/skill_save)因前端状态依赖,仍 emit `dsh://tool-exec`
+//!   转发给拥有该会话的前端面板,经 `dsh_tool_exec_reply` 应答等待结果
+//!   (超时 180s)。
+//!
+//! memory 工具的 asset scope 用 sessionId 沿 subagent 父链查会话资产绑定
+//! (mod.rs 的 HostBridgeState),绑不到资产时提示绑定。
 //!
 //! 工具语义对齐旧前端实现(src/utils/aiTools.ts 与 AiView.vue workspaceTools);
 //! 写路径复用 commands::ai_memory,资产查询直读 assets 表(不 hydrate,
@@ -27,6 +36,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::events::{self, RecentExec};
+use super::domain;
 use super::{HostBridgeState, DOMAIN_EVENT_EVENT, DOMAIN_EVENT_METHOD};
 
 /// 桥方法名(与 vendor/deepseek-harness/packages/starhub/tools/src/index.ts 对齐)。
@@ -38,37 +48,15 @@ const MEMORY_SOFT_ERROR_PREFIXES: [&str; 4] = ["[DUPLICATE]", "[FULL]", "[NOMATC
 /// 域工具执行超时(前端面板确认/执行 180s 未应答视为失败)。
 const TOOL_EXEC_TIMEOUT: Duration = Duration::from_secs(180);
 
-/// 不在 Rust 内执行的域工具:经 `dsh://tool-exec` 事件转发前端。
+/// 仍在 Rust 进程内执行的域工具:ssh_*/sftp_*/db_query/redis_exec/es_*/docker_*
+/// 已迁移到进程内执行(方案1,见 domain 模块);这里只保留必须由前端面板
+/// 执行的工具——工作簿状态在 webview(Univer)、MCP server 配置在 aiStore、
+/// Skill 落库在 settings,无法脱离前端:
+/// - Excel:excel_*(当前工作簿在前端 Univer 内存)
+/// - MCP:mcp_list / mcp_call(server 配置存于前端 settings + keyring)
+/// - skill_save(写入前端 settings.customSkills)
 /// (与 vendor packages/starhub/tools/src/index.ts 的 BRIDGED_TOOLS 对齐)
 const FORWARDED_TOOLS: &[&str] = &[
-    // SSH(会话绑定 SSH 资产)
-    "ssh_exec",
-    "ssh_exec_background",
-    "ssh_wait_task",
-    // SFTP(复用会话绑定的 SSH 资产)
-    "sftp_list",
-    "sftp_stat",
-    "sftp_upload",
-    "sftp_download",
-    // 数据库(会话绑定 DB 资产)
-    "db_query",
-    // Redis
-    "redis_exec",
-    // Elasticsearch
-    "es_list_indices",
-    "es_cluster_health",
-    "es_get_mapping",
-    "es_search",
-    "es_get_document",
-    "es_count",
-    "es_index_document",
-    "es_delete_document",
-    "es_delete_index",
-    // Docker
-    "docker_list_containers",
-    "docker_logs",
-    "docker_inspect",
-    "docker_exec",
     // Excel(当前工作簿,前端执行)
     "excel_get_context",
     "excel_write_range",
@@ -101,6 +89,41 @@ const FORWARDED_TOOLS: &[&str] = &[
     "skill_save",
 ];
 
+/// 方案1:在 Rust 主进程内直接执行的域工具(见 harness/domain.rs)。
+/// 这些工具不再 emit `dsh://tool-exec`,因此不受「前端窗口关闭 → 180s 超时」
+/// 影响,停止生成也能经 bridge.drain() 真正中断。
+/// (与 vendor packages/starhub/tools/src/index.ts 的 BRIDGED_TOOLS 对齐)
+const IN_PROCESS_TOOLS: &[&str] = &[
+    // SSH(会话绑定 SSH 资产)
+    "ssh_exec",
+    "ssh_exec_background",
+    "ssh_wait_task",
+    // SFTP(复用会话绑定的 SSH 资产)
+    "sftp_list",
+    "sftp_stat",
+    "sftp_upload",
+    "sftp_download",
+    // 数据库(会话绑定 DB 资产)
+    "db_query",
+    // Redis
+    "redis_exec",
+    // Elasticsearch
+    "es_list_indices",
+    "es_cluster_health",
+    "es_get_mapping",
+    "es_search",
+    "es_get_document",
+    "es_count",
+    "es_index_document",
+    "es_delete_document",
+    "es_delete_index",
+    // Docker
+    "docker_list_containers",
+    "docker_logs",
+    "docker_inspect",
+    "docker_exec",
+];
+
 use tokio::sync::oneshot;
 
 /// 入站桥请求入口(read_loop spawn):校验方法与参数形状后分发执行。
@@ -129,6 +152,16 @@ pub async fn execute_bridge_request(
         // 联动 M4(契约 §1/§4):域工具成功后自动生成 origin=ai 领域事件,
         // notify dsh + 广播 starhub://domain-event + 写 recentExecs 缓存。
         // 失败路径不产生事件(用户拒绝/超时不代表 AI 动作完成)。
+        on_ai_tool_success(&bridge, session_id, name, &args, &text).await;
+        return Ok(Value::String(text));
+    }
+
+    // 方案1:可在 Rust 主进程内直接执行的域工具(ssh_*/sftp_*/db_query/
+    // redis_exec/es_*/docker_*)——进程内执行,不依赖前端面板窗口存活,
+    // 停止生成经 bridge.drain() 真正中断在途命令。excel_*/mcp_*/skill_save
+    // 因工作簿状态 / MCP 配置 / Skill 落库在前端,仍走 FORWARDED_TOOLS。
+    if IN_PROCESS_TOOLS.contains(&name) {
+        let text = domain::execute_domain_tool(&bridge, session_id, name, &args).await?;
         on_ai_tool_success(&bridge, session_id, name, &args, &text).await;
         return Ok(Value::String(text));
     }
@@ -1256,8 +1289,10 @@ mod tests {
 
     // ---------- 域工具转发(dsh://tool-exec → dsh_tool_exec_reply) ----------
 
-    /// 域工具桥:emit `dsh://tool-exec` 事件(requestId/sessionId/name/args),
-    /// 应答(ok=true)后文本作为桥结果返回。
+    /// 域工具桥(方案1 后仍转发前端的工具):emit `dsh://tool-exec` 事件
+    /// (requestId/sessionId/name/args),应答(ok=true)后文本作为桥结果返回。
+    /// 用 excel_get_context(前端工作簿域)验证转发路径;ssh_*/db_query 等已
+    /// 迁到进程内执行(见 domain 模块),不再走此路径。
     #[tokio::test]
     async fn domain_tool_forwards_to_frontend_and_returns_text() {
         let (emit_tx, mut emit_rx) = mpsc::channel::<(String, serde_json::Value)>(10);
@@ -1266,8 +1301,8 @@ mod tests {
         })));
         let params = serde_json::json!({
             "sessionId": "sess-1",
-            "name": "ssh_exec",
-            "args": { "command": "ls -la" },
+            "name": "excel_get_context",
+            "args": {},
         });
         let handle = tokio::spawn({
             let bridge = bridge.clone();
@@ -1281,8 +1316,7 @@ mod tests {
             .expect("requestId")
             .to_string();
         assert_eq!(payload["sessionId"], "sess-1");
-        assert_eq!(payload["name"], "ssh_exec");
-        assert_eq!(payload["args"]["command"], "ls -la");
+        assert_eq!(payload["name"], "excel_get_context");
         assert!(bridge.tool_execs.lock().await.contains_key(&request_id));
 
         bridge
@@ -1301,6 +1335,7 @@ mod tests {
     }
 
     /// 域工具桥:ok=false 时 text 作为工具失败抛回桥(Err)。
+    /// 用 skill_save(仍转发前端)验证;db_query 已迁到进程内执行。
     #[tokio::test]
     async fn domain_tool_reply_error_propagates_as_failure() {
         let (emit_tx, mut emit_rx) = mpsc::channel::<(String, serde_json::Value)>(10);
@@ -1314,8 +1349,8 @@ mod tests {
                     "starhub/tool.execute",
                     serde_json::json!({
                         "sessionId": "sess-1",
-                        "name": "db_query",
-                        "args": { "sql": "DELETE FROM t" },
+                        "name": "skill_save",
+                        "args": { "name": "my-skill", "prompt": "..." },
                     }),
                     bridge,
                 )

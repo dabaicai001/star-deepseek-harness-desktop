@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.85.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.85.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -108,6 +108,10 @@
 ---
 
 ## 当前版本
+
+### v0.85.2 (2026-08-19)
+- 🐛 **修复 dsh AI 域工具执行超时与无法停止(方案1:域工具改在 Rust 主进程内直接执行)**:`ssh_exec` 等域工具此前经 `dsh://tool-exec` 转发前端 webview 面板执行,前端窗口关闭/审批卡住 → 180s 后报「前端执行超时或窗口已关闭」,且停止生成只杀 dsh 进程、无法中断前端面板里在跑的命令。本次把 ssh_exec / ssh_exec_background / ssh_wait_task / sftp_* / db_query / redis_exec / es_* / docker_* 全部迁到 Rust 主进程直接执行(新增 `src-tauri/src/harness/domain.rs`;SSH 复用 SshManager 会话 + exec_id 可中断,DB/Redis/ES/Docker 经 SidecarManager 直连);`tools.rs` 新增 `IN_PROCESS_TOOLS`(excel_*/mcp_*/skill_save 因前端状态依赖仍转发);`HostBridgeState.inflight_tools` 取消注册表 + `drain()` 逐个 abort 在途执行 —— 停止生成现在能真正中断命令。`cargo check` 通过;新增 domain 纯函数单测(本机因提交内存不足未跑完 `cargo test`,待 CI 验证)
+- 🐛 **修复 dsh web 打开 ssh/db 连接页 404(「找不到此 127.0.0.1 页」)**:`web.rs` spawn dsh web 时未设置 `STARHUB_WINDOW_DIST`,host-static 对 `/starhub-react` 前缀的 repo-root 发现在打包部署(runtime 与仓库根分离)下失败 → 注册 404 兜底。修复:新增 `resolve_starhub_window_dist()` 并在 spawn 时注入 `STARHUB_WINDOW_DIST` env,`/starhub-react` 正确挂载独立 React 窗口 app
 
 ### v0.85.1 (2026-08-19)
 - 🐛 **修复 Linux(ARM64)CI 的 `cargo test` 崩溃**:`linux-compat.yml` / `release.yml` 的 `Test Tauri backend on Linux`(cargo test --locked)在 `ubuntu-22.04-arm`(4GB)runner 上报错退出码 101——本后端 debug 测试构建峰值内存极高,LLVM 阶段 OOM(`rustc-LLVM ERROR: out of memory`)。新增 `Cargo.toml [profile.test] debug = 0` 关闭测试编译 debuginfo,并在两个工作流的 test 步骤对 ARM64 用 `CARGO_BUILD_JOBS=2` 限制并行编译单元,把峰值内存压到 4GB 可承受范围;本地 dev 构建不受影响。
