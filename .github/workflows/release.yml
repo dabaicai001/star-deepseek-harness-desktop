@@ -97,6 +97,14 @@ jobs:
       - name: Package dsh runtime
         run: npm run package:dsh-runtime
 
+      - name: Build StarHub React window resources
+        # `dist-starhub-react` is a Tauri bundle resource (tauri.conf.json
+        # bundle.resources). It is only staged by build:window, which otherwise
+        # runs only inside `tauri build`'s beforeBuildCommand — too late for the
+        # build-script resource check behind `cargo test` below. Stage it here so
+        # tauri_build can validate the resource path on a clean checkout.
+        run: npm run build:window
+
       - name: Test Tauri backend
         working-directory: 'S:\src-tauri'
         run: cargo test --locked
@@ -200,6 +208,14 @@ jobs:
 
       - name: Package dsh runtime
         run: npm run package:dsh-runtime
+
+      - name: Build StarHub React window resources
+        # `dist-starhub-react` is a Tauri bundle resource (tauri.conf.json
+        # bundle.resources). It is only staged by build:window, which otherwise
+        # runs only inside `tauri build`'s beforeBuildCommand — too late for the
+        # build-script resource check behind `cargo test` below. Stage it here so
+        # tauri_build can validate the resource path on a clean checkout.
+        run: npm run build:window
 
       - name: Test Tauri backend
         working-directory: src-tauri
