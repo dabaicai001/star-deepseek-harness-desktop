@@ -430,6 +430,200 @@ describe('ElasticsearchWorkbench edge coverage', () => {
   })
 })
 
+describe('ElasticsearchWorkbench defensive paths', () => {
+  it('loads a mapping with null fields (settings rejected → hidden)', async () => {
+    const calls: string[] = []
+    const restore = stubInvoke((cmd) => {
+      calls.push(cmd)
+      if (cmd === 'db_es_connect') return Promise.resolve({ connId: 'c1' })
+      if (cmd === 'db_es_list_indices') return Promise.resolve([{ name: 'logs', docsCount: 1, storeSize: '1b', health: 'green', status: 'open', primaryShards: 1, replicaShards: 0 }])
+      if (cmd === 'db_es_cluster_health') return Promise.resolve({ status: 'green', numberOfNodes: 1 })
+      if (cmd === 'db_es_get_index_mapping') return Promise.resolve({ indexName: 'logs', fields: null })
+      if (cmd === 'db_es_get_index_settings') return Promise.reject(new Error('settings down'))
+      if (cmd === 'db_es_disconnect') return Promise.resolve(null)
+      return Promise.resolve(null)
+    })
+    try {
+      render(<ElasticsearchWorkbench asset={esAsset} onClose={vi.fn()} />)
+      await screen.findByText(/logs/)
+      fireEvent.click(screen.getByText('logs'))
+      // No fields → mapping section renders empty; settings rejected → hidden.
+      expect(await screen.findByText('映射')).toBeTruthy()
+      expect(calls).toContain('db_es_get_index_settings')
+      expect(screen.queryByText('Settings')).toBeNull()
+    } finally {
+      restore()
+    }
+  })
+
+  it('surfaces a mapping error when selecting an index', async () => {
+    const restore = stubInvoke((cmd) => {
+      if (cmd === 'db_es_connect') return Promise.resolve({ connId: 'c1' })
+      if (cmd === 'db_es_list_indices') return Promise.resolve([{ name: 'logs', docsCount: 1, storeSize: '1b', health: 'green', status: 'open', primaryShards: 1, replicaShards: 0 }])
+      if (cmd === 'db_es_cluster_health') return Promise.resolve({ status: 'green', numberOfNodes: 1 })
+      if (cmd === 'db_es_get_index_mapping') return Promise.reject(new Error('mapping boom'))
+      if (cmd === 'db_es_disconnect') return Promise.resolve(null)
+      return Promise.resolve(null)
+    })
+    try {
+      render(<ElasticsearchWorkbench asset={esAsset} onClose={vi.fn()} />)
+      await screen.findByText(/logs/)
+      fireEvent.click(screen.getByText('logs'))
+      expect(await screen.findByText('mapping boom')).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it('reloads the index list via the refresh button', async () => {
+    const { invoke, calls } = okInvoke()
+    const restore = stubInvoke(invoke)
+    try {
+      render(<ElasticsearchWorkbench asset={esAsset} onClose={vi.fn()} />)
+      await screen.findByText(/logs/)
+      fireEvent.click(screen.getByRole('button', { name: '刷新' }))
+      await waitFor(() => expect(calls.filter((c) => c === 'db_es_list_indices').length).toBeGreaterThanOrEqual(2))
+    } finally {
+      restore()
+    }
+  })
+
+  it('surfaces a refresh error', async () => {
+    let listCalls = 0
+    const restore = stubInvoke((cmd) => {
+      if (cmd === 'db_es_connect') return Promise.resolve({ connId: 'c1' })
+      if (cmd === 'db_es_list_indices') {
+        listCalls += 1
+        return listCalls === 1
+          ? Promise.resolve([])
+          : Promise.reject(new Error('refresh boom'))
+      }
+      if (cmd === 'db_es_cluster_health') return Promise.resolve({ status: 'green', numberOfNodes: 1 })
+      if (cmd === 'db_es_disconnect') return Promise.resolve(null)
+      return Promise.resolve(null)
+    })
+    try {
+      render(<ElasticsearchWorkbench asset={esAsset} onClose={vi.fn()} />)
+      await screen.findByText('Elasticsearch · es-prod')
+      fireEvent.click(screen.getByRole('button', { name: '刷新' }))
+      expect(await screen.findByText('refresh boom')).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it('surfaces a delete-index error', async () => {
+    const restore = stubInvoke((cmd) => {
+      if (cmd === 'db_es_connect') return Promise.resolve({ connId: 'c1' })
+      if (cmd === 'db_es_list_indices') return Promise.resolve([{ name: 'logs', docsCount: 1, storeSize: '1b', health: 'green', status: 'open', primaryShards: 1, replicaShards: 0 }])
+      if (cmd === 'db_es_cluster_health') return Promise.resolve({ status: 'green', numberOfNodes: 1 })
+      if (cmd === 'db_es_delete_index') return Promise.reject(new Error('delete boom'))
+      if (cmd === 'db_es_disconnect') return Promise.resolve(null)
+      return Promise.resolve(null)
+    })
+    try {
+      render(<ElasticsearchWorkbench asset={esAsset} onClose={vi.fn()} />)
+      await screen.findByText(/logs/)
+      fireEvent.click(screen.getAllByText('删除')[0]!)
+      expect(await screen.findByText(/确认删除索引 logs/)).toBeTruthy()
+      fireEvent.click(screen.getAllByRole('button', { name: '删除' }).at(-1)!)
+      expect(await screen.findByText('delete boom')).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it('deletes an index via the confirm dialog and reloads', async () => {
+    const { invoke, calls } = okInvoke()
+    const restore = stubInvoke(invoke)
+    try {
+      render(<ElasticsearchWorkbench asset={esAsset} onClose={vi.fn()} />)
+      await screen.findByText(/logs/)
+      fireEvent.click(screen.getAllByText('删除')[0]!)
+      expect(await screen.findByText(/确认删除索引 logs/)).toBeTruthy()
+      fireEvent.click(screen.getAllByRole('button', { name: '删除' }).at(-1)!)
+      await waitFor(() => expect(calls).toContain('db_es_delete_index'))
+      await waitFor(() => expect(calls.filter((c) => c === 'db_es_list_indices').length).toBeGreaterThanOrEqual(2))
+    } finally {
+      restore()
+    }
+  })
+
+  it('ignores non-execute keystrokes in the DSL editor', async () => {
+    const { invoke, calls } = okInvoke()
+    const restore = stubInvoke(invoke)
+    try {
+      render(<ElasticsearchWorkbench asset={esAsset} onClose={vi.fn()} />)
+      await screen.findByText(/logs/)
+      fireEvent.click(screen.getByRole('button', { name: '检索' }))
+      // Plain Enter without Ctrl/Meta must NOT run a search.
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+      // A non-Enter key must not run a search either.
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'a' })
+      await new Promise((r) => setTimeout(r, 50))
+      expect(calls.filter((c) => c === 'db_es_search').length).toBe(0)
+    } finally {
+      restore()
+    }
+  })
+
+  it('surfaces a create error that is not an Error object', async () => {
+    const restore = stubInvoke((cmd) => {
+      if (cmd === 'db_es_connect') return Promise.resolve({ connId: 'c1' })
+      if (cmd === 'db_es_list_indices') return Promise.resolve([])
+      if (cmd === 'db_es_cluster_health') return Promise.resolve({ status: 'green', numberOfNodes: 1 })
+      if (cmd === 'db_es_create_index') return Promise.reject('plain string failure')
+      if (cmd === 'db_es_disconnect') return Promise.resolve(null)
+      return Promise.resolve(null)
+    })
+    try {
+      render(<ElasticsearchWorkbench asset={esAsset} onClose={vi.fn()} />)
+      await screen.findByText(/nodes/)
+      fireEvent.click(screen.getByRole('button', { name: '新建索引' }))
+      fireEvent.change(screen.getByPlaceholderText('index name'), { target: { value: 'x' } })
+      fireEvent.click(screen.getByRole('button', { name: '创建' }))
+      expect(await screen.findByText('plain string failure')).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it('cancels the delete confirmation without deleting', async () => {
+    const { invoke, calls } = okInvoke()
+    const restore = stubInvoke(invoke)
+    try {
+      render(<ElasticsearchWorkbench asset={esAsset} onClose={vi.fn()} />)
+      await screen.findByText(/logs/)
+      fireEvent.click(screen.getAllByText('删除')[0]!)
+      expect(await screen.findByText(/确认删除索引 logs/)).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: '取消' }))
+      expect(screen.queryByText(/确认删除索引 logs/)).toBeNull()
+      expect(calls).not.toContain('db_es_delete_index')
+    } finally {
+      restore()
+    }
+  })
+
+  it('creates an index from the new-index dialog via Enter while not busy', async () => {
+    const { invoke, calls } = okInvoke()
+    const restore = stubInvoke(invoke)
+    try {
+      render(<ElasticsearchWorkbench asset={esAsset} onClose={vi.fn()} />)
+      await screen.findByText(/logs/)
+      fireEvent.click(screen.getByRole('button', { name: '新建索引' }))
+      const input = screen.getByPlaceholderText('index name')
+      fireEvent.change(input, { target: { value: 'enter-idx' } })
+      // Non-Enter keypress must not submit (covers the guarded `if` false path).
+      fireEvent.keyDown(input, { key: 'a' })
+      // Metakey variants should also submit (the || metaKey branch).
+      fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+      await waitFor(() => expect(calls).toContain('db_es_create_index'))
+    } finally {
+      restore()
+    }
+  })
+})
+
 describe('ElasticsearchWorkbench close', () => {
   it('calls onClose from the header close button', async () => {
     const { invoke } = okInvoke()

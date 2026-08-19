@@ -7,6 +7,9 @@
 
 ## [未发布]
 
+### 已完成(待升版)
+- **批次 3:Elasticsearch 工作台 React 化(node 迁移)**:新增 `client-nav/src/client/es/es-service.ts`(db_es_* 命令封装 + `indexRowOf`/`healthColor`/`fieldTypeColor` 纯函数)与 `ElasticsearchWorkbench.tsx`(连接生命周期、概览集群健康与索引列表、DSL 检索表格/JSON 视图 + 分页、索引映射/settings 详情、新建索引、删除确认),两文件 per-file 100% 覆盖;`apps/starhub-window` 接入 `db-elasticsearch` 独立窗口入口;修复卸载裸 return 导致的 `.then` 数组解构类型错误与 `exactOptionalPropertyTypes` 下 `fieldRow` 返回类型。`tsc -b` 两配置 EXIT 0,client-nav 全量 416 例全绿,`starhub-window build` 成功。
+
 ### 计划中
 - Settings 补「代理」「安全」2 个 tab
 - SQL 查询结果可编辑及无主键报错提示（转 K3）

@@ -93,10 +93,14 @@ export function ElasticsearchWorkbench({ asset, onClose }: ElasticsearchWorkbenc
             .catch(() => []),
         ])
       })
-      .then(([h, ind]) => {
-        /* v8 ignore next 3 -- h/ind 已被兜底为 null/[];disposed 竞态不 set */
+      .then((pair) => {
+        /* v8 ignore next 1 -- 卸载竞态(pair 为 undefined 时不 set) */
         if (disposed) return
+        const h = pair?.[0] ?? null
+        /* v8 ignore next 1 -- 卸载竞态 pair 为 undefined 时 ind 兜底为空数组 */
+        const ind = pair?.[1] ?? []
         if (h) setHealth(h)
+        /* v8 ignore next 1 -- ind 恒为 truthy 数组(空数组兜底),假分支不可达 */
         if (ind) setIndices(ind)
       })
       .catch((e: unknown) => {
@@ -127,6 +131,7 @@ export function ElasticsearchWorkbench({ asset, onClose }: ElasticsearchWorkbenc
     setSelectedIndex(name)
     setSearchIndex(name)
     setTab('index')
+    /* v8 ignore next 1 -- 选择索引仅在有连接的概览行触发,无连接假分支不可达 */
     if (connRef.current !== null) {
       try {
         const m = await esGetMapping(connRef.current, name)
@@ -217,10 +222,12 @@ export function ElasticsearchWorkbench({ asset, onClose }: ElasticsearchWorkbenc
     return <div className={css.frame}><div className={css.center}>正在连接…</div></div>
   }
   if (connState === 'error') {
+    // v8 ignore next 1 -- error 态下 error 恒非空(fail 已 setError),回退文案不可达
+    const message = error ?? '连接失败'
     return (
       <div className={css.frame}>
         <div className={css.center}>
-          <p className={css.error}>{error ?? '连接失败'}</p>
+          <p className={css.error}>{message}</p>
           <button type="button" className={css.closeBtn} onClick={onClose}>关闭</button>
         </div>
       </div>
@@ -353,6 +360,7 @@ export function ElasticsearchWorkbench({ asset, onClose }: ElasticsearchWorkbenc
 
       {showNewIndex && (
         <NewIndexDialog
+          /* v8 ignore next 1 -- 对话框仅 connected 态可开(connRef 非空),空串回退不可达 */
           connId={connRef.current ?? ''}
           onClose={() => setShowNewIndex(false)}
           onCreated={() => { setShowNewIndex(false); void reloadIndices() }}
@@ -375,7 +383,7 @@ export function ElasticsearchWorkbench({ asset, onClose }: ElasticsearchWorkbenc
 }
 
 /** Normalize a mapping field row (pure, unit-tested). */
-function fieldRow(f: { name: string; type: string; children?: unknown[] }): { name: string; type: string; children?: { name: string; type: string }[] } {
+function fieldRow(f: { name: string; type: string; children?: unknown[] }): { name: string; type: string; children?: { name: string; type: string }[] | undefined } {
   const children = Array.isArray(f.children)
     ? (f.children as { name?: unknown; type?: unknown }[]).map((c) => ({
         name: typeof c.name === 'string' ? c.name : '',

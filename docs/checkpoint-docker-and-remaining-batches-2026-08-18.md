@@ -116,6 +116,22 @@ coverage: {
 **发布(批次 2)**:
 - commit + push + 七处升版 v0.83.4→v0.84.0(minor,新功能)+ `git tag v0.84.0` + `git push origin v0.84.0`。
 
+### 3.5 ✅ 批次 3(Elasticsearch 工作台)已完成(2026-08-18)
+
+> 完成 ES 工作台 React 化 + 两文件 per-file 100% 覆盖 + 接线回归 + 类型/构建验证,commit+push(不升版,攒批最后统一升)。
+
+**交付内容**:
+- `client-nav/src/client/es/es-service.ts` —— `db_es_*` 命令封装 + `indexRowOf`/`healthColor`/`fieldTypeColor` 纯函数。**100%**。
+- `client-nav/src/client/es/ElasticsearchWorkbench.tsx` —— 壳内/独立窗口工作台:连接生命周期、概览(集群健康 + 索引列表 + 刷新)、检索(DSL 编辑/格式化/Ctrl+Enter、表格/JSON 视图、分页)、索引详情(映射 + settings)、新建索引、删除确认。**100%**。
+- 接线:`sections.ts` 的 `assetWindowUrl` ES hint、`apps/starhub-window` route/App 的 `db-elasticsearch` 入口(本批沿 home-batch 已有接线,补齐精度)。
+
+**验证**:
+- ES 两文件合并 coverage 100%(语句/分支/函数/行);es-service 8 例 + elasticsearch-workbench 31 例全过。
+- `tsc -b tsconfig.json` + `tsconfig.host.json` EXIT 0(顺带修两处 snapshot 带进来的类型错误:卸载裸 return 使 `.then` 数组不可解构、`exactOptionalPropertyTypes` 下 `fieldRow` 返回 `children: undefined`)。
+- client-nav 全量 27 文件 / 416 例全绿(本轮 sql-editor/db-workbench 均通过,不再计入 pre-existing 红)。
+- `pnpm --filter @deepseek-ai/starhub-window build` EXIT 0,ES 入口可构建。
+- commit + push 批次 3,未升版本号。
+
 ---
 
 ## 4. 批次划分总表(剩余)
@@ -124,7 +140,7 @@ coverage: {
 |---|---|---|
 | 1 | Docker 全线 | ✅ 完成(含 docker 三文件 100% 覆盖 + 接线回归修复,见 §3) |
 | 2 | Redis 工作台 | ✅ 完成并发布 v0.84.0(含 redis 三文件 100% 覆盖 + 接线回归修复,见 §3.4) |
-| 3 | Elasticsearch 工作台 | ❌ 未开始 |
+| 3 | Elasticsearch 工作台 | ✅ 完成(2026-08-18,es-service + ElasticsearchWorkbench 两文件 100% 覆盖 + 接线回归修复,见 §3.5) |
 | 4 | DB 监控 Dashboard | ❌ 未开始 |
 | 5 | 结果网格 / SQL 编辑器补齐 | ❌ 未开始 |
 | 6 | SSH 高级(分屏/广播/危险命令)+ Web 浏览器 | ❌ 未开始 |

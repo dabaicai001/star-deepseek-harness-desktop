@@ -16,22 +16,13 @@
 - `client-nav`:`openAssetPage` 统一 openNewPage → `assetWindowUrl`;移除 `NATIVE_ROUTE_NAMES`/`is*Asset`/`renderModeForAsset`/`assetInstanceUrl` 等死代码;`StarHubOverlay` 只留连接对话框;`store.ts` 移除 SSH/Db/Docker/Redis overlay 桥。受影响 client-nav 文件 per-file 100% 覆盖。
 - `scripts/build-window.mjs`(build+落盘 `dist-starhub-react/`)、根 `package.json` `build:window`、`tauri.conf.json` 并入 resources 与 beforeBuildCommand。
 
-## 🔄 进行中:批次 3 Elasticsearch 工作台(未完成,覆盖率未到 100%)
+## ✅ 批次 3 Elasticsearch 工作台(已完成,已 commit + push)
 
-新增(未提交):
-- `client-nav/src/client/es/es-service.ts`(db_es_* 命令封装 + `indexRowOf`/`healthColor`/`fieldTypeColor` 纯函数)
-- `client-nav/src/client/es/ElasticsearchWorkbench.tsx` + `.module.css`
-- 测试:`es-service.client.spec.ts`、`elasticsearch-workbench.client.spec.tsx`
-- window 集成:`apps/starhub-window/src/{route.ts,App.tsx}` 加 `db-elasticsearch` workbench;`client-nav/src/client/sections.ts` 的 `assetWindowUrl` 加 ES hint。
-
-当前状态:
-- 29 个 ES 相关测试全过;覆盖率 **95.5% 行 / 89% 分支 / 94% 函数**,还差一批防御性分支(异步卸载竞态、非 Error 兜底、不可达 guard else 路径)未 v8-ignore 或补齐,未达每文件 100%。
-
-下一步(接手者继续):
-- 给余下防御分支加带理由的 `v8 ignore`(checkpoint §2 允许)或补可达单测,使 `es/` 三文件 per-file 100%。
-- `tsc -b` 类型检查 + 全量 client-nav 测试(注意 `db-workbench`/`sql-editor` 为既有 pre-existing CodeMirror 失败,非本批回归)。
-- 重跑 `pnpm --filter @deepseek-ai/starhub-window build` 验证 ES 入口可构建。
-- commit + push 批次 3。
+- 11 批 ES 相关测试全过(es-service 8 + elasticsearch-workbench 31 = 39 例);`es/` 三文件(`es-service.ts` / `ElasticsearchWorkbench.tsx`)per-file **100% 覆盖**(语句/分支/函数/行)。
+- 其余防御分支用带理由的 `v8 ignore` 或可达单测补齐:`reloadIndices/selectIndex/deleteIndex` catch、settings 拉取兜底、`(m.fields ?? [])` null 分支、确认删索引的取消按钮、DSL 编辑器非 Enter 键、NewIndexDialog 非 Error 创建失败、`pair?.[1] ?? []` 卸载竞态等。
+- 顺带修两处 `tsc -b` 类型错误:`Promise.all(...).then(([h,ind]))` 因卸载裸 `return undefined` 导致不可解构(改为 `pair?.[0]`/`pair?.[1]` 兜底)、`fieldRow` 返回 `children: undefined` 与 `exactOptionalPropertyTypes` 冲突(返回类型加 `| undefined`)。
+- 验证:`tsc -b tsconfig.json` + `tsconfig.host.json` EXIT 0;client-nav 全量 27 文件 / 416 例全绿(含 sql-editor / db-workbench 本轮均过,不再 pre-existing 红);`pnpm --filter @deepseek-ai/starhub-window build` 成功(EXIT 0,ES 入口可构建)。
+- commit + push 本批;按交接规则**不升版本号**(攒批最后一次性升版)。
 
 ## ⏭ 尚未开始(见 checkpoint 文档)
 
