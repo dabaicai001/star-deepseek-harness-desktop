@@ -13,7 +13,8 @@
 - ✅ **批次 2(Redis 工作台)** :完成并发布(v0.84.0)。`redis-service.ts` / `RedisValueEditor.tsx` / `RedisWorkbench.tsx` 三文件 per-file 100% 覆盖(语句/分支/函数/行),61 例全绿;`db-redis` 纳入 `NATIVE_ROUTE_NAMES` + `openAssetPage`/`store`/`StarHubOverlay` 接线;更新 apply/shell-state/nav-overlay 规格(redis→native,ES 维持 Vue embed);`tsc -b tsconfig.json` + `tsconfig.host.json` 净;tsdown bundle 重建成功。已 commit + push + 升 v0.84.0 + tag(批次 2 发布)。详见 §3.4。
 - ✅ **批次 3(Elasticsearch 工作台)** :完成(2026-08-18,见 §3.5)。`es-service.ts` + `ElasticsearchWorkbench.tsx` 两文件 per-file 100% 覆盖,client-nav 416 例全绿,commit+push(未升版)。
 - ✅ **批次 4(DB 监控 Dashboard)** :完成(2026-08-18,见 §3.6)。`db-dashboard-service.ts` + `DbDashboard.tsx` 两文件 per-file 100% 覆盖,DbWorkbench 右栏加「SQL/数据」↔「监控」tab 渲染 React Dashboard,client-nav 464 例全绿,`starhub-window` build + `scripts/build-window.mjs` 部署到 `dist-starhub-react/`,commit+push(未升版)。
-- ❌ 批次 5-6 + AI 面板:未开始,源文件与后端契约见 §8-§9。
+- ✅ **批次 5(网格/SQL 编辑器补齐)** :完成(2026-08-19,见 §3.7)。`sqlFormat.ts`(formatSql/splitStatements)+ `sqlHistory.ts` 纯函数 + `DbDataGrid` 升级(CSV 导出 / 行复制 INSERT / 列筛选 / 单元格编辑→批量 UPDATE),三文件与相关接线 per-file 100% 覆盖,client-nav 全量 533 例全绿,tsc + tsconfig.host.json 净,tsdown bundle + starhub-window 构建并部署到 3086 + dist-starhub-react,commit `478000af`(未升版)。
+- ❌ 批次 6(SSH 高级分屏/广播/危险命令 + Web 浏览器)+ AI 面板:未开始,源文件与后端契约见 §7/§9。
 
 ---
 
@@ -151,6 +152,33 @@ coverage: {
 - 部署:dashboard 走**独立窗口**(`/starhub-react`,DbWorkbench→DbDashboard),由 `scripts/build-window.mjs` 把 `apps/starhub-window/dist` 复制到 repo 根 `dist-starhub-react/`(host-static `resolveWindowDistRoot` 的回落目录);不用 client-nav `lib/client.js`(壳导航 bundle 不含工作台组件)。
 - commit + push 批次 4(commit `d4e71d86`),未升版本号。
 
+### 3.7 ✅ 批次 5(结果网格 / SQL 编辑器补齐)已完成(2026-08-19)
+
+> 完成结果网格与 SQL 编辑器的 React 侧补齐:纯函数模块 + DbDataGrid 四项功能 + DbWorkbench SQL 区接线,三文件 per-file 100% 覆盖 + 全量回归 + 类型/构建验证 + 部署,commit `478000af`(未升版,攒批最后统一升)。
+
+**新增源码**:
+- `client-nav/src/client/sqlFormat.ts` —— `splitStatements(sql)` 多语句拆分(忽略字符串/反引号/行注释内分号)+ `formatSql(sql)` 轻量格式化(子句关键字大写 + 换行缩进,不伤字符串/标识符/注释)。**100%**。
+- `client-nav/src/client/sqlHistory.ts` —— 移植 Vue `src/utils/sqlHistory.ts`: `loadHistory`/`saveHistory`/`addHistory`/`clearHistory`,键 `starhub.sqlHistory`、上限 1000、最新在前、损坏/缺键/配额容错。**100%**。
+
+**DbDataGrid.tsx 升级**(新导出纯函数):
+- `rowsToCsv`/`downloadTextFile` — 当前页 CSV 导出(引号/逗号/换行转义,null→空串)。
+- `rowToInsert`/`sqlLiteral` — 行右键「复制为 INSERT」(剪贴板)。
+- **列筛选**:列头筛选按钮 → 弹层输入 → `columnFilters` 服务端过滤(`db_mysql_get_table_data`),可应用/清除。
+- **单元格编辑**:双击编辑 → dirty 集(按行分组),按行 `db_mysql_update_rows(sets, where=pkCols 相等)`;主键取自 `db_mysql_list_columns` 的 `key==='PRI'`;Ctrl/Cmd+S 全局保存;保存成功重载,失败保留 dirty 并展示错误。
+- **100%**。
+
+**DbWorkbench.tsx 接线**:
+- sqlBar 加「格式化」「历史」按钮;格式化走 `formatSql`,历史弹层(`loadHistory`/`clearHistory`/回填)。
+- `executeSql` 改多语句拆分(非 EXPLAIN 逐条执行)+ 执行后 `addHistory` 记录。
+
+**验证**:
+- sqlFormat 19 例 + sqlHistory 7 例 + DbDataGrid 43 例 + DbWorkbench 11 例;sqlFormat/sqlHistory/DbDataGrid 三文件合并 coverage 100%(语句/分支/函数/行)。
+- client-nav 全量 31 文件 / 533 例全绿。
+- `tsc -b tsconfig.json` + `tsconfig.host.json` EXIT 0。
+- tsdown bundle 成功(`lib/client.js`/`style.css`/`client.js.map`;CSS 经 lightningcss 内联进 client.js 运行时注入 `<style>`);`pnpm --filter @deepseek-ai/starhub-window build` + `scripts/build-window.mjs` 部署到 `dist-starhub-react/`;bundle 复制到 3086 运行时 `dsh-runtime-3086/.../lib/`。
+- commit + push 批次 5(commit `478000af`),未升版本号。
+- **批次 5 未迁移遗留**(可后续):Vue `DataGrid.vue` 的行复制到多表、DbSimpleGrid 的列宽拖拽、SQL 结果集虚拟滚动(现截 200 行)、`SqlEditor.vue` 的增删 tab。
+
 ---
 
 ## 4. 批次划分总表(剩余)
@@ -161,7 +189,7 @@ coverage: {
 | 2 | Redis 工作台 | ✅ 完成并发布 v0.84.0(含 redis 三文件 100% 覆盖 + 接线回归修复,见 §3.4) |
 | 3 | Elasticsearch 工作台 | ✅ 完成(2026-08-18,es-service + ElasticsearchWorkbench 两文件 100% 覆盖 + 接线回归修复,见 §3.5) |
 | 4 | DB 监控 Dashboard | ✅ 完成(2026-08-18,db-dashboard-service + DbDashboard 两文件 100% 覆盖 + DbWorkbench 右栏接线回归修复,见 §3.6) |
-| 5 | 结果网格 / SQL 编辑器补齐 | ❌ 未开始 |
+| 5 | 结果网格 / SQL 编辑器补齐 | ✅ 完成(2026-08-19,sqlFormat/sqlHistory/DbDataGrid 覆盖 + DbWorkbench 格式化/历史/多语句拆分接线,见 §3.7) |
 | 6 | SSH 高级(分屏/广播/危险命令)+ Web 浏览器 | ❌ 未开始 |
 | AI | 工作台右栏内嵌 AI 聊天面板(真·复用会话) | ❌ 未开始(可行性结论见 §9) |
 
@@ -199,11 +227,15 @@ Redis 后端命令(已授权,`src-tauri/permissions/commands.toml`):`db_redis_co
 
 ## 8. 批次 5 — 网格 / SQL 编辑器补齐
 
+> **✅ 已完成(2026-08-19)**:单元格编辑(批量 UPDATE)、行复制为 INSERT、CSV 导出、列筛选、SQL 格式化、查询历史、多语句拆分已 React 化(见 §3.7)。以下为历史上下文与**仍遗留**明细。
+
 Vue `src/components/db/DataGrid.vue` 与 `SqlEditor.vue`、`src/utils/sqlHistory.ts` 中 React 尚未具备的:
 - 结果网格:单元格编辑(dirty→批量 UPDATE)、行复制为 INSERT、CSV 导出、列过滤、SQL 结果集导出 + 虚拟滚动(React 只有表数据虚拟滚动,SQL 结果截 200 行)。
 - SQL 编辑器:格式化、查询历史(sqlHistory)、多语句拆分。
 
 后端命令已授权:`db_mysql_insert_row/update_rows/delete_rows/get_table_data/export_data` 等(commands.toml 已列)。
+
+**遗留(本批未做,可后续)**:`DataGrid.vue` 的行多选/多行操作、`DbSimpleGrid` 列宽拖拽、SQL 结果集虚拟滚动(现截 200 行)、`SqlEditor.vue` 的多编辑 tab。
 
 ---
 
@@ -238,8 +270,8 @@ Vue `src/components/db/DataGrid.vue` 与 `SqlEditor.vue`、`src/utils/sqlHistory
 1. ✅ ~~先跑一次 `git status` 确认工作区~~(批次 0+1 已全部完成)。
 2. ✅ ~~补完 `DockerWorkbench.tsx` 覆盖率 → 跑全套验证 → bundle → 部署 3086~~(批次 1 已交付,见 §3.2/§3.3)。
 3. ✅ ~~批次 2(Redis):redis-service / RedisValueEditor / RedisWorkbench 三文件 100% 覆盖 → 全量验证 → bundle → commit+push+升版 v0.84.0+tag~~(已交付并发布,见 §3.4)。
-4. **注意**:`sql-editor`/`db-workbench` 两套测试为**既有 pre-existing 失败**(CodeMirror 重复模块/`@codemirror/state` 多个实例,已在干净 HEAD 复现),与 Redis 批次无关;新批次验证时勿误判为自身回归,也不要把这两套的「红」算进本批交付。
-5. 再逐块做 §6-§9(每块:源码 → 接线 → 100% 覆盖测试 → 类型/全量/bundle → 部署),批次 2 已发布的 v0.84.0 之后,后续每块视版本规则各自决定是否再升版。
-6. 全部完成后再一次性 commit + 升版(§10.5)。
+4. ~~**注意**:`sql-editor`/`db-workbench` 曾为既有 pre-existing 失败(CodeMirror 重复模块)~~ —— 批次 5 全量 533 例已全绿,含 sql-editor/db-workbench,不再计红。
+5. 再逐块做 §7/§9(每块:源码 → 接线 → 100% 覆盖测试 → 类型/全量/bundle → 部署),批次 2 已发布的 v0.84.0 之后,后续每块视版本规则各自决定是否再升版。
+6. 全部完成后再一次性 commit + 升版(§10.5)。(批次 5 已按 §10.5 攒批约定单独 commit `478000af`,未升版)
 
 *供交接,勿把本文件当最终路线图——以实际的 `NATIVE_ROUTE_NAMES`/`openAssetPage` 分派为准。*
