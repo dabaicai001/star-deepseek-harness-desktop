@@ -33,6 +33,19 @@
 
 .contentGrid { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; gap: 10px; padding: 10px; }
 
+.rightTabs { display: flex; gap: 2px; border-bottom: 1px solid var(--dsw-alias-border-l2); flex: none; }
+.rightTab, .rightTabActive {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  color: var(--dsw-alias-label-secondary);
+}
+.rightTabActive { color: var(--dsw-accent); border-bottom-color: var(--dsw-accent); }
+
 .sqlPane { display: flex; flex-direction: column; gap: 4px; flex: none; max-height: 260px; min-height: 120px; }
 .sqlBar { display: flex; align-items: center; gap: 10px; }
 .sqlLabel { font-weight: 600; color: var(--dsw-alias-label-primary); font-size: 12px; }

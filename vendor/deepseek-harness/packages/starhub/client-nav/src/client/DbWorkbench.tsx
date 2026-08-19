@@ -25,6 +25,7 @@ import { SqlEditor, type SqlCompletionSchema } from './SqlEditor.tsx'
 import { ContextMenu, useContextMenu } from './ContextMenu.tsx'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import { NewTableDialog, ColumnListDialog, IndexListDialog } from './DbTableDialogs.tsx'
+import { DbDashboard } from './dashboard/DbDashboard.tsx'
 import type { CreateTableDbType } from './ddlGenerator.ts'
 import { isTauriRuntime } from './settings/services.ts'
 import css from './DbWorkbench.module.css'
@@ -247,6 +248,8 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
   const connRef = useRef<string | null>(null)
   const [connected, setConnected] = useState(false)
   const setConn = useCallback((id: string) => { connRef.current = id; setConnected(true) }, [])
+  // 右栏 tab:sql(编辑器 + 数据网格) / dashboard(DB 监控指标)。
+  const [rightTab, setRightTab] = useState<'sql' | 'dashboard'>('sql')
 
   // DB 实体类型来自资产 config.dbType(sections.ts 同样判定);决定方言与表操作可用性。
   const dbType = typeof asset.config.dbType === 'string' ? asset.config.dbType : 'mysql'
@@ -538,42 +541,57 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
             </ul>
           </aside>
           <section className={css.contentGrid}>
-            {connected ? (
-              <div className={css.sqlPane}>
-                <div className={css.sqlBar}>
-                  <span className={css.sqlLabel}>SQL</span>
-                  <span className={css.hint}>Mod-Enter 执行 · Shift-Mod-e EXPLAIN · Tab 缩进</span>
-                  {sqlLoading && <span className={css.hint}>执行中…</span>}
-                </div>
-                <SqlEditor
-                  value={sql}
-                  onChange={setSql}
-                  dialect={dialect === 'postgresql' ? 'postgresql' : 'mysql'}
-                  onExecute={executeSql}
-                  schema={sqlSchema}
-                  placeholder="SELECT * FROM users WHERE …"
-                />
-                {sqlError !== null && <div className={css.error}>{sqlError}</div>}
-                {sqlResult !== null && sqlError === null && (
-                  <SqlQueryResultView result={sqlResult} connId={connRef.current ?? ''} />
-                )}
-              </div>
-            ) : (
-              <div className={css.placeholder}>连接数据库后将在此显示 SQL 编辑器</div>
-            )}
-            {selected === null ? (
-              <div className={css.placeholder}>选择左侧一个表查看数据(排序 / 分页 / NULL 高亮已就位)</div>
-            ) : (
-              <DbDataGrid
+            <div className={css.rightTabs}>
+              <button type="button" className={rightTab === 'sql' ? css.rightTabActive : css.rightTab} onClick={() => setRightTab('sql')}>SQL / 数据</button>
+              <button type="button" className={rightTab === 'dashboard' ? css.rightTabActive : css.rightTab} onClick={() => setRightTab('dashboard')}>监控</button>
+            </div>
+            {rightTab === 'dashboard' ? (
+              <DbDashboard
                 connId={connRef.current ?? ''}
-                table={selected.table}
-                {...(selected.database !== undefined ? { database: selected.database } : {})}
-                onExport={(orderBy, orderDir) =>
-                  void exportTableExcel(selected.table, selected.database, orderBy, orderDir)}
+                dbType={dbType}
+                connected={connected}
+                database={selected?.database}
               />
+            ) : (
+              <>
+                {connected ? (
+                  <div className={css.sqlPane}>
+                    <div className={css.sqlBar}>
+                      <span className={css.sqlLabel}>SQL</span>
+                      <span className={css.hint}>Mod-Enter 执行 · Shift-Mod-e EXPLAIN · Tab 缩进</span>
+                      {sqlLoading && <span className={css.hint}>执行中…</span>}
+                    </div>
+                    <SqlEditor
+                      value={sql}
+                      onChange={setSql}
+                      dialect={dialect === 'postgresql' ? 'postgresql' : 'mysql'}
+                      onExecute={executeSql}
+                      schema={sqlSchema}
+                      placeholder="SELECT * FROM users WHERE …"
+                    />
+                    {sqlError !== null && <div className={css.error}>{sqlError}</div>}
+                    {sqlResult !== null && sqlError === null && (
+                      <SqlQueryResultView result={sqlResult} connId={connRef.current ?? ''} />
+                    )}
+                  </div>
+                ) : (
+                  <div className={css.placeholder}>连接数据库后将在此显示 SQL 编辑器</div>
+                )}
+                {selected === null ? (
+                  <div className={css.placeholder}>选择左侧一个表查看数据(排序 / 分页 / NULL 高亮已就位)</div>
+                ) : (
+                  <DbDataGrid
+                    connId={connRef.current ?? ''}
+                    table={selected.table}
+                    {...(selected.database !== undefined ? { database: selected.database } : {})}
+                    onExport={(orderBy, orderDir) =>
+                      void exportTableExcel(selected.table, selected.database, orderBy, orderDir)}
+                  />
+                )}
+                {exporting && <div className={css.exportMsg}>正在导出 Excel…</div>}
+                {exportError !== null && !exporting && <div className={css.error}>{exportError}</div>}
+              </>
             )}
-            {exporting && <div className={css.exportMsg}>正在导出 Excel…</div>}
-            {exportError !== null && !exporting && <div className={css.error}>{exportError}</div>}
           </section>
         </div>
         {ddl !== null && (
