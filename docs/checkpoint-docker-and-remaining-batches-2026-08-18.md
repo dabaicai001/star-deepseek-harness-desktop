@@ -14,7 +14,8 @@
 - ✅ **批次 3(Elasticsearch 工作台)** :完成(2026-08-18,见 §3.5)。`es-service.ts` + `ElasticsearchWorkbench.tsx` 两文件 per-file 100% 覆盖,client-nav 416 例全绿,commit+push(未升版)。
 - ✅ **批次 4(DB 监控 Dashboard)** :完成(2026-08-18,见 §3.6)。`db-dashboard-service.ts` + `DbDashboard.tsx` 两文件 per-file 100% 覆盖,DbWorkbench 右栏加「SQL/数据」↔「监控」tab 渲染 React Dashboard,client-nav 464 例全绿,`starhub-window` build + `scripts/build-window.mjs` 部署到 `dist-starhub-react/`,commit+push(未升版)。
 - ✅ **批次 5(网格/SQL 编辑器补齐)** :完成(2026-08-19,见 §3.7)。`sqlFormat.ts`(formatSql/splitStatements)+ `sqlHistory.ts` 纯函数 + `DbDataGrid` 升级(CSV 导出 / 行复制 INSERT / 列筛选 / 单元格编辑→批量 UPDATE),三文件与相关接线 per-file 100% 覆盖,client-nav 全量 533 例全绿,tsc + tsconfig.host.json 净,tsdown bundle + starhub-window 构建并部署到 3086 + dist-starhub-react,commit `478000af`(未升版)。
-- ❌ 批次 6(SSH 高级分屏/广播/危险命令 + Web 浏览器)+ AI 面板:未开始,源文件与后端契约见 §7/§9。
+- ✅ **批次 6(SSH 命令广播 + Web 浏览器)**:完成(2026-08-19,用户指示「只做广播+web浏览器,剩下的不做了」,见 §3.8)。
+- ❌ AI 面板(工作台右栏内嵌真·会话聊天):未做(用户本轮未要求,可行性结论见 §9)。
 
 ---
 
@@ -179,6 +180,28 @@ coverage: {
 - commit + push 批次 5(commit `478000af`),未升版本号。
 - **批次 5 未迁移遗留**(可后续):Vue `DataGrid.vue` 的行复制到多表、DbSimpleGrid 的列宽拖拽、SQL 结果集虚拟滚动(现截 200 行)、`SqlEditor.vue` 的增删 tab。
 
+### 3.8 ✅ 批次 6(SSH 命令广播 + Web 浏览器)已完成(2026-08-19)
+
+> **用户指示「只做广播+web浏览器,剩下的不做了」**——本批仅交付 SSH 命令广播 与 Web 浏览器;分屏/危险命令拦截、AI 面板不做。`BroadcastDialog`/`WebBrowser`/`web-browser-utils` 三文件 per-file 100% 覆盖 + 接线回归 + 类型/构建验证 + 部署,commit(见 §10.5)。
+
+**新增源码(`client-nav/src/client/terminal/`)**:
+- `BroadcastDialog.tsx` —— 命令广播弹层(从 Vue `BroadcastDialog.vue` 移植):会话多选(全选/全不选/单项切换)+ 命令输入(Enter 提交 / Escape 取消)+ 空命令/空选中禁用、无会话渲染 null、backdrop 关闭。**100%**。
+- `web-browser-utils.ts` —— `normalizeUrl`(自动补 https/补端口/非法容错)、`proxyToOriginal`(网关代理 URL 还原)、`buildProxyUrl`(代理 URL 构造)。**100%**。
+- `WebBrowser.tsx` —— 内嵌 Web 浏览器(从 Vue `WebBrowserView.vue` 移植核心):地址栏规范化导航、网关幂等启动(`ssh_start_web_gateway`)+ 端口校验重启(`ssh_web_gateway_port`)、back/forward/reload 经 postMessage 驱动网关桥接脚本、`navigated` 上报回写地址栏(含 origin/source 归属校验)、卸载停网关(`ssh_stop_web_gateway`)、错误/无效地址提示。**100%**。
+
+**接线(`SshTerminalOverlay.tsx`)**:
+- header 加「广播」按钮 → `ssh_get_sessions` 拉已连接会话 → `BroadcastDialog` → `ssh_write` 逐会话发 `command\n`(逐会话容错 + 成功/失败计数提示)。
+- tabs 加「网页」tab → 渲染 `<WebBrowser sessionId/assetName>`(复用同一 SSH 会话的 Web 网关)。
+- 新 CSS:`SshTerminalOverlay.module.css`(headRight/broadcastBtn/notice/webHost)。
+
+**验证**:
+- BroadcastDialog 9 例 + web-browser-utils 8 例 + WebBrowser 14 例 + ssh-terminal-overlay 7 例(新增广播/网页 tab 用例);三文件合并 coverage 100%(语句/分支/函数/行)。
+- client-nav 全量 34 文件 / 578 例全绿。
+- `tsc -b tsconfig.json` + `tsconfig.host.json` EXIT 0;`pnpm --filter @deepseek-ai/starhub-window build` + `scripts/build-window.mjs` 部署到 `dist-starhub-react/`(工作台组件走独立窗口 `/starhub-react`,不用 client-nav `lib/client.js`)。
+- client-nav `lib/client.js` 不含工作台组件(batch-4 已知),批量-6 代码随 starhub-window dist 落地。
+- commit + push 批次 6,未升版本号。
+- **批次 6 未做(用户明确不做)**:SSH 分屏、危险命令拦截、AI 面板。
+
 ---
 
 ## 4. 批次划分总表(剩余)
@@ -190,7 +213,7 @@ coverage: {
 | 3 | Elasticsearch 工作台 | ✅ 完成(2026-08-18,es-service + ElasticsearchWorkbench 两文件 100% 覆盖 + 接线回归修复,见 §3.5) |
 | 4 | DB 监控 Dashboard | ✅ 完成(2026-08-18,db-dashboard-service + DbDashboard 两文件 100% 覆盖 + DbWorkbench 右栏接线回归修复,见 §3.6) |
 | 5 | 结果网格 / SQL 编辑器补齐 | ✅ 完成(2026-08-19,sqlFormat/sqlHistory/DbDataGrid 覆盖 + DbWorkbench 格式化/历史/多语句拆分接线,见 §3.7) |
-| 6 | SSH 高级(分屏/广播/危险命令)+ Web 浏览器 | ❌ 未开始 |
+| 6 | SSH 高级(分屏/广播/危险命令)+ Web 浏览器 | ✅ 完成(2026-08-19,**仅广播 + Web 浏览器**,用户指示不做分屏/危险命令;BroadcastDialog + WebBrowser + web-browser-utils 100% 覆盖 + SshTerminalOverlay 接线,见 §3.8) |
 | AI | 工作台右栏内嵌 AI 聊天面板(真·复用会话) | ❌ 未开始(可行性结论见 §9) |
 
 ---

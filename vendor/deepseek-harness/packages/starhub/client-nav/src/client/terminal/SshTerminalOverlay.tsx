@@ -21,6 +21,8 @@ import '@xterm/xterm/css/xterm.css'
 import { tauriInvoke, tauriListen, type TauriUnlisten } from '../tauri.ts'
 import type { RustAsset } from '../store.ts'
 import { SftpPanel } from './SftpPanel.tsx'
+import { BroadcastDialog, type BroadcastSession } from './BroadcastDialog.tsx'
+import { WebBrowser } from './WebBrowser.tsx'
 import {
   OSC7_INJECT_COMMAND, OSC7_INJECT_ECHO_TEXT, createCwdTracker, createHiddenEchoFilter, isShellPromptLine, parsePwdOutput,
 } from './terminal-cwd.ts'
@@ -32,7 +34,7 @@ export interface SshTerminalOverlayProps {
   onClose: () => void
 }
 
-type OverlayTab = 'terminal' | 'sftp'
+type OverlayTab = 'terminal' | 'sftp' | 'web'
 
 /**
  * Build the Rust `SshAuth` variant from an asset config, mirroring the Vue
@@ -67,6 +69,9 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
   const [connected, setConnected] = useState(false)
   const [tab, setTab] = useState<OverlayTab>('terminal')
   const [sshCwd, setSshCwd] = useState('')
+  // 命令广播(需求 6 broadcast 子集):弹层会话列表 + 发送结果提示。
+  const [broadcastSessions, setBroadcastSessions] = useState<BroadcastSession[] | null>(null)
+  const [broadcastNotice, setBroadcastNotice] = useState<string | null>(null)
 
   const sessionId = asset.id
   // cwd / injection state shared between the effect and the follow callback.
@@ -221,6 +226,46 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asset])
 
+  /** 打开广播弹层:拉取所有已连接的 SSH 会话作为目标列表。 */
+  const openBroadcast = async (): Promise<void> => {
+    setBroadcastNotice(null)
+    try {
+      const infos = await tauriInvoke<Array<{ id: string; host?: string; port?: number; username?: string; connected?: boolean }>>('ssh_get_sessions')
+      const sessions: BroadcastSession[] = (infos ?? [])
+        .filter((s) => s.connected === true)
+        .map((s) => {
+          const endpoint = `${s.username ?? ''}@${s.host ?? ''}:${s.port ?? 22}`
+          return { sessionId: s.id, title: s.id, host: endpoint }
+        })
+      if (sessions.length === 0) {
+        setBroadcastNotice('没有已连接的会话可用于广播')
+        return
+      }
+      setBroadcastSessions(sessions)
+    } catch (e) {
+      setBroadcastNotice(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /** 关闭广播弹层。 */
+  const closeBroadcast = (): void => setBroadcastSessions(null)
+
+  /** 把命令写入每个选中的会话(逐会话容错;提示成功/失败计数)。 */
+  const sendBroadcast = async (command: string, sessionIds: string[]): Promise<void> => {
+    let failed = 0
+    for (const sid of sessionIds) {
+      try {
+        await tauriInvoke('ssh_write', { id: sid, data: `${command}\n` })
+      } catch {
+        failed += 1
+      }
+    }
+    closeBroadcast()
+    setBroadcastNotice(failed === 0
+      ? `已广播到 ${sessionIds.length} 个会话`
+      : `广播完成,${failed} 个会话发送失败`)
+  }
+
   return (
     <div className={css.backdrop}>
       <section className={css.panel} aria-label={`SSH 终端 ${asset.name}`}>
@@ -238,13 +283,34 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
                 className={tab === 'sftp' ? css.tabActive : ''}
                 onClick={() => setTab('sftp')}
               >文件 (SFTP){connected ? '' : ' · 未连接'}</button>
+              <button
+                type="button"
+                className={tab === 'web' ? css.tabActive : ''}
+                onClick={() => setTab('web')}
+                title="经 SSH 网关访问网页"
+              >网页</button>
             </nav>
           </div>
-          <button type="button" onClick={onClose}>关闭</button>
+          <div className={css.headRight}>
+            <button
+              type="button"
+              className={css.broadcastBtn}
+              onClick={() => void openBroadcast()}
+              title="命令广播:把同一命令发送到多个已连接 SSH 会话"
+            >广播</button>
+            <button type="button" onClick={onClose}>关闭</button>
+          </div>
         </header>
         {error !== null && <div className={css.error}>{error}</div>}
+        {broadcastNotice !== null && (
+          <div className={css.notice} role="status">{broadcastNotice}<button type="button" className={css.noticeClose} onClick={() => setBroadcastNotice(null)}>×</button></div>
+        )}
         {tab === 'terminal' ? (
           <div ref={host} className={css.terminal} />
+        ) : tab === 'web' ? (
+          <div className={css.webHost}>
+            <WebBrowser sessionId={sessionId} assetName={asset.name} />
+          </div>
         ) : (
           <div className={css.sftpHost}>
             <SftpPanel
@@ -257,6 +323,13 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
           </div>
         )}
       </section>
+      {broadcastSessions !== null && (
+        <BroadcastDialog
+          sessions={broadcastSessions}
+          onSubmit={({ command, sessionIds }) => void sendBroadcast(command, sessionIds)}
+          onClose={closeBroadcast}
+        />
+      )}
     </div>
   )
 }
