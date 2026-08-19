@@ -28,6 +28,8 @@ import { NewTableDialog, ColumnListDialog, IndexListDialog } from './DbTableDial
 import { DbDashboard } from './dashboard/DbDashboard.tsx'
 import type { CreateTableDbType } from './ddlGenerator.ts'
 import { isTauriRuntime } from './settings/services.ts'
+import { formatSql, splitStatements } from './sqlFormat.ts'
+import { addHistory, clearHistory, loadHistory, type SqlHistoryEntry } from './sqlHistory.ts'
 import css from './DbWorkbench.module.css'
 
 /** db_mysql_execute 的返回(与 QueryResult 同构;SQL 执行结果复用)。 */
@@ -232,6 +234,9 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
   const [sqlResult, setSqlResult] = useState<SqlQueryResult | null>(null)
   const [sqlLoading, setSqlLoading] = useState(false)
   const [sqlError, setSqlError] = useState<string | null>(null)
+  // 查询历史(批次 5):弹层开关 + 当前加载的条目。
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyEntries, setHistoryEntries] = useState<SqlHistoryEntry[]>([])
   // 表操作弹层(批次 4a):查看 DDL / 确认删除 / 清空。
   const [ddl, setDdl] = useState<{ table: string; content: string; loading?: boolean } | null>(null)
   // 批次 4b 对话框:新建表(按库) / 编辑列 / 索引(按表)。
@@ -332,6 +337,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
   }, [])
 
   // SQL 执行(Mod-Enter 执行 / Shift-Mod-e EXPLAIN):调 db_mysql_execute / explain。
+  // 批次 5:多语句拆分——非 EXPLAIN 时按分号拆多条逐条执行,记录查询历史。
   const executeSql = useCallback(async (statement: string, explain: boolean) => {
     const id = connRef.current
     if (id === null) {
@@ -343,15 +349,48 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     setSqlError(null)
     try {
       const cmd = explain ? 'db_mysql_explain' : 'db_mysql_execute'
-      const res = await tauriInvoke<SqlQueryResult>(cmd, { connId: id, sql: statement })
-      setSqlResult(res)
-      if (res.error !== undefined && res.error !== '') setSqlError(res.error)
+      const statements = explain ? [statement] : splitStatements(statement)
+      let last: SqlQueryResult | null = null
+      for (const stmt of statements) {
+        const res = await tauriInvoke<SqlQueryResult>(cmd, { connId: id, sql: stmt })
+        last = res
+        if (res.error !== undefined && res.error !== '') {
+          setSqlError(res.error)
+          break
+        }
+      }
+      if (last !== null) setSqlResult(last)
+      // 执行过的原文记入历史(与 Vue 一致:即使出错也记录尝试)。
+      addHistory(statement, selected?.database ?? '')
     } catch (e) {
       setSqlError(e instanceof Error ? e.message : String(e))
     } finally {
       setSqlLoading(false)
     }
-  }, [])
+  }, [selected?.database])
+
+  /** 查询历史弹层:打开时刷新条目;再次点击关闭。 */
+  const toggleHistory = (): void => {
+    if (!historyOpen) setHistoryEntries(loadHistory())
+    setHistoryOpen((open) => !open)
+  }
+
+  /** 点历史条目 → 回填到 SQL 编辑器并收起弹层。 */
+  const useHistoryEntry = (entry: SqlHistoryEntry): void => {
+    setSql(entry.sql)
+    setHistoryOpen(false)
+  }
+
+  /** 清空查询历史。 */
+  const clearSqlHistory = (): void => {
+    clearHistory()
+    setHistoryEntries([])
+  }
+
+  /** 格式化当前 SQL(纯函数;按钮触发)。 */
+  const formatCurrentSql = (): void => {
+    setSql(formatSql(sql))
+  }
 
   /** 查看表 DDL(get_table_ddl → 弹层)。 */
   const showTableDdl = useCallback(async (table: string, database?: string) => {
@@ -560,7 +599,37 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
                       <span className={css.sqlLabel}>SQL</span>
                       <span className={css.hint}>Mod-Enter 执行 · Shift-Mod-e EXPLAIN · Tab 缩进</span>
                       {sqlLoading && <span className={css.hint}>执行中…</span>}
+                      <span className={css.spacer} />
+                      <button type="button" className={css.sqlBarBtn} onClick={formatCurrentSql} title="格式化 SQL">格式化</button>
+                      <button type="button" className={`${css.sqlBarBtn} ${historyOpen ? css.sqlBarBtnActive : ''}`} onClick={toggleHistory} title="查询历史">历史</button>
                     </div>
+                    {historyOpen && (
+                      <div className={css.historyPanel}>
+                        <div className={css.historyHeader}>
+                          <span className={css.hint}>查询历史</span>
+                          <span className={css.spacer} />
+                          <button type="button" className={css.sqlBarBtn} onClick={clearSqlHistory}>清除</button>
+                        </div>
+                        <div className={css.historyList}>
+                          {historyEntries.length === 0 ? (
+                            <div className={css.hint}>暂无历史</div>
+                          ) : (
+                            historyEntries.map((entry, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                className={css.historyItem}
+                                onClick={() => useHistoryEntry(entry)}
+                                title={`${entry.db !== '' ? `[${entry.db}] ` : ''}${entry.sql}`}
+                              >
+                                <span className={css.historySql}>{entry.sql}</span>
+                                <span className={css.hint}>{(new Date(entry.time)).toLocaleTimeString()}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
                     <SqlEditor
                       value={sql}
                       onChange={setSql}
