@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.85.2(**修复 dsh AI 域工具执行超时与无法停止(方案1:域工具改在 Rust 主进程内直接执行)**:`ssh_exec` 等域工具此前经 `dsh://tool-exec` 转发前端 webview 面板执行,前端窗口关闭/审批卡住 → 180s 后报「前端执行超时或窗口已关闭」,且停止生成只杀 dsh 进程、无法中断前端面板里在跑的命令。本次把 ssh_exec / ssh_exec_background / ssh_wait_task / sftp_* / db_query / redis_exec / es_* / docker_* 全部迁到 Rust 主进程直接执行(新增 `src-tauri/src/harness/domain.rs`;SSH 复用 SshManager 会话 + exec_id 可中断,DB/Redis/ES/Docker 经 SidecarManager 直连);`tools.rs` 新增 `IN_PROCESS_TOOLS`(excel_*/mcp_*/skill_save 因前端状态依赖仍转发);`HostBridgeState.inflight_tools` 取消注册表 + `drain()` 逐个 abort 在途执行 —— 停止生成现在能真正中断命令。`cargo check` 通过;新增 domain 纯函数单测(本机因提交内存不足未跑完 `cargo test`,待 CI 验证)) |
+| 当前版本 | v0.85.4(修复已迁移域工具的回写单测仍等待旧前端回调而卡住，并在 Linux CI 的 Tauri 后端测试前构建 `dist-starhub-react` 资源) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-19 (v0.85.2)*
+*最后更新: 2026-08-19 (v0.85.4)*

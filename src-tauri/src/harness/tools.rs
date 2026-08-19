@@ -1419,10 +1419,13 @@ mod tests {
 
     // ---------- 联动 M4:AI 动作回写(origin=ai 领域事件 + recentExecs) ----------
 
-    /// 域工具成功后:广播 `starhub://domain-event`(origin=ai,assetId 来自会话绑定),
+    /// 前端桥接工具成功后:广播 `starhub://domain-event`(origin=ai,assetId 来自会话绑定),
     /// recentExecs 缓存写入(输出尾部 ≤2KB);notify dsh 无 runtime 时静默跳过。
+    ///
+    /// ssh_exec 已迁移到 Rust 进程内执行,在无 Tauri AppHandle 的单测中不能等待
+    /// 旧的 `dsh://tool-exec` 回调。skill_save 仍走前端桥接,可稳定覆盖成功回写路径。
     #[tokio::test]
-    async fn domain_tool_success_generates_ai_domain_event_and_recent_exec() {
+    async fn forwarded_tool_success_generates_ai_domain_event_and_recent_exec() {
         let (emit_tx, mut emit_rx) = mpsc::channel::<(String, serde_json::Value)>(10);
         let bridge = Arc::new(HostBridgeState::new(Arc::new(move |event, payload| {
             let _ = emit_tx.try_send((event.to_string(), payload));
@@ -1436,8 +1439,8 @@ mod tests {
                     "starhub/tool.execute",
                     serde_json::json!({
                         "sessionId": "sess-1",
-                        "name": "ssh_exec",
-                        "args": { "command": "ls -la" },
+                        "name": "skill_save",
+                        "args": { "name": "my-skill", "prompt": "..." },
                     }),
                     bridge,
                 )
@@ -1445,38 +1448,38 @@ mod tests {
             }
         });
         let (_event, payload) = emit_rx.recv().await.expect("应收到 dsh://tool-exec 事件");
-        assert_eq!(payload["name"], "ssh_exec");
+        assert_eq!(payload["name"], "skill_save");
         let request_id = payload["requestId"]
             .as_str()
             .expect("requestId")
             .to_string();
         bridge
-            .resolve_tool_exec(&request_id, true, "total 0\n-rw-r--r-- 1 u u 0 f".to_string())
+            .resolve_tool_exec(&request_id, true, "已保存 Skill".to_string())
             .await;
         let result = handle
             .await
             .expect("桥执行完成")
             .expect("应答 ok=true 应返回文本");
-        assert_eq!(result, "total 0\n-rw-r--r-- 1 u u 0 f");
+        assert_eq!(result, "已保存 Skill");
 
         // 随后应收到 starhub://domain-event 广播
         let (event, payload) = emit_rx.recv().await.expect("应收到 domain-event 广播");
         assert_eq!(event, "starhub://domain-event");
         assert_eq!(payload["origin"], "ai");
         assert_eq!(payload["assetId"], "a1");
-        assert_eq!(payload["kind"], "ssh.exec_completed");
+        assert_eq!(payload["kind"], "tool.executed");
         assert!(payload["summary"]
             .as_str()
             .expect("summary")
-            .starts_with("ssh_exec: ls -la"));
+            .starts_with("skill_save"));
         assert!(payload["ts"].as_i64().expect("ts") > 0);
 
         // recentExecs 已缓存(每资产一条,tail 为输出尾部)
         let recents = bridge.recent_execs();
         assert_eq!(recents.len(), 1);
         assert_eq!(recents[0].asset_id, "a1");
-        assert_eq!(recents[0].tool_name, "ssh_exec");
-        assert_eq!(recents[0].tail, "total 0\n-rw-r--r-- 1 u u 0 f");
+        assert_eq!(recents[0].tool_name, "skill_save");
+        assert_eq!(recents[0].tail, "已保存 Skill");
         assert!(recents[0].ts > 0);
     }
 
