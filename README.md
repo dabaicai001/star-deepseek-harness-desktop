@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.85.6-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.85.7-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -109,14 +109,15 @@
 
 ## 当前版本
 
+### v0.85.7 (2026-08-19)
+- 🐛 修复会话权限被派生成不存在的 "custom" 状态：`starhub-approval-bridge` 不再覆写 permission-presets 已钉入的审批策略，新会话权限始终为 read-only / workspace-write / danger-full-access 之一。
+- 🐛 修复 ssh 等域工具未绑定资产时报错无引导：错误提示补充「先 `starhub_list_assets` 查看资产，再 `open_connection` / `focus_terminal` 绑定会话」的操作指引。
+
 ### v0.85.6 (2026-08-19)
 - 🐛 修复 GitHub tag 构建失败：查询结果格式化字符串值不再带 JSON 引号（`name="alice"` → `name=alice`），与前端 `formatValue` 对齐。
 
 ### v0.85.5 (2026-08-19)
 - 🐛 修复两条域工具事件单测仍等待已迁移 `db_query` / `ssh_exec` 的旧前端回调而卡住，改用仍桥接的 `skill_save`。
-
-### v0.85.4 (2026-08-19)
-- 🐛 修复域工具成功回写单测仍等待已迁移的 `ssh_exec` 前端回调而卡住；改用仍桥接的 `skill_save` 覆盖回写路径，并在 Linux CI 的 Tauri 后端测试前构建 `dist-starhub-react` 资源，避免资源校验失败。
 
 ---
 

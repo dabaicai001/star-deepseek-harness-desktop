@@ -14,6 +14,12 @@
 
 ---
 
+## [0.85.7] - 2026-08-19
+
+### 修复
+- **修复会话权限被派生成不存在的 "custom" 状态(「默认权限是 Custom,三个预设里没有它」)**:`starhub-approval-bridge` 在 `session/created` 时无条件按 settings 的 `permission.defaultPreset` 覆写会话 approval 策略,与 `permission-presets` 已按 preset 整体钉入的 sandbox + approval 冲突(如 `workspace-write + never` 不匹配任何 preset),dsh 内核据此派生出占位状态 `custom`(仅两个会话复现:workspace-write + never)。修复:`session/created` 只填空缺——会话已有 approval 时保持钉入结果,新会话权限始终落在 read-only / workspace-write / danger-full-access 三者之一。
+- **修复 ssh 等域工具未绑定资产时报错无引导**:`domain.rs` 未绑定资产错误信息补充操作指引(先 `starhub_list_assets` 查看资产,再 `open_connection` / `focus_terminal` 打开目标资产绑定会话后重试),让模型能自行纠正「@资产 你能访问吗」这类首轮直接调 ssh_exec 的失败。
+
 ## [0.85.6] - 2026-08-19
 
 ### 修复
