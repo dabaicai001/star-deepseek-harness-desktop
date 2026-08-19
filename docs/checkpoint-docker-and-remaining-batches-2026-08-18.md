@@ -11,7 +11,9 @@
 - ✅ **批次 0(Redis/ES 误路由)** :完成并验证(client-nav 264→312 例全绿)。
 - ✅ **批次 1(Docker 全线)** :完成。源码 + 接线 + 测试全部就绪;**docker 目录三文件(`docker-service.ts` / `DockerWorkbench.tsx` / `DockerExecTerminal.tsx`)per-file 100% 覆盖(语句/分支/函数/行)**,client-nav 全量 312 例通过,类型(tsc -b + tsconfig.host.json)与 bundle 构建均通过,已部署到 3086 测试实例。
 - ✅ **批次 2(Redis 工作台)** :完成并发布(v0.84.0)。`redis-service.ts` / `RedisValueEditor.tsx` / `RedisWorkbench.tsx` 三文件 per-file 100% 覆盖(语句/分支/函数/行),61 例全绿;`db-redis` 纳入 `NATIVE_ROUTE_NAMES` + `openAssetPage`/`store`/`StarHubOverlay` 接线;更新 apply/shell-state/nav-overlay 规格(redis→native,ES 维持 Vue embed);`tsc -b tsconfig.json` + `tsconfig.host.json` 净;tsdown bundle 重建成功。已 commit + push + 升 v0.84.0 + tag(批次 2 发布)。详见 §3.4。
-- ❌ 批次 3-6 + AI 面板:未开始,源文件与后端契约见 §5-§9。
+- ✅ **批次 3(Elasticsearch 工作台)** :完成(2026-08-18,见 §3.5)。`es-service.ts` + `ElasticsearchWorkbench.tsx` 两文件 per-file 100% 覆盖,client-nav 416 例全绿,commit+push(未升版)。
+- ✅ **批次 4(DB 监控 Dashboard)** :完成(2026-08-18,见 §3.6)。`db-dashboard-service.ts` + `DbDashboard.tsx` 两文件 per-file 100% 覆盖,DbWorkbench 右栏加「SQL/数据」↔「监控」tab 渲染 React Dashboard,client-nav 464 例全绿,`starhub-window` build + `scripts/build-window.mjs` 部署到 `dist-starhub-react/`,commit+push(未升版)。
+- ❌ 批次 5-6 + AI 面板:未开始,源文件与后端契约见 §8-§9。
 
 ---
 
@@ -132,6 +134,23 @@ coverage: {
 - `pnpm --filter @deepseek-ai/starhub-window build` EXIT 0,ES 入口可构建。
 - commit + push 批次 3,未升版本号。
 
+### 3.6 ✅ 批次 4(DB 监控 Dashboard)已完成(2026-08-18)
+
+> 完成 DB 监控 Dashboard React 化,嵌进 DbWorkbench 右栏 tab(不落地 Vue embed)。三文件 per-file 100% 覆盖 + 接线回归 + 类型/构建验证,commit+push(不升版,攒批最后统一升)。
+
+**交付内容**:
+- `client-nav/src/client/dashboard/db-dashboard-service.ts` —— `db_mysql_execute`/`db_redis_info`/`db_redis_db_size` 命令封装 + MySQL/PG/Redis 指标 SQL 常量(MYSQL_STATUS/VARIABLES/PROCESSLIST/SLOW_LOG/DIGEST、PG_SUMMARY/SESSIONS/STATEMENTS),自 `src/utils/dbMetrics.ts` 迁移的纯解析函数(parseRedisInfo/parseMysqlMetrics/parsePostgresMetrics/parseMysqlProcessDetails/parseMysqlSlowQueryDetails/rowsToDict/queryRowsToRecords/mysqlClientIp/detailRecords 等)。**100%**。
+- `client-nav/src/client/dashboard/DbDashboard.tsx` —— DB 监控仪表盘:连接生命周期、概览/性能/网络 tab(dashboardTabs 依 dbType)、指标卡(复用 broker/DashboardCard)+ 连接会话/慢语句明细表;Redis INFO+db_size、MySQL SHOW STATUS/VARIABLES/PROCESSLIST/慢日志(慢日志失败回退 performance_schema digest)、PG 概览/pg_stat_activity/pg_stat_statements(扩展失败回退当前活跃超 1s 会话);刷新、错误态、未连接/不支持类型空态;**导出 `dashboardTabs`/`dbTypeName`/`mysqlConnUsage`/`postgresConnUsage`/`mysqlDataRatio` 纯函数**。**100%**。
+- 接线:`DbWorkbench.tsx` 右栏改 tab 系统(「SQL/数据」↔「监控」),在监控 tab 渲染 `<DbDashboard connId/dbType/connected/database>`;新增 `DbWorkbench.module.css`(rightTabs/rightTab/rightTabActive,用 `--dsw-alias-*` token)。CSS 走 Vite 管线(starhub-window 源别名),不在 client-nav lib bundle。
+
+**验证**:
+- dashboard 三文件合并 coverage 100%(语句/分支/函数/行);db-dashboard-service 28 例 + db-dashboard 20 例全过(48 例)。
+- 顺带修复 `loadPostgres` 慢语句回退 bug:原用闭包里陈旧的 `postgresSessions` 状态(异步未生效恒空),改用本次拉取的 `sessionRows` 作回退源。
+- `tsc -b tsconfig.json` + `tsconfig.host.json` EXIT 0;`pnpm --filter @deepseek-ai/starhub-window build` EXIT 0。
+- client-nav 全量 29 文件 / 464 例全绿(含 DbWorkbench / 接线回归)。
+- 部署:dashboard 走**独立窗口**(`/starhub-react`,DbWorkbench→DbDashboard),由 `scripts/build-window.mjs` 把 `apps/starhub-window/dist` 复制到 repo 根 `dist-starhub-react/`(host-static `resolveWindowDistRoot` 的回落目录);不用 client-nav `lib/client.js`(壳导航 bundle 不含工作台组件)。
+- commit + push 批次 4(commit `d4e71d86`),未升版本号。
+
 ---
 
 ## 4. 批次划分总表(剩余)
@@ -141,7 +160,7 @@ coverage: {
 | 1 | Docker 全线 | ✅ 完成(含 docker 三文件 100% 覆盖 + 接线回归修复,见 §3) |
 | 2 | Redis 工作台 | ✅ 完成并发布 v0.84.0(含 redis 三文件 100% 覆盖 + 接线回归修复,见 §3.4) |
 | 3 | Elasticsearch 工作台 | ✅ 完成(2026-08-18,es-service + ElasticsearchWorkbench 两文件 100% 覆盖 + 接线回归修复,见 §3.5) |
-| 4 | DB 监控 Dashboard | ❌ 未开始 |
+| 4 | DB 监控 Dashboard | ✅ 完成(2026-08-18,db-dashboard-service + DbDashboard 两文件 100% 覆盖 + DbWorkbench 右栏接线回归修复,见 §3.6) |
 | 5 | 结果网格 / SQL 编辑器补齐 | ❌ 未开始 |
 | 6 | SSH 高级(分屏/广播/危险命令)+ Web 浏览器 | ❌ 未开始 |
 | AI | 工作台右栏内嵌 AI 聊天面板(真·复用会话) | ❌ 未开始(可行性结论见 §9) |
@@ -172,7 +191,9 @@ Redis 后端命令(已授权,`src-tauri/permissions/commands.toml`):`db_redis_co
 
 ## 7. 批次 4 — DB 监控 Dashboard
 
-`src/components/dashboard/DbDashboard.vue` + `src/utils/dbMetrics.ts`(MySQL `SHOW PROCESSLIST`、PG `pg_stat_activity`、慢查询、性能/网络图、Redis INFO)。**React DbWorkbench 右栏现在是空占位**,把这块填进去(做成右栏 tab 或独立区)。复用既有 `db_mysql_execute` 等命令跑原生 SQL 取指标。
+> **✅ 已完成(2026-08-18)**:DB 监控 Dashboard 已 React 化并嵌进 DbWorkbench 右栏 tab(见 §3.6)。以下为历史上下文。
+
+`src/components/dashboard/DbDashboard.vue` + `src/utils/dbMetrics.ts`(MySQL `SHOW PROCESSLIST`、PG `pg_stat_activity`、慢查询、性能/网络图、Redis INFO)。**原 React DbWorkbench 右栏是空占位**;现已在右栏加「SQL/数据」↔「监控」双 tab,监控 tab 渲染 React `<DbDashboard>`(见 §3.6),复用既有 `db_mysql_execute`/`db_redis_info`/`db_redis_db_size` 命令跑原生 SQL 取指标,不再回落 Vue embed。
 
 ---
 
