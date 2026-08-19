@@ -7,6 +7,9 @@ dsh 权限 preset(`settings.yaml` 的 `permission.defaultPreset`,dsh web GUI
 
 - **preset 消费**:`session/created` 时读取 `permission.defaultPreset`,把会话
   审批策略固定为 `ask`/`never`(`danger-full-access` → `never`,其余 → `ask`)。
+  只填空缺:permission-presets 已按 preset 整体钉入 sandbox + approval 的会话
+  不再覆写(无条件覆写会与钉入 preset 冲突,如 `workspace-write + never` 不匹配
+  任何 preset,派生出不存在的 `custom` 权限状态)。
   StarHub 不再有自有命令白名单,也不维护策略表。
 - **风险门(防误删核心)**:`tools/pre-execute` 上把需要人工确认的 starhub 域
   工具调用升级为 `ask`:写操作(sftp 上下传、ES 写、memory、skill_save、

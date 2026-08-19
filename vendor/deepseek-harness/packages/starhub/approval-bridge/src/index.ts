@@ -270,8 +270,13 @@ export function apply(ctx: Context, config: { answerer?: boolean } = {}): void {
   }
 
   // 1. 会话权限固定:读取共享 settings.yaml 的 permission.defaultPreset。
+  //    只填空缺:permission-presets 已在会话创建时按 preset 整体钉入
+  //    sandbox + approval,这里再无条件覆写 approval 会与钉入的 preset
+  //    冲突(如 workspace-write + never 不匹配任何 preset),把会话权限
+  //    派生成不存在的 "custom" 状态。已有 approval 时保持钉入结果。
   const permissionScope = ctx.settings.register(PERMISSION_NAMESPACE, PermissionSchema)
   ctx.on('session/created', (session) => {
+    if (effectiveApprovalPolicy(session.events) !== undefined) return
     const preset = permissionScope.get().defaultPreset
     const policy: ApprovalPolicy = preset === 'danger-full-access' ? 'never' : 'ask'
     setApprovalPolicy(session, policy)
