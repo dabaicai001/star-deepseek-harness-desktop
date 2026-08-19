@@ -120,15 +120,22 @@ fn format_query_result(value: &Value) -> String {
 fn format_value(value: &Value) -> String {
     match value {
         Value::Null => "NULL".to_string(),
+        // 与前端 formatValue(String(value)) 对齐:字符串原样输出,不加 JSON 引号
+        Value::String(text) => truncate_text(text),
         Value::Object(_) | Value::Array(_) => value.to_string(),
-        other => {
-            let text = other.to_string();
-            if text.len() > 120 {
-                format!("{}…", &text[..120])
-            } else {
-                text
-            }
-        }
+        other => truncate_text(&other.to_string()),
+    }
+}
+
+/// 与前端 formatValue 截断语义一致:超过 120 字符截断并追加省略号。
+/// 按字符截断(非字节),避免切在 UTF-8 多字节边界上 panic。
+fn truncate_text(text: &str) -> String {
+    let mut chars = text.chars();
+    let head: String = chars.by_ref().take(120).collect();
+    if chars.next().is_some() {
+        format!("{head}…")
+    } else {
+        head
     }
 }
 

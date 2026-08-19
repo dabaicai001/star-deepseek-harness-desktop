@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.85.5-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.85.6-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -109,31 +109,14 @@
 
 ## 当前版本
 
+### v0.85.6 (2026-08-19)
+- 🐛 修复 GitHub tag 构建失败：查询结果格式化字符串值不再带 JSON 引号（`name="alice"` → `name=alice`），与前端 `formatValue` 对齐。
+
 ### v0.85.5 (2026-08-19)
 - 🐛 修复两条域工具事件单测仍等待已迁移 `db_query` / `ssh_exec` 的旧前端回调而卡住，改用仍桥接的 `skill_save`。
 
 ### v0.85.4 (2026-08-19)
 - 🐛 修复域工具成功回写单测仍等待已迁移的 `ssh_exec` 前端回调而卡住；改用仍桥接的 `skill_save` 覆盖回写路径，并在 Linux CI 的 Tauri 后端测试前构建 `dist-starhub-react` 资源，避免资源校验失败。
-
-### v0.85.2 (2026-08-19)
-- 🐛 **修复 dsh AI 域工具执行超时与无法停止(方案1:域工具改在 Rust 主进程内直接执行)**:`ssh_exec` 等域工具此前经 `dsh://tool-exec` 转发前端 webview 面板执行,前端窗口关闭/审批卡住 → 180s 后报「前端执行超时或窗口已关闭」,且停止生成只杀 dsh 进程、无法中断前端面板里在跑的命令。本次把 ssh_exec / ssh_exec_background / ssh_wait_task / sftp_* / db_query / redis_exec / es_* / docker_* 全部迁到 Rust 主进程直接执行(新增 `src-tauri/src/harness/domain.rs`;SSH 复用 SshManager 会话 + exec_id 可中断,DB/Redis/ES/Docker 经 SidecarManager 直连);`tools.rs` 新增 `IN_PROCESS_TOOLS`(excel_*/mcp_*/skill_save 因前端状态依赖仍转发);`HostBridgeState.inflight_tools` 取消注册表 + `drain()` 逐个 abort 在途执行 —— 停止生成现在能真正中断命令。`cargo check` 通过;新增 domain 纯函数单测(本机因提交内存不足未跑完 `cargo test`,待 CI 验证)
-- 🐛 **修复 dsh web 打开 ssh/db 连接页 404(「找不到此 127.0.0.1 页」)**:`web.rs` spawn dsh web 时未设置 `STARHUB_WINDOW_DIST`,host-static 对 `/starhub-react` 前缀的 repo-root 发现在打包部署(runtime 与仓库根分离)下失败 → 注册 404 兜底。修复:新增 `resolve_starhub_window_dist()` 并在 spawn 时注入 `STARHUB_WINDOW_DIST` env,`/starhub-react` 正确挂载独立 React 窗口 app
-
-### v0.85.1 (2026-08-19)
-- 🐛 **修复 Linux(ARM64)CI 的 `cargo test` 崩溃**:`linux-compat.yml` / `release.yml` 的 `Test Tauri backend on Linux`(cargo test --locked)在 `ubuntu-22.04-arm`(4GB)runner 上报错退出码 101——本后端 debug 测试构建峰值内存极高,LLVM 阶段 OOM(`rustc-LLVM ERROR: out of memory`)。新增 `Cargo.toml [profile.test] debug = 0` 关闭测试编译 debuginfo,并在两个工作流的 test 步骤对 ARM64 用 `CARGO_BUILD_JOBS=2` 限制并行编译单元,把峰值内存压到 4GB 可承受范围;本地 dev 构建不受影响。
-
-### v0.85.0 (2026-08-19)
-- 🔧 **批次 3:Elasticsearch 工作台 React 化(node 迁移)**:新增 `client-nav/src/client/es/es-service.ts`(db_es_* 命令封装 + `indexRowOf`/`healthColor`/`fieldTypeColor` 纯函数)与 `ElasticsearchWorkbench.tsx`(连接生命周期、概览集群健康与索引列表、DSL 检索表格/JSON 视图 + 分页、索引映射/settings 详情、新建索引、删除确认),两文件 per-file 100% 覆盖;`apps/starhub-window` 接入 `db-elasticsearch` 独立窗口入口;修复卸载裸 return 导致的 `.then` 数组解构类型错误与 `exactOptionalPropertyTypes` 下 `fieldRow` 返回类型。`tsc -b` 两配置 EXIT 0,client-nav 全量 416 例全绿,`starhub-window build` 成功。
-- 🔧 **批次 4:DB 监控 Dashboard React 化**:新增 `client-nav/src/client/dashboard/db-dashboard-service.ts`(MySQL/PG/Redis 指标 SQL 常量 + 纯解析函数,自 Vue `src/utils/dbMetrics.ts` 迁移)与 `DbDashboard.tsx`(概览/性能/网络 tab、指标卡、连接会话与慢语句明细;Redis INFO+db_size、MySQL SHOW 系列 + 慢日志 digest 回退、PG pg_stat_activity + pg_stat_statements 扩展失败回退);`DbWorkbench.tsx` 右栏改「SQL/数据」↔「监控」双 tab 渲染 `<DbDashboard>`;顺带修复 `loadPostgres` 慢语句回退用陈旧闭包状态的 bug。两文件 per-file 100% 覆盖,client-nav 全量 464 例全绿,`starhub-window build` 部署到 `dist-starhub-react/`。
-- 🔧 **批次 5:结果网格 / SQL 编辑器补齐**:`client-nav/src/client/sqlFormat.ts`(splitStatements/formatSql)+ `sqlHistory.ts`(loadHistory/saveHistory/addHistory/clearHistory,键 `starhub.sqlHistory` 上限 1000)纯函数;`DbDataGrid.tsx` 升级(CSV 导出、行复制为 INSERT、列筛选服务端过滤、单元格编辑→按主键 `db_mysql_update_rows` 批量保存 + Ctrl/Cmd+S);`DbWorkbench.tsx` SQL 区接格式化/历史/多语句拆分 + 执行后记历史。三文件 + 接线 per-file 100% 覆盖,client-nav 全量 533 例全绿,`tsc -b` 两配置净,tsdown bundle + starhub-window 构建并部署。
-- 🔧 **批次 6:SSH 命令广播 + Web 浏览器**:`client-nav/src/client/terminal/BroadcastDialog.tsx`(会话多选广播弹层,逐会话 `ssh_write` 命令 + 容错)、`web-browser-utils.ts`(normalizeUrl/proxyToOriginal/buildProxyUrl)、`WebBrowser.tsx`(内嵌浏览器:SSH Web 网关幂等启动/端口校验重启/postMessage 桥接/卸载停网关);`SshTerminalOverlay.tsx` 接「广播」按钮与「网页」tab。三文件 per-file 100% 覆盖,client-nav 全量 578 例全绿,starhub-window 构建并部署。(用户指示分屏/危险命令拦截不做)
-- 🔧 **批次 7:主壳独立 AI 聊天面板(Option B)**:新增 `client-nav/src/client/ai/ai-chat-utils.ts`(nodeRenderData 11 种节点归一 + blocksToText/assistantBlocksText 双判别 + openStateView/promptErrorView 纯函数)与 `AiChatPanel.tsx`(主壳 `shell.overlay` 独立 AI 面板:绑定当前 shell 会话经 `sessions.binding(id).session` + `bindSnapshotSelector` 实时订阅,自绘 `ConversationSnapshot.nodes` 消息流 + 流式 partial,发送/停止/加载更早走 `session.prompt/cancel/loadOlder`,无当前会话经 `workspaces.connectWorkspace` 新建);接线:`store.ts` 新增 `createAiChatOverlay`、`index.ts` shell.overlay 注入 sessions/workspaces/aiChat、`StarHubOverlay.tsx` 渲 `<AiChatPanel>`、`StarHubToolWorkspace` 的「AI 助手」钮改为开面板;`client-nav` 加 `@deepseek-ai/dsh-client-web-react` peerDep + tsconfig reference。ai 双文件 per-file 100% 覆盖,client-nav 全量 36 文件 / 620 例全绿,`tsc -b` 两配置 EXIT 0,tsdown bundle + starhub-window 构建并部署到 3086 与 3085 运行时。
-
-### v0.84.1 (2026-08-18)
-- 🔧 **修复 dsh web 启动失败(「dsh web 未运行(重试中…)」)**:新安装后 `dsh web 就绪探测超时`,stderr 报 `ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/dsh-sdk-jsonrpc-server'`。根因:`web.rs` 只给 `packages/starhub/` 下 8 个本地包补 junction,而 `sdk-jsonrpc-server` 不属于 dsh 安装闭包(INSTALL_ANCHOR=apps/cli),dsh 的 `healProfilesModuleFallback` 永不链接它,web profile 的 `cordis.patch.yml` 裸 entry 解析在 `$DSH_HOME/profiles/node_modules` 停步即 fail-loud。修复:新增 `RUNTIME_HOSTED_PATCH_DEPS` 机制,把闭包外、patch 直接引用的 `sdk-jsonrpc-server` 从 `runtime_dir/node_modules/@deepseek-ai` 补 junction 到 profiles/node_modules(与 LOCAL_PACKAGES 同机制),prod 与全新 DSH_HOME 均稳定启动;`cargo check` 通过
-
-### v0.84.0 (2026-08-18)
-- 🔧 **Redis 专用工作台 React 化(批次 2)**:Redis 资产从 Vue embed 回落升级为壳内 React 原生工作台(替换 `RedisView.vue`)
 
 ---
 

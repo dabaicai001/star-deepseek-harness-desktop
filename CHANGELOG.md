@@ -14,6 +14,11 @@
 
 ---
 
+## [0.85.6] - 2026-08-19
+
+### 修复
+- **修复 `harness::domain::tests::format_query_result_basic` 失败(GitHub tag 构建门禁)**:`domain.rs` 的 `format_value` 用 serde_json `Value::to_string()` 序列化字符串,给查询结果的字符串单元格加了 JSON 引号(`name="alice"`),与前端 `dshToolExecutor.ts` 的 `formatValue`(`String(value)`,不加引号)不一致,模型可读文本与前端行为分叉且单测断言失败。修复:`Value::String` 原样输出(去引号),截断改为按字符(`chars().take(120)`)而非字节切片(避免中文等多字节内容在 120 字节边界切出 panic),与前端逐字对齐;`cargo test` 全量 158 例通过。
+
 ## [0.85.5] - 2026-08-19
 
 ### 修复
