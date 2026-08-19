@@ -11,19 +11,26 @@ import { useEffect } from 'react'
 import type { PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the 'shell.overlay' SlotMap row (declared by ui-layout).
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions, IWorkspaces, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { NewConnectionDialog } from './NewConnectionDialog.tsx'
-import type { ConnectionManagerState } from './store.ts'
+import { AiChatPanel } from './ai/AiChatPanel.tsx'
+import type { AiChatState, ConnectionManagerState } from './store.ts'
 
 /** Business face injected by the registration: dialog open/close + asset-list refresh. */
 export interface StarHubOverlayInjected {
   /** 打开连接对话框(embed 资产条「去设置添加」经 postMessage 触发)。 */
   openConnectionManager: () => void
   closeConnectionManager: () => void
+  /** 关闭 AI 聊天面板。 */
+  closeAiChat: () => void
   /** 提交/删除成功后刷新工作区资产列表(裸 source 桥,见 store.ts)。 */
   refreshAssets: () => void
+  /** AI 聊天面板读取/写入所依的 shell 会话/工作区服务面。 */
+  sessions: ISessions
+  workspaces: IWorkspaces
   hooks: {
     connectionManager: SnapshotStore<ConnectionManagerState>
+    aiChat: SnapshotStore<AiChatState>
   }
 }
 
@@ -42,9 +49,11 @@ const EMBED_OPEN_SECTION_MESSAGE = 'starhub-embed-open-section'
  * @returns null when closed; otherwise the dialog layer.
  */
 export function StarHubOverlay({
-  openConnectionManager, closeConnectionManager, refreshAssets, useConnectionManager,
+  openConnectionManager, closeConnectionManager, closeAiChat, refreshAssets,
+  sessions, workspaces, useConnectionManager, useAiChat,
 }: StarHubOverlayProps) {
   const state = useConnectionManager(s => s)
+  const aiChatState = useAiChat(s => s)
 
   // embed 资产条「去设置添加」→ 打开连接对话框(常驻监听:消息可能在
   // 对话框关闭时到达——embed 页在 iframe 里时父帧是本壳)。
@@ -60,24 +69,34 @@ export function StarHubOverlay({
     return () => window.removeEventListener('message', onMessage)
   }, [openConnectionManager])
 
-  // Esc 关闭(仅在打开时挂,避免吞掉壳内其他 Esc 语义)。
+  // Esc 关闭(仅在任一弹层打开时挂,避免吞掉壳内其他 Esc 语义)。
   useEffect(() => {
-    if (!state.open) return
+    if (!state.open && !aiChatState.open) return
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeConnectionManager()
+      if (e.key === 'Escape') {
+        if (state.open) closeConnectionManager()
+        if (aiChatState.open) closeAiChat()
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [state.open, closeConnectionManager])
+  }, [state.open, aiChatState.open, closeConnectionManager, closeAiChat])
 
-  if (!state.open) return null
+  if (!state.open && !aiChatState.open) return null
 
   return (
-    <NewConnectionDialog
-      key={state.asset?.id ?? 'new'}
-      asset={state.asset}
-      onClose={closeConnectionManager}
-      onSaved={refreshAssets}
-    />
+    <>
+      {state.open && (
+        <NewConnectionDialog
+          key={state.asset?.id ?? 'new'}
+          asset={state.asset}
+          onClose={closeConnectionManager}
+          onSaved={refreshAssets}
+        />
+      )}
+      {aiChatState.open && (
+        <AiChatPanel sessions={sessions} workspaces={workspaces} onClose={closeAiChat} />
+      )}
+    </>
   )
 }

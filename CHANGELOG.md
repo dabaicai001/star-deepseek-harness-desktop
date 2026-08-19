@@ -7,15 +7,21 @@
 
 ## [未发布]
 
-### 已完成(待升版)
-- **批次 3:Elasticsearch 工作台 React 化(node 迁移)**:新增 `client-nav/src/client/es/es-service.ts`(db_es_* 命令封装 + `indexRowOf`/`healthColor`/`fieldTypeColor` 纯函数)与 `ElasticsearchWorkbench.tsx`(连接生命周期、概览集群健康与索引列表、DSL 检索表格/JSON 视图 + 分页、索引映射/settings 详情、新建索引、删除确认),两文件 per-file 100% 覆盖;`apps/starhub-window` 接入 `db-elasticsearch` 独立窗口入口;修复卸载裸 return 导致的 `.then` 数组解构类型错误与 `exactOptionalPropertyTypes` 下 `fieldRow` 返回类型。`tsc -b` 两配置 EXIT 0,client-nav 全量 416 例全绿,`starhub-window build` 成功。
-
 ### 计划中
 - Settings 补「代理」「安全」2 个 tab
 - SQL 查询结果可编辑及无主键报错提示（转 K3）
 - 左侧 dsh 会话列表右键「删除」待 dsh host 侧 session.delete RPC 落地后启用(当前置灰,仅归档)
 
 ---
+
+## [0.85.0] - 2026-08-19
+
+### 已完成(待升版)
+- **批次 3:Elasticsearch 工作台 React 化(node 迁移)**:新增 `client-nav/src/client/es/es-service.ts`(db_es_* 命令封装 + `indexRowOf`/`healthColor`/`fieldTypeColor` 纯函数)与 `ElasticsearchWorkbench.tsx`(连接生命周期、概览集群健康与索引列表、DSL 检索表格/JSON 视图 + 分页、索引映射/settings 详情、新建索引、删除确认),两文件 per-file 100% 覆盖;`apps/starhub-window` 接入 `db-elasticsearch` 独立窗口入口;修复卸载裸 return 导致的 `.then` 数组解构类型错误与 `exactOptionalPropertyTypes` 下 `fieldRow` 返回类型。`tsc -b` 两配置 EXIT 0,client-nav 全量 416 例全绿,`starhub-window build` 成功。
+- **批次 4:DB 监控 Dashboard React 化**:新增 `client-nav/src/client/dashboard/db-dashboard-service.ts`(MySQL/PG/Redis 指标 SQL 常量 + 纯解析函数,自 Vue `src/utils/dbMetrics.ts` 迁移)与 `DbDashboard.tsx`(概览/性能/网络 tab、指标卡、连接会话与慢语句明细;Redis INFO+db_size、MySQL SHOW 系列 + 慢日志 digest 回退、PG pg_stat_activity + pg_stat_statements 扩展失败回退);`DbWorkbench.tsx` 右栏改「SQL/数据」↔「监控」双 tab 渲染 `<DbDashboard>`;顺带修复 `loadPostgres` 慢语句回退用陈旧闭包状态的 bug。两文件 per-file 100% 覆盖,client-nav 全量 464 例全绿,`starhub-window build` 部署到 `dist-starhub-react/`。
+- **批次 5:结果网格 / SQL 编辑器补齐**:`client-nav/src/client/sqlFormat.ts`(splitStatements/formatSql)+ `sqlHistory.ts`(loadHistory/saveHistory/addHistory/clearHistory,键 `starhub.sqlHistory` 上限 1000)纯函数;`DbDataGrid.tsx` 升级(CSV 导出、行复制为 INSERT、列筛选服务端过滤、单元格编辑→按主键 `db_mysql_update_rows` 批量保存 + Ctrl/Cmd+S);`DbWorkbench.tsx` SQL 区接格式化/历史/多语句拆分 + 执行后记历史。三文件 + 接线 per-file 100% 覆盖,client-nav 全量 533 例全绿,`tsc -b` 两配置净,tsdown bundle + starhub-window 构建并部署。
+- **批次 6:SSH 命令广播 + Web 浏览器**:`client-nav/src/client/terminal/BroadcastDialog.tsx`(会话多选广播弹层,逐会话 `ssh_write` 命令 + 容错)、`web-browser-utils.ts`(normalizeUrl/proxyToOriginal/buildProxyUrl)、`WebBrowser.tsx`(内嵌浏览器:SSH Web 网关幂等启动/端口校验重启/postMessage 桥接/卸载停网关);`SshTerminalOverlay.tsx` 接「广播」按钮与「网页」tab。三文件 per-file 100% 覆盖,client-nav 全量 578 例全绿,starhub-window 构建并部署。(用户指示分屏/危险命令拦截不做)
+- **批次 7:主壳独立 AI 聊天面板(Option B)**:新增 `client-nav/src/client/ai/ai-chat-utils.ts`(nodeRenderData 11 种节点归一 + blocksToText/assistantBlocksText 双判别 + openStateView/promptErrorView 纯函数)与 `AiChatPanel.tsx`(主壳 `shell.overlay` 独立 AI 面板:绑定当前 shell 会话经 `sessions.binding(id).session` + `bindSnapshotSelector` 实时订阅,自绘 `ConversationSnapshot.nodes` 消息流 + 流式 partial,发送/停止/加载更早走 `session.prompt/cancel/loadOlder`,无当前会话经 `workspaces.connectWorkspace` 新建);接线:`store.ts` 新增 `createAiChatOverlay`、`index.ts` shell.overlay 注入 sessions/workspaces/aiChat、`StarHubOverlay.tsx` 渲 `<AiChatPanel>`、`StarHubToolWorkspace` 的「AI 助手」钮改为开面板;`client-nav` 加 `@deepseek-ai/dsh-client-web-react` peerDep + tsconfig reference。ai 双文件 per-file 100% 覆盖,client-nav 全量 36 文件 / 620 例全绿,`tsc -b` 两配置 EXIT 0,tsdown bundle + starhub-window 构建并部署到 3086 与 3085 运行时。
 
 ## [0.84.1] - 2026-08-18
 

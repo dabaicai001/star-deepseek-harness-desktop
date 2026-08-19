@@ -11,6 +11,7 @@ Cargo.lock.bak
 
 # Node / Vue
 node_modules/
+.pnpm-store/
 dist/
 dist-embed/
 dist-starhub-react/

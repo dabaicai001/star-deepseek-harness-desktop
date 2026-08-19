@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.84.1(**修复 dsh web 启动失败(「dsh web 未运行(重试中…)」)**:新安装后 `dsh web 就绪探测超时`,stderr 报 `ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/dsh-sdk-jsonrpc-server'`。根因:`web.rs` 只给 `packages/starhub/` 下 8 个本地包补 junction,而 `sdk-jsonrpc-server` 不属于 dsh 安装闭包(INSTALL_ANCHOR=apps/cli),dsh 的 `healProfilesModuleFallback` 永不链接它,web profile 的 `cordis.patch.yml` 裸 entry 解析在 `$DSH_HOME/profiles/node_modules` 停步即 fail-loud。修复:新增 `RUNTIME_HOSTED_PATCH_DEPS` 机制,把闭包外、patch 直接引用的 `sdk-jsonrpc-server` 从 `runtime_dir/node_modules/@deepseek-ai` 补 junction 到 profiles/node_modules(与 LOCAL_PACKAGES 同机制),prod 与全新 DSH_HOME 均稳定启动;`cargo check` 通过) |
+| 当前版本 | v0.85.0(**批次 3:Elasticsearch 工作台 React 化(node 迁移)**:新增 `client-nav/src/client/es/es-service.ts`(db_es_* 命令封装 + `indexRowOf`/`healthColor`/`fieldTypeColor` 纯函数)与 `ElasticsearchWorkbench.tsx`(连接生命周期、概览集群健康与索引列表、DSL 检索表格/JSON 视图 + 分页、索引映射/settings 详情、新建索引、删除确认),两文件 per-file 100% 覆盖;`apps/starhub-window` 接入 `db-elasticsearch` 独立窗口入口;修复卸载裸 return 导致的 `.then` 数组解构类型错误与 `exactOptionalPropertyTypes` 下 `fieldRow` 返回类型。`tsc -b` 两配置 EXIT 0,client-nav 全量 416 例全绿,`starhub-window build` 成功。) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-18 (v0.84.1)*
+*最后更新: 2026-08-19 (v0.85.0)*

@@ -11,13 +11,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { fireEvent } from '@testing-library/react'
 import {
-  createConnectionManagerOverlay, createStarHubNavStore, createToolSelectionBridge,
+  createAiChatOverlay, createConnectionManagerOverlay, createStarHubNavStore, createToolSelectionBridge,
   type ConnectionManagerState, type ToolSelection,
 } from '../src/client/store.ts'
 import { StarHubNav } from '../src/client/StarHubNav.tsx'
 import { StarHubOverlay } from '../src/client/StarHubOverlay.tsx'
 
 afterEach(cleanup)
+
+/** Stable session-list snapshot (no current session) — getSnapshot must stay identity-stable for useSyncExternalStore. */
+const emptySessionList = { current: undefined, ids: [] as string[], byId: {}, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined }
+/** Stable workspace-list snapshot (no recent workspace). */
+const emptyWorkspaceList = { recentWorkspaceId: undefined, ids: [] as string[], byId: {}, phase: 'ready', items: [] }
 
 /** 组装 StarHubNav 的完整 props(store 实例 + 选择桥 + 框架席位 stub)。 */
 function navProps() {
@@ -36,15 +41,28 @@ function navProps() {
   }
 }
 
-/** 组装 StarHubOverlay 的完整 props(连接对话框桥 + 框架席位 stub)。 */
+/** 组装 StarHubOverlay 的完整 props(连接 + AI 聊天桥 + 框架席位 stub)。 */
 function overlayProps() {
   const manager = createConnectionManagerOverlay()
+  const aiChat = createAiChatOverlay()
   return {
     manager,
+    aiChat,
     openConnectionManager: vi.fn(),
     closeConnectionManager: vi.fn(),
+    closeAiChat: vi.fn(),
     refreshAssets: vi.fn(),
+    sessions: {
+      list: { getSnapshot: () => emptySessionList, subscribe: () => () => {} },
+      binding: () => undefined,
+      open: vi.fn(), clear: vi.fn(),
+    } as never,
+    workspaces: {
+      list: { getSnapshot: () => emptyWorkspaceList, subscribe: () => () => {} },
+      connectWorkspace: vi.fn(),
+    } as never,
     useConnectionManager: (<S,>(sel: (s: ConnectionManagerState) => S) => sel(manager.source.getSnapshot())) as never,
+    useAiChat: (<S,>(sel: (s: { open: boolean }) => S) => sel(aiChat.source.getSnapshot())) as never,
     useSessions: (() => undefined) as never,
     useWorkspaces: (() => undefined) as never,
   }
@@ -169,5 +187,25 @@ describe('StarHubOverlay (connection dialog)', () => {
     render(<StarHubOverlay {...props} />)
     fireEvent.click(screen.getByLabelText('关闭'))
     expect(props.closeConnectionManager).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders the AI chat panel when its bridge opens and closes on Escape', () => {
+    const props = overlayProps()
+    render(<StarHubOverlay {...props} />)
+    expect(screen.queryByText('AI 聊天')).toBeNull()
+    props.aiChat.open()
+    render(<StarHubOverlay {...props} />)
+    expect(screen.getByText('AI 聊天')).toBeTruthy()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(props.closeAiChat).toHaveBeenCalledTimes(1)
+  })
+
+  it('AI chat bridge toggles open and closed through its real callbacks', () => {
+    const props = overlayProps()
+    expect(props.aiChat.source.getSnapshot()).toEqual({ open: false })
+    props.aiChat.open()
+    expect(props.aiChat.source.getSnapshot()).toEqual({ open: true })
+    props.aiChat.close()
+    expect(props.aiChat.source.getSnapshot()).toEqual({ open: false })
   })
 })

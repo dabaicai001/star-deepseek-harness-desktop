@@ -15,7 +15,9 @@
 - ✅ **批次 4(DB 监控 Dashboard)** :完成(2026-08-18,见 §3.6)。`db-dashboard-service.ts` + `DbDashboard.tsx` 两文件 per-file 100% 覆盖,DbWorkbench 右栏加「SQL/数据」↔「监控」tab 渲染 React Dashboard,client-nav 464 例全绿,`starhub-window` build + `scripts/build-window.mjs` 部署到 `dist-starhub-react/`,commit+push(未升版)。
 - ✅ **批次 5(网格/SQL 编辑器补齐)** :完成(2026-08-19,见 §3.7)。`sqlFormat.ts`(formatSql/splitStatements)+ `sqlHistory.ts` 纯函数 + `DbDataGrid` 升级(CSV 导出 / 行复制 INSERT / 列筛选 / 单元格编辑→批量 UPDATE),三文件与相关接线 per-file 100% 覆盖,client-nav 全量 533 例全绿,tsc + tsconfig.host.json 净,tsdown bundle + starhub-window 构建并部署到 3086 + dist-starhub-react,commit `478000af`(未升版)。
 - ✅ **批次 6(SSH 命令广播 + Web 浏览器)**:完成(2026-08-19,用户指示「只做广播+web浏览器,剩下的不做了」,见 §3.8)。
-- ❌ AI 面板(工作台右栏内嵌真·会话聊天):未做(用户本轮未要求,可行性结论见 §9)。
+- 🔄 **批次 7(AI 面板)**:进行中(用户 2026-08-19 确认要做;确认采用 **Option B「分窗口不变 + 主壳独立 AI 面板」**,见 §3.9)。
+  - **已完成**:`client-nav/src/client/ai/` 下 `ai-chat-utils.ts`(纯函数:节点分类/文本抽取/错误文案)+ `AiChatPanel.tsx`+`AiChatPanel.module.css` —— 主壳 `shell.overlay` 独立 AI 聊天面板,绑定当前 shell 会话(`sessions.binding(id).session` 经 `bindSnapshotSelector` 实时订阅),自绘 `ConversationSnapshot.nodes` 消息流,发送/停止/加载更早走 `session.prompt/cancel/loadOlder`;无当前会话时经 `workspaces.connectWorkspace` 新建。接线:`store.ts` 新增 `createAiChatOverlay` + `index.ts` 的 shell.overlay 注入 `sessions/workspaces/aiChat` + `StarHubOverlay.tsx` 渲 `<AiChatPanel>` + `StarHubToolWorkspace` 的「AI 助手」钮改为开面板;`client-nav` 加 `@deepseek-ai/dsh-client-web-react` peerDep(平台模块外部解析)+ tsconfig reference。**测试**:ai 双文件 per-file 100% 覆盖,client-nav 全量 620 例全绿。已同步 `pnpm-lock.yaml`(安装加 web-react 依赖)。
+  - **剩余**:类型(`tsc -b` 需把 client-nav 源码两处 `exactOptionalPropertyTypes`/`SessionBinding` 错误修净,已修待验证)、bundle(tsdown)+ starhub-window 构建、部署、commit + 七处升版 + push + tag。
 
 ---
 
@@ -202,6 +204,55 @@ coverage: {
 - commit + push 批次 6,未升版本号。
 - **批次 6 未做(用户明确不做)**:SSH 分屏、危险命令拦截、AI 面板。
 
+### 3.9 🔄 批次 7(AI 面板)— 进行中(2026-08-19,Option B)
+
+> 用户 2026-08-19 确认做批次 7,并要求**同步更新本文档**。经调研确认当前所有工作台
+> (DbWorkbench / SshTerminalOverlay / Docker / Redis / ES)都在**独立 starhub-window
+> webview 窗口**里渲染,而 shell 的 sessions 对象层(`ctx.sessions.binding(id).session` +
+> `bindSnapshotSelector`)只存在于**主壳 web 上下文**。用户选定 **Option B:分窗口不变 +
+> 主壳独立 AI 面板**(不改回壳内 overlay 工作台)。
+
+**交付内容(已完成)**:
+- `client-nav/src/client/ai/ai-chat-utils.ts` — 纯函数:`nodeRenderData`(11 种 node kind→
+  NodeRole/文本/JSON 归一)、`blocksToText`/`assistantBlocksText`(ContentBlock `type` /
+  AssistantBlock `kind` 双判别)、`openStateView`、`promptErrorView`。**100%**(17 例)。
+- `client-nav/src/client/ai/AiChatPanel.tsx` + `.module.css` — 主壳 `shell.overlay` 独立
+  AI 聊天面板:绑定当前 shell 会话(`bindSnapshotSelector(sessions.list)` 取 current →
+  `sessions.binding(id).session` → `bindSnapshotSelector(face)` 实时订阅),自绘
+  `ConversationSnapshot.nodes` 消息流(用户/助手/上下文/工具/命令/错误/通知,复用
+  ui-primitives 的 `MessageText`/`JsonBlock`),流式 `partial` 渲染,发送(`session.prompt
+  ([{type:'text'}],'queue')`)/停止(`session.cancel`)/加载更早(`loadOlder`),无当前会话时
+  `workspaces.connectWorkspace(recent)` 新建;openState(cold/loading/error)/promptError/
+  hasMore 全态处理。**100%**(23 例组件测试 + 17 例 utils)。
+- 接线:`store.ts` 新增 `createAiChatOverlay`(壳内开关桥);`index.ts` 的 shell.overlay 注入
+  `sessions`/`workspaces`/`closeAiChat`/`hooks.aiChat`,`StarHubOverlay.tsx` 渲 `<AiChatPanel>`
+  并与 connectionManager 桥并存;`StarHubToolWorkspace` 的「AI 助手」钮(`openAiAssistant`)
+  改为开面板(`aiChat.open()`)。`client-nav/package.json` 加 `@deepseek-ai/dsh-client-web-react`
+  peerDep(平台模块,外部解析);`tsconfig.json` 加 web-react project reference。
+- 依赖安装:`pnpm install --no-frozen-lockfile` 成功(需 `danger-full-access` 解除 store
+  hard-link 的 EPERM),`pnpm-lock.yaml` 已同步含 web-react。
+
+**验证(已完成)**:
+- ai 双文件(ai-chat-utils + AiChatPanel)per-file coverage **100%(语句/分支/函数/行)**。
+- client-nav 全量 **620 例全绿**(36 文件);touched 文件(`store.ts`/`index.ts`/
+  `StarHubOverlay.tsx`/`ai/**`)scoped coverage 全 100%。
+- 新增/更新测试:`ai-chat-utils.client.spec.ts`(17)、`ai-chat-panel.client.spec.tsx`(23)、
+  `starhub-nav-overlay` 增 AI 桥用例 + `starhub-apply` 更新 openAiAssistant 断言。
+
+**收尾(2026-08-19 完成)**:
+- 修复了 `ai-chat-panel.client.spec.tsx` 的 18 例回归:`makeSessions.binding` mock 返回的
+  是裸 `SessionFace`,而组件按内核契约读 `sessions.binding(id).session`(SessionBinding =
+  `{sessionId, session, ctx}`),导致任何带 current 会话的用例都落进「无活动会话」空态;mock
+  改为返回 `{ sessionId, session, ctx }` 包装后 23 例全绿。
+- 类型:client-nav `tsc -b tsconfig.json` + dsh 根 `tsc -b tsconfig.host.json` 均 EXIT 0。
+- 覆盖:ai 双文件(ai-chat-utils + AiChatPanel)+ touched(`store.ts`/`index.ts`/
+  `StarHubOverlay.tsx`)scoped per-file 100%;client-nav 全量 **36 文件 / 620 例全绿**。
+- bundle:tsdown 成功(`lib/client.js` 含 AiChatPanel 与 CSS;`style.css`/`client.js.map`)。
+- 构建/部署:`starhub-window build` + `scripts/build-window.mjs` 部署到 `dist-starhub-react/`;
+  壳内 nav bundle 复制到 **3086** 与当前运行的 **dsh-runtime(3085)** 两处运行时 lib/。
+- 发布:commit + 七处升版 v0.84.1 → v0.85.0(minor,批次 3-7 全部新功能)+ `git tag v0.85.0`
+  + push(见 §10.5/§11.5)。
+
 ---
 
 ## 4. 批次划分总表(剩余)
@@ -214,7 +265,7 @@ coverage: {
 | 4 | DB 监控 Dashboard | ✅ 完成(2026-08-18,db-dashboard-service + DbDashboard 两文件 100% 覆盖 + DbWorkbench 右栏接线回归修复,见 §3.6) |
 | 5 | 结果网格 / SQL 编辑器补齐 | ✅ 完成(2026-08-19,sqlFormat/sqlHistory/DbDataGrid 覆盖 + DbWorkbench 格式化/历史/多语句拆分接线,见 §3.7) |
 | 6 | SSH 高级(分屏/广播/危险命令)+ Web 浏览器 | ✅ 完成(2026-08-19,**仅广播 + Web 浏览器**,用户指示不做分屏/危险命令;BroadcastDialog + WebBrowser + web-browser-utils 100% 覆盖 + SshTerminalOverlay 接线,见 §3.8) |
-| AI | 工作台右栏内嵌 AI 聊天面板(真·复用会话) | ❌ 未开始(可行性结论见 §9) |
+| AI | 工作台右栏内嵌 AI 聊天面板(真·复用会话) | ✅ 完成(2026-08-19,Option B「分窗口不变 + 主壳独立 AI 面板」;ai-chat-utils + AiChatPanel 双文件 100% 覆盖 + 壳内 `shell.overlay` 接线,见 §3.9;随本批收尾发布会 v0.85.0) |
 
 ---
 

@@ -300,11 +300,11 @@ describe('client-nav apply', () => {
     expect(injected.hooks.assets.getSnapshot()).toHaveProperty('assets')
   })
 
-  it('workspace openAiAssistant delegates to focusShellConversation without throwing', () => {
+  it('workspace openAiAssistant opens the shell AI chat bridge without throwing', () => {
     const { ctx, register } = fakeContext()
     applyPlugin(ctx)
     const injected = register.mock.calls[2]![0]!.inject()
-    // 无当前会话/最近工作区时 routeAskAi 清空会话选择;不抛错即覆盖该注入箭头。
+    // 打开 AI 聊天面板桥(set snapshot);不抛错即覆盖该注入箭头。
     expect(() => injected.openAiAssistant()).not.toThrow()
   })
 

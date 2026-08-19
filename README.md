@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.84.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.85.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -109,14 +109,18 @@
 
 ## 当前版本
 
+### v0.85.0 (2026-08-19)
+- 🔧 **批次 3:Elasticsearch 工作台 React 化(node 迁移)**:新增 `client-nav/src/client/es/es-service.ts`(db_es_* 命令封装 + `indexRowOf`/`healthColor`/`fieldTypeColor` 纯函数)与 `ElasticsearchWorkbench.tsx`(连接生命周期、概览集群健康与索引列表、DSL 检索表格/JSON 视图 + 分页、索引映射/settings 详情、新建索引、删除确认),两文件 per-file 100% 覆盖;`apps/starhub-window` 接入 `db-elasticsearch` 独立窗口入口;修复卸载裸 return 导致的 `.then` 数组解构类型错误与 `exactOptionalPropertyTypes` 下 `fieldRow` 返回类型。`tsc -b` 两配置 EXIT 0,client-nav 全量 416 例全绿,`starhub-window build` 成功。
+- 🔧 **批次 4:DB 监控 Dashboard React 化**:新增 `client-nav/src/client/dashboard/db-dashboard-service.ts`(MySQL/PG/Redis 指标 SQL 常量 + 纯解析函数,自 Vue `src/utils/dbMetrics.ts` 迁移)与 `DbDashboard.tsx`(概览/性能/网络 tab、指标卡、连接会话与慢语句明细;Redis INFO+db_size、MySQL SHOW 系列 + 慢日志 digest 回退、PG pg_stat_activity + pg_stat_statements 扩展失败回退);`DbWorkbench.tsx` 右栏改「SQL/数据」↔「监控」双 tab 渲染 `<DbDashboard>`;顺带修复 `loadPostgres` 慢语句回退用陈旧闭包状态的 bug。两文件 per-file 100% 覆盖,client-nav 全量 464 例全绿,`starhub-window build` 部署到 `dist-starhub-react/`。
+- 🔧 **批次 5:结果网格 / SQL 编辑器补齐**:`client-nav/src/client/sqlFormat.ts`(splitStatements/formatSql)+ `sqlHistory.ts`(loadHistory/saveHistory/addHistory/clearHistory,键 `starhub.sqlHistory` 上限 1000)纯函数;`DbDataGrid.tsx` 升级(CSV 导出、行复制为 INSERT、列筛选服务端过滤、单元格编辑→按主键 `db_mysql_update_rows` 批量保存 + Ctrl/Cmd+S);`DbWorkbench.tsx` SQL 区接格式化/历史/多语句拆分 + 执行后记历史。三文件 + 接线 per-file 100% 覆盖,client-nav 全量 533 例全绿,`tsc -b` 两配置净,tsdown bundle + starhub-window 构建并部署。
+- 🔧 **批次 6:SSH 命令广播 + Web 浏览器**:`client-nav/src/client/terminal/BroadcastDialog.tsx`(会话多选广播弹层,逐会话 `ssh_write` 命令 + 容错)、`web-browser-utils.ts`(normalizeUrl/proxyToOriginal/buildProxyUrl)、`WebBrowser.tsx`(内嵌浏览器:SSH Web 网关幂等启动/端口校验重启/postMessage 桥接/卸载停网关);`SshTerminalOverlay.tsx` 接「广播」按钮与「网页」tab。三文件 per-file 100% 覆盖,client-nav 全量 578 例全绿,starhub-window 构建并部署。(用户指示分屏/危险命令拦截不做)
+- 🔧 **批次 7:主壳独立 AI 聊天面板(Option B)**:新增 `client-nav/src/client/ai/ai-chat-utils.ts`(nodeRenderData 11 种节点归一 + blocksToText/assistantBlocksText 双判别 + openStateView/promptErrorView 纯函数)与 `AiChatPanel.tsx`(主壳 `shell.overlay` 独立 AI 面板:绑定当前 shell 会话经 `sessions.binding(id).session` + `bindSnapshotSelector` 实时订阅,自绘 `ConversationSnapshot.nodes` 消息流 + 流式 partial,发送/停止/加载更早走 `session.prompt/cancel/loadOlder`,无当前会话经 `workspaces.connectWorkspace` 新建);接线:`store.ts` 新增 `createAiChatOverlay`、`index.ts` shell.overlay 注入 sessions/workspaces/aiChat、`StarHubOverlay.tsx` 渲 `<AiChatPanel>`、`StarHubToolWorkspace` 的「AI 助手」钮改为开面板;`client-nav` 加 `@deepseek-ai/dsh-client-web-react` peerDep + tsconfig reference。ai 双文件 per-file 100% 覆盖,client-nav 全量 36 文件 / 620 例全绿,`tsc -b` 两配置 EXIT 0,tsdown bundle + starhub-window 构建并部署到 3086 与 3085 运行时。
+
 ### v0.84.1 (2026-08-18)
 - 🔧 **修复 dsh web 启动失败(「dsh web 未运行(重试中…)」)**:新安装后 `dsh web 就绪探测超时`,stderr 报 `ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/dsh-sdk-jsonrpc-server'`。根因:`web.rs` 只给 `packages/starhub/` 下 8 个本地包补 junction,而 `sdk-jsonrpc-server` 不属于 dsh 安装闭包(INSTALL_ANCHOR=apps/cli),dsh 的 `healProfilesModuleFallback` 永不链接它,web profile 的 `cordis.patch.yml` 裸 entry 解析在 `$DSH_HOME/profiles/node_modules` 停步即 fail-loud。修复:新增 `RUNTIME_HOSTED_PATCH_DEPS` 机制,把闭包外、patch 直接引用的 `sdk-jsonrpc-server` 从 `runtime_dir/node_modules/@deepseek-ai` 补 junction 到 profiles/node_modules(与 LOCAL_PACKAGES 同机制),prod 与全新 DSH_HOME 均稳定启动;`cargo check` 通过
 
 ### v0.84.0 (2026-08-18)
 - 🔧 **Redis 专用工作台 React 化(批次 2)**:Redis 资产从 Vue embed 回落升级为壳内 React 原生工作台(替换 `RedisView.vue`)
-
-### v0.83.4 (2026-08-18)
-- 🔧 **修复新建/编辑连接对话框的 Elasticsearch 地址回显**(壳内 React NewConnectionDialog):
 
 ---
 

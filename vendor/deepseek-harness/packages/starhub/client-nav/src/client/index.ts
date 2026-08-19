@@ -30,9 +30,9 @@ import type { ISessions, IWorkspaces } from '@deepseek-ai/dsh-client-runtime/cli
 import type { InputTriggerServiceContract } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { createStarHubAssetSource } from './asset-source.ts'
-import { createAskAiHandler, createOpenAssetHandler, focusShellConversation, subscribeHostEvents } from './host-events.ts'
+import { createAskAiHandler, createOpenAssetHandler, subscribeHostEvents } from './host-events.ts'
 import {
-  createConnectionManagerOverlay, createStarHubAssets, createStarHubNavStore, createToolSelectionBridge,
+  createAiChatOverlay, createConnectionManagerOverlay, createStarHubAssets, createStarHubNavStore, createToolSelectionBridge,
 } from './store.ts'
 import { assetWindowUrl, STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
 import { focusWindowByKey, openNewPage } from './tauri.ts'
@@ -68,6 +68,7 @@ export function apply(ctx: Context): void {
   const assets = createStarHubAssets()
   const selection = createToolSelectionBridge()
   const connectionManager = createConnectionManagerOverlay()
+  const aiChat = createAiChatOverlay()
   // 服务面:注入数组已声明依赖,读取必然非空;conversation 在预填时退化处理。
   const connection = ctx.get('connection') as ConnectionHandle
   const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract
@@ -119,9 +120,13 @@ export function apply(ctx: Context): void {
     inject: () => ({
       openConnectionManager: () => connectionManager.open(),
       closeConnectionManager: connectionManager.close,
+      closeAiChat: aiChat.close,
       refreshAssets: assets.refresh,
+      sessions,
+      workspaces,
       hooks: {
         connectionManager: connectionManager.source,
+        aiChat: aiChat.source,
       },
     }),
   }, StarHubOverlay))
@@ -132,8 +137,8 @@ export function apply(ctx: Context): void {
     openAsset: openAssetPage,
     refreshAssets: assets.refresh,
     openConnectionManager: connectionManager.open,
-    // 右侧栏「AI 助手」:聚焦(或新建)壳内 AI 会话。
-    openAiAssistant: () => focusShellConversation(sessions, workspaces, conversation),
+    // 右侧栏「AI 助手」:打开壳内 AI 聊天面板(shell.overlay 承载)。
+    openAiAssistant: () => aiChat.open(),
     hooks: { selection: selection.source, assets: assets.source },
   })
   // 两座工作区席位都不声明注册侧 store:session-maybe 无会话分支不下发

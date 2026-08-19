@@ -149,6 +149,33 @@ export function createConnectionManagerOverlay(): ConnectionManagerOverlay {
 }
 
 
+/** AI 聊天面板(壳内 shell.overlay)开关状态。 */
+export interface AiChatState {
+  open: boolean
+}
+
+/** AI 聊天面板开关桥:apply 持有的裸 source + open/close 回调。 */
+export interface AiChatOverlay {
+  open: () => void
+  close: () => void
+  source: SnapshotStore<AiChatState>
+}
+
+/**
+ * Create the apply-owned AI-chat panel bridge. The workspace seat opens it
+ * (「AI 助手」按钮) while the root overlay seat renders the panel — the same
+ * bare-source bridge pattern as the connection manager (one-handle-one-scope).
+ * @returns the bridge (bare source + open/close callbacks).
+ */
+export function createAiChatOverlay(): AiChatOverlay {
+  const source = createSnapshotStore<AiChatState>({ open: false })
+  return {
+    open: () => source.set({ open: true }),
+    close: () => source.set({ open: false }),
+    source,
+  }
+}
+
 /** 跨 scope 的当前工具选择:子类 + 打开的资产实例(含派生好的路由前缀)。 */
 export interface ToolSelection {
   /** 当前选中的子类 key(STARHUB_SUBCATEGORIES[].key);null = 未选。 */
