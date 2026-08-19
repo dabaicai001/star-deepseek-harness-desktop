@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.85.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.85.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -108,6 +108,9 @@
 ---
 
 ## 当前版本
+
+### v0.85.1 (2026-08-19)
+- 🐛 **修复 Linux(ARM64)CI 的 `cargo test` 崩溃**:`linux-compat.yml` / `release.yml` 的 `Test Tauri backend on Linux`(cargo test --locked)在 `ubuntu-22.04-arm`(4GB)runner 上报错退出码 101——本后端 debug 测试构建峰值内存极高,LLVM 阶段 OOM(`rustc-LLVM ERROR: out of memory`)。新增 `Cargo.toml [profile.test] debug = 0` 关闭测试编译 debuginfo,并在两个工作流的 test 步骤对 ARM64 用 `CARGO_BUILD_JOBS=2` 限制并行编译单元,把峰值内存压到 4GB 可承受范围;本地 dev 构建不受影响。
 
 ### v0.85.0 (2026-08-19)
 - 🔧 **批次 3:Elasticsearch 工作台 React 化(node 迁移)**:新增 `client-nav/src/client/es/es-service.ts`(db_es_* 命令封装 + `indexRowOf`/`healthColor`/`fieldTypeColor` 纯函数)与 `ElasticsearchWorkbench.tsx`(连接生命周期、概览集群健康与索引列表、DSL 检索表格/JSON 视图 + 分页、索引映射/settings 详情、新建索引、删除确认),两文件 per-file 100% 覆盖;`apps/starhub-window` 接入 `db-elasticsearch` 独立窗口入口;修复卸载裸 return 导致的 `.then` 数组解构类型错误与 `exactOptionalPropertyTypes` 下 `fieldRow` 返回类型。`tsc -b` 两配置 EXIT 0,client-nav 全量 416 例全绿,`starhub-window build` 成功。

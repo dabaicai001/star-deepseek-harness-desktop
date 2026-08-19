@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.85.0(**批次 3:Elasticsearch 工作台 React 化(node 迁移)**:新增 `client-nav/src/client/es/es-service.ts`(db_es_* 命令封装 + `indexRowOf`/`healthColor`/`fieldTypeColor` 纯函数)与 `ElasticsearchWorkbench.tsx`(连接生命周期、概览集群健康与索引列表、DSL 检索表格/JSON 视图 + 分页、索引映射/settings 详情、新建索引、删除确认),两文件 per-file 100% 覆盖;`apps/starhub-window` 接入 `db-elasticsearch` 独立窗口入口;修复卸载裸 return 导致的 `.then` 数组解构类型错误与 `exactOptionalPropertyTypes` 下 `fieldRow` 返回类型。`tsc -b` 两配置 EXIT 0,client-nav 全量 416 例全绿,`starhub-window build` 成功。) |
+| 当前版本 | v0.85.1(**修复 Linux ARM64 CI 的 `cargo test` OOM**:`linux-compat.yml`/`release.yml` 的 `Test Tauri backend on Linux` 在 `ubuntu-22.04-arm`(4GB)runner 上报错退出码 101——后端 debug 测试构建峰值内存极高,LLVM 阶段 OOM;新增 `Cargo.toml [profile.test] debug=0` 关测试编译 debuginfo + 工作流对 ARM64 设 `CARGO_BUILD_JOBS=2`,本地 dev 构建不受影响。`cargo check` 通过。) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-19 (v0.85.0)*
+*最后更新: 2026-08-19 (v0.85.1)*

@@ -14,6 +14,13 @@
 
 ---
 
+## [0.85.1] - 2026-08-19
+
+### 修复
+- **修复 Linux(ARM64)CI 的 `cargo test` 崩溃(退出码 101)**:`linux-compat.yml` / `release.yml` 的 `Test Tauri backend on Linux`(`cargo test --locked`)在 `ubuntu-22.04-arm`(4GB)runner 上报错——本后端(russh/sqlx/reqwest/rustls 全家桶,8W+ 行)的 debug 测试构建峰值内存极高,rustc/LLVM 阶段 OOM(`rustc-LLVM ERROR: out of memory`),本地 27GB 机同样复现。修复:
+  - `Cargo.toml` 新增 `[profile.test] debug = 0`:测试编译关闭 debuginfo,峰值内存骤降(本地 dev 构建的 `[profile.dev]` 默认 debuginfo=2 不受影响)
+  - `linux-compat.yml` / `release.yml` 的 test 步骤对 ARM64 设置 `CARGO_BUILD_JOBS=2`、其余 `=4`:限制并行编译单元,进一步压峰值内存
+
 ## [0.85.0] - 2026-08-19
 
 ### 已完成(待升版)
