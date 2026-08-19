@@ -201,16 +201,16 @@ describe('parseMysqlProcessDetails', () => {
       columns: [{ name: 'host' }, { name: 'info' }],
       rows: [['h', null]],
     })
-    expect(rows[0].sql).toBe('(空闲连接)')
-    expect(rows[0].ip).toBe('h')
+    expect(rows[0]!.sql).toBe('(空闲连接)')
+    expect(rows[0]!.ip).toBe('h')
   })
   it('coerces non-numeric duration/id fields to 0', () => {
     const rows = parseMysqlProcessDetails({
       columns: [{ name: 'id' }, { name: 'host' }, { name: 'time' }],
       rows: [['abc', 'h', 'nope']],
     })
-    expect(rows[0].id).toBe(0)
-    expect(rows[0].timeSeconds).toBe(0)
+    expect(rows[0]!.id).toBe(0)
+    expect(rows[0]!.timeSeconds).toBe(0)
   })
 })
 
@@ -299,11 +299,11 @@ describe('parseMysqlMetrics', () => {
       variables: { columns: [{ name: 'Variable_name' }, { name: 'Value' }], rows: [] },
     }
     // rows[0] is null → both guards skip.
-    const nullRow = parseMysqlMetrics({ ...base, tableStats: { columns: [{ name: 'table_count' }], rows: [null] }, sizeStats: { columns: [{ name: 'data_size' }, { name: 'index_size' }], rows: [null] } })
+    const nullRow = parseMysqlMetrics({ ...base, tableStats: { columns: [{ name: 'table_count' }], rows: [null] as unknown as unknown[][] }, sizeStats: { columns: [{ name: 'data_size' }, { name: 'index_size' }], rows: [null] as unknown as unknown[][] } })
     expect(nullRow.tableCount).toBe(0)
     expect(nullRow.dataSize).toBe(0)
     // rows[0] is an array whose cells are null → ?? '0' fallback.
-    const nullCells = parseMysqlMetrics({ ...base, tableStats: { columns: [{ name: 'table_count' }], rows: [[null]] }, sizeStats: { columns: [{ name: 'data_size' }, { name: 'index_size' }], rows: [[null, null]] } })
+    const nullCells = parseMysqlMetrics({ ...base, tableStats: { columns: [{ name: 'table_count' }], rows: [[null]] as unknown as unknown[][] }, sizeStats: { columns: [{ name: 'data_size' }, { name: 'index_size' }], rows: [[null, null]] as unknown as unknown[][] } })
     expect(nullCells.tableCount).toBe(0)
     expect(nullCells.dataSize).toBe(0)
     expect(nullCells.indexSize).toBe(0)

@@ -9,7 +9,7 @@ import { cleanup, render, screen, fireEvent } from '@testing-library/react'
 import {
   createSnapshotStore, EMPTY_CHAT_SNAPSHOT,
   type ConversationNode, type ConversationSnapshot, type ISessions, type IWorkspaces,
-  type SessionFace, type SessionListState,
+  type SessionFace, type SessionId, type SessionListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { AiChatPanel } from '../src/client/ai/AiChatPanel.tsx'
 
@@ -18,7 +18,7 @@ afterEach(cleanup)
 /** Minimal full conversation snapshot with defaults. */
 function makeSnap(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
-    sessionId: 's1',
+    sessionId: 's1' as SessionId,
     views: { get: () => undefined },
     chat: EMPTY_CHAT_SNAPSHOT,
     nodes: [],
@@ -67,11 +67,16 @@ function makeSession(snapshot: ConversationSnapshot): SessionDouble {
 }
 
 /** Build an ISessions with a selectable current session. */
-function makeSessions(currentId: string | undefined, sessionFace: SessionFace | undefined): ISessions {
+function makeSessions(
+  currentId: string | undefined,
+  sessionFace: SessionFace | undefined,
+  open: ReturnType<typeof vi.fn> = vi.fn(),
+): ISessions {
+  const current = currentId as SessionId | undefined
   const list = createSnapshotStore<SessionListState>({
-    ids: currentId === undefined ? [] : [currentId],
+    ids: current === undefined ? [] : [current],
     byId: {},
-    current: currentId,
+    current,
     phase: 'ready',
     subagentsByParent: {},
     jobsBySession: {},
@@ -81,10 +86,10 @@ function makeSessions(currentId: string | undefined, sessionFace: SessionFace | 
     list,
     // The component reads `binding(id).session` — the SessionBinding wraps the
     // SessionFace in `{ sessionId, session, ctx }` (runtime sessions/service.ts).
-    binding: (id) => (sessionFace !== undefined && id === currentId
-      ? { sessionId: currentId, session: sessionFace, ctx: {} as never }
+    binding: (id: SessionId) => (sessionFace !== undefined && id === current
+      ? { sessionId: current, session: sessionFace, ctx: {} as never }
       : undefined),
-    open: vi.fn(),
+    open,
     clear: vi.fn(),
   } as unknown as ISessions
 }
@@ -105,12 +110,13 @@ describe('AiChatPanel', () => {
 
   it('creates a session from the recent workspace when 新建会话 is pressed', () => {
     const connectWorkspace = vi.fn().mockResolvedValue('s1')
-    const sessions = makeSessions(undefined, undefined)
+    const open = vi.fn()
+    const sessions = makeSessions(undefined, undefined, open)
     const workspaces = makeWorkspaces('w1', connectWorkspace)
     render(<AiChatPanel sessions={sessions} workspaces={workspaces} onClose={vi.fn()} />)
     fireEvent.click(screen.getByText('新建会话'))
     expect(connectWorkspace).toHaveBeenCalledWith('w1')
-    return vi.waitFor(() => expect((sessions as { open: ReturnType<typeof vi.fn> }).open).toHaveBeenCalledWith('s1'))
+    return vi.waitFor(() => expect(open).toHaveBeenCalledWith('s1'))
   })
 
   it('does not connect when there is no recent workspace', () => {
@@ -250,7 +256,7 @@ describe('AiChatPanel', () => {
     const nodes: ConversationNode[] = [
       { kind: 'turn-error', seq: 5, time: 0, turn: 1, step: 1, message: 'task failed' },
       { kind: 'turn-max-tokens', seq: 6, time: 0, turn: 1, step: 1 },
-      { kind: 'context', seq: 7, time: 0, content: [{ type: 'text', text: 'ctx note' }], source: {}, provenance: { role: 'user', label: 'ctx' }, form: null },
+      { kind: 'context', seq: 7, time: 0, content: [{ type: 'text', text: 'ctx note' }], source: {}, provenance: { role: 'inject', label: 'ctx' }, form: null },
     ]
     const face = makeSession(makeSnap({ nodes, blank: false }))
     const sessions = makeSessions('s1', face)

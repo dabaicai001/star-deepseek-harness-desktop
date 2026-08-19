@@ -4,19 +4,19 @@
  * / _web_gateway_port 校验/重启)、back/forward/reload postMessage、navigated
  * 上报回写地址栏、卸载停网关、空/无效地址提示、导航失败错误。组件全覆盖。
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { WebBrowser } from '../src/client/terminal/WebBrowser.tsx'
 
 // 拦截 iframe.src 赋值(jsdom 镜像属性不触发 navigate,记录即可)。
-let iframeSrcSetter: ReturnType<typeof vi.fn>
+let iframeSrcSetter: Mock<(_v: string) => void>
 let originalSrcDescriptor: PropertyDescriptor | undefined
 // 稳定的假 contentWindow:让 source 检查在 jsdom 里可命中。
-let fakeContentWindow: { postMessage: (...a: unknown[]) => void }
+let fakeContentWindow: { postMessage: Mock<(...a: unknown[]) => void> }
 let originalContentWindowDescriptor: PropertyDescriptor | undefined
 
 function spyIframe() {
-  iframeSrcSetter = vi.fn()
+  iframeSrcSetter = vi.fn((_v: string) => {})
   originalSrcDescriptor = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'src')
   Object.defineProperty(HTMLIFrameElement.prototype, 'src', {
     configurable: true,
@@ -172,7 +172,7 @@ describe('WebBrowser', () => {
 
   it('writes back the address from a navigated bridge message', async () => {
     spyIframe()
-    const { calls } = stubInvoke({ gatewayPort: 18080 })
+    stubInvoke({ gatewayPort: 18080 })
     render(<WebBrowser sessionId="ssh-1" assetName="server" />)
     fireEvent.change(screen.getByLabelText('地址栏'), { target: { value: 'x.com' } })
     fireEvent.keyDown(screen.getByLabelText('地址栏'), { key: 'Enter' })
@@ -180,7 +180,7 @@ describe('WebBrowser', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: { __starhub: 1, type: 'navigated', href: 'http://127.0.0.1:18080/__proxy__/https/new.example/page' },
       origin: 'http://127.0.0.1:18080',
-      source: fakeContentWindow,
+      source: fakeContentWindow as unknown as Window,
     }))
     await waitFor(() => expect((screen.getByLabelText('地址栏') as HTMLInputElement).value).toBe('https://new.example/page'))
   })
@@ -197,28 +197,28 @@ describe('WebBrowser', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: { __starhub: 1, type: 'navigated', href: 'http://127.0.0.1:18080/__proxy__/https/bad.example/' },
       origin: 'http://evil.example',
-      source: fakeContentWindow,
+      source: fakeContentWindow as unknown as Window,
     }))
     await waitFor(() => expect(input.value).toBe('https://x.com/'))
     // 匹配 origin 但 source 不是本 iframe → 忽略。
     window.dispatchEvent(new MessageEvent('message', {
       data: { __starhub: 1, type: 'navigated', href: 'http://127.0.0.1:18080/__proxy__/https/other.example/' },
       origin: 'http://127.0.0.1:18080',
-      source: { postMessage: vi.fn() },
+      source: { postMessage: vi.fn() } as unknown as Window,
     }))
     await waitFor(() => expect(input.value).toBe('https://x.com/'))
     // 非桥接消息(无 __starhub)→ 忽略。
     window.dispatchEvent(new MessageEvent('message', {
       data: { nope: true },
       origin: 'http://127.0.0.1:18080',
-      source: fakeContentWindow,
+      source: fakeContentWindow as unknown as Window,
     }))
     expect(input.value).toBe('https://x.com/')
     // 合法桥接消息但 type 不是 navigated → 忽略(不进 inner block)。
     window.dispatchEvent(new MessageEvent('message', {
       data: { __starhub: 1, type: 'some-other-event' },
       origin: 'http://127.0.0.1:18080',
-      source: fakeContentWindow,
+      source: fakeContentWindow as unknown as Window,
     }))
     expect(input.value).toBe('https://x.com/')
     void calls
@@ -246,7 +246,7 @@ describe('WebBrowser', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: { __starhub: 1, type: 'navigated', href: 'https://direct.example/somewhere' },
       origin: 'http://127.0.0.1:18080',
-      source: fakeContentWindow,
+      source: fakeContentWindow as unknown as Window,
     }))
     expect(input.value).toBe('https://x.com/')
     expect(input.value).not.toContain('direct.example')
@@ -312,10 +312,10 @@ describe('WebBrowser', () => {
   })
 
   it('guards against re-entrant submission while loading', async () => {
-    let resolveStart: ((v: number) => void) | null = null
+    const deferred = { resolve: null as ((v: number) => void) | null }
     const invoke = vi.fn((cmd: string) => {
       if (cmd === 'ssh_start_web_gateway') {
-        return new Promise<number>((resolve) => { resolveStart = resolve })
+        return new Promise<number>((resolve) => { deferred.resolve = resolve })
       }
       return Promise.reject(new Error(`unexpected ${cmd}`))
     })
@@ -328,7 +328,7 @@ describe('WebBrowser', () => {
     fireEvent.change(input, { target: { value: 'b.com' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
-    resolveStart?.(18080)
+    deferred.resolve?.(18080)
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1))
   })
 })

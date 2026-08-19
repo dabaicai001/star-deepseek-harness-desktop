@@ -9,6 +9,7 @@ import {
   DbDashboard, dashboardTabs, dbTypeName,
   mysqlConnUsage, postgresConnUsage, mysqlDataRatio,
 } from '../src/client/dashboard/DbDashboard.tsx'
+import type { MysqlMetrics, PostgresMetrics } from '../src/client/dashboard/db-dashboard-service.ts'
 
 function stubInvoke(handler: (cmd: string, args?: Record<string, unknown>) => unknown): () => void {
   const w = window as unknown as { __TAURI_INTERNALS__?: { invoke: unknown } }
@@ -434,11 +435,11 @@ describe('DbDashboard states', () => {
   })
 
   it('computes connection/data-ratio helpers with edge divisions', () => {
-    expect(mysqlConnUsage({ maxConnections: 0, threadsConnected: 9 })).toBe(0)
-    expect(mysqlConnUsage({ maxConnections: 100, threadsConnected: 50 })).toBe(50)
-    expect(postgresConnUsage({ maxConnections: 0, connections: 5 })).toBe(0)
-    expect(postgresConnUsage({ maxConnections: 100, connections: 25 })).toBe(25)
-    expect(mysqlDataRatio({ dataSize: 0, indexSize: 0 })).toBe(0)
-    expect(mysqlDataRatio({ dataSize: 75, indexSize: 25 })).toBe(75)
+    expect(mysqlConnUsage({ maxConnections: 0, threadsConnected: 9 } as unknown as MysqlMetrics)).toBe(0)
+    expect(mysqlConnUsage({ maxConnections: 100, threadsConnected: 50 } as unknown as MysqlMetrics)).toBe(50)
+    expect(postgresConnUsage({ maxConnections: 0, connections: 5 } as unknown as PostgresMetrics)).toBe(0)
+    expect(postgresConnUsage({ maxConnections: 100, connections: 25 } as unknown as PostgresMetrics)).toBe(25)
+    expect(mysqlDataRatio({ dataSize: 0, indexSize: 0 } as unknown as MysqlMetrics)).toBe(0)
+    expect(mysqlDataRatio({ dataSize: 75, indexSize: 25 } as unknown as MysqlMetrics)).toBe(75)
   })
 })

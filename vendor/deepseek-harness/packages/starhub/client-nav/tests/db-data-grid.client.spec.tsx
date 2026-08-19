@@ -225,7 +225,7 @@ describe('DbDataGrid', () => {
 
   it('copies the row as INSERT via the row context menu', async () => {
     stubInvoke()
-    const writeText = vi.fn(() => Promise.resolve())
+    const writeText = vi.fn((_text: string) => Promise.resolve())
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     render(<DbDataGrid connId="c1" table="users" />)
     await waitFor(() => expect(screen.getByText('alice')).toBeTruthy())

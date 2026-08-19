@@ -215,7 +215,7 @@ describe('DbWorkbench', () => {
       { sql: 'SELECT 1', db: 'app', time: 1000 },
       { sql: 'SELECT 2', db: '', time: 2000 },
     ]))
-    const { calls } = stubInvoke({})
+    stubInvoke({})
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
     const historyBtn = await screen.findByText('历史')
@@ -234,7 +234,7 @@ describe('DbWorkbench', () => {
     localStorage.setItem('starhub.sqlHistory', JSON.stringify([
       { sql: 'SELECT 1; SELECT 2', db: 'app', time: 1000 },
     ]))
-    const { calls } = stubInvoke({})
+    stubInvoke({})
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
     fireEvent.click(await screen.findByText('历史'))
@@ -250,7 +250,7 @@ describe('DbWorkbench', () => {
   })
 
   it('executes SQL with an error result and surfaces it', async () => {
-    const { calls } = stubInvoke({ execute: { columns: [], rows: [], error: 'bad sql' } })
+    stubInvoke({ execute: { columns: [], rows: [], error: 'bad sql' } })
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
     // 路由 SQL 执行经由 SqlEditor 的 onExecute(Mod-Enter),jsdom 下不可稳定触发;
