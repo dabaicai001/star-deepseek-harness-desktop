@@ -165,6 +165,32 @@ describe('createStarHubAssetSource', () => {
     })
   })
 
+  it.each([
+    ['ssh', 'terminal', 'ssh-1'],
+    ['db', 'database', 'db-1'],
+    ['docker', 'docker', 'docker-1'],
+  ])('onPick binds a %s asset without opening a workbench', async (type, subcategory, id) => {
+    const assets = createStarHubAssets()
+    assets.source.set({
+      assets: [{ ...rustAsset(id, `${type}-asset`), type }],
+      loading: false, error: null, preview: false,
+    })
+    const update = vi.fn(() => Promise.resolve({ result: { ok: true } }))
+    const { selection, source } = makeHarness(assets, update)
+    selection.selectSubcategory(subcategory)
+    const [candidate] = await source.candidates(proj(), req(''))
+    source.onPick(pickOf(candidate!))
+    expect(update).toHaveBeenCalledWith({
+      ns: TOOL_CONTEXT_NAMESPACE,
+      patch: {
+        subcategory,
+        assetId: id,
+        assetName: `${type}-asset`,
+        routePrefix: '',
+      },
+    })
+  })
+
   it('onPick falls back to plain text for a candidate this source did not produce', () => {
     const { source } = makeHarness(createStarHubAssets(), vi.fn())
     const outcome = source.onPick(pickOf({ name: 'foreign' }))

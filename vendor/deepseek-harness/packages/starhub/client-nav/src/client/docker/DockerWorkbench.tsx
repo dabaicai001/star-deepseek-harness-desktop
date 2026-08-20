@@ -18,6 +18,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RustAsset } from '../store.ts'
+import { tauriInvoke } from '../tauri.ts'
 import {
   dockerConnect, dockerContainerLogs, dockerContainerStats, dockerDisconnect,
   dockerListContainers, dockerListImages, dockerPruneImages, dockerPullImage, dockerRemoveContainer,
@@ -28,12 +29,65 @@ import { DockerExecTerminal } from './DockerExecTerminal.tsx'
 import css from './DockerWorkbench.module.css'
 
 /** Docker 连接参数(把资产 config 转成 DockerConnectParams;键与 Vue docker.ts 同契约)。 */
-export function toDockerConnectParams(config: Record<string, unknown>): DockerConnectParams {
-  const transport = config.dockerTransport === 'tcp' ? 'tcp' : 'socket'
+export async function toDockerConnectParams(config: Record<string, unknown>): Promise<DockerConnectParams> {
+  const transport = config.dockerTransport === 'ssh'
+    ? 'ssh'
+    : config.dockerTransport === 'tcp' ? 'tcp' : 'socket'
   if (transport === 'tcp') {
     return { transport, host: typeof config.remoteHost === 'string' ? config.remoteHost : '' }
   }
-  return { transport, socketPath: typeof config.socketPath === 'string' ? config.socketPath : '/var/run/docker.sock' }
+  if (transport === 'socket') {
+    return { transport, socketPath: typeof config.socketPath === 'string' ? config.socketPath : '/var/run/docker.sock' }
+  }
+
+  const sshAssetId = typeof config.dockerSshAssetId === 'string' ? config.dockerSshAssetId : ''
+  if (sshAssetId === '') throw new Error('Docker SSH 传输缺少 SSH 资产')
+  const assets = await tauriInvoke<RustAsset[]>('get_assets')
+  const sshAsset = assets.find((candidate) => candidate.id === sshAssetId)
+  if (sshAsset === undefined || sshAsset.type !== 'ssh') {
+    throw new Error('Docker SSH 传输依赖的 SSH 资产未找到')
+  }
+  const sshConfig = sshAsset.config
+  const host = typeof sshConfig.host === 'string' ? sshConfig.host : ''
+  const username = typeof sshConfig.username === 'string' ? sshConfig.username : ''
+  const port = typeof sshConfig.port === 'number' ? sshConfig.port : 22
+  if (host === '' || username === '') throw new Error('Docker SSH 资产配置不完整')
+  const knownHostKey = await tauriInvoke<string | null>('ssh_get_trusted_host_key', { host, port })
+  if (knownHostKey === null || knownHostKey === '') {
+    throw new Error(`Docker SSH 主机 ${host}:${port} 尚未确认主机密钥`)
+  }
+  const jumpHost = typeof sshConfig.jumpHost === 'string' ? sshConfig.jumpHost : undefined
+  const jumpPort = typeof sshConfig.jumpPort === 'number' ? sshConfig.jumpPort : 22
+  const jumpKnownHostKey = jumpHost === undefined
+    ? undefined
+    : await tauriInvoke<string | null>('ssh_get_trusted_host_key', { host: jumpHost, port: jumpPort })
+  if (jumpHost !== undefined && (jumpKnownHostKey === null || jumpKnownHostKey === '')) {
+    throw new Error(`Docker SSH 跳板机 ${jumpHost}:${jumpPort} 尚未确认主机密钥`)
+  }
+  const stringValue = (key: string): string | undefined => typeof sshConfig[key] === 'string' ? sshConfig[key] as string : undefined
+  return {
+    transport,
+    socketPath: typeof config.socketPath === 'string' ? config.socketPath : '/var/run/docker.sock',
+    ssh: {
+      host,
+      port,
+      username,
+      password: stringValue('password'),
+      privateKey: stringValue('privateKey'),
+      passphrase: stringValue('passphrase'),
+      knownHostKey,
+      ...(jumpHost === undefined ? {} : {
+        jumpHost,
+        jumpPort,
+        jumpUsername: stringValue('jumpUsername'),
+        jumpPassword: stringValue('jumpPassword'),
+        jumpPrivateKey: stringValue('jumpPrivateKey'),
+        jumpPassphrase: stringValue('jumpPassphrase'),
+        jumpKnownHostKey,
+      }),
+      protocol: config.dockerSshProtocol === 'unix-over-nc' ? 'unix-over-nc' : 'unix-over-nc-sudo',
+    },
+  }
 }
 
 /** 一组 docker 行的加载/错误宿主(容器与镜像列表共用形态)。 */
@@ -141,13 +195,14 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
 
   // 挂载建连一次,卸载断连;连接按资产只建一次。
   useEffect(() => {
-    const params = toDockerConnectParams(asset.config)
-    if (params.transport === 'tcp' && params.host === '') {
-      setConnectError('Docker 资产配置不完整(缺少 TCP 地址)')
-      return
-    }
     let cancelled = false
-    dockerConnect(params)
+    void toDockerConnectParams(asset.config)
+      .then((params) => {
+        if (params.transport === 'tcp' && params.host === '') {
+          throw new Error('Docker 资产配置不完整(缺少 TCP 地址)')
+        }
+        return dockerConnect(params)
+      })
       .then(async (info) => {
         /* v8 ignore next -- 卸载竞态:连接在清理后 resolve,防御性守卫 */
         if (cancelled) return

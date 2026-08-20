@@ -54,9 +54,15 @@ const stats = { cpuPercent: 1.2, memoryUsage: 1024, memoryLimit: 8192, memoryPer
 const logLine = { timestamp: '2026-01-01', stream: 'stdout', message: 'hello' }
 
 /** 安装 Tauri 调用分发 stub;`opts` 可覆盖各命令返回。 */
-function installTauri(opts?: { connectError?: unknown; listContainersError?: unknown; listImagesError?: unknown; logsError?: unknown; statsError?: unknown; pullError?: unknown; removeImageError?: unknown; pruneError?: unknown }) {
-  const invoke = vi.fn((cmd: string) => {
+function installTauri(opts?: { connectError?: unknown; listContainersError?: unknown; listImagesError?: unknown; logsError?: unknown; statsError?: unknown; pullError?: unknown; removeImageError?: unknown; pruneError?: unknown; assets?: unknown; trustedKeys?: Record<string, string | null> }) {
+  const invoke = vi.fn((cmd: string, args?: Record<string, unknown>) => {
     switch (cmd) {
+      case 'get_assets': return Promise.resolve(opts?.assets ?? [])
+      case 'ssh_get_trusted_host_key': {
+        const host = typeof args?.host === 'string' ? args.host : ''
+        const port = typeof args?.port === 'number' ? args.port : 22
+        return Promise.resolve(opts?.trustedKeys?.[`${host}:${port}`] ?? null)
+      }
       case 'docker_connect': return opts?.connectError ? Promise.reject(opts.connectError) : Promise.resolve({ connId: 'c', host: 'h' })
       case 'docker_list_containers': return opts?.listContainersError ? Promise.reject(opts.listContainersError) : Promise.resolve([running, stopped])
       case 'docker_list_images': return opts?.listImagesError ? Promise.reject(opts.listImagesError) : Promise.resolve([image])
@@ -104,6 +110,44 @@ describe('DockerWorkbench', () => {
     await waitFor(() => expect(screen.getByText('web')).toBeTruthy())
     expect(screen.queryByText('db')).toBeNull()
     expect(screen.getByText('nginx:latest')).toBeTruthy()
+  })
+
+  it('connects through a configured SSH asset with trusted host and jump keys', async () => {
+    ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+    const invoke = installTauri({
+      assets: [{
+        id: 'ssh-1', type: 'ssh', name: 'bastion', group_id: null,
+        config: {
+          host: '10.0.0.8', port: 2222, username: 'deploy', password: 'secret',
+          jumpHost: '10.0.0.2', jumpPort: 2200, jumpUsername: 'jump', jumpPassword: 'jump-secret',
+        },
+        key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
+      }],
+      trustedKeys: { '10.0.0.8:2222': 'host-key', '10.0.0.2:2200': 'jump-key' },
+    })
+    render(<DockerWorkbench asset={{
+      ...asset,
+      config: { dockerTransport: 'ssh', dockerSshAssetId: 'ssh-1', socketPath: '/run/docker.sock', dockerSshProtocol: 'unix-over-nc' },
+    }} onClose={vi.fn()} />)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('docker_connect', {
+      params: {
+        transport: 'ssh', socketPath: '/run/docker.sock',
+        ssh: {
+          host: '10.0.0.8', port: 2222, username: 'deploy', password: 'secret', knownHostKey: 'host-key',
+          jumpHost: '10.0.0.2', jumpPort: 2200, jumpUsername: 'jump', jumpPassword: 'jump-secret', jumpKnownHostKey: 'jump-key',
+          protocol: 'unix-over-nc',
+        },
+      },
+    }))
+  })
+
+  it('rejects SSH Docker connections without a trusted host key', async () => {
+    ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+    installTauri({
+      assets: [{ ...asset, id: 'ssh-1', type: 'ssh', config: { host: '10.0.0.8', username: 'deploy' } }],
+    })
+    render(<DockerWorkbench asset={{ ...asset, config: { dockerTransport: 'ssh', dockerSshAssetId: 'ssh-1' } }} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText(/尚未确认主机密钥/)).toBeTruthy())
   })
 
   it('shows a config error and a close back for an empty tcp host', async () => {

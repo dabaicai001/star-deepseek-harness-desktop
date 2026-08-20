@@ -194,10 +194,20 @@ function connectCommand(dbType: string): string {
 }
 
 /** 把资产 config 组装成 connect 参数(config 由 get_assets 经 keyring hydrate 含密码)。 */
-function toConnectParams(config: Record<string, unknown>): DbConnectParams {
+export function defaultDbPort(dbType: string): number {
+  switch (dbType) {
+    case 'postgresql': return 5432
+    case 'clickhouse': return 9000
+    case 'redis': return 6379
+    case 'elasticsearch': return 9200
+    default: return 3306
+  }
+}
+
+function toConnectParams(config: Record<string, unknown>, dbType: string): DbConnectParams {
   return {
     host: typeof config.host === 'string' ? config.host : '',
-    port: typeof config.port === 'number' ? config.port : 3306,
+    port: typeof config.port === 'number' ? config.port : defaultDbPort(dbType),
     username: typeof config.username === 'string' ? config.username : '',
     password: typeof config.password === 'string' ? config.password : '',
     ...(typeof config.database === 'string' && config.database !== ''
@@ -280,7 +290,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
 
   // 挂载时建连一次,卸载时断连(连接按资产只建一次)。
   useEffect(() => {
-    const params = toConnectParams(asset.config)
+    const params = toConnectParams(asset.config, dbType)
     if (params.host === '' || params.username === '') {
       setConnectError('数据库资产配置不完整(缺 host/username)')
       return

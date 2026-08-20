@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.85.10-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.85.11-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -108,6 +108,9 @@
 ---
 
 ## 当前版本
+
+### v0.85.11 (2026-08-20)
+- 🐛 React 原生工作台中的 `@` SSH、数据库和 Docker 资产选择现在仅绑定 AI 工具上下文，不再错误打开工作台；数据库连接按类型使用正确默认端口，Docker 工作台补齐 SSH 传输、主机密钥与跳板机参数解析。
 
 ### v0.85.10 (2026-08-20)
 - 🐛 修复 Windows Release 工作流通过 `subst S:` 构建 embed 前端时，Vite 将真实 checkout 的 `src/index.html` 作为跨盘符绝对资源名传给 Rollup 而失败；该步骤改为在真实 checkout 路径执行，后续打包继续使用短盘符。

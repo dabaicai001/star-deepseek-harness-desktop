@@ -25,6 +25,13 @@ export interface DockerConnectParams {
     privateKey?: string
     passphrase?: string
     knownHostKey: string
+    jumpHost?: string
+    jumpPort?: number
+    jumpUsername?: string
+    jumpPassword?: string
+    jumpPrivateKey?: string
+    jumpPassphrase?: string
+    jumpKnownHostKey?: string
     protocol: 'unix-over-nc' | 'unix-over-nc-sudo'
   }
 }

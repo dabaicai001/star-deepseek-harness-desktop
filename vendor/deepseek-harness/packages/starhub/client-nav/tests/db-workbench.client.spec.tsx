@@ -70,6 +70,20 @@ afterEach(() => {
 })
 
 describe('DbWorkbench', () => {
+  it.each([
+    ['postgresql', 5432],
+    ['clickhouse', 9000],
+    ['redis', 6379],
+    ['elasticsearch', 9200],
+  ])('uses the %s default port when an asset omits port', async (dbType, port) => {
+    const { invoke } = stubInvoke({})
+    const asset: RustAsset = { ...dbAsset, config: { ...dbAsset.config, dbType, port: undefined } }
+    render(<DbWorkbench asset={asset} onClose={vi.fn()} />)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('db_mysql_connect', {
+      params: { host: '10.0.0.1', port, username: 'root', password: 'pw' },
+    }))
+  })
+
   it('connects on mount, lists databases, and expands a database to tables', async () => {
     const { invoke, calls } = stubInvoke({})
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
