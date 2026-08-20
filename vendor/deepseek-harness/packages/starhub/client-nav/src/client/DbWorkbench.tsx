@@ -238,6 +238,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
   const [connectError, setConnectError] = useState<string | null>(null)
   const [dbs, setDbs] = useState<TreeNode[]>([])
   const [dbsLoading, setDbsLoading] = useState(false)
+  const [treeSearch, setTreeSearch] = useState('')
   const [selected, setSelected] = useState<SelectedTable | null>(null)
   // SQL 查询区状态(批次 2):编辑器文本 / 执行结果 / 加载 / 错误。
   const [sql, setSql] = useState('')
@@ -319,6 +320,20 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     // 只随资产 id 变化;connectCommand 对同类型恒定,不列入依赖避免重连。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asset.id])
+
+  const refreshDatabases = useCallback(() => {
+    const id = connRef.current
+    if (id === null) return
+    setSelected(null)
+    columnCache.clear()
+    void loadDatabases(id)
+  }, [loadDatabases])
+
+  const normalizedTreeSearch = treeSearch.trim().toLocaleLowerCase()
+  const visibleDbs = normalizedTreeSearch === ''
+    ? dbs
+    : dbs.filter((node) => node.name.toLocaleLowerCase().includes(normalizedTreeSearch)
+      || node.tables.some((table) => table.toLocaleLowerCase().includes(normalizedTreeSearch)))
 
   const toggleDb = useCallback(async (node: TreeNode) => {
     if (node.kind !== 'database') return
@@ -553,44 +568,65 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
         </header>
         <div className={css.body}>
           <aside className={css.tree}>
+            <div className={css.treeToolbar}>
+              <span className={css.treeTitle}>数据库</span>
+              <button type="button" className={css.treeRefresh} onClick={refreshDatabases} title="刷新数据库列表" aria-label="刷新数据库列表">↻</button>
+            </div>
+            <input
+              type="search"
+              className={css.treeSearch}
+              value={treeSearch}
+              onChange={(event) => setTreeSearch(event.target.value)}
+              placeholder="搜索数据库或表"
+              aria-label="搜索数据库或表"
+            />
             {connectError !== null && <div className={css.error}>{connectError}</div>}
             {dbsLoading && <div className={css.hint}>加载数据库…</div>}
             {!dbsLoading && dbs.length === 0 && !connectError && <div className={css.hint}>无数据库</div>}
+            {normalizedTreeSearch !== '' && visibleDbs.length === 0 && !dbsLoading && (
+              <div className={css.hint}>没有匹配的已加载表</div>
+            )}
             <ul className={css.treeList}>
-              {dbs.map((node) => (
-                <li key={node.name}>
-                  {node.kind === 'database' ? (
-                    <DatabaseRow
-                      node={node}
-                      actions={{
-                        onToggle: () => void toggleDb(node),
-                        onNewTable: () => setDialog({ kind: 'new-table', database: node.name }),
-                        onRefresh: () => void refreshDbTables(node.name),
-                      }}
-                    >
-                      <ul className={css.treeList}>
-                        {node.tables.map((t) => (
-                          <TableRow
-                            key={t}
-                            table={t}
-                            database={node.name}
-                            supportsAlter={supportsAlter}
-                            selected={selected !== null && selected.table === t}
-                            actions={{
-                              onSelect: () => setSelected({ table: t, database: node.name }),
-                              onShowDdl: () => void showTableDdl(t, node.name),
-                              onColumns: () => setDialog({ kind: 'columns', database: node.name, table: t }),
-                              onIndexes: () => setDialog({ kind: 'indexes', database: node.name, table: t }),
-                              onDrop: () => void dropTable(t, node.name),
-                              onTruncate: () => void truncateTable(t, node.name),
-                            }}
-                          />
-                        ))}
-                      </ul>
-                    </DatabaseRow>
-                  ) : null}
-                </li>
-              ))}
+              {visibleDbs.map((node) => {
+                const databaseMatches = node.name.toLocaleLowerCase().includes(normalizedTreeSearch)
+                const visibleTables = normalizedTreeSearch === '' || databaseMatches
+                  ? node.tables
+                  : node.tables.filter((table) => table.toLocaleLowerCase().includes(normalizedTreeSearch))
+                return (
+                  <li key={node.name}>
+                    {node.kind === 'database' ? (
+                      <DatabaseRow
+                        node={{ ...node, expanded: normalizedTreeSearch !== '' || node.expanded }}
+                        actions={{
+                          onToggle: () => void toggleDb(node),
+                          onNewTable: () => setDialog({ kind: 'new-table', database: node.name }),
+                          onRefresh: () => void refreshDbTables(node.name),
+                        }}
+                      >
+                        <ul className={css.treeList}>
+                          {visibleTables.map((t) => (
+                            <TableRow
+                              key={t}
+                              table={t}
+                              database={node.name}
+                              supportsAlter={supportsAlter}
+                              selected={selected !== null && selected.table === t}
+                              actions={{
+                                onSelect: () => setSelected({ table: t, database: node.name }),
+                                onShowDdl: () => void showTableDdl(t, node.name),
+                                onColumns: () => setDialog({ kind: 'columns', database: node.name, table: t }),
+                                onIndexes: () => setDialog({ kind: 'indexes', database: node.name, table: t }),
+                                onDrop: () => void dropTable(t, node.name),
+                                onTruncate: () => void truncateTable(t, node.name),
+                              }}
+                            />
+                          ))}
+                        </ul>
+                      </DatabaseRow>
+                    ) : null}
+                  </li>
+                )
+              })}
             </ul>
           </aside>
           <section className={css.contentGrid}>

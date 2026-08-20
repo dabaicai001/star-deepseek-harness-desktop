@@ -107,6 +107,33 @@ describe('DbWorkbench', () => {
     await waitFor(() => expect(calls.some(([cmd]) => cmd === 'db_mysql_disconnect')).toBe(true))
   })
 
+  it('filters the database tree by database and loaded table name', async () => {
+    const { calls } = stubInvoke({})
+    render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    fireEvent.click(screen.getByText('app'))
+    await waitFor(() => expect(screen.getByText('users')).toBeTruthy())
+    const search = screen.getByRole('searchbox', { name: '搜索数据库或表' })
+    fireEvent.change(search, { target: { value: 'users' } })
+    expect(screen.getByText('app')).toBeTruthy()
+    expect(screen.getByText('users')).toBeTruthy()
+    expect(screen.queryByText('sys')).toBeNull()
+    fireEvent.change(search, { target: { value: 'sys' } })
+    expect(screen.getByText('sys')).toBeTruthy()
+    expect(screen.queryByText('app')).toBeNull()
+    fireEvent.change(search, { target: { value: 'missing' } })
+    expect(screen.getByText('没有匹配的已加载表')).toBeTruthy()
+    expect(calls.some(([cmd]) => cmd === 'db_mysql_list_tables')).toBe(true)
+  })
+
+  it('refreshes the database tree from the left toolbar', async () => {
+    const { calls } = stubInvoke({})
+    render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
+    await waitFor(() => expect(calls.filter(([cmd]) => cmd === 'db_mysql_list_databases')).toHaveLength(1))
+    fireEvent.click(screen.getByRole('button', { name: '刷新数据库列表' }))
+    await waitFor(() => expect(calls.filter(([cmd]) => cmd === 'db_mysql_list_databases')).toHaveLength(2))
+  })
+
   it('reports an incomplete asset config without connecting', async () => {
     const { calls } = stubInvoke({})
     const bad = { ...dbAsset, config: { dbType: 'mysql', host: '', username: '' } }
