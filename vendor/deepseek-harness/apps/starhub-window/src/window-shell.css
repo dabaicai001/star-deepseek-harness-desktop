@@ -1,13 +1,19 @@
 html, body, #root {
   margin: 0;
   height: 100%;
-  background: #0d1218;
-  color: #dbe4ee;
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  min-width: 0;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+}
+
+button, input, textarea, select {
+  font: inherit;
 }
 
 .window-frame {
   height: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }

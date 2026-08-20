@@ -271,8 +271,12 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
       <section className={css.panel} aria-label={`SSH 终端 ${asset.name}`}>
         <header>
           <div className={css.headLeft}>
-            <span className={css.title}>{asset.name}</span>
-            <nav className={css.tabs}>
+            <span className={connected ? css.statusOnline : css.statusPending} aria-label={connected ? 'SSH 已连接' : 'SSH 连接中'} />
+            <div className={css.identity}>
+              <span className={css.title}>{asset.name}</span>
+              <span className={css.endpoint}>{typeof asset.config.username === 'string' ? `${asset.config.username}@` : ''}{typeof asset.config.host === 'string' ? asset.config.host : '未配置主机'}</span>
+            </div>
+            <nav className={css.tabs} aria-label="SSH 工作区">
               <button
                 type="button"
                 className={tab === 'terminal' ? css.tabActive : ''}
@@ -294,11 +298,11 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
           <div className={css.headRight}>
             <button
               type="button"
-              className={css.broadcastBtn}
+              className={css.textAction}
               onClick={() => void openBroadcast()}
               title="命令广播:把同一命令发送到多个已连接 SSH 会话"
             >广播</button>
-            <button type="button" onClick={onClose}>关闭</button>
+            <button type="button" className={css.iconButton} onClick={onClose} title="关闭工作区" aria-label="关闭工作区">×</button>
           </div>
         </header>
         {error !== null && <div className={css.error}>{error}</div>}

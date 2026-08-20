@@ -532,10 +532,14 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     <div className={css.backdrop}>
       <div className={css.panel}>
         <header className={css.header}>
-          <span className={css.title}>{asset.name} · {dbTypeLabel}</span>
-          <span className={css.sub}>React 原生工作台 · 连接树 / SQL / 数据网格</span>
+          <span className={connected ? css.statusOnline : css.statusPending} aria-label={connected ? '数据库已连接' : '数据库连接中'} />
+          <div className={css.identity}>
+            <span className={css.title}>{asset.name}</span>
+            <span className={css.sub}>{dbTypeLabel} · {typeof asset.config.host === 'string' ? asset.config.host : '未配置主机'}</span>
+          </div>
           <span className={css.spacer} />
-          <button type="button" className={css.closeBtn} onClick={onClose}>关闭</button>
+          <button type="button" className={css.iconButton} onClick={() => { const id = connRef.current; if (id !== null) void loadDatabases(id) }} title="刷新数据库" aria-label="刷新数据库">↻</button>
+          <button type="button" className={css.iconButton} onClick={onClose} title="关闭工作区" aria-label="关闭工作区">×</button>
         </header>
         <div className={css.body}>
           <aside className={css.tree}>

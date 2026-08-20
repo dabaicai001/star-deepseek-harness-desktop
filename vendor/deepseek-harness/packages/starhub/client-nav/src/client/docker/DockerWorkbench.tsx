@@ -274,10 +274,16 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
       <section className={css.panel} aria-label={`Docker ${asset.name}`}>
         <header className={css.header}>
           <div className={css.headLeft}>
-            <span className={css.title}>{asset.name}</span>
-            <span className={css.statusDot}>{connected ? '已连接' : '未连接'}</span>
+            <span className={connected ? css.statusOnline : css.statusPending} aria-label={connected ? 'Docker 已连接' : 'Docker 连接中'} />
+            <div className={css.identity}>
+              <span className={css.title}>{asset.name}</span>
+              <span className={css.endpoint}>{typeof asset.config.remoteHost === 'string' ? asset.config.remoteHost : (typeof asset.config.socketPath === 'string' ? asset.config.socketPath : '/var/run/docker.sock')}</span>
+            </div>
           </div>
-          <button type="button" className={css.closeButton} onClick={onClose}>关闭</button>
+          <div className={css.headActions}>
+            <button type="button" className={css.iconButton} onClick={() => { void loadContainers(); void loadImages() }} title="刷新工作台" aria-label="刷新工作台">↻</button>
+            <button type="button" className={css.iconButton} onClick={onClose} title="关闭工作区" aria-label="关闭工作区">×</button>
+          </div>
         </header>
 
         {connectError !== null && (

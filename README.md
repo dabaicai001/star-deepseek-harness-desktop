@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.85.8-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.85.9-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -108,6 +108,9 @@
 ---
 
 ## 当前版本
+
+### v0.85.9 (2026-08-20)
+- 🔧 SSH、MySQL 与 Docker 独立 React 工作台统一为 DeepSeek Harness 的全窗口工作区样式：移除二次遮罩卡片，统一资产身份栏、连接状态、紧凑页签与工具栏，并保持 MySQL 独立窗口和 SSH 内的 SFTP 文件页签。
 
 ### v0.85.8 (2026-08-20)
 - 🐛 修复 dsh web 主壳在旧 runtime 初始化前执行已绑定 SSH 资产的 AI 工具时，桥未持有 `AppHandle` 而报“无 AppHandle，无法建立 SSH 会话”；应用启动时即绑定共享桥句柄，AI 现在可按资产配置实际发起 SSH 连接。
