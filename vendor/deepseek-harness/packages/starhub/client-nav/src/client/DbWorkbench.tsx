@@ -332,8 +332,10 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
   const normalizedTreeSearch = treeSearch.trim().toLocaleLowerCase()
   const visibleDbs = normalizedTreeSearch === ''
     ? dbs
-    : dbs.filter((node) => node.name.toLocaleLowerCase().includes(normalizedTreeSearch)
-      || node.tables.some((table) => table.toLocaleLowerCase().includes(normalizedTreeSearch)))
+    : dbs.filter((node) => node.kind === 'database' && (
+      node.name.toLocaleLowerCase().includes(normalizedTreeSearch)
+      || node.tables.some((table) => table.toLocaleLowerCase().includes(normalizedTreeSearch))
+    ))
 
   const toggleDb = useCallback(async (node: TreeNode) => {
     if (node.kind !== 'database') return
@@ -588,42 +590,41 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
             )}
             <ul className={css.treeList}>
               {visibleDbs.map((node) => {
+                if (node.kind !== 'database') return null
                 const databaseMatches = node.name.toLocaleLowerCase().includes(normalizedTreeSearch)
                 const visibleTables = normalizedTreeSearch === '' || databaseMatches
                   ? node.tables
                   : node.tables.filter((table) => table.toLocaleLowerCase().includes(normalizedTreeSearch))
                 return (
                   <li key={node.name}>
-                    {node.kind === 'database' ? (
-                      <DatabaseRow
-                        node={{ ...node, expanded: normalizedTreeSearch !== '' || node.expanded }}
-                        actions={{
-                          onToggle: () => void toggleDb(node),
-                          onNewTable: () => setDialog({ kind: 'new-table', database: node.name }),
-                          onRefresh: () => void refreshDbTables(node.name),
-                        }}
-                      >
-                        <ul className={css.treeList}>
-                          {visibleTables.map((t) => (
-                            <TableRow
-                              key={t}
-                              table={t}
-                              database={node.name}
-                              supportsAlter={supportsAlter}
-                              selected={selected !== null && selected.table === t}
-                              actions={{
-                                onSelect: () => setSelected({ table: t, database: node.name }),
-                                onShowDdl: () => void showTableDdl(t, node.name),
-                                onColumns: () => setDialog({ kind: 'columns', database: node.name, table: t }),
-                                onIndexes: () => setDialog({ kind: 'indexes', database: node.name, table: t }),
-                                onDrop: () => void dropTable(t, node.name),
-                                onTruncate: () => void truncateTable(t, node.name),
-                              }}
-                            />
-                          ))}
-                        </ul>
-                      </DatabaseRow>
-                    ) : null}
+                    <DatabaseRow
+                      node={{ ...node, expanded: normalizedTreeSearch !== '' || node.expanded }}
+                      actions={{
+                        onToggle: () => void toggleDb(node),
+                        onNewTable: () => setDialog({ kind: 'new-table', database: node.name }),
+                        onRefresh: () => void refreshDbTables(node.name),
+                      }}
+                    >
+                      <ul className={css.treeList}>
+                        {visibleTables.map((t) => (
+                          <TableRow
+                            key={t}
+                            table={t}
+                            database={node.name}
+                            supportsAlter={supportsAlter}
+                            selected={selected !== null && selected.table === t}
+                            actions={{
+                              onSelect: () => setSelected({ table: t, database: node.name }),
+                              onShowDdl: () => void showTableDdl(t, node.name),
+                              onColumns: () => setDialog({ kind: 'columns', database: node.name, table: t }),
+                              onIndexes: () => setDialog({ kind: 'indexes', database: node.name, table: t }),
+                              onDrop: () => void dropTable(t, node.name),
+                              onTruncate: () => void truncateTable(t, node.name),
+                            }}
+                          />
+                        ))}
+                      </ul>
+                    </DatabaseRow>
                   </li>
                 )
               })}

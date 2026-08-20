@@ -14,6 +14,11 @@
 
 ---
 
+## [0.85.13] - 2026-08-20
+
+### 修复
+- 修复 React Docker SSH 连接参数在严格 `exactOptionalPropertyTypes` 编译下显式传入 `undefined` 而导致 Release 构建失败的问题。
+
 ## [0.85.12] - 2026-08-20
 
 ### 新增

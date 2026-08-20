@@ -64,7 +64,11 @@ export async function toDockerConnectParams(config: Record<string, unknown>): Pr
   if (jumpHost !== undefined && (jumpKnownHostKey === null || jumpKnownHostKey === '')) {
     throw new Error(`Docker SSH 跳板机 ${jumpHost}:${jumpPort} 尚未确认主机密钥`)
   }
-  const stringValue = (key: string): string | undefined => typeof sshConfig[key] === 'string' ? sshConfig[key] as string : undefined
+  const confirmedJumpHostKey = jumpKnownHostKey ?? undefined
+  const optionalString = (key: string): Record<string, string> => {
+    const value = sshConfig[key]
+    return typeof value === 'string' ? { [key]: value } : {}
+  }
   return {
     transport,
     socketPath: typeof config.socketPath === 'string' ? config.socketPath : '/var/run/docker.sock',
@@ -72,18 +76,18 @@ export async function toDockerConnectParams(config: Record<string, unknown>): Pr
       host,
       port,
       username,
-      password: stringValue('password'),
-      privateKey: stringValue('privateKey'),
-      passphrase: stringValue('passphrase'),
+      ...optionalString('password'),
+      ...optionalString('privateKey'),
+      ...optionalString('passphrase'),
       knownHostKey,
       ...(jumpHost === undefined ? {} : {
         jumpHost,
         jumpPort,
-        jumpUsername: stringValue('jumpUsername'),
-        jumpPassword: stringValue('jumpPassword'),
-        jumpPrivateKey: stringValue('jumpPrivateKey'),
-        jumpPassphrase: stringValue('jumpPassphrase'),
-        jumpKnownHostKey,
+        ...optionalString('jumpUsername'),
+        ...optionalString('jumpPassword'),
+        ...optionalString('jumpPrivateKey'),
+        ...optionalString('jumpPassphrase'),
+        ...(confirmedJumpHostKey === undefined ? {} : { jumpKnownHostKey: confirmedJumpHostKey }),
       }),
       protocol: config.dockerSshProtocol === 'unix-over-nc' ? 'unix-over-nc' : 'unix-over-nc-sudo',
     },
