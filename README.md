@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.87.1-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.87.2-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -36,12 +36,12 @@
 | 平台 | 文件格式 | 安装方式 |
 |---|---|---|
 | **Windows** | `.msi` / `.exe` (NSIS) | 双击安装 |
-| **Linux** (Debian/Ubuntu) | `.deb` | `sudo apt install ./StarHub_0.87.1_amd64.deb` |
-| **Linux** (Fedora 38+ 等 glibc 2.35+ RPM 系) | `.rpm` | `sudo dnf install ./StarHub-0.87.1-1.x86_64.rpm` |
-| **Linux** (通用) | `.AppImage` | `chmod +x StarHub_0.87.1_amd64.AppImage && ./StarHub_0.87.1_amd64.AppImage` |
+| **Linux** (Debian/Ubuntu) | `.deb` | `sudo apt install ./StarHub_0.87.2_amd64.deb` |
+| **Linux** (Fedora 38+ 等 glibc 2.35+ RPM 系) | `.rpm` | `sudo dnf install ./StarHub-0.87.2-1.x86_64.rpm` |
+| **Linux** (通用) | `.AppImage` | `chmod +x StarHub_0.87.2_amd64.AppImage && ./StarHub_0.87.2_amd64.AppImage` |
 | **macOS** | `.dmg` / `.app` | 拖入 Applications |
 
-> Linux 同时发布 x86_64 (`amd64`) 与 ARM64 (`arm64` / `aarch64`)。产物固定在 Ubuntu 22.04 原生 runner 构建，兼容 Ubuntu 22.04+ / Debian 12+ / Fedora 38+ 等主流 glibc 桌面发行版。AppImage 已携带 WebKitGTK、GTK 和静态 Go sidecar；无 FUSE 环境可使用 `./StarHub_0.87.1_amd64.AppImage --appimage-extract-and-run`。Alpine（musl）与无 FHS 兼容层的 NixOS 不属于直接兼容范围。
+> Linux 同时发布 x86_64 (`amd64`) 与 ARM64 (`arm64` / `aarch64`)。产物固定在 Ubuntu 22.04 原生 runner 构建，兼容 Ubuntu 22.04+ / Debian 12+ / Fedora 38+ 等主流 glibc 桌面发行版。AppImage 已携带 WebKitGTK、GTK 和静态 Go sidecar；无 FUSE 环境可使用 `./StarHub_0.87.2_amd64.AppImage --appimage-extract-and-run`。Alpine（musl）与无 FHS 兼容层的 NixOS 不属于直接兼容范围。
 
 ---
 
@@ -111,6 +111,10 @@
 ---
 
 ## 当前版本
+
+### v0.87.2 (2026-08-20)
+
+- 🐛 **运行时构建同步与 CI 修复**：`build:window` 在 `STARHUB_WINDOW_DIST` 配置存在时自动同步运行中 DSH 的静态工作台目录，避免 3085 服务旧 bundle；`WebBrowser` 保持既有独立测试与调用兼容。
 
 ### v0.87.1 (2026-08-20)
 

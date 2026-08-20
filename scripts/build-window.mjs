@@ -18,6 +18,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const harnessRoot = join(root, 'vendor', 'deepseek-harness')
 const appDist = join(harnessRoot, 'apps', 'starhub-window', 'dist')
 const target = join(root, 'dist-starhub-react')
+const runtimeTarget = process.env.STARHUB_WINDOW_DIST
 
 // Pnpm must be run from the harness workspace root for --filter to resolve.
 execSync('pnpm --filter @deepseek-ai/starhub-window build', {
@@ -28,3 +29,9 @@ execSync('pnpm --filter @deepseek-ai/starhub-window build', {
 await mkdir(target, { recursive: true })
 await cp(appDist, target, { recursive: true })
 console.log(`starhub-window staged at ${target}`)
+
+if (runtimeTarget !== undefined && runtimeTarget !== '' && resolve(runtimeTarget) !== target) {
+  await mkdir(runtimeTarget, { recursive: true })
+  await cp(appDist, runtimeTarget, { recursive: true })
+  console.log(`starhub-window synced to runtime at ${runtimeTarget}`)
+}

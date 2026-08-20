@@ -14,6 +14,18 @@
 
 ---
 
+## [0.87.2] - 2026-08-20
+
+### 修复
+- `build:window` 在配置 `STARHUB_WINDOW_DIST` 时同步工作台产物到 DSH 运行时静态目录，避免 3085 继续提供旧的 `/starhub-react` bundle。
+- `WebBrowser` 的 SSH 连接状态属性保持兼容默认值，修复独立组件测试和 DSH runtime 打包的 TypeScript 报错；SSH 工作区仍显式传入实时连接状态。
+
+### 验证
+- `web-browser.client.spec.tsx` 与 `ssh-terminal-overlay.client.spec.tsx` 共 23/23 通过。
+- `pnpm --dir vendor/deepseek-harness run typecheck` 通过。
+
+---
+
 ## [0.87.1] - 2026-08-20
 
 ### 修复

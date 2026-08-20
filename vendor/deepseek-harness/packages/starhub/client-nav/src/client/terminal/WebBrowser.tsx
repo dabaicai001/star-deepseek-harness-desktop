@@ -23,7 +23,7 @@ export interface WebBrowserProps {
   sessionId: string
   assetName: string
   /** Whether the shared SSH session is ready for tunnel creation. */
-  sshConnected: boolean
+  sshConnected?: boolean
 }
 
 /** 发送给网关桥接脚本的命令类型。 */
@@ -35,7 +35,7 @@ type BridgeCmd = 'back' | 'forward' | 'reload'
  * @param props.assetName - the owning asset name for titles / messages.
  * @returns the browser toolbar + iframe stage.
  */
-export function WebBrowser({ sessionId, assetName, sshConnected }: WebBrowserProps) {
+export function WebBrowser({ sessionId, assetName, sshConnected = true }: WebBrowserProps) {
   const [address, setAddress] = useState('')
   const [errorText, setErrorText] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
