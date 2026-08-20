@@ -14,6 +14,18 @@
 
 ---
 
+## [0.87.0] - 2026-08-20
+
+### 变更
+- **品牌图标升级**：应用图标替换为新的 1024×1024 源图（`icons/app-icon-v6/02-star-chevron-s.png`），README 顶图与 Tauri `bundle.icon` 清单同步刷新 —— `src-tauri/icons/icon.png`（1024×1024）/ `32x32.png` / `128x128.png` / `128x128@2x.png` / `icon.ico`（PNG-in-ICO，16/32/48/64/128/256 多尺寸）以及 `docs/assets/starhub-logo.png`。
+- **README 完全重写**：与 `AGENTS.md` 同步 —— 技术栈改写为 React + DeepSeek Harness 工作台 + Go Sidecar；删除 Vue 3 / Vuetify / Pinia / Monaco / `cyber.css` / `vue-i18n` 等已在 v0.86.0 移除的依赖与目录；构建命令改为 `build:window`；设计系统段落改写为 DSH UI 约定；「当前版本」与「下载安装」对齐 v0.87.0。
+- 新增 `scripts/refresh-icons.ps1`：从单一源图重生成 Tauri `bundle.icon` 全部打包图标与 README 顶图，无外部图像库依赖（使用 Windows .NET `System.Drawing`，对 PNG-in-ICO 直接写 ICONDIR 头）。
+
+### 验证
+- 图标脚本本地生成六个目标文件并通过字节级检查；ICO 头 `00 00 01 00 06 00` 表示 type=icon、count=6。
+
+---
+
 ## [0.86.3] - 2026-08-20
 
 ### 修复
