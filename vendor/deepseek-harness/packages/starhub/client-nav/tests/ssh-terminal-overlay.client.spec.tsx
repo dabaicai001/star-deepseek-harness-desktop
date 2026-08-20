@@ -87,7 +87,8 @@ describe('SshTerminalOverlay', () => {
       .toBeLessThan(invoke.mock.calls.findIndex(([command]) => command === 'ssh_connect'))
 
     callbacks[0]?.({ event: 'ssh:data:ssh-1', id: 1, payload: [104, 105] })
-    expect(xterm.write).toHaveBeenCalledWith(new Uint8Array([104, 105]))
+    expect(xterm.write).toHaveBeenCalledTimes(1)
+    expect(xterm.write).toHaveBeenCalledWith('hi')
     xterm.input?.('ls\r')
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('ssh_write', { id: 'ssh-1', data: 'ls\r' }))
 

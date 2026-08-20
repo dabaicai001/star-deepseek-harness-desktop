@@ -170,7 +170,6 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
       try {
         [unlistenData, unlistenClose] = await Promise.all([
           tauriListen<number[]>(`ssh:data:${sessionId}`, (bytes) => {
-            term.write(new Uint8Array(bytes))
             handleChunk(decoder.decode(new Uint8Array(bytes), { stream: true }))
           }),
           tauriListen<string>(`ssh:close:${sessionId}`, (reason) => {

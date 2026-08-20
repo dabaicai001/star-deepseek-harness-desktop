@@ -14,6 +14,11 @@
 
 ---
 
+## [0.86.3] - 2026-08-20
+
+### 修复
+- 修复 SSH 终端每个字符显示两次（输入 `ls` 显示为 `llss`）的问题：v0.85 接入 SFTP「跟随终端」cwd 追踪时，`ssh:data` 监听器在原有 `term.write(原始字节)` 之外又叠加了 `handleChunk` 内部的 `term.write(可见文本)`，导致每块 PTY 输出渲染两次；现移除裸写入，全部渲染统一走 `handleChunk` 的隐藏回显过滤路径，cwd 追踪与 OSC 7 注入行为不变。同步补装 tsdown 加载 TS 配置所需的 peer 依赖 `unrun`（此前缺失导致 client bundle 无法重建）。
+
 ## [0.86.2] - 2026-08-20
 
 ### 修复
