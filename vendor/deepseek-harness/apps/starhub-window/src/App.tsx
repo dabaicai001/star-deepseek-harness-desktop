@@ -5,7 +5,7 @@
  * lifecycle, Docker and Redis panels all behave identically to the in-shell
  * versions. The window closes with a header close button.
  */
-import { useEffect, useState } from 'react'
+import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Root } from 'react-dom/client'
 import { tauriInvoke } from '@deepseek-ai/dsh-starhub-client-nav/src/client/tauri.ts'
@@ -27,6 +27,32 @@ type ShellState =
   | { kind: 'asset-missing'; assetId: string }
   | { kind: 'unsupported'; assetId: string }
   | { kind: 'ready'; asset: RustAsset; workbench: WindowWorkbench }
+
+/** Surface a workbench render failure instead of leaving an empty webview. */
+class WorkbenchErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null }
+
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('StarHub workbench render failed', error, info.componentStack)
+  }
+
+  render(): ReactNode {
+    if (this.state.error !== null) {
+      return (
+        <div className="window-frame window-error" role="alert">
+          <p>工作台加载失败</p>
+          <pre>{this.state.error.message}</pre>
+          <button type="button" onClick={requestWindowClose}>关闭</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 /** A window-level "close" (the webview has no Tauri close grant here). */
 function requestWindowClose(): void {
@@ -89,7 +115,7 @@ export function WindowShell() {
   if (state.kind === 'ready') {
     return (
       <div className="window-frame">
-        {renderWorkbench(state.asset, state.workbench)}
+        <WorkbenchErrorBoundary>{renderWorkbench(state.asset, state.workbench)}</WorkbenchErrorBoundary>
       </div>
     )
   }

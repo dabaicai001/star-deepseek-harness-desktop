@@ -14,6 +14,10 @@
  * @module StarHub SFTP panel (client)
  */
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  IconDownloadOutline16, IconEditOutline16, IconFolderOpenOutline16, IconLinkOutline16,
+  IconPlusOutline16, IconRefreshOutline16,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import { tauriInvoke, tauriListen, type TauriUnlisten } from '../tauri.ts'
 import { isTauriRuntime } from '../settings/services.ts'
 import type { RustAsset } from '../store.ts'
@@ -47,10 +51,10 @@ interface MenuState {
   entry: SftpEntry | null
 }
 
-/** Read follow-terminal from localStorage (browser preview may lack it). */
-function readFollowTerminal(): boolean {
-  try { return localStorage.getItem(FOLLOW_TERMINAL_KEY) === 'true' } catch { return false }
-}
+type FileDialog =
+  | { mode: 'create-folder'; value: string }
+  | { mode: 'rename'; entry: SftpEntry; value: string }
+  | { mode: 'delete'; paths: string[] }
 
 /** Open a native file/dir picker through the dialog plugin; null when cancelled/preview. */
 async function pickPath(kind: 'file' | 'folder' | 'files'): Promise<string[] | null> {
@@ -78,7 +82,8 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
   const [entries, setEntries] = useState<SftpEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
-  const [followTerminal, setFollowTerminal] = useState(readFollowTerminal)
+  // SFTP opens at the terminal's current directory by default; users can pause follow explicitly.
+  const [followTerminal, setFollowTerminal] = useState(true)
   const [pathEditing, setPathEditing] = useState(false)
   const [pathInput, setPathInput] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -86,10 +91,13 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [transfers, setTransfers] = useState<TransferTask[]>([])
   const [showTransfers, setShowTransfers] = useState(false)
+  const [fileDialog, setFileDialog] = useState<FileDialog | null>(null)
 
   const pathInputRef = useRef<HTMLInputElement>(null)
   const loadIdRef = useRef(0)
   const connectedRef = useRef(false)
+  const sshCwdRef = useRef(sshCwd)
+  sshCwdRef.current = sshCwd
 
   // ---- connect the SFTP channel on the live session ----
   useEffect(() => {
@@ -107,13 +115,16 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
         if (cancelled) return
         connectedRef.current = true
         setConnected(true)
-        // start at the login home dir (fall back to root)
-        let home = '/'
-        try {
-          const dir = await tauriInvoke<string>('sftp_home_dir', { id: sessionId })
-          if (dir.startsWith('/')) home = dir
-        } catch { /* fall back to root */ }
-        if (!cancelled) void loadDir(home)
+        // Prefer the terminal cwd so an opened SFTP panel immediately mirrors the live SSH shell.
+        const cwd = sshCwdRef.current
+        let initialPath = cwd?.startsWith('/') ? cwd : '/'
+        if (initialPath === '/') {
+          try {
+            const dir = await tauriInvoke<string>('sftp_home_dir', { id: sessionId })
+            if (dir.startsWith('/')) initialPath = dir
+          } catch { /* home lookup is optional; root remains usable */ }
+        }
+        if (!cancelled) void loadDir(initialPath)
         if (info?.mode === 'fallback_exec' && info.server_path) {
           // non-fatal diagnostic; surface in the toolbar title if needed
         }
@@ -218,7 +229,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
   function toggleFollow(): void {
     const next = !followTerminal
     setFollowTerminal(next)
-    try { localStorage.setItem(FOLLOW_TERMINAL_KEY, String(next)) } catch { /* ignore */ }
+    try { localStorage.setItem(FOLLOW_TERMINAL_KEY, String(next)) } catch { /* ignore unavailable browser storage */ }
     onFollowTerminal?.(next)
     if (next && sshCwd !== undefined && sshCwd !== '' && sshCwd !== path && connectedRef.current) {
       void loadDir(sshCwd)
@@ -229,7 +240,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
     if (sshCwd === undefined || !sshCwd.startsWith('/') || sshCwd === path) return
     void loadDir(sshCwd)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sshCwd])
+  }, [sshCwd, followTerminal])
 
   // ---- selection ----
   function onFileClick(entry: SftpEntry, index: number, event: ReactMouseEvent): void {
@@ -262,59 +273,65 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
   }
   async function uploadFiles(): Promise<void> {
     setMenu(null)
-    const picked = await pickPath('files')
-    if (picked) void startUpload(picked, path)
+    try {
+      const picked = await pickPath('files')
+      if (picked !== null) await startUpload(picked, path)
+    } catch (caught) {
+      setError(`无法打开上传文件选择器: ${caught instanceof Error ? caught.message : String(caught)}`)
+    }
   }
   async function uploadFolder(): Promise<void> {
     setMenu(null)
-    const picked = await pickPath('folder')
-    if (picked) void startUpload(picked, path)
+    try {
+      const picked = await pickPath('folder')
+      if (picked !== null) await startUpload(picked, path)
+    } catch (caught) {
+      setError(`无法打开上传文件夹选择器: ${caught instanceof Error ? caught.message : String(caught)}`)
+    }
   }
   async function download(pick: string[] | null, entry: SftpEntry | null): Promise<void> {
     const paths = (pick !== null && pick.length > 0) ? pick
       : (entry ? [entry.path] : [...selected])
     if (paths.length === 0) return
-    const dir = await pickPath('folder')
-    if (dir === null || dir[0] === undefined) return
     try {
+      const dir = await pickPath('folder')
+      if (dir === null || dir[0] === undefined) return
       await sftpStartDownload(sessionId, paths, dir[0])
     } catch (caught) {
-      setError(`Download failed: ${caught instanceof Error ? caught.message : String(caught)}`)
+      setError(`无法开始下载: ${caught instanceof Error ? caught.message : String(caught)}`)
     }
   }
-  async function newFolder(): Promise<void> {
+  function newFolder(): void {
     setMenu(null)
-    const name = window.prompt('新建文件夹', 'new-folder')
-    if (!name) return
-    try {
-      await tauriInvoke<void>('sftp_mkdir', { id: sessionId, path: joinPath(path, name) })
-      await loadDir(path)
-    } catch (caught) {
-      setError(`Create folder failed: ${caught instanceof Error ? caught.message : String(caught)}`)
-    }
+    setFileDialog({ mode: 'create-folder', value: 'new-folder' })
   }
-  async function rename(entry: SftpEntry): Promise<void> {
+  function rename(entry: SftpEntry): void {
     setMenu(null)
-    const newName = window.prompt('重命名', entry.name)
-    if (!newName || newName === entry.name) return
-    try {
-      await sftpRename(sessionId, entry.path, joinPath(parentPath(entry.path), newName))
-      await loadDir(path)
-    } catch (caught) {
-      setError(`Rename failed: ${caught instanceof Error ? caught.message : String(caught)}`)
-    }
+    setFileDialog({ mode: 'rename', entry, value: entry.name })
   }
-  async function remove(entry: SftpEntry | null): Promise<void> {
+  function remove(entry: SftpEntry | null): void {
     setMenu(null)
     const paths = selected.size > 0 ? [...selected] : (entry ? [entry.path] : [])
-    if (paths.length === 0) return
-    if (!window.confirm('确定删除选中的文件/文件夹?')) return
+    if (paths.length > 0) setFileDialog({ mode: 'delete', paths })
+  }
+  async function submitFileDialog(): Promise<void> {
+    if (fileDialog === null) return
+    const dialog = fileDialog
+    if (dialog.mode !== 'delete' && dialog.value.trim() === '') return
+    setFileDialog(null)
     try {
-      for (const p of paths) await sftpRemove(sessionId, p)
-      setSelected(new Set())
+      if (dialog.mode === 'create-folder') {
+        await tauriInvoke<void>('sftp_mkdir', { id: sessionId, path: joinPath(path, dialog.value.trim()) })
+      } else if (dialog.mode === 'rename') {
+        if (dialog.value.trim() === dialog.entry.name) return
+        await sftpRename(sessionId, dialog.entry.path, joinPath(parentPath(dialog.entry.path), dialog.value.trim()))
+      } else {
+        for (const target of dialog.paths) await sftpRemove(sessionId, target)
+        setSelected(new Set())
+      }
       await loadDir(path)
     } catch (caught) {
-      setError(`Delete failed: ${caught instanceof Error ? caught.message : String(caught)}`)
+      setError(`File operation failed: ${caught instanceof Error ? caught.message : String(caught)}`)
     }
   }
   function copyPath(entry: SftpEntry): void {
@@ -361,19 +378,22 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
         <>
           {/* toolbar */}
           <div className={css.toolbar}>
-            <button type="button" className={css.tbBtn} title="上级目录" onClick={navigateUp}>↑</button>
-            <button type="button" className={css.tbBtn} title="刷新" disabled={loading} onClick={refresh}>⟳</button>
-            <button type="button" className={`${css.tbBtn} ${showHidden ? css.active : ''}`} title="显示隐藏文件" onClick={() => setShowHidden(v => !v)}>👁</button>
-            <span className={css.sep} />
-            <button type="button" className={css.tbBtn} title="上传文件" onClick={uploadFiles}>↑</button>
-            <button type="button" className={css.tbBtn} title="上传文件夹" onClick={uploadFolder}>📁+</button>
-            <button type="button" className={css.tbBtn} title="下载" disabled={selected.size === 0} onClick={() => void download(null, null)}>↓</button>
-            <button type="button" className={css.tbBtn} title="新建文件夹" onClick={newFolder}>＋</button>
-            <span className={css.sep} />
-            <button type="button" className={`${css.tbBtn} ${followTerminal ? css.active : ''}`} title="跟随终端路径" disabled={!sshConnected} onClick={toggleFollow}>⌁</button>
-            <button type="button" className={css.tbBtn} title="编辑路径" onClick={() => { setPathInput(path); setPathEditing(true) }}>✎</button>
-            <span className={css.sep} />
-            <button type="button" className={css.tbBtn} title="传输任务" onClick={() => setShowTransfers(v => !v)}>⟲</button>
+            <div className={css.toolGroup}>
+              <button type="button" className={css.tbBtn} title="上级目录" aria-label="上级目录" onClick={navigateUp}><IconFolderOpenOutline16 size={15} /></button>
+              <button type="button" className={css.tbBtn} title="刷新" aria-label="刷新" disabled={loading} onClick={refresh}><IconRefreshOutline16 size={15} /></button>
+              <button type="button" className={`${css.tbBtn} ${showHidden ? css.active : ''}`} title="显示隐藏文件" aria-label="显示隐藏文件" onClick={() => setShowHidden(v => !v)}><IconLinkOutline16 size={15} /></button>
+            </div>
+            <div className={css.toolGroup}>
+              <button type="button" className={css.tbBtn} title="上传文件" aria-label="上传文件" onClick={uploadFiles}><IconPlusOutline16 size={15} /></button>
+              <button type="button" className={css.tbBtn} title="上传文件夹" aria-label="上传文件夹" onClick={uploadFolder}><IconFolderOpenOutline16 size={15} /></button>
+              <button type="button" className={css.tbBtn} title="下载" aria-label="下载" disabled={selected.size === 0} onClick={() => void download(null, null)}><IconDownloadOutline16 size={15} /></button>
+              <button type="button" className={css.tbBtn} title="新建文件夹" aria-label="新建文件夹" onClick={newFolder}><IconPlusOutline16 size={15} /></button>
+            </div>
+            <div className={`${css.toolGroup} ${css.toolsEnd}`}>
+              <button type="button" className={`${css.tbBtn} ${followTerminal ? css.active : ''}`} title={followTerminal ? '已跟随终端路径' : '跟随终端路径'} aria-label="跟随终端路径" disabled={!sshConnected} onClick={toggleFollow}><IconLinkOutline16 size={15} /></button>
+              <button type="button" className={css.tbBtn} title="编辑路径" aria-label="编辑路径" onClick={() => { setPathInput(path); setPathEditing(true) }}><IconEditOutline16 size={15} /></button>
+              <button type="button" className={css.tbBtn} title="传输任务" aria-label="传输任务" onClick={() => setShowTransfers(v => !v)}><IconFolderOpenOutline16 size={15} /></button>
+            </div>
           </div>
 
           {/* breadcrumb / path input */}
@@ -409,7 +429,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
             {!loading && visibleEntries.length === 0 && <div className={css.listEmpty}>空目录</div>}
             {!loading && visibleEntries.length > 0 && path !== '/' && (
               <div className={css.fileRow} onClick={navigateUp} onContextMenu={(e) => onContextMenu(e, null)}>
-                <span className={`${css.fileIcon} ${css.dir}`}>▸</span>
+                <span className={`${css.fileIcon} ${css.dir}`}><IconFolderOpenOutline16 size={15} /></span>
                 <span className={css.fileName}>..</span>
               </div>
             )}
@@ -420,7 +440,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
                 onClick={(e) => onFileClick(entry, index, e)}
                 onContextMenu={(e) => onContextMenu(e, entry)}
               >
-                <span className={`${css.fileIcon} ${entry.isDir ? css.dir : ''}`}>{entry.isDir ? '▸' : '·'}</span>
+                <span className={`${css.fileIcon} ${entry.isDir ? css.dir : ''}`}>{entry.isDir ? <IconFolderOpenOutline16 size={15} /> : <IconLinkOutline16 size={14} />}</span>
                 <span className={css.fileName}>{entry.name}</span>
                 <span className={css.fileSize}>{entry.isDir ? '—' : formatSize(entry.size)}</span>
               </div>
@@ -468,13 +488,27 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
               </>
             )}
             {menu.entry !== null && selected.size <= 1 && (
-              <button type="button" className={css.menuItem} onClick={() => { const e = menu.entry; if (e) void rename(e) }}>重命名</button>
+              <button type="button" className={css.menuItem} onClick={() => { const e = menu.entry; if (e) rename(e) }}>重命名</button>
             )}
-            <button type="button" className={`${css.menuItem} ${css.danger}`} onClick={() => { const e = menu.entry; void remove(e) }}>删除</button>
+            <button type="button" className={`${css.menuItem} ${css.danger}`} onClick={() => { const e = menu.entry; remove(e) }}>删除</button>
             {menu.entry !== null && selected.size <= 1 && (
               <button type="button" className={css.menuItem} onClick={() => { const e = menu.entry; if (e) copyPath(e) }}>复制路径</button>
             )}
           </div>
+        </div>
+      )}
+      {fileDialog !== null && (
+        <div className={css.fileDialogBackdrop} role="presentation" onMouseDown={() => setFileDialog(null)}>
+          <section className={css.fileDialog} role="dialog" aria-modal="true" aria-label={fileDialog.mode === 'delete' ? '确认删除' : fileDialog.mode === 'rename' ? '重命名' : '新建文件夹'} onMouseDown={(event) => event.stopPropagation()}>
+            <div className={css.fileDialogHead}>{fileDialog.mode === 'delete' ? '确认删除' : fileDialog.mode === 'rename' ? '重命名' : '新建文件夹'}</div>
+            {fileDialog.mode === 'delete' ? <p>将永久删除 {fileDialog.paths.length} 个项目，无法恢复。</p> : (
+              <input autoFocus className={css.fileDialogInput} value={fileDialog.value} onChange={(event) => setFileDialog({ ...fileDialog, value: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') void submitFileDialog(); if (event.key === 'Escape') setFileDialog(null) }} />
+            )}
+            <div className={css.fileDialogActions}>
+              <button type="button" onClick={() => setFileDialog(null)}>取消</button>
+              <button type="button" className={fileDialog.mode === 'delete' ? css.dangerAction : css.primaryAction} onClick={() => void submitFileDialog()}>{fileDialog.mode === 'delete' ? '删除' : '确认'}</button>
+            </div>
+          </section>
         </div>
       )}
     </div>

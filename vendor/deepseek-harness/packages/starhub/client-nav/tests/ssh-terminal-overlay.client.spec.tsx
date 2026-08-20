@@ -145,6 +145,39 @@ describe('SshTerminalOverlay', () => {
     unmount()
   })
 
+  it('opens SFTP at the current terminal directory when cwd tracking has reported one', async () => {
+    const callbacks: Array<(event: unknown) => void> = []
+    const invoke = vi.fn((command: string) => {
+      if (command === 'plugin:event|listen') return Promise.resolve(callbacks.length)
+      if (command === 'sftp_ensure_session') return Promise.resolve({ mode: 'subsystem' })
+      if (command === 'sftp_home_dir') return Promise.resolve('/home/deploy')
+      if (command === 'sftp_list') return Promise.resolve([])
+      if (command === 'sftp_list_transfers') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    ;(window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: typeof invoke
+        transformCallback: (callback: (event: unknown) => void) => number
+      }
+    }).__TAURI_INTERNALS__ = {
+      invoke,
+      transformCallback: (callback) => { callbacks.push(callback); return callbacks.length },
+    }
+    ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+      observe() {}
+      disconnect() {}
+    }
+
+    const { getByRole, unmount } = render(<SshTerminalOverlay asset={asset} onClose={vi.fn()} />)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('ssh_connect', expect.any(Object)))
+    callbacks[0]?.({ event: 'ssh:data:ssh-1', id: 1, payload: Array.from(new TextEncoder().encode('\u001b]7;/srv/app\u0007')) })
+    fireEvent.click(getByRole('button', { name: /文件/ }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('sftp_list', { id: 'ssh-1', path: '/srv/app' }))
+    expect(invoke).not.toHaveBeenCalledWith('sftp_list', { id: 'ssh-1', path: '/home/deploy' })
+    unmount()
+  })
+
   it('opens the broadcast dialog, lists connected sessions, sends a command, and reports success', async () => {
     const callbacks: Array<(event: unknown) => void> = []
     const invoke = vi.fn((command: string) => {

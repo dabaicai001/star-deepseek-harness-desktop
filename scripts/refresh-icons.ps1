@@ -61,6 +61,54 @@ function Resize-Png {
   }
 }
 
+function Draw-CompactWindowsIcon {
+  param(
+    [int]$Size,
+    [System.Drawing.Graphics]$Graphics
+  )
+  $sizeValue = [int]$Size
+  $Graphics.Clear([System.Drawing.Color]::Transparent)
+  $Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+  $Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+  $Graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+
+  $inset = [math]::Max(0.5, $sizeValue * 0.035)
+  $corner = [math]::Max(2, $sizeValue * 0.18)
+  $edge = $sizeValue - 2 * $inset
+  $rect = New-Object System.Drawing.RectangleF($inset, $inset, $edge, $edge)
+  $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+  try {
+    $diameter = 2 * $corner
+    $path.AddArc($rect.X, $rect.Y, $diameter, $diameter, 180, 90)
+    $path.AddArc($rect.Right - $diameter, $rect.Y, $diameter, $diameter, 270, 90)
+    $path.AddArc($rect.Right - $diameter, $rect.Bottom - $diameter, $diameter, $diameter, 0, 90)
+    $path.AddArc($rect.X, $rect.Bottom - $diameter, $diameter, $diameter, 90, 90)
+    $path.CloseFigure()
+    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(43, 109, 217))
+    try { $Graphics.FillPath($brush, $path) } finally { $brush.Dispose() }
+  } finally { $path.Dispose() }
+
+  $fontSize = if ($sizeValue -le 16) { $sizeValue * 0.56 } else { $sizeValue * 0.44 }
+  $font = New-Object System.Drawing.Font('Segoe UI', $fontSize, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+  $format = New-Object System.Drawing.StringFormat
+  try {
+    $format.Alignment = [System.Drawing.StringAlignment]::Center
+    $format.LineAlignment = [System.Drawing.StringAlignment]::Center
+    $format.FormatFlags = [System.Drawing.StringFormatFlags]::NoWrap
+    $format.Trimming = [System.Drawing.StringTrimming]::None
+    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+    try {
+      $mark = if ($sizeValue -le 16) { 'S' } else { '>S' }
+      $verticalNudge = if ($sizeValue -le 16) { -($sizeValue * 0.03) } else { -($sizeValue * 0.04) }
+      $textRect = New-Object System.Drawing.RectangleF(0, $verticalNudge, $sizeValue, $sizeValue)
+      $Graphics.DrawString($mark, $font, $brush, $textRect, $format)
+    } finally { $brush.Dispose() }
+  } finally {
+    $format.Dispose()
+    $font.Dispose()
+  }
+}
+
 function Write-IcoFromPngs {
   param(
     [System.Drawing.Image]$Source,
@@ -75,10 +123,14 @@ function Write-IcoFromPngs {
     try {
       $g = [System.Drawing.Graphics]::FromImage($bmp)
       try {
-        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-        $g.Clear([System.Drawing.Color]::Transparent)
-        $g.DrawImage($Source, 0, 0, $s, $s)
+        if ($s -le 48) {
+          Draw-CompactWindowsIcon -Size $s -Graphics $g
+        } else {
+          $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+          $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+          $g.Clear([System.Drawing.Color]::Transparent)
+          $g.DrawImage($Source, 0, 0, $s, $s)
+        }
       } finally { $g.Dispose() }
       $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
     } finally { $bmp.Dispose() }
@@ -123,7 +175,13 @@ function Write-IcoFromPngs {
 
 if (-not (Test-Path $Source)) { throw "Source not found: $Source" }
 Write-Host "[refresh-icons] decoding source: $Source"
-$src = [System.Drawing.Image]::FromFile($Source)
+# Clone the source into memory so it can safely be regenerated in place as icon.png.
+$sourceFile = [System.Drawing.Image]::FromFile($Source)
+try {
+  $src = New-Object System.Drawing.Bitmap($sourceFile)
+} finally {
+  $sourceFile.Dispose()
+}
 try {
   Write-Host "[refresh-icons] source size: $($src.Width) x $($src.Height)"
 

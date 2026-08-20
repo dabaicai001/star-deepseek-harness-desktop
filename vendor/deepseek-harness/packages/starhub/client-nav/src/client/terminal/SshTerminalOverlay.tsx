@@ -15,7 +15,7 @@
  * @module StarHub SSH/SFTP overlay (client)
  */
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
-import { IconCloseOutline16, IconPaperclipOutline16, IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconPaperclipOutline16, IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -105,11 +105,16 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
     })
   }
 
-  /** SFTP「跟随终端」toggle → request OSC 7 injection (once, after prompt). */
-  const onFollowTerminal = (enabled: boolean) => {
-    if (!enabled || osc7InjectedRef.current || disposedRef.current) return
+  /** Start OSC 7 cwd reporting once the terminal is connected and the shell is ready. */
+  const enableCwdTracking = () => {
+    if (osc7InjectedRef.current || disposedRef.current) return
     osc7InjectPendingRef.current = true
     if (shellPromptSeenRef.current) tryInjectOsc7()
+  }
+
+  /** SFTP「跟随终端」toggle keeps cwd reporting active for the live SSH session. */
+  const onFollowTerminal = (enabled: boolean) => {
+    if (enabled) enableCwdTracking()
   }
 
   useEffect(() => {
@@ -207,6 +212,7 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
         if (host.current !== null) resizeObserver.observe(host.current)
         resize()
         term.focus()
+        enableCwdTracking()
         void initCwdFromExec()
       } catch (caught) {
         if (!disposed) setError(caught instanceof Error ? caught.message : String(caught))
@@ -321,8 +327,7 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
               onClick={() => void openBroadcast()}
               title="命令广播:把同一命令发送到多个已连接 SSH 会话"
               aria-label="广播"
-            ><span aria-hidden="true">◉</span><span>广播</span><span className={css.broadcastDetail}>命令</span></button>
-            <button type="button" className={css.iconButton} onClick={onClose} title="关闭工作区" aria-label="关闭工作区">×</button>
+            ><span>广播</span><span className={css.broadcastDetail}>命令</span></button>
           </div>
         </header>
         {error !== null && <div className={css.error} role="alert">{error}</div>}
@@ -345,14 +350,14 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
                 onClick={() => toggleSidePanel('sftp')}
                 title={connected ? '显示或隐藏 SFTP 文件面板' : '等待 SSH 连接后启用 SFTP'}
                 aria-pressed={sidePanel === 'sftp'}
-              ><span aria-hidden="true">□</span> 文件</button>
+              ><IconFolderOpenOutline16 size={15} /> 文件</button>
               <button
                 type="button"
                 className={sidePanel === 'web' ? css.workspaceTabActive : css.workspaceTab}
                 onClick={() => toggleSidePanel('web')}
                 title={connected ? '显示或隐藏 SSH 网页面板' : '等待 SSH 连接后启用网页访问'}
                 aria-pressed={sidePanel === 'web'}
-              ><span aria-hidden="true">◫</span> 网页</button>
+              ><IconLinkOutline16 size={15} /> 网页</button>
               <span className={css.connectionState}><span className={connected ? css.connectionOnline : css.connectionPending} />{connected ? '已连接' : '连接中'}</span>
             </div>
             <div className={css.quickBar} aria-label="快捷命令">
@@ -375,7 +380,6 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
                   <span className={css.sidePanelTitle}>{sidePanelLabel}</span>
                   <span className={css.sidePanelDetail}>{sidePanel === 'sftp' ? '与当前 SSH 会话共享连接' : '通过 SSH 安全网关访问'}</span>
                 </div>
-                <button type="button" className={css.iconButton} onClick={() => setSidePanel(null)} title="关闭侧边面板" aria-label="关闭侧边面板">×</button>
               </header>
               <div className={css.sidePanelBody}>
                 {sidePanel === 'web' ? (
