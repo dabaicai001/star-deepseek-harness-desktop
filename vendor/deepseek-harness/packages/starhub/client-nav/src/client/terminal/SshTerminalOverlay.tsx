@@ -265,66 +265,89 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
       : `广播完成,${failed} 个会话发送失败`)
   }
 
+  const workspaceLabel = tab === 'terminal' ? '终端' : tab === 'sftp' ? '文件传输' : '网页访问'
+
   return (
     <div className={css.backdrop}>
-      <section className={css.panel} aria-label={`SSH 终端 ${asset.name}`}>
-        <header>
+      <section className={css.panel} aria-label={`SSH 工作区 ${asset.name}`}>
+        <header className={css.header}>
           <div className={css.headLeft}>
             <span className={connected ? css.statusOnline : css.statusPending} aria-label={connected ? 'SSH 已连接' : 'SSH 连接中'} />
             <div className={css.identity}>
               <span className={css.title}>{asset.name}</span>
               <span className={css.endpoint}>{typeof asset.config.username === 'string' ? `${asset.config.username}@` : ''}{typeof asset.config.host === 'string' ? asset.config.host : '未配置主机'}</span>
             </div>
-            <nav className={css.tabs} aria-label="SSH 工作区">
-              <button
-                type="button"
-                className={tab === 'terminal' ? css.tabActive : ''}
-                onClick={() => setTab('terminal')}
-              >终端</button>
-              <button
-                type="button"
-                className={tab === 'sftp' ? css.tabActive : ''}
-                onClick={() => setTab('sftp')}
-              >文件 (SFTP){connected ? '' : ' · 未连接'}</button>
-              <button
-                type="button"
-                className={tab === 'web' ? css.tabActive : ''}
-                onClick={() => setTab('web')}
-                title="经 SSH 网关访问网页"
-              >网页</button>
-            </nav>
           </div>
           <div className={css.headRight}>
             <button
               type="button"
-              className={css.textAction}
+              className={css.broadcastAction}
               onClick={() => void openBroadcast()}
               title="命令广播:把同一命令发送到多个已连接 SSH 会话"
-            >广播</button>
+              aria-label="广播"
+            ><span aria-hidden="true">◉</span><span>广播</span><span className={css.broadcastDetail}>命令</span></button>
             <button type="button" className={css.iconButton} onClick={onClose} title="关闭工作区" aria-label="关闭工作区">×</button>
           </div>
         </header>
-        {error !== null && <div className={css.error}>{error}</div>}
+        {error !== null && <div className={css.error} role="alert">{error}</div>}
         {broadcastNotice !== null && (
-          <div className={css.notice} role="status">{broadcastNotice}<button type="button" className={css.noticeClose} onClick={() => setBroadcastNotice(null)}>×</button></div>
-        )}
-        {tab === 'terminal' ? (
-          <div ref={host} className={css.terminal} />
-        ) : tab === 'web' ? (
-          <div className={css.webHost}>
-            <WebBrowser sessionId={sessionId} assetName={asset.name} />
-          </div>
-        ) : (
-          <div className={css.sftpHost}>
-            <SftpPanel
-              asset={asset}
-              sessionId={sessionId}
-              sshConnected={connected}
-              sshCwd={sshCwd}
-              onFollowTerminal={onFollowTerminal}
-            />
+          <div className={css.notice} role="status">
+            <span className={css.noticeMark} aria-hidden="true">✓</span>
+            <span>{broadcastNotice}</span>
+            <button type="button" className={css.noticeClose} onClick={() => setBroadcastNotice(null)} aria-label="关闭提示">×</button>
           </div>
         )}
+        <div className={css.workspace}>
+          <nav className={css.sidebar} aria-label="SSH 工作区">
+            <div className={css.sidebarLabel}>工作区</div>
+            <button
+              type="button"
+              className={tab === 'terminal' ? css.navActive : css.navItem}
+              onClick={() => setTab('terminal')}
+              title="SSH 终端"
+            ><span className={css.navIcon} aria-hidden="true">›_</span><span>终端</span></button>
+            <button
+              type="button"
+              className={tab === 'sftp' ? css.navActive : css.navItem}
+              onClick={() => setTab('sftp')}
+              title={connected ? 'SFTP 文件传输' : '等待 SSH 连接后启用 SFTP'}
+            ><span className={css.navIcon} aria-hidden="true">□</span><span>文件</span><span className={css.navMeta}>SFTP</span></button>
+            <button
+              type="button"
+              className={tab === 'web' ? css.navActive : css.navItem}
+              onClick={() => setTab('web')}
+              title={connected ? '经 SSH 网关访问网页' : '等待 SSH 连接后启用网页访问'}
+            ><span className={css.navIcon} aria-hidden="true">◫</span><span>网页</span></button>
+            <div className={css.sidebarFooter}>
+              <span className={connected ? css.connectionOnline : css.connectionPending} />
+              {connected ? '已连接' : '正在连接'}
+            </div>
+          </nav>
+          <main className={css.content} aria-label={workspaceLabel}>
+            <div className={css.contentHeader}>
+              <span className={css.contentTitle}>{tab === 'terminal' ? '交互式会话' : workspaceLabel}</span>
+              <span className={css.contentDetail}>{tab === 'terminal' ? '交互式 SSH 会话' : tab === 'sftp' ? '与当前 SSH 会话共享连接' : '通过当前 SSH 会话的安全网关访问'}</span>
+            </div>
+            <div className={css.contentBody}>
+              <div ref={host} className={tab === 'terminal' ? css.terminal : css.terminalHidden} />
+              {tab === 'web' ? (
+                <div className={css.webHost}>
+                  <WebBrowser sessionId={sessionId} assetName={asset.name} sshConnected={connected} />
+                </div>
+              ) : tab === 'sftp' ? (
+                <div className={css.sftpHost}>
+                  <SftpPanel
+                    asset={asset}
+                    sessionId={sessionId}
+                    sshConnected={connected}
+                    sshCwd={sshCwd}
+                    onFollowTerminal={onFollowTerminal}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </main>
+        </div>
       </section>
       {broadcastSessions !== null && (
         <BroadcastDialog

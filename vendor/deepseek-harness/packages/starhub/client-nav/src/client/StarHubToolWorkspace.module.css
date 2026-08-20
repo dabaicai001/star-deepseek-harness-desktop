@@ -86,12 +86,12 @@
 
 .row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
-  padding: 6px 10px;
+  padding: 7px 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: 5px;
   background: var(--dsw-alias-interactive-bg-hover);
   color: inherit;
   cursor: pointer;
@@ -113,25 +113,30 @@
   white-space: nowrap;
 }
 
-.rowName {
+.assetText {
+  display: flex;
+  min-width: 0;
   flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rowName, .rowSub {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 副标题(username@host)让位:名称 rowName flex:1(basis 0)不参与收缩,
-   空间不足时先收缩本行;min-width:0 + ellipsis 溢出截断,max-width 给名称留足空间。 */
+.rowName {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
 .rowSub {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex-shrink: 1;
-  max-width: 55%;
-  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
-  white-space: nowrap;
+  font-family: var(--dsw-font-mono);
+  font-size: 11px;
 }
 
 /* 资产行外壳:主按钮(打开)+ 行尾编辑钮(打开连接对话框编辑模式)。 */

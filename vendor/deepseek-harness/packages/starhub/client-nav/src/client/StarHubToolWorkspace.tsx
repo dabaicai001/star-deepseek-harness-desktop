@@ -92,8 +92,10 @@ function AssetRow({ asset, badgeLabel, onOpen, onEdit, onDelete }: {
         onClick={onOpen}
       >
         <span className={css.badge}>{badgeLabel}</span>
-        <span className={css.rowName}>{asset.name}</span>
-        <span className={css.rowSub}>{subtitle}</span>
+        <span className={css.assetText}>
+          <span className={css.rowName}>{asset.name}</span>
+          {subtitle !== '' && <span className={css.rowSub}>{subtitle}</span>}
+        </span>
       </button>
       <button
         type="button"

@@ -353,60 +353,70 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
         )}
 
         {connectError === null && (
-          <>
-            <div className={css.dash}>
-              <DashboardCard label="容器" value={counts.total} accent="cyan" />
-              <DashboardCard label="运行中" value={counts.running} accent="green" />
-              <DashboardCard label="已停止" value={counts.stopped} accent="red" />
-              <DashboardCard label="暂停" value={counts.paused} accent="yellow" />
-              <DashboardCard label="镜像" value={counts.images} accent="cyan" />
-            </div>
-
-            <nav className={css.tabs}>
-              <button type="button" className={tab === 'containers' ? css.tabActive : css.tab} onClick={() => setTab('containers')}>容器</button>
-              <button type="button" className={tab === 'images' ? css.tabActive : css.tab} onClick={() => setTab('images')}>镜像</button>
-              <span className={css.spacer} />
-              {tab === 'images' && (
-                <>
-                  <button type="button" className={css.toolButton} onClick={() => setPullOpen(true)}>拉取镜像</button>
-                  <button type="button" className={css.toolButton} onClick={() => void runPrune()}>清理</button>
-                </>
-              )}
-              {tab === 'containers' && (
-                <>
+          <div className={css.workspace}>
+            <nav className={css.sidebar} aria-label="Docker 工作区">
+              <div className={css.sidebarLabel}>工作区</div>
+              <button type="button" aria-label="容器" className={tab === 'containers' ? css.navActive : css.navItem} onClick={() => setTab('containers')}>
+                <span aria-hidden="true">▣</span><span aria-hidden="true">容器</span><span className={css.navCount} aria-hidden="true">{counts.total}</span>
+              </button>
+              <button type="button" aria-label="镜像" className={tab === 'images' ? css.navActive : css.navItem} onClick={() => setTab('images')}>
+                <span aria-hidden="true">◇</span><span aria-hidden="true">镜像</span><span className={css.navCount} aria-hidden="true">{counts.images}</span>
+              </button>
+              <div className={css.sidebarFooter}>
+                <span className={connected ? css.statusOnline : css.statusPending} />
+                {connected ? '已连接' : '正在连接'}
+              </div>
+            </nav>
+            <main className={css.main}>
+              <div className={css.dash}>
+                <DashboardCard label="容器" value={counts.total} accent="cyan" />
+                <DashboardCard label="运行中" value={counts.running} accent="green" />
+                <DashboardCard label="已停止" value={counts.stopped} accent="red" />
+                <DashboardCard label="暂停" value={counts.paused} accent="yellow" />
+                <DashboardCard label="镜像" value={counts.images} accent="cyan" />
+              </div>
+              <div className={css.contentToolbar}>
+                <div>
+                  <span className={css.contentTitle}>{tab === 'containers' ? '容器' : '镜像'}</span>
+                  <span className={css.contentDetail}>{tab === 'containers' ? '管理运行实例、日志和终端会话' : '拉取、检查和清理镜像'}</span>
+                </div>
+                <span className={css.spacer} />
+                {tab === 'images' && (
+                  <>
+                    <button type="button" className={css.toolButton} onClick={() => setPullOpen(true)}>拉取镜像</button>
+                    <button type="button" className={css.toolButton} onClick={() => void runPrune()}>清理</button>
+                  </>
+                )}
+                {tab === 'containers' && (
                   <label className={css.check}>
                     <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
                     <span>显示全部</span>
                   </label>
-                  <button type="button" className={css.toolButton} onClick={() => void loadContainers()} disabled={containers.loading}>刷新</button>
-                </>
+                )}
+                <button type="button" className={css.toolButton} onClick={() => tab === 'containers' ? void loadContainers() : void loadImages()} disabled={tab === 'containers' ? containers.loading : images.loading}>刷新</button>
+              </div>
+              {tab === 'containers' && (
+                <ContainersView
+                  load={containers}
+                  showAll={showAll}
+                  onRefresh={() => void loadContainers()}
+                  onAction={runContainerAction}
+                  expanded={expanded}
+                  detail={detail}
+                  onToggle={toggleDetail}
+                  onExec={(c) => setExec({ container: c })}
+                />
               )}
               {tab === 'images' && (
-                <button type="button" className={css.toolButton} onClick={() => void loadImages()} disabled={images.loading}>刷新</button>
+                <ImagesView
+                  load={images}
+                  onRefresh={() => void loadImages()}
+                  onPullOpen={() => setPullOpen(true)}
+                  onRemove={runRemoveImage}
+                />
               )}
-            </nav>
-
-            {tab === 'containers' && (
-              <ContainersView
-                load={containers}
-                showAll={showAll}
-                onRefresh={() => void loadContainers()}
-                onAction={runContainerAction}
-                expanded={expanded}
-                detail={detail}
-                onToggle={toggleDetail}
-                onExec={(c) => setExec({ container: c })}
-              />
-            )}
-            {tab === 'images' && (
-              <ImagesView
-                load={images}
-                onRefresh={() => void loadImages()}
-                onPullOpen={() => setPullOpen(true)}
-                onRemove={runRemoveImage}
-              />
-            )}
-          </>
+            </main>
+          </div>
         )}
 
         {pullOpen && (

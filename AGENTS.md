@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.87.0(品牌图标升级 + README 与 AGENTS.md 同步重写：图标替换为新的 1024×1024 源图,README 技术栈改写为 React + DeepSeek Harness 工作台 + Go Sidecar,删除 Vue 3 / Vuetify / Pinia / `cyber.css` / `vue-i18n` 等已在 v0.86.0 移除的内容;新增 `scripts/refresh-icons.ps1` 从单一源图重生成 Tauri `bundle.icon` 全部打包图标与 README 顶图,使用 Windows .NET `System.Drawing`,无外部图像库依赖。) |
+| 当前版本 | v0.87.1(SSH、数据库与 Docker 工作台统一侧栏导航；SSH 的 SFTP 与网页访问补齐明确可用状态；资产列表名称与用户名/主机两行呈现，避免窄列裁断。) |
 
 ---
 
@@ -463,4 +463,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-20 (v0.87.0)*
+*最后更新: 2026-08-20 (v0.87.1)*

@@ -22,6 +22,8 @@ import css from './WebBrowser.module.css'
 export interface WebBrowserProps {
   sessionId: string
   assetName: string
+  /** Whether the shared SSH session is ready for tunnel creation. */
+  sshConnected: boolean
 }
 
 /** 发送给网关桥接脚本的命令类型。 */
@@ -33,7 +35,7 @@ type BridgeCmd = 'back' | 'forward' | 'reload'
  * @param props.assetName - the owning asset name for titles / messages.
  * @returns the browser toolbar + iframe stage.
  */
-export function WebBrowser({ sessionId, assetName }: WebBrowserProps) {
+export function WebBrowser({ sessionId, assetName, sshConnected }: WebBrowserProps) {
   const [address, setAddress] = useState('')
   const [errorText, setErrorText] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -122,32 +124,52 @@ export function WebBrowser({ sessionId, assetName }: WebBrowserProps) {
     }
   }, [sessionId])
 
+  const unavailable = !sshConnected
+
   return (
     <div className={css.root}>
       <div className={css.toolbar}>
-        <button type="button" className={css.navBtn} onClick={() => sendCmd('back')} title="后退">←</button>
-        <button type="button" className={css.navBtn} onClick={() => sendCmd('forward')} title="前进">→</button>
-        <button type="button" className={css.navBtn} onClick={() => sendCmd('reload')} title="刷新">⟳</button>
+        <button type="button" className={css.navBtn} onClick={() => sendCmd('back')} title="后退" disabled={unavailable}>←</button>
+        <button type="button" className={css.navBtn} onClick={() => sendCmd('forward')} title="前进" disabled={unavailable}>→</button>
+        <button type="button" className={css.navBtn} onClick={() => sendCmd('reload')} title="刷新" disabled={unavailable}>⟳</button>
         <input
           className={css.address}
           value={address}
+          disabled={unavailable}
           onChange={(e) => setAddress(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') onAddressSubmit()
           }}
-          placeholder="输入网址,回车访问…"
+          placeholder={unavailable ? '等待 SSH 会话连接…' : '输入完整网址后按 Enter 访问'}
           aria-label="地址栏"
         />
-        {loading && <span className={css.hint}>加载…</span>}
+        {loading && <span className={css.hint}>加载中</span>}
       </div>
-      {notice !== null && <div className={css.notice}>{notice}</div>}
-      {errorText !== null && <div className={css.error}>{errorText}</div>}
-      <iframe
-        ref={iframeRef}
-        className={css.frame}
-        title={`${assetName} 网页`}
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-      />
+      {unavailable ? (
+        <div className={css.emptyState}>
+          <span className={css.emptyIcon} aria-hidden="true">◫</span>
+          <strong>网页访问等待 SSH 连接</strong>
+          <span>SSH 会话建立后，输入完整网址即可通过安全网关访问。</span>
+        </div>
+      ) : (
+        <>
+          {notice !== null && <div className={css.notice} role="status">{notice}</div>}
+          {errorText !== null && <div className={css.error} role="alert">{errorText}</div>}
+          {address === '' && errorText === null && (
+            <div className={css.emptyState}>
+              <span className={css.emptyIcon} aria-hidden="true">◫</span>
+              <strong>通过 SSH 访问内部网页</strong>
+              <span>在上方输入完整 URL，例如 `https://intranet.example`。</span>
+            </div>
+          )}
+          <iframe
+            ref={iframeRef}
+            className={address === '' ? css.frameHidden : css.frame}
+            title={`${assetName} 网页`}
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          />
+        </>
+      )}
     </div>
   )
 }

@@ -16,6 +16,15 @@
 .retryButton { border: 0; border-radius: 6px; padding: 4px 10px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); cursor: pointer; }
 .inlineButton { border: 0; border-bottom: 1px dashed var(--dsw-alias-interactive-accent); background: transparent; color: var(--dsw-alias-interactive-accent); cursor: pointer; }
 
+.workspace { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.sidebar { display: flex; width: 150px; flex: 0 0 150px; flex-direction: column; padding: 10px 8px; border-right: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }
+.sidebarLabel { padding: 4px 8px 8px; color: var(--dsw-alias-label-tertiary); font-size: 10px; font-weight: 650; text-transform: uppercase; }
+.navItem, .navActive { display: flex; align-items: center; gap: 8px; min-width: 0; border: 1px solid transparent; border-radius: 5px; padding: 8px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 12px; text-align: left; }
+.navItem:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.navActive { border-color: color-mix(in srgb, var(--dsw-alias-interactive-accent) 32%, transparent); background: color-mix(in srgb, var(--dsw-alias-interactive-accent) 15%, transparent); color: var(--dsw-alias-interactive-accent); font-weight: 600; }
+.navCount { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 11px; opacity: 0.8; }
+.sidebarFooter { display: flex; align-items: center; gap: 7px; margin-top: auto; padding: 8px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.main { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
 /* 紧凑状态摘要 */
 .dash { display: flex; flex-wrap: wrap; gap: 0; padding: 0 14px; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }
 .dashCard { display: flex; min-width: 88px; align-items: baseline; gap: 6px; padding: 10px 14px 10px 0; }
@@ -25,15 +34,15 @@
 .accentGreen { color: var(--dsw-alias-state-success-primary); }
 .accentRed { color: var(--dsw-alias-state-error-primary); }
 .accentYellow { color: var(--dsw-alias-state-warning-primary); }
-
-/* tabs 与工具栏 */
-.tabs { display: flex; min-height: 40px; align-items: center; gap: 2px; padding: 0 14px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
-.tab, .tabActive { align-self: stretch; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--dsw-alias-label-secondary); padding: 0 10px; cursor: pointer; font-size: 12px; }
-.tabActive { border-bottom-color: var(--dsw-alias-interactive-accent); color: var(--dsw-alias-interactive-accent); }
+.contentToolbar { display: flex; min-height: 42px; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+.contentTitle { color: var(--dsw-alias-label-primary); font-size: 12px; font-weight: 650; }
+.contentDetail { margin-left: 8px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
 .spacer { flex: 1; }
-.toolButton { margin-left: 4px; border: 0; border-radius: 5px; padding: 5px 9px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); cursor: pointer; font-size: 12px; }
+.toolButton { margin-left: 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 5px; padding: 5px 9px; background: transparent; color: var(--dsw-alias-label-primary); cursor: pointer; font-size: 12px; }
+.toolButton:hover { border-color: var(--dsw-alias-interactive-accent); color: var(--dsw-alias-interactive-accent); }
 .toolButton:disabled { opacity: 0.5; cursor: default; }
 .check { display: flex; align-items: center; gap: 6px; margin-left: 8px; font-size: 12px; color: var(--dsw-alias-label-secondary); cursor: pointer; }
+@media (max-width: 680px) { .sidebar { width: 54px; flex-basis: 54px; padding-inline: 5px; } .sidebarLabel, .navItem > span:not(:first-child), .navActive > span:not(:first-child), .sidebarFooter, .contentDetail { display: none; } .navItem, .navActive { justify-content: center; padding: 10px 4px; } }
 
 /* 列表 */
 .list { flex: 1; min-height: 0; overflow: auto; padding: 10px 14px; }

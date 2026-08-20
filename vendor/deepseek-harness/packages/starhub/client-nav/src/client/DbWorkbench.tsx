@@ -570,8 +570,17 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
         </header>
         <div className={css.body}>
           <aside className={css.tree}>
+            <div className={css.workspaceNav}>
+              <div className={css.workspaceLabel}>工作区</div>
+              <button type="button" className={rightTab === 'sql' ? css.workspaceActive : css.workspaceItem} onClick={() => setRightTab('sql')}>
+                <span aria-hidden="true">›_</span><span>SQL 编辑器</span>
+              </button>
+              <button type="button" className={rightTab === 'dashboard' ? css.workspaceActive : css.workspaceItem} onClick={() => setRightTab('dashboard')}>
+                <span aria-hidden="true">◫</span><span>监控</span>
+              </button>
+            </div>
             <div className={css.treeToolbar}>
-              <span className={css.treeTitle}>数据库</span>
+              <span className={css.treeTitle}>数据库对象</span>
               <button type="button" className={css.treeRefresh} onClick={refreshDatabases} title="刷新数据库列表" aria-label="刷新数据库列表">↻</button>
             </div>
             <input
@@ -631,9 +640,9 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
             </ul>
           </aside>
           <section className={css.contentGrid}>
-            <div className={css.rightTabs}>
-              <button type="button" className={rightTab === 'sql' ? css.rightTabActive : css.rightTab} onClick={() => setRightTab('sql')}>SQL / 数据</button>
-              <button type="button" className={rightTab === 'dashboard' ? css.rightTabActive : css.rightTab} onClick={() => setRightTab('dashboard')}>监控</button>
+            <div className={css.contentHeader}>
+              <span className={css.contentTitle}>{rightTab === 'sql' ? 'SQL / 数据' : '数据库监控'}</span>
+              <span className={css.contentDetail}>{rightTab === 'sql' ? '执行查询、浏览数据和导出结果' : '查看当前连接的运行指标'}</span>
             </div>
             {rightTab === 'dashboard' ? (
               <DbDashboard

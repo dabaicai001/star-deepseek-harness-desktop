@@ -1,24 +1,38 @@
 .backdrop { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .panel { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: var(--dsw-alias-bg-base); }
-.panel header { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); }
+.header { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); }
 .headLeft { display: flex; min-width: 0; height: 100%; align-items: center; gap: 10px; }
-.headRight { display: flex; align-items: center; gap: 2px; }
-.identity { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
-.title { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.headRight { display: flex; align-items: center; gap: 6px; }
+.identity { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.title { overflow: hidden; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .endpoint { overflow: hidden; color: var(--dsw-alias-label-tertiary); font-family: var(--dsw-font-mono); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.statusOnline, .statusPending { width: 7px; height: 7px; flex: none; border-radius: 50%; }
-.statusOnline { background: var(--dsw-alias-state-success-primary); }
-.statusPending { background: var(--dsw-alias-state-warning-primary); }
-.iconButton { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 0; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 17px; line-height: 1; }
-.iconButton:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
-.textAction { border: 0; border-radius: 5px; padding: 5px 9px; background: transparent; color: var(--dsw-alias-interactive-accent); cursor: pointer; font-size: 12px; }
-.textAction:hover { background: var(--dsw-alias-interactive-bg-hover); }
-.notice { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 14px; color: var(--dsw-alias-label-secondary); font-size: 12px; border-bottom: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1); }
-.noticeClose { border: 0; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; }
-.tabs { display: flex; align-self: stretch; margin-left: 8px; gap: 2px; }
-.tabs button { border: 0; border-bottom: 2px solid transparent; padding: 0 10px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 12px; }
-.tabs button:hover { color: var(--dsw-alias-label-primary); }
-.tabActive { border-bottom-color: var(--dsw-alias-interactive-accent) !important; color: var(--dsw-alias-interactive-accent) !important; }
-.terminal { flex: 1; min-height: 0; padding: 12px; background: var(--dsw-alias-bg-base); }
-.sftpHost, .webHost { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.error { padding: 7px 14px; color: var(--dsw-alias-state-error-primary); font-size: 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+.statusOnline, .statusPending, .connectionOnline, .connectionPending { width: 7px; height: 7px; flex: none; border-radius: 50%; }
+.statusOnline, .connectionOnline { background: var(--dsw-alias-state-success-primary); }
+.statusPending, .connectionPending { background: var(--dsw-alias-state-warning-primary); }
+.iconButton { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 18px; line-height: 1; }
+.iconButton:hover { border-color: var(--dsw-alias-border-l2); background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.broadcastAction { display: inline-flex; align-items: center; gap: 6px; border: 1px solid color-mix(in srgb, var(--dsw-alias-interactive-accent) 56%, transparent); border-radius: 5px; padding: 6px 10px; background: color-mix(in srgb, var(--dsw-alias-interactive-accent) 13%, transparent); color: var(--dsw-alias-interactive-accent); cursor: pointer; font-size: 12px; font-weight: 600; }
+.broadcastAction:hover { background: color-mix(in srgb, var(--dsw-alias-interactive-accent) 22%, transparent); }
+.broadcastDetail { opacity: 0.8; }
+.notice { display: flex; align-items: center; gap: 8px; padding: 9px 16px; color: var(--dsw-alias-label-primary); font-size: 12px; border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 36%, var(--dsw-alias-border-l2)); background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 11%, var(--dsw-alias-bg-layer-1)); }
+.noticeMark { display: inline-flex; width: 17px; height: 17px; align-items: center; justify-content: center; border-radius: 50%; background: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-bg-base); font-size: 11px; font-weight: 700; }
+.noticeClose { margin-left: auto; border: 0; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 16px; }
+.workspace { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.sidebar { display: flex; width: 154px; flex: 0 0 154px; flex-direction: column; padding: 10px 8px; border-right: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }
+.sidebarLabel { padding: 4px 8px 8px; color: var(--dsw-alias-label-tertiary); font-size: 10px; font-weight: 650; text-transform: uppercase; }
+.navItem, .navActive { display: flex; min-width: 0; align-items: center; gap: 8px; border: 1px solid transparent; border-radius: 5px; padding: 8px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 12px; text-align: left; }
+.navItem:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.navActive { border-color: color-mix(in srgb, var(--dsw-alias-interactive-accent) 32%, transparent); background: color-mix(in srgb, var(--dsw-alias-interactive-accent) 15%, transparent); color: var(--dsw-alias-interactive-accent); font-weight: 600; }
+.navIcon { width: 18px; color: currentcolor; font-family: var(--dsw-font-mono); font-size: 12px; text-align: center; }
+.navMeta { margin-left: auto; color: inherit; font-size: 9px; opacity: 0.7; }
+.sidebarFooter { display: flex; align-items: center; gap: 7px; margin-top: auto; padding: 8px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.content { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
+.contentHeader { display: flex; min-height: 40px; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }
+.contentTitle { color: var(--dsw-alias-label-primary); font-size: 12px; font-weight: 650; }
+.contentDetail { overflow: hidden; color: var(--dsw-alias-label-tertiary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.contentBody { display: flex; min-width: 0; min-height: 0; flex: 1; }
+.terminal, .terminalHidden { min-width: 0; min-height: 0; flex: 1; padding: 12px; background: var(--dsw-alias-bg-base); }
+.terminalHidden { display: none; }
+.sftpHost, .webHost { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.error { padding: 9px 16px; color: var(--dsw-alias-state-error-primary); font-size: 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, var(--dsw-alias-bg-layer-1)); }
+@media (max-width: 680px) { .sidebar { width: 56px; flex-basis: 56px; padding-inline: 5px; } .sidebarLabel, .navItem > span:not(.navIcon), .navActive > span:not(.navIcon), .sidebarFooter { display: none; } .navItem, .navActive { justify-content: center; padding: 10px 4px; } .contentDetail { display: none; } .broadcastAction { padding: 6px 8px; } }
