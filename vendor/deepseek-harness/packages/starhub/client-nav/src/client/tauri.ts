@@ -85,10 +85,10 @@ export function starhubPageLabelPrefix(key: string): string {
 /**
  * Open a StarHub page in a NEW window instead of overlaying the dsh shell.
  * Desktop: a real Tauri webview window (label must match the capability
- * glob `starhub-*` so the embed page inside keeps its IPC grants). Browser
- * preview: a new tab. The page URL is a same-origin path (e.g. the embed
- * entry `/starhub/index.html?embed=1&route=...`); the Tauri command needs
- * an absolute URL, so it is resolved against the current origin.
+ * glob `starhub-*` so the React workbench inside keeps its IPC grants).
+ * Browser preview: a new tab. The page URL is a same-origin path (for example
+ * `/starhub-react/index.html?asset=...`); the Tauri command needs an absolute
+ * URL, so it is resolved against the current origin.
  * @param path - same-origin page path (absolute path, not full URL).
  * @param title - new window title (asset name).
  * @param key - optional stable identity embedded in the window label so a

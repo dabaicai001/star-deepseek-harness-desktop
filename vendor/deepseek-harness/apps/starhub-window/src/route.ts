@@ -60,7 +60,7 @@ export function parseWindowParams(search: string): { assetId: string; workbench:
 
 /**
  * Map a hydrated Rust asset to the workbench kind it should render.
- * Assets without a React workbench (e.g. Elasticsearch / local) return null;
+ * Assets without a React workbench (for example local files) return null;
  * the window shows an error for those rather than mounting a Vue embed.
  * @param asset - the hydrated asset from get_assets.
  * @returns the workbench kind, or null.

@@ -34,7 +34,7 @@ import { createAskAiHandler, createOpenAssetHandler, subscribeHostEvents } from 
 import {
   createAiChatOverlay, createConnectionManagerOverlay, createStarHubAssets, createStarHubNavStore, createToolSelectionBridge,
 } from './store.ts'
-import { assetWindowUrl, STARHUB_SUBCATEGORIES, type StarHubAsset } from './sections.ts'
+import { assetWindowUrl, type StarHubAsset } from './sections.ts'
 import { focusWindowByKey, openNewPage } from './tauri.ts'
 import { StarHubNav } from './StarHubNav.tsx'
 import { StarHubOverlay } from './StarHubOverlay.tsx'
@@ -86,13 +86,6 @@ export function apply(ctx: Context): void {
       // 开窗失败(如 IPC 未授权)打日志,不阻断主壳交互
       .catch((e: unknown) => { console.error('打开资产页面失败:', e) })
   }
-  /** 右键「新窗口打开」子类段页:embed 入口不带资产 id,停在段空态页。 */
-  const openSubcategoryPage = (key: string): void => {
-    const sub = STARHUB_SUBCATEGORIES.find(s => s.key === key)
-    if (sub === undefined) return
-    openNewPage(`/starhub/index.html?embed=1&route=${encodeURIComponent(sub.routePrefix)}`, sub.label)
-      .catch((e: unknown) => { console.error('打开工具段页失败:', e) })
-  }
   ctx.slots.inject('sidebar.navigation', () => ctx.slots.register({
     name: 'sidebar.navigation',
     id: 'starhub-nav',
@@ -108,7 +101,6 @@ export function apply(ctx: Context): void {
         if (same) ctx.layout.toggleDetails()
         else ctx.layout.openDetails()
       },
-      openSubcategoryPage,
       hooks: { selection: selection.source },
     }),
   }, StarHubNav))

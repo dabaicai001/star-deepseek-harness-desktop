@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.85.13(修复 React Docker SSH 连接参数在严格 `exactOptionalPropertyTypes` 编译下显式传入 `undefined` 而导致 Release 构建失败的问题。) |
+| 当前版本 | v0.85.14(Elasticsearch 资产窗口现在显式加载 React 原生工作台；工具子类右键菜单不再打开 Vue embed 空态页，统一打开 React 资产列表。SSH 内置浏览器与 SFTP 继续由 React 原生工作台承载。) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-20 (v0.85.13)*
+*最后更新: 2026-08-20 (v0.85.14)*

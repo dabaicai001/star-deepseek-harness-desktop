@@ -34,7 +34,6 @@ function navProps() {
     useStore: (<S,>(sel: (s: { categoryOpen: boolean }) => S) => sel(instance.getSnapshot())) as never,
     actions: instance.actions,
     selectSubcategory: vi.fn(),
-    openSubcategoryPage: vi.fn(),
     useSelection: (<S,>(sel: (s: ToolSelection) => S) => sel(bridge.source.getSnapshot())) as never,
     useSessions: (() => undefined) as never,
     useWorkspaces: (() => undefined) as never,
@@ -108,17 +107,14 @@ describe('StarHubNav', () => {
     expect(screen.getByTitle('终端')).toBeTruthy()
   })
 
-  it('opens a right-click menu on a subcategory row and dispatches open / open-new', () => {
+  it('opens a right-click menu that opens the asset list without a Vue embed window', () => {
     const props = navProps()
     render(<StarHubNav {...props} />)
     fireEvent.contextMenu(screen.getByTitle('数据库'))
-    expect(screen.getByText('打开')).toBeTruthy()
-    expect(screen.getByText('新窗口打开')).toBeTruthy()
-    fireEvent.click(screen.getByText('打开'))
+    expect(screen.getByText('打开资产列表')).toBeTruthy()
+    expect(screen.queryByText('新窗口打开')).toBeNull()
+    fireEvent.click(screen.getByText('打开资产列表'))
     expect(props.selectSubcategory).toHaveBeenCalledWith('database')
-    fireEvent.contextMenu(screen.getByTitle('数据库'))
-    fireEvent.click(screen.getByText('新窗口打开'))
-    expect(props.openSubcategoryPage).toHaveBeenCalledWith('database')
   })
 })
 

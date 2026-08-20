@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.85.13-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.85.14-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -108,6 +108,9 @@
 ---
 
 ## 当前版本
+
+### v0.85.14 (2026-08-20)
+- 🐛 Elasticsearch 资产窗口现在显式加载 React 原生工作台；工具子类右键菜单不再打开 Vue embed 空态页，统一打开 React 资产列表。SSH 内置浏览器与 SFTP 继续由 React 原生工作台承载。
 
 ### v0.85.13 (2026-08-20)
 - 🐛 修复 React Docker SSH 连接参数在严格 `exactOptionalPropertyTypes` 编译下显式传入 `undefined` 而导致 Release 构建失败的问题。
