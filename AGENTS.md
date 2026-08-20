@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.85.9(SSH、MySQL 与 Docker 独立 React 工作台统一为 DeepSeek Harness 的全窗口工作区样式：移除二次遮罩卡片，统一资产身份栏、连接状态、紧凑页签与工具栏，并保持 MySQL 独立窗口和 SSH 内的 SFTP 文件页签。) |
+| 当前版本 | v0.85.10(修复 Windows Release 工作流通过 `subst S:` 构建 embed 前端时，Vite 将真实 checkout 的 `src/index.html` 作为跨盘符绝对资源名传给 Rollup 而失败；该步骤改为在真实 checkout 路径执行，后续打包继续使用短盘符。) |
 
 ---
 
@@ -493,4 +493,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-20 (v0.85.9)*
+*最后更新: 2026-08-20 (v0.85.10)*

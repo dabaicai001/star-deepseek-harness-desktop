@@ -92,6 +92,10 @@ jobs:
         run: npm run sidecar:build:release
 
       - name: Build embed resources
+        # Vite resolves HTML modules to the physical checkout path. Running it
+        # through the S: subst drive makes Rollup receive a cross-drive absolute
+        # asset name on Windows, so build this bundle from the checkout path.
+        working-directory: ${{ github.workspace }}
         run: npm run build:embed
 
       - name: Package dsh runtime

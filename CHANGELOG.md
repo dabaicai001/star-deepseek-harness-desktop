@@ -14,6 +14,11 @@
 
 ---
 
+## [0.85.10] - 2026-08-20
+
+### 修复
+- 修复 Windows Release 工作流通过 `subst S:` 构建 embed 前端时，Vite 将真实 checkout 的 `src/index.html` 作为跨盘符绝对资源名传给 Rollup 而失败；该步骤改为在真实 checkout 路径执行，后续打包继续使用短盘符。
+
 ## [0.85.9] - 2026-08-20
 
 ### 变更
