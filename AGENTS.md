@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.86.1(修复 GitHub tag 构建仍调用已移除 Vue `build` / `build:embed` 脚本的问题；Release 与 Linux compat 工作流现在构建并验证 React 工作台。) |
+| 当前版本 | v0.86.2(修复 web GUI「设置 → 通用 → 权限」长期显示「不可用 / permission settings has no defaultPreset value」：根因是 `starhub-approval-bridge` 与 dsh `permission-presets` 在 starhub-web 组合里重复注册 `permission` 设置命名空间（settings 对重复注册 fail loud，先注册的 approval-bridge 胜出——其 schema 无 base、`defaultPreset` 可选，permission-presets 随后静默失效）;approval-bridge 新增 `ownsPermissionSettings` 配置（默认 true，内嵌 AI 内核组合仍由它持有）,starhub-web 组合显式置 `false` 退为 `ctx.settings.get` 只读消费，命名空间归口 permission-presets 单一持有，GUI 权限行恢复可读写，新会话的 preset 钉入也随之恢复。) |
 
 ---
 
@@ -463,4 +463,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-20 (v0.86.1)*
+*最后更新: 2026-08-20 (v0.86.2)*

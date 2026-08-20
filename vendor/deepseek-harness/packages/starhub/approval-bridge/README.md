@@ -26,6 +26,20 @@ dsh 权限 preset(`settings.yaml` 的 `permission.defaultPreset`,dsh web GUI
 sdk/server 的本地补丁)、`user-approval` 服务与 `settings` 服务
 (`dsh-settings-file` 指向与 web GUI 相同的 settings.yaml);缺失时加载即报错。
 
+## 配置
+
+- `answerer`(默认 `true`):是否挂载 approval 应答桥;`false` 时只留权限固定
+  与风险门,应答交给组合内其它 answerer(如 dsh web 的浏览器确认框)。
+- `ownsPermissionSettings`(默认 `true`):是否由本桥注册 `permission` 设置
+  命名空间。内嵌 AI 内核组合(`config/starhub-agent.yml`)没有
+  permission-presets,必须由本桥持有才能读到共享 settings.yaml 的
+  `defaultPreset`;starhub-web 组合里 permission-presets 已是持有方(GUI
+  「设置 → 通用 → 权限」的 schema/base 来源),本桥必须置 `false` 退为
+  只读消费(`ctx.settings.get`),否则双注册撞上 settings 的
+  duplicate-registration 硬失败,先注册的本桥胜出后 permission-presets
+  静默失效,GUI 权限行读到无 `base`/无 `defaultPreset` 的裸注册报
+  「permission settings has no defaultPreset value」。
+
 ## Model Experience
 
 模型只看到审批结果语义:被拒绝的工具调用以 deny reason 进入结果;权限策略文本

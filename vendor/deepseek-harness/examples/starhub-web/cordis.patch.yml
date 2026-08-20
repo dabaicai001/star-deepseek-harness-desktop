@@ -26,6 +26,10 @@
     # 注册表与领域事件,pre-step 注入活性上下文;approval-bridge 只保留权限固定
     # 与风险门(answerer:false,应答交给 web 自己的浏览器确认框,避免双应答)。
     # 依赖:这些包在 vendor 仓库包清单内,web.rs 会为它们补 junction。
+    # ownsPermissionSettings:false —— permission 命名空间由 dsh-base 的
+    # permission-presets 持有(GUI「设置 → 通用 → 权限」的写入方),本桥只读消费;
+    # 双注册会触发 settings 的 duplicate-registration 硬失败,先注册者胜出后
+    # permission-presets 静默失效,GUI 权限行读到无 defaultPreset 的裸注册。
     - id: sdk-jsonrpc-server
       name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
     - id: starhub-tools
@@ -34,6 +38,7 @@
       name: '@deepseek-ai/dsh-starhub-approval-bridge'
       config:
         answerer: false
+        ownsPermissionSettings: false
     - id: starhub-session-registry
       name: '@deepseek-ai/dsh-starhub-session-registry'
     - id: starhub-domain-events

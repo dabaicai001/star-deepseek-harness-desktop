@@ -38,9 +38,16 @@ import {
 export const name = 'starhub-approval-bridge'
 export const inject = ['approval', 'settings']
 
-/** 插件配置:answerer=false 时只留权限固定与风险门,应答交给组合内其它 answerer。 */
-export const Config: z<{ answerer?: boolean }> = z.object({
+/**
+ * 插件配置:answerer=false 时只留权限固定与风险门,应答交给组合内其它 answerer;
+ * ownsPermissionSettings=false 时不注册 permission 命名空间(组合内已有
+ * permission-presets 持有,如 starhub-web),只在 session/created 只读消费——
+ * 双注册会撞上 settings「duplicate registration fails loud」,先注册的一方胜出后
+ * 另一方静默失效,GUI 权限行随即读到无 base/无 defaultPreset 的裸注册而报错。
+ */
+export const Config: z<{ answerer?: boolean; ownsPermissionSettings?: boolean }> = z.object({
   answerer: z.boolean().default(true),
+  ownsPermissionSettings: z.boolean().default(true),
 })
 
 /** 桥方法名;Rust 侧实现见 src-tauri/src/harness/mod.rs。 */
@@ -262,8 +269,9 @@ function sessionPolicy(ctx: Context, session: Session): ApprovalPolicy {
  * 如 dsh web 的浏览器确认框;starhub-web 组合用),避免同一请求双应答。
  * @param ctx - plugin context;监听器随插件 fiber 卸载。
  */
-export function apply(ctx: Context, config: { answerer?: boolean } = {}): void {
+export function apply(ctx: Context, config: { answerer?: boolean; ownsPermissionSettings?: boolean } = {}): void {
   const answerer = config.answerer !== false
+  const ownsPermissionSettings = config.ownsPermissionSettings !== false
   const transport = ctx.get('sdk-transport') as JsonRpcTransportPeer | undefined
   if (!transport) {
     throw new Error('starhub-approval-bridge requires sdk-jsonrpc-server (sdk-transport service) in the same composition')
@@ -274,10 +282,21 @@ export function apply(ctx: Context, config: { answerer?: boolean } = {}): void {
   //    sandbox + approval,这里再无条件覆写 approval 会与钉入的 preset
   //    冲突(如 workspace-write + never 不匹配任何 preset),把会话权限
   //    派生成不存在的 "custom" 状态。已有 approval 时保持钉入结果。
-  const permissionScope = ctx.settings.register(PERMISSION_NAMESPACE, PermissionSchema)
+  //    命名空间归口:ownsPermissionSettings=true(内嵌 AI 内核等没有
+  //    permission-presets 的组合)由本桥注册并持有;false(starhub-web,
+  //    permission-presets 在组合内)只读消费其解析值,绝不重复注册。
+  const readDefaultPreset: () => string | undefined = ownsPermissionSettings
+    ? (() => {
+        const permissionScope = ctx.settings.register(PERMISSION_NAMESPACE, PermissionSchema)
+        return () => permissionScope.get().defaultPreset
+      })()
+    : () => {
+        const value = ctx.settings.get(PERMISSION_NAMESPACE) as { defaultPreset?: unknown } | undefined
+        return typeof value?.defaultPreset === 'string' ? value.defaultPreset : undefined
+      }
   ctx.on('session/created', (session) => {
     if (effectiveApprovalPolicy(session.events) !== undefined) return
-    const preset = permissionScope.get().defaultPreset
+    const preset = readDefaultPreset()
     const policy: ApprovalPolicy = preset === 'danger-full-access' ? 'never' : 'ask'
     setApprovalPolicy(session, policy)
   })
