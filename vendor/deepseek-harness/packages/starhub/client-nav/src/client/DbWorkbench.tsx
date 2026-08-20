@@ -23,6 +23,7 @@ import { tauriInvoke } from './tauri.ts'
 import { DbDataGrid } from './DbDataGrid.tsx'
 import { SqlEditor, type SqlCompletionSchema } from './SqlEditor.tsx'
 import { ContextMenu, useContextMenu } from './ContextMenu.tsx'
+import { IconCloseOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import { NewTableDialog, ColumnListDialog, IndexListDialog } from './DbTableDialogs.tsx'
 import { DbDashboard } from './dashboard/DbDashboard.tsx'
@@ -565,23 +566,14 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
             <span className={css.sub}>{dbTypeLabel} · {typeof asset.config.host === 'string' ? asset.config.host : '未配置主机'}</span>
           </div>
           <span className={css.spacer} />
-          <button type="button" className={css.iconButton} onClick={() => { const id = connRef.current; if (id !== null) void loadDatabases(id) }} title="刷新数据库" aria-label="刷新数据库">↻</button>
-          <button type="button" className={css.iconButton} onClick={onClose} title="关闭工作区" aria-label="关闭工作区">×</button>
+          <button type="button" className={css.iconButton} onClick={() => { const id = connRef.current; if (id !== null) void loadDatabases(id) }} title="刷新数据库" aria-label="刷新数据库"><IconRefreshOutline14 size={15} /></button>
+          <button type="button" className={css.iconButton} onClick={onClose} title="关闭工作区" aria-label="关闭工作区"><IconCloseOutline16 size={15} /></button>
         </header>
         <div className={css.body}>
           <aside className={css.tree}>
-            <div className={css.workspaceNav}>
-              <div className={css.workspaceLabel}>工作区</div>
-              <button type="button" className={rightTab === 'sql' ? css.workspaceActive : css.workspaceItem} onClick={() => setRightTab('sql')}>
-                <span aria-hidden="true">›_</span><span>SQL 编辑器</span>
-              </button>
-              <button type="button" className={rightTab === 'dashboard' ? css.workspaceActive : css.workspaceItem} onClick={() => setRightTab('dashboard')}>
-                <span aria-hidden="true">◫</span><span>监控</span>
-              </button>
-            </div>
             <div className={css.treeToolbar}>
               <span className={css.treeTitle}>数据库对象</span>
-              <button type="button" className={css.treeRefresh} onClick={refreshDatabases} title="刷新数据库列表" aria-label="刷新数据库列表">↻</button>
+              <button type="button" className={css.treeRefresh} onClick={refreshDatabases} title="刷新数据库列表" aria-label="刷新数据库列表"><IconRefreshOutline14 size={14} /></button>
             </div>
             <input
               type="search"
@@ -640,8 +632,9 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
             </ul>
           </aside>
           <section className={css.contentGrid}>
-            <div className={css.contentHeader}>
-              <span className={css.contentTitle}>{rightTab === 'sql' ? 'SQL / 数据' : '数据库监控'}</span>
+            <div className={css.contentHeader} role="tablist" aria-label="数据库工作区">
+              <button type="button" role="tab" aria-selected={rightTab === 'sql'} className={rightTab === 'sql' ? css.contentTabActive : css.contentTab} onClick={() => setRightTab('sql')}>SQL 编辑器</button>
+              <button type="button" role="tab" aria-selected={rightTab === 'dashboard'} className={rightTab === 'dashboard' ? css.contentTabActive : css.contentTab} onClick={() => setRightTab('dashboard')}>监控</button>
               <span className={css.contentDetail}>{rightTab === 'sql' ? '执行查询、浏览数据和导出结果' : '查看当前连接的运行指标'}</span>
             </div>
             {rightTab === 'dashboard' ? (
@@ -660,8 +653,10 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
                       <span className={css.hint}>Mod-Enter 执行 · Shift-Mod-e EXPLAIN · Tab 缩进</span>
                       {sqlLoading && <span className={css.hint}>执行中…</span>}
                       <span className={css.spacer} />
-                      <button type="button" className={css.sqlBarBtn} onClick={formatCurrentSql} title="格式化 SQL">格式化</button>
-                      <button type="button" className={`${css.sqlBarBtn} ${historyOpen ? css.sqlBarBtnActive : ''}`} onClick={toggleHistory} title="查询历史">历史</button>
+                      <button type="button" className={css.sqlRunBtn} onClick={() => executeSql(sql, false)} disabled={sqlLoading || sql.trim() === ''} title="执行 SQL (Mod-Enter)" aria-label="执行 SQL">▶</button>
+                      <button type="button" className={css.sqlBarBtn} onClick={() => executeSql(sql, true)} disabled={sqlLoading || sql.trim() === ''} title="执行 EXPLAIN (Shift-Mod-e)" aria-label="执行 EXPLAIN">⊢</button>
+                      <button type="button" className={css.sqlBarBtn} onClick={formatCurrentSql} title="格式化 SQL" aria-label="格式化 SQL">≡</button>
+                      <button type="button" className={`${css.sqlBarBtn} ${historyOpen ? css.sqlBarBtnActive : ''}`} onClick={toggleHistory} title="查询历史" aria-label="查询历史">◷</button>
                     </div>
                     {historyOpen && (
                       <div className={css.historyPanel}>

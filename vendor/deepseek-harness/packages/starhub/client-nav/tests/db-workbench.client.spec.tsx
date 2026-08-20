@@ -243,11 +243,11 @@ describe('DbWorkbench', () => {
     stubInvoke({})
     render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
-    // 连接后 SQL 区可见 → 格式化按钮存在。
-    await waitFor(() => expect(screen.getByText('格式化')).toBeTruthy())
+    // 连接后 SQL 区可见，工具栏用可访问名称标识图标按钮。
+    await waitFor(() => expect(screen.getByRole('button', { name: '格式化 SQL' })).toBeTruthy())
     // 空内容格式化不抛错(纯函数空输入原样返回)。
-    fireEvent.click(screen.getByText('格式化'))
-    expect(screen.getByText('格式化')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '格式化 SQL' }))
+    expect(screen.getByRole('button', { name: '格式化 SQL' })).toBeTruthy()
   })
 
   it('opens the history panel, shows entries, selects one, and clears', async () => {
@@ -259,7 +259,7 @@ describe('DbWorkbench', () => {
     stubInvoke({})
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
-    const historyBtn = await screen.findByText('历史')
+    const historyBtn = await screen.findByRole('button', { name: '查询历史' })
     fireEvent.click(historyBtn)
     // 两条历史可见。
     await waitFor(() => expect(screen.getByText('SELECT 1')).toBeTruthy())
@@ -278,7 +278,7 @@ describe('DbWorkbench', () => {
     stubInvoke({})
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
-    fireEvent.click(await screen.findByText('历史'))
+    fireEvent.click(await screen.findByRole('button', { name: '查询历史' }))
     const entry = await screen.findByText('SELECT 1; SELECT 2')
     fireEvent.click(entry)
     // 弹层收起;再开确认 SQL 已回填(编辑器受控值无法直接读,通过执行验证)。
@@ -286,7 +286,7 @@ describe('DbWorkbench', () => {
     // 执行后 addHistory 再次写入(执行发生在编辑器按键,这里验证组件形态即可)。
     // 关闭历史后按钮仍可用。
     await waitFor(() => expect(screen.queryByText('暂无历史')).toBeNull())
-    expect(screen.getByText('格式化')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '格式化 SQL' })).toBeTruthy()
     unmount()
   })
 
@@ -296,8 +296,8 @@ describe('DbWorkbench', () => {
     await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
     // 路由 SQL 执行经由 SqlEditor 的 onExecute(Mod-Enter),jsdom 下不可稳定触发;
     // 这里仅验证连接态工具栏渲染完整(格式化/历史按钮存在)。
-    expect(screen.getByText('格式化')).toBeTruthy()
-    expect(screen.getByText('历史')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '格式化 SQL' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '查询历史' })).toBeTruthy()
     unmount()
   })
 

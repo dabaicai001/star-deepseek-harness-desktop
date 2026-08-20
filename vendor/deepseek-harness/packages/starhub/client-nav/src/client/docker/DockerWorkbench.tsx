@@ -17,6 +17,7 @@
  * @module StarHub Docker workbench (client)
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { IconCloseOutline16, IconPaperclipOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RustAsset } from '../store.ts'
 import { tauriInvoke } from '../tauri.ts'
 import {
@@ -340,8 +341,8 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
             </div>
           </div>
           <div className={css.headActions}>
-            <button type="button" className={css.iconButton} onClick={() => { void loadContainers(); void loadImages() }} title="刷新工作台" aria-label="刷新工作台">↻</button>
-            <button type="button" className={css.iconButton} onClick={onClose} title="关闭工作区" aria-label="关闭工作区">×</button>
+            <button type="button" className={css.iconButton} onClick={() => { void loadContainers(); void loadImages() }} title="刷新工作台" aria-label="刷新工作台"><IconRefreshOutline14 size={15} /></button>
+            <button type="button" className={css.iconButton} onClick={onClose} title="关闭工作区" aria-label="关闭工作区"><IconCloseOutline16 size={15} /></button>
           </div>
         </header>
 
@@ -354,19 +355,6 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
 
         {connectError === null && (
           <div className={css.workspace}>
-            <nav className={css.sidebar} aria-label="Docker 工作区">
-              <div className={css.sidebarLabel}>工作区</div>
-              <button type="button" aria-label="容器" className={tab === 'containers' ? css.navActive : css.navItem} onClick={() => setTab('containers')}>
-                <span aria-hidden="true">▣</span><span aria-hidden="true">容器</span><span className={css.navCount} aria-hidden="true">{counts.total}</span>
-              </button>
-              <button type="button" aria-label="镜像" className={tab === 'images' ? css.navActive : css.navItem} onClick={() => setTab('images')}>
-                <span aria-hidden="true">◇</span><span aria-hidden="true">镜像</span><span className={css.navCount} aria-hidden="true">{counts.images}</span>
-              </button>
-              <div className={css.sidebarFooter}>
-                <span className={connected ? css.statusOnline : css.statusPending} />
-                {connected ? '已连接' : '正在连接'}
-              </div>
-            </nav>
             <main className={css.main}>
               <div className={css.dash}>
                 <DashboardCard label="容器" value={counts.total} accent="cyan" />
@@ -375,16 +363,15 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
                 <DashboardCard label="暂停" value={counts.paused} accent="yellow" />
                 <DashboardCard label="镜像" value={counts.images} accent="cyan" />
               </div>
-              <div className={css.contentToolbar}>
-                <div>
-                  <span className={css.contentTitle}>{tab === 'containers' ? '容器' : '镜像'}</span>
-                  <span className={css.contentDetail}>{tab === 'containers' ? '管理运行实例、日志和终端会话' : '拉取、检查和清理镜像'}</span>
-                </div>
+              <div className={css.contentToolbar} role="tablist" aria-label="Docker 工作区">
+                <button type="button" role="tab" aria-label="容器" aria-selected={tab === 'containers'} className={tab === 'containers' ? css.contentTabActive : css.contentTab} onClick={() => setTab('containers')}><span aria-hidden="true">容器</span> <span aria-hidden="true">{counts.total}</span></button>
+                <button type="button" role="tab" aria-label="镜像" aria-selected={tab === 'images'} className={tab === 'images' ? css.contentTabActive : css.contentTab} onClick={() => setTab('images')}><span aria-hidden="true">镜像</span> <span aria-hidden="true">{counts.images}</span></button>
+                <span className={css.contentDetail}>{tab === 'containers' ? '管理运行实例、日志和终端会话' : '拉取、检查和清理镜像'}</span>
                 <span className={css.spacer} />
                 {tab === 'images' && (
                   <>
-                    <button type="button" className={css.toolButton} onClick={() => setPullOpen(true)}>拉取镜像</button>
-                    <button type="button" className={css.toolButton} onClick={() => void runPrune()}>清理</button>
+                    <button type="button" className={css.toolIcon} onClick={() => setPullOpen(true)} title="拉取镜像" aria-label="拉取镜像"><IconPaperclipOutline16 size={15} /></button>
+                    <button type="button" className={css.toolIconDanger} onClick={() => void runPrune()} title="清理悬空镜像" aria-label="清理悬空镜像">⌫</button>
                   </>
                 )}
                 {tab === 'containers' && (
@@ -393,7 +380,7 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
                     <span>显示全部</span>
                   </label>
                 )}
-                <button type="button" className={css.toolButton} onClick={() => tab === 'containers' ? void loadContainers() : void loadImages()} disabled={tab === 'containers' ? containers.loading : images.loading}>刷新</button>
+                <button type="button" className={css.toolIcon} onClick={() => tab === 'containers' ? void loadContainers() : void loadImages()} disabled={tab === 'containers' ? containers.loading : images.loading} title="刷新" aria-label="刷新"><IconRefreshOutline14 size={14} /></button>
               </div>
               {tab === 'containers' && (
                 <ContainersView

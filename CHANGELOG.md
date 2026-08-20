@@ -14,6 +14,20 @@
 
 ---
 
+## [0.87.3] - 2026-08-20
+
+### 变更
+- SSH 工作区恢复高密度双栏操作：终端始终可见，SFTP 文件传输或 SSH 网页访问以右侧停靠面板同时打开；新增快捷命令栏、管理器和 Xshell `.qbl` / `.qblx` 导入，兼容旧格式、Xshell 8 UTF-16 与多命令集归并。
+- MySQL、PostgreSQL、SQLite 与 ClickHouse 共用的数据库工作区将 SQL 编辑器和监控恢复为顶部标签；SQL 工具栏提供醒目的执行按钮以及 EXPLAIN、格式化、历史图标操作。
+- Docker 将容器/镜像恢复为内容区顶部标签，拉取、清理与刷新使用带提示的图标工具按钮。
+- Redis 与 Elasticsearch 统一迁移到 DSH 全屏工作台视觉系统，使用一致的层级、状态、工具栏、输入控件和弹层 token。
+
+### 验证
+- React 工作台聚焦测试 117/117 通过（SSH/SFTP、数据库、Docker、Redis、Elasticsearch）。
+- `client-nav` TypeScript 类型检查通过。
+
+---
+
 ## [0.87.2] - 2026-08-20
 
 ### 修复

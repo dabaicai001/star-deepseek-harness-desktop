@@ -181,7 +181,7 @@ describe('DockerWorkbench', () => {
     renderWorkbench()
     await waitFor(() => expect(screen.getByText('暂无容器。')).toBeTruthy())
     // 切到镜像空态
-    fireEvent.click(screen.getByRole('button', { name: '镜像' }))
+    fireEvent.click(screen.getByRole('tab', { name: '镜像' }))
     await waitFor(() => expect(screen.getByText('暂无镜像。')).toBeTruthy())
   })
 
@@ -304,7 +304,7 @@ describe('DockerWorkbench', () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderWorkbench()
     await waitFor(() => expect(screen.getByText('web')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: '镜像' }))
+    fireEvent.click(screen.getByRole('tab', { name: '镜像' }))
     await waitFor(() => expect(screen.getByText('nginx:latest')).toBeTruthy())
 
     // 拉取:空名禁用,输入后提交
@@ -322,7 +322,7 @@ describe('DockerWorkbench', () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('docker_remove_image', expect.anything()))
 
     // prune
-    fireEvent.click(screen.getByText('清理'))
+    fireEvent.click(screen.getByRole('button', { name: '清理悬空镜像' }))
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('docker_prune_images', { connId: 'c' }))
     confirmSpy.mockRestore()
   })
@@ -332,7 +332,7 @@ describe('DockerWorkbench', () => {
     installTauri({ listImagesError: new Error('img-fail') })
     renderWorkbench()
     await waitFor(() => expect(screen.getByText('web')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: '镜像' }))
+    fireEvent.click(screen.getByRole('tab', { name: '镜像' }))
     await waitFor(() => expect(screen.getByText(/加载失败:img-fail/)).toBeTruthy())
   })
 
@@ -419,7 +419,7 @@ describe('DockerWorkbench', () => {
     })
     ;(window as unknown as { __TAURI_INTERNALS__: { invoke: typeof invoke } }).__TAURI_INTERNALS__ = { invoke }
     renderWorkbench()
-    fireEvent.click(screen.getByRole('button', { name: '镜像' }))
+    fireEvent.click(screen.getByRole('tab', { name: '镜像' }))
     await waitFor(() => expect(screen.getAllByText('sha256:abcde').length).toBeGreaterThan(0))
   })
 
@@ -519,7 +519,7 @@ describe('DockerWorkbench', () => {
     ;(window as unknown as { __TAURI_INTERNALS__: { invoke: typeof invoke } }).__TAURI_INTERNALS__ = { invoke }
     renderWorkbench()
     await waitFor(() => expect(screen.getByText('web')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: '镜像' }))
+    fireEvent.click(screen.getByRole('tab', { name: '镜像' }))
     await waitFor(() => expect(screen.getByText(/加载失败:plain imgs/)).toBeTruthy())
     // onRefresh 重试
     const retry = screen.getByText('重试')
@@ -534,22 +534,22 @@ describe('DockerWorkbench', () => {
     await waitFor(() => expect(screen.getByText('web')).toBeTruthy())
     // containers 刷新(312)
     const before = invoke.mock.calls.length
-    fireEvent.click(screen.getByText('刷新'))
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }))
     await waitFor(() => {
       const calls = invoke.mock.calls.slice(before).filter((c) => c[0] === 'docker_list_containers')
       expect(calls.length).toBeGreaterThan(0)
     })
     // images tab + images 刷新(316)
-    fireEvent.click(screen.getByRole('button', { name: '镜像' }))
+    fireEvent.click(screen.getByRole('tab', { name: '镜像' }))
     await waitFor(() => expect(screen.getByText('nginx:latest')).toBeTruthy())
     const beforeImg = invoke.mock.calls.length
-    fireEvent.click(screen.getByText('刷新'))
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }))
     await waitFor(() => {
       const calls = invoke.mock.calls.slice(beforeImg).filter((c) => c[0] === 'docker_list_images')
       expect(calls.length).toBeGreaterThan(0)
     })
     // containers tab 切回(297)
-    fireEvent.click(screen.getByRole('button', { name: '容器' }))
+    fireEvent.click(screen.getByRole('tab', { name: '容器' }))
     await waitFor(() => expect(screen.getByText('web')).toBeTruthy())
   })
 
@@ -570,7 +570,7 @@ describe('DockerWorkbench', () => {
     const invoke = installTauri()
     renderWorkbench()
     await waitFor(() => expect(screen.getByText('web')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: '镜像' }))
+    fireEvent.click(screen.getByRole('tab', { name: '镜像' }))
     await waitFor(() => expect(screen.getByText('nginx:latest')).toBeTruthy())
     // 打开 modal
     fireEvent.click(screen.getByRole('button', { name: '拉取镜像' }))
@@ -600,7 +600,7 @@ describe('DockerWorkbench', () => {
     ;(window as unknown as { __TAURI_INTERNALS__: { invoke: typeof invoke } }).__TAURI_INTERNALS__ = { invoke }
     renderWorkbench()
     await waitFor(() => expect(screen.getByText('web')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: '镜像' }))
+    fireEvent.click(screen.getByRole('tab', { name: '镜像' }))
     await waitFor(() => expect(screen.getByText('暂无镜像。')).toBeTruthy())
     // 空态里的「拉取镜像」走 ImagesView.onPullOpen(340);工具栏还有一个同名按钮 → 取第二个
     const buttons = screen.getAllByText('拉取镜像')
@@ -624,7 +624,7 @@ describe('DockerWorkbench', () => {
     ;(window as unknown as { __TAURI_INTERNALS__: { invoke: typeof invoke } }).__TAURI_INTERNALS__ = { invoke }
     renderWorkbench()
     await waitFor(() => expect(screen.getByText('web')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: '镜像' }))
+    fireEvent.click(screen.getByRole('tab', { name: '镜像' }))
     await waitFor(() => expect(screen.getAllByText('img9').length).toBeGreaterThan(0))
     // 拉取失败(非 Error → String)(234)
     fireEvent.click(screen.getByRole('button', { name: '拉取镜像' }))
@@ -636,7 +636,7 @@ describe('DockerWorkbench', () => {
     fireEvent.click(screen.getByLabelText('删除镜像'))
     await waitFor(() => expect(screen.getByText(/删除失败:plain rm/)).toBeTruthy())
     // prune 失败(非 Error)(264)
-    fireEvent.click(screen.getByText('清理'))
+    fireEvent.click(screen.getByRole('button', { name: '清理悬空镜像' }))
     await waitFor(() => expect(screen.getByText(/清理失败:plain prune/)).toBeTruthy())
     confirmSpy.mockRestore()
   })
@@ -649,7 +649,7 @@ describe('DockerWorkbench', () => {
     ;(window as unknown as { __TAURI_INTERNALS__: { invoke: typeof invoke } }).__TAURI_INTERNALS__ = { invoke }
     renderWorkbench()
     await waitFor(() => expect(screen.getByText('web')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: '镜像' }))
+    fireEvent.click(screen.getByRole('tab', { name: '镜像' }))
     await waitFor(() => expect(screen.getByText('nginx:latest')).toBeTruthy())
     // 拉取失败
     fireEvent.click(screen.getByRole('button', { name: '拉取镜像' }))
@@ -666,11 +666,11 @@ describe('DockerWorkbench', () => {
     await waitFor(() => expect(screen.getByText(/删除失败:rm-fail/)).toBeTruthy())
     // prune 取消(255)
     confirmSpy.mockReturnValue(false)
-    fireEvent.click(screen.getByText('清理'))
+    fireEvent.click(screen.getByRole('button', { name: '清理悬空镜像' }))
     expect(invoke).not.toHaveBeenCalledWith('docker_prune_images', expect.anything())
     // prune 失败(260)
     confirmSpy.mockReturnValue(true)
-    fireEvent.click(screen.getByText('清理'))
+    fireEvent.click(screen.getByRole('button', { name: '清理悬空镜像' }))
     await waitFor(() => expect(screen.getByText(/清理失败:prune-fail/)).toBeTruthy())
     confirmSpy.mockRestore()
   })
