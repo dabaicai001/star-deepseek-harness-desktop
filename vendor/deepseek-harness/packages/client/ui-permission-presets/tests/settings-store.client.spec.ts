@@ -85,6 +85,23 @@ describe('permission settings store', () => {
     expect(() => permissionDefaultOf(view('missing'))).toThrow(/does not advertise/)
   })
 
+  it('uses the advertised base preset while the persisted value is hydrating', async () => {
+    const describe = vi.fn(() => Promise.resolve(ok({
+      writable: true,
+      hasDocument: true,
+      namespaces: [{ ...view('read-only', 4), value: {} }],
+    })))
+    const controller = new PermissionPresetSettingsController({
+      settings: { describe, mutate: vi.fn() } as never,
+    })
+    await controller.load()
+    expect(controller.store.getSnapshot()).toMatchObject({
+      status: 'ready',
+      currentValue: 'read-only',
+      revision: 4,
+    })
+  })
+
   it('loads and writes defaultPreset with optimistic concurrency', async () => {
     const describe = vi.fn(() => Promise.resolve(ok({
       writable: true,

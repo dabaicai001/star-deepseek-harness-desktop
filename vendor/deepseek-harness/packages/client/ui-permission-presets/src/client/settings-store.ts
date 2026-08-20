@@ -161,8 +161,13 @@ export class PermissionPresetSettingsController {
   }
 
   private accept(view: SettingsNamespaceView, writable: boolean): void {
-    const resolved = permissionDefaultOf(view)
-    this.view = view
+    // Settings providers may publish the namespace before its persisted document
+    // is hydrated. Use the advertised base descriptor for that short interval.
+    const hydratedView = typeof (view.value as { defaultPreset?: unknown } | null)?.defaultPreset === 'string'
+      ? view
+      : { ...view, value: view.base }
+    const resolved = permissionDefaultOf(hydratedView)
+    this.view = hydratedView
     this.store.update((state) => {
       state.status = 'ready'
       state.error = null

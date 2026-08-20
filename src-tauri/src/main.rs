@@ -126,6 +126,13 @@ fn main() {
             }
         })
         .setup(|app| {
+            // dsh web 可在旧 dsh runtime 初始化前发起域工具调用；桥必须从启动起
+            // 持有 AppHandle，避免 AI 通过已绑定 SSH 资产建链时落入无句柄分支。
+            app.handle()
+                .state::<harness::HarnessManager>()
+                .bridge()
+                .set_app(app.handle().clone());
+
             // 主窗口程序化创建(见 create_main_window);必须在 dsh web 启动
             // 之前建好,跳板页才能立刻开始轮询。
             create_main_window(app)?;
