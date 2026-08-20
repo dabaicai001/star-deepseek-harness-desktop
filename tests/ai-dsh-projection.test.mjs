@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const source = await readFile(path.join(__dirname, '../src/services/aiHarnessProjection.ts'), 'utf8')
+const source = await readFile(path.join(__dirname, '../legacy-core/services/aiHarnessProjection.ts'), 'utf8')
 const transpiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
 }).outputText

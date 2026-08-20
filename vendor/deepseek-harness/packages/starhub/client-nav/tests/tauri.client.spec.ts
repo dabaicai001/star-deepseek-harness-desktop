@@ -60,13 +60,13 @@ describe('openNewPage', () => {
     const invoke = vi.fn((..._args: unknown[]) => Promise.resolve(null))
     const restore = stubTauriInternals(invoke)
     try {
-      await openNewPage('/starhub/index.html?embed=1&route=%2Fssh%2Fa1__1', 'web-1')
+      await openNewPage('/starhub-react/index.html?asset=a1&workbench=ssh', 'web-1')
       expect(invoke).toHaveBeenCalledTimes(1)
       const [cmd, args] = invoke.mock.calls[0] as [string, { options: Record<string, unknown> }]
       expect(cmd).toBe('plugin:webview|create_webview_window')
       expect(args.options.label).toMatch(/^starhub-page-\d+$/)
       expect(args.options.url).toBe(
-        `${window.location.origin}/starhub/index.html?embed=1&route=%2Fssh%2Fa1__1`,
+        `${window.location.origin}/starhub-react/index.html?asset=a1&workbench=ssh`,
       )
       expect(args.options.title).toBe('web-1')
     } finally {
@@ -77,7 +77,7 @@ describe('openNewPage', () => {
   it('propagates window-creation IPC failures (no silent fallback)', async () => {
     const restore = stubTauriInternals(() => Promise.reject(new Error('not allowed')))
     try {
-      await expect(openNewPage('/starhub/index.html?embed=1', 'x')).rejects.toThrow('not allowed')
+      await expect(openNewPage('/starhub-react/index.html?asset=a1&workbench=ssh', 'x')).rejects.toThrow('not allowed')
     } finally {
       restore()
     }
@@ -85,15 +85,15 @@ describe('openNewPage', () => {
 
   it('opens a new browser tab in preview (no Tauri internals)', async () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
-    await openNewPage('/starhub/index.html?embed=1', 'x')
-    expect(openSpy).toHaveBeenCalledWith('/starhub/index.html?embed=1', '_blank', 'noopener')
+    await openNewPage('/starhub-react/index.html?asset=a1&workbench=ssh', 'x')
+    expect(openSpy).toHaveBeenCalledWith('/starhub-react/index.html?asset=a1&workbench=ssh', '_blank', 'noopener')
   })
 
   it('embeds the page key into the window label for later focus', async () => {
     const invoke = vi.fn((..._args: unknown[]) => Promise.resolve(null))
     const restore = stubTauriInternals(invoke)
     try {
-      await openNewPage('/starhub/index.html?embed=1&route=%2Fssh%2Fa1__1', 'web-1', 'a1')
+      await openNewPage('/starhub-react/index.html?asset=a1&workbench=ssh', 'web-1', 'a1')
       const [, args] = invoke.mock.calls[0] as [string, { options: Record<string, unknown> }]
       expect(args.options.label).toMatch(/^starhub-page-a1-\d+$/)
     } finally {

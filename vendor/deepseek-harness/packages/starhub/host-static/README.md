@@ -1,11 +1,8 @@
 # @deepseek-ai/dsh-starhub-host-static
 
-StarHub-local host plugin (not upstream). Registers two prefix routes on the dsh `webServer`:
+StarHub-local host plugin (not upstream). Registers the `/starhub-react` prefix route on the dsh `webServer` for the standalone React workbench window app (`npm run build:window` → repo `dist-starhub-react/`, vite base `/starhub-react/`). Independent windows opened for Tools instance clicks load this entry and reuse the client-nav React workbenches full-window.
 
-- `/starhub` — the StarHub Vue frontend embed build (`npm run build:embed` → repo `dist-embed/`, vite base `/starhub/`) with SPA fallback, so the dsh Web GUI can embed StarHub pages in same-origin iframes that inherit the Tauri IPC injection.
-- `/starhub-react` — the standalone React workbench window app (`npm run build:window` → repo `dist-starhub-react/`, vite base `/starhub-react/`). Independent windows opened for Tools instance clicks load this entry, which reuses the client-nav React workbenches full-window instead of a shell modal or a Vue embed.
-
-Dist resolution for each prefix: the per-prefix env (`STARHUB_DIST` / `STARHUB_WINDOW_DIST`) → repo `dist-embed` / `dist-starhub-react` (repo root found by walking up to the directory containing `vendor/deepseek-harness`). A dist whose index.html does not reference its `/starhub` (or `/starhub-react`) prefixed assets fails that route at load. The embed dist is required (a missing one fails the fiber); the React window dist is best-effort — if unbuilt, `/starhub-react` serves 404 while the shell and `/starhub` keep working.
+The plugin resolves the dist from `STARHUB_WINDOW_DIST` or repo `dist-starhub-react` (the repo root is found by walking up to the directory containing `vendor/deepseek-harness`). Its `index.html` must reference `/starhub-react`-prefixed assets. A missing or incorrectly based build fails plugin startup.
 
 ## Known Limitations and Deferred Work
 

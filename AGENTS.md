@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.85.14(Elasticsearch 资产窗口现在显式加载 React 原生工作台；工具子类右键菜单不再打开 Vue embed 空态页，统一打开 React 资产列表。SSH 内置浏览器与 SFTP 继续由 React 原生工作台承载。) |
+| 当前版本 | v0.86.0(移除历史 Vue embed 前端与 `/starhub` 构建/托管链，Tauri 与 dsh 仅保留 React 原生工作台 `/starhub-react`；设置、资产管理、Elasticsearch、SSH 浏览器与 SFTP 均由 DSH React 路径承载。) |
 
 ---
 
@@ -50,20 +50,10 @@ starhub/
 │   ├── 已知坑索引.md          # 已知坑主题索引(见第 10 节)
 │   └── 架构图.html            # 可视化架构图
 │
-├── src/                      # 前端 - Vue 3 + Vite + TypeScript(仓库根 npm 管理)
-│   ├── components/            # 按域组织的组件(ai/asset/common/dashboard/db/docker/es/excel/layout/redis/sftp/ssh/transfer)
-│   ├── views/                 # 页面(DbView / SshTerminal / SettingsView / ExcelView 等)
-│   ├── stores/                # Pinia 状态(app/asset/db/docker/excel/theme/transfer 等)
-│   ├── services/              # Tauri IPC 封装(ssh/sftp/db/docker/ai/mcp/updater 等)
-│   ├── lib/                   # 第三方集成层与 embed 协议(univer.ts、embed.ts)
-│   ├── plugins/               # vuetify 等插件
-│   ├── router/                # Vue Router
-│   ├── i18n/                  # 中/英文案
-│   ├── styles/                # cyber.css 设计系统
-│   ├── utils/                 # 纯工具(commandGuard、ddlGenerator 等,有 node --test 单测)
-│   ├── assets/                # 静态资源(含 logo)
-│   ├── App.vue
-│   └── main.ts
+├── legacy-core/              # 脱离 Vue 的纯 TypeScript 工具与服务,由 Node 测试覆盖
+├── vendor/deepseek-harness/  # DSH 主壳与 StarHub React 工作台
+│   ├── apps/starhub-window/  # 独立 React 资产工作台构建入口
+│   └── packages/starhub/     # React 导航、设置、资产管理和静态托管插件
 │
 ├── src-tauri/                # 桌面壳与主进程 - Rust
 │   ├── src/
@@ -112,22 +102,13 @@ starhub/
 
 | 类别 | 选型 | 备注 |
 |---|---|---|
-| 框架 | Vue 3.4+ | Composition API + `<script setup>` |
-| 构建 | Vite 5+ | |
+| 框架 | React + DeepSeek Harness | DSH Web 主壳、StarHub React 工作台与设置分区 |
+| 构建 | Vite 5+ | `starhub-window` 生成 `dist-starhub-react/` |
 | 语言 | TypeScript 5+ | strict 模式 |
-| UI 库 | Vuetify 3 | Material Design |
-| 状态 | Pinia 2 | 配合 `@pinia-plugin-persistedstate/nuxt` |
-| 路由 | Vue Router 4 | |
-| 终端 | xterm.js 5+ | FitAddon / WebLinksAddon / SearchAddon |
-| 代码编辑 | Monaco Editor | 大文件 / JSON 字段 |
-| SQL 编辑 | CodeMirror 6 + lang-sql | 轻量、可定制 |
-| 差异比对 | monaco-diff / diff-match-patch | |
-| 虚拟列表 | vue-virtual-scroller | 百万行表格 |
-| 图表 | ECharts 5+ | 监控趋势图 |
-| 表格网格 | Univer Sheets 0.25.1 | Excel / CSV 工作簿及 MySQL / ClickHouse 查询结果共用 `src/lib/univer.ts` 集成层,上游源码固定在 `vendor/` |
-| 国际化 | vue-i18n | 中/英 |
-| 验证 | VeeValidate + Zod | 表单 + IPC |
-| Markdown | marked + DOMPurify | AI 回复渲染 |
+| 终端 | xterm.js 6 | React SSH 工作台 |
+| SQL 编辑 | CodeMirror 6 | React 数据库工作台 |
+| Markdown | DSH UI renderer | AI 对话渲染 |
+| 资产管理 | React `NewConnectionDialog` | Tauri IPC 创建、编辑、删除和测试连接 |
 
 ### 4.2 桌面壳与主进程(Rust)
 
@@ -176,46 +157,35 @@ starhub/
 | 测试 | `github.com/stretchr/testify` | **(规划中)** |
 | Mock | `github.com/golang/mock` + `github.com/DATA-DOG/go-sqlmock` | **(规划中)** |
 
-### 4.4 设计系统(Design System)
+### 4.4 UI 约定
 
-> 完整设计系统规范已迁移至独立文档,所有 UI 改动必须先读 [`docs/设计系统.md`](./docs/设计系统.md)。
-
-- **定位**:Cyber Command Center — 深海蓝黑暗色 + 低饱和青色高亮 + 等宽数字
-- **Token**:所有视觉 token 集中在 [`src/styles/cyber.css`](./src/styles/cyber.css) 的 `:root` 块,禁止组件内写死颜色/阴影/字体
-- **组件类**:写组件只引用 `.cyber-*` class,不写 scoped 视觉;视觉风格改 `cyber.css` 一处生效
-- **反模式**:禁止裸 Vuetify 默认外观、Material 风格阴影、硬编码颜色、Tailwind/Bootstrap 混用
-- **新增组件流程**:token 优先 → 组件类 → 使用方引用 → 同步文档 → CHANGELOG
-
-详见 [`docs/设计系统.md`](./docs/设计系统.md)(设计语言 / token / 字体 / 间距 / 组件类 / 状态色 / 信息架构 / 反模式 / 流程)。
+- StarHub 交互界面由 DeepSeek Harness React UI 提供；改动遵循 `vendor/deepseek-harness` 的组件、图标和样式约定。
+- 不新增 Vue、Vuetify、Pinia 或 Vue Router 依赖。
+- 面向用户的文案应复用 DSH 已有的本地化与界面模式。
 
 ---
 
 ## 5. 关键命令
 
-> 前端依赖与脚本统一在**仓库根** `package.json` 管理(`src/` 下无独立 package.json)。
+> 根 `package.json` 管理 Tauri、sidecar、React workbench 构建及 Node 测试；DSH React 源码和工作区脚本位于 `vendor/deepseek-harness`。
 
 ```bash
 # 仓库根
 cd D:\code\new_project\starhub
 
-# 安装前端依赖
+# 安装根依赖
 npm install
 
-# 前端开发(纯浏览器预览,http://127.0.0.1:1420,无 Tauri IPC)
-npm run dev
-
-# 完整桌面开发(P4a 起默认 dsh 主壳:beforeDevCommand 自动做 vendor 检查 +
-# sidecar:build + build:embed + 3085 占位页,无需手动预编)
+# 完整桌面开发:检查 DSH 产物、构建 sidecar 和 React workbench,然后启动 DSH 主壳
 npm run tauri:dev
 
-# 前端构建(先 vue-tsc 类型检查再 vite build)
-npm run build
+# 单独构建 React 资产工作台
+npm run build:window
 
-# 前端测试
-npm run test              # Vitest
-npm run test:utils        # node --test:commandGuard / crypto / ddlGenerator / sqlHistory
-npm run test:ai-context   # AI 多轮上下文
-npm run test:ai-scroll    # AI 滚动位置
+# Node 纯逻辑测试
+npm run test:utils
+npm run test:ai-context
+npm run test:ai-scroll
 
 # Rust 主进程
 cd src-tauri && cargo build && cargo test
@@ -279,7 +249,7 @@ npm run tauri:build
 ### 6.3 代码风格
 
 - **TypeScript**: `strict: true`,禁用 `any`(`unknown` 替代)
-- **Vue 3**: Composition API,`<script setup lang="ts">`
+- **React/TypeScript**:遵循 DeepSeek Harness 既有组件与状态模式
 - **Rust**: `cargo fmt` + `cargo clippy` 必过
 - **Go**: `gofmt` + `golangci-lint` 必过
 - **命名**: 文件/类 `PascalCase`;函数/变量 `camelCase`(前端)/ `snake_case`(Rust/Go)
@@ -493,4 +463,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-20 (v0.85.14)*
+*最后更新: 2026-08-20 (v0.86.0)*

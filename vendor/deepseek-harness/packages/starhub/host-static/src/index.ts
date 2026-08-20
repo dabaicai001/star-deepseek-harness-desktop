@@ -1,24 +1,15 @@
 /**
  * @deepseek-ai/dsh-starhub-host-static — StarHub dist server over a webserver
- * prefix route (StarHub-local package, not upstream). Claims two named prefix
- * routes:
- *  - `/starhub` — the StarHub Vue frontend embed build, with SPA semantics
- *    (the dsh frontend keeps the fallback seat). Serving StarHub from the dsh
- *    origin is what lets the shell's same-origin iframes inherit the Tauri IPC
- *    injection.
- *  - `/starhub-react` — the standalone React workbench window app (the
- *    `starhub-window` Vite build, repo `dist-starhub-react/`). Independent
- *    windows opened for Tools instance clicks load this entry; it reuses the
- *    client-nav React workbenches full-window instead of a shell modal or a
- *    Vue embed.
+ * prefix route (StarHub-local package, not upstream). It serves the standalone
+ * React workbench window app at `/starhub-react` from the `starhub-window` Vite
+ * build in repo `dist-starhub-react/`. Independent windows opened for Tools
+ * instance clicks load this entry and reuse the client-nav React workbenches.
  *
  * A miss on a GET falls back to the prefix's index.html with 200; traversal
- * outside a dist root is 403; non-GET/HEAD is 405. Both dists must use their
- * vite base (`/starhub/` / `/starhub-react/`) so bare asset URLs don't escape
- * the prefix and hit the dsh fallback — a wrong-base index fails loud at load.
- * Location resolution: per-prefix env (`STARHUB_DIST` / `STARHUB_WINDOW_DIST`)
- * first, then the repo `dist-embed` / `dist-starhub-react` (an actually-built
- * dist is required; no dist fails loud).
+ * outside the dist root is 403; non-GET/HEAD is 405. The dist must use vite
+ * base `/starhub-react/` so bare asset URLs do not escape to the dsh fallback.
+ * Location resolution uses `STARHUB_WINDOW_DIST` first, then repo
+ * `dist-starhub-react`; a missing dist fails loud at plugin load.
  *
  * @module @deepseek-ai/dsh-starhub-host-static
  */
@@ -37,9 +28,6 @@ export const name = 'starhub-host-static'
 
 /** Service required before the prefix route can be claimed. */
 export const inject = ['webServer']
-
-/** URL prefix for the Vue embed build (matches its vite base). */
-export const PREFIX = '/starhub'
 
 /** URL prefix for the standalone React workbench window app (matches its vite base). */
 export const WINDOW_PREFIX = '/starhub-react'
@@ -105,17 +93,6 @@ export function resolveDist(
     }
   }
   throw new Error(emptyMessage)
-}
-
-/**
- * Resolve the Vue embed dist root (kept for compatibility; see `apply`).
- * @returns absolute dist root.
- */
-export function resolveDistRoot(): string {
-  return resolveDist(
-    PREFIX, process.env.STARHUB_DIST, ['dist-embed', 'dist'],
-    'starhub-host-static: 未找到 StarHub embed dist(先跑 npm run build:embed,或用 STARHUB_DIST 指定)',
-  )
 }
 
 /**
@@ -191,37 +168,18 @@ export function staticHandler(
 }
 
 /**
- * Claim both prefix routes and serve their dists. `/starhub` resolves
- * synchronously and fails the fiber at load if a qualifying embed dist is
- * missing. `/starhub-react` is best-effort: a missing React window dist logs a
- * warning and registers a 404 handler instead of failing the whole plugin, so
- * an unbuilt window app never breaks the shell or the `/starhub` embeds.
+ * Claim the React workbench prefix route. The standalone window is a production
+ * entry point, so a missing build prevents plugin startup instead of silently
+ * registering an unusable fallback.
  * @param ctx - plugin context carrying the webServer service.
  */
 export function apply(ctx: Context): void {
-  const distRoot = resolveDistRoot()
+  const distRoot = resolveWindowDistRoot()
   const distIndex = join(distRoot, 'index.html')
   ctx.effect(
     () => ctx.webServer.register({
-      kind: 'prefix', path: PREFIX, handler: staticHandler(PREFIX, distRoot, distIndex),
+      kind: 'prefix', path: WINDOW_PREFIX, handler: staticHandler(WINDOW_PREFIX, distRoot, distIndex),
     }),
-    'starhub-host-static: /starhub prefix route',
-  )
-  let windowHandler: (req: IncomingMessage, res: ServerResponse) => Promise<void>
-  try {
-    const windowDistRoot = resolveWindowDistRoot()
-    const windowDistIndex = join(windowDistRoot, 'index.html')
-    windowHandler = staticHandler(WINDOW_PREFIX, windowDistRoot, windowDistIndex)
-  } catch (error) {
-    // 未构建 starhub-window:仅 /starhub-react 不可用,不影响壳与 /starhub。
-    console.warn(`starhub-host-static: /starhub-react 未就绪(独立 React 窗口不可用): ${(error as Error).message}`)
-    windowHandler = async (_req, res) => {
-      res.writeHead(404)
-      res.end()
-    }
-  }
-  ctx.effect(
-    () => ctx.webServer.register({ kind: 'prefix', path: WINDOW_PREFIX, handler: windowHandler }),
     'starhub-host-static: /starhub-react prefix route',
   )
 }

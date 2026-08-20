@@ -14,6 +14,17 @@
 
 ---
 
+## [0.86.0] - 2026-08-20
+
+### 变更
+- 移除历史 Vue embed 前端及其构建链：删除根 `src/`、`build:embed`、`dist-embed` 和 `/starhub` 静态路由，Tauri 开发、Release 打包与 dsh 静态托管仅保留 React 原生工作台 `/starhub-react`。
+- 将仍由 Node 测试直接覆盖的纯 TypeScript 工具迁至 `legacy-core/`，并同步 npm 与 pnpm 锁文件；React 设置、资产管理、Elasticsearch、SSH 浏览器和 SFTP 路径继续由 DeepSeek Harness 原生承载。
+
+### 验证
+- React client-nav 聚焦测试 46/46 通过，`starhub-window` 构建成功，`cargo check` 通过；隔离 3086 实例验证 `/starhub-react/index.html` 返回 200 且资源前缀为 `/starhub-react/`。
+
+---
+
 ## [0.85.14] - 2026-08-20
 
 ### 修复

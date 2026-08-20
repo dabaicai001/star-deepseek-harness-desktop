@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-starhub-host-static",
-  "description": "Serves the StarHub frontend dist under the webserver's /starhub/ prefix route so the dsh Web GUI can embed StarHub pages in same-origin iframes (StarHub-local package, not upstream)",
+  "description": "Serves the StarHub React workbench dist under the webserver's /starhub-react/ prefix route (StarHub-local package, not upstream)",
   "private": true,
   "version": "0.0.1",
   "type": "module",

@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.85.14-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.86.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -21,7 +21,7 @@
 
 ## 项目介绍
 
-**StarHub** 是一款跨平台桌面应用 (Tauri 2 + Rust 主进程 + Vue 3 前端 + Go Sidecar),把开发运维日常高频工具整合到同一个窗口。目标是减少在 Navicat、Xshell、Portainer、文件管理器和 AI 对话窗口之间来回切换的成本。
+**StarHub** 是一款跨平台桌面应用 (Tauri 2 + Rust 主进程 + DeepSeek Harness React 工作台 + Go Sidecar),把开发运维日常高频工具整合到同一个窗口。目标是减少在 Navicat、Xshell、Portainer、文件管理器和 AI 对话窗口之间来回切换的成本。
 
 **当前版本聚焦**:本地优先、单人高效、跨平台一致体验。
 
@@ -103,11 +103,14 @@
 - 折叠侧边栏 `Ctrl/Command + B`、折叠右面板 `Ctrl/Command + Shift + B`
 - 深浅双主题、自动更新 (Tauri Updater)
 - 通知中心:操作历史 + 条数 / SQL / 耗时等详情
-- **Cyber Command Center** 设计系统:深色为主、低饱和青色高亮、栅格背景、玻璃面板、等宽数据字体
+- DeepSeek Harness React 原生工作台、深浅主题、自动更新 (Tauri Updater)
 
 ---
 
 ## 当前版本
+
+### v0.86.0 (2026-08-20)
+- 🔧 移除历史 Vue embed 前端及其构建链，删除 `src/`、`build:embed`、`dist-embed` 和 `/starhub` 静态路由；Tauri 与 dsh 仅保留 React 原生工作台 `/starhub-react`，设置、资产管理、Elasticsearch、SSH 浏览器和 SFTP 由 React 路径承载。
 
 ### v0.85.14 (2026-08-20)
 - 🐛 Elasticsearch 资产窗口现在显式加载 React 原生工作台；工具子类右键菜单不再打开 Vue embed 空态页，统一打开 React 资产列表。SSH 内置浏览器与 SFTP 继续由 React 原生工作台承载。
@@ -118,28 +121,6 @@
 ### v0.85.12 (2026-08-20)
 - ✨ React 原生 MySQL 工作台左侧对象树新增数据库/表搜索和独立刷新入口；按表名搜索时自动显示所属数据库，提升大库场景下的定位效率。
 
-### v0.85.11 (2026-08-20)
-- 🐛 React 原生工作台中的 `@` SSH、数据库和 Docker 资产选择现在仅绑定 AI 工具上下文，不再错误打开工作台；数据库连接按类型使用正确默认端口，Docker 工作台补齐 SSH 传输、主机密钥与跳板机参数解析。
-
-### v0.85.10 (2026-08-20)
-- 🐛 修复 Windows Release 工作流通过 `subst S:` 构建 embed 前端时，Vite 将真实 checkout 的 `src/index.html` 作为跨盘符绝对资源名传给 Rollup 而失败；该步骤改为在真实 checkout 路径执行，后续打包继续使用短盘符。
-
-### v0.85.9 (2026-08-20)
-- 🔧 SSH、MySQL 与 Docker 独立 React 工作台统一为 DeepSeek Harness 的全窗口工作区样式：移除二次遮罩卡片，统一资产身份栏、连接状态、紧凑页签与工具栏，并保持 MySQL 独立窗口和 SSH 内的 SFTP 文件页签。
-
-### v0.85.8 (2026-08-20)
-- 🐛 修复 dsh web 主壳在旧 runtime 初始化前执行已绑定 SSH 资产的 AI 工具时，桥未持有 `AppHandle` 而报“无 AppHandle，无法建立 SSH 会话”；应用启动时即绑定共享桥句柄，AI 现在可按资产配置实际发起 SSH 连接。
-- 🐛 修复设置页面权限预设描述在持久化配置短暂未水合时因缺少 `defaultPreset` 而报错；该阶段回退至宿主通告的基线预设，待配置加载后保持正常更新。
-
-### v0.85.7 (2026-08-19)
-- 🐛 修复会话权限被派生成不存在的 "custom" 状态：`starhub-approval-bridge` 不再覆写 permission-presets 已钉入的审批策略，新会话权限始终为 read-only / workspace-write / danger-full-access 之一。
-- 🐛 修复 ssh 等域工具未绑定资产时报错无引导：错误提示补充「先 `starhub_list_assets` 查看资产，再 `open_connection` / `focus_terminal` 绑定会话」的操作指引。
-
-### v0.85.6 (2026-08-19)
-- 🐛 修复 GitHub tag 构建失败：查询结果格式化字符串值不再带 JSON 引号（`name="alice"` → `name=alice`），与前端 `formatValue` 对齐。
-
-### v0.85.5 (2026-08-19)
-- 🐛 修复两条域工具事件单测仍等待已迁移 `db_query` / `ssh_exec` 的旧前端回调而卡住，改用仍桥接的 `skill_save`。
 
 ---
 

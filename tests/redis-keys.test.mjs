@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const source = await readFile(path.join(__dirname, '../src/utils/redisKeys.ts'), 'utf8')
+const source = await readFile(path.join(__dirname, '../legacy-core/utils/redisKeys.ts'), 'utf8')
 const transpiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 }
 }).outputText

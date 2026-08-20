@@ -9,7 +9,7 @@ import ts from 'typescript'
 globalThis.window = globalThis
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const source = await readFile(path.join(__dirname, '../../src/utils/crypto.ts'), 'utf8')
+const source = await readFile(path.join(__dirname, '../../legacy-core/utils/crypto.ts'), 'utf8')
 const transpiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
 }).outputText

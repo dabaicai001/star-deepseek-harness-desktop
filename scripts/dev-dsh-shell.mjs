@@ -6,7 +6,7 @@
  * 1. vendor dsh 构建产物存在性检查(client lib / web dist / CLI bin 缺失才构建;
  *    vendor 构建需要 PATH 里有 pnpm,取仓库根 tmp/pnpm-home;严禁 CI=true)
  * 2. sidecar:build(setup 钩子对 sidecar 版本 fail loud)
- * 3. build:embed(StarHub embed dist → dist-embed/,base /starhub/,host-static 托管)
+ * 3. build:window(StarHub React workbench dist → dist-starhub-react/,host-static 托管)
  * 4. 前台占位等待页 server 监听 3085:tauri dev 要等 devUrl 可访问才启动应用,
  *    而真实 dsh web 由 Rust DshWebManager 在 setup 里拉起——3085 被本占位进程
  *    占用,管理器递增到 3086+。占位页自身轮询 `/__dsh_url`(由本 server 扫描
@@ -59,9 +59,9 @@ if (needHost || needClient || needWeb) {
   console.log('[dev-dsh-shell] vendor 构建产物齐全,跳过 vendor 构建')
 }
 
-// 2. sidecar + 3. embed dist
+// 2. sidecar + 3. React workbench dist
 run('sidecar:build', 'npm', ['run', 'sidecar:build'], { cwd: repoRoot })
-run('build:embed', 'npm', ['run', 'build:embed'], { cwd: repoRoot })
+run('build:window', 'npm', ['run', 'build:window'], { cwd: repoRoot })
 
 // 4. 占位等待页(前台常驻;tauri 等待 devUrl=3085 可访问后才启动应用)
 const page = `<!DOCTYPE html>

@@ -141,21 +141,6 @@ fn rewrite_patch_port(template: &str, port: u16) -> Result<String, DshWebError> 
     Ok(out.join("\n"))
 }
 
-/// StarHub embed dist:优先 dist-embed(build:embed 产物,base /starhub/),
-/// 回退 dist。host-static 自己也做同样解析,这里经 STARHUB_DIST 显式钉死。
-/// `root`:dev 下为仓库根,prod 下为 resource_dir(两者都直接含 dist-embed/dist)。
-fn resolve_starhub_dist(root: &Path) -> Result<PathBuf, DshWebError> {
-    for dir in [root.join("dist-embed"), root.join("dist")] {
-        if dir.join("index.html").exists() {
-            return Ok(dir);
-        }
-    }
-    Err(DshWebError::PathResolve(format!(
-        "未找到 StarHub 前端 dist(先跑 npm run build:embed): {}",
-        root.display()
-    )))
-}
-
 /// StarHub 独立 React 窗口 app dist(starhub-window 构建,base /starhub-react/)。
 /// 与 embed dist 同理,这里经 STARHUB_WINDOW_DIST 显式钉死,避免 host-static
 /// 的 repo-root 发现(沿模块位置向上找 vendor/deepseek-harness)在打包部署
@@ -217,7 +202,7 @@ impl DshWebManager {
         let paths = HarnessPaths::resolve_for_app(app)
             .map_err(|e| DshWebError::PathResolve(e.to_string()))?;
         let runtime_dir = paths.runtime_dir;
-        // prod:dist-embed 与本地包走 resource_dir;dev:走 runtime_dir 上两级的仓库根。
+        // prod 的 React workbench dist 与本地包走 resource_dir;dev 走 runtime_dir 上两级的仓库根。
         let dist_root = if paths.is_packaged {
             app.path()
                 .resource_dir()
@@ -337,7 +322,6 @@ impl DshWebManager {
             .map_err(|e| DshWebError::PathResolve(format!("写回 patch 失败: {e}")))?;
 
         // 4. spawn dsh web 组合
-        let starhub_dist = resolve_starhub_dist(&dist_root)?;
         // React 独立窗口 dist 显式钉死(host-static 的 repo-root 发现在打包部署下
         // 找不到仓库根,不设置会导致 /starhub-react 路由 404 —— 打开 ssh/db 连接页报
         // 「找不到 127.0.0.1 页」)。best-effort:未构建时只记日志,不影响 web 启动
@@ -363,8 +347,7 @@ impl DshWebManager {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .env("DSH_HOME", &dsh_home)
-            .env("DSH_TELEMETRY_DISABLED", "1")
-            .env("STARHUB_DIST", &starhub_dist);
+            .env("DSH_TELEMETRY_DISABLED", "1");
         if !starhub_window_dist.as_os_str().is_empty() {
             cmd.env("STARHUB_WINDOW_DIST", &starhub_window_dist);
         }
@@ -439,11 +422,7 @@ impl DshWebManager {
             }
         }
 
-        tracing::info!(
-            "dsh web 就绪: {url}(DSH_HOME={},dist={})",
-            dsh_home.display(),
-            starhub_dist.display()
-        );
+        tracing::info!("dsh web 就绪: {url}(DSH_HOME={})", dsh_home.display());
         Ok(DshWebHandle { url, child })
     }
 
