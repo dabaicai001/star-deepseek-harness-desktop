@@ -14,6 +14,13 @@
 
 ---
 
+## [0.86.1] - 2026-08-20
+
+### 修复
+- 修复 GitHub tag 构建仍调用已移除 Vue `build` / `build:embed` 脚本导致 `Missing script: "build"` 的问题；Release 与 Linux compat 工作流改为运行保留的 Node 纯逻辑测试并构建 `build:window`，不再请求已删除的 Vue 产物。
+
+---
+
 ## [0.86.0] - 2026-08-20
 
 ### 变更

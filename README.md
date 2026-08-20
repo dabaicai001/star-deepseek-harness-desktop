@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.86.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.86.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -109,14 +109,14 @@
 
 ## 当前版本
 
+### v0.86.1 (2026-08-20)
+- 🐛 修复 GitHub tag 构建仍调用已移除 Vue `build` / `build:embed` 脚本的问题；Release 与 Linux compat 工作流现在构建并验证 React 工作台。
+
 ### v0.86.0 (2026-08-20)
 - 🔧 移除历史 Vue embed 前端及其构建链，删除 `src/`、`build:embed`、`dist-embed` 和 `/starhub` 静态路由；Tauri 与 dsh 仅保留 React 原生工作台 `/starhub-react`，设置、资产管理、Elasticsearch、SSH 浏览器和 SFTP 由 React 路径承载。
 
 ### v0.85.14 (2026-08-20)
 - 🐛 Elasticsearch 资产窗口现在显式加载 React 原生工作台；工具子类右键菜单不再打开 Vue embed 空态页，统一打开 React 资产列表。SSH 内置浏览器与 SFTP 继续由 React 原生工作台承载。
-
-### v0.85.13 (2026-08-20)
-- 🐛 修复 React Docker SSH 连接参数在严格 `exactOptionalPropertyTypes` 编译下显式传入 `undefined` 而导致 Release 构建失败的问题。
 
 ### v0.85.12 (2026-08-20)
 - ✨ React 原生 MySQL 工作台左侧对象树新增数据库/表搜索和独立刷新入口；按表名搜索时自动显示所属数据库，提升大库场景下的定位效率。

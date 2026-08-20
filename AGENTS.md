@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.86.0(移除历史 Vue embed 前端与 `/starhub` 构建/托管链，Tauri 与 dsh 仅保留 React 原生工作台 `/starhub-react`；设置、资产管理、Elasticsearch、SSH 浏览器与 SFTP 均由 DSH React 路径承载。) |
+| 当前版本 | v0.86.1(修复 GitHub tag 构建仍调用已移除 Vue `build` / `build:embed` 脚本的问题；Release 与 Linux compat 工作流现在构建并验证 React 工作台。) |
 
 ---
 
@@ -463,4 +463,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-20 (v0.86.0)*
+*最后更新: 2026-08-20 (v0.86.1)*

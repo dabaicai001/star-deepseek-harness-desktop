@@ -88,7 +88,7 @@ jobs:
         run: pnpm --dir vendor/deepseek-harness install --frozen-lockfile
 
       - name: Check frontend production build
-        run: npm run build
+        run: npm run build:window
 
       - name: Test Go sidecar
         working-directory: sidecar
@@ -97,17 +97,8 @@ jobs:
       - name: Build and verify native Linux sidecar
         run: npm run sidecar:build:release
 
-      - name: Build embed resources
-        run: npm run build:embed
-
       - name: Package dsh runtime
         run: npm run package:dsh-runtime
-
-      # `cargo test` runs Tauri's resource validation through build.rs. The
-      # window bundle is a declared Tauri resource, so stage it before tests
-      # rather than relying on a later `tauri build` hook.
-      - name: Build StarHub window resources
-        run: npm run build:window
 
       - name: Test Tauri backend on Linux
         working-directory: src-tauri

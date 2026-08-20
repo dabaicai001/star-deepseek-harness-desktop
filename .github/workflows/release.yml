@@ -80,7 +80,7 @@ jobs:
       - name: Test frontend and Go sidecar
         shell: pwsh
         run: |
-          npm run build
+          npm run test:utils
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Push-Location sidecar
           go test ./...
@@ -90,13 +90,6 @@ jobs:
 
       - name: Build release sidecar
         run: npm run sidecar:build:release
-
-      - name: Build embed resources
-        # Vite resolves HTML modules to the physical checkout path. Running it
-        # through the S: subst drive makes Rollup receive a cross-drive absolute
-        # asset name on Windows, so build this bundle from the checkout path.
-        working-directory: ${{ github.workspace }}
-        run: npm run build:embed
 
       - name: Package dsh runtime
         run: npm run package:dsh-runtime
@@ -201,14 +194,11 @@ jobs:
 
       - name: Test frontend and Go sidecar
         run: |
-          npm run build
+          npm run test:utils
           (cd sidecar && go test ./...)
 
       - name: Build release sidecar
         run: npm run sidecar:build:release
-
-      - name: Build embed resources
-        run: npm run build:embed
 
       - name: Package dsh runtime
         run: npm run package:dsh-runtime
