@@ -137,7 +137,6 @@ export function AiTab() {
     <div className={s.panel}>
       <div className={s.section}>
         <div className={s.sectionHeader}>
-          <span className={s.sectionNumber}>05</span>
           <span className={s.sectionTitle}>记忆与上下文</span>
           <span className={s.spacer} />
           <button type="button" className={s.btnSecondary} onClick={openMemoryManager}>管理记忆</button>

@@ -15,7 +15,7 @@ const dbAsset: RustAsset = {
   key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
 }
 
-function stubInvoke(scenario: { connect?: unknown; databases?: unknown; tables?: unknown; tableData?: unknown; columns?: unknown; indexes?: unknown; execute?: unknown; savePath?: unknown; fail?: boolean }) {
+function stubInvoke(scenario: { connect?: unknown; databases?: unknown; tables?: unknown; tableData?: unknown; columns?: unknown; indexes?: unknown; execute?: unknown; savePath?: unknown; rowCount?: unknown; fail?: boolean }) {
   const calls: Array<[cmd: string, args: Record<string, unknown>]> = []
   const invoke = vi.fn((cmd: string, args?: Record<string, unknown>) => {
     const a = (args ?? {})
@@ -36,6 +36,7 @@ function stubInvoke(scenario: { connect?: unknown; databases?: unknown; tables?:
         isSelect: true,
       })
       case 'db_mysql_get_table_ddl': return Promise.resolve({ ddl: 'CREATE TABLE users (id BIGINT)' })
+      case 'db_mysql_get_row_count': return Promise.resolve(scenario.rowCount ?? 2)
       case 'db_mysql_drop_table': return Promise.resolve(null)
       case 'db_mysql_truncate_table': return Promise.resolve(null)
       case 'db_mysql_export_excel': return Promise.resolve({ filePath: '/tmp/out.xlsx', totalRows: 2, durationMs: 10 })
@@ -100,13 +101,13 @@ describe('DbWorkbench', () => {
     const { invoke, calls } = stubInvoke({})
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
     await waitFor(() => expect(calls.some(([cmd]) => cmd === 'db_mysql_connect')).toBe(true))
-    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
-    await waitFor(() => expect(screen.getByText('sys')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTitle('app')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTitle('sys')).toBeTruthy())
     expect(invoke).toHaveBeenCalledWith('db_mysql_connect', {
       params: { host: '10.0.0.1', port: 3306, username: 'root', password: 'pw' },
     })
     // 展开库 → list_tables
-    fireEvent.click(screen.getByText('app'))
+    fireEvent.click(screen.getByTitle('app'))
     await waitFor(() => expect(calls.some(([cmd]) => cmd === 'db_mysql_list_tables')).toBe(true))
     await waitFor(() => expect(screen.getByText('users')).toBeTruthy())
     // 点表 → 原生数据网格(get_table_data + 列头 + 值 + NULL 展示)
@@ -122,17 +123,17 @@ describe('DbWorkbench', () => {
   it('filters the database tree by database and loaded table name', async () => {
     const { calls } = stubInvoke({})
     render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
-    fireEvent.click(screen.getByText('app'))
+    await waitFor(() => expect(screen.getByTitle('app')).toBeTruthy())
+    fireEvent.click(screen.getByTitle('app'))
     await waitFor(() => expect(screen.getByText('users')).toBeTruthy())
     const search = screen.getByRole('searchbox', { name: '搜索数据库或表' })
     fireEvent.change(search, { target: { value: 'users' } })
-    expect(screen.getByText('app')).toBeTruthy()
+    expect(screen.getByTitle('app')).toBeTruthy()
     expect(screen.getByText('users')).toBeTruthy()
-    expect(screen.queryByText('sys')).toBeNull()
+    expect(screen.queryByTitle('sys')).toBeNull()
     fireEvent.change(search, { target: { value: 'sys' } })
-    expect(screen.getByText('sys')).toBeTruthy()
-    expect(screen.queryByText('app')).toBeNull()
+    expect(screen.getByTitle('sys')).toBeTruthy()
+    expect(screen.queryByTitle('app')).toBeNull()
     fireEvent.change(search, { target: { value: 'missing' } })
     expect(screen.getByText('没有匹配的已加载表')).toBeTruthy()
     expect(calls.some(([cmd]) => cmd === 'db_mysql_list_tables')).toBe(true)
@@ -144,6 +145,53 @@ describe('DbWorkbench', () => {
     await waitFor(() => expect(calls.filter(([cmd]) => cmd === 'db_mysql_list_databases')).toHaveLength(1))
     fireEvent.click(screen.getByRole('button', { name: '刷新数据库列表' }))
     await waitFor(() => expect(calls.filter(([cmd]) => cmd === 'db_mysql_list_databases')).toHaveLength(2))
+  })
+
+  it('restores tree memory: auto-expands the saved database and reloads the saved table', async () => {
+    localStorage.setItem('starhub.db.workbench.db1', JSON.stringify({
+      expanded: [], // 故意为空:选中表所在库也必须兜底展开
+      selected: { database: 'sys', table: 'users' },
+      currentDb: 'sys',
+    }))
+    const { calls } = stubInvoke({})
+    render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
+    // 默认展开上次选择的库(list_tables 自动触发)。
+    await waitFor(() => expect(calls.some(([cmd, a]) => cmd === 'db_mysql_list_tables' && a.database === 'sys')).toBe(true))
+    // 选中表恢复 → 底部数据网格直接加载。
+    await waitFor(() => expect(calls.some(([cmd]) => cmd === 'db_mysql_get_table_data')).toBe(true))
+    await waitFor(() => expect(screen.getByText('alice')).toBeTruthy())
+  })
+
+  it('persists expanded databases and the current selection to localStorage', async () => {
+    stubInvoke({})
+    render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByTitle('app')).toBeTruthy())
+    fireEvent.click(screen.getByTitle('app'))
+    await waitFor(() => expect(screen.getByText('users')).toBeTruthy())
+    fireEvent.click(screen.getByText('users'))
+    await waitFor(() => {
+      const raw = localStorage.getItem('starhub.db.workbench.db1')
+      expect(raw).not.toBeNull()
+      const saved = JSON.parse(raw!) as { expanded: string[]; selected: { table: string } | null; currentDb: string }
+      expect(saved.expanded).toContain('app')
+      expect(saved.selected?.table).toBe('users')
+      expect(saved.currentDb).toBe('app')
+    })
+  })
+
+  it('paginates by the unfiltered row count (get_row_count), not just filtered totals', async () => {
+    const { calls } = stubInvoke({ rowCount: 250 })
+    render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByTitle('app')).toBeTruthy())
+    fireEvent.click(screen.getByTitle('app'))
+    await waitFor(() => expect(screen.getByText('users')).toBeTruthy())
+    fireEvent.click(screen.getByText('users'))
+    // 无筛选时基数来自 get_row_count:250 行 / 每页 100 → 3 页(原先恒 1/1)。
+    await waitFor(() => expect(calls.some(([cmd]) => cmd === 'db_mysql_get_row_count')).toBe(true))
+    await waitFor(() => expect(screen.getByText('1 / 3')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }))
+    await waitFor(() => expect(calls.some(([cmd, a]) => cmd === 'db_mysql_get_table_data' && a.offset === 100)).toBe(true))
+    await waitFor(() => expect(screen.getByText('2 / 3')).toBeTruthy())
   })
 
   it('reports an incomplete asset config without connecting', async () => {
@@ -165,9 +213,9 @@ describe('DbWorkbench', () => {
   it('right-clicks a table to view its DDL', async () => {
     const { calls } = stubInvoke({})
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTitle('app')).toBeTruthy())
     // 展开库 → users 表行出现
-    fireEvent.click(screen.getByText('app'))
+    fireEvent.click(screen.getByTitle('app'))
     await waitFor(() => expect(screen.getByText('users')).toBeTruthy())
     // 右键表行 → 菜单 → 查看 DDL
     fireEvent.contextMenu(screen.getByText('users'))
@@ -181,9 +229,9 @@ describe('DbWorkbench', () => {
   it('right-clicks a database to create a new table', async () => {
     const { calls } = stubInvoke({})
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTitle('app')).toBeTruthy())
     // 右键库 → 新建表
-    fireEvent.contextMenu(screen.getByText('app'))
+    fireEvent.contextMenu(screen.getByTitle('app'))
     await waitFor(() => expect(screen.getByText('新建表')).toBeTruthy())
     fireEvent.click(screen.getByText('新建表'))
     await waitFor(() => expect(screen.getByText('表名')).toBeTruthy())
@@ -197,7 +245,8 @@ describe('DbWorkbench', () => {
     })
     const createArgs = calls.filter(([cmd]) => cmd === 'db_mysql_execute')
     const args = (window as unknown as { __TAURI_INTERNALS__: { invoke: ReturnType<typeof vi.fn> } }).__TAURI_INTERNALS__.invoke.mock.calls
-    const createCall = args.find((a) => a[0] === 'db_mysql_execute')
+    // 监控面板常驻后会先发指标 SQL(SHOW …),按内容定位 CREATE TABLE 调用。
+    const createCall = args.find((a) => a[0] === 'db_mysql_execute' && String(a[1]?.sql ?? '').includes('CREATE TABLE'))
     expect(String(createCall?.[1]?.sql ?? '')).toContain('CREATE TABLE')
     expect(String(createCall?.[1]?.sql ?? '')).toContain('`new_tbl`')
     // 建表成功 → 表列表里出现新表(库行已展开)
@@ -212,8 +261,8 @@ describe('DbWorkbench', () => {
       { name: 'name', type: 'VARCHAR(255)', dataType: 'varchar', nullable: 'YES', key: '', defaultValue: null, extra: '', comment: '', ordinalPosition: 2 },
     ] })
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
-    fireEvent.click(screen.getByText('app'))
+    await waitFor(() => expect(screen.getByTitle('app')).toBeTruthy())
+    fireEvent.click(screen.getByTitle('app'))
     await waitFor(() => expect(screen.getByText('users')).toBeTruthy())
     // 右键表 → 编辑列 → 对话框载入列
     fireEvent.contextMenu(screen.getByText('users'))
@@ -235,8 +284,8 @@ describe('DbWorkbench', () => {
   it('exports the selected table to Excel via the backend command', async () => {
     const { calls } = stubInvoke({ savePath: 'C:/tmp/out.xlsx' })
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
-    fireEvent.click(screen.getByText('app'))
+    await waitFor(() => expect(screen.getByTitle('app')).toBeTruthy())
+    fireEvent.click(screen.getByTitle('app'))
     await waitFor(() => expect(screen.getByText('users')).toBeTruthy())
     fireEvent.click(screen.getByText('users'))
     await waitFor(() => expect(screen.getByText('导出 Excel')).toBeTruthy())
@@ -254,7 +303,7 @@ describe('DbWorkbench', () => {
   it('formats the SQL editor content via the 格式化 button', async () => {
     stubInvoke({})
     render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTitle('app')).toBeTruthy())
     // 连接后 SQL 区可见，工具栏用可访问名称标识图标按钮。
     await waitFor(() => expect(screen.getByRole('button', { name: '格式化 SQL' })).toBeTruthy())
     // 空内容格式化不抛错(纯函数空输入原样返回)。
@@ -270,7 +319,7 @@ describe('DbWorkbench', () => {
     ]))
     stubInvoke({})
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTitle('app')).toBeTruthy())
     const historyBtn = await screen.findByRole('button', { name: '查询历史' })
     fireEvent.click(historyBtn)
     // 两条历史可见。
@@ -289,7 +338,7 @@ describe('DbWorkbench', () => {
     ]))
     stubInvoke({})
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTitle('app')).toBeTruthy())
     fireEvent.click(await screen.findByRole('button', { name: '查询历史' }))
     const entry = await screen.findByText('SELECT 1; SELECT 2')
     fireEvent.click(entry)
@@ -305,7 +354,7 @@ describe('DbWorkbench', () => {
   it('executes SQL with an error result and surfaces it', async () => {
     stubInvoke({ execute: { columns: [], rows: [], error: 'bad sql' } })
     const { unmount } = render(<DbWorkbench asset={dbAsset} onClose={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTitle('app')).toBeTruthy())
     // 路由 SQL 执行经由 SqlEditor 的 onExecute(Mod-Enter),jsdom 下不可稳定触发;
     // 这里仅验证连接态工具栏渲染完整(格式化/历史按钮存在)。
     expect(screen.getByRole('button', { name: '格式化 SQL' })).toBeTruthy()

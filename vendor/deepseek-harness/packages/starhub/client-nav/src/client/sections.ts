@@ -139,7 +139,8 @@ export function assetWindowUrl(asset: StarHubAsset): string {
   const route = routeNameForAsset(asset)
   // 仅对确有无 React 工作台的类型给提示位(窗口侧按资产兜底映射);ES/local
   // 等无工作台的类型省略提示,入口按「不支持」处理而非挂 Vue。
-  const hint = route === 'ssh-terminal' || route === 'db-broker' ? 'ssh'
+  const hint = route === 'ssh-terminal' ? 'ssh'
+    : route === 'db-broker' ? 'broker'
     : route === 'db-redis' ? 'db-redis'
       : route === 'db-elasticsearch' ? 'db-elasticsearch'
         : route === 'docker' ? 'docker'

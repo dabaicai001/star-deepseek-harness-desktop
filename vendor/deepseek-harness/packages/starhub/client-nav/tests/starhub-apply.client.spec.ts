@@ -254,33 +254,21 @@ describe('client-nav apply', () => {
     }
   })
 
-  it('opens subcategory section pages in a new tab and ignores unknown keys', () => {
-    const { ctx, register } = fakeContext()
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
-    try {
-      applyPlugin(ctx)
-      const navConfig = register.mock.calls[0]![0]!
-      const injected = navConfig.inject()
-      injected.openSubcategoryPage('terminal')
-      expect(openSpy).toHaveBeenCalledTimes(1)
-      expect(openSpy.mock.calls[0]![0]).toContain('route=%2Fssh')
-      injected.openSubcategoryPage('nope')
-      expect(openSpy).toHaveBeenCalledTimes(1)
-    } finally {
-      openSpy.mockRestore()
-    }
-  })
-
-  it('logs when opening a subcategory section page fails', async () => {
+  it('logs when opening an asset page fails', async () => {
     const w = window as unknown as { __TAURI_INTERNALS__?: { invoke: unknown } }
     w.__TAURI_INTERNALS__ = { invoke: () => Promise.reject(new Error('not allowed')) }
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       const { ctx, register } = fakeContext()
       applyPlugin(ctx)
-      const navConfig = register.mock.calls[0]![0]!
-      navConfig.inject().openSubcategoryPage('terminal')
-      await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledWith('打开工具段页失败:', expect.any(Error)))
+      const workspaceConfig = register.mock.calls[2]![0]!
+      const asset = {
+        id: 'a1', type: 'ssh', name: 'web-1', group_id: null,
+        config: { host: 'h' },
+        key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
+      }
+      workspaceConfig.inject().openAsset(asset)
+      await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledWith('打开资产页面失败:', expect.any(Error)))
     } finally {
       delete w.__TAURI_INTERNALS__
       errorSpy.mockRestore()

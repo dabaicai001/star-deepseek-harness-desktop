@@ -4,9 +4,10 @@
  * db_redis_connect,卸载断连。中央区:DB 切换 + 键总数 + 键列表(SCAN 分页
  * + 搜索过滤)+ 键操作(打开/重命名/删除/清空/新建)+ CLI(db_redis_execute)。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RustAsset } from '../store.ts'
 import { redisConnect, redisDBSize, redisDel, redisDisconnect, redisExecute, redisFlushDB, redisRename, redisScan, redisSelect, type RedisKeyInfo } from './redis-service.ts'
+import { allFolderPaths, buildKeyTree, countLeaves, type KeyTreeNode } from './key-tree.ts'
 import { RedisValueEditor } from './RedisValueEditor.tsx'
 import css from './RedisWorkbench.module.css'
 
@@ -23,6 +24,61 @@ interface NewKeyDraft {
   key: string
   type: string
   value: string
+}
+
+/** 树行渲染入参:节点 + 深度 + 展开态与操作回调。 */
+interface KeyTreeRowProps {
+  node: KeyTreeNode
+  depth: number
+  expanded: ReadonlySet<string>
+  onToggle: (path: string) => void
+  onOpen: (key: string, type: string) => void
+  onRename: (key: string) => void
+  onDelete: (key: string) => void
+}
+
+/**
+ * 渲染一行树节点:文件夹行(箭头 + 段名 + 叶子计数,点击折叠/展开,子级递归)
+ * 或叶子行(类型徽标 + 最后一段,操作沿用完整 key)。
+ * @param props - 节点与回调。
+ * @returns 该行(及展开时的子级行)。
+ */
+function KeyTreeRow({ node, depth, expanded, onToggle, onOpen, onRename, onDelete }: KeyTreeRowProps) {
+  const indent = { paddingLeft: 5 + depth * 14 }
+  if (node.keyInfo !== null) {
+    const k = node.keyInfo
+    return (
+      <div className={css.keyRow} style={indent}>
+        <button type="button" className={css.keyMain} onClick={() => onOpen(k.key, k.type)}>
+          <span className={css.keyType}>{k.type}</span>
+          <span className={css.keyName} title={k.key}>{node.name}</span>
+        </button>
+        <div className={css.keyActions}>
+          <button type="button" className={css.miniButton} title="重命名" aria-label={`重命名 ${k.key}`}
+            onClick={() => onRename(k.key)}>⟳</button>
+          <button type="button" className={css.miniDanger} title="删除" aria-label={`删除 ${k.key}`}
+            onClick={() => onDelete(k.key)}>✕</button>
+        </div>
+      </div>
+    )
+  }
+  const open = expanded.has(node.path)
+  return (
+    <>
+      <div className={css.keyRow} style={indent}>
+        <button type="button" className={css.keyMain} onClick={() => onToggle(node.path)}
+          aria-expanded={open} aria-label={`文件夹 ${node.path}`}>
+          <span className={css.folderChevron}>{open ? '▾' : '▸'}</span>
+          <span className={css.folderName} title={node.path}>{node.name}</span>
+          <span className={css.folderCount}>{countLeaves(node)}</span>
+        </button>
+      </div>
+      {open && node.children.map((child) => (
+        <KeyTreeRow key={child.path} node={child} depth={depth + 1} expanded={expanded}
+          onToggle={onToggle} onOpen={onOpen} onRename={onRename} onDelete={onDelete} />
+      ))}
+    </>
+  )
 }
 
 /**
@@ -46,6 +102,8 @@ export function RedisWorkbench({ asset, onClose }: { asset: RustAsset; onClose: 
   const [newKeyDraft, setNewKeyDraft] = useState<NewKeyDraft>({ key: '', type: 'string', value: '' })
   const [toast, setToast] = useState<string | null>(null)
   const [openValue, setOpenValue] = useState<{ key: string; type: string } | null>(null)
+  // 键树文件夹展开态;null = 未初始化(首次按「全展开」呈现,与旧平铺视图等价)。
+  const [collapsedFolders, setCollapsedFolders] = useState<ReadonlySet<string>>(new Set())
   const connRef = useRef<string | null>(null)
 
   const notify = useCallback((msg: string) => {
@@ -209,6 +267,26 @@ export function RedisWorkbench({ asset, onClose }: { asset: RustAsset; onClose: 
 
   const openKey = useCallback((key: string, type: string) => setOpenValue({ key, type }), [])
 
+  // 键树:SCAN 结果按 ':' 分组;搜索态强制全展开(过滤结果直接可见)。
+  const keyTree = useMemo(() => buildKeyTree(list.keys), [list.keys])
+  const expandedFolders = useMemo(() => {
+    const all = allFolderPaths(keyTree)
+    if (search.trim() !== '') return all
+    const open = new Set(all)
+    for (const path of collapsedFolders) open.delete(path)
+    return open
+  }, [keyTree, collapsedFolders, search])
+
+  /** 折叠/展开文件夹(默认全展开,折叠集持久在会话内)。 */
+  const toggleFolder = useCallback((path: string) => {
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }, [])
+
   const id = connRef.current
 
   return (
@@ -265,19 +343,11 @@ export function RedisWorkbench({ asset, onClose }: { asset: RustAsset; onClose: 
               {!list.loading && list.error === null && list.keys.length === 0 && <div className={css.status}>暂无 key。</div>}
               {!list.loading && list.error === null && list.keys.length > 0 && (
                 <div className={css.keyList}>
-                  {list.keys.map((k) => (
-                    <div className={css.keyRow} key={k.key}>
-                      <button type="button" className={css.keyMain} onClick={() => openKey(k.key, k.type)}>
-                        <span className={css.keyType}>{k.type}</span>
-                        <span className={css.keyName} title={k.key}>{k.key}</span>
-                      </button>
-                      <div className={css.keyActions}>
-                        <button type="button" className={css.miniButton} title="重命名" aria-label={`重命名 ${k.key}`}
-                          onClick={() => { setRenaming(k.key); setRenameTo(k.key) }}>⟳</button>
-                        <button type="button" className={css.miniDanger} title="删除" aria-label={`删除 ${k.key}`}
-                          onClick={() => void deleteKey(k.key)}>✕</button>
-                      </div>
-                    </div>
+                  {keyTree.map((node) => (
+                    <KeyTreeRow key={node.path} node={node} depth={0} expanded={expandedFolders}
+                      onToggle={toggleFolder} onOpen={openKey}
+                      onRename={(key) => { setRenaming(key); setRenameTo(key) }}
+                      onDelete={(key) => void deleteKey(key)} />
                   ))}
                 </div>
               )}

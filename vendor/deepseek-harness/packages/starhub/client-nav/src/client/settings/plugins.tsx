@@ -151,7 +151,6 @@ export function PluginsTab() {
     <div className={s.panel}>
       <div className={s.section}>
         <div className={s.sectionHeader}>
-          <span className={s.sectionNumber}>01</span>
           <span className={s.sectionTitle}>安装插件</span>
         </div>
         {pluginError !== '' && <div className={s.errorText}>{pluginError}</div>}
@@ -185,7 +184,6 @@ export function PluginsTab() {
 
       <div className={s.section}>
         <div className={s.sectionHeader}>
-          <span className={s.sectionNumber}>02</span>
           <span className={s.sectionTitle}>插件市场</span>
           <span className={s.spacer} />
           <input

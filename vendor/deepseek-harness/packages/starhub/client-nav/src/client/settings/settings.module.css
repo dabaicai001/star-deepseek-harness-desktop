@@ -1,23 +1,27 @@
-/* Settings 各 tab 共享控件样式(dsw token 版 cyber 设置类):按钮/输入/
-   区块/卡片/徽标/弹窗。视觉只走 token,无字面量颜色。 */
+/* Settings 各 tab 共享控件样式,统一走 dsh 设置面板设计语言:扁平分组 +
+   border-l2 发丝分隔线、胶囊按钮(h28 r14 密集 / 主按钮用中性 button-primary
+   填充)、32px r8 输入框、描边卡片。视觉只走 token,无字面量颜色。 */
 
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 0;
   padding: 16px;
   font-size: 13px;
   color: var(--dsw-alias-label-primary);
 }
 
+/* 扁平分组:卡片式背景/描边取消,改发丝分隔线(与 dsh 通用设置一致)。 */
 .section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
-  background: var(--dsw-alias-bg-layer-2);
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.section:last-child {
+  border-bottom: none;
 }
 
 .sectionHeader {
@@ -26,18 +30,11 @@
   gap: 10px;
 }
 
-.sectionNumber {
-  flex: none;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11px;
-  color: var(--dsw-accent);
-  opacity: 0.8;
-}
-
 .sectionTitle {
   flex: 1;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -57,78 +54,67 @@
   flex: 1;
 }
 
-/* ===== 按钮 ===== */
+/* ===== 按钮(dsh 设置面板胶囊语言:密集档 h28 r14)===== */
 
 .btn,
 .btnSecondary,
 .btnDanger,
 .btnPrimary,
 .btnOutline {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   height: 28px;
   padding: 0 12px;
   border: none;
-  border-radius: 6px;
+  border-radius: 14px;
   font-family: inherit;
   font-size: 12px;
+  line-height: 18px;
   cursor: pointer;
   white-space: nowrap;
 }
 
-.btn {
-  background: var(--dsw-accent);
-  color: var(--dsw-alias-label-primary-foreground);
-}
-
-.btn:hover {
-  filter: brightness(1.1);
-}
-
-/* 高对比主按钮(对话框「创建/保存」):加重字重 + 主色微光,与普通 .btn 区分。 */
+/* 主按钮:中性填充(dsh 设置面板的主操作不是品牌色,是前景反差色)。 */
+.btn,
 .btnPrimary {
-  background: var(--dsw-accent);
+  background: var(--dsw-alias-button-primary-fill);
   color: var(--dsw-alias-label-primary-foreground);
-  font-weight: 600;
-  min-width: 72px;
-  justify-content: center;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-accent) 55%, transparent),
-    0 2px 10px color-mix(in srgb, var(--dsw-accent) 30%, transparent);
 }
 
+.btn:hover,
 .btnPrimary:hover {
-  filter: brightness(1.12);
+  background: var(--dsw-alias-button-primary-hover);
 }
 
-/* 描边次按钮(「测试连接」):透明底 + 主色描边,与实心主按钮视觉区分。 */
+.btnPrimary {
+  font-weight: 500;
+  min-width: 72px;
+}
+
+/* 描边次按钮(「测试连接」/「取消」):透明底 + border-l2 描边。 */
+.btnSecondary,
 .btnOutline {
   background: transparent;
-  color: var(--dsw-accent);
-  border: 1px solid color-mix(in srgb, var(--dsw-accent) 60%, transparent);
-}
-
-.btnOutline:hover {
-  background: color-mix(in srgb, var(--dsw-accent) 12%, transparent);
-}
-
-.btnSecondary {
-  background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-border-l2);
 }
 
-.btnSecondary:hover {
-  background: var(--dsw-alias-interactive-bg-hover-accent);
+.btnSecondary:hover,
+.btnOutline:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
+/* 危险按钮:透明底红字,hover 才上底色(与 dsh dangerButton 一致)。 */
 .btnDanger {
-  background: var(--dsw-alias-interactive-bg-hover-danger);
+  background: transparent;
   color: var(--dsw-alias-state-error-primary);
 }
 
 .btnDanger:hover {
   background: var(--dsw-alias-interactive-bg-hover-danger);
-  filter: brightness(1.15);
 }
 
 .btn:disabled,
@@ -172,9 +158,9 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px;
-  border: 1px solid color-mix(in srgb, var(--dsw-accent) 40%, transparent);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--dsw-accent) 6%, transparent);
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 .iconButton {
@@ -208,12 +194,13 @@
 .textarea {
   box-sizing: border-box;
   width: 100%;
+  min-height: 32px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 13px;
   padding: 6px 10px;
   outline: none;
 }
@@ -221,7 +208,7 @@
 .input:focus,
 .select:focus,
 .textarea:focus {
-  border-color: var(--dsw-accent);
+  border-color: var(--dsw-alias-brand-primary);
 }
 
 .textarea {
@@ -309,8 +296,9 @@
 }
 
 .badge {
-  background: color-mix(in srgb, var(--dsw-accent) 14%, transparent);
-  color: var(--dsw-accent);
+  border: 1px solid var(--dsw-alias-border-l3);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .badgeOff {
@@ -326,14 +314,14 @@
   gap: 8px;
 }
 
+/* 卡片:描边 + 透明底(r12),读作面板上的「行对象」,不再铺填充色。 */
 .card {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-1);
+  border-radius: 12px;
 }
 
 .card.disabled {
@@ -445,8 +433,7 @@
   gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-1);
+  border-radius: 12px;
 }
 
 .statHead {
@@ -567,9 +554,7 @@
   gap: 10px;
   padding: 28px 20px;
   text-align: center;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  background: var(--dsw-alias-bg-layer-2);
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
 
 .aboutLogo {
@@ -578,22 +563,20 @@
   justify-content: center;
   width: 72px;
   height: 72px;
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 16px;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 34px;
   font-weight: 700;
-  background: linear-gradient(135deg, var(--dsw-accent), var(--dsw-static-deepseek-600));
-  color: var(--dsw-alias-label-primary-foreground);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
 }
 
 .aboutName {
   margin: 0;
   font-size: 22px;
   font-weight: 700;
-  background: linear-gradient(90deg, var(--dsw-accent), var(--dsw-static-deepseek-400));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--dsw-alias-label-primary);
 }
 
 .aboutVersion {
@@ -641,15 +624,16 @@
   align-items: center;
   height: 28px;
   padding: 0 12px;
-  border-radius: 6px;
-  background: var(--dsw-alias-interactive-bg-hover);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: transparent;
   color: var(--dsw-alias-label-primary);
   text-decoration: none;
   font-size: 12px;
 }
 
 .aboutLink:hover {
-  background: var(--dsw-alias-interactive-bg-hover-accent);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .aboutUpdateAvailable {
@@ -727,7 +711,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0b0f14;
+  /* 半透明遮罩:透出背后的壳内容(原先 #0b0f14 不透明导致整屏死黑)。 */
+  background: var(--dsw-alias-bg-mask-3, rgba(0, 0, 0, 0.48));
   padding: 24px;
 }
 
@@ -738,8 +723,8 @@
   width: min(720px, 100%);
   max-height: min(760px, calc(100vh - 48px));
   overflow: hidden;
-  background: #171b22;
-  border: 1px solid #39414c;
+  background: var(--dsw-alias-bg-layer-2, #171b22);
+  border: 1px solid var(--dsw-alias-border-l2, #39414c);
   border-radius: 8px;
   box-shadow: 0 18px 54px rgba(0, 0, 0, 0.48);
 }
@@ -750,14 +735,15 @@
   gap: 10px;
   min-height: 52px;
   padding: 0 16px;
-  border-bottom: 1px solid #303741;
-  background: #1d222b;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #303741);
+  background: var(--dsw-alias-bg-layer-1, #1d222b);
 }
 
 .dialogTitle {
   flex: 1;
   font-size: 14px;
   font-weight: 650;
+  color: var(--dsw-alias-label-primary);
 }
 
 .dialogPanel > .formGrid,
@@ -778,8 +764,8 @@
   min-height: 58px;
   margin: 0;
   padding: 0 16px;
-  border-top: 1px solid #303741;
-  background: #1d222b;
+  border-top: 1px solid var(--dsw-alias-border-l2, #303741);
+  background: var(--dsw-alias-bg-layer-1, #1d222b);
 }
 
 .actionRow {

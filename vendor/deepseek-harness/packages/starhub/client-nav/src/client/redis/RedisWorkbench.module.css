@@ -30,6 +30,9 @@
 .keyType { flex: none; border: 1px solid var(--dsw-alias-border-l2); border-radius: 3px; padding: 1px 4px; color: var(--dsw-alias-interactive-accent); font-size: 9px; text-transform: uppercase; }
 .keyName { overflow: hidden; font-family: var(--dsw-font-mono); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .keyActions { display: flex; flex: none; gap: 2px; }
+.folderChevron { flex: none; width: 12px; color: var(--dsw-alias-label-tertiary); font-size: 10px; text-align: center; }
+.folderName { overflow: hidden; color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.folderCount { flex: none; margin-left: auto; border-radius: 8px; padding: 0 6px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-tertiary); font-family: var(--dsw-font-mono); font-size: 10px; }
 .miniButton, .miniDanger { width: 23px; height: 23px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; font-size: 11px; }
 .miniDanger:hover { background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent); color: var(--dsw-alias-state-error-primary); }
 .miniButton:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-interactive-accent); }

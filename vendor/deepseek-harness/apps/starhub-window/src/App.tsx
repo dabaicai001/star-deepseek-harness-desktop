@@ -14,6 +14,7 @@ import { DbWorkbench } from '@deepseek-ai/dsh-starhub-client-nav/src/client/DbWo
 import { DockerWorkbench } from '@deepseek-ai/dsh-starhub-client-nav/src/client/docker/DockerWorkbench.tsx'
 import { RedisWorkbench } from '@deepseek-ai/dsh-starhub-client-nav/src/client/redis/RedisWorkbench.tsx'
 import { ElasticsearchWorkbench } from '@deepseek-ai/dsh-starhub-client-nav/src/client/es/ElasticsearchWorkbench.tsx'
+import { BrokerView } from '@deepseek-ai/dsh-starhub-client-nav/src/client/broker/BrokerView.tsx'
 import { SshTerminalOverlay } from '@deepseek-ai/dsh-starhub-client-nav/src/client/terminal/SshTerminalOverlay.tsx'
 import {
   parseWindowParams, workbenchForAsset, workbenchForRouteName, type WindowWorkbench,
@@ -107,6 +108,8 @@ export function WindowShell() {
         return <RedisWorkbench asset={asset} onClose={requestWindowClose} />
       case 'db-elasticsearch':
         return <ElasticsearchWorkbench asset={asset} onClose={requestWindowClose} />
+      case 'broker':
+        return <BrokerView asset={asset} />
       case 'docker':
         return <DockerWorkbench asset={asset} onClose={requestWindowClose} />
     }
@@ -145,6 +148,9 @@ export function render(container: HTMLElement): void {
 
 /** Convenience used by tests/main: mount into #root. */
 export function mount(): void {
+  // 独立窗口不跑 dsh 插件树(ui-theme):工作台按深色设计,直接钉住深色调色板。
+  document.documentElement.style.colorScheme = 'dark'
+  document.body.toggleAttribute('data-ds-dark-theme', true)
   const el = document.getElementById('root')
   if (el !== null) render(el)
 }

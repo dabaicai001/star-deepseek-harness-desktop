@@ -5,7 +5,14 @@
   height: 100%;
   overflow-y: auto;
   padding: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: #557997 transparent;
 }
+
+.dashboard::-webkit-scrollbar { width: 10px; }
+.dashboard::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 8px; background: #557997; background-clip: padding-box; }
+.dashboard::-webkit-scrollbar-thumb:hover { background: #76a7cb; background-clip: padding-box; }
+.dashboard::-webkit-scrollbar-track { background: transparent; }
 
 .header {
   display: flex;
@@ -57,9 +64,10 @@
 }
 .tabActive { color: var(--dsw-accent); border-bottom-color: var(--dsw-accent); }
 
+/* 右栏侧边栏宽度有限:卡片自适应列数(窄栏单列,宽栏双列)。 */
 .grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: 10px;
 }
 

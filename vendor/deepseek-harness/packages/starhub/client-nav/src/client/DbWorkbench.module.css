@@ -49,11 +49,20 @@
 .content { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; color: #9ab4cb; font-size: 13px; padding: 20px; }
 
 .contentGrid { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; gap: 10px; padding: 0 10px 10px; }
-.contentHeader { display: flex; min-height: 42px; align-items: stretch; gap: 3px; margin: 0 -10px; padding: 0 12px; border-bottom: 1px solid #294562; background: #142236; }
-.contentTab, .contentTabActive { border: 0; border-bottom: 2px solid transparent; padding: 0 12px; background: transparent; color: #a1bad1; cursor: pointer; font-size: 12px; }
+.contentHeader { display: flex; min-height: 42px; align-items: center; gap: 8px; margin: 0 -10px; padding: 0 12px; border-bottom: 1px solid #294562; background: #142236; }
+.contentTitle { color: #a7dbff; font-size: 12px; font-weight: 700; }
+.contentTab, .contentTabActive { border: 0; border-bottom: 2px solid transparent; padding: 0 12px; background: transparent; color: #a1bad1; cursor: pointer; font-size: 12px; align-self: stretch; }
 .contentTab:hover { background: #203c59; color: #e8f7ff; }
 .contentTabActive { border-bottom-color: #68bfff; background: #193b59; color: #a7dbff; font-weight: 700; }
-.contentDetail { align-self: center; margin-left: 8px; color: #9ab4cb; font-size: 11px; }
+.contentDetail { margin-left: 4px; color: #9ab4cb; font-size: 11px; }
+.monitorActive { border-color: #456f94; background: #243e5a; color: #a7dbff; }
+
+/* 监控右栏:固定宽度侧边栏,独立纵向滚动(深色滚动条)。 */
+.monitor { width: 340px; min-width: 280px; max-width: 420px; overflow: hidden; display: flex; flex-direction: column; border-left: 1px solid #294562; background: #101d2e; }
+.monitor > * { flex: 1; min-height: 0; }
+
+.dbSelect { height: 26px; border: 1px solid #365775; border-radius: 5px; background: #0c1621; color: #e8f7ff; font: inherit; font-size: 12px; padding: 0 6px; max-width: 180px; }
+.dbSelect:focus { border-color: #68bfff; outline: none; }
 
 .sqlPane { display: flex; flex-direction: column; gap: 5px; flex: none; max-height: 280px; min-height: 140px; }
 .sqlBar { display: flex; min-height: 34px; align-items: center; gap: 7px; padding: 0 2px; }
@@ -65,15 +74,20 @@
 .sqlBarBtnActive { color: var(--dsw-accent); border-color: var(--dsw-accent); background: var(--dsw-accent-soft); }
 .historyPanel { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); padding: 6px; max-height: 140px; }
 .historyHeader { display: flex; align-items: center; gap: 8px; }
-.historyList { display: flex; flex-direction: column; gap: 2px; overflow: auto; }
+.historyList { display: flex; flex-direction: column; gap: 2px; overflow: auto; scrollbar-width: thin; scrollbar-color: #557997 transparent; }
 .historyItem { display: flex; align-items: center; gap: 8px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); font-size: 11px; text-align: left; padding: 4px 8px; cursor: pointer; }
 .historyItem:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .historySql { font-family: 'JetBrains Mono', Consolas, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sqlLabel { font-weight: 600; color: var(--dsw-alias-label-primary); font-size: 12px; }
 
-.sqlResult { display: flex; flex-direction: column; gap: 4px; flex: none; max-height: 200px; overflow: auto; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }
-.sqlResultBar { padding: 4px 10px; color: var(--dsw-alias-label-secondary); font-size: 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
-.sqlTableWrap { overflow: auto; }
+/* SQL 执行结果填充底部数据栏(flex:1);内部表格区双向滚动,深色滚动条。 */
+.sqlResult { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }
+.sqlResultBar { display: flex; align-items: center; gap: 8px; padding: 4px 10px; color: var(--dsw-alias-label-secondary); font-size: 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+.sqlTableWrap { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #557997 transparent; }
+.sqlTableWrap::-webkit-scrollbar { width: 10px; height: 10px; }
+.sqlTableWrap::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 8px; background: #557997; background-clip: padding-box; }
+.sqlTableWrap::-webkit-scrollbar-thumb:hover { background: #76a7cb; background-clip: padding-box; }
+.sqlTableWrap::-webkit-scrollbar-track, .sqlTableWrap::-webkit-scrollbar-corner { background: transparent; }
 .sqlTable { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
 .sqlTable th, .sqlTable td { border: 1px solid var(--dsw-alias-border-l1); padding: 2px 8px; white-space: nowrap; color: var(--dsw-alias-label-primary); }
 .sqlTable th { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-weight: 600; }
@@ -84,7 +98,7 @@
 .ddlBackdrop { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: 40px; background: var(--dsw-alias-bg-mask-3); }
 .ddlPanel { display: flex; flex-direction: column; width: min(760px, 90vw); max-height: 80vh; border: 1px solid var(--dsw-alias-border-l3); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); overflow: hidden; }
 .ddlHeader { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
-.ddlBody { flex: 1; min-height: 0; overflow: auto; padding: 14px; margin: 0; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 12px; color: var(--dsw-alias-label-primary); white-space: pre-wrap; word-break: break-all; }
+.ddlBody { flex: 1; min-height: 0; overflow: auto; padding: 14px; margin: 0; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 12px; color: var(--dsw-alias-label-primary); white-space: pre-wrap; word-break: break-all; scrollbar-width: thin; scrollbar-color: #557997 transparent; }
 
 .placeholder { text-align: center; line-height: 1.7; }
 

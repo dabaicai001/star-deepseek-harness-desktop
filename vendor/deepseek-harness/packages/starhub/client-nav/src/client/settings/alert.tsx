@@ -162,7 +162,6 @@ export function AlertTab() {
     <div className={s.panel}>
       <div className={s.section}>
         <div className={s.sectionHeader}>
-          <span className={s.sectionNumber}>01</span>
           <span className={s.sectionTitle}>告警规则</span>
           <span className={s.spacer} />
           <button

@@ -169,16 +169,17 @@ describe('pure helpers', () => {
     expect(decodeExecOutput('!!not-base64!!')).toBe('!!not-base64!!')
   })
 
-  it('toDockerConnectParams maps socket and tcp configs', () => {
-    expect(toDockerConnectParams({ dockerTransport: 'socket', socketPath: '/run/custom.sock' }))
-      .toEqual({ transport: 'socket', socketPath: '/run/custom.sock' })
-    expect(toDockerConnectParams({ dockerTransport: 'tcp', remoteHost: 'tcp://10.0.0.9:2375' }))
-      .toEqual({ transport: 'tcp', host: 'tcp://10.0.0.9:2375' })
+  // toDockerConnectParams 是 async(ssh 传输分支要查资产/主机密钥),socket/tcp 分支同步可 await。
+  it('toDockerConnectParams maps socket and tcp configs', async () => {
+    await expect(toDockerConnectParams({ dockerTransport: 'socket', socketPath: '/run/custom.sock' }))
+      .resolves.toEqual({ transport: 'socket', socketPath: '/run/custom.sock' })
+    await expect(toDockerConnectParams({ dockerTransport: 'tcp', remoteHost: 'tcp://10.0.0.9:2375' }))
+      .resolves.toEqual({ transport: 'tcp', host: 'tcp://10.0.0.9:2375' })
     // tcp 但 remoteHost 缺省/非字符串 → host 空串(触发 workbench 配置不完整提示)
-    expect(toDockerConnectParams({ dockerTransport: 'tcp' } as Record<string, unknown>))
-      .toEqual({ transport: 'tcp', host: '' })
+    await expect(toDockerConnectParams({ dockerTransport: 'tcp' } as Record<string, unknown>))
+      .resolves.toEqual({ transport: 'tcp', host: '' })
     // 缺省退化为 socket + 默认路径
-    expect(toDockerConnectParams({} as Record<string, unknown>)).toEqual({ transport: 'socket', socketPath: '/var/run/docker.sock' })
+    await expect(toDockerConnectParams({} as Record<string, unknown>)).resolves.toEqual({ transport: 'socket', socketPath: '/var/run/docker.sock' })
   })
 
   it('countContainers derives dashboard counts by state', () => {

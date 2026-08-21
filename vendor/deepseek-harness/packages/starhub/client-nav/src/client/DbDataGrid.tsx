@@ -104,8 +104,8 @@ export function downloadTextFile(filename: string, content: string, mime = 'text
  * @returns the data grid (toolbar + virtual rows + pager).
  */
 export function DbDataGrid({
-  connId, table, database, onExport,
-}: { connId: string; table: string; database?: string; onExport?: (orderBy: string | null, orderDir: 'asc' | 'desc') => void }) {
+  connId, table, database, cmdPrefix = 'db_mysql', onExport,
+}: { connId: string; table: string; database?: string; cmdPrefix?: 'db_mysql' | 'db_clickhouse'; onExport?: (orderBy: string | null, orderDir: 'asc' | 'desc') => void }) {
   const [result, setResult] = useState<QueryResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -115,6 +115,8 @@ export function DbDataGrid({
   const [orderDir, setOrderDir] = useState<'asc' | 'desc'>('asc')
   const [scrollTop, setScrollTop] = useState(0)
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  // 表头横向滚动跟随 tbody(thead 自身 overflow:hidden,不占滚动条)。
+  const theadRef = useRef<HTMLDivElement | null>(null)
   // 列筛选(服务端):列名 → 筛选文本;空串/缺省表示不过滤。
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({})
   // 列筛选弹层:当前列名 / 输入 / 锚点行底坐标(相对视口,弹层 fixed)。
@@ -123,6 +125,10 @@ export function DbDataGrid({
   const [filterPos, setFilterPos] = useState({ top: 0, left: 0 })
   // 主键列(list_columns 的 key==='PRI'),用于构造 UPDATE WHERE。
   const [pkCols, setPkCols] = useState<string[]>([])
+  // 表总行数(get_row_count,仅在无列筛选时作为分页基数;有筛选时用结果里的
+  // 过滤后 totalRows)。sidecar 各适配器只在带 WHERE 时才回传 totalRows,
+  // 否则恒 0 → 分页恒 1/1,所以无筛选时单独取一次 COUNT。
+  const [baseCount, setBaseCount] = useState<number | null>(null)
   // 单元格编辑:dirty 集 key `${rowIdx}::${colName}` → {col, originalValue, newValue}。
   const [dirty, setDirty] = useState<Map<string, { col: string; originalValue: unknown; newValue: unknown }>>(new Map())
   // 正在编辑的单元格(rowIdx, colIdx)与输入文本。
@@ -132,10 +138,17 @@ export function DbDataGrid({
   const [saving, setSaving] = useState(false)
   const menu = useContextMenu()
 
-  const totalRows = result?.totalRows ?? 0
+  const totalRows = Object.values(columnFilters).some((v) => v !== '')
+    ? (result?.totalRows ?? 0)
+    : (baseCount ?? result?.totalRows ?? 0)
   const pageCount = Math.max(1, Math.ceil(totalRows / pageSize))
   const columns = result?.columns ?? []
   const rows = result?.rows ?? []
+
+  // 总数收缩(加筛选 / 删行)导致当前页越界时回退到末页。
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
 
   const load = useCallback(async (offset: number, size: number, sortCol: string | null, dir: 'asc' | 'desc', filters: Record<string, string>) => {
     setLoading(true)
@@ -149,7 +162,7 @@ export function DbDataGrid({
       }
       const activeFilters = Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== ''))
       if (Object.keys(activeFilters).length > 0) args.columnFilters = activeFilters
-      const res = await tauriInvoke<QueryResult>('db_mysql_get_table_data', args)
+      const res = await tauriInvoke<QueryResult>(`${cmdPrefix}_get_table_data`, args)
       if (res.error !== undefined && res.error !== '') {
         setError(res.error)
       } else {
@@ -161,7 +174,7 @@ export function DbDataGrid({
     } finally {
       setLoading(false)
     }
-  }, [connId, table, database])
+  }, [connId, table, database, cmdPrefix])
 
   // 表 / 页大小 / 页 / 排序 / 列筛选变化 → 重新拉服务端数据。
   useEffect(() => {
@@ -172,7 +185,7 @@ export function DbDataGrid({
   useEffect(() => {
     let cancelled = false
     setPkCols([])
-    void tauriInvoke<Array<Record<string, unknown>>>('db_mysql_list_columns', {
+    void tauriInvoke<Array<Record<string, unknown>>>(`${cmdPrefix}_list_columns`, {
       connId, table, ...(database !== undefined && database !== '' ? { database } : {}),
     })
       .then((cols) => {
@@ -186,7 +199,22 @@ export function DbDataGrid({
       })
       .catch(() => { /* 主键获取失败不阻塞浏览 */ })
     return () => { cancelled = true }
-  }, [connId, table, database])
+  }, [connId, table, database, cmdPrefix])
+
+  // 无筛选分页基数:表切换时取一次全表 COUNT(失败静默,退回结果自带 totalRows)。
+  useEffect(() => {
+    let cancelled = false
+    setBaseCount(null)
+    void tauriInvoke<number>(`${cmdPrefix}_get_row_count`, {
+      connId, table, ...(database !== undefined && database !== '' ? { database } : {}),
+    })
+      .then((n) => {
+        /* v8 ignore next -- 防御:表切换卸载竞态,取消后丢弃过期响应 */
+        if (!cancelled && typeof n === 'number' && Number.isFinite(n)) setBaseCount(n)
+      })
+      .catch(() => { /* 行数获取失败不阻塞浏览 */ })
+    return () => { cancelled = true }
+  }, [connId, table, database, cmdPrefix])
 
   const toggleSort = (col: QueryColumn): void => {
     if (orderBy === col.name) {
@@ -338,7 +366,7 @@ export function DbDataGrid({
         for (const c of changes) sets[c.col] = c.newValue
         const args: Record<string, unknown> = { connId, table, sets, where: pkWhere }
         if (database !== undefined && database !== '') args.database = database
-        const res = await tauriInvoke<{ rowsAffected?: number; error?: string }>('db_mysql_update_rows', args)
+        const res = await tauriInvoke<{ rowsAffected?: number; error?: string }>(`${cmdPrefix}_update_rows`, args)
         if (res.error !== undefined && res.error !== '') {
           setError(res.error)
           failed = true
@@ -360,7 +388,7 @@ export function DbDataGrid({
     } finally {
       setSaving(false)
     }
-  }, [dirty, rows, pkCols, columns, connId, table, database, page, pageSize, orderBy, orderDir, columnFilters, load])
+  }, [dirty, rows, pkCols, columns, connId, table, database, cmdPrefix, page, pageSize, orderBy, orderDir, columnFilters, load])
 
   // Ctrl/Cmd+S 全局保存(与 Vue 对齐);编辑输入中先提交再保存。
   useEffect(() => {
@@ -415,37 +443,44 @@ export function DbDataGrid({
       </div>
       {error !== null && <div className={css.error}>{error}</div>}
       <div className={css.grid} role="grid" aria-label={`表 ${table} 数据`}>
-        <div className={css.thead} role="row">
-          <div className={css.th} style={{ width: 60 }}>#</div>
-          {columns.map((col) => (
-            <div key={col.name} className={css.th} style={{ width: 160 }} role="columnheader">
-              <button
-                type="button"
-                className={css.thSort}
-                onClick={() => toggleSort(col)}
-                title={col.type ?? ''}
-              >
-                <span className={css.thLabel}>{col.name}</span>
-                {orderBy === col.name && <span className={css.sortMark}>{orderDir === 'asc' ? '▲' : '▼'}</span>}
-              </button>
-              <button
-                type="button"
-                className={`${css.filterBtn} ${(columnFilters[col.name] ?? '') !== '' ? css.filterActive : ''}`}
-                onClick={(e) => openFilter(e, col.name)}
-                title="列筛选"
-                aria-label={`筛选 ${col.name}`}
-              >
-                ⌄
-              </button>
-            </div>
-          ))}
+        <div className={css.thead} ref={theadRef} role="row">
+          <div className={css.theadRow}>
+            <div className={css.th} style={{ width: 60 }}>#</div>
+            {columns.map((col) => (
+              <div key={col.name} className={css.th} style={{ width: 160 }} role="columnheader">
+                <button
+                  type="button"
+                  className={css.thSort}
+                  onClick={() => toggleSort(col)}
+                  title={col.type ?? ''}
+                >
+                  <span className={css.thLabel}>{col.name}</span>
+                  {orderBy === col.name && <span className={css.sortMark}>{orderDir === 'asc' ? '▲' : '▼'}</span>}
+                </button>
+                <button
+                  type="button"
+                  className={`${css.filterBtn} ${(columnFilters[col.name] ?? '') !== '' ? css.filterActive : ''}`}
+                  onClick={(e) => openFilter(e, col.name)}
+                  title="列筛选"
+                  aria-label={`筛选 ${col.name}`}
+                >
+                  ⌄
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
         <div
           ref={viewportRef}
           className={css.tbody}
           role="rowgroup"
           style={{ height: Math.min(rows.length * ROW_HEIGHT, 480) }}
-          onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
+          onScroll={(e) => {
+            const el = e.target as HTMLDivElement
+            setScrollTop(el.scrollTop)
+            // 表头横向跟随表体滚动(thead overflow:hidden,JS 同步 scrollLeft)。
+            if (theadRef.current !== null) theadRef.current.scrollLeft = el.scrollLeft
+          }}
         >
           <div style={{ height: visibleStart * ROW_HEIGHT }} />
           {visibleRows.map((row, rowIndex) => {

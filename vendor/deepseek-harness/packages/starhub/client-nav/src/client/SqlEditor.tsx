@@ -3,9 +3,9 @@
  *
  * 对齐 Vue SqlEditor 的能力集:
  * - 语法高亮:@codemirror/lang-sql(MySQL / PostgreSQL 方言,Redis 无方言)。
- * - 补全:列名补全(WHERE/AND/OR/ON/SET/BY/,/( 后),表. 前缀交给 lang-sql 的
- *   schema 补全;schema 由父组件传入 `columnsByTable`(与 Vue 的 sqlCompletionSchema
- *   同构,DbWorkbench 负责从 SQL 提取表名→listColumns 惰性缓存)。
+ * - 补全:关键字补全走 lang-sql `keywordCompletionSource`;表名/列名走自定义
+ *   source(支持「表.列」前缀),schema 由父组件传入 `columnsByTable`(与 Vue 的
+ *   sqlCompletionSchema 同构),经 ref 惰性读取,树展开后新表立即参与补全。
  * - 快捷键:Mod-Enter 执行、Shift-Mod-e EXPLAIN、indentWithTab。
  * - 只读/可写、内容受控(受控 value + onChange)。
  *
@@ -19,8 +19,8 @@ import { useEffect, useRef } from 'react'
 import { EditorState, type Extension } from '@codemirror/state'
 import { EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { sql, MySQL, PostgreSQL } from '@codemirror/lang-sql'
-import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
+import { MSSQL, MySQL, PostgreSQL, SQLite, keywordCompletionSource, type SQLDialect } from '@codemirror/lang-sql'
+import { autocompletion, completionKeymap, type CompletionSource } from '@codemirror/autocomplete'
 import css from './SqlEditor.module.css'
 
 /** 表 → 列名映射(补全 schema;与 Vue 端 sqlCompletionSchema 同构)。 */
@@ -43,24 +43,50 @@ export interface SqlEditorProps {
   placeholder?: string
 }
 
-/** 列补全 source:在列名语境(非「表.」前缀)回填 schema 全表列名;`表.` 前缀交给
- * lang-sql 的 schema 补全——与 Vue 端 columnCompletionSource(Vue SqlEditor.vue:195)
- * 同语义。schema 缺失时不补全。 */
-function columnCompletion(schema: SqlCompletionSchema | undefined): (context: CompletionContext) => CompletionResult | null {
+/** 方言 key → lang-sql 方言对象(补全/高亮共用)。 */
+function dialectOf(dialect: SqlDialect): SQLDialect {
+  switch (dialect) {
+    case 'postgresql': return PostgreSQL
+    case 'sqlite': return SQLite
+    case 'mssql': return MSSQL
+    default: return MySQL
+  }
+}
+
+/** 表/列补全 source:每次补全触发时经 getSchema 读最新 schema(编辑器 extensions
+ * 只建一次,schema 随树展开异步增长,必须走引用而非快照)。
+ * - 「表.」前缀:补该表列名;
+ * - 其余语境:补全表名 + 全部列名。schema 缺失时不补全。
+ * 导出供单测直接驱动(CompletionContext)。 */
+export function tableCompletion(getSchema: () => SqlCompletionSchema | undefined): CompletionSource {
   return (context) => {
+    const schema = getSchema()
     if (schema === undefined) return null
-    const before = context.matchBefore(/[\w$.-]*/)
+    // 「表.」前缀:只补该表的列(from 定位到 . 之后)。
+    const dot = context.matchBefore(/([\w$]+)\.([\w$-]*)$/)
+    if (dot !== null) {
+      const table = dot.text.slice(0, dot.text.indexOf('.'))
+      const cols = schema[table] ?? schema[Object.keys(schema).find((t) => t.toLowerCase() === table.toLowerCase()) ?? '']
+      if (cols === undefined || cols.length === 0) return null
+      const prefix = dot.text.slice(dot.text.indexOf('.') + 1).toLowerCase()
+      const options = cols
+        .filter((c) => c.toLowerCase().includes(prefix))
+        .map((c) => ({ label: c, type: 'property' }))
+      if (options.length === 0) return null
+      return { from: dot.from + table.length + 1, options, validFor: /^[\w$-]*$/ }
+    }
+    const before = context.matchBefore(/[\w$-]*/)
     if (before === null) return null
-    // 「表.」前缀交给 lang-sql,不在这里重复补全。
-    if (/\.\s*$/.test(before.text)) return null
+    if (before.from === before.to && !context.explicit) return null
     const word = before.text.toLowerCase()
     const allColumns = new Set<string>()
     for (const cols of Object.values(schema)) for (const c of cols) allColumns.add(c)
-    const options = [...allColumns]
-      .filter((c) => c.toLowerCase().includes(word))
-      .map((c) => ({ label: c, type: 'property' }))
+    const options = [
+      ...Object.keys(schema).map((t) => ({ label: t, type: 'class' })),
+      ...[...allColumns].map((c) => ({ label: c, type: 'property' })),
+    ].filter((o) => o.label.toLowerCase().includes(word))
     if (options.length === 0) return null
-    return { from: before.from, options, validFor: /^[\w$.-]*$/ }
+    return { from: before.from, options, validFor: /^[\w$-]*$/ }
   }
 }
 
@@ -68,13 +94,15 @@ function columnCompletion(schema: SqlCompletionSchema | undefined): (context: Co
 function buildExtensions(opts: {
   value: string
   onChange: (v: string) => void
-  schema?: SqlCompletionSchema
+  /** 惰性取最新补全 schema(表树异步展开,schema 持续增长)。 */
+  getSchema: () => SqlCompletionSchema | undefined
   dialect?: SqlDialect
   onExecute?: (sql: string, explain: boolean) => void
   placeholder?: string
   viewRef: { current: EditorView | null }
 }): Extension[] {
-  const language = opts.dialect === 'postgresql' ? PostgreSQL : opts.dialect === 'mysql' ? MySQL : sql()
+  const dialect = dialectOf(opts.dialect ?? 'mysql')
+  const language = dialect
   const executeKeymap = opts.onExecute === undefined ? [] : [
     { key: 'Mod-Enter', run: () => { opts.onExecute!(viewValue(opts.viewRef), false); return true } },
     { key: 'Shift-Mod-e', run: () => { opts.onExecute!(viewValue(opts.viewRef), true); return true } },
@@ -82,8 +110,12 @@ function buildExtensions(opts: {
   return [
     language,
     history(),
-    autocompletion({ override: [columnCompletion(opts.schema)] }),
-    keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab, ...executeKeymap]),
+    // 关键字(lang-sql)+ 表/列(自定义,读最新 schema);override 不能省,
+    // 否则缺 schema 配置时 lang-sql 默认 source 也不会给出关键字补全。
+    autocompletion({
+      override: [keywordCompletionSource(dialect, true), tableCompletion(opts.getSchema)],
+    }),
+    keymap.of([...defaultKeymap, ...historyKeymap, ...completionKeymap, indentWithTab, ...executeKeymap]),
     EditorView.lineWrapping,
     cmPlaceholder(opts.placeholder ?? '输入 SQL,Mod-Enter 执行'),
     EditorView.updateListener.of((update) => {
@@ -106,6 +138,9 @@ function viewValue(ref: { current: EditorView | null }): string {
 export function SqlEditor({ value, onChange, schema, dialect = 'mysql', onExecute, placeholder }: SqlEditorProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
+  // 补全 schema 走 ref:extensions 只建一次,树展开后新表/列也要能补全。
+  const schemaRef = useRef(schema)
+  schemaRef.current = schema
 
   // 建一次 view(严格模式双跑由 dispose 抵消)。
   useEffect(() => {
@@ -116,7 +151,7 @@ export function SqlEditor({ value, onChange, schema, dialect = 'mysql', onExecut
         doc: value,
         extensions: buildExtensions({
           value, onChange, dialect, viewRef,
-          ...(schema !== undefined ? { schema } : {}),
+          getSchema: () => schemaRef.current,
           ...(onExecute !== undefined ? { onExecute } : {}),
           ...(placeholder !== undefined ? { placeholder } : {}),
         }),

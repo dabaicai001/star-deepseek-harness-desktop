@@ -105,7 +105,6 @@ export function AuditTab() {
     <div className={s.panel}>
       <div className={s.section}>
         <div className={s.sectionHeader}>
-          <span className={s.sectionNumber}>01</span>
           <span className={s.sectionTitle}>操作历史</span>
         </div>
         <div className={s.toolbar}>
@@ -175,7 +174,6 @@ export function AuditTab() {
       {auditStats.length > 0 && (
         <div className={s.section}>
           <div className={s.sectionHeader}>
-            <span className={s.sectionNumber}>02</span>
             <span className={s.sectionTitle}>统计</span>
           </div>
           <div className={s.statsGrid}>

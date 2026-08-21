@@ -13,7 +13,10 @@
 
 .grid { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 
-.thead { display: flex; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); flex: none; }
+/* 表头与表体同宽(max-content),横向滚动由 tbody 驱动、thead 经 JS scrollLeft 同步。 */
+.thead { display: flex; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); flex: none; overflow-x: hidden; scrollbar-width: none; }
+.thead::-webkit-scrollbar { display: none; }
+.theadRow { display: flex; width: max-content; min-width: 100%; }
 .th { display: flex; align-items: center; gap: 2px; flex: none; padding: 0 4px; height: 28px; border: 0; background: transparent; box-sizing: border-box; border-right: 1px solid var(--dsw-alias-border-l1); }
 .thSort { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; text-align: left; cursor: pointer; overflow: hidden; padding: 0; }
 .thSort:hover { color: var(--dsw-alias-label-primary); }
@@ -24,8 +27,12 @@
 .filterBtn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-accent); }
 .filterActive { color: var(--dsw-accent); }
 
-.tbody { flex: 1; overflow: auto; position: relative; }
-.tr { display: flex; box-sizing: border-box; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.tbody { flex: 1; overflow: auto; position: relative; scrollbar-width: thin; scrollbar-color: #557997 transparent; }
+.tbody::-webkit-scrollbar { width: 10px; height: 10px; }
+.tbody::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 8px; background: #557997; background-clip: padding-box; }
+.tbody::-webkit-scrollbar-thumb:hover { background: #76a7cb; background-clip: padding-box; }
+.tbody::-webkit-scrollbar-track, .tbody::-webkit-scrollbar-corner { background: transparent; }
+.tr { display: flex; box-sizing: border-box; border-bottom: 1px solid var(--dsw-alias-border-l1); width: max-content; min-width: 100%; }
 .td { flex: none; padding: 0 8px; line-height: 28px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; border-right: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-label-primary); font-variant-numeric: tabular-nums; cursor: default; }
 .td.null { color: var(--dsw-alias-label-tertiary); font-style: italic; }
 .td.num { font-family: 'JetBrains Mono', Consolas, monospace; text-align: right; }

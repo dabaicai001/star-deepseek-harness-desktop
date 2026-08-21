@@ -15,7 +15,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
-  IconDownloadOutline16, IconEditOutline16, IconFolderOpenOutline16, IconLinkOutline16,
+  IconDownloadOutline16, IconFolderOpenOutline16, IconLinkOutline16,
   IconPlusOutline16, IconRefreshOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { tauriInvoke, tauriListen, type TauriUnlisten } from '../tauri.ts'
@@ -391,7 +391,6 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
             </div>
             <div className={`${css.toolGroup} ${css.toolsEnd}`}>
               <button type="button" className={`${css.tbBtn} ${followTerminal ? css.active : ''}`} title={followTerminal ? '已跟随终端路径' : '跟随终端路径'} aria-label="跟随终端路径" disabled={!sshConnected} onClick={toggleFollow}><IconLinkOutline16 size={15} /></button>
-              <button type="button" className={css.tbBtn} title="编辑路径" aria-label="编辑路径" onClick={() => { setPathInput(path); setPathEditing(true) }}><IconEditOutline16 size={15} /></button>
               <button type="button" className={css.tbBtn} title="传输任务" aria-label="传输任务" onClick={() => setShowTransfers(v => !v)}><IconFolderOpenOutline16 size={15} /></button>
             </div>
           </div>
@@ -414,9 +413,18 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
               />
             </div>
           ) : (
-            <div className={css.breadcrumb} onDoubleClick={() => { setPathInput(path); setPathEditing(true) }}>
+            <div className={css.breadcrumb} title="点击当前路径段可编辑路径" onClick={() => { setPathInput(path); setPathEditing(true) }}>
               {path === '/' ? <span className={css.crumb}>/</span> : pathSegments.map((seg, i) => (
-                <span key={i} className={css.crumb} onClick={() => void loadDir('/' + pathSegments.slice(0, i + 1).join('/'))}>
+                <span
+                  key={i}
+                  className={css.crumb}
+                  title={i === pathSegments.length - 1 ? '点击编辑路径' : `进入 /${pathSegments.slice(0, i + 1).join('/')}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (i === pathSegments.length - 1) { setPathInput(path); setPathEditing(true) }
+                    else void loadDir('/' + pathSegments.slice(0, i + 1).join('/'))
+                  }}
+                >
                   / {seg}
                 </span>
               ))}
@@ -474,7 +482,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
       {/* context menu */}
       {menu !== null && (
         <div className={css.menuBackdrop} onMouseDown={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null) }}>
-          <div className={css.contextMenu} style={{ left: menu.x, top: menu.y }}>
+          <div className={css.contextMenu} style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
             {menu.entry !== null && menu.entry.isDir && (
               <button type="button" className={css.menuItem} onClick={() => { const e = menu.entry; setMenu(null); if (e) navigateTo(e) }}>打开</button>
             )}

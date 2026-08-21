@@ -35,7 +35,7 @@ describe('parseWindowParams', () => {
 describe('workbenchForRouteName', () => {
   it('maps every supported route to a workbench kind', () => {
     expect(workbenchForRouteName('ssh-terminal')).toBe('ssh')
-    expect(workbenchForRouteName('db-broker')).toBe('ssh')
+    expect(workbenchForRouteName('db-broker')).toBe('broker')
     expect(workbenchForRouteName('db-mysql')).toBe('db-mysql')
     expect(workbenchForRouteName('db-postgresql')).toBe('db-postgresql')
     expect(workbenchForRouteName('db-clickhouse')).toBe('db-clickhouse')
@@ -52,7 +52,7 @@ describe('workbenchForRouteName', () => {
 
 describe('isWindowWorkbench', () => {
   it('accepts all kinds and rejects junk/null', () => {
-    for (const k of ['ssh', 'db-mysql', 'db-postgresql', 'db-clickhouse', 'db-redis', 'db-elasticsearch', 'docker']) {
+    for (const k of ['ssh', 'db-mysql', 'db-postgresql', 'db-clickhouse', 'db-redis', 'db-elasticsearch', 'broker', 'docker']) {
       expect(isWindowWorkbench(k)).toBe(true)
     }
     expect(isWindowWorkbench('nope')).toBe(false)
@@ -78,6 +78,8 @@ describe('workbenchForAsset', () => {
     expect(workbenchForAsset(asset('db', 'mysql'))).toBe('db-mysql')
     expect(workbenchForAsset(asset('db', 'redis'))).toBe('db-redis')
     expect(workbenchForAsset(asset('db', 'elasticsearch'))).toBe('db-elasticsearch')
+    expect(workbenchForAsset(asset('db', 'kafka'))).toBe('broker')
+    expect(workbenchForAsset(asset('db', 'nsq'))).toBe('broker')
   })
 
   it('returns null for assets without a React workbench', () => {

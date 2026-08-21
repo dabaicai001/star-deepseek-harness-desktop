@@ -72,8 +72,8 @@ describe('RedisWorkbench connect & list', () => {
       await waitFor(() => expect(invoke).toHaveBeenCalledWith('db_redis_connect', { params: { host: 'h', port: 6379, db: 0, ssl: false, password: 'secret' } }))
       await waitFor(() => expect(invoke).toHaveBeenCalledWith('db_redis_scan', expect.objectContaining({ connId: 'c1' })))
       await waitFor(() => expect(screen.getByText('已连接')).toBeTruthy())
-      expect(screen.getByText('user:1')).toBeTruthy()
-      expect(screen.getByText('sess:2')).toBeTruthy()
+      expect(screen.getByTitle('user:1')).toBeTruthy()
+      expect(screen.getByTitle('sess:2')).toBeTruthy()
       // keyCount from db_size
       expect(screen.getByText(/2 keys/)).toBeTruthy()
       expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('0')
@@ -190,10 +190,33 @@ describe('RedisWorkbench actions', () => {
     const restore = stubInvoke(invoke)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       const before = invoke.mock.calls.filter((c) => c[0] === 'db_redis_scan').length
       fireEvent.click(screen.getByLabelText('刷新'))
       await waitFor(() => expect(invoke.mock.calls.filter((c) => c[0] === 'db_redis_scan').length).toBeGreaterThan(before))
+    } finally {
+      restore()
+    }
+  })
+
+  it('groups keys into a folder tree by ":" and collapses folders on click', async () => {
+    const invoke = installTauri()
+    const restore = stubInvoke(invoke)
+    try {
+      renderWorkbench()
+      // 默认全展开:文件夹行(user / sess)+ 叶子(末段名)都在。
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
+      expect(screen.getByLabelText('文件夹 user')).toBeTruthy()
+      expect(screen.getByLabelText('文件夹 sess')).toBeTruthy()
+      expect((screen.getByLabelText('文件夹 user') as HTMLButtonElement).getAttribute('aria-expanded')).toBe('true')
+      // 折叠 user 文件夹 → 其叶子隐藏;sess 分支不受影响。
+      fireEvent.click(screen.getByLabelText('文件夹 user'))
+      await waitFor(() => expect(screen.queryByTitle('user:1')).toBeNull())
+      expect(screen.getByTitle('sess:2')).toBeTruthy()
+      expect((screen.getByLabelText('文件夹 user') as HTMLButtonElement).getAttribute('aria-expanded')).toBe('false')
+      // 再点展开 → 叶子恢复。
+      fireEvent.click(screen.getByLabelText('文件夹 user'))
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
     } finally {
       restore()
     }
@@ -205,7 +228,7 @@ describe('RedisWorkbench actions', () => {
     try {
       renderWorkbench()
       await waitFor(() => expect(screen.getByText('选择一个 key 查看 / 编辑')).toBeTruthy())
-      fireEvent.click(screen.getByText('user:1'))
+      fireEvent.click(screen.getByTitle('user:1'))
       // RedisValueEditor 通过 openRef 立即打开该 key → get_value
       await waitFor(() => expect(invoke).toHaveBeenCalledWith('db_redis_get_value', { connId: 'c1', key: 'user:1' }))
       expect(screen.queryByText('选择一个 key 查看 / 编辑')).toBeNull()
@@ -220,9 +243,9 @@ describe('RedisWorkbench actions', () => {
     const restore = stubInvoke(invoke)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       // 先打开值编辑器
-      fireEvent.click(screen.getByText('user:1'))
+      fireEvent.click(screen.getByTitle('user:1'))
       await waitFor(() => expect(invoke).toHaveBeenCalledWith('db_redis_get_value', expect.anything()))
       // 取消删除 → 不调用
       fireEvent.click(screen.getByLabelText('删除 user:1'))
@@ -245,7 +268,7 @@ describe('RedisWorkbench actions', () => {
     const restore = stubInvoke(invoke)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       fireEvent.click(screen.getByLabelText('删除 user:1'))
       await waitFor(() => expect(screen.getByText(/删除失败:del-boom/)).toBeTruthy())
     } finally {
@@ -259,7 +282,7 @@ describe('RedisWorkbench actions', () => {
     const restore = stubInvoke(invoke)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       fireEvent.click(screen.getByRole('button', { name: '重命名 user:1' }))
       await waitFor(() => expect(screen.getByLabelText('新 key 名')).toBeTruthy())
       // 空名确认 → 关闭 renameBar,不调用
@@ -283,7 +306,7 @@ describe('RedisWorkbench actions', () => {
     const restoreErr = stubInvoke(invokeErr)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       fireEvent.click(screen.getByRole('button', { name: '重命名 user:1' }))
       await waitFor(() => expect(screen.getByLabelText('新 key 名')).toBeTruthy())
       fireEvent.change(screen.getByLabelText('新 key 名'), { target: { value: 'n' } })
@@ -300,7 +323,7 @@ describe('RedisWorkbench actions', () => {
     const restore = stubInvoke(invoke)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       fireEvent.click(screen.getByRole('button', { name: '清空 DB' }))
       expect(invoke).not.toHaveBeenCalledWith('db_redis_flush_db', expect.anything())
       confirmSpy.mockReturnValue(true)
@@ -318,7 +341,7 @@ describe('RedisWorkbench actions', () => {
     const restoreErr = stubInvoke(invokeErr)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       fireEvent.click(screen.getByRole('button', { name: '清空 DB' }))
       await waitFor(() => expect(screen.getByText(/清空 DB 失败:fl-boom/)).toBeTruthy())
     } finally {
@@ -334,7 +357,7 @@ describe('RedisWorkbench CLI & new key', () => {
     const restore = stubInvoke(invoke)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       fireEvent.click(screen.getByRole('button', { name: 'CLI' }))
       const input = screen.getByLabelText('命令输入')
       // 空命令 Enter → 早退
@@ -375,7 +398,7 @@ describe('RedisWorkbench CLI & new key', () => {
     const restoreErr = stubInvoke(invokeErr)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       fireEvent.click(screen.getByRole('button', { name: 'CLI' }))
       const input2 = screen.getByLabelText('命令输入')
       fireEvent.change(input2, { target: { value: 'GET k' } })
@@ -391,7 +414,7 @@ describe('RedisWorkbench CLI & new key', () => {
     const restore = stubInvoke(invoke)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       // 空 key → 创建按钮禁用
       fireEvent.click(screen.getByRole('button', { name: '新建 Key' }))
       await waitFor(() => expect(screen.getByLabelText('key 名')).toBeTruthy())
@@ -419,7 +442,7 @@ describe('RedisWorkbench CLI & new key', () => {
     const restore = stubInvoke(invoke)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       fireEvent.click(screen.getByRole('button', { name: '新建 Key' }))
       await waitFor(() => expect(screen.getByLabelText('key 名')).toBeTruthy())
       fireEvent.click(screen.getByText('创建'))
@@ -433,7 +456,7 @@ describe('RedisWorkbench CLI & new key', () => {
     const restoreErr = stubInvoke(invokeErr)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       fireEvent.click(screen.getByRole('button', { name: '新建 Key' }))
       await waitFor(() => expect(screen.getByLabelText('key 名')).toBeTruthy())
       fireEvent.change(screen.getByLabelText('key 名'), { target: { value: 'k' } })
@@ -450,7 +473,7 @@ describe('RedisWorkbench CLI & new key', () => {
     const onClose = vi.fn()
     try {
       renderWorkbench(asset, onClose)
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       fireEvent.click(screen.getByText('关闭'))
       expect(onClose).toHaveBeenCalled()
     } finally {
@@ -492,7 +515,7 @@ describe('RedisWorkbench failure variants & CLI output', () => {
     const restore = stubInvoke(invoke)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       // switchDb 非 Error
       fireEvent.change(screen.getByRole('combobox'), { target: { value: '4' } })
       await waitFor(() => expect(screen.getByText(/切换 DB 失败:plain-sel/)).toBeTruthy())
@@ -595,7 +618,7 @@ describe('RedisWorkbench failure variants & CLI output', () => {
     const restore = stubInvoke(invoke)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       fireEvent.click(screen.getByRole('button', { name: '重命名 user:1' }))
       await waitFor(() => expect(screen.getByLabelText('新 key 名')).toBeTruthy())
       fireEvent.click(screen.getByText('取消'))
@@ -622,9 +645,9 @@ describe('RedisWorkbench failure variants & CLI output', () => {
     const restore = stubInvoke(invoke)
     try {
       renderWorkbench()
-      await waitFor(() => expect(screen.getByText('user:1')).toBeTruthy())
+      await waitFor(() => expect(screen.getByTitle('user:1')).toBeTruthy())
       // 打开 user:1 的值编辑器
-      fireEvent.click(screen.getByText('user:1'))
+      fireEvent.click(screen.getByTitle('user:1'))
       await waitFor(() => expect(invoke).toHaveBeenCalledWith('db_redis_get_value', expect.anything()))
       // 删除不同的 key(sess:2)→ openValue(user:1) 保留下 (cur?.key !== key → cur)
       fireEvent.click(screen.getByLabelText('删除 sess:2'))

@@ -23,10 +23,14 @@ import { tauriInvoke } from './tauri.ts'
 import { DbDataGrid } from './DbDataGrid.tsx'
 import { SqlEditor, type SqlCompletionSchema } from './SqlEditor.tsx'
 import { ContextMenu, useContextMenu } from './ContextMenu.tsx'
-import { IconCloseOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconChartOutline16, IconCloseOutline16, IconCodeOutline16, IconInspectOutline12,
+  IconPlayOutline16, IconRefreshOutline14,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import { NewTableDialog, ColumnListDialog, IndexListDialog } from './DbTableDialogs.tsx'
 import { DbDashboard } from './dashboard/DbDashboard.tsx'
+import { MetricIcon } from './dashboard/metric-icons.tsx'
 import type { CreateTableDbType } from './ddlGenerator.ts'
 import { isTauriRuntime } from './settings/services.ts'
 import { formatSql, splitStatements } from './sqlFormat.ts'
@@ -183,6 +187,9 @@ type TreeNode =
 /** 当前选中的表(带其父库,给 get_table_data 的 database 参数)。 */
 interface SelectedTable { table: string; database?: string }
 
+/** 左侧树记忆持久化形态(localStorage JSON)。 */
+interface TreeMemory { expanded?: string[]; selected?: SelectedTable | null; currentDb?: string; monitor?: boolean }
+
 /** DB 类型 → connect 命令名(与 Vue services/db.ts 对齐;各型有独立 connect)。 */
 function connectCommand(dbType: string): string {
   switch (dbType) {
@@ -264,12 +271,22 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
   // 最新 connId(供 list_tables 与卸载 cleanup 断连;效应闭包拿不到最新异步态)。
   const connRef = useRef<string | null>(null)
   const [connected, setConnected] = useState(false)
-  const setConn = useCallback((id: string) => { connRef.current = id; setConnected(true) }, [])
-  // 右栏 tab:sql(编辑器 + 数据网格) / dashboard(DB 监控指标)。
-  const [rightTab, setRightTab] = useState<'sql' | 'dashboard'>('sql')
+  // 渲染态 connId(connRef 变更不触发重渲染,监控面板/数据网格需要 props 随连接更新)。
+  const [connId, setConnId] = useState('')
+  const setConn = useCallback((id: string) => { connRef.current = id; setConnId(id); setConnected(true) }, [])
+  // 监控右栏开关(MySQL / PG / Redis 有 Dashboard;默认关闭,选择持久化进树记忆)。
+  const monitorSupported = ['mysql', 'postgresql', 'redis'].includes(typeof asset.config.dbType === 'string' ? asset.config.dbType : 'mysql')
+  const [showMonitor, setShowMonitor] = useState(false)
+  // 执行 SQL 的当前库:默认取资产配置的 database,点表/手选后跟随;参与持久化记忆。
+  const [currentDb, setCurrentDb] = useState<string>(() =>
+    typeof asset.config.database === 'string' ? asset.config.database : '')
 
   // DB 实体类型来自资产 config.dbType(sections.ts 同样判定);决定方言与表操作可用性。
   const dbType = typeof asset.config.dbType === 'string' ? asset.config.dbType : 'mysql'
+  // 命令前缀:MySQL / PG / SQLite / MSSQL 共用 db_mysql_*(sidecar 按 connId 内嵌类型
+  // 分派 pgx/sqlite 等);ClickHouse 走独立 db_clickhouse_* 命令面(否则报
+  // "is not relational SQL")。
+  const cmdPrefix = dbType === 'clickhouse' ? 'db_clickhouse' : 'db_mysql'
   const dialect: CreateTableDbType = dbType === 'postgresql' ? 'postgresql' : dbType === 'clickhouse' ? 'clickhouse' : 'mysql'
   // 改列/索引为 MySQL 方言语法(与 Vue 端一致),仅 MySQL 显示这两项。
   const supportsAlter = dbType === 'mysql'
@@ -280,8 +297,8 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     setDbsLoading(true)
     setConnectError(null)
     try {
-      // db_mysql_list_databases 直接返回库名字符串数组(非 [{name}] 对象行)。
-      const names = await tauriInvoke<string[]>('db_mysql_list_databases', { connId: id })
+      // list_databases 直接返回库名字符串数组(非 [{name}] 对象行)。
+      const names = await tauriInvoke<string[]>(`${cmdPrefix}_list_databases`, { connId: id })
       setDbs((names ?? []).map((name) => ({ kind: 'database', name, expanded: false, tables: [], loading: false })))
     } catch (e) {
       setConnectError(e instanceof Error ? e.message : String(e))
@@ -338,6 +355,24 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
       || node.tables.some((table) => table.toLocaleLowerCase().includes(normalizedTreeSearch))
     ))
 
+  /** 展开库并懒加载表列表(expanded 立即置位,供树记忆持久化即时可见)。 */
+  const expandDb = useCallback(async (name: string) => {
+    const id = connRef.current
+    setDbs((prev) => prev.map((d) => (d.kind === 'database' && d.name === name ? { ...d, expanded: true, loading: true } : d)))
+    if (id === null) return
+    try {
+      const rows = await tauriInvoke<DbObjectRow[]>(`${cmdPrefix}_list_tables`, { connId: id, database: name })
+      setDbs((prev) => prev.map((d) => (
+        d.kind === 'database' && d.name === name
+          ? { ...d, loading: false, tables: (rows ?? []).map((r) => r.name) }
+          : d
+      )))
+    } catch (e) {
+      setDbs((prev) => prev.map((d) => (d.kind === 'database' && d.name === name ? { ...d, loading: false } : d)))
+      setConnectError(e instanceof Error ? e.message : String(e))
+    }
+  }, [cmdPrefix])
+
   const toggleDb = useCallback(async (node: TreeNode) => {
     if (node.kind !== 'database') return
     if (node.expanded) {
@@ -345,24 +380,41 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
       return
     }
     if (node.tables.length === 0 && !node.loading) {
-      setDbs((prev) => prev.map((d) => (d.kind === 'database' && d.name === node.name ? { ...d, loading: true } : d)))
-      const id = connRef.current
-      try {
-        if (id === null) return
-        const rows = await tauriInvoke<DbObjectRow[]>('db_mysql_list_tables', { connId: id, database: node.name })
-        setDbs((prev) => prev.map((d) => (
-          d.kind === 'database' && d.name === node.name
-            ? { ...d, expanded: true, loading: false, tables: (rows ?? []).map((r) => r.name) }
-            : d
-        )))
-      } catch (e) {
-        setDbs((prev) => prev.map((d) => (d.kind === 'database' && d.name === node.name ? { ...d, loading: false } : d)))
-        setConnectError(e instanceof Error ? e.message : String(e))
-      }
+      await expandDb(node.name)
       return
     }
     setDbs((prev) => prev.map((d) => (d.kind === 'database' && d.name === node.name ? { ...d, expanded: true } : d)))
-  }, [])
+  }, [expandDb])
+
+  // ---- 左侧树记忆(localStorage,按资产隔离):展开库 / 选中表 / 当前库 ----
+  const treeStoreKey = `starhub.db.workbench.${asset.id}`
+  const restoredRef = useRef(false)
+  useEffect(() => {
+    if (restoredRef.current || dbs.length === 0) return
+    restoredRef.current = true
+    let saved: TreeMemory | null = null
+    try {
+      const raw = localStorage.getItem(treeStoreKey)
+      saved = raw === null ? null : JSON.parse(raw) as TreeMemory
+    } catch { saved = null }
+    if (saved === null) return
+    if (typeof saved.currentDb === 'string' && saved.currentDb !== '') setCurrentDb(saved.currentDb)
+    if (typeof saved.monitor === 'boolean') setShowMonitor(saved.monitor)
+    if (saved.selected !== null && saved.selected !== undefined && typeof saved.selected.table === 'string') {
+      setSelected(saved.selected)
+    }
+    // 默认展开上次展开的库;选中表所在库即使不在 expanded 里也一并展开。
+    const selectedDb = typeof saved.selected?.database === 'string' && saved.selected.database !== '' ? [saved.selected.database] : []
+    for (const name of new Set([...(saved.expanded ?? []), ...selectedDb])) void expandDb(name)
+  }, [dbs, treeStoreKey, expandDb])
+
+  useEffect(() => {
+    if (!restoredRef.current) return
+    const expanded = dbs.filter((d) => d.kind === 'database' && d.expanded).map((d) => d.name)
+    try {
+      localStorage.setItem(treeStoreKey, JSON.stringify({ expanded, selected, currentDb, monitor: showMonitor }))
+    } catch { /* 存储不可用(隐私模式等)时静默降级 */ }
+  }, [dbs, selected, currentDb, showMonitor, treeStoreKey])
 
   // SQL 执行(Mod-Enter 执行 / Shift-Mod-e EXPLAIN):调 db_mysql_execute / explain。
   // 批次 5:多语句拆分——非 EXPLAIN 时按分号拆多条逐条执行,记录查询历史。
@@ -376,11 +428,13 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     setSqlLoading(true)
     setSqlError(null)
     try {
-      const cmd = explain ? 'db_mysql_explain' : 'db_mysql_execute'
+      const cmd = explain ? `${cmdPrefix}_explain` : `${cmdPrefix}_execute`
       const statements = explain ? [statement] : splitStatements(statement)
+      // 带上当前库:未选库时靠连接默认库;选择器/点表会更新 currentDb。
+      const dbArg = currentDb !== '' ? { database: currentDb } : {}
       let last: SqlQueryResult | null = null
       for (const stmt of statements) {
-        const res = await tauriInvoke<SqlQueryResult>(cmd, { connId: id, sql: stmt })
+        const res = await tauriInvoke<SqlQueryResult>(cmd, { connId: id, sql: stmt, ...dbArg })
         last = res
         if (res.error !== undefined && res.error !== '') {
           setSqlError(res.error)
@@ -389,13 +443,13 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
       }
       if (last !== null) setSqlResult(last)
       // 执行过的原文记入历史(与 Vue 一致:即使出错也记录尝试)。
-      addHistory(statement, selected?.database ?? '')
+      addHistory(statement, currentDb)
     } catch (e) {
       setSqlError(e instanceof Error ? e.message : String(e))
     } finally {
       setSqlLoading(false)
     }
-  }, [selected?.database])
+  }, [currentDb, cmdPrefix])
 
   /** 查询历史弹层:打开时刷新条目;再次点击关闭。 */
   const toggleHistory = (): void => {
@@ -426,14 +480,14 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     if (id === null) return
     setDdl({ table, content: '', loading: true })
     try {
-      const res = await tauriInvoke<{ ddl?: string }>('db_mysql_get_table_ddl', {
+      const res = await tauriInvoke<{ ddl?: string }>(`${cmdPrefix}_get_table_ddl`, {
         connId: id, table, ...(database !== undefined ? { database } : {}),
       })
       setDdl({ table, content: res.ddl ?? '(无 DDL)' })
     } catch (e) {
       setDdl({ table, content: `获取 DDL 失败: ${e instanceof Error ? e.message : String(e)}` })
     }
-  }, [])
+  }, [cmdPrefix])
 
   /** 删除表(危险,需二次确认;成功从树里移除,若正选中则清选中)。 */
   const dropTable = useCallback(async (table: string, database?: string) => {
@@ -441,7 +495,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     const id = connRef.current
     if (id === null) return
     try {
-      await tauriInvoke('db_mysql_drop_table', { connId: id, table, ...(database !== undefined ? { database } : {}) })
+      await tauriInvoke(`${cmdPrefix}_drop_table`, { connId: id, table, ...(database !== undefined ? { database } : {}) })
       setDbs((prev) => prev.map((d) => {
         if (d.kind !== 'database' || !d.tables.includes(table)) return d
         return { ...d, tables: d.tables.filter((t) => t !== table) }
@@ -450,7 +504,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     } catch (e) {
       setConnectError(`删除失败: ${e instanceof Error ? e.message : String(e)}`)
     }
-  }, [selected])
+  }, [selected, cmdPrefix])
 
   /** 清空表(危险,需二次确认;成功后提示,不清选中)。 */
   const truncateTable = useCallback(async (table: string, database?: string) => {
@@ -458,11 +512,11 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     const id = connRef.current
     if (id === null) return
     try {
-      await tauriInvoke('db_mysql_truncate_table', { connId: id, table, ...(database !== undefined ? { database } : {}) })
+      await tauriInvoke(`${cmdPrefix}_truncate_table`, { connId: id, table, ...(database !== undefined ? { database } : {}) })
     } catch (e) {
       setConnectError(`清空失败: ${e instanceof Error ? e.message : String(e)}`)
     }
-  }, [])
+  }, [cmdPrefix])
 
   /** 刷新某个库的表列表(库右键 → 刷新表列表)。 */
   const refreshDbTables = useCallback(async (database: string) => {
@@ -470,7 +524,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     if (id === null) return
     setDbs((prev) => prev.map((d) => (d.kind === 'database' && d.name === database ? { ...d, loading: true, expanded: true } : d)))
     try {
-      const rows = await tauriInvoke<DbObjectRow[]>('db_mysql_list_tables', { connId: id, database })
+      const rows = await tauriInvoke<DbObjectRow[]>(`${cmdPrefix}_list_tables`, { connId: id, database })
       setDbs((prev) => prev.map((d) => (
         d.kind === 'database' && d.name === database
           ? { ...d, loading: false, tables: (rows ?? []).map((r) => r.name) }
@@ -480,7 +534,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
       setDbs((prev) => prev.map((d) => (d.kind === 'database' && d.name === database ? { ...d, loading: false } : d)))
       setConnectError(e instanceof Error ? e.message : String(e))
     }
-  }, [])
+  }, [cmdPrefix])
 
   /** 建表成功:把新表并入该库节点(若已展开)并清掉列缓存。 */
   const onTableCreated = useCallback((database: string, tableName: string) => {
@@ -547,14 +601,14 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
       if (db.kind !== 'database') continue
       for (const table of db.tables) {
         if (columnCache.has(table)) continue
-        void tauriInvoke<unknown>('db_mysql_list_columns', {
+        void tauriInvoke<unknown>(`${cmdPrefix}_list_columns`, {
           connId: id, table, ...(db.name !== undefined ? { database: db.name } : {}),
         })
           .then((cols) => { columnCache.set(table, extractColumnNames(cols)) })
           .catch(() => { /* 补全失败静默 */ })
       }
     }
-  }, [dbs])
+  }, [dbs, cmdPrefix])
 
   return (
     <div className={css.backdrop}>
@@ -615,7 +669,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
                             supportsAlter={supportsAlter}
                             selected={selected !== null && selected.table === t}
                             actions={{
-                              onSelect: () => setSelected({ table: t, database: node.name }),
+                              onSelect: () => { setSelected({ table: t, database: node.name }); setCurrentDb(node.name) },
                               onShowDdl: () => void showTableDdl(t, node.name),
                               onColumns: () => setDialog({ kind: 'columns', database: node.name, table: t }),
                               onIndexes: () => setDialog({ kind: 'indexes', database: node.name, table: t }),
@@ -632,91 +686,113 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
             </ul>
           </aside>
           <section className={css.contentGrid}>
-            <div className={css.contentHeader} role="tablist" aria-label="数据库工作区">
-              <button type="button" role="tab" aria-selected={rightTab === 'sql'} className={rightTab === 'sql' ? css.contentTabActive : css.contentTab} onClick={() => setRightTab('sql')}>SQL 编辑器</button>
-              <button type="button" role="tab" aria-selected={rightTab === 'dashboard'} className={rightTab === 'dashboard' ? css.contentTabActive : css.contentTab} onClick={() => setRightTab('dashboard')}>监控</button>
-              <span className={css.contentDetail}>{rightTab === 'sql' ? '执行查询、浏览数据和导出结果' : '查看当前连接的运行指标'}</span>
+            <div className={css.contentHeader}>
+              <span className={css.contentTitle}>SQL 编辑器</span>
+              <span className={css.contentDetail}>执行查询、浏览数据和导出结果</span>
+              <span className={css.spacer} />
+              {monitorSupported && (
+                <button
+                  type="button"
+                  className={`${css.iconButton} ${showMonitor ? css.monitorActive : ''}`}
+                  onClick={() => setShowMonitor((v) => !v)}
+                  title={showMonitor ? '收起监控面板' : '展开监控面板'}
+                  aria-label="监控面板"
+                  aria-pressed={showMonitor}
+                ><IconChartOutline16 size={15} /></button>
+              )}
             </div>
-            {rightTab === 'dashboard' ? (
+            {connected ? (
+              <div className={css.sqlPane}>
+                <div className={css.sqlBar}>
+                  <span className={css.sqlLabel}>SQL</span>
+                  <select
+                    className={css.dbSelect}
+                    value={currentDb}
+                    onChange={(event) => setCurrentDb(event.target.value)}
+                    title="执行 SQL 的当前数据库"
+                    aria-label="当前数据库"
+                  >
+                    <option value="">(未选库)</option>
+                    {dbs.map((d) => d.kind === 'database' && (
+                      <option key={d.name} value={d.name}>{d.name}</option>
+                    ))}
+                  </select>
+                  <span className={css.hint}>Mod-Enter 执行 · Shift-Mod-e EXPLAIN · Tab 缩进</span>
+                  {sqlLoading && <span className={css.hint}>执行中…</span>}
+                  <span className={css.spacer} />
+                  <button type="button" className={css.sqlRunBtn} onClick={() => executeSql(sql, false)} disabled={sqlLoading || sql.trim() === ''} title="执行 SQL (Mod-Enter)" aria-label="执行 SQL"><IconPlayOutline16 size={13} /></button>
+                  <button type="button" className={css.sqlBarBtn} onClick={() => executeSql(sql, true)} disabled={sqlLoading || sql.trim() === ''} title="执行 EXPLAIN (Shift-Mod-e)" aria-label="执行 EXPLAIN"><IconInspectOutline12 size={13} /></button>
+                  <button type="button" className={css.sqlBarBtn} onClick={formatCurrentSql} title="格式化 SQL" aria-label="格式化 SQL"><IconCodeOutline16 size={13} /></button>
+                  <button type="button" className={`${css.sqlBarBtn} ${historyOpen ? css.sqlBarBtnActive : ''}`} onClick={toggleHistory} title="查询历史" aria-label="查询历史"><MetricIcon name="clock" size={13} /></button>
+                </div>
+                {historyOpen && (
+                  <div className={css.historyPanel}>
+                    <div className={css.historyHeader}>
+                      <span className={css.hint}>查询历史</span>
+                      <span className={css.spacer} />
+                      <button type="button" className={css.sqlBarBtn} onClick={clearSqlHistory}>清除</button>
+                    </div>
+                    <div className={css.historyList}>
+                      {historyEntries.length === 0 ? (
+                        <div className={css.hint}>暂无历史</div>
+                      ) : (
+                        historyEntries.map((entry, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            className={css.historyItem}
+                            onClick={() => useHistoryEntry(entry)}
+                            title={`${entry.db !== '' ? `[${entry.db}] ` : ''}${entry.sql}`}
+                          >
+                            <span className={css.historySql}>{entry.sql}</span>
+                            <span className={css.hint}>{(new Date(entry.time)).toLocaleTimeString()}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+                <SqlEditor
+                  value={sql}
+                  onChange={setSql}
+                  dialect={dialect === 'postgresql' ? 'postgresql' : 'mysql'}
+                  onExecute={executeSql}
+                  schema={sqlSchema}
+                  placeholder="SELECT * FROM users WHERE …"
+                />
+                {sqlError !== null && <div className={css.error}>{sqlError}</div>}
+              </div>
+            ) : (
+              <div className={css.placeholder}>连接数据库后将在此显示 SQL 编辑器</div>
+            )}
+            {/* 数据栏:执行过 SQL 时展示查询结果(可关闭回到表数据),否则展示选中表。 */}
+            {sqlResult !== null && sqlError === null ? (
+              <SqlQueryResultView result={sqlResult} onClose={() => setSqlResult(null)} />
+            ) : selected === null ? (
+              <div className={css.placeholder}>选择左侧一个表查看数据(排序 / 分页 / NULL 高亮已就位)</div>
+            ) : (
+              <DbDataGrid
+                connId={connId}
+                table={selected.table}
+                cmdPrefix={cmdPrefix}
+                {...(selected.database !== undefined ? { database: selected.database } : {})}
+                onExport={(orderBy, orderDir) =>
+                  void exportTableExcel(selected.table, selected.database, orderBy, orderDir)}
+              />
+            )}
+            {exporting && <div className={css.exportMsg}>正在导出 Excel…</div>}
+            {exportError !== null && !exporting && <div className={css.error}>{exportError}</div>}
+          </section>
+          {monitorSupported && showMonitor && (
+            <aside className={css.monitor}>
               <DbDashboard
-                connId={connRef.current ?? ''}
+                connId={connId}
                 dbType={dbType}
                 connected={connected}
-                database={selected?.database}
+                database={currentDb !== '' ? currentDb : selected?.database}
               />
-            ) : (
-              <>
-                {connected ? (
-                  <div className={css.sqlPane}>
-                    <div className={css.sqlBar}>
-                      <span className={css.sqlLabel}>SQL</span>
-                      <span className={css.hint}>Mod-Enter 执行 · Shift-Mod-e EXPLAIN · Tab 缩进</span>
-                      {sqlLoading && <span className={css.hint}>执行中…</span>}
-                      <span className={css.spacer} />
-                      <button type="button" className={css.sqlRunBtn} onClick={() => executeSql(sql, false)} disabled={sqlLoading || sql.trim() === ''} title="执行 SQL (Mod-Enter)" aria-label="执行 SQL">▶</button>
-                      <button type="button" className={css.sqlBarBtn} onClick={() => executeSql(sql, true)} disabled={sqlLoading || sql.trim() === ''} title="执行 EXPLAIN (Shift-Mod-e)" aria-label="执行 EXPLAIN">⊢</button>
-                      <button type="button" className={css.sqlBarBtn} onClick={formatCurrentSql} title="格式化 SQL" aria-label="格式化 SQL">≡</button>
-                      <button type="button" className={`${css.sqlBarBtn} ${historyOpen ? css.sqlBarBtnActive : ''}`} onClick={toggleHistory} title="查询历史" aria-label="查询历史">◷</button>
-                    </div>
-                    {historyOpen && (
-                      <div className={css.historyPanel}>
-                        <div className={css.historyHeader}>
-                          <span className={css.hint}>查询历史</span>
-                          <span className={css.spacer} />
-                          <button type="button" className={css.sqlBarBtn} onClick={clearSqlHistory}>清除</button>
-                        </div>
-                        <div className={css.historyList}>
-                          {historyEntries.length === 0 ? (
-                            <div className={css.hint}>暂无历史</div>
-                          ) : (
-                            historyEntries.map((entry, idx) => (
-                              <button
-                                key={idx}
-                                type="button"
-                                className={css.historyItem}
-                                onClick={() => useHistoryEntry(entry)}
-                                title={`${entry.db !== '' ? `[${entry.db}] ` : ''}${entry.sql}`}
-                              >
-                                <span className={css.historySql}>{entry.sql}</span>
-                                <span className={css.hint}>{(new Date(entry.time)).toLocaleTimeString()}</span>
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    <SqlEditor
-                      value={sql}
-                      onChange={setSql}
-                      dialect={dialect === 'postgresql' ? 'postgresql' : 'mysql'}
-                      onExecute={executeSql}
-                      schema={sqlSchema}
-                      placeholder="SELECT * FROM users WHERE …"
-                    />
-                    {sqlError !== null && <div className={css.error}>{sqlError}</div>}
-                    {sqlResult !== null && sqlError === null && (
-                      <SqlQueryResultView result={sqlResult} connId={connRef.current ?? ''} />
-                    )}
-                  </div>
-                ) : (
-                  <div className={css.placeholder}>连接数据库后将在此显示 SQL 编辑器</div>
-                )}
-                {selected === null ? (
-                  <div className={css.placeholder}>选择左侧一个表查看数据(排序 / 分页 / NULL 高亮已就位)</div>
-                ) : (
-                  <DbDataGrid
-                    connId={connRef.current ?? ''}
-                    table={selected.table}
-                    {...(selected.database !== undefined ? { database: selected.database } : {})}
-                    onExport={(orderBy, orderDir) =>
-                      void exportTableExcel(selected.table, selected.database, orderBy, orderDir)}
-                  />
-                )}
-                {exporting && <div className={css.exportMsg}>正在导出 Excel…</div>}
-                {exportError !== null && !exporting && <div className={css.error}>{exportError}</div>}
-              </>
-            )}
-          </section>
+            </aside>
+          )}
         </div>
         {ddl !== null && (
           <div className={css.ddlBackdrop}>
@@ -732,7 +808,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
         )}
         {dialog !== null && dialog.kind === 'new-table' && (
           <NewTableDialog
-            connId={connRef.current ?? ''}
+            connId={connId}
             database={dialog.database}
             dialect={dialect}
             onClose={() => setDialog(null)}
@@ -741,7 +817,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
         )}
         {dialog !== null && dialog.kind === 'columns' && (
           <ColumnListDialog
-            connId={connRef.current ?? ''}
+            connId={connId}
             database={dialog.database}
             table={dialog.table}
             onClose={() => { setDialog(null); columnCache.delete(dialog.table) }}
@@ -749,7 +825,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
         )}
         {dialog !== null && dialog.kind === 'indexes' && (
           <IndexListDialog
-            connId={connRef.current ?? ''}
+            connId={connId}
             database={dialog.database}
             table={dialog.table}
             onClose={() => setDialog(null)}
@@ -765,11 +841,11 @@ export default DbWorkbench
 /** 顶部 SQL 区与底部表网格之间的样式名引用(sqlPane/sqlBar 等见 css)。 */
 
 /**
- * 渲染一次 SQL 执行的原始结果(execute 返回全量 QueryResult):一行渲染列头,
- * 数据行直接展示,NULL 灰显;rowCount 上限防爆。SQL 结果不走服务端分页
- * (execute 一次性返回),因此不做虚拟滚动。
+ * 渲染一次 SQL 执行的原始结果(execute 返回全量 QueryResult),填充底部数据栏:
+ * 一行渲染列头,数据行直接展示,NULL 灰显;rowCount 上限防爆。SQL 结果不走
+ * 服务端分页(execute 一次性返回),因此不做虚拟滚动。onClose 关闭后回到表数据。
  */
-function SqlQueryResultView({ result, connId: _connId }: { result: SqlQueryResult; connId: string }) {
+function SqlQueryResultView({ result, onClose }: { result: SqlQueryResult; onClose: () => void }) {
   const columns = Array.isArray(result.columns)
     ? (result.columns as Array<{ name?: string; type?: string; nullable?: boolean }>)
     : []
@@ -780,6 +856,8 @@ function SqlQueryResultView({ result, connId: _connId }: { result: SqlQueryResul
     <div className={css.sqlResult}>
       <div className={css.sqlResultBar}>
         <span>执行结果{columns.length > 0 ? ` · ${columns.length} 列` : ''}{rows.length > 0 ? ` · ${rows.length} 行` : ''}</span>
+        <span className={css.spacer} />
+        <button type="button" className={css.sqlBarBtn} onClick={onClose} title="关闭执行结果,回到表数据" aria-label="关闭执行结果">返回表数据</button>
       </div>
       {columns.length === 0 ? (
         <div className={css.hint}>完成{rows.length > 0 ? `,影响 ${rows.length} 行` : ''}</div>
