@@ -11,7 +11,8 @@
     "@deepseek-ai/dsh-starhub-approval-bridge": "workspace:*",
     "@deepseek-ai/dsh-starhub-session-registry": "workspace:*",
     "@deepseek-ai/dsh-starhub-domain-events": "workspace:*",
-    "@deepseek-ai/dsh-starhub-live-context": "workspace:*"
+    "@deepseek-ai/dsh-starhub-live-context": "workspace:*",
+    "@deepseek-ai/dsh-starhub-memory-context": "workspace:*"
   },
   "dsh": {
     "profile": {

@@ -568,7 +568,7 @@ async fn session_search(pool: &SqlitePool, args: &Value) -> Result<String, Strin
 }
 
 // ============================================================
-// memory:add / replace / remove(target user / global / asset)
+// memory:add / replace / remove(target user / global / asset / folder)
 // 写路径复用 commands::ai_memory;软错误原样透传为文本。
 // ============================================================
 
@@ -585,14 +585,16 @@ async fn memory(
             "[Error] 未知 action:「{action}」,只支持 add / replace / remove"
         ));
     }
-    if !["user", "global", "asset"].contains(&target) {
+    if !["user", "global", "asset", "folder"].contains(&target) {
         return Ok(format!(
-            "[Error] 未知 target:「{target}」,只支持 user / global / asset"
+            "[Error] 未知 target:「{target}」,只支持 user / global / asset / folder"
         ));
     }
 
     // asset 级:沿 subagent 父链解析会话绑定的资产(子代理继承父会话绑定,
     // 由 dsh_bind_session 写入);绑不到资产时提示用 # 绑定,与旧前端一致。
+    // folder 级:工作区文件夹独立记忆,scope = folder:<绝对路径>,路径由 dsh 侧
+    // 从会话 header.cwd 解析后经 args.folder 传入(Rust 不知道 web 会话的工作区)。
     let scope = if target == "asset" {
         let Some((_asset_type, asset_id)) = bridge.resolve_asset(session_id) else {
             return Ok(
@@ -600,6 +602,18 @@ async fn memory(
             );
         };
         format!("asset:{asset_id}")
+    } else if target == "folder" {
+        let folder = args
+            .get("folder")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        if folder.is_empty() {
+            return Ok(
+                "当前会话没有工作区文件夹,无法写入文件夹级记忆".to_string(),
+            );
+        }
+        format!("folder:{folder}")
     } else {
         target.to_string()
     };
@@ -1190,6 +1204,53 @@ mod tests {
             .await
             .expect("query scope 2");
         assert_eq!(rows[0].get::<String, _>("scope"), "asset:a1");
+    }
+
+    /// folder 级记忆:scope = folder:<args.folder 绝对路径>(dsh 侧从会话
+    /// header.cwd 解析传入);缺 folder 参数时返回提示不落库。
+    #[tokio::test]
+    async fn memory_folder_scope_uses_args_path() {
+        let pool = setup_pool().await;
+        let bridge = empty_bridge();
+        // 缺 folder:提示,不落库
+        let text = execute_tool(
+            &pool,
+            "memory",
+            &serde_json::json!({"action": "add", "target": "folder", "content": "构建走 npm run build:window"}),
+            "sess-1",
+            &bridge,
+        )
+        .await
+        .expect("missing folder");
+        assert!(text.contains("没有工作区文件夹"), "{text}");
+
+        // 带 folder:落 folder:<path> scope;replace/remove 同 scope
+        let text = execute_tool(
+            &pool,
+            "memory",
+            &serde_json::json!({"action": "add", "target": "folder", "folder": "E:\\ws\\starhub", "content": "构建走 npm run build:window"}),
+            "sess-1",
+            &bridge,
+        )
+        .await
+        .expect("add folder memory");
+        assert!(text.starts_with("已记住(folder):"), "{text}");
+        let rows = sqlx::query("SELECT scope FROM ai_memories WHERE content = '构建走 npm run build:window'")
+            .fetch_all(&pool)
+            .await
+            .expect("query folder scope");
+        assert_eq!(rows[0].get::<String, _>("scope"), "folder:E:\\ws\\starhub");
+
+        let text = execute_tool(
+            &pool,
+            "memory",
+            &serde_json::json!({"action": "remove", "target": "folder", "folder": "E:\\ws\\starhub", "old_text": "build:window"}),
+            "sess-1",
+            &bridge,
+        )
+        .await
+        .expect("remove folder memory");
+        assert!(text.starts_with("记忆已删除(folder):"), "{text}");
     }
 
     /// asset 级记忆:子代理会话沿 subagent 父链继承父会话的资产绑定。

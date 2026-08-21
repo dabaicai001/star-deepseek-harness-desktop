@@ -281,6 +281,7 @@
     { "path": "./packages/starhub/approval-bridge" },
     { "path": "./packages/starhub/host-static" },
     { "path": "./packages/starhub/tool-context" },
+    { "path": "./packages/starhub/memory-context" },
     { "path": "./packages/plan/plan-mode" },
     { "path": "./packages/preset/agent-presets" },
     { "path": "./packages/preset/persona" },

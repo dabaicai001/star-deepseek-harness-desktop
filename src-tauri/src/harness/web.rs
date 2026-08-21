@@ -43,8 +43,9 @@ const CLI_BIN_REL: &str = "apps/cli/lib/bin.js";
 /// 需要补 junction 的本地包(packages/starhub/ 下的目录名)。
 /// tool-context 自 v0.71 起被 examples/starhub-web/cordis.patch.yml 引用;
 /// 2026-08-18 起壳内会话可调 starhub 工具,starhub-tools / approval-bridge /
-/// session-registry / domain-events / live-context 一并入列。
-const LOCAL_PACKAGES: [&str; 8] = [
+/// session-registry / domain-events / live-context 一并入列;
+/// 2026-08-21 起 memory-context 入列(pre-step 长期记忆注入)。
+const LOCAL_PACKAGES: [&str; 9] = [
     "client-nav",
     "host-static",
     "tool-context",
@@ -53,6 +54,7 @@ const LOCAL_PACKAGES: [&str; 8] = [
     "session-registry",
     "domain-events",
     "live-context",
+    "memory-context",
 ];
 
 /// 由 `examples/starhub-web/cordis.patch.yml` 的 insert 块直接引用、但**不在**

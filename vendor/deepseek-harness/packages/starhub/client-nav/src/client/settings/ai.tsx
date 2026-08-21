@@ -8,30 +8,40 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { IconCloseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import {
   aiMemoryDelete, aiMemoryList, aiMemoryUpdate, isTauriRuntime, logAudit,
   type AiMemoryRow,
 } from './services.ts'
 import { loadAiSettings, saveAiSettings, type AiSettings } from './aiSettings.ts'
+import { syncMemoryEnabled } from './memory-context.ts'
 import s from './settings.module.css'
 
-/** 卡容量上限(与 Rust 侧一致:user/asset=1375,global=2200)。 */
+/** 卡容量上限(与 Rust 侧一致:user/asset=1375,global/folder=2200)。 */
 function memoryScopeLimit(scope: string): number {
-  return scope === 'global' ? 2200 : 1375
+  return scope === 'global' || scope.startsWith('folder:') ? 2200 : 1375
 }
 
-/** scope 展示文案(user/global/asset:{id})。 */
+/** scope 展示文案(user/global/folder:<工作区路径>/asset:{id})。 */
 function memoryScopeLabel(scope: string): string {
   if (scope === 'user') return 'USER — 用户画像'
   if (scope === 'global') return 'GLOBAL — 环境与经验'
+  if (scope.startsWith('folder:')) {
+    const path = scope.slice('folder:'.length)
+    const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? path
+    return `工作区 — ${name}(${path})`
+  }
   return `ASSET — ${scope.slice('asset:'.length)}`
 }
 
 /**
  * 渲染 AI 助手设置:记忆与上下文(即时生效)+ 记忆管理弹窗。
+ * @param props.api - 连接线的 settings RPC 面;「启用长期记忆」开关经它同步到
+ *   host 侧 memory-context 插件(namespace 未写过 = 开启)。浏览器预览下
+ *   可为空,此时开关只写 localStorage。
  * @returns AI tab 内容。
  */
-export function AiTab() {
+export function AiTab({ api }: { api?: IApiClient }) {
   const [aiSettings, setAiSettings] = useState<AiSettings>(loadAiSettings)
 
   // 记忆管理弹窗
@@ -48,6 +58,12 @@ export function AiTab() {
   useEffect(() => {
     saveAiSettings(aiSettings)
   }, [aiSettings])
+
+  // 「启用长期记忆」开关同步到 host 侧 memory-context 插件(挂载时补齐一次,
+  // 覆盖「上次关了但没开过设置页」的场景;旧运行时无该 namespace,失败静默)。
+  useEffect(() => {
+    if (api !== undefined) syncMemoryEnabled(api, aiSettings.memoryEnabled)
+  }, [api, aiSettings.memoryEnabled])
 
   /** 记忆/上下文字段:直接写 localStorage 即时持久化。 */
   const updateSettings = (patch: Partial<AiSettings>) => {

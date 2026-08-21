@@ -45,3 +45,9 @@
       name: '@deepseek-ai/dsh-starhub-domain-events'
     - id: starhub-live-context
       name: '@deepseek-ai/dsh-starhub-live-context'
+    # 长期记忆注入(2026-08-21):pre-step 经 sdk-transport 反向 pull
+    # `starhub/memory.cards`(user + global + 工作区文件夹 + 绑定资产),注入
+    # 每个 agent 请求;开关走 `starhub-memory-context` settings namespace
+    # (设置 → AI 助手「启用长期记忆」,client-nav 写入)。
+    - id: starhub-memory-context
+      name: '@deepseek-ai/dsh-starhub-memory-context'

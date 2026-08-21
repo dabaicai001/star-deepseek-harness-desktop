@@ -115,6 +115,7 @@ const WEB_STATIC_RELS = [
  * tool-context 自 v0.71 起被 examples/starhub-web/cordis.patch.yml 引用,
  * 2026-08-18 起壳内会话可调 starhub 工具,starhub-tools / approval-bridge /
  * session-registry / domain-events / live-context 一并入列,
+ * 2026-08-21 起 memory-context 入列(pre-step 长期记忆注入),
  * 不入包则 profile 启动时按 fail-loud 拒绝缺失插件。 */
 const WEB_LOCAL_PACKAGE_DIRS = [
   'client-nav',
@@ -125,6 +126,7 @@ const WEB_LOCAL_PACKAGE_DIRS = [
   'session-registry',
   'domain-events',
   'live-context',
+  'memory-context',
 ]
 
 class BuildCli {

@@ -611,17 +611,28 @@ export function apply(ctx: Context): void {
     description:
       '管理长期记忆(跨会话持久)。三个动作:add 新增条目;replace 用 old_text 唯一子串定位并替换条目;'
       + 'remove 用 old_text 唯一子串删除条目。target:user=用户偏好与习惯;global=跨资产的通用环境事实与经验;'
-      + 'asset=当前绑定资产的专属事实(如"这台是生产库,DDL 前必须备份")。记忆内容会在以后的会话开始时就出现在你的上下文里。'
+      + 'asset=当前绑定资产的专属事实(如"这台是生产库,DDL 前必须备份");'
+      + 'folder=当前工作区文件夹的专属事实(项目约定、构建方式、目录结构,按工作区独立)。'
+      + '记忆内容会在以后的会话开始时就出现在你的上下文里。'
       + '该存:用户偏好、环境事实(系统/端口/拓扑)、用户纠正、项目约定、已完成的重要工作;'
       + '不该存:琐碎信息、可重新查到的知识、原始数据(日志/大段代码)、会话临时状态、任何密码/密钥/令牌。',
     parameters: {
       action: { type: 'string', required: true, enum: ['add', 'replace', 'remove'] },
-      target: { type: 'string', required: true, enum: ['user', 'global', 'asset'] },
+      target: { type: 'string', required: true, enum: ['user', 'global', 'asset', 'folder'] },
       content: { type: 'string', description: 'add/replace 的新条目内容,信息密度要高,可多条事实合并成一条' },
       old_text: { type: 'string', description: 'replace/remove 用:能唯一定位目标条目的短子串' },
     },
     output: TEXT_OUTPUT,
     async execute(args, exec) {
+      // folder 目标:工作区文件夹独立记忆,scope 路径取会话 header.cwd
+      // (Rust 桥不知道 web 会话的工作区,由这里解析后经 args.folder 传入)。
+      if (args.target === 'folder') {
+        const cwd = exec.agent?.session.header.cwd
+        if (cwd === undefined) {
+          return { text: '当前会话没有工作区文件夹,无法写入文件夹级记忆' }
+        }
+        return callHost(getTransport(), exec, 'memory', { ...args, folder: cwd })
+      }
       return callHost(getTransport(), exec, 'memory', args)
     },
   }))

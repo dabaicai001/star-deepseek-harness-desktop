@@ -90,6 +90,13 @@
 - id: starhub-live-context
   name: '@deepseek-ai/dsh-starhub-live-context'
 
+# 长期记忆注入(2026-08-21):pre-step 经 sdk-transport 反向 pull
+# `starhub/memory.cards`(user + global + 工作区文件夹 + 绑定资产);开关走
+# `starhub-memory-context` settings namespace(与 web GUI 的设置 → AI 助手
+# 「启用长期记忆」共享同一份 settings.yaml)。
+- id: starhub-memory-context
+  name: '@deepseek-ai/dsh-starhub-memory-context'
+
 # 审批桥(Phase 2;2026-08-17 瘦身改名):消费共享 settings.yaml 的
 # permission preset(策略本体在 dsh 侧)+ starhub_* 工具风险门 +
 # approval/request 应答桥(前端确认卡)。

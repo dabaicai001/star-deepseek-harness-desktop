@@ -382,6 +382,8 @@ pub const MEMORY_LIMIT_USER: i64 = 1375;
 pub const MEMORY_LIMIT_ASSET: i64 = 1375;
 /// global 卡的字符上限
 pub const MEMORY_LIMIT_GLOBAL: i64 = 2200;
+/// folder:<工作区路径> 卡的字符上限(工作区文件夹独立记忆)
+pub const MEMORY_LIMIT_FOLDER: i64 = 2200;
 
 /// 条目间分隔符("\n§\n",3 字符)
 const MEMORY_SEPARATOR: &str = "\n§\n";
@@ -416,10 +418,12 @@ fn row_to_memory(row: &sqlx::sqlite::SqliteRow) -> Result<AiMemoryRow, sqlx::Err
     })
 }
 
-/// scope 对应字符上限:global 2200,user 与 asset:* 1375
+/// scope 对应字符上限:global 与 folder:* 2200,user 与 asset:* 1375
 fn memory_scope_limit(scope: &str) -> i64 {
     if scope == "global" {
         MEMORY_LIMIT_GLOBAL
+    } else if scope.starts_with("folder:") {
+        MEMORY_LIMIT_FOLDER
     } else if scope.starts_with("asset:") {
         MEMORY_LIMIT_ASSET
     } else {
@@ -485,7 +489,8 @@ async fn list_memories(
     rows.iter().map(row_to_memory).collect()
 }
 
-async fn build_memory_cards(
+/// (pub(crate):dsh 桥 harness::mod 的 memory.cards 方法复用)
+pub(crate) async fn build_memory_cards(
     pool: &SqlitePool,
     scopes: &[String],
 ) -> Result<Vec<AiMemoryCard>, sqlx::Error> {
