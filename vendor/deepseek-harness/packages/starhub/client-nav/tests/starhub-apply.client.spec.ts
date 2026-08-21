@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
- * client-nav 插件装配(apply)与 invariant 伴生注册:九个席位注册的槽名、
- * 组件、inject 面(选择桥 / 资产源 / 连接对话框桥)与侧栏点击的
- * 布局联动(切换子类 openDetails 不收起、重复点击同一子类 toggle),
- * 以及 invariant 伴生的包名注册。
+ * client-nav 插件装配(apply)与 invariant 伴生注册:十一个席位注册的槽名、
+ * 组件、inject 面(选择桥 / 资产源 / 连接对话框桥 / 文件查看窗 / git 分支
+ * 胶囊)与侧栏点击的布局联动(切换子类 openDetails 不收起、重复点击同一
+ * 子类 toggle),以及 invariant 伴生的包名注册。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
@@ -12,9 +12,10 @@ import { apply as applyPlugin, inject as injectList } from '../src/client/index.
 import { StarHubNav } from '../src/client/StarHubNav.tsx'
 import { StarHubOverlay } from '../src/client/StarHubOverlay.tsx'
 import { StarHubToolWorkspace } from '../src/client/StarHubToolWorkspace.tsx'
+import { GitBranchPill } from '../src/client/git/GitBranchPill.tsx'
+import { FileViewerOverlay } from '../src/client/file-viewer/FileViewerOverlay.tsx'
 import { STARHUB_ASSET_SOURCE } from '../src/client/asset-source.ts'
 import { AboutTab } from '../src/client/settings/about.tsx'
-import { AiTab } from '../src/client/settings/ai.tsx'
 import { AlertTab } from '../src/client/settings/alert.tsx'
 import { AuditTab } from '../src/client/settings/audit.tsx'
 import { PluginsTab } from '../src/client/settings/plugins.tsx'
@@ -59,15 +60,18 @@ function fakeContext() {
         return undefined
     }
   })
+  const provided: Record<string, unknown> = {}
+  const provide = vi.fn((name: string, value: unknown) => { provided[name] = value })
   const ctx = {
     slots: { inject, register },
     layout: { openDetails, closeDetails, toggleDetails },
     get,
     effect,
+    provide,
   } as unknown as Context
   return {
     ctx, register, inject, openDetails, closeDetails, toggleDetails, get,
-    registerSource, effects,
+    registerSource, effects, provide, provided,
   }
 }
 
@@ -76,17 +80,21 @@ describe('client-nav apply', () => {
     expect(() => applyHost()).not.toThrow()
   })
 
-  it('registers the nine slots with their components in order', () => {
+  it('registers the eleven slots with their components in order', () => {
     const { ctx, inject, register } = fakeContext()
     applyPlugin(ctx)
     expect(inject.mock.calls.map((c) => c[0])).toEqual([
-      'sidebar.navigation', 'shell.overlay', 'workspace', 'details.workspace',
+      'sidebar.navigation', 'shell.overlay', 'shell.overlay', 'workspace', 'details.workspace',
+      'conversation.session.header.actions',
       'settings.section', 'settings.section', 'settings.section', 'settings.section', 'settings.section',
     ])
     const components = register.mock.calls.map((c) => c[1])
     expect(components).toEqual([
-      StarHubNav, StarHubOverlay, StarHubToolWorkspace, StarHubToolWorkspace,
-      AiTab, PluginsTab, AuditTab, AlertTab, AboutTab,
+      StarHubNav, StarHubOverlay, FileViewerOverlay, StarHubToolWorkspace, StarHubToolWorkspace,
+      GitBranchPill,
+      // AiTab 经 () => createElement(AiTab, { api }) 包装(传入 settings RPC 面),
+      // 不再是裸引用,按函数断言。
+      expect.any(Function), PluginsTab, AuditTab, AlertTab, AboutTab,
     ])
   })
 
@@ -136,7 +144,7 @@ describe('client-nav apply', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
       applyPlugin(ctx)
-      const injected = register.mock.calls[2]![0]!.inject()
+      const injected = register.mock.calls[3]![0]!.inject()
       const overlay = register.mock.calls[1]![0]!.inject()
       // 壳内 overlay 不再承载 SSH/DB/Docker/Redis 工作台桥
       expect(overlay.hooks.sshTerminal).toBeUndefined()
@@ -162,7 +170,7 @@ describe('client-nav apply', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
       applyPlugin(ctx)
-      const injected = register.mock.calls[2]![0]!.inject()
+      const injected = register.mock.calls[3]![0]!.inject()
       const fullAsset = {
         id: 'a1', type: 'ssh', name: 'web-1', group_id: null, config: { host: '1.1.1.1' },
         key_id: null, tags: [], favorite: false, last_used_at: null, created_at: 0, updated_at: 0,
@@ -180,7 +188,7 @@ describe('client-nav apply', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
       applyPlugin(ctx)
-      const injected = register.mock.calls[2]![0]!.inject()
+      const injected = register.mock.calls[3]![0]!.inject()
       const dbAsset = {
         id: 'pg1', type: 'db', name: 'prod-db', group_id: null,
         config: { dbType: 'postgresql', host: 'h' },
@@ -201,7 +209,7 @@ describe('client-nav apply', () => {
     try {
       const { ctx, register } = fakeContext()
       applyPlugin(ctx)
-      const injected = register.mock.calls[2]![0]!.inject()
+      const injected = register.mock.calls[3]![0]!.inject()
       const esAsset = {
         id: 'es1', type: 'db', name: 'es-1', group_id: null,
         config: { dbType: 'elasticsearch', host: 'h' },
@@ -221,7 +229,7 @@ describe('client-nav apply', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
       applyPlugin(ctx)
-      const injected = register.mock.calls[2]![0]!.inject()
+      const injected = register.mock.calls[3]![0]!.inject()
       const dockerAsset = {
         id: 'd1', type: 'docker', name: 'docker-1', group_id: null,
         config: { dockerTransport: 'socket', socketPath: '/var/run/docker.sock' },
@@ -240,7 +248,7 @@ describe('client-nav apply', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {
       applyPlugin(ctx)
-      const injected = register.mock.calls[2]![0]!.inject()
+      const injected = register.mock.calls[3]![0]!.inject()
       const redisAsset = {
         id: 'r1', type: 'db', name: 'redis-1', group_id: null,
         config: { dbType: 'redis', host: 'h' },
@@ -261,7 +269,7 @@ describe('client-nav apply', () => {
     try {
       const { ctx, register } = fakeContext()
       applyPlugin(ctx)
-      const workspaceConfig = register.mock.calls[2]![0]!
+      const workspaceConfig = register.mock.calls[3]![0]!
       const asset = {
         id: 'a1', type: 'ssh', name: 'web-1', group_id: null,
         config: { host: 'h' },
@@ -278,7 +286,7 @@ describe('client-nav apply', () => {
   it('workspace inject wires the api face, bridge callbacks and asset holder', () => {
     const { ctx, register, get } = fakeContext()
     applyPlugin(ctx)
-    const workspaceConfig = register.mock.calls[2]![0]!
+    const workspaceConfig = register.mock.calls[3]![0]!
     const injected = workspaceConfig.inject()
     expect(get).toHaveBeenCalledWith('connection')
     expect(injected.api.settings.update).toBeTypeOf('function')
@@ -291,7 +299,7 @@ describe('client-nav apply', () => {
   it('workspace openAiAssistant opens the shell AI chat bridge without throwing', () => {
     const { ctx, register } = fakeContext()
     applyPlugin(ctx)
-    const injected = register.mock.calls[2]![0]!.inject()
+    const injected = register.mock.calls[3]![0]!.inject()
     // 打开 AI 聊天面板桥(set snapshot);不抛错即覆盖该注入箭头。
     expect(() => injected.openAiAssistant()).not.toThrow()
   })
@@ -299,7 +307,7 @@ describe('client-nav apply', () => {
   it('registers the five starhub settings sections under the starhub group at orders 30-34', () => {
     const { ctx, register } = fakeContext()
     applyPlugin(ctx)
-    const settingsConfigs = register.mock.calls.slice(4).map((c) => c[0])
+    const settingsConfigs = register.mock.calls.slice(6).map((c) => c[0])
     expect(settingsConfigs.map((c) => c.id)).toEqual([
       'starhub-ai', 'starhub-plugins', 'starhub-audit', 'starhub-alert', 'starhub-about',
     ])

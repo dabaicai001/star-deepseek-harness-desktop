@@ -367,11 +367,45 @@ export interface ChatNodeOwnerProps {
   /** Session workspace root; Tool summaries display paths relative to it. */
   cwd?: string | undefined
   openFile: (path: string) => void
+  /**
+   * Open a tool-arg file in the in-app viewer window (StarHub file-viewer
+   * service); falls back to `openFile` (host OS open) when the service is
+   * absent. `kind: 'edit'` carries the call's before/after hunks for the
+   * side-by-side view.
+   */
+  viewFile?: ((request: FileViewRequest) => void) | undefined
   inspectCall: (callId: CallId) => void
   forkAt: (seq: number) => void
   /** Resolve a session-authorized historical image for inline display. */
   loadImage: (attachment: ImageAttachmentRef) => Promise<string>
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+}
+
+/** One before/after hunk handed to the in-app file viewer (`edit` kind). */
+export interface FileViewDiff {
+  /** Text before the change (null oldText on a create is normalized away by callers). */
+  readonly oldText: string
+  /** Text after the change. */
+  readonly newText: string
+}
+
+/**
+ * In-app file-viewer request: `read` opens the file's current content;
+ * `edit` opens the call's before/after hunks side by side.
+ */
+export type FileViewRequest =
+  | { readonly kind: 'read'; readonly path: string }
+  | { readonly kind: 'edit'; readonly path: string; readonly diffs: readonly FileViewDiff[] }
+
+/**
+ * StarHub in-app file-viewer service face (`ctx.get('starhubFileViewer')`,
+ * provided by dsh-starhub-client-nav; undefined when that plugin is absent —
+ * e.g. plain dsh web). The session id rides along so the viewer can gate
+ * editing on the session's running state.
+ */
+export interface StarHubFileViewerFace {
+  /** Open the viewer window for one request. */
+  open(request: FileViewRequest & { readonly sessionId: string }): void
 }
 
 /** Full props of one registered keyed Chat business renderer. */
@@ -688,6 +722,11 @@ export interface ChatViewInjected {
    * (relative paths resolve against the session cwd).
    */
   openFile: (path: string) => void
+  /**
+   * Open a tool-arg file in the StarHub in-app viewer when that service is
+   * loaded; falls back to `openFile` otherwise (plain dsh web).
+   */
+  viewFile?: ((request: FileViewRequest) => void) | undefined
   loadOlder: () => void
   /** Resolve a session-authorized historical image for inline display. */
   loadImage: (attachment: ImageAttachmentRef) => Promise<string>

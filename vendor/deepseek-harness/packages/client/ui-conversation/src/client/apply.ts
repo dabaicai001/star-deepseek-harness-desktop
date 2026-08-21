@@ -14,7 +14,7 @@ import type { ViewTab } from './contract/views.ts'
 import type {
   ApprovalWait, ChatNodeTurnDataInjected, ChatScrollPosition, ChatViewInjected, ComposerBarInjected,
   ComposerChainProps, ConversationInjected, ConversationSessionHeaderInjected, ConversationSessionInjected,
-  DetailsInjected,
+  DetailsInjected, StarHubFileViewerFace,
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
 import { createChatStore } from './stores.ts'
@@ -398,6 +398,18 @@ export function apply(ctx: Context): void {
             // Host/OS open failures stay silent in the chat row; the native
             // app surfaces its own error dialog when the path is unusable.
           })
+        },
+        // 壳内文件查看窗(StarHub client-nav 提供 starhubFileViewer 服务;
+        // 未加载时退回 OS 默认打开)。服务在回调内惰性解析,插件晚于本视图
+        // 加载也能生效。
+        viewFile: (request) => {
+          const viewer = ctx.get('starhubFileViewer') as StarHubFileViewerFace | undefined
+          if (viewer === undefined) {
+            const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+            void workspaces.openPath(resolveWorkspacePath(cwd, request.path)).catch(() => {})
+            return
+          }
+          viewer.open({ ...request, sessionId: String(sessionId) })
         },
         loadOlder: () => { void scoped.loadOlder() },
         loadImage: attachment => conversation.resolveImage(sessionId, attachment),

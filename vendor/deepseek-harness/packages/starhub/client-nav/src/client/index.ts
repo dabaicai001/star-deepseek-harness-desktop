@@ -17,6 +17,7 @@
  * routePrefix),供工具上下文(AI 注入)同步使用。
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { createElement } from 'react'
 // Type-only: the SlotMap rows of the target slots must be in the program for
 // the register calls to type (declared by the slots' owning packages).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -37,16 +38,22 @@ import { createAskAiHandler, createOpenAssetHandler, subscribeHostEvents } from 
 import {
   createAiChatOverlay, createConnectionManagerOverlay, createStarHubAssets, createStarHubNavStore, createToolSelectionBridge,
 } from './store.ts'
+import { createFileViewerBridge } from './file-viewer/state.ts'
+import { FileViewerOverlay } from './file-viewer/FileViewerOverlay.tsx'
+import type { StarHubFileViewerFace } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { assetWindowUrl, type StarHubAsset } from './sections.ts'
 import { focusWindowByKey, openNewPage } from './tauri.ts'
 import { StarHubNav } from './StarHubNav.tsx'
 import { StarHubOverlay } from './StarHubOverlay.tsx'
+import { GitBranchPill } from './git/GitBranchPill.tsx'
 import { StarHubToolWorkspace } from './StarHubToolWorkspace.tsx'
 import { AboutTab } from './settings/about.tsx'
 import { AiTab } from './settings/ai.tsx'
 import { AlertTab } from './settings/alert.tsx'
 import { AuditTab } from './settings/audit.tsx'
 import { PluginsTab } from './settings/plugins.tsx'
+import { loadAiSettings } from './settings/aiSettings.ts'
+import { syncMemoryEnabled } from './settings/memory-context.ts'
 
 /**
  * Required services: the slot registry, the layout panel-action face, the
@@ -72,8 +79,17 @@ export function apply(ctx: Context): void {
   const selection = createToolSelectionBridge()
   const connectionManager = createConnectionManagerOverlay()
   const aiChat = createAiChatOverlay()
+  // 壳内文件查看窗(2026-08-21):viewFile 回调经 starhubFileViewer 服务写入,
+  // shell.overlay 席位渲染;服务面类型定义在 ui-conversation contract。
+  const fileViewer = createFileViewerBridge()
+  ctx.provide('starhubFileViewer', {
+    open: (target) => { fileViewer.open(target) },
+  } satisfies StarHubFileViewerFace)
   // 服务面:注入数组已声明依赖,读取必然非空;conversation 在预填时退化处理。
   const connection = ctx.get('connection') as ConnectionHandle
+  // 「启用长期记忆」初始同步:host 侧 memory-context 插件的 namespace 未写过
+  // 视为开启;若用户此前关过(localStorage false),启动时补写一次关闭态。
+  syncMemoryEnabled(connection.api, loadAiSettings().memoryEnabled)
   const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
@@ -140,6 +156,16 @@ export function apply(ctx: Context): void {
       },
     }),
   }, StarHubOverlay))
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: 'starhub-file-viewer',
+    order: 110,
+    label: 'StarHub FileViewer',
+    inject: () => ({
+      closeViewer: fileViewer.close,
+      hooks: { fileViewer: fileViewer.source },
+    }),
+  }, FileViewerOverlay))
   const workspaceInject = () => ({
     // The connection wire face for syncing the current tool context to
     // host settings (Path B plan 4.3).
@@ -167,6 +193,15 @@ export function apply(ctx: Context): void {
     () => inputTriggers.registerSource(createStarHubAssetSource({ api: connection.api, assets, selection })),
     'starhub: @ asset source',
   )
+  // 会话头部「git 分支胶囊」(2026-08-21):会话 cwd 下的分支展示 + 搜索/切换
+  // 分支 + commit/push;非 git 工作区与浏览器预览(无 Tauri IPC)不渲染。
+  // order 30:排在 ui-jobs 后台任务(20)之后、utilities 之前。
+  ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+    name: 'conversation.session.header.actions',
+    id: 'starhub-git-branch',
+    order: 30,
+    label: 'StarHub Git',
+  }, GitBranchPill))
   // 契约 §6.2-6.3:监听 Tauri 宿主事件(open-asset / ask-ai);订阅经
   // ctx.effect 注册,dispose 卸载监听(HMR 安全)。
   ctx.effect(() => subscribeHostEvents({
@@ -191,7 +226,7 @@ export function apply(ctx: Context): void {
   const starhubTabs: ReadonlyArray<{
     id: string; order: number; label: string; component: () => JSX.Element
   }> = [
-    { id: 'starhub-ai', order: 30, label: 'AI 助手', component: AiTab },
+    { id: 'starhub-ai', order: 30, label: 'AI 助手', component: () => createElement(AiTab, { api: connection.api }) },
     { id: 'starhub-plugins', order: 31, label: '插件', component: PluginsTab },
     { id: 'starhub-audit', order: 32, label: '审计日志', component: AuditTab },
     { id: 'starhub-alert', order: 33, label: '告警规则', component: AlertTab },
