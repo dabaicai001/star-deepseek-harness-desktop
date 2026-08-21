@@ -71,17 +71,29 @@ afterEach(() => {
 
 describe('DbWorkbench', () => {
   it.each([
-    ['postgresql', 5432],
-    ['clickhouse', 9000],
-    ['redis', 6379],
-    ['elasticsearch', 9200],
-  ])('uses the %s default port when an asset omits port', async (dbType, port) => {
+    ['postgresql', 'db_postgres_connect', 5432],
+    ['clickhouse', 'db_clickhouse_connect', 9000],
+    ['redis', 'db_redis_connect', 6379],
+    ['elasticsearch', 'db_es_connect', 9200],
+  ])('uses the %s default port when an asset omits port', async (dbType, command, port) => {
     const { invoke } = stubInvoke({})
     const asset: RustAsset = { ...dbAsset, config: { ...dbAsset.config, dbType, port: undefined } }
     render(<DbWorkbench asset={asset} onClose={vi.fn()} />)
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('db_mysql_connect', {
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(command, {
       params: { host: '10.0.0.1', port, username: 'root', password: 'pw' },
     }))
+  })
+
+  it.each([
+    ['postgresql', 'db_postgres_connect'],
+    ['clickhouse', 'db_clickhouse_connect'],
+    ['redis', 'db_redis_connect'],
+    ['elasticsearch', 'db_es_connect'],
+  ])('uses %s connection command for a %s asset', async (dbType, command) => {
+    const { invoke } = stubInvoke({})
+    const asset: RustAsset = { ...dbAsset, config: { ...dbAsset.config, dbType } }
+    render(<DbWorkbench asset={asset} onClose={vi.fn()} />)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(command, expect.any(Object)))
   })
 
   it('connects on mount, lists databases, and expands a database to tables', async () => {

@@ -321,6 +321,7 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
             </div>
           </div>
           <div className={css.headRight}>
+            <button type="button" className={css.iconButton} onClick={onClose} title="关闭" aria-label="关闭 SSH 工作区"><IconCloseOutline16 size={16} /></button>
             <button
               type="button"
               className={css.broadcastAction}

@@ -14,6 +14,18 @@
 
 ---
 
+## [0.87.5] - 2026-08-20
+
+### 修复
+- 修复 GitHub runtime 构建中 `SshTerminalOverlay` 的 `onClose` 未使用 TypeScript 错误：恢复 SSH 工作区关闭按钮并调用关闭回调。
+- 修复数据库资产工作台按通用资产类型错误选择 MySQL 连接命令的问题；PostgreSQL、ClickHouse、Redis 与 Elasticsearch 现在按 `config.dbType` 连接和断开。
+
+### 验证
+- `client-nav` SSH 与数据库工作台聚焦测试通过。
+- `pnpm --dir vendor/deepseek-harness run build` 通过。
+
+---
+
 ## [0.87.3] - 2026-08-20
 
 ### 变更

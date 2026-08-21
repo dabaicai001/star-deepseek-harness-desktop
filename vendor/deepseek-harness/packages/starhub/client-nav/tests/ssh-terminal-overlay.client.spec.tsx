@@ -99,6 +99,13 @@ describe('SshTerminalOverlay', () => {
     expect(invoke).toHaveBeenCalledWith('plugin:event|unlisten', { event: 'ssh:close:ssh-1', eventId: 2 })
   })
 
+  it('calls onClose from the workspace close control', () => {
+    const onClose = vi.fn()
+    render(<SshTerminalOverlay asset={asset} onClose={onClose} />)
+    fireEvent.click(screen.getByRole('button', { name: '关闭 SSH 工作区' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('switches to the SFTP tab which reuses the live terminal session', async () => {
     const callbacks: Array<(event: unknown) => void> = []
     const invoke = vi.fn((command: string, args?: Record<string, unknown>) => {

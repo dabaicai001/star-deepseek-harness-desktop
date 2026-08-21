@@ -299,9 +299,9 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     }
     let cancelled = false
     const disconnect = (id: string): void => {
-      void tauriInvoke(disconnectCommand(asset.type), { connId: id }).catch(() => {})
+      void tauriInvoke(disconnectCommand(dbType), { connId: id }).catch(() => {})
     }
-    tauriInvoke<DbConnectionInfo>(connectCommand(asset.type), { params })
+    tauriInvoke<DbConnectionInfo>(connectCommand(dbType), { params })
       .then((info) => {
         if (cancelled) {
           if (info.connId) disconnect(info.connId)
