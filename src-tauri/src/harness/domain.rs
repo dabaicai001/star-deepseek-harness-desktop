@@ -964,7 +964,7 @@ pub(crate) async fn execute_domain_tool(
     args: &Value,
 ) -> Result<String, String> {
     let (asset_type, asset_id) = resolve_asset(bridge, session_id)
-        .ok_or_else(|| "当前会话未绑定资产,无法执行域工具:请先调用 starhub_list_assets 查看可用资产,再调用 open_connection 或 focus_terminal 打开目标资产以绑定会话,然后重试".to_string())?;
+        .ok_or_else(|| "当前会话未绑定资产,无法执行域工具:请先调用 starhub_list_assets 查看可用资产,再调用 bind_asset_context 绑定目标资产(不打开窗口),或调用 open_connection / focus_terminal 打开目标资产后重试".to_string())?;
 
     // 全局工具名内嵌资产 id 参数(桥接层在 starhub-tools 里已按会话填充)。
     // 为避免改 dsh 侧插件,域执行统一以 assetId 参数 + 会话绑定双重来源:

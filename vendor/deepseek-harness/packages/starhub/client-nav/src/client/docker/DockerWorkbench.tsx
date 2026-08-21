@@ -6,7 +6,7 @@
  * (挂载按 asset.config 调 docker_connect → connId,卸载 docker_disconnect)。
  * 顶部为概览卡条(容器/运行/停止/暂停 + 镜像数),下分「容器 / 镜像」两个 tab:
  *  - 容器:列表(名称/镜像/状态/端口/运行时长)+ 行操作(启动/停止/重启/删除)+
- *    行展开看日志(200/1000 行)与实时 stats,「终端」按钮开交互式 exec 弹层。
+ *    独立日志弹框与行内实时 stats,「终端」按钮开交互式 exec 弹层。
  *  - 镜像:列表(标签/体积/创建时间)+ 拉取/删除/prune。
  * 交互优化(相对 Vue):浅色状态徽章、操作后即时刷新、空态/加载/错误引导、
  * 危险操作(删除/清理)二次确认、按状态分组的概览卡。
@@ -16,8 +16,12 @@
  *
  * @module StarHub Docker workbench (client)
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { IconCloseOutline16, IconPaperclipOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  IconChartOutline16, IconCloseOutline16, IconInspectOutline12, IconPaperclipOutline16,
+  IconPlayOutline16, IconRefreshOutline14, IconRestartOutline16, IconStopFill16,
+  IconTerminalOutline16, IconTrashOutline16,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RustAsset } from '../store.ts'
 import { tauriInvoke } from '../tauri.ts'
 import {
@@ -113,11 +117,17 @@ interface DashboardCounts {
 
 type WorkbenchTab = 'containers' | 'images'
 
-/** 单个容器的展开详情(日志/统计)。 */
+/** 单个容器的行内详情(仅统计)。 */
 type ContainerDetail =
-  | { panel: 'logs'; tail: string; logs: Loadable<{ timestamp: string; stream: string; message: string }> }
   | { panel: 'stats'; stats: { stats: ContainerStats | null; loading: boolean; error: string | null } }
   | null
+
+/** 日志弹框状态。 */
+interface LogsOpen {
+  container: ContainerInfo
+  tail: string
+  logs: Loadable<{ timestamp: string; stream: string; message: string }>
+}
 
 /** 交互式 exec 会话的打开状态(容器 → 终端弹层)。 */
 interface ExecOpen {
@@ -153,6 +163,7 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
   const [images, setImages] = useState<Loadable<ImageInfo>>({ items: [], loading: false, error: null })
   const [detail, setDetail] = useState<ContainerDetail>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [logsOpen, setLogsOpen] = useState<LogsOpen | null>(null)
   const [exec, setExec] = useState<ExecOpen | null>(null)
   const [pullOpen, setPullOpen] = useState(false)
   const [pullName, setPullName] = useState('')
@@ -250,33 +261,37 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
     }
   }, [loadContainers, notify])
 
-  /** 行展开/收起:展开时按需拉日志或统计。 */
-  const toggleDetail = useCallback(async (c: ContainerInfo, panel: 'logs' | 'stats') => {
+  /** 打开日志弹框并加载最新日志。 */
+  const openLogs = useCallback(async (c: ContainerInfo) => {
     const id = connRef.current
     /* v8 ignore next -- 仅连接建立后被调用,connRef 恒非空 */
     if (id === null) return
-    if (expanded === c.id && detail?.panel === panel) {
+    setLogsOpen({ container: c, tail: '200', logs: { items: [], loading: true, error: null } })
+    try {
+      const items = await dockerContainerLogs(id, c.id, '200')
+      setLogsOpen({ container: c, tail: '200', logs: { items: [...(items ?? [])].reverse(), loading: false, error: null } })
+    } catch (e) {
+      setLogsOpen({ container: c, tail: '200', logs: { items: [], loading: false, error: e instanceof Error ? e.message : String(e) } })
+    }
+  }, [])
+
+  /** 行展开/收起:统计按需拉取并保留在行内。 */
+  const toggleStats = useCallback(async (c: ContainerInfo) => {
+    const id = connRef.current
+    /* v8 ignore next -- 仅连接建立后被调用,connRef 恒非空 */
+    if (id === null) return
+    if (expanded === c.id && detail?.panel === 'stats') {
       setExpanded(null)
       setDetail(null)
       return
     }
     setExpanded(c.id)
-    if (panel === 'logs') {
-      setDetail({ panel: 'logs', tail: '200', logs: { items: [], loading: true, error: null } })
-      try {
-        const items = await dockerContainerLogs(id, c.id, '200')
-        setDetail({ panel: 'logs', tail: '200', logs: { items: items ?? [], loading: false, error: null } })
-      } catch (e) {
-        setDetail({ panel: 'logs', tail: '200', logs: { items: [], loading: false, error: e instanceof Error ? e.message : String(e) } })
-      }
-    } else {
-      setDetail({ panel: 'stats', stats: { stats: null, loading: true, error: null } })
-      try {
-        const s = await dockerContainerStats(id, c.id)
-        setDetail({ panel: 'stats', stats: { stats: s, loading: false, error: null } })
-      } catch (e) {
-        setDetail({ panel: 'stats', stats: { stats: null, loading: false, error: e instanceof Error ? e.message : String(e) } })
-      }
+    setDetail({ panel: 'stats', stats: { stats: null, loading: true, error: null } })
+    try {
+      const s = await dockerContainerStats(id, c.id)
+      setDetail({ panel: 'stats', stats: { stats: s, loading: false, error: null } })
+    } catch (e) {
+      setDetail({ panel: 'stats', stats: { stats: null, loading: false, error: e instanceof Error ? e.message : String(e) } })
     }
   }, [expanded, detail])
 
@@ -371,7 +386,7 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
                 {tab === 'images' && (
                   <>
                     <button type="button" className={css.toolIcon} onClick={() => setPullOpen(true)} title="拉取镜像" aria-label="拉取镜像"><IconPaperclipOutline16 size={15} /></button>
-                    <button type="button" className={css.toolIconDanger} onClick={() => void runPrune()} title="清理悬空镜像" aria-label="清理悬空镜像">⌫</button>
+                    <button type="button" className={css.toolIconDanger} onClick={() => void runPrune()} title="清理悬空镜像" aria-label="清理悬空镜像"><IconTrashOutline16 size={15} /></button>
                   </>
                 )}
                 {tab === 'containers' && (
@@ -390,7 +405,8 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
                   onAction={runContainerAction}
                   expanded={expanded}
                   detail={detail}
-                  onToggle={toggleDetail}
+                  onOpenLogs={(c) => void openLogs(c)}
+                  onToggleStats={toggleStats}
                   onExec={(c) => setExec({ container: c })}
                 />
               )}
@@ -427,6 +443,14 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
           </div>
         )}
 
+        {logsOpen !== null && (
+          <LogsModal
+            open={logsOpen}
+            onClose={() => setLogsOpen(null)}
+            onRefresh={() => void openLogs(logsOpen.container)}
+          />
+        )}
+
         {exec !== null && (
           <DockerExecTerminal
             /* v8 ignore next -- exec 只在连接建立且 connRef 已注入后打开,`?? ''` 是类型落空防御 */
@@ -456,9 +480,9 @@ function DashboardCard({ label, value, accent }: { label: string; value: number;
   )
 }
 
-/** 容器 tab:列表 + 行操作 + 展开详情(日志/统计)。 */
+/** 容器 tab:列表 + 行操作 + 行内统计详情。 */
 function ContainersView({
-  load, showAll, onRefresh, onAction, expanded, detail, onToggle, onExec,
+  load, showAll, onRefresh, onAction, expanded, detail, onOpenLogs, onToggleStats, onExec,
 }: {
   load: Loadable<ContainerInfo>
   showAll: boolean
@@ -466,7 +490,8 @@ function ContainersView({
   onAction: (kind: 'start' | 'stop' | 'restart' | 'remove', c: ContainerInfo) => void
   expanded: string | null
   detail: ContainerDetail
-  onToggle: (c: ContainerInfo, panel: 'logs' | 'stats') => void
+  onOpenLogs: (c: ContainerInfo) => void
+  onToggleStats: (c: ContainerInfo) => void
   onExec: (c: ContainerInfo) => void
 }) {
   if (load.loading) return <div className={css.status}>加载容器…</div>
@@ -490,7 +515,7 @@ function ContainersView({
         <div className={css.rowBlock} key={c.id}>
           <div className={css.row}>
             <div className={css.rowInfo}>
-              <button type="button" className={css.rowMain} onClick={() => void onToggle(c, 'logs')}>
+              <button type="button" className={css.rowMain} onClick={() => onOpenLogs(c)}>
                 <span className={`${css.stateBadge} ${stateClass(c.state)}`}>{c.state}</span>
                 <span className={css.rowName}>{c.name}</span>
                 <span className={css.rowSub}>{c.image}</span>
@@ -498,19 +523,18 @@ function ContainersView({
               </button>
             </div>
             <div className={css.rowActions}>
-              <RowAction label="启动" disabled={c.state === 'running'} onClick={() => onAction('start', c)}>▶</RowAction>
-              <RowAction label="停止" disabled={c.state !== 'running'} onClick={() => onAction('stop', c)}>■</RowAction>
-              <RowAction label="重启" onClick={() => onAction('restart', c)}>⟳</RowAction>
-              <RowAction label="终端" onClick={() => onExec(c)}>⌾</RowAction>
-              <RowAction label="日志" onClick={() => void onToggle(c, 'logs')}>≣</RowAction>
-              <RowAction label="统计" onClick={() => void onToggle(c, 'stats')}>📊</RowAction>
-              <RowAction label="删除" danger onClick={() => onAction('remove', c)}>🗑</RowAction>
+              <RowAction label="启动" disabled={c.state === 'running'} onClick={() => onAction('start', c)}><IconPlayOutline16 size={14} /></RowAction>
+              <RowAction label="停止" disabled={c.state !== 'running'} onClick={() => onAction('stop', c)}><IconStopFill16 size={14} /></RowAction>
+              <RowAction label="重启" onClick={() => onAction('restart', c)}><IconRestartOutline16 size={14} /></RowAction>
+              <RowAction label="终端" onClick={() => onExec(c)}><IconTerminalOutline16 size={14} /></RowAction>
+              <RowAction label="日志" onClick={() => onOpenLogs(c)}><IconInspectOutline12 size={14} /></RowAction>
+              <RowAction label="统计" onClick={() => void onToggleStats(c)}><IconChartOutline16 size={14} /></RowAction>
+              <RowAction label="删除" danger onClick={() => onAction('remove', c)}><IconTrashOutline16 size={14} /></RowAction>
             </div>
           </div>
           {expanded === c.id && detail !== null && (
             <div className={css.detail}>
-              {detail.panel === 'logs' && <LogsView load={detail.logs} tail={detail.tail} containerName={c.name} />}
-              {detail.panel === 'stats' && <StatsView load={detail.stats} />}
+              <StatsView load={detail.stats} />
             </div>
           )}
         </div>
@@ -528,7 +552,7 @@ function stateClass(state: string): string | undefined {
 
 /** 行内小操作按钮。 */
 function RowAction({ label, disabled, danger, onClick, children }: {
-  label: string; disabled?: boolean; danger?: boolean; onClick: () => void; children: string
+  label: string; disabled?: boolean; danger?: boolean; onClick: () => void; children: ReactNode
 }) {
   return (
     <button
@@ -544,31 +568,40 @@ function RowAction({ label, disabled, danger, onClick, children }: {
   )
 }
 
-/** 日志展开区(200/1000 行切换)。 */
-function LogsView({ load, tail, containerName }: {
-  load: Loadable<{ timestamp: string; stream: string; message: string }>
-  tail: string
-  containerName: string
+/** 日志弹框:最新记录置顶,可刷新。 */
+function LogsModal({ open, onClose, onRefresh }: {
+  open: LogsOpen
+  onClose: () => void
+  onRefresh: () => void
 }) {
-  if (load.loading) return <div className={css.detailStatus}>加载日志…</div>
-  if (load.error !== null) return <div className={css.detailStatus}>日志加载失败:{load.error}</div>
+  const { container, tail, logs } = open
   return (
-    <div className={css.logs}>
-      <div className={css.detailHead}>
-        <span>日志 · {containerName}</span>
-        <span className={css.tailNote}>尾 {tail} 行</span>
-      </div>
-      {load.items.length === 0 ? <div className={css.detailStatus}>暂无日志。</div> : (
-        <div className={css.logBody}>
-          {load.items.map((l, i) => (
-            /* eslint-disable-next-line react/no-array-index-key -- 日志可能无稳定唯一键 */
-            <div key={i} className={l.stream === 'stderr' ? css.logErr : css.logLine}>
-              <span className={css.logTime}>{l.timestamp}</span>
-              <span>{l.message}</span>
-            </div>
-          ))}
-        </div>
-      )}
+    <div className={css.modalBackdrop} role="presentation">
+      <section className={css.logModal} role="dialog" aria-modal="true" aria-label={`${container.name} 日志`}>
+        <header className={css.logModalHeader}>
+          <div className={css.logModalTitle}>
+            <span>{container.name} 日志</span>
+            <span className={css.tailNote}>尾 {tail} 行，最新在前</span>
+          </div>
+          <div className={css.logModalActions}>
+            <button type="button" className={css.toolIcon} onClick={onRefresh} title="刷新日志" aria-label="刷新日志"><IconRefreshOutline14 size={15} /></button>
+            <button type="button" className={css.toolIcon} onClick={onClose} title="关闭日志" aria-label="关闭日志"><IconCloseOutline16 size={16} /></button>
+          </div>
+        </header>
+        {logs.loading && <div className={css.detailStatus}>加载日志…</div>}
+        {logs.error !== null && <div className={css.detailStatus}>日志加载失败:{logs.error}</div>}
+        {!logs.loading && logs.error === null && (logs.items.length === 0 ? <div className={css.detailStatus}>暂无日志。</div> : (
+          <div className={css.logBody}>
+            {logs.items.map((line, index) => (
+              /* eslint-disable-next-line react/no-array-index-key -- 日志可能无稳定唯一键 */
+              <div key={index} className={line.stream === 'stderr' ? css.logErr : css.logLine}>
+                <span className={css.logTime}>{line.timestamp}</span>
+                <span>{line.message}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </section>
     </div>
   )
 }
@@ -637,7 +670,7 @@ function ImagesView({ load, onRefresh, onPullOpen, onRemove }: {
           <span className={css.imgTag}>{img.tags[0] ?? img.id.slice(0, 12)}</span>
           <span className={css.imgSize}>{formatBytes(img.size)}</span>
           <span className={css.imgAge}>{formatAge(img.created)}</span>
-          <button type="button" className={css.dangerButton} title="删除镜像" aria-label="删除镜像" onClick={() => onRemove(img)}>🗑</button>
+          <button type="button" className={css.dangerButton} title="删除镜像" aria-label="删除镜像" onClick={() => onRemove(img)}><IconTrashOutline16 size={14} /></button>
         </div>
       ))}
     </div>

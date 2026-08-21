@@ -14,6 +14,21 @@
 
 ---
 
+## [0.87.7] - 2026-08-20
+
+### 修复
+- AI 资产绑定、打开与工具页聚焦现在都从资产表读取真实类型；数据库通过 `@` 或打开连接后可正确路由 `db_query`，不存在的资产会返回明确错误。
+- MySQL 对象树限制横向溢出，为超长对象名添加省略显示，并使用深色滚动条。
+- Docker exec 终端使用不透明、居中的自适应面板；容器日志改为独立弹框，最新日志置顶，并提供图标刷新和关闭操作。
+- Docker 所有行级操作与镜像删除/清理入口均使用可访问的图标组件。
+
+### 验证
+- `pnpm exec vitest run packages/starhub/client-nav/tests/db-workbench.client.spec.tsx packages/starhub/client-nav/tests/docker-workbench.client.spec.tsx` 通过（56 tests）。
+- `npm run build:window` 通过。
+- `npm run cargo:check` 未能执行：环境未安装或未暴露 `cargo` 命令。
+
+---
+
 ## [0.87.6] - 2026-08-20
 
 ### 修复

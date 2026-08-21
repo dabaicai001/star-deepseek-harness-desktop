@@ -78,6 +78,8 @@ pub const LIVE_SNAPSHOT_METHOD: &str = "starhub/live.snapshot";
 pub const OPEN_ASSET_METHOD: &str = "starhub/open.asset";
 /// 聚焦工具页(tool 必填)。
 pub const FOCUS_TOOL_METHOD: &str = "starhub/focus.tool";
+/// 仅绑定当前 AI 会话到资产,不触发任何窗口操作。
+pub const BIND_ASSET_METHOD: &str = "starhub/bind.asset";
 // §3 Tauri 事件(Rust → 前端)。
 /// 领域事件广播(全部窗口)。
 pub const DOMAIN_EVENT_EVENT: &str = "starhub://domain-event";
@@ -866,9 +868,9 @@ impl From<String> for InboundError {
 }
 
 /// 入站双向 request 分发:审批桥(`starhub/approval.request`)、工具执行桥
-/// (`starhub/tool.execute`,见 tools 模块)与联动三个新方法
-/// (`starhub/live.snapshot` / `starhub/open.asset` / `starhub/focus.tool`,
-/// 契约 §2.2);其余方法报 JSON-RPC method-not-found(-32601)。
+/// (`starhub/tool.execute`,见 tools 模块)与联动四个方法
+/// (`starhub/live.snapshot` / `starhub/bind.asset` / `starhub/open.asset` /
+/// `starhub/focus.tool`,契约 §2.2);其余方法报 JSON-RPC method-not-found(-32601)。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_inbound_request(
     method: &str,
@@ -883,8 +885,9 @@ pub(crate) async fn handle_inbound_request(
             .await
             .map_err(InboundError::Failed),
         LIVE_SNAPSHOT_METHOD => handle_live_snapshot(bridge).await,
-        OPEN_ASSET_METHOD => handle_open_asset(params, bridge, false),
-        FOCUS_TOOL_METHOD => handle_open_asset(params, bridge, true),
+        BIND_ASSET_METHOD => handle_bind_asset(params, bridge).await,
+        OPEN_ASSET_METHOD => handle_open_asset(params, bridge, false).await,
+        FOCUS_TOOL_METHOD => handle_open_asset(params, bridge, true).await,
         other => Err(InboundError::MethodNotFound(format!(
             "unknown StarHub bridge method: {other}"
         ))),
@@ -941,12 +944,50 @@ async fn handle_live_snapshot(
     }))
 }
 
+/// 从 SQLite 资产表解析真实资产类型。UI 工具名不能作为域工具路由类型。
+async fn resolve_asset_type(asset_id: &str) -> Result<String, InboundError> {
+    use sqlx::Row;
+
+    let pool = crate::db::get_pool().map_err(InboundError::Failed)?;
+    let row = sqlx::query("SELECT type FROM assets WHERE id = ?")
+        .bind(asset_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|error| InboundError::Failed(format!("读取资产 {asset_id} 失败: {error}")))?
+        .ok_or_else(|| InboundError::Failed(format!("资产不存在: {asset_id}")))?;
+    row.try_get("type")
+        .map_err(|error| InboundError::Failed(format!("读取资产 {asset_id} 类型失败: {error}")))
+}
+
+/// `starhub/bind.asset`:仅记录会话→资产绑定与任务轨迹,不发出窗口事件。
+/// 该路径供自动巡检等后台域工具调用,必须保持无 UI 副作用。
+async fn handle_bind_asset(
+    params: serde_json::Value,
+    bridge: Arc<HostBridgeState>,
+) -> Result<serde_json::Value, InboundError> {
+    let asset_id = params
+        .get("assetId")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| InboundError::Failed(format!("{BIND_ASSET_METHOD} 缺少 assetId")))?;
+    let session_id = params
+        .get("sessionId")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| InboundError::Failed(format!("{BIND_ASSET_METHOD} 缺少 sessionId")))?;
+    let asset_type = resolve_asset_type(asset_id).await?;
+
+    bridge.bind_session(session_id, &asset_type, asset_id);
+    bridge.record_task_asset(session_id, asset_id);
+    Ok(serde_json::json!({ "ok": true, "action": "bound" }))
+}
+
 /// `starhub/open.asset` / `starhub/focus.tool`(契约 §2.2/M5):
 /// emit `starhub://open-asset` 到主壳(emit_to("main")),由 client-nav 真正
 /// 开窗/聚焦;fire-and-forget,立即返回 `{ ok: true, action }`。
 /// action 由注册表的开窗记录预判(已有该资产窗口 = focused,否则 opened);
 /// `require_tool` 区分 focus.tool(tool 必填)与 open.asset(tool 缺省 "auto")。
-fn handle_open_asset(
+async fn handle_open_asset(
     params: serde_json::Value,
     bridge: Arc<HostBridgeState>,
     require_tool: bool,
@@ -972,12 +1013,13 @@ fn handle_open_asset(
         }
         None => "auto".to_string(),
     };
+    let asset_type = resolve_asset_type(asset_id).await?;
     if let Some(session_id) = params
         .get("sessionId")
         .and_then(serde_json::Value::as_str)
         .filter(|v| !v.trim().is_empty())
     {
-        bridge.bind_session(session_id, &tool, asset_id);
+        bridge.bind_session(session_id, &asset_type, asset_id);
         bridge.record_task_asset(session_id, asset_id);
     }
 
@@ -2052,65 +2094,41 @@ mod tests {
     }
 
     /// open.asset 缺 assetId:硬错误(契约 §2.2 参数校验)。
-    #[test]
-    fn open_asset_requires_asset_id() {
+    #[tokio::test]
+    async fn open_asset_requires_asset_id() {
         let bridge = Arc::new(HostBridgeState::default());
         let err = handle_open_asset(serde_json::json!({}), bridge, false)
+            .await
             .expect_err("缺 assetId 应报错");
         assert!(err.to_string().contains("assetId"), "{err}");
     }
 
     /// focus.tool 缺 tool:硬错误(契约 §2.2 tool 必填)。
-    #[test]
-    fn focus_tool_requires_tool() {
+    #[tokio::test]
+    async fn focus_tool_requires_tool() {
         let bridge = Arc::new(HostBridgeState::default());
         let err = handle_open_asset(
             serde_json::json!({ "assetId": "a1" }),
             bridge,
             true,
         )
+        .await
         .expect_err("focus.tool 缺 tool 应报错");
         assert!(err.to_string().contains("tool"), "{err}");
     }
 
-    /// open.asset 在无 AppHandle(测试环境)时:fire-and-forget 立即返回
-    /// `{ ok: true, action: "opened" }`(无窗口可开,契约 §2.2 不等待)。
-    #[test]
-    fn open_asset_without_app_returns_opened() {
+    /// 查不到资产时拒绝绑定,防止 UI 工具名成为域工具类型。
+    #[tokio::test]
+    async fn asset_actions_reject_unknown_asset() {
         let bridge = Arc::new(HostBridgeState::default());
-        let result = handle_open_asset(
-            serde_json::json!({ "assetId": "a1", "tool": "auto" }),
-            bridge,
-            false,
-        )
-        .expect("open.asset 应成功");
-        assert_eq!(result, serde_json::json!({ "ok": true, "action": "opened" }));
-    }
-
-    /// open.asset 带 sessionId 时重锚域工具路由并记录 M6 任务资产轨迹。
-    #[test]
-    fn open_asset_reanchors_session_and_records_task_trail() {
-        let bridge = Arc::new(HostBridgeState::default());
-        handle_open_asset(
-            serde_json::json!({ "assetId": "web-1", "tool": "terminal", "sessionId": "task-1" }),
+        let err = handle_bind_asset(
+            serde_json::json!({ "assetId": "missing", "sessionId": "task-1" }),
             bridge.clone(),
-            false,
         )
-        .expect("open.asset 应成功");
-        handle_open_asset(
-            serde_json::json!({ "assetId": "db-1", "tool": "db", "sessionId": "task-1" }),
-            bridge.clone(),
-            false,
-        )
-        .expect("第二次 open.asset 应成功");
-        assert_eq!(
-            bridge.resolve_asset("task-1"),
-            Some(("db".into(), "db-1".into()))
-        );
-        assert_eq!(
-            bridge.task_trails(),
-            vec![serde_json::json!({ "sessionId": "task-1", "assetIds": ["web-1", "db-1"] })]
-        );
+        .await
+        .expect_err("不存在资产应报错");
+        assert!(err.to_string().contains("资产不存在"), "{err}");
+        assert_eq!(bridge.resolve_asset("task-1"), None);
     }
 
     /// 未注册的入站方法:JSON-RPC method-not-found(-32601,由 dispatch_frame 映射)。

@@ -28,6 +28,7 @@ const BRIDGE_METHOD = 'starhub/tool.execute'
 /** UI 动作桥方法名(联动契约 §2.2 / M5);宿主侧实现见 src-tauri/src/harness/mod.rs。 */
 const OPEN_ASSET_METHOD = 'starhub/open.asset'
 const FOCUS_TOOL_METHOD = 'starhub/focus.tool'
+const BIND_ASSET_METHOD = 'starhub/bind.asset'
 
 /** 工具的规范输出:宿主返回的模型可读文本原样透传。 */
 const TEXT_OUTPUT_SCHEMA = {
@@ -104,6 +105,30 @@ async function callUiAction(
     throw new Error(`starhub host returned an invalid ${method} result for asset ${assetId}`)
   }
   return { text: `StarHub: asset ${assetId} ${action}` }
+}
+
+/**
+ * Bind the current AI session to an asset without opening or focusing any UI.
+ * @param transport - sdk-jsonrpc-server transport.
+ * @param exec - tool run context providing the agent session id.
+ * @param assetId - target asset id.
+ * @returns a model-readable binding result.
+ */
+async function bindAssetContext(
+  transport: JsonRpcTransportPeer,
+  exec: ToolRunContext,
+  assetId: string,
+): Promise<TextOutput> {
+  const sessionId = exec.agent?.session.id
+  if (sessionId === undefined) {
+    throw new Error(`starhub tool ${BIND_ASSET_METHOD} requires an agent session`)
+  }
+  const result: unknown = await transport.request(BIND_ASSET_METHOD, { assetId, sessionId: String(sessionId) })
+  const record = typeof result === 'object' && result !== null ? result as Record<string, unknown> : undefined
+  if (record?.ok !== true || record?.action !== 'bound') {
+    throw new Error(`starhub host returned an invalid ${BIND_ASSET_METHOD} result for asset ${assetId}`)
+  }
+  return { text: `StarHub: asset ${assetId} bound without opening a window` }
 }
 
 /** 参数 schema 的简写(与 defineTool 的 ParameterSchemaSpec 对齐)。 */
@@ -598,6 +623,20 @@ export function apply(ctx: Context): void {
     output: TEXT_OUTPUT,
     async execute(args, exec) {
       return callHost(getTransport(), exec, 'memory', args)
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'bind_asset_context',
+    description:
+      '只把当前 AI 会话绑定到指定 StarHub 资产,不打开、不聚焦任何窗口。'
+      + '用于自动巡检、后台诊断等无需干扰当前界面的操作;绑定后可调用对应资产的域工具。',
+    parameters: {
+      assetId: { type: 'string', required: true, description: '要绑定的资产 id(可用 starhub_list_assets 查询)' },
+    },
+    output: TEXT_OUTPUT,
+    async execute(args, exec) {
+      return bindAssetContext(getTransport(), exec, args.assetId)
     },
   }))
 

@@ -250,30 +250,44 @@ describe('DockerWorkbench', () => {
     confirmSpy.mockRestore()
   })
 
-  it('expands logs and stats details', async () => {
+  it('opens logs in a modal, shows newest first, refreshes, and keeps stats inline', async () => {
     ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
-    const invoke = installTauri()
+    const invoke = vi.fn((cmd: string) => {
+      if (cmd === 'docker_connect') return Promise.resolve({ connId: 'c', host: 'h' })
+      if (cmd === 'docker_list_containers') return Promise.resolve([running])
+      if (cmd === 'docker_list_images') return Promise.resolve([])
+      if (cmd === 'docker_container_logs') return Promise.resolve([
+        { timestamp: 'first', stream: 'stdout', message: 'old' },
+        { timestamp: 'last', stream: 'stdout', message: 'new' },
+      ])
+      if (cmd === 'docker_container_stats') return Promise.resolve(stats)
+      return Promise.resolve(null)
+    })
+    ;(window as unknown as { __TAURI_INTERNALS__: { invoke: typeof invoke } }).__TAURI_INTERNALS__ = { invoke }
     renderWorkbench()
     await waitFor(() => expect(screen.getByText('web')).toBeTruthy())
-    // logs
     fireEvent.click(screen.getByLabelText('日志'))
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('docker_container_logs', expect.objectContaining({ containerId: 'c1' })))
-    await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    // stats
+    const dialog = await screen.findByRole('dialog', { name: 'web 日志' })
+    expect(within(dialog).getByText('new').compareDocumentPosition(within(dialog).getByText('old')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(within(dialog).getByLabelText('刷新日志'))
+    await waitFor(() => expect(invoke.mock.calls.filter(([command]) => command === 'docker_container_logs')).toHaveLength(2))
+    fireEvent.click(within(dialog).getByLabelText('关闭日志'))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'web 日志' })).toBeNull())
     fireEvent.click(screen.getByLabelText('统计'))
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('docker_container_stats', expect.objectContaining({ containerId: 'c1' })))
     await waitFor(() => expect(screen.getByText('CPU')).toBeTruthy())
   })
 
-  it('toggles detail closed when re-selecting the same panel', async () => {
+  it('toggles the inline stats detail closed when re-selected', async () => {
     ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
     installTauri()
     renderWorkbench()
     await waitFor(() => expect(screen.getByText('web')).toBeTruthy())
-    fireEvent.click(screen.getByLabelText('日志'))
-    await waitFor(() => expect(screen.getByText('hello')).toBeTruthy())
-    fireEvent.click(screen.getByLabelText('日志'))
-    await waitFor(() => expect(screen.queryByText('hello')).toBeNull())
+    fireEvent.click(screen.getByLabelText('统计'))
+    await waitFor(() => expect(screen.getByText('CPU')).toBeTruthy())
+    fireEvent.click(screen.getByLabelText('统计'))
+    await waitFor(() => expect(screen.queryByText('CPU')).toBeNull())
   })
 
   it('surfaces logs and stats errors', async () => {
@@ -439,9 +453,9 @@ describe('DockerWorkbench', () => {
     await waitFor(() => expect(screen.getByText('cache')).toBeTruthy())
     // 暂停卡计数 + 空 public 端口回退到 private
     expect(screen.getByText('6379')).toBeTruthy()
-    // 行主按钮点击切换到日志展开(425)
+    // 行主按钮打开独立日志弹框。
     fireEvent.click(screen.getByText('cache'))
-    await waitFor(() => expect(screen.getByText(/日志 · cache/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'cache 日志' })).toBeTruthy())
   })
 
   it('starts a stopped container successfully and shows the toast', async () => {
