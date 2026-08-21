@@ -14,6 +14,15 @@
 
 ---
 
+## [0.89.0] - 2026-08-21
+
+### 已完成
+- AI 长期记忆真正接入上下文：新增 host 插件 `@deepseek-ai/dsh-starhub-memory-context`，每个 agent 请求 pre-step 经 `starhub/memory.cards` 桥拉取记忆卡并注入（user + global + 当前工作区文件夹 + 绑定资产），修复「记忆写了却从不出现在上下文」的缺失环节;web 与内嵌 AI 两套 profile 均挂载，2s 超时/失败降级为不注入。
+- 记忆新增文件夹级作用域：memory 工具 `target: 'folder'`（按会话工作区 cwd 落 `folder:<绝对路径>` scope,2200 字符上限）;「管理记忆」弹窗支持 folder 卡展示与工作区名标签。
+- 「启用长期记忆」开关真正生效：设置 → AI 助手的开关经 `starhub-memory-context` settings namespace 同步到 host 插件，关闭即完全不注入；启动时按 localStorage 补写一次。
+- 会话头部新增 git 分支胶囊：显示当前会话工作区分支（含 detached HEAD 与未提交改动圆点），点击开面板可搜索/切换分支、`git add -A`+提交、`git push`；非 git 工作区与浏览器预览不渲染。
+- Read/Edit 等工具卡的文件名点击改为壳内查看窗：Read 看当前文件内容,Edit 看「变更前/变更后」左右两栏；AI 运行中只读并提示「AI 运行中只能查看」，空闲时可编辑保存（Edit 右栏按 hunk 应用回最新文件）；查看窗服务缺失时退回 OS 默认打开。
+
 ## [0.87.10] - 2026-08-21
 
 ### 修复

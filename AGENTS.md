@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.87.10(修复 CI/全新检出下 `npm run build:window` 失败：`starhub-window` 的 `window-shell.css` 经 exports 映射引用 `@deepseek-ai/dsh-client-ui-theme/styles/base.css`（指向未构建的 `lib/` 产物），改为在 Vite alias 中把主题样式子路径指到 `src/styles` 源码，与其余 workspace 包的「源码直编」策略一致。) |
+| 当前版本 | v0.89.0(AI 长期记忆真正接入上下文：新增 host 插件 `@deepseek-ai/dsh-starhub-memory-context`，每个 agent 请求 pre-step 经 `starhub/memory.cards` 桥拉取记忆卡并注入（user + global + 当前工作区文件夹 + 绑定资产），修复「记忆写了却从不出现在上下文」的缺失环节;web 与内嵌 AI 两套 profile 均挂载，2s 超时/失败降级为不注入。) |
 
 ---
 
@@ -463,4 +463,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-21 (v0.87.10)*
+*最后更新: 2026-08-21 (v0.89.0)*
