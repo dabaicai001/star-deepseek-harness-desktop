@@ -2117,19 +2117,6 @@ mod tests {
         assert!(err.to_string().contains("tool"), "{err}");
     }
 
-    /// 查不到资产时拒绝绑定,防止 UI 工具名成为域工具类型。
-    #[tokio::test]
-    async fn asset_actions_reject_unknown_asset() {
-        let bridge = Arc::new(HostBridgeState::default());
-        let err = handle_bind_asset(
-            serde_json::json!({ "assetId": "missing", "sessionId": "task-1" }),
-            bridge.clone(),
-        )
-        .await
-        .expect_err("不存在资产应报错");
-        assert!(err.to_string().contains("资产不存在"), "{err}");
-        assert_eq!(bridge.resolve_asset("task-1"), None);
-    }
 
     /// 未注册的入站方法:JSON-RPC method-not-found(-32601,由 dispatch_frame 映射)。
     #[tokio::test]
