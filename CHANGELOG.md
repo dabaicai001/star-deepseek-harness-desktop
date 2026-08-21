@@ -14,6 +14,11 @@
 
 ---
 
+## [0.87.10] - 2026-08-21
+
+### 修复
+- 修复 CI/全新检出下 `npm run build:window` 失败：`starhub-window` 的 `window-shell.css` 经 exports 映射引用 `@deepseek-ai/dsh-client-ui-theme/styles/base.css`（指向未构建的 `lib/` 产物），改为在 Vite alias 中把主题样式子路径指到 `src/styles` 源码，与其余 workspace 包的「源码直编」策略一致。
+
 ## [0.87.9] - 2026-08-21
 
 ### 修复

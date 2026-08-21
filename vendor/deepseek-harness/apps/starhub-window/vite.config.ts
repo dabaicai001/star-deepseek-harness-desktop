@@ -38,6 +38,7 @@ export default defineConfig({
   base: '/starhub-react/',
   resolve: {
     alias: [
+      { find: /^@deepseek-ai\/dsh-client-ui-theme\/styles\//, replacement: `${src('../../packages/client/ui-theme/src/styles')}/` },
       { find: /^@deepseek-ai\/dsh-client-web-react$/, replacement: src('../../packages/client/web-react/src/index.ts') },
       { find: /^@deepseek-ai\/dsh-client-ui-slots$/, replacement: src('../../packages/client/ui-slots/src/index.ts') },
       { find: /^@deepseek-ai\/dsh-client-ui-primitives$/, replacement: src('../../packages/client/ui-primitives/src/index.ts') },
