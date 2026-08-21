@@ -10,7 +10,7 @@ import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   ClientSessionContext, InputTriggerCandidate, InputTriggerSource,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import { assetSubtitle } from './sections.ts'
+import { assetSubtitle, routeNameForAsset } from './sections.ts'
 import type { RustAsset, StarHubAssets, ToolSelectionBridge } from './store.ts'
 import { bindAssetContext } from './tool-context.ts'
 
@@ -38,6 +38,22 @@ export interface StarHubAssetSourceDeps {
 export function renderAssetReference(asset: { id: string; name: string; config: Record<string, unknown> }): string {
   const sub = assetSubtitle(asset)
   return sub === '' ? `@${asset.name}` : `@${asset.name} (${sub})`
+}
+
+/**
+ * 资产 → 候选行首的工具徽标(工具大类短标签,经候选 icon 位展示,2026-08-21 加):
+ * 用户要求 `@` 菜单候选前面能看出来属于哪个工具。Broker 路由名归终端子类
+ * (与导航事实表一致),先判 db-broker;routeNameForAsset 把其余未识别类型
+ * 一律回落 db-mysql,故剩余分支即数据库,与导航的兜底语义保持一致。
+ * @param asset - 目标资产(只需 type + config 派生路由名)。
+ * @returns 工具大类短标签。
+ */
+export function assetToolBadge(asset: { type: string; config: Record<string, unknown> }): string {
+  const route = routeNameForAsset(asset)
+  if (route === 'ssh-terminal' || route === 'db-broker') return '终端'
+  if (route === 'docker') return 'Docker'
+  if (route === 'local') return '本机'
+  return '数据库'
 }
 
 /**
@@ -69,6 +85,7 @@ export function createStarHubAssetSource(deps: StarHubAssetSourceDeps): InputTri
         const sub = assetSubtitle(asset)
         const candidate: InputTriggerCandidate = {
           name: asset.name,
+          icon: assetToolBadge(asset),
           ...(sub !== '' ? { description: sub } : {}),
         }
         byCandidate.set(candidate, asset)

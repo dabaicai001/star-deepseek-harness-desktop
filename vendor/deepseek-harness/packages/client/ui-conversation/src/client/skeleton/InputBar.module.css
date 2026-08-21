@@ -453,20 +453,22 @@
 }
 
 .chipLabel {
-  /* Compensated-scale centering: overflow clipping happens BEFORE transform,
-     so the box is laid out at 1/0.72 of the cell and scaled back down — the
-     clip edge then lands on the visual cell edge, not mid-glyph. */
+  /* Compensated-scale fitting: overflow clipping happens BEFORE transform,
+     so the box is laid out at 1/scale of the cell and scaled back down — the
+     clip edge then lands on the visual cell edge, not mid-glyph. The scale
+     rides --chip-scale: ChipLabel measures the natural label width once and
+     shrinks the scale until the text fits the cell; below the fit floor the
+     tail ellipsizes (start-anchored, so the leading name — the identity —
+     stays readable; the full label rides the chip's title tooltip). */
   position: absolute;
   left: 50%;
   top: 50%;
-  width: calc(100% / 0.72 - 10px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: calc(100% / var(--chip-scale, 0.72) - 10px);
   overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--dsw-alias-label-primary);
   white-space: nowrap;
-  transform: translate(-50%, -50%) scale(0.72);
+  transform: translate(-50%, -50%) scale(var(--chip-scale, 0.72));
 }
 
 .chipInvalid {

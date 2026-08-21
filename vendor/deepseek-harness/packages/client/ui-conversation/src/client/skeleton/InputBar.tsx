@@ -6,7 +6,7 @@
  * region-slot content) ride the owner props. Session facts
  * (running/removed/promptError) are self-selected via useSession. */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
@@ -35,6 +35,55 @@ import css from './InputBar.module.css'
 
 /** Decoration product of the no-session state (no machine, empty draft). */
 const INERT_DECORATIONS: DraftDecorations = { token: null, chips: [], textRefs: [], hint: null }
+
+/** Chip label scale seat (design default) and the shrink-to-fit floor. */
+const CHIP_LABEL_SCALE = 0.72
+const CHIP_LABEL_MIN_SCALE = 0.45
+
+/**
+ * Scale that fits one chip label into the placeholder cell. The label box is
+ * laid out at `cell/scale − 10` and scaled back, so content of layout width
+ * `contentWidth` fits unclipped when `scale ≤ cellWidth / (contentWidth + 10)`;
+ * clamp to the design seat above and to the floor below (past the floor the
+ * label keeps the floor and ellipsizes instead — microscopic text is worse
+ * than an honest ellipsis).
+ * @param cellWidth - visual width of the chip's U+FFFC cell.
+ * @param contentWidth - natural (unscaled, untruncated) label layout width.
+ * @returns the `--chip-scale` value.
+ */
+export function chipLabelFitScale(cellWidth: number, contentWidth: number): number {
+  if (cellWidth <= 0 || contentWidth <= 0) return CHIP_LABEL_SCALE
+  return Math.max(CHIP_LABEL_MIN_SCALE, Math.min(CHIP_LABEL_SCALE, cellWidth / (contentWidth + 10)))
+}
+
+/**
+ * One chip label, fitted to the placeholder cell. The old centered-clip
+ * rendering cut long labels (e.g. an asset reference `name (user@host)`)
+ * from BOTH ends, surfacing a meaningless middle fragment — the name, which
+ * is the identity, was exactly what disappeared. Measure once per label and
+ * shrink the compensated scale until the text lands inside the cell; below
+ * the floor the start-anchored ellipsis takes over and the chip's title
+ * tooltip carries the full label.
+ * @param props.label - the occurrence's display label.
+ * @returns the label span.
+ */
+function ChipLabel({ label }: { label: string }): ReactNode {
+  const ref = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    /* v8 ignore next 3 -- ref and parent span are mounted by construction at effect time */
+    if (el === null || el.parentElement === null) return
+    const cellWidth = el.parentElement.getBoundingClientRect().width
+    // Natural content width: release the compensated width so scrollWidth
+    // reports the untruncated layout width (transforms never feed
+    // scrollWidth, so the live scale does not skew the read).
+    el.style.width = 'max-content'
+    const contentWidth = el.scrollWidth
+    el.style.width = ''
+    el.style.setProperty('--chip-scale', String(chipLabelFitScale(cellWidth, contentWidth)))
+  }, [label])
+  return <span ref={ref} className={css.chipLabel}>{label}</span>
+}
 
 /** Rail thumbnail carrying its source attachment for the open/remove callbacks. */
 interface ComposerRailItem extends AttachmentRailItem {
@@ -609,7 +658,7 @@ export function InputBar({
             data-invalid={chip.invalid || undefined}
             title={chip.label}
           >
-            <span className={css.chipLabel}>{chip.label}</span>
+            <ChipLabel label={chip.label} />
           </span>,
         )
         cursor = chip.offset + 1 // the placeholder char the chip stands for

@@ -18,6 +18,7 @@ import type { ComposerAttachment } from '../src/client/contract/slots.ts'
 import type { DraftAttachmentId } from '../src/client/input/contract.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
+import { chipLabelFitScale } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -1081,6 +1082,40 @@ describe('decorations', () => {
     expect(shell.snapshot.occurrences).toHaveLength(1)
     // The draft carries exactly one placeholder char where the token was.
     expect(shell.snapshot.draft).toBe('参考 \uFFFC 内容')
+  })
+
+  it('chip label fits itself to the cell: --chip-scale comes from measured widths', () => {
+    // jsdom has no layout: substitute a 56px cell and a 100px label so the
+    // effect exercises the shrink path (56/(100+10) ≈ 0.509).
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({ width: 56 } as DOMRect)
+    const widthSpy = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(100)
+    try {
+      const { view, shell } = bench()
+      act(() => {
+        shell.setDraft('参考 @db 内容')
+        shell.insertReference(
+          { source: 'starhub-asset', ref: 'db', label: '测试环境数据库 (root@39.105.22.67)', clipboardText: '@db' },
+          { start: 3, end: 6, draftRev: shell.snapshot.draftRev },
+        )
+      })
+      const label = view.container.querySelector<HTMLElement>('[data-decoration="chip"] > span')!
+      expect(label.textContent).toBe('测试环境数据库 (root@39.105.22.67)')
+      expect(label.style.getPropertyValue('--chip-scale')).toBe(String(chipLabelFitScale(56, 100)))
+      // The full label still rides the chip tooltip.
+      expect(label.parentElement?.getAttribute('title')).toBe('测试环境数据库 (root@39.105.22.67)')
+    } finally {
+      rectSpy.mockRestore()
+      widthSpy.mockRestore()
+    }
+  })
+
+  it('chipLabelFitScale clamps to the seat above and the floor below', () => {
+    expect(chipLabelFitScale(0, 100)).toBe(0.72) // no cell measurement yet
+    expect(chipLabelFitScale(56, 0)).toBe(0.72) // empty content
+    expect(chipLabelFitScale(56, 40)).toBe(0.72) // short label keeps the design seat
+    expect(chipLabelFitScale(56, 100)).toBeCloseTo(56 / 110)
+    expect(chipLabelFitScale(56, 300)).toBe(0.45) // past the floor: ellipsis takes over
   })
 
   it('a lexicon-matched plain token renders the text-ref mark', () => {
