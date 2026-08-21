@@ -14,6 +14,11 @@
 
 ---
 
+## [0.89.1] - 2026-08-21
+
+### 修复
+- 修复 dsh 运行库构建失败:client-nav 的 git 分支胶囊(GitBranchPill)直接 `import clsx` 却未在 `package.json` 声明依赖,全新检出/CI(`pnpm install --frozen-lockfile`)下 tsc 报 TS2307 `Cannot find module 'clsx'`,导致 `package:dsh-runtime` 构建中断;补声明 `clsx@^2.1.1`(与其余 client 包一致)并同步 lockfile。
+
 ## [0.89.0] - 2026-08-21
 
 ### 已完成

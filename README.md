@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.89.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.89.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -148,6 +148,9 @@
 
 ## 当前版本
 
+### v0.89.1 (2026-08-21)
+- 🐛 修复 dsh 运行库构建失败:client-nav 的 git 分支胶囊(GitBranchPill)直接 `import clsx` 却未在 `package.json` 声明依赖,全新检出/CI(`pnpm install --frozen-lockfile`)下 tsc 报 TS2307 `Cannot find module 'clsx'`,导致 `package:dsh-runtime` 构建中断;补声明 `clsx@^2.1.1`(与其余 client 包一致)并同步 lockfile。
+
 ### v0.89.0 (2026-08-21)
 - 🔧 AI 长期记忆真正接入上下文：新增 host 插件 `@deepseek-ai/dsh-starhub-memory-context`，每个 agent 请求 pre-step 经 `starhub/memory.cards` 桥拉取记忆卡并注入（user + global + 当前工作区文件夹 + 绑定资产），修复「记忆写了却从不出现在上下文」的缺失环节;web 与内嵌 AI 两套 profile 均挂载，2s 超时/失败降级为不注入。
 - 🔧 记忆新增文件夹级作用域：memory 工具 `target: 'folder'`（按会话工作区 cwd 落 `folder:<绝对路径>` scope,2200 字符上限）;「管理记忆」弹窗支持 folder 卡展示与工作区名标签。
@@ -157,11 +160,6 @@
 
 ### v0.87.10 (2026-08-21)
 - 🐛 修复 CI/全新检出下 `npm run build:window` 失败：`starhub-window` 的 `window-shell.css` 经 exports 映射引用 `@deepseek-ai/dsh-client-ui-theme/styles/base.css`（指向未构建的 `lib/` 产物），改为在 Vite alias 中把主题样式子路径指到 `src/styles` 源码，与其余 workspace 包的「源码直编」策略一致。
-
-### v0.87.9 (2026-08-21)
-- 🐛 `@` 资产菜单候选行首新增工具徽标（终端 / 数据库 / Docker / 本机），一眼区分资产属于哪个工具；候选 icon 位支持短文本徽标（不再固定 16px 裁剪）。
-- 🐛 修复输入框内资产引用 chip 名称显示不全、被遮挡的问题：原居中裁剪会把长标签两端切掉只露出中间残段，改为按占位格宽度自动缩放（0.72 基准、0.45 下限），超出后从头保留、末尾省略，完整名称经 tooltip 展示。
-- 🐛 数据库与 Docker 工作台对齐 SSH 终端视觉风格（深色背景、58px 顶栏、42px 标签栏、状态点、紧凑图标按钮）;Redis 键树、Dashboard 指标图标、SQL 编辑器与连接对话框多处可用性修复;新增 `bind_asset_context` 域工具（绑定资产上下文但不打开窗口）。
 
 > 最近 3 个版本（完整演进见 [CHANGELOG.md](./CHANGELOG.md)）。
 

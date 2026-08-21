@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.89.0(AI 长期记忆真正接入上下文：新增 host 插件 `@deepseek-ai/dsh-starhub-memory-context`，每个 agent 请求 pre-step 经 `starhub/memory.cards` 桥拉取记忆卡并注入（user + global + 当前工作区文件夹 + 绑定资产），修复「记忆写了却从不出现在上下文」的缺失环节;web 与内嵌 AI 两套 profile 均挂载，2s 超时/失败降级为不注入。) |
+| 当前版本 | v0.89.1(修复 dsh 运行库构建失败:client-nav 的 git 分支胶囊(GitBranchPill)直接 `import clsx` 却未在 `package.json` 声明依赖,全新检出/CI(`pnpm install --frozen-lockfile`)下 tsc 报 TS2307 `Cannot find module 'clsx'`,导致 `package:dsh-runtime` 构建中断;补声明 `clsx@^2.1.1`(与其余 client 包一致)并同步 lockfile。) |
 
 ---
 
@@ -463,4 +463,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-21 (v0.89.0)*
+*最后更新: 2026-08-21 (v0.89.1)*
