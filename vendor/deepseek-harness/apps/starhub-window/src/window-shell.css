@@ -24,3 +24,8 @@ button, input, textarea, select {
   gap: 12px;
   text-align: center;
 }
+
+/* Tauri supplies the window close control; hide duplicated workbench header actions. */
+.standalone-workbench :is([aria-label="关闭 SSH 工作区"], [aria-label="关闭工作区"], .closeButton, .closeBtn) {
+  display: none;
+}

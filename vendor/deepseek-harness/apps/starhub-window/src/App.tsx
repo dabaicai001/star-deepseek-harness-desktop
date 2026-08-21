@@ -114,7 +114,7 @@ export function WindowShell() {
 
   if (state.kind === 'ready') {
     return (
-      <div className="window-frame">
+      <div className="window-frame standalone-workbench">
         <WorkbenchErrorBoundary>{renderWorkbench(state.asset, state.workbench)}</WorkbenchErrorBoundary>
       </div>
     )

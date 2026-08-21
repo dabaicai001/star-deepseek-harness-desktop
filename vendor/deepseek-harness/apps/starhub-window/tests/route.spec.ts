@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { parseWindowParams, workbenchForRouteName, isWindowWorkbench, workbenchForAsset } from '../src/route.ts'
 import type { RustAsset } from '@deepseek-ai/dsh-starhub-client-nav/src/client/store.ts'
 
@@ -56,6 +58,16 @@ describe('isWindowWorkbench', () => {
     expect(isWindowWorkbench('nope')).toBe(false)
     expect(isWindowWorkbench(null)).toBe(false)
     expect(isWindowWorkbench(undefined)).toBe(false)
+  })
+})
+
+describe('standalone workbench chrome', () => {
+  it('hides duplicate in-page close controls under the standalone shell', () => {
+    const cssPath = fileURLToPath(new URL('../src/window-shell.css', import.meta.url))
+    const css = readFileSync(cssPath, 'utf8')
+    expect(css).toContain('.standalone-workbench')
+    expect(css).toContain('[aria-label="关闭 SSH 工作区"]')
+    expect(css).toContain('[aria-label="关闭工作区"]')
   })
 })
 

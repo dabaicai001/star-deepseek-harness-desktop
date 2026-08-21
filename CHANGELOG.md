@@ -14,6 +14,17 @@
 
 ---
 
+## [0.87.6] - 2026-08-20
+
+### 修复
+- 独立资产窗口由 Tauri 标题栏提供唯一的关闭入口，隐藏 SSH、数据库、Docker、Redis 与 Elasticsearch 工作台顶部重复的页面关闭按钮。
+
+### 验证
+- `apps/starhub-window/tests/route.spec.ts` 通过。
+- `npm run build:window` 通过。
+
+---
+
 ## [0.87.5] - 2026-08-20
 
 ### 修复
