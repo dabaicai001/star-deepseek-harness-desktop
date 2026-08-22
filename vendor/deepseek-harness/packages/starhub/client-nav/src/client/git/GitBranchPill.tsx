@@ -1,6 +1,7 @@
 /**
  * 会话头部「git 分支胶囊」(2026-08-21):显示当前会话工作区(会话 cwd)的
- * git 分支;点击展开面板——搜索/切换分支、暂存全部并提交、推送。
+ * git 分支;点击展开面板——搜索/切换分支(本地 + 远程跟踪分支,远程分支点击
+ * 拉取为本地跟踪分支)、同步远程引用(fetch)、拉取(pull)、暂存全部并提交、推送。
  *
  * 数据源:会话 cwd 经框架 `useSessions` 读取;git 状态经 Tauri
  * `local_shell_exec`(git-service.ts)在挂载/面板打开/操作完成后刷新。
@@ -14,11 +15,20 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import css from './GitBranchPill.module.css'
 import {
-  gitCheckout, gitCommitAll, gitCurrentBranch, gitDraftCommitMessage, gitIsDirty, gitListBranches, gitPush,
+  gitCheckout, gitCheckoutRemote, gitCommitAll, gitCurrentBranch, gitDraftCommitMessage, gitFetch,
+  gitIsDirty, gitListBranches, gitListRemoteBranches, gitPull, gitPush,
 } from './git-service.ts'
 
 /** Full composed props: header-actions runtime share(sessionId + useSessions)。 */
 export type GitBranchPillProps = PropsRuntime<'conversation.session.header.actions'>
+
+/** 面板一次刷新的数据源:本地分支 + 远程跟踪分支 + 脏标记。 */
+async function loadPanelState(dir: string): Promise<{ local: string[]; remote: string[]; dirty: boolean }> {
+  const [local, remote, dirty] = await Promise.all([
+    gitListBranches(dir), gitListRemoteBranches(dir), gitIsDirty(dir),
+  ])
+  return { local, remote, dirty }
+}
 
 /**
  * 渲染分支胶囊与操作面板。
@@ -30,6 +40,7 @@ export function GitBranchPill({ sessionId, useSessions }: GitBranchPillProps) {
   const [branch, setBranch] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [branches, setBranches] = useState<string[]>([])
+  const [remoteBranches, setRemoteBranches] = useState<string[]>([])
   const [filter, setFilter] = useState('')
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState('')
@@ -67,9 +78,10 @@ export function GitBranchPill({ sessionId, useSessions }: GitBranchPillProps) {
     setNotice(null)
     setFilter('')
     if (cwd === undefined) return
-    const [list, isDirty] = await Promise.all([gitListBranches(cwd), gitIsDirty(cwd)])
-    setBranches(list)
-    setDirty(isDirty)
+    const state = await loadPanelState(cwd)
+    setBranches(state.local)
+    setRemoteBranches(state.remote)
+    setDirty(state.dirty)
   }
 
   const run = async (dir: string, label: string, action: () => Promise<{ ok: boolean; stdout: string; stderr: string }>) => {
@@ -81,9 +93,10 @@ export function GitBranchPill({ sessionId, useSessions }: GitBranchPillProps) {
     if (result.ok) {
       setNotice({ kind: 'ok', text: result.stdout === '' ? `${label}完成` : result.stdout.split('\n')[0] ?? `${label}完成` })
       await refreshBranch(dir)
-      const [list, isDirty] = await Promise.all([gitListBranches(dir), gitIsDirty(dir)])
-      setBranches(list)
-      setDirty(isDirty)
+      const state = await loadPanelState(dir)
+      setBranches(state.local)
+      setRemoteBranches(state.remote)
+      setDirty(state.dirty)
     } else {
       setNotice({ kind: 'error', text: result.stderr || `${label}失败` })
     }
@@ -94,11 +107,28 @@ export function GitBranchPill({ sessionId, useSessions }: GitBranchPillProps) {
     void run(cwd, `切换到 ${target}`, () => gitCheckout(cwd, target))
   }
 
+  // 远程分支「拉取到本地」:无本地同名分支时创建跟踪分支并切换。
+  const onCheckoutRemote = (remoteRef: string) => {
+    if (cwd === undefined) return
+    const local = remoteRef.slice(remoteRef.indexOf('/') + 1)
+    void run(cwd, `拉取 ${remoteRef}`, () => gitCheckoutRemote(cwd, remoteRef, branches.includes(local)))
+  }
+
+  const onFetch = () => {
+    if (cwd === undefined) return
+    void run(cwd, '同步远程', () => gitFetch(cwd))
+  }
+
   const onCommit = () => {
     const message = commitMessage.trim()
     if (message === '') { setNotice({ kind: 'error', text: '提交信息不能为空' }); return }
     if (cwd === undefined) return
     void run(cwd, '提交', () => gitCommitAll(cwd, message)).then(() => { setCommitMessage('') })
+  }
+
+  const onPull = () => {
+    if (cwd === undefined) return
+    void run(cwd, '拉取', () => gitPull(cwd))
   }
 
   const onPush = () => {
@@ -122,9 +152,12 @@ export function GitBranchPill({ sessionId, useSessions }: GitBranchPillProps) {
   }
 
   if (branch === null || cwd === undefined) return null
-  const visible = filter === ''
-    ? branches
-    : branches.filter(name => name.toLowerCase().includes(filter.toLowerCase()))
+  const matches = (name: string) => filter === '' || name.toLowerCase().includes(filter.toLowerCase())
+  const visibleLocal = branches.filter(matches)
+  // 本地已有同名分支的远程引用不重复列出(切本地分支即等价)。
+  const visibleRemote = remoteBranches
+    .filter(ref => !branches.includes(ref.slice(ref.indexOf('/') + 1)))
+    .filter(matches)
 
   return (
     <div ref={rootRef} className={css.root}>
@@ -148,7 +181,7 @@ export function GitBranchPill({ sessionId, useSessions }: GitBranchPillProps) {
             onChange={(ev) => { setFilter(ev.target.value) }}
           />
           <div className={css.branchList} role="listbox" aria-label="分支列表">
-            {visible.map(name => (
+            {visibleLocal.map(name => (
               <button
                 key={name}
                 type="button"
@@ -163,7 +196,25 @@ export function GitBranchPill({ sessionId, useSessions }: GitBranchPillProps) {
                 {name === branch && <span className={css.currentTag}>当前</span>}
               </button>
             ))}
-            {visible.length === 0 && <div className={css.empty}>无匹配分支</div>}
+            {visibleRemote.length > 0 && <div className={css.groupLabel}>远程(点击拉取到本地)</div>}
+            {visibleRemote.map(ref => (
+              <button
+                key={ref}
+                type="button"
+                role="option"
+                aria-selected={false}
+                className={clsx(css.branchRow, css.branchRowRemote)}
+                disabled={busy !== ''}
+                title={`拉取 ${ref} 为本地跟踪分支`}
+                onClick={() => { onCheckoutRemote(ref) }}
+              >
+                <IconBranchOutline16 size={12} />
+                <span className={css.branchRowName}>{ref}</span>
+              </button>
+            ))}
+            {visibleLocal.length === 0 && visibleRemote.length === 0 && (
+              <div className={css.empty}>无匹配分支</div>
+            )}
           </div>
           <div className={css.commitRow}>
             <input
@@ -196,12 +247,31 @@ export function GitBranchPill({ sessionId, useSessions }: GitBranchPillProps) {
               type="button"
               className={css.actionBtn}
               disabled={busy !== ''}
+              title="git fetch --all --prune:同步远程分支列表"
+              onClick={onFetch}
+            >
+              {busy === '同步远程' ? '同步中…' : '同步远程'}
+            </button>
+            <button
+              type="button"
+              className={css.actionBtn}
+              disabled={busy !== ''}
+              onClick={onPull}
+            >
+              {busy === '拉取' ? '拉取中…' : '拉取(git pull)'}
+            </button>
+            <button
+              type="button"
+              className={css.actionBtn}
+              disabled={busy !== ''}
               onClick={onPush}
             >
               {busy === '推送' ? '推送中…' : '推送(git push)'}
             </button>
-            {busy !== '' && busy !== '推送' && <span className={css.busyText}>{busy}中…</span>}
           </div>
+          {busy !== '' && !['同步远程', '拉取', '推送', '生成'].includes(busy) && (
+            <div className={css.busyText}>{busy}中…</div>
+          )}
           {notice !== null && (
             <div className={clsx(css.notice, notice.kind === 'error' ? css.noticeError : css.noticeOk)}>
               {notice.text}

@@ -3,6 +3,11 @@
 .root {
   position: relative;
   display: inline-flex;
+  /* 自建堆叠上下文并压过会话列的粘性 composer(z-index 7)与回到底部按钮
+     (z-index 8):胶囊在会话头部,面板向下展开会越过消息流一直延伸到
+     composer 区域,不给根一个高于 8 的层级时面板尾部会被 composer 的
+     渐变遮罩盖住(分支行看似「被遮挡」)。 */
+  z-index: 9;
 }
 
 .pill {
@@ -49,7 +54,12 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: 280px;
+  /* 宽度要容下「同步远程 / 拉取(git pull) / 推送(git push)」三个操作按钮
+     各居一行不折行;同时以视口为界,避免窄窗口向左溢出被裁。 */
+  width: min(340px, calc(100vw - 48px));
+  /* 面板整体限高在视口内(胶囊恒在会话头部,距窗口顶约 60px,留足余量),
+     超出时只让分支列表滚动,提交/拉取/推送行始终可见可点。 */
+  max-height: calc(100vh - 96px);
   padding: 10px;
   border: 1px solid var(--dsw-alias-border-inverted);
   border-radius: 10px;
@@ -76,9 +86,32 @@
 
 .branchList {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  max-height: 200px;
+  /* 面板限高内唯一的伸缩滚动区:分支多时压缩列表而不是把底部操作行挤出视口。 */
+  min-height: 0;
+  max-height: 240px;
   overflow-y: auto;
+}
+
+.groupLabel {
+  flex: none;
+  padding: 6px 6px 2px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+.branchRowRemote {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 限高面板内只有分支列表允许伸缩,其余行保持自然高度不被压缩。 */
+.panel > .search,
+.commitRow,
+.actionRow,
+.notice,
+.busyText {
+  flex: none;
 }
 
 .branchRow {
@@ -138,6 +171,20 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.actionRow .actionBtn {
+  /* 三个同步按钮均分行宽,文案(同步远程/拉取(git pull)/推送(git push))
+     永不折行——窄面板里折行会把文字挤出按钮。 */
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.commitRow .actionBtn {
+  flex: none;
+  white-space: nowrap;
 }
 
 .actionBtn {

@@ -186,4 +186,48 @@ describe('GitBranchPill', () => {
     expect(await screen.findByText(/没有改动/)).toBeTruthy()
     expect(vi.mocked(fetch)).not.toHaveBeenCalled()
   })
+
+  it('lists remote-only branches and pulls one into a local tracking branch', async () => {
+    const stub = stubGit({
+      'git branch --show-current': ok('main'),
+      'git branch "--format=%(refname:short)"': ok('main\nfeat/local'),
+      'git branch -r "--format=%(refname:short)"': ok('origin/main\norigin/feat/remote-only\norigin/feat/local\norigin/HEAD'),
+      'git status --porcelain': ok(''),
+      'git checkout': ok("Switched to a new branch 'feat/remote-only'"),
+    })
+    restore = stub.restore
+    render(<GitBranchPill {...pillProps(CWD)} />)
+    fireEvent.click(await screen.findByRole('button', { name: /main/ }))
+
+    // 本地已有同名分支的 origin/feat/local 与 symbolic origin/HEAD 不列出
+    const remoteRow = await screen.findByRole('option', { name: /origin\/feat\/remote-only/ })
+    expect(screen.queryByRole('option', { name: /origin\/feat\/local/ })).toBeNull()
+    expect(screen.queryByRole('option', { name: /origin\/HEAD/ })).toBeNull()
+
+    fireEvent.click(remoteRow)
+    await act(async () => {})
+    expect(stub.calls).toContain("git checkout -b 'feat/remote-only' --track 'origin/feat/remote-only'")
+  })
+
+  it('syncs remote refs and pulls the current branch', async () => {
+    const stub = stubGit({
+      'git branch --show-current': ok('main'),
+      'git branch "--format=%(refname:short)"': ok('main'),
+      'git status --porcelain': ok(''),
+      'git fetch --all --prune': ok('Fetching origin'),
+      'git pull': ok('Already up to date.'),
+    })
+    restore = stub.restore
+    render(<GitBranchPill {...pillProps(CWD)} />)
+    fireEvent.click(await screen.findByRole('button', { name: /main/ }))
+
+    fireEvent.click(await screen.findByRole('button', { name: /同步远程/ }))
+    await act(async () => {})
+    expect(stub.calls).toContain('git fetch --all --prune')
+
+    fireEvent.click(screen.getByRole('button', { name: /拉取\(git pull\)/ }))
+    await act(async () => {})
+    expect(stub.calls).toContain('git pull')
+    expect(await screen.findByText('Already up to date.')).toBeTruthy()
+  })
 })

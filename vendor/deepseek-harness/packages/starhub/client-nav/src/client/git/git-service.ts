@@ -78,6 +78,41 @@ export async function gitListBranches(cwd: string): Promise<string[]> {
 }
 
 /**
+ * 列远程跟踪分支名(`origin/xxx`;只读本地 refs,不联网,同步用 gitFetch)。
+ * @param cwd - 会话工作区绝对路径。
+ * @returns 远程分支列表(过滤 symbolic `origin/HEAD`);失败返回空数组。
+ */
+export async function gitListRemoteBranches(cwd: string): Promise<string[]> {
+  const result = await runGit(cwd, 'git branch -r "--format=%(refname:short)"')
+  if (!result.ok) return []
+  return result.stdout.split('\n').map(line => line.trim())
+    .filter(line => line !== '' && !line.endsWith('/HEAD'))
+}
+
+/**
+ * 同步远程引用(git fetch --all --prune,网络操作超时 120s)。
+ * @param cwd - 会话工作区绝对路径。
+ * @returns 简化结果。
+ */
+export function gitFetch(cwd: string): Promise<GitOutcome> {
+  return runGit(cwd, 'git fetch --all --prune', 120)
+}
+
+/**
+ * 把远程分支拉取到本地:创建同名本地跟踪分支并切换
+ * (git checkout -b <名> --track <远程引用>)。本地已存在同名分支时退化为普通切换。
+ * @param cwd - 会话工作区绝对路径。
+ * @param remoteRef - 远程引用(如 `origin/feat/x`,来自 gitListRemoteBranches)。
+ * @param localExists - 本地是否已有同名分支(有则直接 checkout,避免 -b 冲突报错)。
+ * @returns 简化结果。
+ */
+export function gitCheckoutRemote(cwd: string, remoteRef: string, localExists: boolean): Promise<GitOutcome> {
+  const local = remoteRef.slice(remoteRef.indexOf('/') + 1)
+  if (localExists) return runGit(cwd, `git checkout ${psQuote(local)}`)
+  return runGit(cwd, `git checkout -b ${psQuote(local)} --track ${psQuote(remoteRef)}`)
+}
+
+/**
  * 工作区是否有未提交改动(切换分支前的提示依据)。
  * @param cwd - 会话工作区绝对路径。
  * @returns true = 有改动;命令失败按 false 处理(不阻塞操作)。
@@ -116,6 +151,15 @@ export async function gitCommitAll(cwd: string, message: string): Promise<GitOut
  */
 export function gitPush(cwd: string): Promise<GitOutcome> {
   return runGit(cwd, 'git push', 120)
+}
+
+/**
+ * 拉取当前分支(git pull,网络操作超时 120s)。
+ * @param cwd - 会话工作区绝对路径。
+ * @returns 简化结果。
+ */
+export function gitPull(cwd: string): Promise<GitOutcome> {
+  return runGit(cwd, 'git pull', 120)
 }
 
 /** AI 生成提交信息的 host 端点(dsh-starhub-commit-message 插件注册)。 */
