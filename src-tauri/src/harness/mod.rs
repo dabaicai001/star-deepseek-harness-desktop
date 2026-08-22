@@ -83,6 +83,10 @@ pub const BIND_ASSET_METHOD: &str = "starhub/bind.asset";
 /// 长期记忆卡拉取:`{ scopes, sessionId? }` → `{ cards }`(memory-context 插件
 /// pre-step 注入用;sessionId 用于沿 subagent 父链解析资产绑定追加 asset 卡)。
 pub const MEMORY_CARDS_METHOD: &str = "starhub/memory.cards";
+/// 长期记忆写入(2026-08-22,memory-sink 沉淀路径):`{ scope, content }` → `{ row }`
+/// (memory-sink 钩子 agent/turn-stopping 后调一次 LLM 抽取本轮持久事实,
+/// 落 ai_memories;UI 不直接走它,UI 仍走 `ai_memory_add` Tauri command 经 approval 门)。
+pub const MEMORY_WRITE_METHOD: &str = "starhub/memory.write";
 // §3 Tauri 事件(Rust → 前端)。
 /// 领域事件广播(全部窗口)。
 pub const DOMAIN_EVENT_EVENT: &str = "starhub://domain-event";
@@ -889,6 +893,7 @@ pub(crate) async fn handle_inbound_request(
             .map_err(InboundError::Failed),
         LIVE_SNAPSHOT_METHOD => handle_live_snapshot(bridge).await,
         MEMORY_CARDS_METHOD => handle_memory_cards(params, bridge).await,
+        MEMORY_WRITE_METHOD => handle_memory_write(params, bridge).await,
         BIND_ASSET_METHOD => handle_bind_asset(params, bridge).await,
         OPEN_ASSET_METHOD => handle_open_asset(params, bridge, false).await,
         FOCUS_TOOL_METHOD => handle_open_asset(params, bridge, true).await,
@@ -983,6 +988,40 @@ async fn handle_memory_cards(
         .await
         .map_err(|error| InboundError::Failed(format!("读取记忆卡失败: {error}")))?;
     Ok(serde_json::json!({ "cards": cards }))
+}
+
+/// `starhub/memory.write`(2026-08-22,memory-sink 自动沉淀路径):
+/// `memory-sink` 钩子在 `agent/turn-stopping` 后调 LLM 抽本轮持久事实,
+/// 再调本方法落 ai_memories。`scope` 取 `user` / `global` / `folder:<path>` /
+/// `asset:<id>`,空内容或超长直接报 Failed(由 memory-sink 自行回退)。
+/// 不写 audit(避免后台高频沉淀污染审计面板);`memory_add` 命令(UI 直调)
+/// 路径仍走 approval-bridge 与 audit,与本路径解耦。
+async fn handle_memory_write(
+    params: serde_json::Value,
+    _bridge: Arc<HostBridgeState>,
+) -> Result<serde_json::Value, InboundError> {
+    let scope = params
+        .get("scope")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| InboundError::Failed(format!("{MEMORY_WRITE_METHOD} 缺少 scope")))?;
+    let content = params
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| InboundError::Failed(format!("{MEMORY_WRITE_METHOD} 缺少 content")))?;
+    let pool = crate::db::get_pool().map_err(InboundError::Failed)?;
+    let row = crate::commands::ai_memory::add_memory(pool, scope, content)
+        .await
+        .map_err(|error| {
+            // Rust 侧 add_memory 失败原因含 [FULL] / [DUPLICATE] / [AMBIGUOUS] /
+            // [NOMATCH] / 容量上限 / DB 错;原样上抛,前端(memory-sink)解析后
+            // 当轮合并重试或忽略。
+            InboundError::Failed(error)
+        })?;
+    Ok(serde_json::json!({ "row": row }))
 }
 
 /// 从 SQLite 资产表解析真实资产类型。UI 工具名不能作为域工具路由类型。
