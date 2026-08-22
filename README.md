@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.92.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.92.1-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -148,6 +148,21 @@
 
 ## 当前版本
 
+### v0.92.1 (2026-08-22)
+- ✨ 产物行「+ N 个文件」改为打开右侧贴边 drawer(撤回 v0.91.0 行内展开):按新增/修改分组列出本轮全部变更文件(完整路径 + +/- 行数),分组标题可折叠,行点击走与徽章相同的壳内查看窗优先打开器;Esc / 遮罩 / × 三种方式关闭且焦点回到「+ N」按钮;「在文件夹中显示」移入 drawer 底栏(loopback + `canOpenPath` 门禁不变);v0.91.0 的 `.list` / `.collapse` / `.listRow` / 新增修改标记等行内展开代码与样式全部删除。
+- 🐛 修复 v0.92.0 打包构建失败:`settings-tabs.client.spec.tsx` 残留未使用的 `waitFor` import(tsc TS6133,`package-dsh-runtime` build 中断)。
+- 🐛 修复「启用长期记忆」host 侧门禁与 v0.92.0「默认关」策略相反:memory-context pre-step 在 namespace 未写过时按开启处理(默认注入记忆卡),改为 explicit-true(未写过 = 关闭),与设置面板默认值一致;同步修正 memory-context / memory-sink / client-nav 三处「未写过视为开启」的过期注释与 README。
+- 🐛 修复 memory-sink LLM 抽取的 abort 竞态:已中止 signal 在 `Promise.race` 中会输给立即 resolve 的 generate(abortPromise 的拒绝反应排在 generate 已完成微任务之后),改为调用 generate 前检查 `signal.aborted`。
+- 🐛 修复 dsh 源面解析缺口:`tsconfig.base.json` 缺 `dsh-starhub-commit-message` / `dsh-starhub-memory-context` / `dsh-starhub-memory-sink` 三个显式映射(连字符包名越过 `dsh-*` wildcard 的单捕获),vitest 此前把 `@deepseek-ai/dsh-starhub-memory-context` 静默解析到过期构建产物(lib);并补 `memory-sink/tsconfig.json` 对 memory-context 的 project reference。
+- ✅ `memory-context` / `memory-sink` 两包补齐至 per-file 100% 覆盖率门禁:`isAutoReviewEnabled` 默认关语义、cardTitle global/未知 scope 兜底、pull/写入/抽取三路超时降级、pre-step 与 turn-stopping 钩子、`wireLlmExtractor` 全分支、invariant 伴生注册。
+- ✅ client-nav 设置相关文件(`ai.tsx` / `aiSettings.ts` / `memory-context.ts`)补至 100%:api 在场时两个记忆开关同步 host namespace、同步拒绝静默、folder scope 标签文案。
+- ✅ ui-deliverables 新增 drawer 规格 7 例(分组/打开器/三种关闭/折叠/底栏门禁/焦点),数据派生补 1 例(diff 空文本行数、diffs 缺省时 locations 兜底),全包 100%。
+
+### v0.92.0 (2026-08-22)
+- ✨ AI 长期记忆自动沉淀:新增 host 包 `@deepseek-ai/dsh-starhub-memory-sink`,agent 回合结束(turn-stopping)后调一次独立 LLM 抽取当轮持久事实,经新增反向 RPC `starhub/memory.write` 写入 ai_memories(folder:<cwd> 或 global scope)。
+- 🔧 「启用长期记忆」与「自动沉淀记忆」两开关默认关闭:需在设置 → AI 助手显式打开后才有记忆预读注入或自动沉淀。
+- 🔧 「管理记忆」弹窗在纯浏览器会话(:3085)也可打开,IPC 失败以错误文本展示,不再整体禁用。
+
 ### v0.91.0 (2026-08-22)
 - 🔧 AI 产物点击改为壳内查看窗优先:每轮末尾的产物文件行(ProducedFiles 徽章)与收尾正文里的行内代码文件提及(chatFileMentions)改为走与 Read/Edit 工具卡同一 `viewFile` 通道(`{ kind: 'read' }`),查看服务缺失(纯 dsh web)时退回 OS 默认打开;同时修复 chat view 的 `viewFile` 注入未按会话 cwd 解析相对路径就交给查看窗的问题(产物/提及多为工作区相对路径,Tauri 直读需要绝对路径)。
 - 🔧 产物行升级为改动文件清单:条目标注「新增/修改」与 +/- 行数估计,点击「+ N 个文件」展开全部产物逐行清单(可逐个壳内查看),产物多时不再只看得到前几个。
@@ -160,19 +175,6 @@
 - 🔧 修复 Windows 下切换会话/工作区时闪出系统终端黑窗:`local_shell_exec` 在 Windows 经 `powershell.exe` 跑命令(分支胶囊每次会话切换都会调 git)但未带 `CREATE_NO_WINDOW`,GUI 进程 spawn 控制台子进程即弹窗;为 `local_shell_exec` 及 harness 的 `mklink` junction/诊断 spawn 统一补上 `CREATE_NO_WINDOW`。
 - 🔧 壳内文件查看窗(Read/Edit 工具卡点开)内容区撑满弹窗:共享 `Modal` 的 content/body 现参与拉伸与内部滚动,查看窗调整为近全屏(1080px 宽、视口高减 64px),长文件不再挤在小区域里看。
 - 🔧 设置 → AI 助手「管理记忆」弹窗:多条记忆时列表区独立上下滚动(原 grid 三行模板被错误/空态行挤占且列表无 overflow),弹窗加宽加高、条目排版放宽。
-
-### v0.89.1 (2026-08-21)
-- 🐛 修复 dsh 运行库构建失败:client-nav 的 git 分支胶囊(GitBranchPill)直接 `import clsx` 却未在 `package.json` 声明依赖,全新检出/CI(`pnpm install --frozen-lockfile`)下 tsc 报 TS2307 `Cannot find module 'clsx'`,导致 `package:dsh-runtime` 构建中断;补声明 `clsx@^2.1.1`(与其余 client 包一致)并同步 lockfile。
-
-### v0.89.0 (2026-08-21)
-- 🔧 AI 长期记忆真正接入上下文：新增 host 插件 `@deepseek-ai/dsh-starhub-memory-context`，每个 agent 请求 pre-step 经 `starhub/memory.cards` 桥拉取记忆卡并注入（user + global + 当前工作区文件夹 + 绑定资产），修复「记忆写了却从不出现在上下文」的缺失环节;web 与内嵌 AI 两套 profile 均挂载，2s 超时/失败降级为不注入。
-- 🔧 记忆新增文件夹级作用域：memory 工具 `target: 'folder'`（按会话工作区 cwd 落 `folder:<绝对路径>` scope,2200 字符上限）;「管理记忆」弹窗支持 folder 卡展示与工作区名标签。
-- 🔧 「启用长期记忆」开关真正生效：设置 → AI 助手的开关经 `starhub-memory-context` settings namespace 同步到 host 插件，关闭即完全不注入；启动时按 localStorage 补写一次。
-- 🔧 会话头部新增 git 分支胶囊：显示当前会话工作区分支（含 detached HEAD 与未提交改动圆点），点击开面板可搜索/切换分支、`git add -A`+提交、`git push`；非 git 工作区与浏览器预览不渲染。
-- 🔧 Read/Edit 等工具卡的文件名点击改为壳内查看窗：Read 看当前文件内容,Edit 看「变更前/变更后」左右两栏；AI 运行中只读并提示「AI 运行中只能查看」，空闲时可编辑保存（Edit 右栏按 hunk 应用回最新文件）；查看窗服务缺失时退回 OS 默认打开。
-
-### v0.87.10 (2026-08-21)
-- 🐛 修复 CI/全新检出下 `npm run build:window` 失败：`starhub-window` 的 `window-shell.css` 经 exports 映射引用 `@deepseek-ai/dsh-client-ui-theme/styles/base.css`（指向未构建的 `lib/` 产物），改为在 Vite alias 中把主题样式子路径指到 `src/styles` 源码，与其余 workspace 包的「源码直编」策略一致。
 
 > 最近 3 个版本（完整演进见 [CHANGELOG.md](./CHANGELOG.md)）。
 

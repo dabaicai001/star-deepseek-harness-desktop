@@ -11,7 +11,24 @@
 - Settings 补「代理」「安全」2 个 tab
 - SQL 查询结果可编辑及无主键报错提示（转 K3）
 - 左侧 dsh 会话列表右键「删除」待 dsh host 侧 session.delete RPC 落地后启用(当前置灰,仅归档)
-- 产物「+ N 个文件」展开改右侧侧栏(drawer),按新增/修改分组(v0.91.0 行内展开改回)
+
+## [0.92.1] - 2026-08-22
+
+### 新增
+- 产物行「+ N 个文件」改为打开右侧贴边 drawer(撤回 v0.91.0 行内展开):按新增/修改分组列出本轮全部变更文件(完整路径 + +/- 行数),分组标题可折叠,行点击走与徽章相同的壳内查看窗优先打开器;Esc / 遮罩 / × 三种方式关闭且焦点回到「+ N」按钮;「在文件夹中显示」移入 drawer 底栏(loopback + `canOpenPath` 门禁不变);v0.91.0 的 `.list` / `.collapse` / `.listRow` / 新增修改标记等行内展开代码与样式全部删除。
+
+### 修复
+- 修复 v0.92.0 打包构建失败:`settings-tabs.client.spec.tsx` 残留未使用的 `waitFor` import(tsc TS6133,`package-dsh-runtime` build 中断)。
+- 修复「启用长期记忆」host 侧门禁与 v0.92.0「默认关」策略相反:memory-context pre-step 在 namespace 未写过时按开启处理(默认注入记忆卡),改为 explicit-true(未写过 = 关闭),与设置面板默认值一致;同步修正 memory-context / memory-sink / client-nav 三处「未写过视为开启」的过期注释与 README。
+- 修复 memory-sink LLM 抽取的 abort 竞态:已中止 signal 在 `Promise.race` 中会输给立即 resolve 的 generate(abortPromise 的拒绝反应排在 generate 已完成微任务之后),改为调用 generate 前检查 `signal.aborted`。
+- 修复 dsh 源面解析缺口:`tsconfig.base.json` 缺 `dsh-starhub-commit-message` / `dsh-starhub-memory-context` / `dsh-starhub-memory-sink` 三个显式映射(连字符包名越过 `dsh-*` wildcard 的单捕获),vitest 此前把 `@deepseek-ai/dsh-starhub-memory-context` 静默解析到过期构建产物(lib);并补 `memory-sink/tsconfig.json` 对 memory-context 的 project reference。
+
+### 测试
+- `memory-context` / `memory-sink` 两包补齐至 per-file 100% 覆盖率门禁:`isAutoReviewEnabled` 默认关语义、cardTitle global/未知 scope 兜底、pull/写入/抽取三路超时降级、pre-step 与 turn-stopping 钩子、`wireLlmExtractor` 全分支、invariant 伴生注册。
+- client-nav 设置相关文件(`ai.tsx` / `aiSettings.ts` / `memory-context.ts`)补至 100%:api 在场时两个记忆开关同步 host namespace、同步拒绝静默、folder scope 标签文案。
+- ui-deliverables 新增 drawer 规格 7 例(分组/打开器/三种关闭/折叠/底栏门禁/焦点),数据派生补 1 例(diff 空文本行数、diffs 缺省时 locations 兜底),全包 100%。
+
+---
 
 ## [0.92.0] - 2026-08-22
 
