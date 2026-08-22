@@ -401,15 +401,17 @@ export function apply(ctx: Context): void {
         },
         // 壳内文件查看窗(StarHub client-nav 提供 starhubFileViewer 服务;
         // 未加载时退回 OS 默认打开)。服务在回调内惰性解析,插件晚于本视图
-        // 加载也能生效。
+        // 加载也能生效。查看窗经 Tauri 直读文件,需要绝对路径,与 openFile
+        // 一样先按会话 cwd 解析(产物行/正文提及的多为工作区相对路径)。
         viewFile: (request) => {
+          const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+          const resolved = { ...request, path: resolveWorkspacePath(cwd, request.path) }
           const viewer = ctx.get('starhubFileViewer') as StarHubFileViewerFace | undefined
           if (viewer === undefined) {
-            const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
-            void workspaces.openPath(resolveWorkspacePath(cwd, request.path)).catch(() => {})
+            void workspaces.openPath(resolved.path).catch(() => {})
             return
           }
-          viewer.open({ ...request, sessionId: String(sessionId) })
+          viewer.open({ ...resolved, sessionId: String(sessionId) })
         },
         loadOlder: () => { void scoped.loadOlder() },
         loadImage: attachment => conversation.resolveImage(sessionId, attachment),

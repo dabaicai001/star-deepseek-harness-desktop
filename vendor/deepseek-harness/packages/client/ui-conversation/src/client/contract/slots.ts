@@ -336,6 +336,12 @@ export interface TurnTailOwnerProps {
    * view resolves relative paths against the session cwd).
    */
   openFile: (path: string) => void
+  /**
+   * Open a file in the in-app viewer window (StarHub file-viewer service);
+   * tail registrants prefer it over `openFile` and fall back when undefined
+   * (plain dsh web). Same semantics as {@link ChatNodeOwnerProps.viewFile}.
+   */
+  viewFile?: ((request: FileViewRequest) => void) | undefined
 }
 
 /**

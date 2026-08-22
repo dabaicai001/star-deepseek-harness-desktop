@@ -240,6 +240,18 @@ describe('conversation slot inject API', () => {
     await b.runtime.dispose()
   })
 
+  it('viewFile (chat view face) resolves against session cwd before viewer open / OS fallback', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+    // No starhubFileViewer service in this composition: the in-app viewer is
+    // absent, so the request falls back to the OS open with the resolved path.
+    injected.viewFile?.({ kind: 'read', path: 'out/report.html' })
+    await vi.waitFor(() => {
+      expect(b.runtime.workspaces.calls).toContainEqual({ method: 'openPath', args: ['/proj/out/report.html'] })
+    })
+    await b.runtime.dispose()
+  })
+
   it('routes workspace switching through the runtime owner, carrying the draft', async () => {
     const b = await bench()
     const resident = b.residentApi(ROOT)
