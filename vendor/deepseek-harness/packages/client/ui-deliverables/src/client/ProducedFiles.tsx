@@ -4,8 +4,8 @@
 // prefers the in-app viewer (viewFile, same as the tool rows) and falls back
 // to the Host's own opener on the Host machine when the viewer service is
 // absent. The measured chip lane shows a fitting prefix; the remainder count
-// expands into the full list (every produced file with its change shape:
-// 新增/修改 tag and +/- line estimate from the call's diff).
+// opens the right-edge drawer (ProducedFilesDrawer) listing every produced
+// file grouped by 新增/修改 with its +/- line estimate.
 
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { HostDescriptionSource } from '@deepseek-ai/dsh-client-connection/client'
@@ -13,6 +13,8 @@ import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { basename, type ProducedEntry } from './turn-deliverables.ts'
 import type { NS } from './locales.ts'
+import { Stats } from './ProducedStats.tsx'
+import { ProducedFilesDrawer } from './ProducedFilesDrawer.tsx'
 import css from './ProducedFiles.module.css'
 
 /** At most six chips compete for the one-line summary; every other path stays counted. */
@@ -68,17 +70,6 @@ function moreLabel(t: ProducedFilesProps['t'], count: number): string {
   return count === 1 ? t('produced.moreOne') : t('produced.more', { count: String(count) })
 }
 
-/** +/- line estimate shared by the chips and the expanded list; omitted when unknown. */
-function Stats({ entry }: { entry: ProducedEntry }) {
-  if (entry.added === 0 && entry.removed === 0) return null
-  return (
-    <span className={css.stats}>
-      <span className={css.add}>+{entry.added}</span>
-      <span className={css.del}>-{entry.removed}</span>
-    </span>
-  )
-}
-
 /** Chip body: basename plus the diff estimate; probes measure this exact content. */
 function ChipContent({ entry }: { entry: ProducedEntry }) {
   return (
@@ -105,8 +96,9 @@ export function ProducedFiles({
     : openFile
   const limit = Math.min(entries.length, SHOWN_LIMIT)
   const [shownCount, setShownCount] = useState(limit)
-  const [expanded, setExpanded] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const rowRef = useRef<HTMLDivElement>(null)
+  const moreRef = useRef<HTMLButtonElement>(null)
   const chipProbes = useRef<Array<HTMLButtonElement | null>>([])
   const moreProbe = useRef<HTMLButtonElement>(null)
 
@@ -141,6 +133,12 @@ export function ProducedFiles({
   const visibleCount = Math.min(shownCount, limit)
   const shown = entries.slice(0, visibleCount)
   const hidden = entries.length - shown.length
+  // Closing the drawer returns focus to the remainder button that opened it.
+  const closeDrawer = (): void => {
+    setDrawerOpen(false)
+    /* v8 ignore next -- the remainder button is mounted whenever the drawer can open. */
+    moreRef.current?.focus()
+  }
   return (
     <div className={css.root}>
       <span className={css.label}>{t('produced.label')}</span>
@@ -161,45 +159,26 @@ export function ProducedFiles({
         ))}
         {hidden > 0 && (
           <button
+            ref={moreRef}
             type="button"
             className={css.more}
-            aria-expanded={expanded}
+            aria-haspopup="dialog"
+            aria-expanded={drawerOpen}
             title={t('produced.expand', { count: String(entries.length) })}
-            onClick={() => { setExpanded(value => !value) }}
+            onClick={() => { setDrawerOpen(true) }}
           >
             {moreLabel(t, hidden)}
           </button>
         )}
       </div>
-      {hidden > 0 && canOpenPath && (
-        <button type="button" className={css.showFolder} onClick={() => { openFile('.') }}>
-          {t('produced.showInFolder')}
-        </button>
-      )}
-      {expanded && (
-        <div className={css.list} data-produced-files-list>
-          <div className={css.listHead}>
-            <span>{t('produced.listTitle', { count: String(entries.length) })}</span>
-            <button type="button" className={css.collapse} onClick={() => { setExpanded(false) }}>
-              {t('produced.collapse')}
-            </button>
-          </div>
-          {entries.map(entry => (
-            <button
-              key={entry.path}
-              type="button"
-              className={css.listRow}
-              aria-label={t('produced.open', { name: entry.path })}
-              onClick={() => { open(entry.path) }}
-            >
-              <span className={entry.created ? css.tagCreated : css.tagModified}>
-                {entry.created ? t('produced.created') : t('produced.modified')}
-              </span>
-              <span className={css.listPath}>{entry.path}</span>
-              <Stats entry={entry} />
-            </button>
-          ))}
-        </div>
+      {drawerOpen && (
+        <ProducedFilesDrawer
+          entries={entries}
+          open={open}
+          showInFolder={canOpenPath ? () => { openFile('.') } : undefined}
+          onClose={closeDrawer}
+          t={t}
+        />
       )}
       <div className={css.measure} aria-hidden="true">
         {entries.slice(0, limit).map((entry, index) => (

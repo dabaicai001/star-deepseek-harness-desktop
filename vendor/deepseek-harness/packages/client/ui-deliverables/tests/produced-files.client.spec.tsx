@@ -239,6 +239,26 @@ describe('produced-file Turn data', () => {
     ])
   })
 
+  it('falls back to locations when a diff card omits diffs, and counts an empty text as zero lines', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      call(2, 'fallback', {
+        card: 'diff', title: 'Write lo.ts', diffs: [], locations: [{ path: 'lo.ts' }],
+      }),
+      result(3, 'fallback'),
+      call(4, 'blank', {
+        card: 'diff', title: 'Edit blank.ts',
+        diffs: [{ path: 'blank.ts', oldText: 'a', newText: '' }],
+        locations: [{ path: 'blank.ts' }],
+      }),
+      result(5, 'blank'),
+    ])
+    expect(producedEntriesForClosing(deliverablesOf(value))).toEqual([
+      { seq: 3, path: 'lo.ts', created: false, added: 0, removed: 0 },
+      { seq: 5, path: 'blank.ts', created: false, added: 0, removed: 1 },
+    ])
+  })
+
   it('ignores calls without mutation locations, orphan results, and replacement results', () => {
     const replacement = result(8, 'replacement')
     const value = assembler([
@@ -368,7 +388,7 @@ describe('ProducedFiles row', () => {
         if (this.closest('[aria-hidden="true"]') === null) return rect(0)
         if (this.tagName !== 'BUTTON') return rect(60)
         if (this.textContent === 'a.html' || this.textContent === 'b.css') return rect(50)
-        // The remainder probe is a button now (it expands the full list).
+        // The remainder probe is a button now (it opens the drawer).
         if (this.textContent !== null && this.textContent.includes('个文件')) return rect(60)
         return rect(100)
       })
@@ -380,7 +400,7 @@ describe('ProducedFiles row', () => {
     const row = view.container.querySelector('[data-produced-files-row]')
     if (!(row instanceof HTMLElement)) throw new Error('produced row missing')
     // The third probe is 100px: two chips plus the remainder fit, three do not;
-    // the remainder itself is a button that expands the full list.
+    // the remainder itself is a button that opens the drawer.
     expect(within(row).getAllByRole('button')).toHaveLength(3)
     expect(within(row).getByText('+ 5 个文件')).toBeTruthy()
     const chip = view.getByRole('button', { name: '打开 deep/a.html' })
@@ -390,9 +410,13 @@ describe('ProducedFiles row', () => {
     fireEvent.click(chip)
     expect(openFile).toHaveBeenCalledWith('deep/a.html')
 
+    // The native-folder action moved into the drawer's footer (v0.92.1).
+    fireEvent.click(within(row).getByText('+ 5 个文件'))
     const showFolder = view.getByRole('button', { name: '在文件夹中显示' })
     fireEvent.click(showFolder)
     expect(openFile).toHaveBeenLastCalledWith('.')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(view.queryByRole('dialog')).toBeNull()
 
     available = 150
     act(() => { resize?.([], {} as ResizeObserver) })
@@ -420,7 +444,7 @@ describe('ProducedFiles row', () => {
     bounds.mockRestore()
   })
 
-  it('expands the remainder into the full changed-files list with tags and stats', () => {
+  it('opens the remainder in the right-edge drawer with grouped sections and stats', () => {
     const entries = [
       entryOf('src/new-page.tsx', { created: true, added: 120 }),
       entryOf('src/api.ts', { added: 8, removed: 2 }),
@@ -454,32 +478,37 @@ describe('ProducedFiles row', () => {
         t={t}
       />,
     )
+    // Default form: no inline list container, the drawer stays unmounted.
     const more = view.getByRole('button', { name: '+ 7 个文件' })
     expect(more.getAttribute('aria-expanded')).toBe('false')
-    expect(view.queryByText('本轮改动文件(共 7 个)')).toBeNull()
+    expect(view.queryByRole('dialog')).toBeNull()
 
     fireEvent.click(more)
     expect(more.getAttribute('aria-expanded')).toBe('true')
-    expect(view.getByText('本轮改动文件(共 7 个)')).toBeTruthy()
-    // Every file is listed — shown chips and hidden remainder alike — with its
-    // change-shape tag and the diff +/- estimate (scoped to the list: the
-    // hidden width probes render the same chip content).
-    const list = view.container.querySelector('[data-produced-files-list]')
-    if (!(list instanceof HTMLElement)) throw new Error('produced list missing')
-    const listRows = within(list).getAllByRole('button', { name: /^打开 / })
+    const drawer = view.container.querySelector('[data-produced-files-drawer]')
+    if (!(drawer instanceof HTMLElement)) throw new Error('produced drawer missing')
+    expect(within(drawer).getByText('本轮改动文件(共 7 个)')).toBeTruthy()
+    // Every file is listed — grouped 新增 (1) over 修改 (6) — with the diff
+    // +/- estimate (scoped to the drawer: the hidden width probes render the
+    // same chip content).
+    expect(within(drawer).getByRole('button', { name: '新增(1)' })).toBeTruthy()
+    expect(within(drawer).getByRole('button', { name: '修改(6)' })).toBeTruthy()
+    const listRows = within(drawer).getAllByRole('button', { name: /^打开 / })
     expect(listRows).toHaveLength(7)
-    expect(within(list).getByText('新增')).toBeTruthy()
-    expect(within(list).getAllByText('修改')).toHaveLength(6)
-    expect(within(list).getByText('+120')).toBeTruthy()
-    expect(within(list).getByText('+8')).toBeTruthy()
-    expect(within(list).getByText('-2')).toBeTruthy()
-    // List rows open through the same viewer-first opener as the chips.
-    fireEvent.click(view.getByRole('button', { name: '打开 src/api.ts' }))
+    expect(within(drawer).getByText('+120')).toBeTruthy()
+    expect(within(drawer).getByText('+8')).toBeTruthy()
+    expect(within(drawer).getByText('-2')).toBeTruthy()
+    // Drawer rows open through the same viewer-first opener as the chips, and
+    // opening a file does not close the drawer.
+    fireEvent.click(within(drawer).getByRole('button', { name: '打开 src/api.ts' }))
     expect(viewFile).toHaveBeenCalledWith({ kind: 'read', path: 'src/api.ts' })
     expect(openFile).not.toHaveBeenCalled()
+    expect(view.getByRole('dialog')).toBeTruthy()
 
-    fireEvent.click(view.getByRole('button', { name: '收起' }))
-    expect(view.queryByText('本轮改动文件(共 7 个)')).toBeNull()
+    // The × button closes the drawer and focus returns to the remainder button.
+    fireEvent.click(within(drawer).getByRole('button', { name: '关闭' }))
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(more)
     bounds.mockRestore()
   })
 
@@ -500,17 +529,21 @@ describe('ProducedFiles row', () => {
     expect(openFile).not.toHaveBeenCalled()
   })
 
-  it('keeps the folder action absent without overflow or a local native opener', () => {
+  it('keeps the folder action out of the drawer without overflow or a local native opener', () => {
     const openFile = vi.fn<(path: string) => void>()
     const view = render(
       <ProducedFiles matched={[entryOf('a.md')]} openFile={openFile} {...capability(true)} t={t} />,
     )
     const overflowing = ['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md']
       .map(path => entryOf(path))
-    expect(view.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
+    // No overflow → no remainder button → the drawer (and its footer) is unreachable.
+    expect(view.queryByRole('button', { name: /^\+ \d+ 个文件$/ })).toBeNull()
     for (const unavailable of [capability(false), capability(true, false), capability(undefined)]) {
       view.rerender(<ProducedFiles matched={overflowing} openFile={openFile} {...unavailable} t={t} />)
+      fireEvent.click(view.getByRole('button', { name: /^\+ \d+ 个文件$/ }))
       expect(view.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(view.queryByRole('dialog')).toBeNull()
     }
   })
 
