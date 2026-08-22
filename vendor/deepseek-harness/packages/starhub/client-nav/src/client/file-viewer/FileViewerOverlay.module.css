@@ -1,8 +1,8 @@
 /* 壳内文件查看窗:宽模态 + 左右栏编辑器,全部走 dsw 语义令牌。 */
 
 .viewer {
-  width: min(960px, calc(100vw - 64px));
-  height: min(720px, calc(100vh - 96px));
+  width: min(1080px, calc(100vw - 64px));
+  height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;
 }

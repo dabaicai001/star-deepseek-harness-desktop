@@ -192,7 +192,7 @@ export function AiTab({ api }: { api?: IApiClient }) {
       {memoryDialog && (
         <div className={s.dialogBackdrop} role="presentation" onMouseDown={() => setMemoryDialog(false)}>
           <div
-            className={s.dialogPanel}
+            className={`${s.dialogPanel} ${s.memoryDialogPanel}`}
             role="dialog"
             aria-label="长期记忆管理"
             onMouseDown={(event) => event.stopPropagation()}

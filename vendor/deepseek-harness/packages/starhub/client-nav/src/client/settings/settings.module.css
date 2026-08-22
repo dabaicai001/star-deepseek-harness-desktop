@@ -505,16 +505,34 @@
 
 /* ===== 记忆管理(AI tab 弹窗) ===== */
 
+/* 记忆弹窗:覆盖 dialogPanel 的 grid(三行模板按子节点数对位,错误/空态行
+   会错位)为纵向 flex;更宽更高,中部列表区独占剩余高度并可滚动。 */
+.memoryDialogPanel {
+  display: flex;
+  flex-direction: column;
+  width: min(860px, 100%);
+  max-height: min(860px, calc(100vh - 48px));
+}
+
+.memoryDialogPanel .dialogHead {
+  flex: none;
+}
+
 .memoryGroups {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  /* 中部滚动区:多条记忆时弹窗自身不再被撑爆,列表内部上下滚动。 */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px;
 }
 
 .memoryGroup {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .memoryGroupHeader {
@@ -531,15 +549,16 @@
 .memoryItem {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: 8px;
+  padding: 10px 12px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   background: var(--dsw-alias-bg-layer-1);
 }
 
 .memoryContent {
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.6;
   color: var(--dsw-alias-label-secondary);
   white-space: pre-wrap;
   word-break: break-word;
