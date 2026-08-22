@@ -12,7 +12,11 @@ dsh 对话里的 Read/Edit 工具卡渲染一个文件链接(`ToolRow.tsx` 的 `
 
 `packages/starhub/client-nav` 在 `shell.overlay` 注册 `FileViewerOverlay`(id `starhub-file-viewer`,order 110),并提供跨插件服务 `starhubFileViewer`(一个 `createSnapshotStore` 桥),其 `open` 回调接受 `FileViewRequest`。`viewFile` owner prop 打通入口:ui-tool 的 `ToolCallOwnerProps.viewFile?`(可选)经 `ToolCallTree` 流到 `ToolRow`,文件链接优先走 `onViewFile`,OS 打开 `onOpenFile` 兜底;没有该服务的组合仍保持原行为。请求在工具视图侧构造:read 行发 `{ kind: 'read', path }`,file-mutation 行从 `diffCardModel(block)?.card.diffs` 构造 `{ kind: 'edit', path, diffs }`,`oldText: null` 归一为 `''`。
 
-overlay 经 Tauri `local_read_text_file` 读内容(256 KB 窗口,截断标志以提示条呈现)、`local_write_text_file` 写回。Read 模式显示当前文件内容;Edit 模式渲染左右两栏——变更前与变更后——以 `HUNK_SEPARATOR` 标记相连。编辑与保存以会话空闲为门槛:`useSessions(s => s.byId[target.sessionId]?.running ?? false)` 在运行期间禁用两栏编辑器与保存按钮,并显示「AI 运行中只能查看」横幅。保存 Read 视图直接写回编辑后的内容;保存 Edit 视图按分隔符切分右栏、重读最新文件、把每个 hunk 的 `oldText → newText` 在首次出现处应用(`applyDiffs`),再写回——`oldText` 为空(纯新增)或锚点缺失的 hunk 被拒绝并给出提示。
+overlay 经 Tauri `local_read_text_file` 读内容(256 KB 窗口,截断标志以提示条呈现)、`local_write_text_file` 写回。Read 模式显示当前文件内容;Edit 模式按 hunk 渲染左右两栏——变更前与变更后。编辑与保存以会话空闲为门槛:`useSessions(s => s.byId[target.sessionId]?.running ?? false)` 在运行期间禁用两栏编辑器与保存按钮,并显示「AI 运行中只能查看」横幅。保存 Read 视图直接写回编辑后的内容;保存 Edit 视图按分隔符切分右栏、重读最新文件、把每个 hunk 的 `oldText → newText` 在首次出现处应用(`applyDiffs`),再写回——`oldText` 为空(纯新增)或锚点缺失的 hunk 被拒绝并给出提示。
+
+两栏默认渲染为着色对比(2026-08-22):`diff-lines.ts` 对每个 hunk 做行级 LCS(先掐公共前后缀,20 万单元格预算内用精确 DP,超出退化为中段全标变更),只有真正变更的行带红(-)/绿(+)色块与符号 gutter,两侧共有的行保持无色,hunk 边界以虚线分隔条呈现而不再是分隔线文本。右栏编辑是栏头开关(「编辑」↔「查看对比」):默认看对比,开关把右栏换成纯文本 textarea,切回即按当前草稿重新着色;保存路径不变,仍应用以分隔线相连的草稿。
+
+同一 `viewFile` 货币随后从工具卡延伸到 turn 尾部(2026-08-22):`TurnTailOwnerProps.viewFile?` 把它带给 ui-deliverables,`ProducedFiles` 产物徽章与收尾正文的 `chatFileMentions` 行内代码链接都优先走壳内查看窗(`{ kind: 'read', path }`),OS 打开兜底。查看窗经 Tauri 按原样读路径而产物路径多为工作区相对路径,因此 chat view 的 `viewFile` 注入现在在调 `viewer.open` 前先按会话 cwd 解析 `request.path`(`resolveWorkspacePath`,与 `openFile` 已有的解析一致)——顺带修了相对形态工具参数的潜在问题。
 
 ## Alternatives considered
 

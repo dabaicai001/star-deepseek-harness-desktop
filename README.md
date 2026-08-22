@@ -9,7 +9,7 @@
 数据库客户端 · SSH/SFTP · Docker 面板 · AI 助手 · 原生桌面应用
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.90.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.91.0-cyan)]()
 [![Status](https://img.shields.io/badge/status-active%20development-brightgreen)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/starhub/releases)
@@ -147,6 +147,13 @@
 ---
 
 ## 当前版本
+
+### v0.91.0 (2026-08-22)
+- 🔧 AI 产物点击改为壳内查看窗优先:每轮末尾的产物文件行(ProducedFiles 徽章)与收尾正文里的行内代码文件提及(chatFileMentions)改为走与 Read/Edit 工具卡同一 `viewFile` 通道(`{ kind: 'read' }`),查看服务缺失(纯 dsh web)时退回 OS 默认打开;同时修复 chat view 的 `viewFile` 注入未按会话 cwd 解析相对路径就交给查看窗的问题(产物/提及多为工作区相对路径,Tauri 直读需要绝对路径)。
+- 🔧 产物行升级为改动文件清单:条目标注「新增/修改」与 +/- 行数估计,点击「+ N 个文件」展开全部产物逐行清单(可逐个壳内查看),产物多时不再只看得到前几个。
+- 🔧 壳内文件查看窗「变更前/变更后」红绿色块对比:逐 hunk 行级 diff,变更行带红(-)/绿(+)底色,编辑改为右栏「编辑」开关切换。
+- 🔧 会话头部 git 分支胶囊支持同步线上分支:新增「同步远程」(`git fetch --all --prune`)与「拉取(git pull)」;远程跟踪分支单独成组列出(过滤 `origin/HEAD` 与本地已有同名分支),点击即 `git checkout -b <名> --track` 拉取为本地跟踪分支。
+- 🔧 修复分支胶囊面板遮挡与溢出:胶囊根以 z-index 9 自建堆叠上下文压过粘性 composer 遮罩;面板加宽到 340px 并按视口限高限宽,三个同步按钮均分不换行,仅分支列表滚动。
 
 ### v0.90.0 (2026-08-22)
 - 🔧 会话头部 git 分支胶囊新增「✨ AI」生成提交信息:点击后采集 `git status --porcelain` / `git diff HEAD --stat` / 近期提交主题,经新增 host 插件 `@deepseek-ai/dsh-starhub-commit-message`(POST `/starhub/git/commit-message`,按 GUI 默认模型路由做 one-shot LLM 调用,输入/输出/超时预算走 cordis 配置)返回草稿并回填输入框,确认或编辑后再提交;草稿对齐仓库近期提交的语言与 Conventional Commits 风格。

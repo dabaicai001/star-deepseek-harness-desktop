@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.90.0(会话头部 git 分支胶囊新增「✨ AI」生成提交信息:点击后采集 `git status --porcelain` / `git diff HEAD --stat` / 近期提交主题,经新增 host 插件 `@deepseek-ai/dsh-starhub-commit-message`(POST `/starhub/git/commit-message`,按 GUI 默认模型路由做 one-shot LLM 调用,输入/输出/超时预算走 cordis 配置)返回草稿并回填输入框,确认或编辑后再提交;草稿对齐仓库近期提交的语言与 Conventional Commits 风格。) |
+| 当前版本 | v0.91.0(AI 产物点击改为壳内查看窗优先并修复相对路径解析;产物行升级为可展开的改动文件清单(新增/修改标记 + +/- 行数);查看窗「变更前/变更后」红绿色块对比;git 分支胶囊支持同步/拉取线上分支并修复面板遮挡与按钮折行溢出。) |
 
 ---
 
@@ -463,4 +463,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-22 (v0.90.0)*
+*最后更新: 2026-08-22 (v0.91.0)*

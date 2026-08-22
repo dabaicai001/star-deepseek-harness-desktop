@@ -14,6 +14,8 @@ dsh 会话顶栏暴露两个 list 槽位——`conversation.session.header.actio
 
 git 执行走已授权的 Tauri `local_shell_exec` 命令(`git-service.ts` 包装 `tauriInvoke`):`git branch --show-current` 出胶囊标签(detached HEAD 显示为 `(detached <sha>)`),`git branch --format=%(refname:short)` 出可搜索列表,`git checkout <branch>` 切换,`git add -A` + `git commit -m <message>` 提交,`git push` 用 120 秒超时。未提交改动圆点来自 `git status --porcelain`。PowerShell 单引号转义(`psQuote`)保护分支名与提交信息,首行输出或 stderr 内联展示在面板里。
 
+远程同步随后加入面板(2026-08-22):`git branch -r --format=%(refname:short)` 列出远程跟踪引用(过滤 symbolic `origin/HEAD`,本地已有同名分支的引用不再重复列出),点击执行 `git checkout -b <名> --track <引用>`——即「把线上分支拉取到本地」;`git fetch --all --prune`(「同步远程」)与 `git pull`(「拉取」)补齐同步动词,同样走 120 秒网络超时。同一变更修复了面板遮挡:胶囊根现在以 `z-index: 9` 自建堆叠上下文,压过粘性 composer 座(7)与回到底部按钮(8),下拉尾部不再滑到 composer 渐变遮罩下面;面板按视口限高(`max-height: calc(100vh - 96px)`),分支列表是唯一的伸缩滚动区,提交/拉取/推送行始终可见可点。随后的尺寸修正把面板加宽到 `min(340px, calc(100vw - 48px))`,三个同步按钮改为均分弹性项并 `white-space: nowrap`——280px 时按钮文案(拉取(git pull) 等)在按钮内折行溢出。
+
 ## Alternatives considered
 
 **注册到 `conversation.session.header.utilities`。** utilities 簇右对齐、紧邻 Session log;分支身份属于会话上下文,actions 簇与既有的任务列表/subagent 放置一致,分支名紧贴会话标题更醒目。

@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-会话头部 git 分支胶囊(见[分支胶囊 note](2026-08-21-starhub-session-header-git-branch-pill.zh.md))已支持暂存提交,但提交信息仍需手写。用 AI 起草需要从 web GUI 发起一次 one-shot 模型调用,而客户端没有这样的通道:`IApiClient` 没有辅助 LLM RPC,凭据只在 host 侧;若借道聊天会话则会污染对话,并为一个格式化任务跑完整 agent loop。
+会话头部 git 分支胶囊(见[分支胶囊 note](2026-08-21-starhub-session-header-git-branch-pill.md))已支持暂存提交,但提交信息仍需手写。用 AI 起草需要从 web GUI 发起一次 one-shot 模型调用,而客户端没有这样的通道:`IApiClient` 没有辅助 LLM RPC,凭据只在 host 侧;若借道聊天会话则会污染对话,并为一个格式化任务跑完整 agent loop。
 
 ## 决策
 
