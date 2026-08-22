@@ -116,6 +116,7 @@ const WEB_STATIC_RELS = [
  * 2026-08-18 起壳内会话可调 starhub 工具,starhub-tools / approval-bridge /
  * session-registry / domain-events / live-context 一并入列,
  * 2026-08-21 起 memory-context 入列(pre-step 长期记忆注入),
+ * 2026-08-22 起 commit-message 入列(分支胶囊「AI 生成提交信息」端点),
  * 不入包则 profile 启动时按 fail-loud 拒绝缺失插件。 */
 const WEB_LOCAL_PACKAGE_DIRS = [
   'client-nav',
@@ -127,6 +128,7 @@ const WEB_LOCAL_PACKAGE_DIRS = [
   'domain-events',
   'live-context',
   'memory-context',
+  'commit-message',
 ]
 
 class BuildCli {

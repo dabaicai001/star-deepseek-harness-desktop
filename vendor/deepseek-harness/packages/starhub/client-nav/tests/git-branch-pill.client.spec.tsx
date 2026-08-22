@@ -148,4 +148,42 @@ describe('GitBranchPill', () => {
     expect(stub.calls).toContain('git push')
     expect(await screen.findByText('no upstream')).toBeTruthy()
   })
+
+  it('drafts a commit message with AI and fills the input', async () => {
+    const stub = stubGit({
+      'git branch --show-current': ok('main'),
+      'git branch "--format=%(refname:short)"': ok('main'),
+      'git status --porcelain': ok(' M src/index.ts'),
+      'git diff HEAD --stat': ok(' src/index.ts | 2 +-'),
+      'git log -8 "--pretty=%s"': ok('feat: prior work'),
+    })
+    restore = stub.restore
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ message: 'feat: draft it' }), { status: 200 })))
+    render(<GitBranchPill {...pillProps(CWD)} />)
+    fireEvent.click(await screen.findByRole('button', { name: /main/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /AI/ }))
+    await act(async () => {})
+    const input = await screen.findByPlaceholderText(/提交信息/)
+    expect((input as HTMLInputElement).value).toBe('feat: draft it')
+    expect(stub.calls).toContain('git diff HEAD --stat')
+    expect(stub.calls).toContain('git log -8 "--pretty=%s"')
+  })
+
+  it('surfaces AI draft failures inline and reports clean trees', async () => {
+    const stub = stubGit({
+      'git branch --show-current': ok('main'),
+      'git branch "--format=%(refname:short)"': ok('main'),
+      'git status --porcelain': ok(''),
+      'git diff HEAD --stat': ok(''),
+      'git log -8 "--pretty=%s"': ok(''),
+    })
+    restore = stub.restore
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'provider down' }), { status: 502 })))
+    render(<GitBranchPill {...pillProps(CWD)} />)
+    fireEvent.click(await screen.findByRole('button', { name: /main/ }))
+    // 无改动:不请求端点,直接提示
+    fireEvent.click(await screen.findByRole('button', { name: /AI/ }))
+    expect(await screen.findByText(/没有改动/)).toBeTruthy()
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+  })
 })

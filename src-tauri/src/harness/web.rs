@@ -44,8 +44,10 @@ const CLI_BIN_REL: &str = "apps/cli/lib/bin.js";
 /// tool-context 自 v0.71 起被 examples/starhub-web/cordis.patch.yml 引用;
 /// 2026-08-18 起壳内会话可调 starhub 工具,starhub-tools / approval-bridge /
 /// session-registry / domain-events / live-context 一并入列;
-/// 2026-08-21 起 memory-context 入列(pre-step 长期记忆注入)。
-const LOCAL_PACKAGES: [&str; 9] = [
+/// 2026-08-21 起 memory-context 入列(pre-step 长期记忆注入);
+/// 2026-08-22 起 commit-message 入列(分支胶囊「AI 生成提交信息」的
+/// host 侧 one-shot LLM HTTP 端点)。
+const LOCAL_PACKAGES: [&str; 10] = [
     "client-nav",
     "host-static",
     "tool-context",
@@ -55,6 +57,7 @@ const LOCAL_PACKAGES: [&str; 9] = [
     "domain-events",
     "live-context",
     "memory-context",
+    "commit-message",
 ];
 
 /// 由 `examples/starhub-web/cordis.patch.yml` 的 insert 块直接引用、但**不在**
@@ -596,6 +599,19 @@ fn sync_user_client_plugins(
             }
             if let Err(error) = plugins::create_dir_link(&link, &target) {
                 // 诊断:junction 失败时捕获 cmd stderr(定位权限/路径问题)
+                #[cfg(target_os = "windows")]
+                let diag = {
+                    use std::os::windows::process::CommandExt;
+                    /// CREATE_NO_WINDOW:诊断 spawn 同样不弹可见控制台窗口。
+                    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                    let mut cmd = std::process::Command::new("cmd");
+                    cmd.args(["/C", "mklink", "/J"])
+                        .arg(&link)
+                        .arg(&target)
+                        .creation_flags(CREATE_NO_WINDOW);
+                    cmd.output()
+                };
+                #[cfg(not(target_os = "windows"))]
                 let diag = std::process::Command::new("cmd")
                     .args(["/C", "mklink", "/J"])
                     .arg(&link)

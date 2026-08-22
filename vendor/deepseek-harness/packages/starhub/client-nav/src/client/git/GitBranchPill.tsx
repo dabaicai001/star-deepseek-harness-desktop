@@ -14,7 +14,7 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import css from './GitBranchPill.module.css'
 import {
-  gitCheckout, gitCommitAll, gitCurrentBranch, gitIsDirty, gitListBranches, gitPush,
+  gitCheckout, gitCommitAll, gitCurrentBranch, gitDraftCommitMessage, gitIsDirty, gitListBranches, gitPush,
 } from './git-service.ts'
 
 /** Full composed props: header-actions runtime share(sessionId + useSessions)。 */
@@ -106,6 +106,21 @@ export function GitBranchPill({ sessionId, useSessions }: GitBranchPillProps) {
     void run(cwd, '推送', () => gitPush(cwd))
   }
 
+  // AI 生成提交信息(2026-08-22):采集 status/diffstat/近期提交主题,经 host
+  // 端点(dsh-starhub-commit-message)做 one-shot LLM 调用,草稿回填输入框,
+  // 用户确认/编辑后再点「提交」。
+  const onAiDraft = () => {
+    if (busy !== '' || cwd === undefined) return
+    setBusy('生成')
+    setNotice(null)
+    void gitDraftCommitMessage(cwd)
+      .then((result) => {
+        if (result.ok) setCommitMessage(result.message)
+        else setNotice({ kind: 'error', text: result.error })
+      })
+      .finally(() => { setBusy('') })
+  }
+
   if (branch === null || cwd === undefined) return null
   const visible = filter === ''
     ? branches
@@ -158,6 +173,15 @@ export function GitBranchPill({ sessionId, useSessions }: GitBranchPillProps) {
               onChange={(ev) => { setCommitMessage(ev.target.value) }}
               onKeyDown={(ev) => { if (ev.key === 'Enter') onCommit() }}
             />
+            <button
+              type="button"
+              className={css.actionBtn}
+              disabled={busy !== ''}
+              title="AI 根据工作区改动生成提交信息草稿"
+              onClick={onAiDraft}
+            >
+              {busy === '生成' ? '生成中…' : '✨ AI'}
+            </button>
             <button
               type="button"
               className={css.actionBtn}

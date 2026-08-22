@@ -117,3 +117,67 @@ export async function gitCommitAll(cwd: string, message: string): Promise<GitOut
 export function gitPush(cwd: string): Promise<GitOutcome> {
   return runGit(cwd, 'git push', 120)
 }
+
+/** AI 生成提交信息的 host 端点(dsh-starhub-commit-message 插件注册)。 */
+export const COMMIT_MESSAGE_ENDPOINT = '/starhub/git/commit-message'
+
+/** AI 草稿结果:成功带 message,失败带 error。 */
+export interface GitDraftOutcome {
+  readonly ok: boolean
+  readonly message: string
+  readonly error: string
+}
+
+/** 变更摘要截断上限(host 端 maxInputBytes 16KB,客户端留足余量)。 */
+const DRAFT_STATUS_LIMIT = 8 * 1024
+const DRAFT_STAT_LIMIT = 4 * 1024
+
+/** 按字符上限截断并标注(超限部分对草稿质量影响不大)。 */
+function clip(text: string, limit: number): string {
+  return text.length <= limit ? text : `${text.slice(0, limit)}\n…(截断)`
+}
+
+/**
+ * 采集工作区变更摘要(status + diffstat + 近期提交主题),请求 host 端点
+ * 生成草稿提交信息。非 git 仓库/无改动/端点不可用都转为 ok:false。
+ * @param cwd - 会话工作区绝对路径。
+ * @returns 草稿结果;浏览器预览(无 Tauri IPC)在 status 一步即失败。
+ */
+export async function gitDraftCommitMessage(cwd: string): Promise<GitDraftOutcome> {
+  const fail = (error: string): GitDraftOutcome => ({ ok: false, message: '', error })
+  const [status, diffHead, log] = await Promise.all([
+    runGit(cwd, 'git status --porcelain'),
+    runGit(cwd, 'git diff HEAD --stat'),
+    runGit(cwd, 'git log -8 "--pretty=%s"'),
+  ])
+  if (!status.ok) return fail(status.stderr || '读取工作区状态失败')
+  if (status.stdout === '') return fail('工作区没有改动,无可提交的变更')
+  // 新仓库尚无 HEAD 时 diff HEAD 失败,回落到未暂存 diff(新文件由 status 覆盖)。
+  const stat = diffHead.ok ? diffHead.stdout : (await runGit(cwd, 'git diff --stat')).stdout
+  const recentSubjects = log.ok ? log.stdout.split('\n').filter(line => line !== '') : []
+  let response: Response
+  try {
+    response = await fetch(COMMIT_MESSAGE_ENDPOINT, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        status: clip(status.stdout, DRAFT_STATUS_LIMIT),
+        diffStat: clip(stat, DRAFT_STAT_LIMIT),
+        recentSubjects,
+      }),
+    })
+  } catch (error) {
+    return fail(`AI 端点不可达:${error instanceof Error ? error.message : String(error)}`)
+  }
+  let payload: { message?: unknown; error?: unknown }
+  try {
+    payload = await response.json() as { message?: unknown; error?: unknown }
+  } catch {
+    return fail(`AI 端点返回了非 JSON 响应(HTTP ${response.status})`)
+  }
+  if (!response.ok || typeof payload.message !== 'string') {
+    return fail(typeof payload.error === 'string' ? payload.error : `AI 生成失败(HTTP ${response.status})`)
+  }
+  const message = payload.message.trim()
+  return message === '' ? fail('模型没有产出文本,请重试') : { ok: true, message, error: '' }
+}
