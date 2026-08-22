@@ -20,3 +20,17 @@ export function syncMemoryEnabled(api: IApiClient, enabled: boolean): void {
     patch: { enabled },
   }).catch(() => {})
 }
+
+/**
+ * 同步「自动沉淀记忆」开关到 host 侧 namespace(v0.92.0,2026-08-22):
+ * 控制 `@deepseek-ai/dsh-starhub-memory-sink` 是否在 `agent/turn-stopping`
+ * 钩子发起 LLM 抽取。namespace 未写过视为开启(默认开)。
+ * @param api - 连接线的 settings RPC 面。
+ * @param autoReview - 开关状态。
+ */
+export function syncMemoryAutoReview(api: IApiClient, autoReview: boolean): void {
+  void api.settings.update({
+    ns: MEMORY_CONTEXT_NAMESPACE,
+    patch: { autoReview },
+  }).catch(() => {})
+}

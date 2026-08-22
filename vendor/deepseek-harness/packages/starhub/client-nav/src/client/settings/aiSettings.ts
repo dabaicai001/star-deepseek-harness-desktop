@@ -18,13 +18,15 @@ export interface AiSettings {
   memoryAutoReview: boolean
 }
 
-/** 默认值(与 aiStore settings 初始值一致)。 */
+/** 默认值(v0.92.0,2026-08-22 起「启用长期记忆」与「自动沉淀记忆」均默认关闭;
+ * 用户需在 AI 助手设置面板显式打开后才有记忆预读注入或自动沉淀)。
+ */
 function defaultAiSettings(): AiSettings {
   return {
     memoryStoreToolOutputs: false,
-    memoryEnabled: true,
+    memoryEnabled: false,
     memoryWriteNeedsConfirm: false,
-    memoryAutoReview: true,
+    memoryAutoReview: false,
   }
 }
 
@@ -46,9 +48,9 @@ export function normalizeAiSettings(raw: Partial<AiSettings> | null | undefined)
   delete legacy.commandWhitelist
   delete legacy.commandWhitelistVersion
   if (typeof next.memoryStoreToolOutputs !== 'boolean') next.memoryStoreToolOutputs = false
-  if (typeof next.memoryEnabled !== 'boolean') next.memoryEnabled = true
+  if (typeof next.memoryEnabled !== 'boolean') next.memoryEnabled = false
   if (typeof next.memoryWriteNeedsConfirm !== 'boolean') next.memoryWriteNeedsConfirm = false
-  if (typeof next.memoryAutoReview !== 'boolean') next.memoryAutoReview = true
+  if (typeof next.memoryAutoReview !== 'boolean') next.memoryAutoReview = false
   return next
 }
 

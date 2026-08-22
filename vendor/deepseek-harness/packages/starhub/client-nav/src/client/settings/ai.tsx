@@ -10,11 +10,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconCloseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import {
-  aiMemoryDelete, aiMemoryList, aiMemoryUpdate, isTauriRuntime, logAudit,
+  aiMemoryDelete, aiMemoryList, aiMemoryUpdate, logAudit,
   type AiMemoryRow,
 } from './services.ts'
 import { loadAiSettings, saveAiSettings, type AiSettings } from './aiSettings.ts'
-import { syncMemoryEnabled } from './memory-context.ts'
+import { syncMemoryAutoReview, syncMemoryEnabled } from './memory-context.ts'
 import s from './settings.module.css'
 
 /** 卡容量上限(与 Rust 侧一致:user/asset=1375,global/folder=2200)。 */
@@ -52,7 +52,7 @@ export function AiTab({ api }: { api?: IApiClient }) {
   const [memoryEditingId, setMemoryEditingId] = useState('')
   const [memoryEditingContent, setMemoryEditingContent] = useState('')
   const [memoryConfirmDeleteId, setMemoryConfirmDeleteId] = useState('')
-  const memoryDesktopAvailable = isTauriRuntime()
+
 
   // 归一化结果持久化一次(与 Vue ensureSettingsShape 落盘一致)
   useEffect(() => {
@@ -65,19 +65,25 @@ export function AiTab({ api }: { api?: IApiClient }) {
     if (api !== undefined) syncMemoryEnabled(api, aiSettings.memoryEnabled)
   }, [api, aiSettings.memoryEnabled])
 
+  // 「自动沉淀记忆」开关同步到 host 侧 memory-sink 插件(v0.92.0,2026-08-22):
+  // 关闭则 memory-sink 在 agent/turn-stopping 钩子跳过 LLM 抽取。
+  useEffect(() => {
+    if (api !== undefined) syncMemoryAutoReview(api, aiSettings.memoryAutoReview)
+  }, [api, aiSettings.memoryAutoReview])
+
   /** 记忆/上下文字段:直接写 localStorage 即时持久化。 */
   const updateSettings = (patch: Partial<AiSettings>) => {
     setAiSettings((current) => ({ ...current, ...patch }))
   }
 
   const loadMemories = async () => {
-    if (!memoryDesktopAvailable) return
     setMemoryLoading(true)
     setMemoryError('')
     try {
       setMemoryRows(await aiMemoryList())
     } catch (error) {
       setMemoryError(error instanceof Error ? error.message : String(error))
+      setMemoryRows([])
     } finally {
       setMemoryLoading(false)
     }
@@ -210,10 +216,7 @@ export function AiTab({ api }: { api?: IApiClient }) {
               </button>
             </div>
             {memoryError !== '' && <div className={s.errorText}>{memoryError}</div>}
-            {!memoryDesktopAvailable && (
-              <div className={s.empty}>记忆功能仅在 StarHub 桌面端可用。</div>
-            )}
-            {memoryDesktopAvailable && memoryGroups.length === 0 && (
+            {!memoryLoading && memoryError === '' && memoryGroups.length === 0 && (
               <div className={s.empty}>暂无记忆条目。</div>
             )}
             <div className={s.memoryGroups}>
