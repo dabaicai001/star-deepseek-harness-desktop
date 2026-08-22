@@ -11,6 +11,29 @@
 - Settings 补「代理」「安全」2 个 tab
 - SQL 查询结果可编辑及无主键报错提示（转 K3）
 - 左侧 dsh 会话列表右键「删除」待 dsh host 侧 session.delete RPC 落地后启用(当前置灰,仅归档)
+- 产物「+ N 个文件」展开改右侧侧栏(drawer),按新增/修改分组(v0.91.0 行内展开改回)
+
+## [0.92.0] - 2026-08-22
+
+### 新增
+- AI 长期记忆自动沉淀接入:新增 host 包 `@deepseek-ai/dsh-starhub-memory-sink`,在 `agent/turn-stopping` 后调一次独立 LLM 抽取当轮持久事实,经 sdk-transport 反向 RPC `starhub/memory.write` 写入 ai_memories(走 folder:<cwd> 或 global scope);门禁继承自旧 Vue `aiMemoryReviewGates.ts` 的 `shouldReview`(消息数 ≥ 4)。补全 v0.79 AI 内核替换时丢失的「记忆自动沉淀」能力。
+
+### 变更
+- 「启用长期记忆」与「自动沉淀记忆」两个开关 v0.92.0 起均默认关闭:旧版 ≤0.91.0 默认开启,namespace 写法需显式 patch 才能关闭;v0.92.0 起需在设置 → AI 助手显式打开后才有注入预读或自动沉淀。
+- 设置 → AI 助手 → 「管理记忆」弹窗去除 `isTauriRuntime()` 整体禁用门:纯浏览器会话(:3085)也可打开弹窗,IPC 调用失败会以错误文本形式展示,不再吞掉。
+- `starhub-memory-context` namespace Schema 扩展字段 `autoReview`(默认 false):memory-sink 在 turn-stopping 钩子里读取此字段决定是否跳过 LLM 抽取。
+
+### 新增 RPC
+- Rust 反向 RPC `starhub/memory.write({ scope, content })`(src-tauri/src/harness/mod.rs:986):写盘经 `ai_memory_add`,错误原样上抛由调用方处理;不写 audit,与 UI 手动 `ai_memory_add` 路径解耦。
+
+### 测试
+- 新增 25 个 vitest(memory-sink 包:`shouldReview`/`normalizeFacts`/`writeFact`/`runTurnReview` 等分支覆盖)。
+- memory-context 既有 10 个测试无回归。
+- client-nav 既有 680 个测试无回归,适配新默认值(memoryEnabled/memoryAutoReview 默认 false)。
+
+### 已知限制(留待下版)
+- 「记忆写入需逐条确认」「存档 tool 消息」开关仍是 UI 层状态,未接入真行为。
+- 产物行展开仍是 v0.91.0 的行内折叠形态(产品反馈建议改为右侧侧栏,留待 v0.92.x)。
 
 ---
 
