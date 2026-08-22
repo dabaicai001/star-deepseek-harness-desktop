@@ -27,6 +27,9 @@
       "path": "../../settings/settings"
     },
     {
+      "path": "../../starhub/memory-context"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     }
   ]

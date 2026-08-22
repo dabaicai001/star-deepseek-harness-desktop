@@ -5,7 +5,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { JsonRpcTransportPeer } from '@deepseek-ai/dsh-sdk-protocol'
-import { apply, composeMemoryContext, renderMemoryContext } from '../src/index.ts'
+import {
+  apply, composeMemoryContext, isAutoReviewEnabled, renderMemoryContext,
+} from '../src/index.ts'
+import { apply as applyInvariant } from '../src/invariant.ts'
 
 type PreStepListener = (
   payload: { agent: unknown; signal: AbortSignal },
@@ -83,6 +86,26 @@ describe('renderMemoryContext', () => {
     ])!
     expect(text).toContain('[bound asset (a1)]')
   })
+
+  it('labels non-empty global cards and falls back to the raw scope for unknown kinds', () => {
+    const text = renderMemoryContext([
+      { scope: 'global', content: '构建走 npm run build', char_count: 10, char_limit: 2200, entry_count: 1 },
+      { scope: 'team', content: '团队约定', char_count: 4, char_limit: 1375, entry_count: 1 },
+    ])!
+    expect(text).toContain('[environment & experience]')
+    expect(text).toContain('构建走 npm run build')
+    expect(text).toContain('[team]')
+  })
+})
+
+describe('isAutoReviewEnabled', () => {
+  it('defaults off unless the namespace explicitly opts in (v0.92.0)', () => {
+    expect(isAutoReviewEnabled(undefined)).toBe(false)
+    expect(isAutoReviewEnabled({})).toBe(false)
+    expect(isAutoReviewEnabled({ enabled: true })).toBe(false)
+    expect(isAutoReviewEnabled({ autoReview: false })).toBe(false)
+    expect(isAutoReviewEnabled({ autoReview: true })).toBe(true)
+  })
 })
 
 describe('composeMemoryContext', () => {
@@ -104,6 +127,22 @@ describe('composeMemoryContext', () => {
   it('degrades to null without a transport or with a malformed result', async () => {
     expect(await composeMemoryContext(undefined, ['user'], 'sess-1')).toBeNull()
     expect(await composeMemoryContext(makeTransport({ nope: 1 }).transport, ['user'], 'sess-1')).toBeNull()
+    // 非对象与 null 结果同样视为畸形。
+    expect(await composeMemoryContext(makeTransport('plain').transport, ['user'], 'sess-1')).toBeNull()
+    expect(await composeMemoryContext(makeTransport(null).transport, ['user'], 'sess-1')).toBeNull()
+  })
+
+  it('degrades to null when the pull exceeds the 2s budget', async () => {
+    vi.useFakeTimers()
+    try {
+      const request = vi.fn(() => new Promise<never>(() => {}))
+      const transport = { request } as unknown as JsonRpcTransportPeer
+      const textPromise = composeMemoryContext(transport, ['user'], 'sess-1')
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(await textPromise).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -115,13 +154,22 @@ describe('apply (pre-step injection)', () => {
   }
 
   it('injects memory text with user/global/folder scopes when enabled', async () => {
-    const { ctx, listeners } = makeCtx({ 'sdk-transport': makeTransport(CARDS).transport }, undefined)
+    const { ctx, listeners } = makeCtx({ 'sdk-transport': makeTransport(CARDS).transport }, { enabled: true })
     apply(ctx)
     const decision = await runListener(listeners, makeAgent('E:\\ws\\starhub'))
     expect(decision.kind).toBe('enter')
     const messages = (decision as { messages: Array<{ content: Array<{ text?: string }> }> }).messages
     expect(messages).toHaveLength(1)
     expect(messages[0]!.content[0]!.text).toContain('偏好中文回复')
+  })
+
+  it('does not inject when the namespace was never written (default off since v0.92.0)', async () => {
+    const { transport, request } = makeTransport(CARDS)
+    const { ctx, listeners } = makeCtx({ 'sdk-transport': transport }, undefined)
+    apply(ctx)
+    const decision = await runListener(listeners, makeAgent('/w'))
+    expect(decision).toBe(ENTER)
+    expect(request).not.toHaveBeenCalled()
   })
 
   it('omits the folder scope for sessions without a cwd', async () => {
@@ -156,5 +204,50 @@ describe('apply (pre-step injection)', () => {
     )
     expect(decision).toBe(rejected)
     expect(request).not.toHaveBeenCalled()
+  })
+
+  it('returns the decision untouched when every card comes back empty', async () => {
+    const empty = { cards: [{ scope: 'user', content: '', char_count: 0, char_limit: 1375, entry_count: 0 }] }
+    const { transport, request } = makeTransport(empty)
+    const { ctx, listeners } = makeCtx({ 'sdk-transport': transport }, { enabled: true })
+    apply(ctx)
+    const decision = await runListener(listeners, makeAgent('/w'))
+    expect(decision).toBe(ENTER)
+    expect(request).toHaveBeenCalledOnce()
+  })
+
+  it('returns the decision untouched when the step signal is already aborted', async () => {
+    const { transport, request } = makeTransport(CARDS)
+    const { ctx, listeners } = makeCtx({ 'sdk-transport': transport }, { enabled: true })
+    apply(ctx)
+    const controller = new AbortController()
+    controller.abort()
+    const decision = await listeners[0]!(
+      { agent: makeAgent('/w'), signal: controller.signal },
+      () => Promise.resolve(ENTER),
+    )
+    expect(decision).toBe(ENTER)
+    expect(request).not.toHaveBeenCalled()
+  })
+})
+
+describe('package shells', () => {
+  it('the invariant companion registers ownership with an empty installer', async () => {
+    const registered: string[] = []
+    const installers: Array<() => void> = []
+    const ctx = {
+      invariants: {
+        register: (pkg: string, install: () => void) => {
+          registered.push(pkg)
+          installers.push(install)
+          return () => undefined
+        },
+      },
+    } as unknown as Context
+    const dispose = await applyInvariant(ctx)
+    expect(registered).toEqual(['@deepseek-ai/dsh-starhub-memory-context'])
+    // The companion is intentionally empty: no runtime invariant to assert.
+    installers[0]!()
+    expect(dispose).toBeTypeOf('function')
   })
 })

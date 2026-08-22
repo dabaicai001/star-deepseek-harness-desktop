@@ -7,7 +7,7 @@ StarHub 本地 host 包(不在上游):`agent/pre-step` 注入长期记忆,补上
 - 每个 agent 请求 pre-step 时,经 `sdk-transport` 反向 RPC pull `starhub/memory.cards`(Rust 侧 `handle_memory_cards`),scopes = `user` + `global` + `folder:<会话工作区绝对路径>`(session header.cwd);Rust 侧按 sessionId 解析资产绑定,额外追加 `asset:<id>` 卡。
 - 各卡非空段拼成一条 plugin 来源 user message(`form: 'snapshot'`)注入;全部为空则不注入。
 - pull 失败或超时(2s)降级为不注入,不阻断 agent turn。
-- 开关:设置 → AI 助手「启用长期记忆」经 `starhub-memory-context` settings namespace 下发;关闭时完全不注入。namespace 未写过视为开启(与设置默认值一致)。
+- 开关:设置 → AI 助手「启用长期记忆」经 `starhub-memory-context` settings namespace 下发;关闭时完全不注入。v0.92.0 起 namespace 未写过视为关闭(与设置默认值一致,默认关)。
 
 ## Model Experience
 

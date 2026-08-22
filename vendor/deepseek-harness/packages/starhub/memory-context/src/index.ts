@@ -134,7 +134,7 @@ export async function composeMemoryContext(
     // pull 失败/超时(宿主报错、进程断开或未实现)降级为不注入,不打断 pre-step。
     return null
   } finally {
-    if (timeout !== undefined) clearTimeout(timeout)
+    clearTimeout(timeout)
   }
 }
 
@@ -159,9 +159,10 @@ export function apply(ctx: Context): void {
     ): Promise<PreStepDecision> => {
       const decision = await next()
       if (decision.kind === 'reject' || signal.aborted) return decision
-      // 「启用长期记忆」开关(设置 → AI 助手);namespace 未写过视为开启。
+      // 「启用长期记忆」开关(设置 → AI 助手);v0.92.0 起 namespace 未写过视为关闭,
+      // 用户需在设置面板显式打开后才有记忆预读注入。
       const value = scope.get() as MemoryContextValue | undefined
-      if (value?.enabled === false) return decision
+      if (value?.enabled !== true) return decision
       const cwd = agent.session.header.cwd
       const scopes = ['user', 'global', ...(cwd === undefined ? [] : [`folder:${cwd}`])]
       const text = await composeMemoryContext(transport, scopes, String(agent.session.id))

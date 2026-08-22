@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-starhub-memory-sink",
-  "description": "StarHub memory sink (2026-08-22, v0.92.0): a turn-stopping plugin that auto-distills durable facts from the just-completed turn into long-term memories (folder:<cwd> or global). Replaces the legacy Vue aiMemoryReviewGates pipeline that was dropped during the v0.79 AI kernel swap. Gates on starhub-memory-context.autoReview (default true); writes go through starhub/memory.write (sdk-transport) → Rust ai_memory_add. StarHub-local package, not upstream.",
+  "description": "StarHub memory sink (2026-08-22, v0.92.0): a turn-stopping plugin that auto-distills durable facts from the just-completed turn into long-term memories (folder:<cwd> or global). Replaces the legacy Vue aiMemoryReviewGates pipeline that was dropped during the v0.79 AI kernel swap. Gates on starhub-memory-context.autoReview (default false since v0.92.0); writes go through starhub/memory.write (sdk-transport) → Rust ai_memory_add. StarHub-local package, not upstream.",
   "private": true,
   "version": "0.0.1",
   "type": "module",

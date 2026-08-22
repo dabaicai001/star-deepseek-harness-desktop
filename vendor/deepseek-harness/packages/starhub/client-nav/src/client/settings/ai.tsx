@@ -28,7 +28,8 @@ function memoryScopeLabel(scope: string): string {
   if (scope === 'global') return 'GLOBAL — 环境与经验'
   if (scope.startsWith('folder:')) {
     const path = scope.slice('folder:'.length)
-    const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? path
+    // 去尾部斜杠后取最后一个分隔符之后的目录名(纯正则,无分支)。
+    const name = path.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '')
     return `工作区 — ${name}(${path})`
   }
   return `ASSET — ${scope.slice('asset:'.length)}`
@@ -36,9 +37,10 @@ function memoryScopeLabel(scope: string): string {
 
 /**
  * 渲染 AI 助手设置:记忆与上下文(即时生效)+ 记忆管理弹窗。
- * @param props.api - 连接线的 settings RPC 面;「启用长期记忆」开关经它同步到
- *   host 侧 memory-context 插件(namespace 未写过 = 开启)。浏览器预览下
- *   可为空,此时开关只写 localStorage。
+ * @param props.api - 连接线的 settings RPC 面;「启用长期记忆」「自动沉淀记忆」
+ *   开关经它同步到 host 侧 memory-context / memory-sink 插件(v0.92.0 起
+ *   namespace 未写过 = 关闭,与默认关一致)。浏览器预览下可为空,此时开关只写
+ *   localStorage。
  * @returns AI tab 内容。
  */
 export function AiTab({ api }: { api?: IApiClient }) {

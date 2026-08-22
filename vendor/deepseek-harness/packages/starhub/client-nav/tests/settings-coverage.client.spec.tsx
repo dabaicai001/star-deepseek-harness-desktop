@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import { AuditTab, formatAuditDetail } from '../src/client/settings/audit.tsx'
 import { AlertTab } from '../src/client/settings/alert.tsx'
 import { PluginsTab } from '../src/client/settings/plugins.tsx'
@@ -546,6 +547,44 @@ describe('ai extra branches', () => {
     } finally {
       restore()
     }
+  })
+
+  it('labels folder-scope memories with the workspace basename', async () => {
+    const restore = stubTauriInternals({
+      ai_memory_list: () => [
+        { id: 'm1', scope: 'folder:E:\\ws\\starhub', content: 'x', created_at: 0, updated_at: 0 },
+      ],
+    })
+    try {
+      render(<AiTab />)
+      fireEvent.click(screen.getByText('管理记忆'))
+      expect(await screen.findByText('工作区 — starhub(E:\\ws\\starhub)')).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it('syncs both memory toggles to the host namespace when an api is present', async () => {
+    const update = vi.fn<(request: unknown) => Promise<void>>(() => Promise.resolve())
+    const api = { settings: { update } } as unknown as IApiClient
+    render(<AiTab api={api} />)
+    await act(async () => { await Promise.resolve() })
+    // 挂载时把 localStorage 里的两个开关(v0.92.0 起默认 false)补齐到 host namespace。
+    expect(update).toHaveBeenCalledWith({ ns: 'starhub-memory-context', patch: { enabled: false } })
+    expect(update).toHaveBeenCalledWith({ ns: 'starhub-memory-context', patch: { autoReview: false } })
+    fireEvent.click(screen.getByText('启用长期记忆'))
+    await act(async () => { await Promise.resolve() })
+    expect(update).toHaveBeenCalledWith({ ns: 'starhub-memory-context', patch: { enabled: true } })
+  })
+
+  it('keeps rendering when the host namespace sync rejects (legacy runtime)', async () => {
+    const update = vi.fn<(request: unknown) => Promise<void>>(() => Promise.reject(new Error('unknown namespace')))
+    const api = { settings: { update } } as unknown as IApiClient
+    render(<AiTab api={api} />)
+    await act(async () => { await Promise.resolve() })
+    expect(update).toHaveBeenCalled()
+    // 同步失败静默:开关仍以 localStorage 为准,设置页正常渲染。
+    expect(screen.getByText('记忆与上下文')).toBeTruthy()
   })
 
   it('shows memory load failures (Error then string via refresh)', async () => {

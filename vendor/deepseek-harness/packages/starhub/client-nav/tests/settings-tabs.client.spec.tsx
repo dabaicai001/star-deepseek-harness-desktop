@@ -8,7 +8,7 @@
  * 浏览器预览分支(无 Tauri)一并覆盖。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { AuditTab, formatAuditDetail, formatAuditTime } from '../src/client/settings/audit.tsx'
 import { AlertTab } from '../src/client/settings/alert.tsx'
 import { PluginsTab } from '../src/client/settings/plugins.tsx'

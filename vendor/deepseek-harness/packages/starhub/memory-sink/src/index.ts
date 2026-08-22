@@ -5,7 +5,7 @@
  * 数据流:
  * 1. agent 回合结束 → dsh 发出 `agent/turn-stopping`(`{ agent, turn, signal }`)。
  * 2. 本插件读取 settings namespace `starhub-memory-context.autoReview`;关闭或
- *    namespace 未写过视为开启(默认开),关闭则整段跳过。
+ *    namespace 未写过(v0.92.0 起默认关)则整段跳过。
  * 3. 通过门禁 `shouldReview({user, assistant})` 决定要不要调用 LLM 抽取;
  *    太短的会话不调用(零成本)。
  * 4. 调用 `extractFacts(agent, signal)` 调一次独立 LLM chat completion(系统
@@ -117,7 +117,7 @@ export async function writeFact(
     // rejection from Rust is not worth blocking the turn. The next review pass may
     // re-emit the fact in a more compact form.
   } finally {
-    if (timeout !== undefined) clearTimeout(timeout)
+    clearTimeout(timeout)
   }
 }
 
@@ -126,13 +126,15 @@ export async function writeFact(
  * Reads `agent.session.events` if present;returns zeros on malformed input.
  */
 export function countMessages(agent: MemorySinkAgent): { user: number; assistant: number } {
-  const events = agent.session.events
-  if (!Array.isArray(events)) return { user: 0, assistant: 0 }
+  const raw: unknown = agent.session.events
+  if (!Array.isArray(raw)) return { user: 0, assistant: 0 }
+  const events: ReadonlyArray<unknown> = raw
   let user = 0
   let assistant = 0
   for (const event of events) {
-    if (event.type === 'message/user') user += 1
-    else if (event.type === 'message/assistant') assistant += 1
+    const { type } = event as { readonly type: string }
+    if (type === 'message/user') user += 1
+    else if (type === 'message/assistant') assistant += 1
   }
   return { user, assistant }
 }
@@ -204,7 +206,7 @@ export async function runTurnReview(params: {
     // Best-effort: a failed review must not surface to the turn-stopping chain.
     console.warn('[starhub-memory-sink] turn review failed:', error instanceof Error ? error.message : error)
   } finally {
-    if (timeout !== undefined) clearTimeout(timeout)
+    clearTimeout(timeout)
   }
 }
 
@@ -224,7 +226,7 @@ export function apply(ctx: Context): void {
     return ctx.on('agent/turn-stopping', async ({ agent, signal }): Promise<void> => {
       const value = scope.get() as MemoryContextValue | undefined
       await runTurnReview({
-        agent: agent as unknown as MemorySinkAgent,
+        agent,
         signal,
         transport,
         // LLM extractor: dsh-llm exposes `ctx.llm.generate({...})` in production;
@@ -241,17 +243,22 @@ export function apply(ctx: Context): void {
  * Build an LLM extractor closure from the dsh `llm` service if available.
  * Returns undefined when the service is not registered (e.g. in unit tests
  * or in hosts that don't expose a generation surface).
+ * @param ctx - Cordis plugin context; only the `llm` service is read.
+ * @returns The extractor closure, or undefined when no usable `llm.generate` exists.
  */
-function wireLlmExtractor(ctx: Context): LlmExtractor | undefined {
+export function wireLlmExtractor(ctx: Context): LlmExtractor | undefined {
   const candidate = ctx.get('llm') as unknown
   if (candidate === undefined || candidate === null) return undefined
   if (typeof candidate !== 'object') return undefined
   const generate = (candidate as { generate?: unknown }).generate
   if (typeof generate !== 'function') return undefined
-  return async ({ system, prompt, signal }) => {
+  return ({ system, prompt, signal }) => {
+    // Check before calling generate: inside a Promise.race the aborted
+    // promise's reaction is queued after an instantly-resolved generate's,
+    // so a pre-aborted signal would lose the race and still resolve.
+    if (signal.aborted) return Promise.reject(new Error('aborted'))
     const abortPromise = new Promise<never>((_resolve, reject) => {
-      if (signal.aborted) reject(new Error('aborted'))
-      signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
     })
     return Promise.race([
       (generate as (input: { system: string; prompt: string; json: true }) => Promise<unknown>)({

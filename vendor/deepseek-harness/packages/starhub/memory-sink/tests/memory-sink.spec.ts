@@ -2,14 +2,18 @@
  * StarHub memory sink: turn-stopping 钩子的纯函数与降级路径。
  */
 import { describe, expect, it, vi } from 'vitest'
+import type { Context } from '@deepseek-ai/cordis'
 import {
+  apply,
   buildExtractPrompt,
   countMessages,
   MEMORY_WRITE_METHOD,
   persistExtractedFacts,
   runTurnReview,
+  wireLlmExtractor,
   writeFact,
 } from '../src/index.ts'
+import { apply as applyInvariant } from '../src/invariant.ts'
 import { normalizeFacts, pickTargetScope, shouldReview } from '../src/gates.ts'
 import type { JsonRpcTransportPeer } from '@deepseek-ai/dsh-sdk-protocol'
 
@@ -84,6 +88,19 @@ describe('normalizeFacts', () => {
     const out = normalizeFacts([{ scope: 'user', content: 'this is a personal preference' }], { cwd: '/x' })
     expect(out[0]?.scope).toBe('folder:/x')
   })
+  it('treats blank strings and list-less objects as empty', () => {
+    expect(normalizeFacts('', { cwd: '/x' })).toEqual([])
+    expect(normalizeFacts('   ', { cwd: '/x' })).toEqual([])
+    expect(normalizeFacts({ foo: 1 }, { cwd: '/x' })).toEqual([])
+    expect(normalizeFacts(null, { cwd: '/x' })).toEqual([])
+    expect(normalizeFacts(42, { cwd: '/x' })).toEqual([])
+  })
+  it('accepts an items array payload and a JSON array string', () => {
+    expect(normalizeFacts({ items: [{ content: 'via items' }] }, { cwd: '/x' }))
+      .toEqual([{ scope: 'folder:/x', content: 'via items' }])
+    expect(normalizeFacts('[{"content":"via json array"}]', { cwd: '/x' }))
+      .toEqual([{ scope: 'folder:/x', content: 'via json array' }])
+  })
 })
 
 describe('countMessages', () => {
@@ -98,6 +115,11 @@ describe('countMessages', () => {
   })
   it('returns zeros when events missing', () => {
     expect(countMessages(makeAgent('/x'))).toEqual({ user: 0, assistant: 0 })
+  })
+  it('returns zeros when events is not an array', () => {
+    const agent = makeAgent('/x')
+    ;(agent.session as { events: unknown }).events = 'bogus'
+    expect(countMessages(agent)).toEqual({ user: 0, assistant: 0 })
   })
 })
 
@@ -131,6 +153,19 @@ describe('writeFact', () => {
     await expect(writeFact({ request } as unknown as JsonRpcTransportPeer, {
       scope: 'global', content: 'x',
     })).resolves.toBeUndefined()
+  })
+  it('swallows a write that exceeds the 2s budget', async () => {
+    vi.useFakeTimers()
+    try {
+      const request = vi.fn(() => new Promise<never>(() => {}))
+      const writePromise = writeFact({ request } as unknown as JsonRpcTransportPeer, {
+        scope: 'global', content: 'x',
+      })
+      await vi.advanceTimersByTimeAsync(2_000)
+      await expect(writePromise).resolves.toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -238,5 +273,149 @@ describe('runTurnReview', () => {
       autoReviewEnabled: true,
     })
     expect(request).not.toHaveBeenCalled()
+  })
+  it('swallows an extraction that exceeds the 6s budget', async () => {
+    vi.useFakeTimers()
+    try {
+      const request = vi.fn()
+      const llm = vi.fn(() => new Promise<never>(() => {}))
+      const reviewPromise = runTurnReview({
+        agent: makeAgent('/x', [
+          { type: 'message/user' }, { type: 'message/assistant' },
+          { type: 'message/user' }, { type: 'message/assistant' },
+        ]),
+        signal: new AbortController().signal,
+        transport: { request } as unknown as JsonRpcTransportPeer,
+        llm,
+        autoReviewEnabled: true,
+      })
+      await vi.advanceTimersByTimeAsync(6_000)
+      await expect(reviewPromise).resolves.toBeUndefined()
+      expect(request).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it('logs non-Error LLM failures by their string form', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const llm = vi.fn(async () => { throw 'plain failure' })
+    await runTurnReview({
+      agent: makeAgent('/x', [
+        { type: 'message/user' }, { type: 'message/assistant' },
+        { type: 'message/user' }, { type: 'message/assistant' },
+      ]),
+      signal: new AbortController().signal,
+      transport: undefined,
+      llm,
+      autoReviewEnabled: true,
+    })
+    expect(warn).toHaveBeenCalledWith('[starhub-memory-sink] turn review failed:', 'plain failure')
+    warn.mockRestore()
+  })
+})
+
+describe('wireLlmExtractor', () => {
+  const ctxWith = (services: Record<string, unknown>): Context =>
+    ({ get: (serviceName: string) => services[serviceName] }) as unknown as Context
+
+  it('returns undefined without a usable llm service', () => {
+    expect(wireLlmExtractor(ctxWith({}))).toBeUndefined()
+    expect(wireLlmExtractor(ctxWith({ llm: null }))).toBeUndefined()
+    expect(wireLlmExtractor(ctxWith({ llm: 'nope' }))).toBeUndefined()
+    expect(wireLlmExtractor(ctxWith({ llm: {} }))).toBeUndefined()
+    expect(wireLlmExtractor(ctxWith({ llm: { generate: 1 } }))).toBeUndefined()
+  })
+
+  it('calls generate in json mode and rejects when the signal aborts', async () => {
+    const generate = vi.fn(async () => ({ facts: [] }))
+    const extractor = wireLlmExtractor(ctxWith({ llm: { generate } }))
+    expect(extractor).toBeDefined()
+    const signal = new AbortController().signal
+    await expect(extractor!({ system: 's', prompt: 'p', signal })).resolves.toEqual({ facts: [] })
+    expect(generate).toHaveBeenCalledWith({ system: 's', prompt: 'p', json: true })
+    // An already-aborted signal rejects before generate can resolve.
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(extractor!({ system: 's', prompt: 'p', signal: aborted.signal }))
+      .rejects.toThrow('aborted')
+    // An abort mid-flight rejects the pending race.
+    const slow = wireLlmExtractor(ctxWith({ llm: { generate: () => new Promise<never>(() => {}) } }))!
+    const controller = new AbortController()
+    const pending = slow({ system: 's', prompt: 'p', signal: controller.signal })
+    controller.abort()
+    await expect(pending).rejects.toThrow('aborted')
+  })
+})
+
+describe('apply (turn-stopping hook)', () => {
+  type TurnStoppingListener = (payload: { agent: unknown; signal: AbortSignal }) => Promise<void>
+
+  function makeSinkCtx(services: Record<string, unknown>, namespaceValue: unknown) {
+    const listeners: TurnStoppingListener[] = []
+    const ctx = {
+      get: (serviceName: string) => services[serviceName],
+      on: (_event: string, listener: TurnStoppingListener) => {
+        listeners.push(listener)
+        return () => undefined
+      },
+      effect: (callback: () => unknown) => callback(),
+      settings: { register: () => ({ get: () => namespaceValue }) },
+    } as unknown as Context
+    return { ctx, listeners }
+  }
+
+  const busyAgent = () => makeAgent('/x', [
+    { type: 'message/user' }, { type: 'message/assistant' },
+    { type: 'message/user' }, { type: 'message/assistant' },
+  ])
+
+  it('runs the review pipeline when autoReview is on', async () => {
+    const request = vi.fn(async () => ({}))
+    const generate = vi.fn(async () => ({ facts: [{ content: 'kept' }] }))
+    const { ctx, listeners } = makeSinkCtx(
+      { 'sdk-transport': { request }, llm: { generate } },
+      { autoReview: true },
+    )
+    apply(ctx)
+    expect(listeners).toHaveLength(1)
+    await listeners[0]!({ agent: busyAgent(), signal: new AbortController().signal })
+    expect(generate).toHaveBeenCalledOnce()
+    expect(request).toHaveBeenCalledWith(MEMORY_WRITE_METHOD, {
+      scope: 'folder:/x', content: 'kept',
+    })
+  })
+
+  it('skips the review when the namespace never opted in (default off)', async () => {
+    const request = vi.fn(async () => ({}))
+    const generate = vi.fn(async () => ({ facts: [{ content: 'kept' }] }))
+    const { ctx, listeners } = makeSinkCtx(
+      { 'sdk-transport': { request }, llm: { generate } },
+      undefined,
+    )
+    apply(ctx)
+    await listeners[0]!({ agent: busyAgent(), signal: new AbortController().signal })
+    expect(generate).not.toHaveBeenCalled()
+    expect(request).not.toHaveBeenCalled()
+  })
+})
+
+describe('package shells', () => {
+  it('the invariant companion registers ownership with an empty installer', async () => {
+    const registered: string[] = []
+    const installers: Array<() => void> = []
+    const ctx = {
+      invariants: {
+        register: (pkg: string, install: () => void) => {
+          registered.push(pkg)
+          installers.push(install)
+          return () => undefined
+        },
+      },
+    } as unknown as Context
+    const dispose = await applyInvariant(ctx)
+    expect(registered).toEqual(['@deepseek-ai/dsh-starhub-memory-sink'])
+    // The companion is intentionally empty: no runtime invariant to assert.
+    installers[0]!()
+    expect(dispose).toBeTypeOf('function')
   })
 })
