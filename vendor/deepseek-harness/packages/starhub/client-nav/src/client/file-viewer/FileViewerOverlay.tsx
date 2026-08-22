@@ -5,14 +5,19 @@
  * 编辑门禁:AI 运行中(会话 running)只读并提示「AI 运行中只能查看」;空闲时
  * 可编辑——Read 直接保存当前内容;Edit 的右栏保存时把各 hunk 的 oldText→newText
  * 应用到最新文件内容再写回(找不到 oldText 的 hunk 报错,不落盘)。
+ *
+ * 对比着色(2026-08-22):两栏默认按行级 diff 渲染——变更行带红(-)/绿(+)色块,
+ * 两侧共有的行保持无色;空闲时右栏栏头的「编辑」切成纯文本编辑态,编辑后切回
+ * 「查看对比」即按当前内容重新着色。
  */
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the 'shell.overlay' SlotMap row (declared by ui-layout).
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SessionId, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { readLocalTextFile, writeLocalTextFile } from './file-service.ts'
+import { diffLines } from './diff-lines.ts'
 import type { FileViewTarget, FileViewerState } from './state.ts'
 import css from './FileViewerOverlay.module.css'
 
@@ -60,6 +65,32 @@ export function applyDiffs(content: string, diffs: readonly { oldText: string; n
 }
 
 /**
+ * 一个 hunk 的着色渲染:每行一个色块,变更行带 +/- 号 gutter 与红/绿底色,
+ * 两侧共有的行保持无色。
+ */
+function DiffLines({ text, tone, flags }: {
+  text: string
+  tone: 'add' | 'del'
+  flags: readonly boolean[]
+}) {
+  const lines = text === '' ? [] : text.split('\n')
+  return (
+    <pre className={css.diffView}>
+      {lines.map((line, index) => {
+        const changedLine = flags[index] === true
+        const cls = changedLine ? (tone === 'add' ? css.lineAdd : css.lineDel) : css.lineSame
+        return (
+          <div key={index} className={cls}>
+            <span className={css.sign}>{changedLine ? (tone === 'add' ? '+' : '-') : ' '}</span>
+            <span className={css.lineText}>{line === '' ? ' ' : line}</span>
+          </div>
+        )
+      })}
+    </pre>
+  )
+}
+
+/**
  * 渲染文件查看窗。
  * @param props - composed slot props(overlay 运行时份额 + inject 面)。
  * @returns Modal;无目标时不渲染。
@@ -78,6 +109,16 @@ export function FileViewerOverlay({ useSessions, useFileViewer, closeViewer }: F
   /** read: 编辑草稿;edit: 右栏(变更后,各 hunk newText 以分隔线相连)。 */
   const [after, setAfter] = useState('')
   const [saving, setSaving] = useState(false)
+  /** edit 模式:右栏是否处于纯文本编辑态(默认查看红绿对比)。 */
+  const [editing, setEditing] = useState(false)
+
+  // 逐 hunk 行级 diff:只在 before/after 变化时重算;编辑态切回对比视图即
+  // 按当前右栏内容重新着色。
+  const hunkFlags = useMemo(() => {
+    if (target === null || target.kind !== 'edit') return []
+    const newSegments = after.split(HUNK_SEPARATOR)
+    return before.split(HUNK_SEPARATOR).map((segment, index) => diffLines(segment, newSegments[index] ?? ''))
+  }, [target, before, after])
 
   // 打开新目标时装载:read 读当前文件;edit 用 hunk 文本。
   useEffect(() => {
@@ -85,6 +126,7 @@ export function FileViewerOverlay({ useSessions, useFileViewer, closeViewer }: F
     setError(null)
     setNotice(null)
     setSaving(false)
+    setEditing(false)
     let cancelled = false
     if (target.kind === 'read') {
       setLoading(true)
@@ -185,17 +227,49 @@ export function FileViewerOverlay({ useSessions, useFileViewer, closeViewer }: F
         <div className={css.columns}>
           <div className={css.column}>
             <div className={css.columnHead}>变更前</div>
-            <textarea className={css.editor} value={before} readOnly spellCheck={false} />
+            {before.split(HUNK_SEPARATOR).map((segment, index) => (
+              <Fragment key={index}>
+                {index > 0 && <div className={css.hunkDivider} aria-hidden="true" />}
+                <DiffLines
+                  text={segment}
+                  tone="del"
+                  flags={hunkFlags[index]?.before ?? []}
+                />
+              </Fragment>
+            ))}
           </div>
           <div className={css.column}>
-            <div className={css.columnHead}>变更后</div>
-            <textarea
-              className={css.editor}
-              value={after}
-              readOnly={running}
-              spellCheck={false}
-              onChange={(ev) => { setAfter(ev.target.value) }}
-            />
+            <div className={css.columnHead}>
+              变更后
+              {!running && (
+                <button
+                  type="button"
+                  className={css.headToggle}
+                  onClick={() => { setEditing(value => !value) }}
+                >
+                  {editing ? '查看对比' : '编辑'}
+                </button>
+              )}
+            </div>
+            {editing && !running ? (
+              <textarea
+                className={css.editor}
+                value={after}
+                spellCheck={false}
+                onChange={(ev) => { setAfter(ev.target.value) }}
+              />
+            ) : (
+              after.split(HUNK_SEPARATOR).map((segment, index) => (
+                <Fragment key={index}>
+                  {index > 0 && <div className={css.hunkDivider} aria-hidden="true" />}
+                  <DiffLines
+                    text={segment}
+                    tone="add"
+                    flags={hunkFlags[index]?.after ?? []}
+                  />
+                </Fragment>
+              ))
+            )}
           </div>
         </div>
       )}

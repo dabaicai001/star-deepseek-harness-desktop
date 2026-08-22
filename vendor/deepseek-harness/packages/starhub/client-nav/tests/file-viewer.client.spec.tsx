@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
  * FileViewerOverlay:壳内文件查看窗——Read 卡看当前文件内容、Edit 卡看
- * 变更前/变更后左右栏;AI 运行中只读并提示;空闲时保存(read 直写,
- * edit 应用 oldText→newText 到最新文件再写回)。
+ * 变更前/变更后左右栏(变更行带红绿 +/- 色块,空闲时可切编辑态);AI 运行中
+ * 只读并提示;空闲时保存(read 直写,edit 应用 oldText→newText 到最新文件再写回)。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -99,7 +99,7 @@ describe('FileViewerOverlay', () => {
     expect(screen.getByRole('button', { name: '保存' }).hasAttribute('disabled')).toBe(true)
   })
 
-  it('edit kind shows before/after columns and applies hunks on save', async () => {
+  it('edit kind colors changed lines red/green and applies edited hunks on save', async () => {
     const stub = stubFiles({ [PATH]: 'a=1\nb=2\n' })
     restore = stub.restore
     render(<FileViewerOverlay {...makeProps({
@@ -108,13 +108,34 @@ describe('FileViewerOverlay', () => {
       sessionId: 'sess-1',
       diffs: [{ oldText: 'a=1', newText: 'a=10' }],
     }, false)} />)
-    expect(await screen.findByDisplayValue('a=1')).toBeTruthy()
-    expect(screen.getByDisplayValue('a=10')).toBeTruthy()
+    // 默认是对比视图:两栏标题在,变更行带 -/+ gutter(红/绿色块)。
+    expect(await screen.findByText('a=1')).toBeTruthy()
+    expect(screen.getByText('a=10')).toBeTruthy()
+    expect(screen.getByText('-')).toBeTruthy()
+    expect(screen.getByText('+')).toBeTruthy()
     expect(screen.getByText('变更前')).toBeTruthy()
     expect(screen.getByText('变更后')).toBeTruthy()
+    // 空闲时切到编辑态改右栏,保存仍按 hunk 应用回最新文件。
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+    const editor = screen.getByDisplayValue('a=10')
+    fireEvent.change(editor, { target: { value: 'a=100' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await act(async () => {})
-    expect(stub.writes[PATH]).toBe('a=10\nb=2\n')
+    expect(stub.writes[PATH]).toBe('a=100\nb=2\n')
+  })
+
+  it('edit kind stays in the colored comparison while the session runs', async () => {
+    const stub = stubFiles({ [PATH]: 'a=1\nb=2\n' })
+    restore = stub.restore
+    render(<FileViewerOverlay {...makeProps({
+      kind: 'edit',
+      path: PATH,
+      sessionId: 'sess-1',
+      diffs: [{ oldText: 'a=1', newText: 'a=10' }],
+    }, true)} />)
+    expect(await screen.findByText('a=10')).toBeTruthy()
+    expect(screen.getAllByText(/AI 运行中只能查看/).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: '编辑' })).toBeNull()
   })
 
   it('surfaces read failures inline', async () => {

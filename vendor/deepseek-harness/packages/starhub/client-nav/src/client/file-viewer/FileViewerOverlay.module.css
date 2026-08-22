@@ -39,12 +39,102 @@
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  min-height: 0;
   gap: 6px;
+  overflow-y: auto;
+  padding: 0 8px 0 0;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg);
+}
+
+.column .columnHead {
+  flex: none;
+  position: sticky;
+  top: 0;
+  padding: 6px 10px 0;
+  background: var(--dsw-alias-interactive-bg);
 }
 
 .columnHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
+}
+
+.headToggle {
+  margin: 0;
+  padding: 0 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.headToggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 行级 diff 视图:与 .editor 同字号同面板,行块代替 textarea。 */
+.diffView {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 8px 0;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre;
+}
+
+.lineSame,
+.lineAdd,
+.lineDel {
+  display: flex;
+  min-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.lineAdd {
+  background: var(--dsw-alias-state-success-tertiary);
+}
+
+.lineDel {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+.sign {
+  flex: none;
+  width: 20px;
+  text-align: center;
+  user-select: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.lineAdd .sign {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.lineDel .sign {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.lineText {
+  flex: 1;
+  min-width: 0;
+}
+
+/* hunk 之间的分隔(替代编辑态里的分隔线文本)。 */
+.hunkDivider {
+  flex: none;
+  margin: 6px 0;
+  border-top: 1px dashed var(--dsw-alias-border-l2-darkmode-thin);
 }
 
 .editor {
