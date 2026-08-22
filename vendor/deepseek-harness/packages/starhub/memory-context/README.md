@@ -18,4 +18,5 @@ StarHub 本地 host 包(不在上游):`agent/pre-step` 注入长期记忆,补上
 ## Known Limitations and Deferred Work
 
 - 注入发生在每一步(pre-step),不跨步缓存卡片;SQLite 查询足够便宜,暂不引入缓存层。
-- 「自动沉淀记忆」「记忆写入需逐条确认」两个设置开关仍是 UI 层状态(写路径由 approval-bridge 风险门承接),不在本包语义内。
+- 「记忆写入需逐条确认」「存档 tool 消息」两个设置开关仍是 UI 层状态(写路径由 approval-bridge 风险门承接),不在本包语义内。
+- 「自动沉淀记忆」开关 2026-08-22 (v0.92.0) 起接入 `@deepseek-ai/dsh-starhub-memory-sink`:开关同步到 namespace 的 `autoReview` 字段,memory-sink 在 `agent/turn-stopping` 后读取并据此跳过 LLM 抽取。

@@ -35,21 +35,36 @@ export const inject = ['agents', 'settings']
 /** Settings namespace holding the memory master switch (written by client-nav 的设置开关). */
 export const MEMORY_CONTEXT_NAMESPACE = 'starhub-memory-context'
 
+/**
+ * 读取 autoReview 开关值;v0.92.0 起未写过视为关闭(默认关)。
+ * memory-sink 钩子在 agent/turn-stopping 后调用本函数,关闭则整段跳过。
+ */
+export function isAutoReviewEnabled(value: MemoryContextValue | undefined): boolean {
+  return value?.autoReview === true
+}
+
 /** 桥方法名;Rust 侧实现见 src-tauri/src/harness/mod.rs(handle_memory_cards)。 */
 const MEMORY_CARDS_METHOD = 'starhub/memory.cards'
 
 /** 反向拉取记忆卡最多等待 2 秒;超时降级为不注入,不得阻断 agent turn。 */
 const MEMORY_CARDS_TIMEOUT_MS = 2_000
 
-/** 「启用长期记忆」开关的 namespace 值形状(缺省视为开启,与设置默认值一致)。 */
+/** 「启用长期记忆」与「自动沉淀记忆」开关的 namespace 值形状。
+ * v0.92.0 (2026-08-22) 起两者均默认关闭:用户需在设置 → AI 助手显式打开后
+ * 才有记忆预读注入或自动沉淀;关闭状态 = 完全不调 RPC / 不写库。
+ * 旧版本(≤0.91.0)两者默认开启,namespace 写法需显式 patch 才能恢复关闭态。
+ */
 export interface MemoryContextValue {
-  /** 是否注入长期记忆;缺省 true。 */
+  /** 是否注入长期记忆;缺省 false(v0.92.0 起)。 */
   enabled?: boolean
+  /** 是否允许自动沉淀(agent/turn-stopping 后 LLM 抽摘要写入 ai_memories);缺省 false(v0.92.0 起)。 */
+  autoReview?: boolean
 }
 
 /** Schemastery validation for the namespace value. */
 export const MemoryContextSchema: z<MemoryContextValue> = z.object({
-  enabled: z.boolean().default(true),
+  enabled: z.boolean().default(false),
+  autoReview: z.boolean().default(false),
 })
 
 /** `starhub/memory.cards` 的单张记忆卡(与 Rust AiMemoryCard 序列化同形)。 */
