@@ -235,7 +235,9 @@ describe('memory services', () => {
 describe('aiSettings persistence bridge', () => {
   it('returns defaults when nothing is stored', () => {
     const settings = loadAiSettings()
-    expect(settings.memoryEnabled).toBe(true)
+    // v0.92.0 起 memoryEnabled + memoryAutoReview 默认均为关闭;用户需在设置面板显式打开。
+    expect(settings.memoryEnabled).toBe(false)
+    expect(settings.memoryAutoReview).toBe(false)
     // 命令白名单已移除,随「统一走 deepseek-harness 权限体系」
     expect('commandWhitelist' in settings).toBe(false)
     // 上下文预算/迭代步数/压缩阈值由 dsh harness 接管,不参与读写
@@ -249,7 +251,8 @@ describe('aiSettings persistence bridge', () => {
     const settings = loadAiSettings()
     expect('commandWhitelist' in settings).toBe(false)
     expect('commandWhitelistVersion' in settings).toBe(false)
-    expect(settings.memoryEnabled).toBe(true)
+    // 无有效 memoryEnabled 时回落默认值 false(v0.92.0 起)
+    expect(settings.memoryEnabled).toBe(false)
   })
 
   it('normalizes malformed fields back to defaults', () => {
@@ -285,7 +288,7 @@ describe('aiSettings persistence bridge', () => {
 
   it('handles corrupted storage gracefully', () => {
     localStorage.setItem(AI_STORAGE_KEY, '{broken')
-    expect(loadAiSettings().memoryEnabled).toBe(true)
+    expect(loadAiSettings().memoryEnabled).toBe(false)
     localStorage.setItem(AI_STORAGE_KEY, '{broken')
     expect(() => saveAiSettings(loadAiSettings())).not.toThrow()
   })

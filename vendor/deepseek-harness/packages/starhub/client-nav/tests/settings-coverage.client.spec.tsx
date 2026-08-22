@@ -110,15 +110,16 @@ describe('aiSettings extra branches', () => {
     const settings = normalizeAiSettings(legacyRaw)
     expect('commandWhitelist' in settings).toBe(false)
     expect('commandWhitelistVersion' in settings).toBe(false)
-    expect(settings.memoryEnabled).toBe(true)
+    expect(settings.memoryEnabled).toBe(false)
     expect(settings.memoryWriteNeedsConfirm).toBe(false)
-    expect(settings.memoryAutoReview).toBe(true)
+    expect(settings.memoryAutoReview).toBe(false)
   })
 
   it('saveAiSettings survives a missing store key', () => {
     expect(() => saveAiSettings(loadAiSettings())).not.toThrow()
     const stored = JSON.parse(localStorage.getItem(AI_STORAGE_KEY) ?? '{}') as { settings: { memoryEnabled: boolean } }
-    expect(stored.settings.memoryEnabled).toBe(true)
+    // v0.92.0 起 memoryEnabled 默认 false。
+    expect(stored.settings.memoryEnabled).toBe(false)
   })
 })
 
@@ -511,13 +512,14 @@ describe('ai extra branches', () => {
       // 四个记忆开关
       fireEvent.click(screen.getByText('存档 tool 消息与工具调用'))
       fireEvent.click(screen.getByText('记忆写入需逐条确认'))
+      // v0.92.0 起「自动沉淀记忆」默认 false,点击后变 true。
       fireEvent.click(screen.getByText('自动沉淀记忆'))
       const stored = () => JSON.parse(localStorage.getItem(AI_STORAGE_KEY) ?? '{}') as {
         settings: { memoryStoreToolOutputs: boolean; memoryWriteNeedsConfirm: boolean; memoryAutoReview: boolean }
       }
       expect(stored().settings.memoryStoreToolOutputs).toBe(true)
       expect(stored().settings.memoryWriteNeedsConfirm).toBe(true)
-      expect(stored().settings.memoryAutoReview).toBe(false)
+      expect(stored().settings.memoryAutoReview).toBe(true)
       // 记忆管理:asset scope 分组 + 超容量标红 + 编辑/删除字符串失败
       fireEvent.click(screen.getByText('管理记忆'))
       expect(await screen.findByText('ASSET — abc')).toBeTruthy()

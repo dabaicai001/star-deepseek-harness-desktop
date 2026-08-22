@@ -8,7 +8,7 @@
  * 浏览器预览分支(无 Tauri)一并覆盖。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AuditTab, formatAuditDetail, formatAuditTime } from '../src/client/settings/audit.tsx'
 import { AlertTab } from '../src/client/settings/alert.tsx'
 import { PluginsTab } from '../src/client/settings/plugins.tsx'
@@ -300,12 +300,15 @@ describe('AboutTab', () => {
 })
 
 describe('AiTab', () => {
-  it('renders memory settings in preview (whitelist removed); memory manager is desktop-only', async () => {
+  it('renders memory settings in preview (whitelist removed); memory manager is openable', async () => {
+    // v0.92.0: 不再整体禁用「管理记忆」按钮;浏览器预览下 ai_memory_list 的 IPC
+    // 失败会以错误文本形式展示而非弹窗被吞。测试只验证 dialog 能打开(IPC
+    // 错误文本的渲染形态依赖 stub 实现,不强断言)。
     render(<AiTab />)
     expect(screen.queryByText('命令白名单')).toBeNull()
     expect(screen.getByText('记忆与上下文')).toBeTruthy()
     fireEvent.click(screen.getByText('管理记忆'))
-    expect(await screen.findByText(/记忆功能仅在 StarHub 桌面端可用/)).toBeTruthy()
+    expect(await screen.findByRole('dialog', { name: '长期记忆管理' })).toBeTruthy()
   })
 
   it('ignores legacy whitelist entries from stored data and keeps memory toggles', async () => {
@@ -320,11 +323,12 @@ describe('AiTab', () => {
 
   it('writes memory toggles immediately', async () => {
     render(<AiTab />)
+    // v0.92.0 起 memoryEnabled 默认 false,点击后变 true → 写入 localStorage。
     fireEvent.click(screen.getByText('启用长期记忆'))
     const stored = () => JSON.parse(localStorage.getItem(AI_STORAGE_KEY) ?? '{}') as {
       settings: { memoryEnabled: boolean }
     }
-    expect(stored().settings.memoryEnabled).toBe(false)
+    expect(stored().settings.memoryEnabled).toBe(true)
     // 上下文预算/迭代步数/压缩阈值由 dsh harness 接管,AI tab 不再出现
     expect(screen.queryByLabelText(/上下文预算/)).toBeNull()
     expect(screen.queryByLabelText(/最大工具迭代步数/)).toBeNull()
