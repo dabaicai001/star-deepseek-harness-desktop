@@ -444,12 +444,16 @@ fn ensure_peer_links(plugins_dir: &Path, vendor_root: &Path) -> Result<(), Plugi
 /// pub(crate):harness/web.rs 的 dsh web 管理器为本地包补 junction 时复用。
 #[cfg(target_os = "windows")]
 pub(crate) fn create_dir_link(link: &Path, target: &Path) -> std::io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    /// CREATE_NO_WINDOW:GUI 进程下 mklink 不弹可见控制台窗口。
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let status = std::process::Command::new("cmd")
         .args(["/C", "mklink", "/J"])
         .arg(link)
         .arg(target)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
         .status()?;
     if status.success() {
         Ok(())

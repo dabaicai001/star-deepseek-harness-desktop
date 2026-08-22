@@ -79,6 +79,10 @@ fn home_dir() -> Option<PathBuf> {
 
 #[cfg(target_os = "windows")]
 fn shell_command(command: &str) -> Command {
+    /// CREATE_NO_WINDOW:GUI 进程 spawn 控制台子进程时不分配可见控制台窗口,
+    /// 否则每次 local_shell_exec(如会话切换时分支胶囊跑 git)都会闪一个系统终端。
+    /// (tokio Command 自带 creation_flags,无需 std 的 CommandExt)
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let mut process = Command::new("powershell.exe");
     process.args([
         "-NoLogo",
@@ -87,6 +91,7 @@ fn shell_command(command: &str) -> Command {
         "-Command",
         command,
     ]);
+    process.creation_flags(CREATE_NO_WINDOW);
     process
 }
 
