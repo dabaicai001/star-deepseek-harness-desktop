@@ -29,7 +29,7 @@
 | 主分支 | `main` |
 | 协议 | MIT |
 | 立项时间 | 2026-06-04 |
-| 当前版本 | v0.89.1(修复 dsh 运行库构建失败:client-nav 的 git 分支胶囊(GitBranchPill)直接 `import clsx` 却未在 `package.json` 声明依赖,全新检出/CI(`pnpm install --frozen-lockfile`)下 tsc 报 TS2307 `Cannot find module 'clsx'`,导致 `package:dsh-runtime` 构建中断;补声明 `clsx@^2.1.1`(与其余 client 包一致)并同步 lockfile。) |
+| 当前版本 | v0.90.0(会话头部 git 分支胶囊新增「✨ AI」生成提交信息:点击后采集 `git status --porcelain` / `git diff HEAD --stat` / 近期提交主题,经新增 host 插件 `@deepseek-ai/dsh-starhub-commit-message`(POST `/starhub/git/commit-message`,按 GUI 默认模型路由做 one-shot LLM 调用,输入/输出/超时预算走 cordis 配置)返回草稿并回填输入框,确认或编辑后再提交;草稿对齐仓库近期提交的语言与 Conventional Commits 风格。) |
 
 ---
 
@@ -463,4 +463,4 @@ npm run tauri:build
 
 ---
 
-*最后更新: 2026-08-21 (v0.89.1)*
+*最后更新: 2026-08-22 (v0.90.0)*

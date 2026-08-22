@@ -14,6 +14,14 @@
 
 ---
 
+## [0.90.0] - 2026-08-22
+
+### 已完成
+- 会话头部 git 分支胶囊新增「✨ AI」生成提交信息:点击后采集 `git status --porcelain` / `git diff HEAD --stat` / 近期提交主题,经新增 host 插件 `@deepseek-ai/dsh-starhub-commit-message`(POST `/starhub/git/commit-message`,按 GUI 默认模型路由做 one-shot LLM 调用,输入/输出/超时预算走 cordis 配置)返回草稿并回填输入框,确认或编辑后再提交;草稿对齐仓库近期提交的语言与 Conventional Commits 风格。
+- 修复 Windows 下切换会话/工作区时闪出系统终端黑窗:`local_shell_exec` 在 Windows 经 `powershell.exe` 跑命令(分支胶囊每次会话切换都会调 git)但未带 `CREATE_NO_WINDOW`,GUI 进程 spawn 控制台子进程即弹窗;为 `local_shell_exec` 及 harness 的 `mklink` junction/诊断 spawn 统一补上 `CREATE_NO_WINDOW`。
+- 壳内文件查看窗(Read/Edit 工具卡点开)内容区撑满弹窗:共享 `Modal` 的 content/body 现参与拉伸与内部滚动,查看窗调整为近全屏(1080px 宽、视口高减 64px),长文件不再挤在小区域里看。
+- 设置 → AI 助手「管理记忆」弹窗:多条记忆时列表区独立上下滚动(原 grid 三行模板被错误/空态行挤占且列表无 overflow),弹窗加宽加高、条目排版放宽。
+
 ## [0.89.1] - 2026-08-21
 
 ### 修复
