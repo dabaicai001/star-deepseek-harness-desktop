@@ -61,10 +61,12 @@ struct BastionShell {
     last_used: std::time::Instant,
 }
 
-/// 复用路径失败分类:Stale = 通道已死(上层丢弃后重建),Failed = 业务失败。
+/// 复用路径失败分类:Stale = 通道已死(上层丢弃后重建),Failed = 业务失败,
+/// Aborted = 用户中止(通道状态未知,丢弃后由上层返回 [EXEC_ABORTED])。
 enum BastionReuseError {
     Stale,
     Failed(String),
+    Aborted,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -164,6 +166,10 @@ pub struct SshSession {
     resize_tx: Option<watch::Sender<(u32, u32)>>,
     /// 固定节拍心跳 task 的取消句柄,disconnect 时一并终止。
     heartbeat_abort: Option<tokio::task::AbortHandle>,
+    /// 连接死亡标志:心跳 task 发送失败(连接驱动已退出)或 disconnect() 置位。
+    /// Arc 共享给心跳 task;`is_alive()` 供会话复用方(ensure_ssh_session /
+    /// ssh_attach)判活,死会话自动重建而不是永久复用已断的连接。
+    dead: Arc<std::sync::atomic::AtomicBool>,
     remote_forwards: RemoteForwards,
     port_forwards: Vec<PortForwardEntry>,
     /// 认证期间是否实际走了 keyboard-interactive(MFA)且已通过。
@@ -186,6 +192,7 @@ impl SshSession {
             handle: None,
             resize_tx: None,
             heartbeat_abort: None,
+            dead: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             remote_forwards: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             port_forwards: Vec::new(),
             mfa_used: false,
@@ -195,23 +202,29 @@ impl SshSession {
         }
     }
 
+    /// 会话是否仍然可用:连接句柄在位且心跳未判死。
+    /// 心跳 task 每 15s 发一次 keepalive,发送失败即置位 dead——连接死亡
+    /// 最迟一个心跳周期内被感知,复用方据此自动重建,不再永久复用死连接。
+    pub fn is_alive(&self) -> bool {
+        !self.dead.load(std::sync::atomic::Ordering::Relaxed) && self.handle.is_some()
+    }
+
     pub fn sftp_timeout_sec(&self) -> u64 {
         self.config.effective_sftp_timeout_sec()
     }
 
-    /// 是否为「堡垒机 pty exec」场景:启用 keyboard-interactive MFA。
+    /// 是否为「堡垒机 pty exec」场景:启用 keyboard-interactive MFA 且资产
+    /// 显式/默认声明为堡垒机。
     ///
     /// 这类资产的登录壳在验证码通过后,会先呈现「选择机器」交互菜单,普通
-    /// exec 通道(无 pty、无机器选中)会被服务端拒绝。判定只认 kb_interactive:
-    /// 既覆盖「跳板机 + MFA」形态(jump_host + kb),也覆盖「直连堡垒机 + MFA」
-    /// 形态(host 即堡垒机,无 jump_host,如阿里云 BastionHost 公网入口)。
-    /// 方案A(v0.95.6)起初要求 jump_host,导致直连堡垒机资产被漏判,AI exec
-    /// 走普通通道在验证码通过后报错。
+    /// exec 通道(无 pty、无机器选中)会被服务端拒绝。判定 = kb_interactive
+    /// 且 `bastion_mode` 不为显式 false:`bastion_mode: None` 保持旧行为
+    /// (MFA 资产一律按堡垒机处理,存量资产零回归);`Some(false)` 表示普通
+    /// MFA 服务器(2FA 之后是普通 shell,无选机器菜单),AI exec 走普通
+    /// exec 通道,不再弹「选机器」浮层(v0.116.8)。
     pub fn is_bastion(&self) -> bool {
-        self.config
-            .kb_interactive
-            .as_ref()
-            .is_some_and(|kb| kb.enabled)
+        self.config.kb_interactive.as_ref().is_some_and(|kb| kb.enabled)
+            && self.config.bastion_mode.unwrap_or(true)
     }
 
     /// 返回会话配置中的连接目标(host, port, username),
@@ -477,6 +490,7 @@ impl SshSession {
     /// 二者分工:本心跳负责刷新 NAT 空闲定时器,russh keepalive 负责死亡检测。
     fn spawn_heartbeat(&mut self, handle: &Arc<Handle<super::auth::SshHandler>>) {
         let handle = Arc::clone(handle);
+        let dead = Arc::clone(&self.dead);
         let task = tokio::spawn(async move {
             let mut ticker = tokio::time::interval(SSH_HEARTBEAT_INTERVAL);
             // 首个 tick 立即触发,建链刚完成无需立刻发,先消费掉。
@@ -485,6 +499,9 @@ impl SshSession {
                 ticker.tick().await;
                 // sender 被 drop(连接已关)时返回 SendError,退出即可。
                 if handle.send_keepalive(true).await.is_err() {
+                    // 连接驱动已退出:置位死亡标志,让 ensure_ssh_session /
+                    // ssh_attach 等复用方感知,自动重建而不是永久复用死连接。
+                    dead.store(true, std::sync::atomic::Ordering::Relaxed);
                     break;
                 }
             }
@@ -1099,6 +1116,7 @@ impl SshSession {
         channels: super::SshWriteChannels,
         command: &str,
         timeout_sec: u64,
+        mut abort_rx: Option<oneshot::Receiver<()>>,
     ) -> Result<String, String> {
         // ── 方案 A(v0.99.0):优先复用已选机器的 shell 通道 ──
         // GateShell 类堡垒机的「选择机器」是每次登录 shell 都要做的交互;
@@ -1117,6 +1135,7 @@ impl SshSession {
         enum ReuseOutcome {
             Success(String),
             Stale,
+            Aborted,
             Failed(String),
         }
         let reuse = {
@@ -1129,11 +1148,13 @@ impl SshSession {
                         session_id,
                         command,
                         timeout_sec,
+                        &mut abort_rx,
                     )
                     .await
                     {
                         Ok(out) => ReuseOutcome::Success(out),
                         Err(BastionReuseError::Stale) => ReuseOutcome::Stale,
+                        Err(BastionReuseError::Aborted) => ReuseOutcome::Aborted,
                         Err(BastionReuseError::Failed(message)) => ReuseOutcome::Failed(message),
                     },
                 ),
@@ -1145,6 +1166,12 @@ impl SshSession {
                 ReuseOutcome::Stale => {
                     tracing::info!(session_id, "堡垒机 shell 通道失效,重建");
                     self.bastion_shell = None;
+                }
+                ReuseOutcome::Aborted => {
+                    // 中止时命令可能已写入 pty,通道状态未知:丢弃,下次重建。
+                    tracing::info!(session_id, "堡垒机复用命令被用户中止,丢弃通道");
+                    self.bastion_shell = None;
+                    return Err(format!("[EXEC_ABORTED] Command aborted by user: {command}"));
                 }
                 ReuseOutcome::Failed(message) => {
                     tracing::warn!(session_id, "堡垒机复用命令失败,丢弃通道: {message}");
@@ -1220,7 +1247,7 @@ impl SshSession {
                                     }
                                 }
                                 Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
-                                    return Err(());
+                                    return Err(Stage1Error::Closed);
                                 }
                                 _ => {}
                             }
@@ -1228,10 +1255,10 @@ impl SshSession {
                         data = write_rx.recv() => {
                             let bytes = match data {
                                 Some(b) => b,
-                                None => return Err(()),
+                                None => return Err(Stage1Error::Closed),
                             };
                             if writer.write_all(&bytes).await.is_err() {
-                                return Err(());
+                                return Err(Stage1Error::Closed);
                             }
                             writer.flush().await.ok();
                         }
@@ -1246,8 +1273,18 @@ impl SshSession {
                         run = &mut run_rx => {
                             match run {
                                 Ok(value) => return Ok(value),
-                                Err(_) => return Err(()),
+                                Err(_) => return Err(Stage1Error::Closed),
                             }
+                        }
+                        _ = async {
+                            match abort_rx.as_mut() {
+                                Some(rx) => rx.await,
+                                None => std::future::pending().await,
+                            }
+                        } => {
+                            // 停止生成 / ssh_exec_abort:立即结束选机器等待,
+                            // 不再扣住会话锁 360s(此前该路径完全不可中断)。
+                            return Err(Stage1Error::Aborted);
                         }
                     }
                 }
@@ -1255,7 +1292,7 @@ impl SshSession {
             .await
             {
                 Ok(Ok(value)) => value,
-                Ok(Err(())) => {
+                Ok(Err(Stage1Error::Closed)) => {
                     pending_bastion.lock().await.remove(session_id);
                     {
                         let mut ch = channels.lock().await;
@@ -1269,6 +1306,19 @@ impl SshSession {
                     }
                     let _ = channel.close().await;
                     return Err("[BASTION_CLOSED] 堡垒机通道关闭,未能选择目标机器".to_string());
+                }
+                Ok(Err(Stage1Error::Aborted)) => {
+                    pending_bastion.lock().await.remove(session_id);
+                    {
+                        let mut ch = channels.lock().await;
+                        ch.remove(session_id);
+                    }
+                    if let Some(app) = app_handle {
+                        let _ = app.emit(&format!("ssh:bastion-done:{}", session_id), ());
+                        let _ = app.emit("ssh:bastion-done", serde_json::json!({ "sessionId": session_id }));
+                    }
+                    let _ = channel.close().await;
+                    return Err(format!("[EXEC_ABORTED] Command aborted by user: {command}"));
                 }
                 Err(_) => {
                     pending_bastion.lock().await.remove(session_id);
@@ -1321,6 +1371,7 @@ impl SshSession {
             &sentinel,
             timeout_sec,
             Some(&mut write_rx),
+            &mut abort_rx,
         )
         .await;
 
@@ -1340,6 +1391,10 @@ impl SshSession {
             Err(CollectBastionError::ChannelClosed) => {
                 // 通道在执行期间关闭:丢弃(不保留),报错返回
                 Err("[BASTION_CLOSED] 堡垒机通道在执行命令期间关闭".to_string())
+            }
+            Err(CollectBastionError::Aborted) => {
+                // 用户中止:命令可能已写入 pty,通道状态未知,不保留复用。
+                Err(format!("[EXEC_ABORTED] Command aborted by user: {command}"))
             }
             Err(CollectBastionError::TimedOut { timeout_sec, command }) => {
                 // 哨兵超时:保守丢弃通道(可能半死),避免复用半死通道
@@ -1380,6 +1435,7 @@ impl SshSession {
         session_id: &str,
         command: &str,
         timeout_sec: u64,
+        abort_rx: &mut Option<oneshot::Receiver<()>>,
     ) -> Result<String, BastionReuseError> {
         let sentinel = format!("__DSH_BASTION_DONE_{}__", uuid::Uuid::new_v4().simple());
         match collect_bastion_command(
@@ -1391,10 +1447,11 @@ impl SshSession {
             &sentinel,
             timeout_sec,
             None,
+            abort_rx,
         )
         .await
-        {
-            Err(CollectBastionError::ChannelClosed) => Err(BastionReuseError::Stale),
+        {            Err(CollectBastionError::ChannelClosed) => Err(BastionReuseError::Stale),
+            Err(CollectBastionError::Aborted) => Err(BastionReuseError::Aborted),
             Err(CollectBastionError::TimedOut { timeout_sec, command }) => {
                 // 哨兵超时:通道可能半死,保守丢弃(Stale 语义由上层重建);
                 // 对外按业务失败返回,让模型感知命令未完成。
@@ -1556,6 +1613,7 @@ impl SshSession {
     }
 
     pub fn disconnect(&mut self) {
+        self.dead.store(true, std::sync::atomic::Ordering::Relaxed);
         self.resize_tx = None;
         self.browse_sftp = None;
         // 关闭已复用的堡垒机 shell 通道(drop 读写半部即关闭),会话断开后
@@ -2079,6 +2137,15 @@ enum CollectBastionError {
     ChannelClosed,
     /// 哨兵超时(命令可能仍在运行或通道半死)。
     TimedOut { timeout_sec: u64, command: String },
+    /// 用户中止(停止生成 → ssh_exec_abort):立即结束等待,不再扣住会话锁。
+    Aborted,
+}
+
+/// 堡垒机选机器(阶段1)提前结束分类:Closed = 通道关闭/对端断开,
+/// Aborted = 用户中止(停止生成 / ssh_exec_abort)。
+enum Stage1Error {
+    Closed,
+    Aborted,
 }
 
 /// 写命令 + 随机哨兵到堡垒机 pty 通道,行缓冲检测「独立行 == 哨兵」收集输出。
@@ -2092,8 +2159,13 @@ enum CollectBastionError {
 /// `user_input` 为可选的前端终端键盘输入源(完整流程有前端 xterm 浮层;
 /// 复用路径传 None,该分支永不触发)。
 ///
+/// `abort_rx` 为可选的中止信号(ssh_exec_abort / 停止生成)的所有权槽:
+/// 触发时立即以 [`CollectBastionError::Aborted`] 返回(消费即 take,中止
+/// 路径都会立即向上返回,不存在二次消费)。None 时用 keepalive 通道顶替,
+/// 保证 select 的中止分支不因 sender drop 误触发。
+///
 /// @returns Ok((原始输出, 是否截断, 退出码));通道关闭 → ChannelClosed;
-/// 哨兵超时 → TimedOut。
+/// 哨兵超时 → TimedOut;用户中止 → Aborted。
 async fn collect_bastion_command(
     read: &mut ChannelReadHalf,
     write: &ChannelWriteHalf<client::Msg>,
@@ -2103,6 +2175,7 @@ async fn collect_bastion_command(
     sentinel: &str,
     timeout_sec: u64,
     mut user_input: Option<&mut mpsc::Receiver<Vec<u8>>>,
+    abort_rx: &mut Option<oneshot::Receiver<()>>,
 ) -> Result<(Vec<u8>, bool, Option<u32>), CollectBastionError> {
     // 冲刷积压输出:有界窗口内丢弃上次命令的残留输出,避免混进本次结果;
     // 窗口内无数据即视为清空(尽力而为,清不完由采集循环兜底读取)。
@@ -2132,6 +2205,8 @@ async fn collect_bastion_command(
     // 行缓冲:pty 输出按行检测哨兵(跨 chunk 拼接),避免命令回显误触发。
     let mut line_buf = Vec::<u8>::new();
     let mut done = false;
+    // 中止臂与 user_input 同款借用模式:None 时 pending() 永不触发,
+    // 有接收端时 oneshot await 可取消安全,所有权保留在调用方供后续阶段复用。
     let collect = async {
         loop {
             tokio::select! {
@@ -2167,7 +2242,9 @@ async fn collect_bastion_command(
                             }
                         }
                         Some(ChannelMsg::ExitStatus { exit_status: code }) => exit_status = Some(code),
-                        Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => return Err(()),
+                        Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
+                            return Err(CollectBastionError::ChannelClosed);
+                        }
                         _ => {}
                     }
                 }
@@ -2179,12 +2256,20 @@ async fn collect_bastion_command(
                 } => {
                     let bytes = match data {
                         Some(b) => b,
-                        None => return Err(()),
+                        None => return Err(CollectBastionError::ChannelClosed),
                     };
                     if writer.write_all(&bytes).await.is_err() {
-                        return Err(());
+                        return Err(CollectBastionError::ChannelClosed);
                     }
                     writer.flush().await.ok();
+                }
+                _ = async {
+                    match abort_rx.as_mut() {
+                        Some(rx) => rx.await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    return Err(CollectBastionError::Aborted);
                 }
             }
         }
@@ -2192,7 +2277,7 @@ async fn collect_bastion_command(
     let timeout_sec = timeout_sec.clamp(1, MAX_EXEC_TIMEOUT_SEC);
     match timeout(Duration::from_secs(timeout_sec), collect).await {
         Ok(Ok(())) => Ok((output, truncated, exit_status)),
-        Ok(Err(())) => Err(CollectBastionError::ChannelClosed),
+        Ok(Err(error)) => Err(error),
         Err(_) => Err(CollectBastionError::TimedOut {
             timeout_sec,
             command: command.to_string(),

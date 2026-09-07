@@ -7,7 +7,7 @@
 **All-in-One DevOps Desktop Command Center**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.116.7-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.116.8-cyan)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/star-dsh-desktop/releases)
 [![官网](https://img.shields.io/badge/官网-starthub.waouzzz.cc-cyan)](https://starthub.waouzzz.cc/)
@@ -48,9 +48,11 @@ StarHub 是一个跨平台桌面应用,把开发运维每天要用到的工具�
 
 ## 当前版本
 
-### v0.116.7 (2026-09-07)
-- 🐛 **SSH 终端行尾下划线显示异常(输入 `_` 迟迟不显示 / 再敲键时一次蹦出两个)**:OSC 7 注入命令的隐藏回显过滤器是常驻流式过滤,而标记 `__starhub_osc7` 以下划线开头——任何以标记前缀(`_` / `__` / `__s`…,最长 13 字符)结尾的未完成行都会被扣到下一个 TCP 分片到达才放行;交互式 bash 逐字节回显时表现为「下划线丢失」或「下个字符到达时一次蹦出两个」,Tab 补全行尾恰为 `_` 时同样丢失。过滤器改为一次性武装语义:默认零缓冲透传,仅在写入注入命令前进入抑制窗口,含标记的回显行被整行剔除后自动解除(积压超 8KB 兜底冲刷);`history` 等用户可见输出里的 marker 行不再被吞。
-- 🐛 **SSH 断开时堡垒机「选机器」待应答通道泄漏**:`ssh_disconnect` 清理了 MFA / 主机密钥应答通道却漏了 `pending_bastion`,在途的选机器等待悬挂到 360s 超时;`ssh_detach` 归零路径此前完全没清 pending 通道,现补齐同一组清理。
+### v0.116.8 (2026-09-07)
+- 🐛 **SSH 关闭后重连失败(代次竞态)**:旧会话的 disconnect 在 session 锁上被在途 exec 阻塞期间用户重开连接,旧清理醒来会作废新连接(报 Connection aborted / 删新写通道导致终端连上但输入静默丢弃 / 删新 MFA 应答通道)。现 disconnect/detach 记录目标代次并经守卫清理:代次已前移则跳过全部失效与 pending 清理,对重连零影响。
+- 🐛 **断线后死会话永久滞留,AI 命令反复失败不自愈**:AI exec 会话与 `ssh_attach` 复用此前只查条目在位,网络断开后每条命令 `[EXEC_FAILED]` 永不恢复。现心跳任务(15s)发送失败即置位死亡标志,复用前校验 `is_alive`,死会话自动丢弃重建;AI 域工具对连接级失败(命令尚未在远端执行)自动重建连接并重试一次。
+- 🐛 **堡垒机 AI exec 不可中断**:停止生成此前无法中断堡垒机 pty 路径,阶段1 等选机器最长扣住会话锁 360s。现中止信号贯穿复用 / 选机器 / 命令采集三个阶段,立即以 `[EXEC_ABORTED]` 返回并释放会话锁。
+- ✨ **堡垒机模式显式声明**:连接表单 MFA 档新增「堡垒机(登录后需选择目标机器)」勾选(默认勾选保持存量行为);普通 MFA 服务器取消勾选后,AI 命令走普通 exec 通道直接执行,不再误弹「选机器」浮层。
 
 > 历史版本见 [CHANGELOG.md](./CHANGELOG.md)。
 
@@ -110,7 +112,7 @@ npm run tauri:dev        # 完整开发:构建 sidecar + React 工作台,启动�
 
 | 项 | 值 |
 |---|---|
-| 当前版本 | v0.116.7 |
+| 当前版本 | v0.116.8 |
 | 官网 | [starthub.waouzzz.cc](https://starthub.waouzzz.cc/) |
 | 仓库 | [github.com/dabaicai001/star-dsh-desktop](https://github.com/dabaicai001/star-dsh-desktop) |
 | 问题反馈 | [GitHub Issues](https://github.com/dabaicai001/star-dsh-desktop/issues) |

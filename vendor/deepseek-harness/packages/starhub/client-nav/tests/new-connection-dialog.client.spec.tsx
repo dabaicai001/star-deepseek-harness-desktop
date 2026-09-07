@@ -404,10 +404,34 @@ describe('NewConnectionDialog ssh mfa', () => {
             host: '10.0.0.7', port: 22, username: 'ops',
             authMode: 'mfa', usePasswordAuth: true, useKeyAuth: false,
             mfaEnabled: true, password: 'mpw', mfaPassword: 'mpw',
+            // 堡垒机模式默认勾选(存量兼容):普通 MFA 服务器需显式取消
+            bastionMode: true,
           },
           tags: [],
         },
       })
+    } finally {
+      restore()
+    }
+  })
+
+  it('persists bastionMode=false when the bastion checkbox is unchecked', async () => {
+    const create = vi.fn((..._args: unknown[]) => ({}))
+    const restore = stubTauriInternals({ create_asset: args => create(args) })
+    const onClose = vi.fn()
+    try {
+      render(<NewConnectionDialog asset={null} onClose={onClose} onSaved={() => {}} />)
+      fireEvent.change(screen.getByLabelText('认证方式'), { target: { value: 'mfa' } })
+      fireEvent.change(screen.getByLabelText('名称 *'), { target: { value: 'mfa-2' } })
+      fireEvent.change(screen.getByLabelText('主机 *'), { target: { value: '10.0.0.8' } })
+      fireEvent.change(screen.getByLabelText('用户名 *'), { target: { value: 'ops' } })
+      fireEvent.change(screen.getByLabelText(/MFA 主密码/), { target: { value: 'mpw' } })
+      // 取消「堡垒机」:普通 MFA 服务器,AI exec 不弹「选机器」浮层
+      fireEvent.click(screen.getByLabelText(/堡垒机/))
+      fireEvent.click(screen.getByText('创建'))
+      await vi.waitFor(() =>{  expect(onClose).toHaveBeenCalledTimes(1) })
+      const payload = create.mock.calls[0]?.[0] as { params: { config: { bastionMode?: boolean } } }
+      expect(payload.params.config.bastionMode).toBe(false)
     } finally {
       restore()
     }

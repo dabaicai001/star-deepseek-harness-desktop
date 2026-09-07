@@ -9,6 +9,16 @@
 
 ---
 
+## [0.116.8] - 2026-09-07
+
+### 修复
+- **SSH 关闭后重连失败(代次竞态)**:旧会话的 `ssh_disconnect` 在 session 锁上被在途 exec 阻塞数秒,期间用户重开连接后,旧 disconnect 醒来仍会盲目失效当前代次——作废新 in-flight connect(报 Connection aborted by client)、删掉新会话的写通道(终端连上但键盘输入静默丢弃)、删掉新 MFA 应答通道。现 disconnect/detach 在触碰任何可阻塞状态前先记录目标代次,清理时经 `invalidate_attempt_if_current` 代次守卫:期间代次已前移则跳过全部失效与 pending 清理,对重连零影响。
+- **断线后死会话永久滞留,AI 命令反复失败不自愈**:会话条目此前只在显式 disconnect/detach 时移除,网络断开后 AI exec 会话(`dsh:{assetId}:ssh`)与 `ssh_attach` 的注册表复用都把死连接当活连接,之后每条命令 `[EXEC_FAILED]` 永不恢复。现 SshSession 心跳任务发送失败(连接驱动退出,最迟 15s 感知)即置位死亡标志:`ensure_ssh_session` / `ssh_attach` 复用前校验 `is_alive`,死会话自动丢弃并按资产配置重建;AI 域工具对连接级失败(`[EXEC_FAILED]` / not connected / `[CONN_FAILED]`,此时命令尚未在远端执行)自动重建连接并重试一次。
+- **堡垒机 AI exec 不可中断**:堡垒机 pty 路径此前不注册取消句柄,停止生成无法中断,阶段1 等选机器最长扣住会话锁 360s,期间同会话所有命令排队阻塞。现统一注册 `exec_aborts`:中止信号贯穿复用路径 / 选机器等待 / 命令采集三个阶段,立即以 `[EXEC_ABORTED]` 返回并释放会话锁;中止时通道状态未知,保守丢弃待重建。
+
+### 改进
+- **堡垒机模式显式声明,普通 MFA 服务器不再误弹「选机器」浮层**:此前 `is_bastion` 只认 MFA 开关,普通 2FA 服务器(2FA 后是普通 shell、无选机器菜单)的 AI exec 也被推进 pty 选机器流程,且堡垒机 shell 通道 600s 空闲回收后还会反复弹。资产配置新增 `bastionMode`(连接表单 MFA 档新增勾选项,默认勾选保持存量行为):取消勾选后 AI exec 走普通 exec 通道直接执行。后端 `bastion_mode` 缺省 `None` 保持旧行为,未重新保存的存量资产零回归。
+
 ## [0.116.7] - 2026-09-07
 
 ### 修复

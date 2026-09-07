@@ -37,6 +37,25 @@ fn ai_ssh_conn_id(asset_id: &str) -> String {
     format!("dsh:{asset_id}:ssh")
 }
 
+/// 连接级失败判定:exec 通道都打不开 / 会话句柄不在位——命令一定没有在远端
+/// 开始执行,丢弃死会话重建后重试是安全的。业务级失败(退出码非 0 /
+/// [EXEC_TIMEOUT] / [EXEC_ABORTED])不在此列,原样返回由模型决策。
+fn is_connection_level_failure(error: &str) -> bool {
+    error.starts_with("[EXEC_FAILED]")
+        || error.starts_with("[CONN_FAILED]")
+        || error.contains("SSH session not connected")
+}
+
+/// 丢弃一个(死)SSH 会话:map 条目 + 代次 + pending 应答通道一并清理,
+/// 下一次 ensure_ssh_session 按资产配置重建。
+async fn drop_ssh_session(bridge: &HostBridgeState, conn_id: &str) {
+    let Some(app) = bridge.app() else {
+        return;
+    };
+    let manager = app.state::<SshManager>();
+    manager.drop_session(conn_id).await;
+}
+
 /// 把资产 id 解析为完整连接配置(含 Keyring 合并的敏感字段)。
 /// 返回 (asset_type, config);资产不存在时报错。
 pub(crate) async fn load_asset_config(asset_id: &str) -> Result<(String, Value), String> {
@@ -149,6 +168,9 @@ fn format_json(value: &Value) -> String {
 
 /// 确保 AI exec SSH 会话存在(connId 与前端一致,复用已建会话)。
 /// 返回 connId。
+///
+/// 复用前做存活校验(is_alive):网络断开后死会话此前会永久滞留 map,
+/// 模型的每条命令都失败且永不自愈;现在死会话自动丢弃并按资产配置重建。
 async fn ensure_ssh_session(
     bridge: &HostBridgeState,
     asset_id: &str,
@@ -159,9 +181,15 @@ async fn ensure_ssh_session(
     let conn_id = ai_ssh_conn_id(asset_id);
     {
         let manager = app.state::<SshManager>();
-        let sessions = manager.sessions.lock().await;
-        if sessions.contains_key(&conn_id) {
-            return Ok(conn_id);
+        let session_arc = manager.sessions.lock().await.get(&conn_id).cloned();
+        match session_arc {
+            Some(arc) if arc.lock().await.is_alive() => return Ok(conn_id),
+            Some(_) => {
+                // 死会话:网络断开 / 被服务端踢掉。丢弃后走下方建连路径重建
+                // (MFA 资产重建会重新弹验证卡,属于人工配合的必要环节)。
+                drop_ssh_session(bridge, &conn_id).await;
+            }
+            None => {}
         }
     }
     // 无会话:按资产配置建立(密码/密钥从 Keyring 合并)
@@ -178,6 +206,27 @@ async fn ensure_ssh_session(
     )
     .await?;
     Ok(conn_id)
+}
+
+/// 执行一条 AI SSH 命令;连接级失败([EXEC_FAILED] / not connected /
+/// [CONN_FAILED])时丢弃死会话、重建一次并重试——连接级失败意味着命令尚未
+/// 在远端开始执行,重试安全。业务级失败原样返回,由模型决策下一步。
+async fn exec_with_reconnect(
+    bridge: &HostBridgeState,
+    asset_id: &str,
+    conn_id: &str,
+    command: &str,
+    timeout_sec: u64,
+) -> Result<String, String> {
+    match exec_ssh_command(bridge, conn_id, command, timeout_sec).await {
+        Ok(output) => Ok(output),
+        Err(error) if is_connection_level_failure(&error) => {
+            drop_ssh_session(bridge, conn_id).await;
+            let fresh_conn = ensure_ssh_session(bridge, asset_id).await?;
+            exec_ssh_command(bridge, &fresh_conn, command, timeout_sec).await
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// 执行 ssh_exec:带 exec_id 的进程内执行,注册取消句柄。
@@ -341,7 +390,14 @@ async fn execute_ssh(
             return Ok("[Error] 无效的 task_id".to_string());
         }
         let wait_sec = clamp_task_wait_seconds(args.get("wait_seconds"));
-        let output = exec_ssh_command(bridge, &conn_id, &build_task_poll_command(&task_id, wait_sec), wait_sec + 15).await?;
+        let output = exec_with_reconnect(
+            bridge,
+            asset_id,
+            &conn_id,
+            &build_task_poll_command(&task_id, wait_sec),
+            wait_sec + 15,
+        )
+        .await?;
         return Ok(if output.is_empty() { "(无输出)".to_string() } else { output });
     }
 
@@ -365,7 +421,7 @@ async fn execute_ssh(
     } else {
         command.clone()
     };
-    let output = exec_ssh_command(bridge, &conn_id, &final_command, 30).await?;
+    let output = exec_with_reconnect(bridge, asset_id, &conn_id, &final_command, 30).await?;
     if is_background {
         Ok(format!(
             "{output}\n后台任务已启动,task_id: {task_id};请调用 ssh_wait_task(task_id=\"{task_id}\") 查询进度与结果。"
@@ -398,6 +454,11 @@ async fn execute_ssh_status(
         ));
     };
     let session = session_arc.lock().await;
+    if !session.is_alive() {
+        return Ok(format!(
+            "SSH 会话已断开(资产 {asset_id}):连接已死亡(网络断开或被服务端踢掉),下一条命令会自动重建连接;堡垒机资产重建时会重新弹出 MFA 验证与选机器流程。"
+        ));
+    }
     if session.bastion_shell_ready() {
         Ok(format!(
             "SSH 会话已就绪(资产 {asset_id}):堡垒机已选中目标机器,后续命令直接静默执行,不会弹窗。"
@@ -1152,6 +1213,28 @@ mod tests {
         // mysql 资产上执行 redis_exec:同样拦下。
         let err2 = check_tool_asset_type("db", "mysql", "redis_exec").unwrap_err();
         assert!(err2.contains("db_query") || err2.contains("Redis"), "{err2}");
+    }
+
+    #[test]
+    fn connection_level_failure_matches_only_transport_errors() {
+        // 连接级:命令未开始执行,丢弃会话重建重试安全
+        assert!(is_connection_level_failure(
+            "[EXEC_FAILED] Failed to open exec channel: Channel send error"
+        ));
+        assert!(is_connection_level_failure("SSH session not connected"));
+        assert!(is_connection_level_failure(
+            "[CONN_FAILED] Failed to connect to 10.0.0.7:22: timeout"
+        ));
+        // 业务级:原样返回由模型决策,不得触发重连重试
+        assert!(!is_connection_level_failure(
+            "Command exited with code 1: no such file"
+        ));
+        assert!(!is_connection_level_failure(
+            "[EXEC_TIMEOUT] Command timed out after 30s: apt-get install"
+        ));
+        assert!(!is_connection_level_failure(
+            "[EXEC_ABORTED] Command aborted by user: ls"
+        ));
     }
 
     #[test]

@@ -112,8 +112,30 @@ impl SshManager {
         next
     }
 
+    /// 读取 id 当前代次(只读,不递增)。无记录返回 None。
+    async fn current_attempt(&self, id: &str) -> Option<u64> {
+        self.attempts.lock().await.get(id).copied()
+    }
+
     async fn invalidate_attempt(&self, id: &str) -> u64 {
         self.begin_attempt(id).await
+    }
+
+    /// 代次守卫的失效:仅当 id 当前代次仍等于 `guard` 时才递增,否则不动。
+    ///
+    /// 修复「关闭→重连失败」竞态:旧会话的 disconnect 在 session 锁上被
+    /// 在途 exec 阻塞数秒,期间用户重开连接(新代次);旧 disconnect 醒来后
+    /// 若盲目 invalidate 会作废新连接(报 Connection aborted / 删新写通道 /
+    /// 删新 MFA 应答通道)。带守卫后旧 disconnect 对新连接零影响。
+    /// @returns Some(新代次) = 守卫命中已失效;None = 代次已前移,跳过清理。
+    async fn invalidate_attempt_if_current(&self, id: &str, guard: u64) -> Option<u64> {
+        let mut attempts = self.attempts.lock().await;
+        if attempts.get(id).copied() != Some(guard) {
+            return None;
+        }
+        let next = guard.wrapping_add(1).max(1);
+        attempts.insert(id.to_string(), next);
+        Some(next)
     }
 
     async fn is_current_attempt(&self, id: &str, generation: u64) -> bool {
@@ -128,6 +150,20 @@ impl SshManager {
         {
             channels.remove(id);
         }
+    }
+
+    /// 丢弃一个会话(死会话自愈路径):从 map 移除 + 作废当前代次 +
+    /// 清掉全部 pending 应答通道。供 harness/domain.rs 在连接级失败后调用,
+    /// 下一次 ensure_ssh_session 会按资产配置重建会话。
+    pub(crate) async fn drop_session(&self, id: &str) {
+        if let Some(session_arc) = self.sessions.lock().await.remove(id) {
+            let mut session = session_arc.lock().await;
+            session.disconnect();
+        }
+        self.invalidate_attempt(id).await;
+        self.pending_kb.lock().await.remove(id);
+        self.pending_hostkey.lock().await.remove(id);
+        self.pending_bastion.lock().await.remove(id);
     }
 }
 
@@ -398,6 +434,10 @@ pub(crate) async fn asset_ssh_config(asset_id: &str) -> Result<(String, SshConfi
         None
     };
 
+    // 堡垒机模式显式声明:None = 旧行为(MFA 资产一律按堡垒机,存量零回归);
+    // Some(false) = 普通 MFA 服务器(2FA 后是普通 shell),AI exec 不弹「选机器」。
+    let bastion_mode = config.get("bastionMode").and_then(Value::as_bool);
+
     let jump_host = get("jumpHost");
     let jump_auth = if jump_host.is_empty() {
         None
@@ -445,6 +485,7 @@ pub(crate) async fn asset_ssh_config(asset_id: &str) -> Result<(String, SshConfi
                 (!value.is_empty()).then(|| value.to_string())
             },
             kb_interactive,
+            bastion_mode,
             jump_host: (!jump_host.is_empty()).then(|| jump_host.to_string()),
             jump_port: config
                 .get("jumpPort")
@@ -477,16 +518,26 @@ pub async fn ssh_attach(
     app_handle: tauri::AppHandle,
     asset_id: String,
 ) -> Result<SshAttachResult, String> {
-    // 复用路径:注册表已有该资产的 session 且 SshManager 中仍存活
+    // 复用路径:注册表已有该资产的 session 且 SshManager 中仍存活。
+    // 存活 = 会话条目在位且心跳未判死(is_alive):此前只查 contains_key,
+    // 网络断开后死会话滞留 map,attach 永远复用死连接,后续命令全部失败。
     if let Some(session_id) = registry.session_for_asset(&asset_id) {
-        let live = manager.sessions.lock().await.contains_key(&session_id);
-        if live {
+        let session_arc = manager.sessions.lock().await.get(&session_id).cloned();
+        let alive = match &session_arc {
+            Some(arc) => arc.lock().await.is_alive(),
+            None => false,
+        };
+        if alive {
             registry.attach(&asset_id, &session_id, "ssh", "frontend");
             notify_registry_sync(&harness, &registry, &manager).await;
             return Ok(SshAttachResult {
                 session_id,
                 reused: true,
             });
+        }
+        if session_arc.is_some() {
+            // 死会话:丢弃(map 条目 + 代次 + pending 通道),走下方建连路径重建。
+            manager.drop_session(&session_id).await;
         }
     }
 
@@ -522,7 +573,10 @@ pub async fn ssh_detach(
 ) -> Result<(), String> {
     match registry.detach(&session_id, "frontend") {
         DetachOutcome::Removed { .. } => {
-            // 归零:与 ssh_disconnect 相同的清理路径(SFTP 通道先注销,再断 session)
+            // 归零:与 ssh_disconnect 相同的清理路径(SFTP 通道先注销,再断 session)。
+            // 同样带代次守卫:session 锁被在途 exec 阻塞期间若用户重开连接,
+            // 不作废新连接、不删新通道与 pending 应答。
+            let target_generation = manager.current_attempt(&session_id).await;
             transfer_manager.unregister_sftp(&session_id).await;
             let session_arc = {
                 let mut sessions = manager.sessions.lock().await;
@@ -532,16 +586,25 @@ pub async fn ssh_detach(
                 let mut session = session.lock().await;
                 session.disconnect();
             }
-            let invalidated = manager.invalidate_attempt(&session_id).await;
-            manager
-                .remove_channel_for_attempt(&session_id, invalidated.wrapping_sub(1))
-                .await;
-            // 与 ssh_disconnect 相同的清理路径:丢弃仍在等待前端输入的
-            // MFA / 主机密钥 / 堡垒机选机器应答通道,避免 in-flight connect
-            // 一直阻塞到 360s 超时。
-            manager.pending_kb.lock().await.remove(&session_id);
-            manager.pending_hostkey.lock().await.remove(&session_id);
-            manager.pending_bastion.lock().await.remove(&session_id);
+            let invalidated = match target_generation {
+                Some(guard) => {
+                    manager
+                        .invalidate_attempt_if_current(&session_id, guard)
+                        .await
+                }
+                None => None,
+            };
+            if let Some(invalidated) = invalidated {
+                manager
+                    .remove_channel_for_attempt(&session_id, invalidated.wrapping_sub(1))
+                    .await;
+                // 与 ssh_disconnect 相同的清理路径:丢弃仍在等待前端输入的
+                // MFA / 主机密钥 / 堡垒机选机器应答通道,避免 in-flight connect
+                // 一直阻塞到 360s 超时。
+                manager.pending_kb.lock().await.remove(&session_id);
+                manager.pending_hostkey.lock().await.remove(&session_id);
+                manager.pending_bastion.lock().await.remove(&session_id);
+            }
             notify_registry_sync(&harness, &registry, &manager).await;
         }
         DetachOutcome::StillAttached { .. } => {
@@ -560,6 +623,13 @@ pub async fn ssh_disconnect(
     harness: State<'_, HarnessManager>,
     id: String,
 ) -> Result<(), String> {
+    // 代次守卫:在触碰任何可能阻塞的状态前,先记录本次 disconnect 要作废的
+    // 代次。若清理过程中(session 锁被在途 exec 阻塞数秒)用户已经重开连接
+    // (新代次),本次 disconnect 的失效/通道/pending 清理全部跳过——否则会把
+    // 新连接的写通道删掉(终端输入静默丢弃)、作废新 in-flight connect(报
+    // Connection aborted by client)、删掉新 MFA 应答通道,表现为「关闭后再
+    // 连接连不上」。
+    let target_generation = manager.current_attempt(&id).await;
     // SFTP 通道由 TransferManager 单独持有；先移除，避免关闭 SSH 后仍残留失效句柄。
     transfer_manager.unregister_sftp(&id).await;
     // 先从 map 中移除(短暂持锁),再对单个 session 加锁断开,
@@ -573,25 +643,30 @@ pub async fn ssh_disconnect(
         session.disconnect();
     }
 
-    // 无论 session 是否已经注册，都让正在进行的连接代次失效。
-    let invalidated_generation = manager.invalidate_attempt(&id).await;
+    // 代次守卫的失效:只有当 id 的当前代次仍是本次 disconnect 记录的那一个
+    // (期间没有更新的 connect 开始)才执行失效与后续清理。
+    let invalidated_generation = match target_generation {
+        Some(guard) => manager.invalidate_attempt_if_current(&id, guard).await,
+        None => None,
+    };
 
-    // 只移除本次 disconnect 取消的旧写通道；如果新的 connect 已经开始，
-    // 它拥有更高代次，不能被较晚完成的旧清理误删。
-    manager
-        .remove_channel_for_attempt(&id, invalidated_generation.wrapping_sub(1))
-        .await;
+    if let Some(invalidated_generation) = invalidated_generation {
+        // 只移除本次 disconnect 取消的旧写通道；如果新的 connect 已经开始，
+        // 它拥有更高代次，不能被较晚完成的旧清理误删。
+        manager
+            .remove_channel_for_attempt(&id, invalidated_generation.wrapping_sub(1))
+            .await;
 
-    // 主动断开(关闭窗口/取消连接)时,丢弃仍在等待前端输入的 MFA / 主机密钥
-    // 应答通道。否则 in-flight connect 会一直阻塞到 360s 超时;期间用户重开
-    // 同一资产的窗口会触发新的 connect,其 insert 会顶掉旧 sender,而旧任务
-    // 醒来后盲目 remove(session_id) 会误删新 connect 的 sender,导致新窗口
-    // 报 [MFA_FAILED] Keyboard-interactive response channel dropped(见图片2)。
-    manager.pending_kb.lock().await.remove(&id);
-    manager.pending_hostkey.lock().await.remove(&id);
-    // 堡垒机 AI exec 的「选机器」待应答通道一并丢弃:否则浮层仍在等待的
-    // sender 悬挂到 360s 超时,期间重连后的下一次 exec insert 顶掉它才会释放。
-    manager.pending_bastion.lock().await.remove(&id);
+        // 主动断开(关闭窗口/取消连接)时,丢弃仍在等待前端输入的 MFA / 主机密钥
+        // 应答通道。否则 in-flight connect 会一直阻塞到 360s 超时;期间用户重开
+        // 同一资产的窗口会触发新的 connect,其 insert 会顶掉旧 sender,而旧任务
+        // 醒来后盲目 remove(session_id) 会误删新 connect 的 sender,导致新窗口
+        // 报 [MFA_FAILED] Keyboard-interactive response channel dropped(见图片2)。
+        // 堡垒机 AI exec 的「选机器」待应答通道一并丢弃(v0.116.7 补齐)。
+        manager.pending_kb.lock().await.remove(&id);
+        manager.pending_hostkey.lock().await.remove(&id);
+        manager.pending_bastion.lock().await.remove(&id);
+    }
 
     // 联动 M1(契约 §2.1「断线」):断开的是受跟踪会话时,注册表条目一并移除,
     // 并向 dsh 补发 registry.sync 全量快照(无 runtime 静默跳过)。
@@ -796,22 +871,9 @@ pub(crate) async fn ssh_exec_core(
         };
 
         let mut session = session_arc.lock().await;
-        // 堡垒机 pty 路径:启用 kb_interactive MFA(直连堡垒机或跳板机)时,普通
-        // exec 通道被服务端拒绝(Channel send error),需先经 pty 让用户选机器。
-        // 仅 AI 域工具路径启用。
-        if bastion_interactive && session.is_bastion() {
-            return session
-                .exec_via_bastion_pty(
-                    id,
-                    Some(app_handle),
-                    &manager.pending_bastion,
-                    manager.channels.clone(),
-                    command,
-                    timeout_sec.unwrap_or(10),
-                )
-                .await;
-        }
-        match exec_id {
+        // 注册在途取消句柄:普通 exec 与堡垒机 pty 路径统一支持停止生成中断
+        // (此前堡垒机路径不可中断,阶段1 等选机器最长扣住会话锁 360s)。
+        let abort_rx = match exec_id {
             Some(eid) => {
                 let (abort_tx, abort_rx) = tokio::sync::oneshot::channel();
                 manager
@@ -819,15 +881,40 @@ pub(crate) async fn ssh_exec_core(
                     .lock()
                     .await
                     .insert(eid.to_string(), abort_tx);
-                let result = session
-                    .exec_abortable(command, timeout_sec.unwrap_or(10), abort_rx)
-                    .await;
-                // 无论结果如何都清理注册,避免 map 泄漏
-                manager.exec_aborts.lock().await.remove(eid);
-                result
+                Some(abort_rx)
             }
-            None => session.exec(command, timeout_sec.unwrap_or(10)).await,
+            None => None,
+        };
+        // 堡垒机 pty 路径:启用 kb_interactive MFA(直连堡垒机或跳板机)时,普通
+        // exec 通道被服务端拒绝(Channel send error),需先经 pty 让用户选机器。
+        // 仅 AI 域工具路径启用。
+        let result = if bastion_interactive && session.is_bastion() {
+            session
+                .exec_via_bastion_pty(
+                    id,
+                    Some(app_handle),
+                    &manager.pending_bastion,
+                    manager.channels.clone(),
+                    command,
+                    timeout_sec.unwrap_or(10),
+                    abort_rx,
+                )
+                .await
+        } else {
+            match abort_rx {
+                Some(abort_rx) => {
+                    session
+                        .exec_abortable(command, timeout_sec.unwrap_or(10), abort_rx)
+                        .await
+                }
+                None => session.exec(command, timeout_sec.unwrap_or(10)).await,
+            }
+        };
+        // 无论结果如何都清理注册,避免 map 泄漏
+        if let Some(eid) = exec_id {
+            manager.exec_aborts.lock().await.remove(eid);
         }
+        result
     }
     .await;
 
@@ -1270,5 +1357,28 @@ mod tests {
         let retry = manager.begin_attempt("same-session").await;
         assert!(retry > first);
         assert!(manager.is_current_attempt("same-session", retry).await);
+    }
+
+    #[tokio::test]
+    async fn invalidate_attempt_if_current_only_bumps_matching_generation() {
+        // 修复「关闭→重连失败」竞态的守卫语义:旧 disconnect 的失效操作在
+        // 新 connect 已开跑(代次前移)后必须被拒绝,而不是作废新连接。
+        let manager = SshManager::new();
+        let first = manager.begin_attempt("asset-a").await; // 1
+        // 守卫命中:递增到 2
+        assert_eq!(
+            manager.invalidate_attempt_if_current("asset-a", first).await,
+            Some(2)
+        );
+        // 旧代次守卫不再命中:返回 None 且代次不动
+        assert_eq!(
+            manager
+                .invalidate_attempt_if_current("asset-a", first)
+                .await,
+            None
+        );
+        assert_eq!(manager.current_attempt("asset-a").await, Some(2));
+        // 无记录的 id:current 为 None
+        assert_eq!(manager.current_attempt("asset-b").await, None);
     }
 }
