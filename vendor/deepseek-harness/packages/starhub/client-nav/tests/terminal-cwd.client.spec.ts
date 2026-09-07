@@ -132,47 +132,86 @@ describe('isShellPromptLine', () => {
 })
 
 describe('createHiddenEchoFilter', () => {
-  it('drops complete lines containing a literal and keeps the rest', () => {
+  it('passes chunks through untouched when not armed (default)', () => {
     const filter = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
+    expect(filter.isArmed()).toBe(false)
+    // 未武装零缓冲透传:行尾 `_`(marker 前缀)原样实时渲染,不再扣留
     expect(filter('visible line\n')).toBe('visible line\n')
-    expect(filter('__starhub_osc7() { :; }\nnext\n')).toBe('next\n')
-    expect(filter('a\n__starhub_osc7\nb\n')).toBe('a\nb\n')
-  })
-
-  it('buffers a partial marker at the end of a chunk and emits it once complete', () => {
-    const filter = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
-    expect(filter('echo __star')).toBe('echo ')
-    expect(filter('hub_osc7 hidden\n')).toBe('')
-  })
-
-  it('returns out immediately when pending holds a full marker without a newline', () => {
-    const filter = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
-    expect(filter('x__starhub_osc7')).toBe('')
-    expect(filter('y\n')).toBe('')
-  })
-
-  it('passes a no-marker chunk through and flushes its pending buffer', () => {
-    const filter = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
-    expect(filter('plain tail')).toBe('plain tail')
+    expect(filter('cd ~/my_')).toBe('cd ~/my_')
+    expect(filter('__starhub_osc7() { :; }\n')).toBe('__starhub_osc7() { :; }\n')
     expect(filter('')).toBe('')
   })
 
-  it('handles multiple complete lines in a single chunk', () => {
+  it('drops the marker echo line while armed and auto-disarms with the rest flushed', () => {
     const filter = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
-    expect(filter('l1\nl2\n')).toBe('l1\nl2\n')
+    filter.arm()
+    expect(filter.isArmed()).toBe(true)
+    // 武装期间无换行的行整体扣留(窗口只持续到注入回显的 \n 到达)
+    expect(filter('user@host:~$ ')).toBe('')
+    // 注入命令回显跨分片:第一段扣留,第二段收束整行 → 整行剔除 + 冲刷
+    expect(filter('__starhub_osc7() { printf')).toBe('')
+    expect(filter(" '\\033]7;%s\\007' \"$PWD\"; }; PROMPT_COMMAND=__starhub_osc7\nnext prompt")).toBe('next prompt')
+    expect(filter.isArmed()).toBe(false)
+    // 解除后恢复透传(例如 history 里再出现 marker 行,是用户可见输出)
+    expect(filter('history shows __starhub_osc7\n')).toBe('history shows __starhub_osc7\n')
   })
 
-  it('treats empty literals as a passthrough filter', () => {
+  it('holds only the incomplete tail while armed and never holds plain text after disarm', () => {
+    const filter = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
+    filter.arm()
+    expect(filter('typed chars without newline')).toBe('')
+    expect(filter.isArmed()).toBe(true)
+    expect(filter.disarm()).toBe('typed chars without newline')
+    expect(filter.isArmed()).toBe(false)
+    expect(filter('cd ~/my_')).toBe('cd ~/my_')
+  })
+
+  it('emits earlier complete lines and drops only the marker line while armed', () => {
+    const filter = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
+    filter.arm()
+    expect(filter('keep1\n__starhub_osc7\nkeep2\n')).toBe('keep1\nkeep2\n')
+    expect(filter.isArmed()).toBe(false)
+  })
+
+  it('flushes and disarms when the armed window exceeds the buffer cap (echo never comes)', () => {
+    const filter = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
+    filter.arm()
+    const big = 'x'.repeat(9000)
+    expect(filter(big)).toBe(big)
+    expect(filter.isArmed()).toBe(false)
+    expect(filter('after')).toBe('after')
+  })
+
+  it('flushes and disarms when a marker line is consumed mid-stream, keeping later chunks live', () => {
+    const filter = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
+    filter.arm()
+    expect(filter('echo __starhub_osc7 hook\nls ~/my_')).toBe('ls ~/my_')
+    expect(filter.isArmed()).toBe(false)
+  })
+
+  it('re-arms after auto-disarm (a later follow-toggle injection filters again)', () => {
+    const filter = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
+    filter.arm()
+    expect(filter('__starhub_osc7\n')).toBe('')
+    expect(filter.isArmed()).toBe(false)
+    filter.arm()
+    expect(filter('held')).toBe('')
+    expect(filter('__starhub_osc7 tail\nrest')).toBe('rest')
+  })
+
+  it('treats empty literals as an armed window that only ends via cap or disarm', () => {
     const filter = createHiddenEchoFilter([''])
+    filter.arm()
+    // 无 marker 可命中:完整行照常放行,窗口靠 cap/disarm 结束
     expect(filter('abc\n')).toBe('abc\n')
-    expect(filter('xyz')).toBe('xyz')
+    expect(filter.disarm()).toBe('')
   })
 
-  it('handles a single-character marker without a prefix-overlap loop', () => {
+  it('handles a single-character marker line while armed', () => {
     const filter = createHiddenEchoFilter(['a'])
-    expect(filter('b')).toBe('b')
-    expect(filter('ba')).toBe('')
-    expect(filter('c\n')).toBe('')
+    filter.arm()
+    expect(filter('b\na\nc\n')).toBe('b\nc\n')
+    expect(filter.isArmed()).toBe(false)
   })
 })
 

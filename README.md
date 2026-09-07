@@ -7,7 +7,7 @@
 **All-in-One DevOps Desktop Command Center**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.116.6-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.116.7-cyan)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/star-dsh-desktop/releases)
 [![官网](https://img.shields.io/badge/官网-starthub.waouzzz.cc-cyan)](https://starthub.waouzzz.cc/)
@@ -48,15 +48,9 @@ StarHub 是一个跨平台桌面应用,把开发运维每天要用到的工具�
 
 ## 当前版本
 
-### v0.116.6 (2026-09-04)
-- 🐛 **Obscura 直播查看器在 Windows 上永远停在「连接 Obscura…」**:查看器页面 JS 硬编码 `obscura-live://localhost/...` 绝对 URL 发 fetch;Windows WebView2 不认识自定义 scheme(wry 把自定义协议映射成 `http://obscura-live.localhost`,过滤器只匹配该形式),文档 URL 由 Tauri 自动改写所以页面能渲染,但页面内 fetch 全部 TypeError → 轮询永远进 catch,直播与查看器输入(地址栏/点击/按键 POST)整体失效。改为全部相对 URL(`meta`/`frame.jpg`/`input` 随文档地址解析),各平台行为一致;meta 404(页面会话未建立)时状态栏保持「连接 Obscura…」而不是「 · undefined」。
-- 🐛 **Obscura 引擎崩溃/断连后所有 `browser_*` 永久失败,且僵尸 obscura 进程累积**:`ensure_engine` 快路径直接复用缓存 client 不探测,引擎死后所有动作报「发送通道已关闭」直到重启 App;启动失败分支不回收已 spawn 进程,且 `spawn_engine` 未设 `kill_on_drop`,每次重试/重启泄漏一个 obscura 进程。现快路径先 probe、失效则 `kill_engine`(杀进程 + 清 client/port/页面会话)后重启;启动失败同样回收;`spawn_engine` 补 `kill_on_drop(true)`。
-- 🐛 **Obscura screencast 流中途死掉后直播永久定格**:`ensure_screencast` 以 `seq>0` 判活,流死时 seq 冻结在 >0,补启逻辑直接返回。改为按「重注册后 seq 增长」判活(startScreencast 成功必强制推一帧);同时帧 base64 解码失败不再用空数据覆盖上一帧(空帧会让 frame.jpg 变 204 黑屏)。
-- 🐛 **Obscura 双击不触发页面 dblclick 处理器**:查看器双击原来发两次 clickCount=1 的完整单击;真双击第二次 press/release 需 clickCount=2,已修正。AI `browser_click` 可信输入路径补 mouseMoved(依赖 hover 态的元素此前点不中)。
-- 🐛 **Obscura 引擎冷启动时并发调用方误报「等待 Obscura 引擎启动超时」**:等待方上限 7.5s 小于启动方最坏耗时(12s+),拉长到 15s。
-- 🐛 **Obscura 直播帧 metadata 的视口尺寸未写回**:`deviceWidth/deviceHeight` 现在随帧更新 PageState.viewport,首帧到达前查看器坐标映射不再用假视口(1280×800)。
-- 🐛 **Obscura 模块 Mutex 中毒级联**:live 协议处理器跑在 webview 同步线程,`lock().expect(...)` 会因任何持锁 panic 级联让查看器窗口线程崩溃;全模块改 `plock` 辅助(中毒时取回内层数据继续用)。
-- 🐛 小项:obscura 二进制用户级 target 路径在非 Windows 平台回退 `HOME`;查看器窗口聚焦失败不再让 `browser_open` 整体报错;CDP `call_session` 应答通道关闭时清理 pending 表。
+### v0.116.7 (2026-09-07)
+- 🐛 **SSH 终端行尾下划线显示异常(输入 `_` 迟迟不显示 / 再敲键时一次蹦出两个)**:OSC 7 注入命令的隐藏回显过滤器是常驻流式过滤,而标记 `__starhub_osc7` 以下划线开头——任何以标记前缀(`_` / `__` / `__s`…,最长 13 字符)结尾的未完成行都会被扣到下一个 TCP 分片到达才放行;交互式 bash 逐字节回显时表现为「下划线丢失」或「下个字符到达时一次蹦出两个」,Tab 补全行尾恰为 `_` 时同样丢失。过滤器改为一次性武装语义:默认零缓冲透传,仅在写入注入命令前进入抑制窗口,含标记的回显行被整行剔除后自动解除(积压超 8KB 兜底冲刷);`history` 等用户可见输出里的 marker 行不再被吞。
+- 🐛 **SSH 断开时堡垒机「选机器」待应答通道泄漏**:`ssh_disconnect` 清理了 MFA / 主机密钥应答通道却漏了 `pending_bastion`,在途的选机器等待悬挂到 360s 超时;`ssh_detach` 归零路径此前完全没清 pending 通道,现补齐同一组清理。
 
 > 历史版本见 [CHANGELOG.md](./CHANGELOG.md)。
 
@@ -116,7 +110,7 @@ npm run tauri:dev        # 完整开发:构建 sidecar + React 工作台,启动�
 
 | 项 | 值 |
 |---|---|
-| 当前版本 | v0.116.6 |
+| 当前版本 | v0.116.7 |
 | 官网 | [starthub.waouzzz.cc](https://starthub.waouzzz.cc/) |
 | 仓库 | [github.com/dabaicai001/star-dsh-desktop](https://github.com/dabaicai001/star-dsh-desktop) |
 | 问题反馈 | [GitHub Issues](https://github.com/dabaicai001/star-dsh-desktop/issues) |

@@ -29,7 +29,8 @@ import { createQuickCommand, importQuickCommands, loadQuickCommands, saveQuickCo
 import { useTerminalTheme } from './terminal-theme.ts'
 import { terminalOptions, useTerminalSettings } from './terminal-settings.ts'
 import {
-  OSC7_INJECT_COMMAND, OSC7_INJECT_ECHO_TEXT, createCwdTracker, createHiddenEchoFilter, isShellPromptLine, parsePwdOutput,
+  OSC7_INJECT_COMMAND, OSC7_INJECT_ECHO_TEXT, createCwdTracker, createHiddenEchoFilter,
+  isShellPromptLine, parsePwdOutput, type HiddenEchoFilter,
 } from './terminal-cwd.ts'
 import css from './SshTerminalOverlay.module.css'
 
@@ -286,6 +287,13 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
   const disposedRef = useRef(false)
   const { theme, termRef } = useTerminalTheme()
   const terminalSettings = useTerminalSettings()
+  // 隐藏回显过滤器:一次性武装语义(组件级持有,供 tryInjectOsc7 在写入
+  // 注入命令前 arm;effect 里的渲染路径消费)。默认零缓冲透传。
+  const hiddenEchoRef = useRef<HiddenEchoFilter | null>(null)
+  if (hiddenEchoRef.current === null) {
+    hiddenEchoRef.current = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
+  }
+  const hiddenEcho = hiddenEchoRef.current
 
   // v8 ignore start -- OSC 7 / cwd reporting needs a live shell (prompt + ssh_write round-trip); jsdom cannot drive it
   const applyCwd = (next: string) => {
@@ -299,7 +307,13 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
     if (!osc7InjectPendingRef.current || osc7InjectedRef.current || !isConnectedRef.current) return
     osc7InjectPendingRef.current = false
     osc7InjectedRef.current = true
+    // 抑制窗口只包住注入回显:含 __starhub_osc7 的回显行被整行剔除后自动解除。
+    // 窗口外零缓冲透传——常驻过滤会把行尾 `_`(marker 前缀)扣到下个 chunk,
+    // 表现为「终端里下划线丢失 / 下个字符到达时一次蹦出两个」。
+    hiddenEcho.arm()
     void tauriInvoke('ssh_write', { id: sessionId, data: OSC7_INJECT_COMMAND }).catch(() => {
+      const held = hiddenEcho.disarm()
+      if (held !== '' && termRef.current !== null) termRef.current.write(held)
       // allow a later retry on the next follow toggle
       osc7InjectedRef.current = false
       osc7InjectPendingRef.current = true
@@ -344,7 +358,6 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
 
     const cwdTracker = createCwdTracker()
     const decoder = new TextDecoder(terminalSettings.encoding)
-    const hiddenEcho = createHiddenEchoFilter([OSC7_INJECT_ECHO_TEXT])
 
     const input = term.onData((data) => {
       // ZMODEM 传输进行中:Ctrl+C(0x03)应中止会话,而不是把原始字节写到 shell。

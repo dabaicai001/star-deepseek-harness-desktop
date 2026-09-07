@@ -11,7 +11,7 @@ StarHub 是跨平台(Windows / macOS / Linux)DevOps 桌面应用,单一窗口整
 | 仓库 | https://github.com/dabaicai001/star-dsh-desktop |
 | 主分支 | `main` |
 | 协议 | MIT |
-| 当前版本 | v0.116.6(**Obscura 直播查看器在 Windows 上永远停在「连接 Obscura…」**:查看器页面 JS 硬编码 `obscura-live://localhost/...` 绝对 URL 发 fetch;Windows WebView2 不认识自定义 scheme(wry 把自定义协议映射成 `http://obscura-live.localhost`,过滤器只匹配该形式),文档 URL 由 Tauri 自动改写所以页面能渲染,但页面内 fetch 全部 TypeError → 轮询永远进 catch,直播与查看器输入(地址栏/点击/按键 POST)整体失效。改为全部相对 URL(`meta`/`frame.jpg`/`input` 随文档地址解析),各平台行为一致;meta 404(页面会话未建立)时状态栏保持「连接 Obscura…」而不是「 · undefined」。) |
+| 当前版本 | v0.116.7(**SSH 终端行尾下划线显示异常**:OSC 7 注入命令的隐藏回显过滤器是常驻流式过滤,而标记 `__starhub_osc7` 以下划线开头——任何以标记前缀(`_` / `__` / `__s`…,最长 13 字符)结尾的未完成行都会被扣到下一个 TCP 分片到达才放行,交互式 bash 逐字节回显时表现为「下划线丢失 / 一次蹦出两个」,Tab 补全行尾恰为 `_` 时同样丢失。过滤器改为一次性武装语义:默认零缓冲透传,仅在写入注入命令前进入抑制窗口,含标记的回显行被整行剔除后自动解除(积压超 8KB 兜底冲刷)。另修 `ssh_disconnect` 漏清 `pending_bastion`、`ssh_detach` 完全没清 pending 应答通道。) |
 
 ## 架构一句话
 
@@ -130,4 +130,4 @@ npm run tauri:build          # 当前平台打包(beforeBuildCommand 已编排�
 
 ---
 
-*最后更新: 2026-09-04 (v0.116.6)*
+*最后更新: 2026-09-07 (v0.116.7)*

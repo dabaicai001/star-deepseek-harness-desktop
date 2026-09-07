@@ -536,6 +536,12 @@ pub async fn ssh_detach(
             manager
                 .remove_channel_for_attempt(&session_id, invalidated.wrapping_sub(1))
                 .await;
+            // 与 ssh_disconnect 相同的清理路径:丢弃仍在等待前端输入的
+            // MFA / 主机密钥 / 堡垒机选机器应答通道,避免 in-flight connect
+            // 一直阻塞到 360s 超时。
+            manager.pending_kb.lock().await.remove(&session_id);
+            manager.pending_hostkey.lock().await.remove(&session_id);
+            manager.pending_bastion.lock().await.remove(&session_id);
             notify_registry_sync(&harness, &registry, &manager).await;
         }
         DetachOutcome::StillAttached { .. } => {
@@ -583,6 +589,9 @@ pub async fn ssh_disconnect(
     // 报 [MFA_FAILED] Keyboard-interactive response channel dropped(见图片2)。
     manager.pending_kb.lock().await.remove(&id);
     manager.pending_hostkey.lock().await.remove(&id);
+    // 堡垒机 AI exec 的「选机器」待应答通道一并丢弃:否则浮层仍在等待的
+    // sender 悬挂到 360s 超时,期间重连后的下一次 exec insert 顶掉它才会释放。
+    manager.pending_bastion.lock().await.remove(&id);
 
     // 联动 M1(契约 §2.1「断线」):断开的是受跟踪会话时,注册表条目一并移除,
     // 并向 dsh 补发 registry.sync 全量快照(无 runtime 静默跳过)。

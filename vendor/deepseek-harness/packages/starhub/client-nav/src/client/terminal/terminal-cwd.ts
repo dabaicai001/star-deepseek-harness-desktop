@@ -97,47 +97,80 @@ export function isShellPromptLine(line: string): boolean {
   return false
 }
 
-/**
- * Hidden-echo filter that drops full logical lines containing any given
- * literal (e.g. the OSC 7 inject command echo). Keeps state across TCP
- * fragments, mirroring `createHiddenEchoFilter` in sshPromptCapture.ts.
- * @param literals - substrings of lines to drop.
- * @returns a per-chunk filter that returns the visible text.
+/** 抑制窗口内的缓冲安全上限(字节):注入命令回显只有一行(约 200 字节),
+ *  窗口内积压超过上限说明回显不会到来(远端 echo 关闭 / 注入丢失),
+ *  冲刷积压并解除,避免持续吞掉用户输出。 */
+const ARMED_BUFFER_CAP = 8192
+
+/** 一次性武装的隐藏回显过滤器。
+ *
+ * 默认(未武装)**零缓冲透传**——常驻过滤会把任何以 marker 前缀
+ * (`_` / `__` / `__s` …,marker `__starhub_osc7` 以下划线开头)结尾的
+ * 未完成行扣到下一个 chunk 才放行,交互式 bash 逐字节回显时表现为
+ * 「行尾下划线丢失 / 下个字符到达时一次蹦出两个」。因此只在写入
+ * OSC 7 注入命令前 `arm()`,含 marker 的回显行被剔除后窗口自动结束;
+ * `disarm()` 供注入失败时立即解除并取回扣留文本。
  */
-export function createHiddenEchoFilter(literals: string[]): (chunk: string) => string {
-  let pending = ''
+export interface HiddenEchoFilter {
+  /** 处理一个输出 chunk,返回应渲染的文本(武装期间可能扣留未完成行)。 */
+  (chunk: string): string
+  /** 进入抑制窗口(写入注入命令前调用)。 */
+  arm(): void
+  /** 立即结束抑制窗口,@returns 扣留中的文本(调用方负责渲染)。 */
+  disarm(): string
+  /** 当前是否处于抑制窗口。 */
+  isArmed(): boolean
+}
+
+/**
+ * 创建跨 chunk 保持状态的一次性隐藏回显过滤器(回显行可能跨 TCP 分片)。
+ * 武装期间:完整逻辑行含任一字面量则整行剔除并结束窗口(注入回显只有
+ * 一行,以命令末尾的 `\n` 收束);无换行前缀不再做 marker 前缀重叠扣留。
+ * @param literals - substrings of lines to drop.
+ * @returns 过滤器(默认未武装,透传)。
+ */
+export function createHiddenEchoFilter(literals: string[]): HiddenEchoFilter {
   const markers = literals.filter(lit => lit.length > 0)
-  const longest = markers.reduce((max, lit) => Math.max(max, lit.length), 0)
-  const PARTIAL_HEAD = 8
+  let armed = false
+  let pending = ''
 
-  function markerPrefixOverlap(buf: string): number {
-    const max = Math.min(buf.length, longest - 1)
-    for (let k = max; k > 0; k--) {
-      if (markers.some(lit => k < lit.length && buf.endsWith(lit.slice(0, k)))) return k
-    }
-    return 0
-  }
-
-  return (chunk: string): string => {
+  const filter = ((chunk: string): string => {
+    if (!armed) return chunk
     pending += chunk
     let out = ''
     let nl = pending.indexOf('\n')
     while (nl >= 0) {
       const line = pending.slice(0, nl + 1)
       pending = pending.slice(nl + 1)
-      if (!markers.some(lit => line.includes(lit))) out += line
+      if (markers.some(lit => line.includes(lit))) {
+        // 注入回显已消费:窗口使命完成,冲刷剩余并解除武装。
+        armed = false
+        out += pending
+        pending = ''
+        return out
+      }
+      out += line
       nl = pending.indexOf('\n')
     }
-    if (!pending) return out
-    const hit = markers.some(lit =>
-      pending.includes(lit) || pending.includes(lit.slice(0, Math.min(lit.length, PARTIAL_HEAD))),
-    )
-    if (hit) return out
-    const keep = markerPrefixOverlap(pending)
-    out += pending.slice(0, pending.length - keep)
-    pending = pending.slice(pending.length - keep)
+    if (pending.length >= ARMED_BUFFER_CAP) {
+      out += pending
+      pending = ''
+      armed = false
+    }
     return out
+  }) as HiddenEchoFilter
+
+  filter.arm = () => {
+    armed = true
   }
+  filter.disarm = () => {
+    armed = false
+    const held = pending
+    pending = ''
+    return held
+  }
+  filter.isArmed = () => armed
+  return filter
 }
 
 /** Stateful cwd tracker: consume terminal chunks and yield the latest cwd. */
