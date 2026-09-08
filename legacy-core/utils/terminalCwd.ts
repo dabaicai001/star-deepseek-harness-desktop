@@ -2,8 +2,9 @@
  * 终端 cwd 跟踪(SFTP「跟随终端」/ AI 上下文共用)的纯函数部分。
  *
  * 建链后用静默 exec 通道跑 pwd 拿登录目录;之后前端在终端输出流里解析
- * 两类信号持续更新 cwd:远端 shell 自身 shell integration 发出的 OSC 7
- * 转义序列(ESC ] 7 ; <cwd> BEL,不注入、不修改远端任何配置),以及
+ * 三类信号持续更新 cwd:远端 shell 自身 shell integration 发出的 OSC 7
+ * 转义序列(ESC ] 7 ; <cwd> BEL,不注入、不修改远端任何配置)、shell
+ * prompt 行内携带的路径(默认 PS1 形态,配合登录 home 展开 ~),以及
  * sh/dash/fish 等无 hook shell 下 pwd 输出的逐行解析兜底。
  */
 
@@ -56,4 +57,72 @@ export function parsePwdOutput(output: string): string | null {
     if (trimmed.startsWith('/')) return trimmed
   }
   return null
+}
+
+/** 建链静默探测输出中可识别的登录 shell 名(comm,小写)。 */
+const KNOWN_LOGIN_SHELLS: ReadonlySet<string> = new Set([
+  'bash', 'zsh', 'fish', 'sh', 'dash', 'ksh', 'csh', 'tcsh', 'pwsh', 'powershell', 'nushell', 'ion', 'elvish', 'xonsh',
+])
+
+/** 对 OSC 7 注入免疫的 shell(注入命令只会打出错误行):不注入,靠 prompt 路径提取兜底。 */
+const INJECTION_IMMUNE_SHELLS: ReadonlySet<string> = new Set(['csh', 'tcsh', 'pwsh', 'powershell', 'cmd', 'nushell', 'ion', 'elvish', 'xonsh'])
+
+/** fish 专用的 OSC 7 上报 hook(fish 不支持 PROMPT_COMMAND 语法,走 fish_prompt 事件)。 */
+const FISH_INJECT_COMMAND =
+  'function __starhub_osc7 --on-event fish_prompt; printf \'\\033]7;%s\\007\' $PWD; end\n'
+
+/**
+ * 从建链静默探测输出(`pwd; echo $0; ps -p $$ -o comm=`)解析登录 shell 名。
+ * 逐行找第一个命中已知集合的短 token;`/bin/bash`、`-bash` 等 argv0 变体先取 basename、剥前导 `-`。
+ * @param output - 静默 exec 的原始输出。
+ * @returns 小写 shell 名(如 `bash` / `fish`);无可识别行时 null。
+ */
+export function parseLoginShell(output: string): string | null {
+  for (const line of output.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('/')) continue
+    const base = trimmed.replace(/^.*[/\\]/, '').replace(/^-+/, '').toLowerCase()
+    if (KNOWN_LOGIN_SHELLS.has(base)) return base
+  }
+  return null
+}
+
+/**
+ * 按登录 shell 类型生成 OSC 7 上报 hook 的注入命令。
+ * @param shell - parseLoginShell 的结果;null 表示未探测到(保守按 bash/zsh 处理)。
+ * @returns 注入命令(末尾 \n 即回车执行);`''` 表示该 shell 无可用 hook,不应注入。
+ */
+export function buildOsc7InjectCommand(shell: string | null): string {
+  if (shell !== null && INJECTION_IMMUNE_SHELLS.has(shell)) return ''
+  if (shell === 'fish') return FISH_INJECT_COMMAND
+  return OSC7_INJECT_COMMAND
+}
+
+/**
+ * 从(已剥离控制序列的)shell prompt 行提取工作目录路径。
+ * 识别 `/...` 绝对路径与 `~` / `~/...`(用 home 展开;home 未知时不猜)。
+ * 这是 OSC 7 注入之外的第二条 cwd 信号,覆盖默认 PS1(`\u@\h:\w\$`、`[root@host ~]#`)等
+ * 注入未生效的场景;取行内最后一个路径 token(离提示符最近的是 cwd)。
+ * @param line - stripTerminalControl 后的 prompt 行。
+ * @param home - 远端 home(绝对路径);空串表示未知。
+ * @returns 绝对路径;无可还原路径时 null。
+ */
+export function extractPromptCwd(line: string, home: string): string | null {
+  const re = /(?:^|[\s:\[(])(\/[^\s\]\)#$%]{1,200}|~(?:\/[^\s\]\)#$%]{1,200})?)/g
+  let found: string | null = null
+  let m: RegExpExecArray | null
+  while ((m = re.exec(line)) !== null) {
+    const token = m[1]
+    if (token === undefined) continue
+    // 排除 `//`(协议相对 URL/UNC 形式);POSIX 合法路径几乎不以 // 开头
+    if (token.startsWith('//')) continue
+    found = token
+  }
+  if (found === null) return null
+  if (found === '~') return home.startsWith('/') ? home : null
+  if (found.startsWith('~/')) {
+    if (!home.startsWith('/')) return null
+    return (home === '/' ? '' : home) + found.slice(1)
+  }
+  return found
 }

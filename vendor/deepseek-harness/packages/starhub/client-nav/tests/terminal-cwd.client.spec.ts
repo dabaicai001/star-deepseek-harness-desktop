@@ -5,8 +5,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  createCwdTracker, createHiddenEchoFilter, extractOsc7Cwd, isShellPromptLine,
-  normalizeTerminalText, OSC7_INJECT_COMMAND, OSC7_INJECT_ECHO_TEXT,
+  createCwdTracker, createHiddenEchoFilter, extractOsc7Cwd, extractPromptCwd, isShellPromptLine,
+  buildOsc7InjectCommand, normalizeTerminalText, parseLoginShell, OSC7_INJECT_COMMAND, OSC7_INJECT_ECHO_TEXT,
   parsePwdOutput, stripTerminalControl,
 } from '../src/client/terminal/terminal-cwd.ts'
 
@@ -78,8 +78,11 @@ describe('stripTerminalControl', () => {
     expect(stripTerminalControl('a\x07b')).toBe('ab')
   })
 
-  it('strips an OSC header char (] is inside the @-Z range) and the trailing BEL separately', () => {
-    expect(stripTerminalControl('a\x1b]0;title\x07b')).toBe('a0;titleb')
+  it('strips a complete OSC sequence with its payload (] must not fall into the @-Z esc-dispatch branch)', () => {
+    // 旧行为把 \x1B] 当单字符转义吃掉、payload `0;title` 残留——正是带标题/
+    // 颜色 PS1 的 prompt 永远识别不出、SFTP 只能手敲 pwd 才跟随的根因
+    expect(stripTerminalControl('a\x1b]0;title\x07b')).toBe('ab')
+    expect(stripTerminalControl('a\x1b]7;/var/www\x07b')).toBe('ab')
   })
 })
 
@@ -253,6 +256,19 @@ describe('createCwdTracker', () => {
   })
 })
 
+describe('stripTerminalControl', () => {
+  it('strips OSC (title / OSC 7), CSI colors and BEL from a colored PS1 prompt', () => {
+    // 回归:OSC 分支必须在 C0 esc-dispatch 之前(否则 \x1B] 的 ] 被当
+    // esc-dispatch 吃掉,OSC payload 残留,prompt 永远识别不出)
+    const raw = '\u001b]0;deploy@server: ~/src\u0007\u001b[01;32mdeploy@server\u001b[00m:\u001b[01;34m~/src\u001b[00m$ '
+    expect(stripTerminalControl(raw).trimEnd()).toBe('deploy@server:~/src$')
+    // OSC 7 + prompt 粘连(无换行)也一并剥净
+    expect(stripTerminalControl('\u001b]7;/root\u0007root@host:~# ')).toBe('root@host:~# ')
+    // ST 结尾的 OSC 同样剥净
+    expect(stripTerminalControl('\u001b]7;/opt\u001b\\ok')).toBe('ok')
+  })
+})
+
 describe('OSC 7 inject command constant', () => {
   it('injects a __starhub_osc7 hook into bash/zsh and ends with a newline', () => {
     expect(OSC7_INJECT_COMMAND).toContain('__starhub_osc7()')
@@ -260,5 +276,76 @@ describe('OSC 7 inject command constant', () => {
     expect(OSC7_INJECT_COMMAND).toContain('PROMPT_COMMAND')
     expect(OSC7_INJECT_COMMAND.endsWith('\n')).toBe(true)
     expect(OSC7_INJECT_ECHO_TEXT).toBe('__starhub_osc7')
+  })
+})
+
+describe('parseLoginShell', () => {
+  it('recognizes the login shell from the $0 / ps probe lines', () => {
+    expect(parseLoginShell('/root\nbash\nbash')).toBe('bash')
+    expect(parseLoginShell('/root\n-bash\nbash')).toBe('bash')
+    expect(parseLoginShell('/home/u\n/usr/bin/zsh\nzsh')).toBe('zsh')
+    expect(parseLoginShell('/root\nfish\nfish')).toBe('fish')
+    expect(parseLoginShell('/root\ntcsh\ntcsh')).toBe('tcsh')
+  })
+
+  it('returns null when no line matches a known shell', () => {
+    expect(parseLoginShell('/root\n\n')).toBeNull()
+    expect(parseLoginShell('')).toBeNull()
+    expect(parseLoginShell('ps: invalid option')).toBeNull()
+  })
+})
+
+describe('buildOsc7InjectCommand', () => {
+  it('uses the shared bash/zsh command for undetected and POSIX shells', () => {
+    expect(buildOsc7InjectCommand(null)).toBe(OSC7_INJECT_COMMAND)
+    expect(buildOsc7InjectCommand('bash')).toBe(OSC7_INJECT_COMMAND)
+    expect(buildOsc7InjectCommand('zsh')).toBe(OSC7_INJECT_COMMAND)
+    expect(buildOsc7InjectCommand('sh')).toBe(OSC7_INJECT_COMMAND)
+  })
+
+  it('uses the fish_prompt event hook for fish', () => {
+    const cmd = buildOsc7InjectCommand('fish')
+    expect(cmd).toContain('--on-event fish_prompt')
+    expect(cmd).toContain('__starhub_osc7')
+    expect(cmd).toContain('$PWD')
+    expect(cmd.endsWith('\n')).toBe(true)
+  })
+
+  it('returns empty for injection-immune shells (csh/tcsh/pwsh/…)', () => {
+    expect(buildOsc7InjectCommand('csh')).toBe('')
+    expect(buildOsc7InjectCommand('tcsh')).toBe('')
+    expect(buildOsc7InjectCommand('pwsh')).toBe('')
+  })
+})
+
+describe('extractPromptCwd', () => {
+  it('extracts the path from Debian/CentOS default PS1 forms', () => {
+    expect(extractPromptCwd('root@host:/var/log#', '/root')).toBe('/var/log')
+    expect(extractPromptCwd('[root@host /var/log]#', '/root')).toBe('/var/log')
+    expect(extractPromptCwd('/etc/nginx$', '/root')).toBe('/etc/nginx')
+  })
+
+  it('expands ~ against the login home', () => {
+    expect(extractPromptCwd('root@host:~#', '/root')).toBe('/root')
+    expect(extractPromptCwd('[root@host ~]#', '/root')).toBe('/root')
+    expect(extractPromptCwd('user@h:~/src$', '/home/u')).toBe('/home/u/src')
+  })
+
+  it('takes the last path token (the one next to the prompt symbol)', () => {
+    expect(extractPromptCwd('user@host ~ /opt$ ', '/home/u')).toBe('/opt')
+  })
+
+  it('never guesses ~ without a known home', () => {
+    expect(extractPromptCwd('root@host:~#', '')).toBeNull()
+    expect(extractPromptCwd('root@host:~#', 'relative')).toBeNull()
+    expect(extractPromptCwd('root@host:/tmp#', '')).toBe('/tmp')
+  })
+
+  it('returns null for path-less prompts, relative dir names and URLs', () => {
+    expect(extractPromptCwd('sh-5.1$', '/root')).toBeNull()
+    expect(extractPromptCwd('#', '/root')).toBeNull()
+    expect(extractPromptCwd('host: Documents user%', '/home/u')).toBeNull()
+    expect(extractPromptCwd('visit https://a.com/x#', '/root')).toBeNull()
+    expect(extractPromptCwd('~root@host:~#', '/root')).toBe('/root')
   })
 })

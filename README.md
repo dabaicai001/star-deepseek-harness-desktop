@@ -7,7 +7,7 @@
 **All-in-One DevOps Desktop Command Center**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.116.8-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.116.9-cyan)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/star-dsh-desktop/releases)
 [![官网](https://img.shields.io/badge/官网-starthub.waouzzz.cc-cyan)](https://starthub.waouzzz.cc/)
@@ -48,11 +48,8 @@ StarHub 是一个跨平台桌面应用,把开发运维每天要用到的工具�
 
 ## 当前版本
 
-### v0.116.8 (2026-09-07)
-- 🐛 **SSH 关闭后重连失败(代次竞态)**:旧会话的 disconnect 在 session 锁上被在途 exec 阻塞期间用户重开连接,旧清理醒来会作废新连接(报 Connection aborted / 删新写通道导致终端连上但输入静默丢弃 / 删新 MFA 应答通道)。现 disconnect/detach 记录目标代次并经守卫清理:代次已前移则跳过全部失效与 pending 清理,对重连零影响。
-- 🐛 **断线后死会话永久滞留,AI 命令反复失败不自愈**:AI exec 会话与 `ssh_attach` 复用此前只查条目在位,网络断开后每条命令 `[EXEC_FAILED]` 永不恢复。现心跳任务(15s)发送失败即置位死亡标志,复用前校验 `is_alive`,死会话自动丢弃重建;AI 域工具对连接级失败(命令尚未在远端执行)自动重建连接并重试一次。
-- 🐛 **堡垒机 AI exec 不可中断**:停止生成此前无法中断堡垒机 pty 路径,阶段1 等选机器最长扣住会话锁 360s。现中止信号贯穿复用 / 选机器 / 命令采集三个阶段,立即以 `[EXEC_ABORTED]` 返回并释放会话锁。
-- ✨ **堡垒机模式显式声明**:连接表单 MFA 档新增「堡垒机(登录后需选择目标机器)」勾选(默认勾选保持存量行为);普通 MFA 服务器取消勾选后,AI 命令走普通 exec 通道直接执行,不再误弹「选机器」浮层。
+### v0.116.9 (2026-09-08)
+- 🐛 **SFTP「跟随终端」只在手敲 `pwd` 后才跟随,`cd` 不触发**:终端 cwd 三处断点叠加导致 OSC 7 自动上报链路对多数真实环境从未生效——① `stripTerminalControl` 的转义分支顺序错误,C0 esc-dispatch 备选(`[@-Z\\-_]`)把 `\x1B]` 的 `]`(0x5D)当作单字符转义先吃掉,OSC 分支成死代码,带 OSC 0 标题 / ANSI 颜色的 PS1(Ubuntu 默认)剥离后 payload 残留,`isShellPromptLine` 永远识别不出 prompt → 注入永不发生;② prompt 识别与注入解耦后仍要等「下一个 chunk」,连接后直接操作 SFTP 从不敲终端的用户永远注入不了;③ fish 等 shell 对 bash 方言注入命令免疫。现修复正则分支顺序(OSC 分支提前、payload 剥净),prompt 识别在**控制序列剥离后**进行并在同一 chunk 完成注入,建链静默 exec 增加 `echo $0; ps -p $$ -o comm=` 登录 shell 探测(bash/zsh 用原 hook、fish 走 `--on-event fish_prompt` 事件、csh/tcsh 等免疫 shell 不注入),并新增第三条 cwd 信号——从 prompt 行提取路径(`\u@\h:\w\$`、`[root@host ~]#` 等默认 PS1,`~` 按登录 home 展开)。四层叠加后:默认配置下 `cd` 即跟随,无需再敲 `pwd`。
 
 > 历史版本见 [CHANGELOG.md](./CHANGELOG.md)。
 

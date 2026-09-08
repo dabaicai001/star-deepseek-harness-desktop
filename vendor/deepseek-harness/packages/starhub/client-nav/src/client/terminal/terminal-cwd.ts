@@ -3,9 +3,11 @@
  *
  * Pure port of the Vue `src/utils/terminalCwd.ts` + the cwd-relevant parts of
  * `src/utils/sshPromptCapture.ts` and `SshTerminal.vue`. Tracks the remote cwd
- * from two signals in the PTY stream — the shell's own OSC 7 (`ESC ] 7 ; <cwd>`
- * BEL) and `pwd` output lines — and optionally lazy-injects an OSC 7 hook into
- * the running shell so `cd` reports cwd live (the SFTP「跟随终端」flow).
+ * from three signals in the PTY stream — the shell's own OSC 7 (`ESC ] 7 ; <cwd>`
+ * BEL), shell-prompt lines that carry a path (default PS1 formats, expanded
+ * against the login home), and `pwd` output lines — and optionally lazy-injects
+ * an OSC 7 hook into the running shell so `cd` reports cwd live (the SFTP
+ * 「跟随终端」flow).
  *
  * @module StarHub terminal cwd tracking (client)
  */
@@ -59,14 +61,89 @@ export function parsePwdOutput(output: string): string | null {
   return null
 }
 
+/** Login shell names recognizable from the silent connect-time exec probe (lowercase comm). */
+const KNOWN_LOGIN_SHELLS: ReadonlySet<string> = new Set([
+  'bash', 'zsh', 'fish', 'sh', 'dash', 'ksh', 'csh', 'tcsh', 'pwsh', 'powershell', 'nushell', 'ion', 'elvish', 'xonsh',
+])
+
+/** Shells immune to the bash-style OSC 7 inject (it only prints an error line there). */
+const INJECTION_IMMUNE_SHELLS: ReadonlySet<string> = new Set(['csh', 'tcsh', 'pwsh', 'powershell', 'cmd', 'nushell', 'ion', 'elvish', 'xonsh'])
+
+/** fish-specific OSC 7 reporting hook (fish has no PROMPT_COMMAND; use the fish_prompt event). */
+const FISH_INJECT_COMMAND =
+  'function __starhub_osc7 --on-event fish_prompt; printf \'\\033]7;%s\\007\' $PWD; end\n'
+
+/**
+ * Parse the login shell name from the silent connect-time exec output
+ * (`pwd; echo $0; ps -p $$ -o comm=`): the first line whose basename
+ * (`/bin/bash`, `-bash` variants normalized) matches a known shell.
+ * @param output - the raw silent-exec output.
+ * @returns the lowercase shell name (e.g. `bash` / `fish`), or null when unrecognized.
+ */
+export function parseLoginShell(output: string): string | null {
+  for (const line of output.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('/')) continue
+    const base = trimmed.replace(/^.*[/\\]/, '').replace(/^-+/, '').toLowerCase()
+    if (KNOWN_LOGIN_SHELLS.has(base)) return base
+  }
+  return null
+}
+
+/**
+ * Build the OSC 7 hook inject command for the detected login shell.
+ * @param shell - result of parseLoginShell; null means undetected (conservatively bash/zsh).
+ * @returns the inject command (ends with newline), or '' when the shell has no usable hook.
+ */
+export function buildOsc7InjectCommand(shell: string | null): string {
+  if (shell !== null && INJECTION_IMMUNE_SHELLS.has(shell)) return ''
+  if (shell === 'fish') return FISH_INJECT_COMMAND
+  return OSC7_INJECT_COMMAND
+}
+
+/**
+ * Extract the working directory from an (already control-stripped) shell prompt line.
+ * Recognizes `/...` absolute paths and `~` / `~/...` (expanded against `home`; never
+ * guessed when home is unknown). This is the second cwd signal besides OSC 7, covering
+ * default PS1 formats (`\u@\h:\w\$`, `[root@host ~]#`) when injection never lands; the
+ * last path token on the line (the one next to the prompt symbol) wins.
+ * @param line - the prompt line after stripTerminalControl.
+ * @param home - the remote home directory (absolute); '' when unknown.
+ * @returns an absolute path, or null when no restorable path is present.
+ */
+export function extractPromptCwd(line: string, home: string): string | null {
+  const re = /(?:^|[\s:\[(])(\/[^\s\]\)#$%]{1,200}|~(?:\/[^\s\]\)#$%]{1,200})?)/g
+  let found: string | null = null
+  let m: RegExpExecArray | null
+  while ((m = re.exec(line)) !== null) {
+    const token = m[1]
+    if (token === undefined) continue
+    // exclude `//` (protocol-relative URLs / UNC); legitimate POSIX paths rarely start with //
+    if (token.startsWith('//')) continue
+    found = token
+  }
+  if (found === null) return null
+  if (found === '~') return home.startsWith('/') ? home : null
+  if (found.startsWith('~/')) {
+    if (!home.startsWith('/')) return null
+    return (home === '/' ? '' : home) + found.slice(1)
+  }
+  return found
+}
+
 /**
  * Strip ANSI control sequences and BEL.
+ *
+ * Branch order matters: the OSC branch must come first — the C0 esc-dispatch
+ * branch (`[@-Z\\-_]`) alone would swallow the `]` of `\x1B]` (0x5D) and leave
+ * the OSC payload (`0;title…`, `7;/path…`) in the output, which broke prompt
+ * detection for every colored/titled PS1 (Ubuntu default).
  * @param input - the raw terminal text.
  * @returns the text with control sequences removed.
  */
 export function stripTerminalControl(input: string): string {
   return input
-    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, '')
+    .replace(/\x1B(?:\][^\x07\x1B]*(?:\x07|\x1B\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/g, '')
     .replace(/\x07/g, '')
 }
 

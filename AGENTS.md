@@ -11,7 +11,7 @@ StarHub 是跨平台(Windows / macOS / Linux)DevOps 桌面应用,单一窗口整
 | 仓库 | https://github.com/dabaicai001/star-dsh-desktop |
 | 主分支 | `main` |
 | 协议 | MIT |
-| 当前版本 | v0.116.8(**SSH 重连与 MFA 弹框修复**):① disconnect/detach 代次守卫——旧会话清理被在途 exec 阻塞期间用户重开连接时,旧清理不再作废新连接(此前表现为「关闭后重连连不上 / 终端连上但输入静默丢弃」);② 死会话自愈——心跳发送失败置位死亡标志,`ensure_ssh_session`/`ssh_attach` 复用前校验 `is_alive`,断线后 AI exec 会话自动重建(此前死会话永久滞留,每条命令 `[EXEC_FAILED]`);AI 域工具对连接级失败自动重建重试一次;③ 堡垒机 AI exec 可中断——中止信号贯穿复用/选机器/采集三阶段,不再扣住会话锁 360s;④ 资产配置新增 `bastionMode`(表单 MFA 档勾选,默认勾选存量兼容)——普通 MFA 服务器取消勾选后 AI exec 走普通通道,不再误弹「选机器」浮层。) |
+| 当前版本 | v0.116.9(**SFTP「跟随终端」只在手敲 `pwd` 后才跟随,`cd` 不触发**:终端 cwd 三处断点叠加导致 OSC 7 自动上报链路对多数真实环境从未生效——① `stripTerminalControl` 的转义分支顺序错误,C0 esc-dispatch 备选(`[@-Z\\-_]`)把 `\x1B]` 的 `]`(0x5D)当作单字符转义先吃掉,OSC 分支成死代码,带 OSC 0 标题 / ANSI 颜色的 PS1(Ubuntu 默认)剥离后 payload 残留,`isShellPromptLine` 永远识别不出 prompt → 注入永不发生;② prompt 识别与注入解耦后仍要等「下一个 chunk」,连接后直接操作 SFTP 从不敲终端的用户永远注入不了;③ fish 等 shell 对 bash 方言注入命令免疫。现修复正则分支顺序(OSC 分支提前、payload 剥净),prompt 识别在**控制序列剥离后**进行并在同一 chunk 完成注入,建链静默 exec 增加 `echo $0; ps -p $$ -o comm=` 登录 shell 探测(bash/zsh 用原 hook、fish 走 `--on-event fish_prompt` 事件、csh/tcsh 等免疫 shell 不注入),并新增第三条 cwd 信号——从 prompt 行提取路径(`\u@\h:\w\$`、`[root@host ~]#` 等默认 PS1,`~` 按登录 home 展开)。四层叠加后:默认配置下 `cd` 即跟随,无需再敲 `pwd`。) |
 
 ## 架构一句话
 
@@ -130,4 +130,4 @@ npm run tauri:build          # 当前平台打包(beforeBuildCommand 已编排�
 
 ---
 
-*最后更新: 2026-09-07 (v0.116.8)*
+*最后更新: 2026-09-08 (v0.116.9)*

@@ -226,6 +226,134 @@ describe('SshTerminalOverlay', () => {
     unmount()
   })
 
+  it('injects the OSC 7 hook on an ANSI-colored prompt and SFTP follows the extracted cwd', async () => {
+    // 回归:Ubuntu 默认 PS1 带 OSC 0 标题 + ANSI 颜色,裸正则永远识别不出
+    // prompt → 注入永不发生,SFTP 只能在用户手敲 pwd 后跟随。剥控制序列后
+    // 必须命中 prompt 并注入;~ 依登录 home 展开为 cwd,面板自动跟随。
+    const callbacks: Array<(event: unknown) => void> = []
+    const invoke = vi.fn((command: string) => {
+      if (command === 'plugin:event|listen') return Promise.resolve(callbacks.length)
+      if (command === 'ssh_exec') return Promise.resolve('/root\nbash\nbash') // pwd + $0 + ps probe
+      if (command === 'sftp_ensure_session') return Promise.resolve({ mode: 'subsystem' })
+      if (command === 'sftp_home_dir') return Promise.resolve('/home/deploy') // ≠ home probe:初始打开在 /home/deploy
+      if (command === 'sftp_list') return Promise.resolve([])
+      if (command === 'sftp_list_transfers') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    ;(window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: typeof invoke
+        transformCallback: (callback: (event: unknown) => void) => number
+      }
+    }).__TAURI_INTERNALS__ = {
+      invoke,
+      transformCallback: (callback) => { callbacks.push(callback); return callbacks.length },
+    }
+    ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+      observe() {}
+      disconnect() {}
+    }
+
+    const { getByRole, unmount } = render(<SshTerminalOverlay asset={asset} onClose={vi.fn()} />)
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('ssh_connect', expect.any(Object)) })
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('ssh_exec', expect.objectContaining({ id: 'ssh-1' })) })
+    await act(async () => {}) // probe settles: home=/root and sshCwd=/root (login dir)
+    fireEvent.click(getByRole('button', { name: /文件/ }))
+    // SFTP opens directly at the already-tracked terminal cwd
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('sftp_list', { id: 'ssh-1', path: '/root' }) })
+    // Ubuntu default PS1 (`\u@\h:\w\$` → deploy@server:~/src$): OSC-0 title + colors
+    const ubuntuPrompt = '\u001b]0;deploy@server: ~/src\u0007\u001b[01;32mdeploy@server\u001b[00m:\u001b[01;34m~/src\u001b[00m$ '
+    act(() => {
+      callbacks[0]?.({ event: 'ssh:data:ssh-1', id: 1, payload: Array.from(new TextEncoder().encode(ubuntuPrompt)) })
+    })
+    // prompt recognized through the control-stripped line → hook injected
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('ssh_write', { id: 'ssh-1', data: expect.stringContaining('__starhub_osc7') }) })
+    // ~ expanded against the login home → cwd /root/src reported → SFTP panel follows
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('sftp_list', { id: 'ssh-1', path: '/root/src' }) })
+    unmount()
+  })
+
+  it('injects the fish dialect hook for a fish login shell', async () => {
+    const callbacks: Array<(event: unknown) => void> = []
+    const invoke = vi.fn((command: string) => {
+      if (command === 'plugin:event|listen') return Promise.resolve(callbacks.length)
+      if (command === 'ssh_exec') return Promise.resolve('/root\nfish\nfish')
+      if (command === 'sftp_ensure_session') return Promise.resolve({ mode: 'subsystem' })
+      if (command === 'sftp_home_dir') return Promise.resolve('/root')
+      if (command === 'sftp_list') return Promise.resolve([])
+      if (command === 'sftp_list_transfers') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    ;(window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: typeof invoke
+        transformCallback: (callback: (event: unknown) => void) => number
+      }
+    }).__TAURI_INTERNALS__ = {
+      invoke,
+      transformCallback: (callback) => { callbacks.push(callback); return callbacks.length },
+    }
+    ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+      observe() {}
+      disconnect() {}
+    }
+
+    const { getByRole, unmount } = render(<SshTerminalOverlay asset={asset} onClose={vi.fn()} />)
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('ssh_exec', expect.objectContaining({ id: 'ssh-1' })) })
+    await act(async () => {}) // probe settles: loginShellRef = fish
+    fireEvent.click(getByRole('button', { name: /文件/ }))
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('sftp_ensure_session', { id: 'ssh-1' }) })
+    act(() => {
+      callbacks[0]?.({ event: 'ssh:data:ssh-1', id: 1, payload: Array.from(new TextEncoder().encode('deploy@server:~>')) })
+    })
+    // the bash dialect would only print an error line in fish; the event hook runs
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('ssh_write', { id: 'ssh-1', data: expect.stringContaining('--on-event fish_prompt') }) })
+    unmount()
+  })
+
+  it('skips injection for shells immune to it (tcsh) while prompt extraction still tracks cwd', async () => {
+    const callbacks: Array<(event: unknown) => void> = []
+    const invoke = vi.fn((command: string, _args?: Record<string, unknown>) => {
+      if (command === 'plugin:event|listen') return Promise.resolve(callbacks.length)
+      if (command === 'ssh_exec') return Promise.resolve('/root\ntcsh\ntcsh')
+      if (command === 'sftp_ensure_session') return Promise.resolve({ mode: 'subsystem' })
+      if (command === 'sftp_home_dir') return Promise.resolve('/root')
+      if (command === 'sftp_list') return Promise.resolve([])
+      if (command === 'sftp_list_transfers') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    ;(window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: typeof invoke
+        transformCallback: (callback: (event: unknown) => void) => number
+      }
+    }).__TAURI_INTERNALS__ = {
+      invoke,
+      transformCallback: (callback) => { callbacks.push(callback); return callbacks.length },
+    }
+    ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+      observe() {}
+      disconnect() {}
+    }
+
+    const { getByRole, unmount } = render(<SshTerminalOverlay asset={asset} onClose={vi.fn()} />)
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('ssh_exec', expect.objectContaining({ id: 'ssh-1' })) })
+    await act(async () => {}) // probe settles: loginShellRef = tcsh
+    fireEvent.click(getByRole('button', { name: /文件/ }))
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('sftp_ensure_session', { id: 'ssh-1' }) })
+    act(() => {
+      callbacks[0]?.({ event: 'ssh:data:ssh-1', id: 1, payload: Array.from(new TextEncoder().encode('[user@server /var/log]>')) })
+    })
+    await act(async () => {})
+    // no hook ever written (it would only error in tcsh)…
+    const hookWrite = invoke.mock.calls.find(call =>
+      call[0] === 'ssh_write' && String((call[1] as { data?: string } | undefined)?.data ?? '').includes('__starhub_osc7'))
+    expect(hookWrite).toBeUndefined()
+    // …yet the prompt-carried path is extracted and the panel follows it
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('sftp_list', { id: 'ssh-1', path: '/var/log' }) })
+    unmount()
+  })
+
   it('opens the broadcast dialog, lists connected sessions, sends a command, and reports success', async () => {
     const callbacks: Array<(event: unknown) => void> = []
     const invoke = vi.fn((command: string) => {
@@ -322,12 +450,10 @@ describe('SshTerminalOverlay', () => {
     unmount()
   })
 
-  it('switches to the Web tab and starts the browser gateway', async () => {
+  it('opens the web browser in a standalone window from the 网页 button', async () => {
     const callbacks: Array<(event: unknown) => void> = []
     const invoke = vi.fn((command: string) => {
       if (command === 'plugin:event|listen') return Promise.resolve(callbacks.length)
-      if (command === 'ssh_start_web_gateway') return Promise.resolve(18080)
-      if (command === 'ssh_web_gateway_port') return Promise.resolve(18080)
       return Promise.resolve(null)
     })
     ;(window as unknown as {
@@ -343,20 +469,12 @@ describe('SshTerminalOverlay', () => {
       observe() {}
       disconnect() {}
     }
-    // 拦截 iframe.src,避免 jsdom 抛导航。
-    const orig = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'src')
-    Object.defineProperty(HTMLIFrameElement.prototype, 'src', {
-      configurable: true, get() { return '' }, set() {},
-    })
     const { getByRole, unmount } = render(<SshTerminalOverlay asset={asset} onClose={vi.fn()} />)
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('ssh_connect', expect.any(Object)) })
+    // 连接后点「网页」→ 打开独立 webview 窗口(内嵌 WebBrowser/网关由独立窗口承载)
     fireEvent.click(getByRole('button', { name: /网页/ }))
-    // 网页 tab 渲染出浏览器地址栏,导航一次 → 启动网关。
-    expect(screen.getByLabelText('地址栏')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('地址栏'), { target: { value: 'example.com' } })
-    fireEvent.keyDown(screen.getByLabelText('地址栏'), { key: 'Enter' })
-    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('ssh_start_web_gateway', { sessionId: 'ssh-1' }) })
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('ssh_open_web_window', { sessionId: 'ssh-1', assetName: 'server' }) })
     unmount()
-    if (orig !== undefined) Object.defineProperty(HTMLIFrameElement.prototype, 'src', orig)
   })
 
   it('reports partial failure when some broadcast sends reject', async () => {

@@ -9,6 +9,11 @@
 
 ---
 
+## [0.116.9] - 2026-09-08
+
+### 修复
+- **SFTP「跟随终端」只在手敲 `pwd` 后才跟随,`cd` 不触发**:终端 cwd 三处断点叠加导致 OSC 7 自动上报链路对多数真实环境从未生效——① `stripTerminalControl` 的转义分支顺序错误,C0 esc-dispatch 备选(`[@-Z\\-_]`)把 `\x1B]` 的 `]`(0x5D)当作单字符转义先吃掉,OSC 分支成死代码,带 OSC 0 标题 / ANSI 颜色的 PS1(Ubuntu 默认)剥离后 payload 残留,`isShellPromptLine` 永远识别不出 prompt → 注入永不发生;② prompt 识别与注入解耦后仍要等「下一个 chunk」,连接后直接操作 SFTP 从不敲终端的用户永远注入不了;③ fish 等 shell 对 bash 方言注入命令免疫。现修复正则分支顺序(OSC 分支提前、payload 剥净),prompt 识别在**控制序列剥离后**进行并在同一 chunk 完成注入,建链静默 exec 增加 `echo $0; ps -p $$ -o comm=` 登录 shell 探测(bash/zsh 用原 hook、fish 走 `--on-event fish_prompt` 事件、csh/tcsh 等免疫 shell 不注入),并新增第三条 cwd 信号——从 prompt 行提取路径(`\u@\h:\w\$`、`[root@host ~]#` 等默认 PS1,`~` 按登录 home 展开)。四层叠加后:默认配置下 `cd` 即跟随,无需再敲 `pwd`。
+
 ## [0.116.8] - 2026-09-07
 
 ### 修复

@@ -8,9 +8,10 @@
  * the same overlay.
  *
  * cwd tracking (SFTP「跟随终端」): the terminal tracks the remote cwd from the
- * PTY stream (OSC 7 + `pwd` fallback) and lazily injects an OSC 7 hook into the
- * running shell once follow is enabled and a prompt is seen, so `cd` reports
- * cwd live. The tracked `sshCwd` is handed to the SFTP panel for follow-nav.
+ * PTY stream (OSC 7 + prompt-path extraction + `pwd` fallback) and lazily
+ * injects a dialect-matched OSC 7 hook into the running shell once follow is
+ * enabled, the shell probe settled, and a prompt is seen, so `cd` reports cwd
+ * live. The tracked `sshCwd` is handed to the SFTP panel for follow-nav.
  *
  * @module StarHub SSH/SFTP overlay (client)
  */
@@ -29,8 +30,9 @@ import { createQuickCommand, importQuickCommands, loadQuickCommands, saveQuickCo
 import { useTerminalTheme } from './terminal-theme.ts'
 import { terminalOptions, useTerminalSettings } from './terminal-settings.ts'
 import {
-  OSC7_INJECT_COMMAND, OSC7_INJECT_ECHO_TEXT, createCwdTracker, createHiddenEchoFilter,
-  isShellPromptLine, parsePwdOutput, type HiddenEchoFilter,
+  OSC7_INJECT_ECHO_TEXT, buildOsc7InjectCommand, createCwdTracker, createHiddenEchoFilter,
+  extractPromptCwd, isShellPromptLine, parseLoginShell, parsePwdOutput, stripTerminalControl,
+  type HiddenEchoFilter,
 } from './terminal-cwd.ts'
 import css from './SshTerminalOverlay.module.css'
 
@@ -284,6 +286,14 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
   const osc7InjectedRef = useRef(false)
   const shellPromptSeenRef = useRef(false)
   const cwdRef = useRef('')
+  // Login-shell name from the connect-time silent exec; picks the OSC 7 inject
+  // command per shell (null = undetected → conservative bash/zsh command).
+  const loginShellRef = useRef<string | null>(null)
+  // Remote home (login dir) used to expand `~` tokens extracted from prompt lines.
+  const homeRef = useRef('')
+  // Settles after the connect-time silent exec (shell probe) returns or fails;
+  // injection waits for it so a fish shell never receives the bash dialect.
+  const shellProbedRef = useRef(false)
   const disposedRef = useRef(false)
   const { theme, termRef } = useTerminalTheme()
   const terminalSettings = useTerminalSettings()
@@ -305,13 +315,24 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
   /** Lazily inject the OSC 7 hook after the shell reaches a prompt. */
   const tryInjectOsc7 = () => {
     if (!osc7InjectPendingRef.current || osc7InjectedRef.current || !isConnectedRef.current) return
+    // Wait for the connect-time shell probe: injecting the bash dialect into a
+    // live fish prompt prints an error line for nothing (and vice versa).
+    if (!shellProbedRef.current) return
+    const command = buildOsc7InjectCommand(loginShellRef.current)
+    if (command === '') {
+      // Injection-immune shell (csh/tcsh/…): nothing to inject; prompt-path
+      // extraction + pwd parsing remain the cwd signals for this session.
+      osc7InjectPendingRef.current = false
+      osc7InjectedRef.current = true
+      return
+    }
     osc7InjectPendingRef.current = false
     osc7InjectedRef.current = true
     // 抑制窗口只包住注入回显:含 __starhub_osc7 的回显行被整行剔除后自动解除。
     // 窗口外零缓冲透传——常驻过滤会把行尾 `_`(marker 前缀)扣到下个 chunk,
     // 表现为「终端里下划线丢失 / 下个字符到达时一次蹦出两个」。
     hiddenEcho.arm()
-    void tauriInvoke('ssh_write', { id: sessionId, data: OSC7_INJECT_COMMAND }).catch(() => {
+    void tauriInvoke('ssh_write', { id: sessionId, data: command }).catch(() => {
       const held = hiddenEcho.disarm()
       if (held !== '' && termRef.current !== null) termRef.current.write(held)
       // allow a later retry on the next follow toggle
@@ -381,11 +402,17 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
       if (visible) term.write(visible)
       const next = cwdTracker.onChunk(chunk)
       if (next !== null) applyCwd(next)
-      if (!shellPromptSeenRef.current) {
-        const lastLine = chunk.split('\n').pop() ?? ''
-        if (isShellPromptLine(lastLine.trimEnd())) shellPromptSeenRef.current = true
-      } else if (osc7InjectPendingRef.current) {
-        tryInjectOsc7()
+      // Prompt detection runs on the control-stripped last line: PS1 with ANSI
+      // colors / OSC-0 titles (Ubuntu default) never matches the bare regex.
+      const lastLine = stripTerminalControl(chunk.split('\n').pop() ?? '').trimEnd()
+      if (isShellPromptLine(lastLine)) {
+        shellPromptSeenRef.current = true
+        // Second cwd signal: default PS1 formats carry the cwd (`\u@\h:\w\$`,
+        // `[root@host ~]#`); `~` expands against the login home. Works even
+        // when OSC 7 injection never lands (custom shells, exotic prompts).
+        const fromPrompt = extractPromptCwd(lastLine, homeRef.current)
+        if (fromPrompt !== null) applyCwd(fromPrompt)
+        if (osc7InjectPendingRef.current) tryInjectOsc7()
       }
     }
 
@@ -453,15 +480,29 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
     // The sentry must exist before the first ssh:data byte arrives.
     setupZmodemSentry()
 
-    /** Initialize cwd from a silent exec `pwd` (login dir) right after connect. */
+    /**
+     * Initialize cwd from a silent exec right after connect: `pwd` yields the
+     * login dir (= home, for prompt `~` expansion), `echo $0` + `ps -p $$ -o comm=`
+     * reveal the login shell so the OSC 7 inject matches the shell dialect.
+     */
     const initCwdFromExec = async () => {
       if (disposed) return
       try {
-        const out = await tauriInvoke<string>('ssh_exec', { id: sessionId, command: 'pwd', timeoutSec: 5 })
+        const out = await tauriInvoke<string>('ssh_exec', { id: sessionId, command: 'pwd; echo $0; ps -p $$ -o comm= 2>/dev/null', timeoutSec: 5 })
         const cwd = parsePwdOutput(out)
-        // OSC 7 may have reported a fresher dir; only fill when empty
-        if (cwd !== null && cwdRef.current === '') applyCwd(cwd)
-      } catch { /* fall back to later OSC 7 / pwd parsing */ }
+        if (cwd !== null) {
+          // The login dir doubles as the remote home for `~` expansion.
+          homeRef.current = cwd
+          // OSC 7 may have reported a fresher dir; only fill when empty
+          if (cwdRef.current === '') applyCwd(cwd)
+        }
+        loginShellRef.current = parseLoginShell(out)
+      } catch { /* fall back to later OSC 7 / prompt-path / pwd parsing */ } finally {
+        shellProbedRef.current = true
+        // Injection stays gated on a seen prompt (the shell must be idle at a
+        // prompt — never mid-command or at a password prompt).
+        if (shellPromptSeenRef.current && osc7InjectPendingRef.current) tryInjectOsc7()
+      }
     }
 
     const connect = async () => {
