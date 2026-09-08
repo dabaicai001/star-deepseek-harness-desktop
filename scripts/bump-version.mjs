@@ -189,26 +189,36 @@ function main() {
   const changelogNext = releaseChangelog(changelog.text, newVersion, dryRun, changes, changelog.eol);
 
   // 6. AGENTS.md
+  //    replace 的替换串会解释 `$$` / `$&` / `` $` `` / `$1` 等 special patterns:
+  //    CHANGELOG 条目里的 `ps -p $$` 被写成 `ps -p $`、`` \w\$` `` 把「匹配前的
+  //    整段文件头」嵌进行内(曾把 AGENTS.md 写坏)。用函数式替换,返回值不解释。
   const agents = readText("AGENTS.md");
-  const summary = firstSummary(changelogNext, newVersion);
+  const summary = firstSummary(changelogNext, newVersion).replace(/\|/g, "\\|"); // 表格单元格内的管道符转义
   let agentsNext = agents.text.replace(
     /^\| 当前版本 \| v[^\n]*\|$/m,
-    `| 当前版本 | v${newVersion}(${summary}) |`
+    () => `| 当前版本 | v${newVersion}(${summary}) |`
   );
-  agentsNext = agentsNext.replace(/^\*最后更新: [^\n]*\*$/m, `*最后更新: ${TODAY} (v${newVersion})*`);
+  agentsNext = agentsNext.replace(/^\*最后更新: [^\n]*\*$/m, () => `*最后更新: ${TODAY} (v${newVersion})*`);
   if (agentsNext === agents.text) fail("AGENTS.md 未找到「当前版本」或「最后更新」行");
   writeText("AGENTS.md", agentsNext, agents.eol, dryRun, changes);
 
-  // 7. README.md
+  // 7. README.md(badge + 「当前版本」区整体替换:只保留最新一条,旧版本段落丢弃)
   const readme = readText("README.md");
-  let readmeNext = readme.text.replace(/badge\/version-v[\d.]+-cyan/, `badge/version-v${newVersion}-cyan`);
+  let readmeNext = readme.text.replace(/badge\/version-v[\d.]+-cyan/, () => `badge/version-v${newVersion}-cyan`);
   const anchor = "## 当前版本\n";
   const anchorIndex = readmeNext.indexOf(anchor);
   if (anchorIndex === -1) fail("README.md 未找到「## 当前版本」区");
-  const insertAt = anchorIndex + anchor.length;
+  const bodyStart = anchorIndex + anchor.length;
+  const rest = readmeNext.slice(bodyStart);
+  const nextSectionAt = rest.search(/^## /m);
   const lines = readmeEntries(changelogNext, newVersion);
-  const block = `\n### v${newVersion} (${TODAY})\n${lines.join("\n")}\n`;
-  readmeNext = readmeNext.slice(0, insertAt) + block + readmeNext.slice(insertAt);
+  const block =
+    `\n### v${newVersion} (${TODAY})\n${lines.join("\n")}\n\n` +
+    "> 历史版本见 [CHANGELOG.md](./CHANGELOG.md)。\n\n";
+  readmeNext =
+    nextSectionAt === -1
+      ? readmeNext.slice(0, bodyStart) + block
+      : readmeNext.slice(0, bodyStart) + block + readmeNext.slice(bodyStart + nextSectionAt);
   writeText("README.md", readmeNext, readme.eol, dryRun, changes);
 
   console.log(`✅ 已${dryRun ? "检查" : "更新"}以下文件:`);
