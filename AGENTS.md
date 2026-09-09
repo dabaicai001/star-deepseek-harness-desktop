@@ -11,7 +11,7 @@ StarHub 是跨平台(Windows / macOS / Linux)DevOps 桌面应用,单一窗口整
 | 仓库 | https://github.com/dabaicai001/star-dsh-desktop |
 | 主分支 | `main` |
 | 协议 | MIT |
-| 当前版本 | v0.116.9(**SFTP「跟随终端」只在手敲 `pwd` 后才跟随,`cd` 不触发**:终端 cwd 三处断点叠加导致 OSC 7 自动上报链路对多数真实环境从未生效——① `stripTerminalControl` 的转义分支顺序错误,C0 esc-dispatch 备选(`[@-Z\\-_]`)把 `\x1B]` 的 `]`(0x5D)当作单字符转义先吃掉,OSC 分支成死代码,带 OSC 0 标题 / ANSI 颜色的 PS1(Ubuntu 默认)剥离后 payload 残留,`isShellPromptLine` 永远识别不出 prompt → 注入永不发生;② prompt 识别与注入解耦后仍要等「下一个 chunk」,连接后直接操作 SFTP 从不敲终端的用户永远注入不了;③ fish 等 shell 对 bash 方言注入命令免疫。现修复正则分支顺序(OSC 分支提前、payload 剥净),prompt 识别在**控制序列剥离后**进行并在同一 chunk 完成注入,建链静默 exec 增加 `echo $0; ps -p $$ -o comm=` 登录 shell 探测(bash/zsh 用原 hook、fish 走 `--on-event fish_prompt` 事件、csh/tcsh 等免疫 shell 不注入),并新增第三条 cwd 信号——从 prompt 行提取路径(`\u@\h:\w\$`、`[root@host ~]#` 等默认 PS1,`~` 按登录 home 展开)。四层叠加后:默认配置下 `cd` 即跟随,无需再敲 `pwd`。) |
+| 当前版本 | v0.116.10(**AI `redis_exec` 无法操作非配置库(SELECT 切库形同虚设,数据误写)**:工具层每次调用都是「按资产配置库(默认 db0)新建连接 → 执行单条命令 → 立即断开」,sidecar 虽支持 `SELECT`(写锁换 client),但切出的库随断连丢失,下一条命令仍回到配置库——实际效果是永远只能操作配置库,曾导致想写 db15 的数据误落 db0;单次调用内也无法组合(`SELECT 15; GET foo` 被 `parseRedisCommand` 当单条解析,`15;` 转数字失败)。现修复:`redis_exec` 新增可选 `db` 参数(数字或数字字符串,如 `db:15`),连接按调用新建,直接以目标库建连(无跨调用状态);首 token 为 `SELECT` 的命令(含 `SELECT 15\nRPUSH ...` 组合尝试)拦截并返回软引导,不再返回误导性的 `OK` 或难懂的 `invalid db number`。工具 schema 与描述同步(模型可见契约)。工作台 UI 的 CLI 与 db 切换器走持久连接(`db.redis.select` RPC),不受影响。) |
 
 ## 架构一句话
 
@@ -130,4 +130,4 @@ npm run tauri:build          # 当前平台打包(beforeBuildCommand 已编排�
 
 ---
 
-*最后更新: 2026-09-08 (v0.116.9)*
+*最后更新: 2026-09-09 (v0.116.10)*

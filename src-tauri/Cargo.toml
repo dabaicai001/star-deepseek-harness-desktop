@@ -1,6 +1,6 @@
 [package]
 name = "starhub"
-version = "0.116.9"
+version = "0.116.10"
 edition = "2021"
 
 [dependencies]

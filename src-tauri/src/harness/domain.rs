@@ -908,6 +908,33 @@ async fn execute_relational_db(
     Ok(format_query_result(&result))
 }
 
+/// 解析 redis_exec 的可选 `db` 参数(数字或数字字符串)。`None` = 未传,
+/// 沿用资产配置库;`Err` = 传了但不是非负整数(软错误,原样回给模型)。
+fn redis_db_override(args: &Value) -> Result<Option<u64>, String> {
+    let Some(raw) = args.get("db") else {
+        return Ok(None);
+    };
+    let parsed = match raw {
+        Value::Null => return Ok(None),
+        Value::Number(number) => number.as_u64(),
+        Value::String(text) => text.trim().parse::<u64>().ok(),
+        _ => None,
+    };
+    parsed
+        .map(Some)
+        .ok_or_else(|| "db 参数必须是非负整数,例如 {\"db\":15}".to_string())
+}
+
+/// 判断命令是否为 SELECT 切库命令(只看首 token;组合命令如
+/// "SELECT 15\nRPUSH ..." 也命中,统一走软引导,不让 sidecar 报
+/// 「invalid db number: 15\nRPUSH」这类难懂错误)。
+fn is_redis_select_command(command: &str) -> bool {
+    command
+        .split_whitespace()
+        .next()
+        .is_some_and(|first| first.eq_ignore_ascii_case("SELECT"))
+}
+
 async fn execute_redis(
     bridge: &HostBridgeState,
     config: &Value,
@@ -917,7 +944,27 @@ async fn execute_redis(
     if command.is_empty() {
         return Ok("[Error] Empty command".to_string());
     }
-    let conn_id = connect_sidecar(bridge, "redis", config).await?;
+    // SELECT 拦截:本工具每次调用都按资产配置库新建连接、执行后立即断开,
+    // SELECT 切出的库随连接销毁,下一条命令仍回到配置库——曾因此发生过
+    // 「想写 db15 的数据误落 db0」。改为软引导模型改用 db 参数。
+    if is_redis_select_command(&command) {
+        return Ok(
+            "redis_exec 每次调用都是独立连接,SELECT 切库不会保留到下一次调用,后续命令仍会落到资产配置的库(数据会写错库)。请改用 db 参数在同一次调用里指定目标库,例如 {\"command\":\"GET key\",\"db\":15};本次 SELECT 未执行。"
+                .to_string(),
+        );
+    }
+    // db 参数覆盖配置库:连接本就按调用新建,直接以目标库建连,无跨调用状态。
+    let conn_config = match redis_db_override(args)? {
+        Some(db) => {
+            let mut cfg = config.clone();
+            if let Value::Object(map) = &mut cfg {
+                map.insert("redisDb".to_string(), serde_json::json!(db));
+            }
+            cfg
+        }
+        None => config.clone(),
+    };
+    let conn_id = connect_sidecar(bridge, "redis", &conn_config).await?;
     let result = sidecar_call(bridge, "db.redis.execute", serde_json::json!({
         "connId": conn_id,
         "command": command,
@@ -1336,6 +1383,34 @@ mod tests {
         assert!(find_long_sleep_seconds("ls -la", 15.0).is_none());
         assert!(find_long_sleep_seconds("SLEEP 20 && echo x", 15.0).is_some());
         assert!(find_long_sleep_seconds("echo 'sleep 999'", 15.0).is_some(), "字符串内也应命中(与前端 regex 一致)");
+    }
+
+    // ---------- 纯函数:redis_exec db 参数与 SELECT 拦截 ----------
+
+    #[test]
+    fn redis_db_override_parses_number_and_numeric_string() {
+        assert_eq!(redis_db_override(&serde_json::json!({})).unwrap(), None);
+        assert_eq!(redis_db_override(&serde_json::json!({"db": null})).unwrap(), None);
+        assert_eq!(redis_db_override(&serde_json::json!({"db": 15})).unwrap(), Some(15));
+        assert_eq!(redis_db_override(&serde_json::json!({"db": 0})).unwrap(), Some(0));
+        assert_eq!(redis_db_override(&serde_json::json!({"db": "15"})).unwrap(), Some(15));
+        assert_eq!(redis_db_override(&serde_json::json!({"db": " 15 "})).unwrap(), Some(15));
+        assert!(redis_db_override(&serde_json::json!({"db": "abc"})).is_err());
+        assert!(redis_db_override(&serde_json::json!({"db": -1})).is_err());
+        assert!(redis_db_override(&serde_json::json!({"db": true})).is_err());
+    }
+
+    #[test]
+    fn redis_select_command_detection() {
+        assert!(is_redis_select_command("SELECT 15"));
+        assert!(is_redis_select_command("select 15"));
+        // 组合命令(多语句尝试)也要拦下,给统一软引导
+        assert!(is_redis_select_command("SELECT 15\nRPUSH k v"));
+        assert!(is_redis_select_command("SELECT"));
+        assert!(!is_redis_select_command("GET key"));
+        assert!(!is_redis_select_command(""));
+        // select 出现在参数位置不是切库命令
+        assert!(!is_redis_select_command("SET select 1"));
     }
 
     // ---------- 结果格式化 ----------

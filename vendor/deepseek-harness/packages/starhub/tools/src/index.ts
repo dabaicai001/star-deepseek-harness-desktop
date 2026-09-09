@@ -234,9 +234,10 @@ const BRIDGED_TOOLS: readonly BridgedToolSpec[] = [
   // ── Redis ──
   {
     toolName: 'redis_exec',
-    description: '在当前 Redis 连接中执行一条命令。只读命令(GET/HGET/LRANGE/SMEMBERS/ZRANGE/SCAN/TYPE/TTL/INFO/DBSIZE 等)自动放行,写命令(SET/DEL/EXPIRE/RENAME/FLUSHDB 等)会请求用户确认。KEYS * 在生产环境禁止使用,请改用 SCAN。',
+    description: '在当前 Redis 连接中执行一条命令(单条)。连接按调用独立建立,默认用资产配置的 db;需要操作其他 db 时传 db 参数(如 db: 15),SELECT 命令切不了库、不会被执行。只读命令(GET/HGET/LRANGE/SMEMBERS/ZRANGE/SCAN/TYPE/TTL/INFO/DBSIZE 等)自动放行,写命令(SET/DEL/EXPIRE/RENAME/FLUSHDB 等)会请求用户确认。KEYS * 在生产环境禁止使用,请改用 SCAN。',
     parameters: {
       command: { type: 'string', required: true, description: 'Redis 命令,例如 "GET mykey" 或 "HGETALL user:1001"' },
+      db: { type: 'number', description: '目标 db 编号(可选,默认资产配置库)。例如操作 db15 就传 15;不要用 SELECT 命令切库' },
     },
   },
   // ── Elasticsearch ──
