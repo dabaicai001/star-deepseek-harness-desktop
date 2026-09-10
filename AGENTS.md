@@ -11,7 +11,7 @@ StarHub 是跨平台(Windows / macOS / Linux)DevOps 桌面应用,单一窗口整
 | 仓库 | https://github.com/dabaicai001/star-dsh-desktop |
 | 主分支 | `main` |
 | 协议 | MIT |
-| 当前版本 | v0.116.10(**AI `redis_exec` 无法操作非配置库(SELECT 切库形同虚设,数据误写)**:工具层每次调用都是「按资产配置库(默认 db0)新建连接 → 执行单条命令 → 立即断开」,sidecar 虽支持 `SELECT`(写锁换 client),但切出的库随断连丢失,下一条命令仍回到配置库——实际效果是永远只能操作配置库,曾导致想写 db15 的数据误落 db0;单次调用内也无法组合(`SELECT 15; GET foo` 被 `parseRedisCommand` 当单条解析,`15;` 转数字失败)。现修复:`redis_exec` 新增可选 `db` 参数(数字或数字字符串,如 `db:15`),连接按调用新建,直接以目标库建连(无跨调用状态);首 token 为 `SELECT` 的命令(含 `SELECT 15\nRPUSH ...` 组合尝试)拦截并返回软引导,不再返回误导性的 `OK` 或难懂的 `invalid db number`。工具 schema 与描述同步(模型可见契约)。工作台 UI 的 CLI 与 db 切换器走持久连接(`db.redis.select` RPC),不受影响。) |
+| 当前版本 | v0.117.0(**数据库工作台支持 SQLite 与 SQL Server(此前「连资产都建不出来」)**:连接对话框新增 SQLite / SQL Server 两种类型,SQLite 走文件路径(`filePath`,不再要求 host/username)、SQL Server 走 host/port(默认 1433)/账号/库;工作台按类型分派 `db_sqlite_connect` / `db_mssql_connect` 建连,数据面(PG/SQLite/MSSQL)复用 sidecar 的通用关系型 handler;资产行徽标与独立窗口路由同步(SQLite / SQL Server)。) |
 
 ## 架构一句话
 
@@ -130,4 +130,4 @@ npm run tauri:build          # 当前平台打包(beforeBuildCommand 已编排�
 
 ---
 
-*最后更新: 2026-09-09 (v0.116.10)*
+*最后更新: 2026-09-10 (v0.117.0)*
