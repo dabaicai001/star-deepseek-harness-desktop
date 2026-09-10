@@ -577,53 +577,65 @@ describe('RedisWorkbench actions', () => {
     }
   })
 
-  it('flushes the DB after confirm, guards on cancel, and surfaces a failure toast', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  it('flushes the DB only after typing the db number in the confirm modal, and surfaces a failure toast', async () => {
     const invoke = installTauri()
     const restore = stubInvoke(invoke)
     try {
       renderWorkbench()
       await expandDb0WithKeys()
+      // 打开确认弹窗:未输入序号时「清空」禁用,且未触发 flush。
       fireEvent.click(screen.getByRole('button', { name: '清空 DB' }))
+      await waitFor(() =>{  expect(screen.getByLabelText('确认 db 序号')).toBeTruthy() })
+      expect(screen.getByText(/将删除 db0 的全部 key/)).toBeTruthy()
+      expect((screen.getByText<HTMLButtonElement>('清空')).disabled).toBe(true)
       expect(invoke).not.toHaveBeenCalledWith('db_redis_flush_db', expect.anything())
-      confirmSpy.mockReturnValue(true)
+      // 取消:不 flush、弹窗关闭。
+      fireEvent.click(screen.getByText('取消'))
+      await waitFor(() =>{  expect(screen.queryByLabelText('确认 db 序号')).toBeNull() })
+      expect(invoke).not.toHaveBeenCalledWith('db_redis_flush_db', expect.anything())
+      // 输入正确序号后才可确认(序号即目标库,文案与实际库强绑定)。
       fireEvent.click(screen.getByRole('button', { name: '清空 DB' }))
+      fireEvent.change(screen.getByLabelText('确认 db 序号'), { target: { value: '0' } })
+      fireEvent.click(screen.getByText('清空'))
       await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('db_redis_flush_db', { connId: 'c1' }) })
       await waitFor(() =>{  expect(screen.getByText(/db0 已清空/)).toBeTruthy() })
+      await waitFor(() =>{  expect(screen.queryByLabelText('确认 db 序号')).toBeNull() })
     } finally {
       restore()
-      confirmSpy.mockRestore()
     }
     cleanup()
-    // 收起态清空:目标 = activeDb,只刷新总数不取键。
-    const confirmSpy2 = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    // 收起态清空:目标 = activeDb,flush 前连接已在该库 → 不再发 select;只刷新总数不取键。
     const invokeCollapsed = installTauri()
     const restoreCollapsed = stubInvoke(invokeCollapsed)
     try {
       renderWorkbench()
       await waitConnected()
       fireEvent.click(screen.getByRole('button', { name: '清空 DB' }))
+      await waitFor(() =>{  expect(screen.getByLabelText('确认 db 序号')).toBeTruthy() })
+      fireEvent.change(screen.getByLabelText('确认 db 序号'), { target: { value: '0' } })
+      fireEvent.click(screen.getByText('清空'))
       await waitFor(() =>{  expect(invokeCollapsed).toHaveBeenCalledWith('db_redis_flush_db', { connId: 'c1' }) })
       await waitFor(() =>{  expect(screen.getByText(/db0 已清空/)).toBeTruthy() })
       await waitFor(() =>{  expect(invokeCollapsed).toHaveBeenCalledWith('db_redis_db_size', { connId: 'c1' }) })
       expect(invokeCollapsed.mock.calls.filter(c => c[0] === 'db_redis_scan').length).toBe(0)
+      expect(invokeCollapsed.mock.calls.filter(c => c[0] === 'db_redis_select').length).toBe(0)
     } finally {
       restoreCollapsed()
-      confirmSpy2.mockRestore()
     }
     cleanup()
-    // flush 失败 toast
-    const confirmSpy3 = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    // flush 失败 toast(弹窗保留供重试)
     const invokeErr = installTauri({ flushError: new Error('fl-boom') })
     const restoreErr = stubInvoke(invokeErr)
     try {
       renderWorkbench()
       await expandDb0WithKeys()
       fireEvent.click(screen.getByRole('button', { name: '清空 DB' }))
+      await waitFor(() =>{  expect(screen.getByLabelText('确认 db 序号')).toBeTruthy() })
+      fireEvent.change(screen.getByLabelText('确认 db 序号'), { target: { value: '0' } })
+      fireEvent.keyDown(screen.getByLabelText('确认 db 序号'), { key: 'Enter' })
       await waitFor(() =>{  expect(screen.getByText(/清空 DB 失败:fl-boom/)).toBeTruthy() })
     } finally {
       restoreErr()
-      confirmSpy3.mockRestore()
     }
   })
 
@@ -646,7 +658,7 @@ describe('RedisWorkbench actions', () => {
       fireEvent.change(screen.getByLabelText('key 名'), { target: { value: 'newkey' } })
       fireEvent.change(screen.getByLabelText('值(string)'), { target: { value: "it's" } })
       fireEvent.click(screen.getByText('创建'))
-      await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('db_redis_execute', { connId: 'c1', command: "SET newkey 'it\\'s'" }) })
+      await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('db_redis_execute', { connId: 'c1', command: 'SET newkey "it\'s"' }) })
       await waitFor(() =>{  expect(screen.getByText('Key 已创建')).toBeTruthy() })
       await waitFor(() =>{  expect(screen.queryByLabelText('key 名')).toBeNull() })
     } finally {
@@ -891,6 +903,9 @@ describe('RedisWorkbench failure variants', () => {
       fireEvent.click(screen.getByText('确认'))
       await waitFor(() =>{  expect(screen.getByText(/重命名失败:raw-ren/)).toBeTruthy() })
       fireEvent.click(screen.getByRole('button', { name: '清空 DB' }))
+      await waitFor(() =>{  expect(screen.getByLabelText('确认 db 序号')).toBeTruthy() })
+      fireEvent.change(screen.getByLabelText('确认 db 序号'), { target: { value: '0' } })
+      fireEvent.click(screen.getByText('清空'))
       await waitFor(() =>{  expect(screen.getByText(/清空 DB 失败:raw-fl/)).toBeTruthy() })
       // CLI execute 裸串拒绝 → 输出串。
       fireEvent.click(screen.getByRole('button', { name: 'CLI' }))
@@ -973,8 +988,17 @@ describe('RedisWorkbench failure variants', () => {
       await waitFor(() =>{  expect(screen.getByText(/重命名失败:plain-ren/)).toBeTruthy() })
       // flush 失败
       fireEvent.click(screen.getByRole('button', { name: '清空 DB' }))
+      await waitFor(() =>{  expect(screen.getByLabelText('确认 db 序号')).toBeTruthy() })
+      fireEvent.change(screen.getByLabelText('确认 db 序号'), { target: { value: '0' } })
+      fireEvent.click(screen.getByText('清空'))
       await waitFor(() =>{  expect(screen.getByText(/清空 DB 失败:plain-fl/)).toBeTruthy() })
-      // create(execute) 失败
+      // create(execute) 失败:先关掉 flush 确认弹窗(失败时保持打开便于重试,
+      // 页面同时可能还有重命名条,故按弹窗容器收敛「取消」按钮)
+      const flushField = screen.getByLabelText('确认 db 序号')
+      let flushModal: HTMLElement | null = flushField
+      while (flushModal !== null && within(flushModal).queryByText('清空') === null) flushModal = flushModal.parentElement
+      if (flushModal === null) throw new Error('flush modal not found')
+      fireEvent.click(within(flushModal).getByText('取消'))
       fireEvent.click(screen.getByRole('button', { name: '新建 Key' }))
       await waitFor(() =>{  expect(screen.getByLabelText('key 名')).toBeTruthy() })
       fireEvent.change(screen.getByLabelText('key 名'), { target: { value: 'k' } })

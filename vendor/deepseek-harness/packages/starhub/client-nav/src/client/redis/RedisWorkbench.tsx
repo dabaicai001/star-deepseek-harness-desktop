@@ -22,6 +22,11 @@
  *   effect 里捕获一次,openValue 从 key A 换成 key B 时编辑器不重挂载、永远
  *   停在 A;现在 RedisValueEditor 改为受控 props(redisKey/keyType)并以
  *   React key 按 key 重挂载。
+ *
+ * P0 修复(库漂移):CLI 的 SELECT 不透传给 sidecar 执行(持久连接会真实切库而
+ * UI 状态不跟随,后续 FLUSHDB/删除会作用在看不见的库上),改为走 redisSelect RPC
+ * 并同步 activeDb/expandedDb 与键列表;FLUSHDB 执行前先显式 select 目标库,且确认
+ * 弹窗要求输入 db 序号二次确认(替代 window.confirm)。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -29,7 +34,7 @@ import {
   IconCodeOutline16, IconEditOutline16, IconPlusOutline16, IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RustAsset } from '../store.ts'
-import { redisConnect, redisDBSize, redisDel, redisDisconnect, redisExecute, redisFlushDB, redisRename, redisScan, redisScanAccumulate, redisSelect, type RedisKeyInfo } from './redis-service.ts'
+import { redisConnect, redisDBSize, redisDel, redisDisconnect, redisExecute, redisFlushDB, redisQuote, redisRename, redisScan, redisScanAccumulate, redisSelect, type RedisKeyInfo } from './redis-service.ts'
 import { allFolderPaths, buildKeyTree, countLeaves, type KeyTreeNode } from './key-tree.ts'
 import { RedisValueEditor } from './RedisValueEditor.tsx'
 import css from './RedisWorkbench.module.css'
@@ -52,6 +57,22 @@ const SEARCH_DEBOUNCE_MS = 350
 export function toScanMatch(term: string): string {
   if (term === '') return ''
   return /[*?[\]]/.test(term) ? term : `*${term}*`
+}
+
+/**
+ * 解析 CLI 输入的 SELECT 目标库。
+ * @param command - CLI 原始输入(未 trim 也可)。
+ * @returns 非 SELECT 命令返回 null;合法 SELECT 返回目标 db(0-15);SELECT 但参数
+ *   缺失/非法返回 'invalid'。
+ */
+export function parseCliSelect(command: string): number | 'invalid' | null {
+  const tokens = command.trim().split(/\s+/).filter(t => t !== '')
+  const first = tokens[0]
+  if (first === undefined || first.toLowerCase() !== 'select') return null
+  if (tokens.length !== 2) return 'invalid'
+  const db = Number(tokens[1])
+  if (!Number.isInteger(db) || db < 0 || db > 15) return 'invalid'
+  return db
 }
 
 /** 单个 db 的懒加载缓存:展开时取一次,收起保留。 */
@@ -169,6 +190,9 @@ export function RedisWorkbench({ asset, onClose }: { asset: RustAsset; onClose: 
   const [renameTo, setRenameTo] = useState('')
   const [newKeyOpen, setNewKeyOpen] = useState(false)
   const [newKeyDraft, setNewKeyDraft] = useState<NewKeyDraft>({ key: '', type: 'string', value: '' })
+  /** FLUSHDB 二次确认:目标 db(打开弹窗时锁定)与用户输入的确认序号。 */
+  const [flushConfirm, setFlushConfirm] = useState<number | null>(null)
+  const [flushInput, setFlushInput] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [openValue, setOpenValue] = useState<{ key: string; type: string } | null>(null)
   /** 键树文件夹展开态:db → 已展开路径集(默认全收起,点击文件夹行才展开)。 */
@@ -377,17 +401,34 @@ export function RedisWorkbench({ asset, onClose }: { asset: RustAsset; onClose: 
     }
   }
 
-  const flushDb = async () => {
+  /** 打开 FLUSHDB 二次确认弹窗:目标库 = 展开库或当前库,确认需输入 db 序号。 */
+  const askFlushDb = () => {
+    setFlushInput('')
+    setFlushConfirm(expandedDb ?? activeDb)
+  }
+
+  /**
+   * 清空指定 db:先显式 redisSelect 把持久连接切到目标库再 FLUSHDB——sidecar 的
+   * FlushDB 清的是「连接当前所在库」,库漂移(如 CLI 绕过拦截)时确认文案与实际
+   * 清空的库会不一致;select 后 activeDb 与目标库强绑定。
+   * @param target - 确认弹窗打开时锁定的目标 db。
+   */
+  const flushDb = async (target: number) => {
     const connId = connRef.current
     /* v8 ignore next -- 仅连接建立后触发 */
     if (connId === null) return
-    const target = expandedDb ?? activeDb
-    if (!window.confirm(`FLUSHDB — 将删除 db${target} 全部 key,继续?`)) return
     try {
+      if (target !== activeDb) {
+        await redisSelect(connId, target)
+        setActiveDb(target)
+      }
       await redisFlushDB(connId)
+      setFlushConfirm(null)
       setOpenValue(null)
       notify(`db${target} 已清空`)
-      await syncAfterMutation(connId)
+      // 上面 setActiveDb 尚未落地,按 target 显式同步(而非闭包内旧 activeDb)。
+      if (expandedDb === null) await refreshSizeForDb(connId, target)
+      else await refreshExpanded(connId)
     } catch (e: unknown) {
       notify(`清空 DB 失败:${e instanceof Error ? e.message : String(e)}`)
     }
@@ -401,7 +442,7 @@ export function RedisWorkbench({ asset, onClose }: { asset: RustAsset; onClose: 
     /* v8 ignore next -- 空 key 时创建按钮 disabled,守卫生不可达 */
     if (key === '') return
     try {
-      await redisExecute(connId, `SET ${key} '${newKeyDraft.value.replace(/'/g, "\\'")}'`)
+      await redisExecute(connId, `SET ${redisQuote(key)} ${redisQuote(newKeyDraft.value)}`)
       setNewKeyOpen(false)
       setNewKeyDraft({ key: '', type: 'string', value: '' })
       notify('Key 已创建')
@@ -416,6 +457,40 @@ export function RedisWorkbench({ asset, onClose }: { asset: RustAsset; onClose: 
     const command = cliInput.trim()
     /* v8 ignore next -- 仅连接建立后触发 */
     if (connId === null || command === '') return
+    // SELECT 不透传给 sidecar:持久连接的 Select 会真实切换所在库,而 UI 的
+    // activeDb/expandedDb 不跟随 → 后续 FLUSHDB/删除/键列表全作用在「看不见的库」。
+    // 改为走 redisSelect RPC 并同步 UI 状态与键列表。
+    const selectTarget = parseCliSelect(command)
+    if (selectTarget === 'invalid') {
+      setCliOutput('无效的 db 序号:SELECT 只接受 0-15 的整数,如 SELECT 3')
+      return
+    }
+    if (selectTarget !== null) {
+      if (selectTarget === activeDb && expandedDb === selectTarget) {
+        setCliOutput(`已在 db${selectTarget}`)
+        return
+      }
+      try {
+        if (selectTarget !== activeDb) await redisSelect(connId, selectTarget)
+        setActiveDb(selectTarget)
+        setOpenValue(null)
+        setCliOutput(`已切换到 db${selectTarget}`)
+        // 展开并加载目标 db,保证 UI 展示库与连接所在库一致(与 toggleDb 展开路径同)。
+        if (expandedDb !== selectTarget) {
+          setExpandedDb(selectTarget)
+          const cached = dbLists.get(selectTarget)
+          const match = toScanMatch(searchFor(selectTarget).trim())
+          if (cached !== undefined && cached.match === match) {
+            if (!cached.complete) void loadMoreKeysForDb(connId, selectTarget)
+          } else {
+            await Promise.all([refreshSizeForDb(connId, selectTarget), loadKeysForDb(connId, selectTarget, match)])
+          }
+        }
+      } catch (e: unknown) {
+        setCliOutput(`切换 DB 失败:${e instanceof Error ? e.message : String(e)}`)
+      }
+      return
+    }
     try {
       const res = await redisExecute(connId, command)
       setCliOutput(res.error ?? toCliText(res.result))
@@ -482,7 +557,7 @@ export function RedisWorkbench({ asset, onClose }: { asset: RustAsset; onClose: 
                   /* v8 ignore next -- 刷新钮在未展开/未连接时 disabled,守卫分支不可达 */
                   onClick={() => { const c = connRef.current; if (c !== null) void refreshExpanded(c) }}>⟳</button>
                 <button type="button" className={css.iconButton} title="清空 DB" aria-label="清空 DB"
-                  disabled={!connected} onClick={() => void flushDb()}><IconTrashOutline16 size={15} /></button>
+                  disabled={!connected} onClick={() =>{  askFlushDb() }}><IconTrashOutline16 size={15} /></button>
                 <button type="button" className={css.iconButton} title="CLI" aria-label="CLI"
                   disabled={!connected} onClick={() =>{  setCliOpen(v => !v) }}><IconCodeOutline16 size={15} /></button>
                 <span className={css.toolbarSpacer} />
@@ -614,6 +689,24 @@ export function RedisWorkbench({ asset, onClose }: { asset: RustAsset; onClose: 
               <div className={css.modalActions}>
                 <button type="button" className={css.secondaryButton} onClick={() =>{  setNewKeyOpen(false) }}>取消</button>
                 <button type="button" className={css.primaryButton} disabled={newKeyDraft.key.trim() === ''} onClick={() => void createKey()}>创建</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {flushConfirm !== null && (
+          <div className={css.modalBackdrop}>
+            <div className={css.modal}>
+              <div className={css.modalTitle}>清空 db{flushConfirm}</div>
+              <div className={css.placeholderDesc}>将删除 db{flushConfirm} 的全部 key,操作不可恢复。请输入 db 序号 {flushConfirm} 确认:</div>
+              <input className={css.searchInput} placeholder={`输入 ${flushConfirm} 确认`} aria-label="确认 db 序号"
+                spellCheck={false} value={flushInput}
+                onChange={(e) =>{  setFlushInput(e.target.value) }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && flushInput.trim() === String(flushConfirm)) void flushDb(flushConfirm) }} />
+              <div className={css.modalActions}>
+                <button type="button" className={css.secondaryButton} onClick={() =>{  setFlushConfirm(null) }}>取消</button>
+                <button type="button" className={css.dangerButton} disabled={flushInput.trim() !== String(flushConfirm)}
+                  onClick={() => void flushDb(flushConfirm)}>清空</button>
               </div>
             </div>
           </div>

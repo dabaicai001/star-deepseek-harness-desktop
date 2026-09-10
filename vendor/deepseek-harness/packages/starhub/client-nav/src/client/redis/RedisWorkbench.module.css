@@ -27,6 +27,9 @@
 .iconButton:disabled, .primaryButton:disabled { opacity: 0.4; cursor: default; }
 .primaryButton { border: 1px solid var(--dsw-alias-state-business-primary); border-radius: 5px; padding: 5px 11px; background: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-label-primary-inverted); cursor: pointer; font-size: 12px; font-weight: 650; white-space: nowrap; }
 .primaryButton:not(:disabled):hover { filter: brightness(1.08); }
+.dangerButton { border: 1px solid var(--dsw-alias-state-error-primary); border-radius: 5px; padding: 5px 11px; background: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-label-primary-inverted); cursor: pointer; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.dangerButton:not(:disabled):hover { filter: brightness(1.08); }
+.dangerButton:disabled { opacity: 0.4; cursor: default; }
 
 /* ─── DB 树 ─── */
 .dbTree { flex: 1; overflow-y: auto; padding: 6px; }

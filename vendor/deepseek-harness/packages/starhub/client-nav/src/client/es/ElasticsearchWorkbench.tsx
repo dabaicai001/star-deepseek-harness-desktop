@@ -141,7 +141,14 @@ export function ElasticsearchWorkbench({ asset, onClose }: ElasticsearchWorkbenc
     }
   }, [fail])
 
-  const executeSearch = useCallback(async () => {
+  /**
+   * 执行 DSL 查询。from 显式传入(而非读闭包内的 searchFrom state)——旧版
+   * nextPage 先 setSearchFrom 再同步调 executeSearch,闭包里的 searchFrom 还是
+   * 旧值,页码与数据永久错位一页。页码 state 在查询成功后才落地,失败时旧页
+   * 标签与旧结果保持一致。
+   * @param from - 目标页的起始偏移(新查询传 0)。
+   */
+  const executeSearch = useCallback(async (from: number) => {
     const connId = connRef.current
     /* v8 ignore next 1 -- 连接未就绪防护;执行查询仅在有 connId 的 UI 触发 */
     if (connId === null) return
@@ -155,24 +162,27 @@ export function ElasticsearchWorkbench({ asset, onClose }: ElasticsearchWorkbenc
     setSearchLoading(true)
     setError(null)
     try {
-      const idx = searchIndex || '_all'
-      setResult(await esSearch(connId, idx, body, searchFrom, searchSize))
+      // 「所有索引」用 `*` 通配:ES 7+ 已移除 `_all` 索引名,直传会报错。
+      const idx = searchIndex === '' ? '*' : searchIndex
+      const next = await esSearch(connId, idx, body, from, searchSize)
+      setResult(next)
+      setSearchFrom(from)
     } catch (e) { fail(e) } finally {
       setSearchLoading(false)
     }
-  }, [dsl, searchIndex, searchFrom, fail])
+  }, [dsl, searchIndex, fail])
 
   const prevPage = useCallback(() => {
     // 上一页按钮在当前页 disabled;此处仅为护栏
     /* v8 ignore next 2 -- 页码回退需 from>=size 才可触发(上一页按钮已禁用时不可达) */
-    if (searchFrom >= searchSize) { setSearchFrom(searchFrom - searchSize); void executeSearch() }
+    if (searchFrom >= searchSize) void executeSearch(searchFrom - searchSize)
   }, [searchFrom, executeSearch, searchSize])
 
   const nextPage = useCallback(() => {
     // 下一页按钮在末页或空结果时 disabled;此处仅为护栏
     /* v8 ignore next 3 -- 需存在越页结果才可触发(下一页按钮已禁用时不可达) */
     if (result !== null && searchFrom + searchSize < result.totalHits) {
-      setSearchFrom(searchFrom + searchSize); void executeSearch()
+      void executeSearch(searchFrom + searchSize)
     }
   }, [result, searchFrom, searchSize, executeSearch])
 
@@ -290,8 +300,8 @@ export function ElasticsearchWorkbench({ asset, onClose }: ElasticsearchWorkbenc
             </div>
             <textarea className={css.dslEditor} value={dsl} spellCheck={false}
               onChange={(e) =>{  setDsl(e.target.value) }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void executeSearch() }} />
-            <button type="button" className={css.primaryBtn} disabled={searchLoading} onClick={() => void executeSearch()}>
+              onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void executeSearch(0) }} />
+            <button type="button" className={css.primaryBtn} disabled={searchLoading} onClick={() => void executeSearch(0)}>
               {searchLoading ? '查询中…' : '执行查询'}
             </button>
           </div>

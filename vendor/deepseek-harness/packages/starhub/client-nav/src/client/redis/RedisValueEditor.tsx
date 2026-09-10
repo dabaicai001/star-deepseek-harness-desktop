@@ -11,8 +11,15 @@
  * 写回),TTL 输入置于信息条,dirty 态决定「还原/保存」可用性。结构类型保存
  * 按 Vue HashEditor 同契约拼原生命令(redisQuote);字段改名(set/zset/hash)
  * 现在先 DEL 旧成员再 ADD 新成员(旧版只增不删,改名会留下旧值);list 新增行
- * 走 RPUSH(旧版对空 originalField 也 LSET,越界必失败)。结构表带成员筛选框
+ * 走 RPUSH(旧版对空 originalField 也 LSET,越界必失败);list 删除按值下发
+ * `LREM key 1 <value>`(去掉一个该值实例;list 允许重复值,索引删除无法表达,
+ * 删除会使后续元素索引前移,LSET 目标索引按已删行数重算)。结构表带成员筛选框
  * (客户端子串过滤,仅影响展示,不影响保存的全量行)。
+ *
+ * P0 修复(TTL 假保存):结构类型的 TTL 修改显式下发 EXPIRE / PERSIST(清空时),
+ * 成功后才更新本地 TTL 态——旧版只在 string 分支带 expiration,结构类型分支
+ * 忽略 TTL 却无条件乐观置位,UI 显示已生效而服务端未变。TTL 变更计入 dirty
+ * (含清空既有 TTL 的反向变更),非法数字在保存时拦截。
  *
  * @module Redis value editor (client)
  */
@@ -146,20 +153,38 @@ export function RedisValueEditor({ connId, redisKey, keyType }: RedisValueEditor
     setModel(cur => ({ ...cur, ...patch }))
   }
 
+  /** TTL 是否被改动:输入清空 = 想清除既有 TTL(仅当当前有 TTL 才算改动)。 */
+  const ttlDirty = ttl.ttlInput === '' ? ttl.ttl >= 0 : Number(ttl.ttlInput) !== ttl.ttl
+
   const dirty = isString
-    ? model.text !== model.originalText || (ttl.ttlInput !== '' && Number(ttl.ttlInput) !== ttl.ttl)
-    : model.rows.some(r => r.deleted || r.field !== r.originalField || r.value !== r.originalValue)
+    ? model.text !== model.originalText || ttlDirty
+    : model.rows.some(r => r.deleted || r.field !== r.originalField || r.value !== r.originalValue) || ttlDirty
 
   const save = async (): Promise<void> => {
     updateModel({ saving: true, error: '' })
     try {
       const expiration = ttl.ttlInput !== '' ? Number(ttl.ttlInput) : undefined
+      if (expiration !== undefined && (!Number.isFinite(expiration) || expiration < 0)) {
+        updateModel({ saving: false, error: 'TTL 必须是 ≥ 0 的数字(秒)' })
+        return
+      }
       if (isString) {
         await redisSet(connId, redisKey, model.text, expiration)
+        // SET 不带 EX 会同时清除既有 TTL:同步本地态,避免 UI 与服务端漂移。
+        if (expiration !== undefined) setTtl({ ttl: expiration, ttlInput: ttl.ttlInput })
+        else if (ttl.ttl >= 0) setTtl({ ttl: -1, ttlInput: '' })
       } else {
         await saveStructural(model.rows, keyType, redisKey, connId)
+        // 结构类型的写回不带 TTL 语义:显式下发 EXPIRE(或清空时 PERSIST),
+        // 成功后才更新本地 TTL 态(旧版乐观置位,实际从未下发)。
+        if (expiration !== undefined) {
+          await runCommand(connId, `EXPIRE ${redisQuote(redisKey)} ${expiration}`)
+          setTtl({ ttl: expiration, ttlInput: ttl.ttlInput })
+        } else if (ttl.ttl >= 0) {
+          await runCommand(connId, `PERSIST ${redisQuote(redisKey)}`)
+          setTtl({ ttl: -1, ttlInput: '' })
+        }
       }
-      if (expiration !== undefined) setTtl({ ttl: expiration, ttlInput: ttl.ttlInput })
       updateModel({
         saving: false, originalText: model.text,
         rows: model.rows.filter(r => !r.deleted).map(r => ({ ...r, originalField: r.field, originalValue: r.value, deleted: false })),
@@ -228,12 +253,16 @@ function revertRows(rows: FieldRow[]): FieldRow[] {
     .map(r => ({ ...r, field: r.originalField || r.field, value: r.originalValue || r.value, deleted: false }))
 }
 
-/** 提交结构类型增删改:删除(含改名旧成员)先按 verb 批量删,再按类型写回。 */
+/** 提交结构类型增删改:list 走专用 saveList(按值删 + 索引重算);其余先按 verb 批量删(含改名旧成员),再按类型写回。 */
 async function saveStructural(rows: FieldRow[], type: string, key: string, connId: string): Promise<void> {
+  if (type === 'list') {
+    await saveList(rows, key, connId)
+    return
+  }
   const toDelete = rows.filter(r => r.deleted && r.originalField !== '')
   const toSet = rows.filter(r => !r.deleted && (r.field !== r.originalField || r.value !== r.originalValue || r.originalField === ''))
-  // 改名(list 除外,其 field 是索引)= 删旧成员 + 增新成员;旧版只增不删会残留旧值。
-  const renamed = type === 'list' ? [] : toSet.filter(r => r.originalField !== '' && r.field !== r.originalField)
+  // 改名 = 删旧成员 + 增新成员;旧版只增不删会残留旧值。
+  const renamed = toSet.filter(r => r.originalField !== '' && r.field !== r.originalField)
   const delTargets = [...toDelete.map(r => r.originalField), ...renamed.map(r => r.originalField)]
   if (delTargets.length > 0) {
     const args = delTargets.map(r => redisQuote(r)).join(' ')
@@ -249,13 +278,38 @@ async function saveStructural(rows: FieldRow[], type: string, key: string, connI
     } else if (type === 'zset') {
       const members = toSet.map(r => `${redisQuote(r.value)} ${redisQuote(r.field)}`).join(' ')
       await runCommand(connId, `ZADD ${redisQuote(key)} ${members}`)
-    } else {
-      // list:既有行按原索引 LSET 覆盖;新增行(无原索引)只能 RPUSH 追加。
-      for (const r of toSet) {
-        if (r.originalField === '') await runCommand(connId, `RPUSH ${redisQuote(key)} ${redisQuote(r.value)}`)
-        else await runCommand(connId, `LSET ${redisQuote(key)} ${redisQuote(r.originalField)} ${redisQuote(r.value)}`)
-      }
     }
+  }
+}
+
+/**
+ * 提交 list 增删改。
+ * 删除按值:`LREM key 1 <value>` 去掉一个该值实例——list 允许重复值,按「索引」
+ * 删除在 Redis 里无法表达(旧版把索引当成员名拼 `LREM key 0 <index>`,删掉的是
+ * 值恰好等于该索引数字的元素,语义错误);重复值时删的是首个匹配,可能与标记行
+ * 不是同一物理元素,但「少一个该值」的结果一致。
+ * 删除会使后续元素索引前移:既有行的 LSET 目标索引 = 原索引 − 之前已删行数
+ * (重算),否则删除+改值同存时会改错元素。新增行(无原索引)RPUSH 追加。
+ * @param rows - 当前全量行(含删除标记)。
+ * @param key - 目标 key。
+ * @param connId - 连接 id。
+ */
+async function saveList(rows: FieldRow[], key: string, connId: string): Promise<void> {
+  const toDelete = rows.filter(r => r.deleted && r.originalField !== '')
+  const toSet = rows.filter(r => !r.deleted && (r.value !== r.originalValue || r.originalField === ''))
+  const deletedIdx = toDelete.map(r => Number(r.originalField))
+  for (const r of toDelete) {
+    await runCommand(connId, `LREM ${redisQuote(key)} 1 ${redisQuote(r.originalValue)}`)
+  }
+  for (const r of toSet) {
+    if (r.originalField === '') {
+      await runCommand(connId, `RPUSH ${redisQuote(key)} ${redisQuote(r.value)}`)
+      continue
+    }
+    const origIdx = Number(r.originalField)
+    let shift = 0
+    for (const d of deletedIdx) if (d < origIdx) shift += 1
+    await runCommand(connId, `LSET ${redisQuote(key)} ${origIdx - shift} ${redisQuote(r.value)}`)
   }
 }
 
