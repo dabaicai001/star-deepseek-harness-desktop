@@ -28,6 +28,9 @@ const CONN_KINDS = [
   { kind: 'mysql', label: 'MySQL', defaultPort: 3306 },
   { kind: 'postgresql', label: 'PostgreSQL', defaultPort: 5432 },
   { kind: 'clickhouse', label: 'ClickHouse', defaultPort: 8123 },
+  // SQLite 是文件型库:无 host/port/账号,只认 filePath(见 toConnectParams)。
+  { kind: 'sqlite', label: 'SQLite', defaultPort: 0 },
+  { kind: 'mssql', label: 'SQL Server', defaultPort: 1433 },
   { kind: 'redis', label: 'Redis', defaultPort: 6379 },
   { kind: 'elasticsearch', label: 'Elasticsearch', defaultPort: 9200 },
   { kind: 'kafka', label: 'Kafka', defaultPort: 9092 },
@@ -116,6 +119,8 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
   const [username, setUsername] = useState(() => (asset === null ? '' : str(asset.config, 'username')))
   const [password, setPassword] = useState('')
   const [database, setDatabase] = useState(() => (asset === null ? '' : str(asset.config, 'database')))
+  /** SQLite 专用:数据库文件路径(host/port/账号对文件型库无意义)。 */
+  const [filePath, setFilePath] = useState(() => (asset === null ? '' : str(asset.config, 'filePath')))
   const [redisDb, setRedisDb] = useState(() => (asset === null ? 0 : num(asset.config, 'db', 0)))
   const [ssl, setSsl] = useState(() => asset?.config.ssl === true)
   /** Elasticsearch 端点形态(Vue DbConnectionForm 三态对齐):host / address / multi。 */
@@ -165,12 +170,14 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
   /* v8 ignore next -- kind 恒取自 CONN_KINDS,find 必命中;回退仅是类型安全兜底 */
   const kindMeta = CONN_KINDS.find(k => k.kind === kind) ?? CONN_KINDS[0]
   const isDb = kind !== 'ssh' && kind !== 'docker'
-  const needsUsername = kind === 'ssh' || kind === 'mysql' || kind === 'postgresql' || kind === 'clickhouse'
-  const hasDatabase = kind === 'mysql' || kind === 'postgresql' || kind === 'clickhouse'
-  /** 地址/端点有效性:docker 看 transport+地址;ES 看三态;其余看 host。 */
+  const needsUsername = kind === 'ssh' || kind === 'mysql' || kind === 'postgresql' || kind === 'clickhouse' || kind === 'mssql'
+  const hasDatabase = kind === 'mysql' || kind === 'postgresql' || kind === 'clickhouse' || kind === 'mssql'
+  /** 地址/端点有效性:docker 看 transport+地址;sqlite 看文件路径;ES 看三态;其余看 host。 */
   const addressValid = kind === 'docker'
     ? dockerTransport === 'socket' || dockerAddress.trim() !== ''
-    : kind === 'elasticsearch'
+    : kind === 'sqlite'
+      ? filePath.trim() !== ''
+      : kind === 'elasticsearch'
       ? (esMode === 'multi'
         ? esNodes.split('\n').map(s => s.trim()).filter(Boolean).length > 0
         : esMode === 'address' ? esAddress.trim() !== '' : host.trim() !== '')
@@ -251,13 +258,18 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
     }
     return {
       dbType: kind,
-      host: host.trim(),
-      port,
-      username: username.trim() !== '' ? username.trim() : undefined,
-      password: password !== '' ? password : undefined,
-      database: hasDatabase && database.trim() !== '' ? database.trim() : undefined,
+      // SQLite 只下发文件路径:host/port/账号对文件型库无意义(sidecar SQLiteConnInfo 只认 filePath)。
+      ...(kind === 'sqlite'
+        ? { filePath: filePath.trim() }
+        : {
+          host: host.trim(),
+          port,
+          username: username.trim() !== '' ? username.trim() : undefined,
+          password: password !== '' ? password : undefined,
+          database: hasDatabase && database.trim() !== '' ? database.trim() : undefined,
+          ssl,
+        }),
       db: kind === 'redis' ? redisDb : undefined,
-      ssl,
       ...(kind === 'elasticsearch' && (esMode === 'address' || esMode === 'multi')
         ? {
           address: esMode === 'address' ? esAddress.trim() : undefined,
@@ -345,6 +357,14 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
     const params: Record<string, unknown> = { host: host.trim(), port, password }
     let cmd: string
     switch (kind) {
+      case 'sqlite':
+        // 文件型库:测试请求只带 filePath(sidecar handleSQLiteTest 只解 filePath)。
+        return { cmd: 'db_sqlite_test', args: { params: { filePath: filePath.trim() } } }
+      case 'mssql':
+        return {
+          cmd: 'db_mssql_test',
+          args: { params: { host: host.trim(), port, username: username.trim(), password, database: database.trim(), ssl } },
+        }
       case 'mysql':
       case 'postgresql':
       case 'clickhouse':
@@ -601,6 +621,19 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
                 </>
               )}
             </>
+          ) : kind === 'sqlite' ? (
+            /* SQLite 是文件型库:以文件路径代替主机/端口(无账号概念)。 */
+            <div className={s.formField}>
+              <label className={s.fieldLabel} htmlFor="conn-file-path">数据库文件路径 *</label>
+              <input
+                id="conn-file-path"
+                className={s.input}
+                value={filePath}
+                disabled={preview}
+                placeholder="/data/app.db"
+                onChange={(event) =>{  setFilePath(event.target.value) }}
+              />
+            </div>
           ) : (
             <>
               <div className={s.formField}>
@@ -627,7 +660,7 @@ export function NewConnectionDialog({ asset, onClose, onSaved }: NewConnectionDi
               </div>
             </>
           )}
-          {kind !== 'docker' && kind !== 'redis' && (
+          {kind !== 'docker' && kind !== 'redis' && kind !== 'sqlite' && (
             <div className={s.formField}>
               <label className={s.fieldLabel} htmlFor="conn-username">
                 用户名{needsUsername ? ' *' : ''}

@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { DbWorkbench } from '../src/client/DbWorkbench.tsx'
+import { DbWorkbench, collectStatementResults } from '../src/client/DbWorkbench.tsx'
 import type { RustAsset } from '../src/client/store.ts'
 
 const dbAsset: RustAsset = {
@@ -34,6 +34,9 @@ function stubInvoke(scenario: {
     if (scenario.fail) return Promise.reject(new Error('boom'))
     switch (cmd) {
       case 'db_mysql_connect': return Promise.resolve(scenario.connect ?? { connId: 'c1', host: 'h', port: 3306 })
+      // SQLite / MSSQL 各自独立 connect(数据面仍共用 db_mysql_* 通用 handler)。
+      case 'db_sqlite_connect': return Promise.resolve({ connId: 'c1', filePath: '/data/app.db', database: 'main' })
+      case 'db_mssql_connect': return Promise.resolve({ connId: 'c1', host: 'h', port: 1433 })
       // list_databases 返回库名字符串数组。
       case 'db_mysql_list_databases': return Promise.resolve(scenario.databases ?? ['app', 'sys'])
       case 'db_mysql_list_tables': return Promise.resolve(scenario.tables ?? [{ name: 'users' }])
@@ -445,6 +448,73 @@ describe('DbWorkbench', () => {
     // 再点收起。
     fireEvent.click(screen.getByRole('button', { name: '收起 users 字段' }))
     await waitFor(() =>{  expect(screen.queryByText('name')).toBeNull() })
+  })
+
+  describe('collectStatementResults(多语句保留逐条结果)', () => {
+    it('保留每条语句的结果,而不是只留最后一条', async () => {
+      const results = await collectStatementResults(['SELECT 1', 'SELECT 2'], (sql) =>
+        Promise.resolve({ columns: [{ name: 'n' }], rows: [[sql === 'SELECT 1' ? 1 : 2]] }))
+      expect(results).toHaveLength(2)
+      expect(results[0]?.result?.rows).toEqual([[1]])
+      expect(results[1]?.result?.rows).toEqual([[2]])
+      expect(results.every(r => r.error === null)).toBe(true)
+    })
+
+    it('某条失败即停止,但此前成功的语句结果仍然保留', async () => {
+      const results = await collectStatementResults(['SELECT 1', 'BOOM', 'SELECT 3'], (sql) =>
+        sql === 'BOOM' ? Promise.resolve({ error: 'bad sql' }) : Promise.resolve({ columns: [], rows: [] }))
+      // 第三条不再执行(与旧语义一致:出错即停),但第一条结果没有丢
+      expect(results).toHaveLength(2)
+      expect(results[0]?.error).toBeNull()
+      expect(results[1]?.error).toBe('bad sql')
+    })
+
+    it('抛出的异常按错误结果记录并停止后续语句', async () => {
+      const results = await collectStatementResults(['SELECT 1', 'SELECT 2'], (sql) =>
+        sql === 'SELECT 1' ? Promise.reject(new Error('conn lost')) : Promise.resolve({ rows: [] }))
+      expect(results).toHaveLength(1)
+      expect(results[0]?.error).toBe('conn lost')
+      expect(results[0]?.result).toBeNull()
+    })
+  })
+
+  describe('SQLite / SQL Server 接通(P0-13)', () => {
+    /** 建一个指定 dbType 的资产(其余字段与 dbAsset 同形)。 */
+    const assetOf = (dbType: string, config: Record<string, unknown>): RustAsset => ({
+      ...dbAsset,
+      config: { dbType, ...config },
+    })
+
+    it('connects a SQLite asset through db_sqlite_connect with filePath only', async () => {
+      const { calls } = stubInvoke({})
+      const { unmount } = render(<DbWorkbench asset={assetOf('sqlite', { filePath: '/data/app.db' })} onClose={vi.fn()} />)
+      // 文件型库不要求 host/username,不该出现「配置不完整」
+      await waitFor(() =>{  expect(calls.some(([cmd]) => cmd === 'db_sqlite_connect')).toBe(true) })
+      expect(screen.queryByText(/配置不完整/)).toBeNull()
+      const connect = calls.find(([cmd]) => cmd === 'db_sqlite_connect')
+      expect(connect?.[1]).toEqual({ params: { host: '', port: 0, username: '', password: '', filePath: '/data/app.db' } })
+      // 关系型数据面共用通用 handler(PG/SQLite/MSSQL 都走 db_mysql_*)。
+      await waitFor(() =>{  expect(calls.some(([cmd]) => cmd === 'db_mysql_list_databases')).toBe(true) })
+      unmount()
+    })
+
+    it('reports a missing filePath for a SQLite asset instead of a host error', async () => {
+      stubInvoke({})
+      const { unmount } = render(<DbWorkbench asset={assetOf('sqlite', {})} onClose={vi.fn()} />)
+      await waitFor(() =>{  expect(screen.getByText(/SQLite 资产配置不完整/)).toBeTruthy() })
+      unmount()
+    })
+
+    it('connects an MSSQL asset through db_mssql_connect with the 1433 default', async () => {
+      const { calls } = stubInvoke({})
+      const { unmount } = render(
+        <DbWorkbench asset={assetOf('mssql', { host: 'sql.internal', username: 'sa', password: 'pw' })} onClose={vi.fn()} />,
+      )
+      await waitFor(() =>{  expect(calls.some(([cmd]) => cmd === 'db_mssql_connect')).toBe(true) })
+      const connect = calls.find(([cmd]) => cmd === 'db_mssql_connect')
+      expect(connect?.[1]).toMatchObject({ params: { host: 'sql.internal', port: 1433, username: 'sa' } })
+      unmount()
+    })
   })
 
 })

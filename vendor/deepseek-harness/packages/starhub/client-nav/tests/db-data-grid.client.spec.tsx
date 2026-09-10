@@ -576,13 +576,26 @@ describe('DbDataGrid', () => {
     expect(screen.queryByText('no perms')).toBeNull()
   })
 
-  it('stages an empty edit as NULL', async () => {
+  it('stages an empty edit as an empty string, not NULL', async () => {
     const { calls } = stubInvoke()
     render(<DbDataGrid connId="c1" table="users" />)
     await waitFor(() =>{  expect(screen.getByText('alice')).toBeTruthy() })
     fireEvent.doubleClick(screen.getByText('alice'))
     const editInput = screen.getByTestId<HTMLInputElement>('cell-edit-input')
     fireEvent.change(editInput, { target: { value: '' } })
+    fireEvent.keyDown(editInput, { key: 'Enter' })
+    await waitFor(() =>{  expect(screen.getByText(/保存 1/)).toBeTruthy() })
+    fireEvent.click(screen.getByText(/保存 1/))
+    await waitFor(() =>{  expect(calls.some(([cmd, a]) => cmd === 'db_mysql_update_rows' && (a.sets as Record<string, unknown>).name === '')).toBe(true) })
+  })
+
+  it('stages the literal NULL marker as a null value', async () => {
+    const { calls } = stubInvoke()
+    render(<DbDataGrid connId="c1" table="users" />)
+    await waitFor(() =>{  expect(screen.getByText('alice')).toBeTruthy() })
+    fireEvent.doubleClick(screen.getByText('alice'))
+    const editInput = screen.getByTestId<HTMLInputElement>('cell-edit-input')
+    fireEvent.change(editInput, { target: { value: 'NULL' } })
     fireEvent.keyDown(editInput, { key: 'Enter' })
     await waitFor(() =>{  expect(screen.getByText(/保存 1/)).toBeTruthy() })
     fireEvent.click(screen.getByText(/保存 1/))

@@ -103,6 +103,8 @@ export function WindowShell() {
       case 'db-mysql':
       case 'db-postgresql':
       case 'db-clickhouse':
+      case 'db-sqlite':
+      case 'db-mssql':
         return <DbWorkbench asset={asset} onClose={requestWindowClose} />
       case 'db-redis':
         return <RedisWorkbench asset={asset} onClose={requestWindowClose} />

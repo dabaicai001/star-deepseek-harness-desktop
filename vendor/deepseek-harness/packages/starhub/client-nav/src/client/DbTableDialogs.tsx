@@ -345,10 +345,14 @@ export function ColumnListDialog({ connId, database, table, onClose }: {
     return Array.from(new Set(merged))
   }, [edits])
 
+  /** 搜索过滤(列名 / 类型);每项附带其在 edits 中的真实下标——渲染与
+   * updateEdit/toggleDrop/resetCol 一律按真实下标落回 edits,过滤后直接沿用
+   * 展示下标会把编辑/删除落到错误的列上。 */
   const filtered = useMemo(() => {
-    if (!search) return edits
+    const all = edits.map((entry, realIndex) => ({ entry, realIndex }))
+    if (!search) return all
     const q = search.toLowerCase()
-    return edits.filter(e => (e.name + e.newType).toLowerCase().includes(q))
+    return all.filter(({ entry: e }) => (e.name + e.newType).toLowerCase().includes(q))
   }, [edits, search])
 
   const updateEdit = (idx: number, patch: Partial<ColumnEdit>) => {
@@ -432,35 +436,35 @@ export function ColumnListDialog({ connId, database, table, onClose }: {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((e, idx) => (
-                  <tr key={`${e.name}-${idx}`} className={`${e.dirty && !e.dropped ? css.dirty : ''} ${e.dropped ? css.dropped : ''}`}>
-                    <td className={css.tdIdx}>{idx + 1}</td>
+                {filtered.map(({ entry: e, realIndex }) => (
+                  <tr key={`${e.name}-${realIndex}`} className={`${e.dirty && !e.dropped ? css.dirty : ''} ${e.dropped ? css.dropped : ''}`}>
+                    <td className={css.tdIdx}>{realIndex + 1}</td>
                     <td>
                       <input
                         className={css.cellInput} value={e.newName}
-                        onChange={(ev) =>{  updateEdit(idx, { newName: ev.target.value }) }}
+                        onChange={(ev) =>{  updateEdit(realIndex, { newName: ev.target.value }) }}
                       />
                     </td>
                     <td>
-                      <input className={css.cellInput} list="col-type-list" value={e.newType} onChange={(ev) =>{  updateEdit(idx, { newType: ev.target.value }) }} placeholder="VARCHAR(255)" />
+                      <input className={css.cellInput} list="col-type-list" value={e.newType} onChange={(ev) =>{  updateEdit(realIndex, { newType: ev.target.value }) }} placeholder="VARCHAR(255)" />
                     </td>
-                    <td className={css.tdCenter}><input type="checkbox" checked={e.newNullable} onChange={(ev) =>{  updateEdit(idx, { newNullable: ev.target.checked }) }} /></td>
+                    <td className={css.tdCenter}><input type="checkbox" checked={e.newNullable} onChange={(ev) =>{  updateEdit(realIndex, { newNullable: ev.target.checked }) }} /></td>
                     <td>
                       <input
                         className={css.cellInput} value={e.newDefault}
-                        onChange={(ev) =>{  updateEdit(idx, { newDefault: ev.target.value }) }}
+                        onChange={(ev) =>{  updateEdit(realIndex, { newDefault: ev.target.value }) }}
                       />
                     </td>
                     <td>
                       <input
                         className={css.cellInput} value={e.newComment}
-                        onChange={(ev) =>{  updateEdit(idx, { newComment: ev.target.value }) }}
+                        onChange={(ev) =>{  updateEdit(realIndex, { newComment: ev.target.value }) }}
                       />
                     </td>
                     <td className={css.tdCenter}>{keyBadge(e) && <span className={css.keyBadge}>{keyBadge(e)}</span>}</td>
                     <td className={css.tdActions}>
-                      <button type="button" className={`${css.smallBtn} ${e.dropped ? css.active : ''}`} onClick={() =>{  toggleDrop(idx) }} title="删除">×</button>
-                      {e.dirty && !e.dropped && <button type="button" className={css.smallBtn} onClick={() =>{  resetCol(idx) }} title="重置">↺</button>}
+                      <button type="button" className={`${css.smallBtn} ${e.dropped ? css.active : ''}`} onClick={() =>{  toggleDrop(realIndex) }} title="删除">×</button>
+                      {e.dirty && !e.dropped && <button type="button" className={css.smallBtn} onClick={() =>{  resetCol(realIndex) }} title="重置">↺</button>}
                     </td>
                   </tr>
                 ))}
@@ -590,10 +594,13 @@ export function IndexListDialog({ connId, database, table, onClose }: {
     return () => { cancelled = true }
   }, [connId, table, database])
 
+  /** 搜索过滤(索引名);每项附带其在 edits 中的真实下标(同 ColumnListDialog:
+   * 过滤后必须用真实下标操作 edits,否则会删错/改错索引)。 */
   const filtered = useMemo(() => {
-    if (!search) return edits
+    const all = edits.map((entry, realIndex) => ({ entry, realIndex }))
+    if (!search) return all
     const q = search.toLowerCase()
-    return edits.filter(e => e.name.toLowerCase().includes(q))
+    return all.filter(({ entry: e }) => e.name.toLowerCase().includes(q))
   }, [edits, search])
 
   const updateEdit = (idx: number, patch: Partial<IndexEdit>) => {
@@ -665,30 +672,30 @@ export function IndexListDialog({ connId, database, table, onClose }: {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((e, idx) => (
-                  <tr key={`${e.name}-${idx}`} className={`${e.dirty && !e.dropped ? css.dirty : ''} ${e.dropped ? css.dropped : ''}`}>
-                    <td className={css.tdIdx}>{idx + 1}</td>
+                {filtered.map(({ entry: e, realIndex }) => (
+                  <tr key={`${e.name}-${realIndex}`} className={`${e.dirty && !e.dropped ? css.dirty : ''} ${e.dropped ? css.dropped : ''}`}>
+                    <td className={css.tdIdx}>{realIndex + 1}</td>
                     <td>
                       <input
                         className={css.cellInput} value={e.newName}
-                        onChange={(ev) =>{  updateEdit(idx, { newName: ev.target.value }) }}
+                        onChange={(ev) =>{  updateEdit(realIndex, { newName: ev.target.value }) }}
                       />
                     </td>
                     <td>
-                      <input className={css.cellInput} list="idx-col-list" value={e.newColumns} onChange={(ev) =>{  updateEdit(idx, { newColumns: ev.target.value }) }} placeholder="col1, col2" />
+                      <input className={css.cellInput} list="idx-col-list" value={e.newColumns} onChange={(ev) =>{  updateEdit(realIndex, { newColumns: ev.target.value }) }} placeholder="col1, col2" />
                     </td>
-                    <td className={css.tdCenter}><input type="checkbox" checked={e.newUnique} onChange={(ev) =>{  updateEdit(idx, { newUnique: ev.target.checked }) }} /></td>
+                    <td className={css.tdCenter}><input type="checkbox" checked={e.newUnique} onChange={(ev) =>{  updateEdit(realIndex, { newUnique: ev.target.checked }) }} /></td>
                     <td>
                       <select
                         className={css.cellInput} value={e.newIndexType}
-                        onChange={(ev) =>{  updateEdit(idx, { newIndexType: ev.target.value }) }}
+                        onChange={(ev) =>{  updateEdit(realIndex, { newIndexType: ev.target.value }) }}
                       >
                         {INDEX_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </td>
                     <td className={css.tdActions}>
-                      <button type="button" className={`${css.smallBtn} ${e.dropped ? css.active : ''}`} onClick={() =>{  toggleDrop(idx) }} title="删除">×</button>
-                      {e.dirty && !e.dropped && <button type="button" className={css.smallBtn} onClick={() =>{  resetEdit(idx) }} title="重置">↺</button>}
+                      <button type="button" className={`${css.smallBtn} ${e.dropped ? css.active : ''}`} onClick={() =>{  toggleDrop(realIndex) }} title="删除">×</button>
+                      {e.dirty && !e.dropped && <button type="button" className={css.smallBtn} onClick={() =>{  resetEdit(realIndex) }} title="重置">↺</button>}
                     </td>
                   </tr>
                 ))}

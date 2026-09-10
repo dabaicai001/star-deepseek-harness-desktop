@@ -88,6 +88,53 @@ export function isNumericCell(value: unknown): boolean {
   return typeof value === 'number' || (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value)))
 }
 
+/**
+ * 数值列基类型集合(MySQL / PostgreSQL / ClickHouse / SQLite / MSSQL 常用数值型;
+ * 类型名取基词比较,`INT(11) UNSIGNED` / `Decimal(10,2)` / `DOUBLE PRECISION`
+ * 等带长度、精度、修饰的形式都能命中)。
+ */
+const NUMERIC_BASE_TYPES: ReadonlySet<string> = new Set([
+  'TINYINT', 'SMALLINT', 'MEDIUMINT', 'INT', 'INTEGER', 'BIGINT',
+  'SERIAL', 'BIGSERIAL', 'SMALLSERIAL',
+  'FLOAT', 'DOUBLE', 'REAL', 'DECIMAL', 'NUMERIC', 'MONEY', 'SMALLMONEY',
+  'INT8', 'INT16', 'INT32', 'INT64', 'INT128', 'INT256',
+  'UINT8', 'UINT16', 'UINT32', 'UINT64', 'UINT128', 'UINT256',
+  'FLOAT32', 'FLOAT64',
+])
+
+/**
+ * 列类型是否数值型(编辑提交时是否把文本转 number 的唯一判据)。
+ * @param type - 列类型名(可带长度/精度/修饰),缺省按非数值处理。
+ * @returns 数值型返回 true。
+ */
+export function isNumericColumnType(type: string | undefined): boolean {
+  if (type === undefined) return false
+  const base = type.trim().split('(')[0]?.trim().split(' ')[0]?.toUpperCase() ?? ''
+  return NUMERIC_BASE_TYPES.has(base)
+}
+
+/**
+ * 单元格编辑文本 → 提交值(按列类型而非原值猜测,修数字样式 VARCHAR 被改
+ * 写为 number 的类型漂移):
+ * - 整串等于 `NULL`(大小写不敏感)→ null(显式「设为 NULL」路径);
+ * - 数值列且文本是有限数字 → number;
+ * - 其余一律保持字符串原样(含空串——空串不再被改成 NULL)。
+ * @param editText - 编辑框文本。
+ * @param columnType - 该列的类型名(list_columns / get_table_data 的 type)。
+ * @returns 提交给 update_rows 的值。
+ */
+export function coerceCellValue(editText: string, columnType: string | undefined): unknown {
+  if (editText.trim().toUpperCase() === 'NULL') return null
+  if (isNumericColumnType(columnType)) {
+    const trimmed = editText.trim()
+    if (trimmed !== '') {
+      const n = Number(trimmed)
+      if (Number.isFinite(n)) return n
+    }
+  }
+  return editText
+}
+
 /** 把结果转 CSV(引号/逗号/换行转义;null → 空串,与 Vue 导出契约一致)。 */
 export function rowsToCsv(columns: QueryColumn[], rows: unknown[][]): string {
   const escape = (v: string): string => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)
@@ -315,6 +362,7 @@ export function DbDataGrid({
   }, [connId, table, database, cmdPrefix])
 
   const toggleSort = (col: QueryColumn): void => {
+    if (!confirmDiscardDirty()) return
     if (orderBy === col.name) {
       setOrderDir(d => (d === 'asc' ? 'desc' : 'asc'))
     } else {
@@ -370,6 +418,10 @@ export function DbDataGrid({
   const applyFilter = (): void => {
     /* v8 ignore next -- 防御:弹层关闭后不会触发应用(按钮随弹层渲染) */
     if (filterCol !== null) {
+      if (filterText !== (columnFilters[filterCol] ?? '') && !confirmDiscardDirty()) {
+        closeFilter()
+        return
+      }
       setColumnFilters(prev => ({ ...prev, [filterCol]: filterText }))
       setPage(0)
     }
@@ -379,6 +431,10 @@ export function DbDataGrid({
   const clearFilter = (): void => {
     /* v8 ignore next -- 防御:弹层关闭后不会触发清除(按钮随弹层渲染) */
     if (filterCol !== null) {
+      if ((columnFilters[filterCol] ?? '') !== '' && !confirmDiscardDirty()) {
+        closeFilter()
+        return
+      }
       setColumnFilters(prev => Object.fromEntries(Object.entries(prev).filter(([key]) => key !== filterCol)))
       setPage(0)
     }
@@ -426,13 +482,11 @@ export function DbDataGrid({
     /* v8 ignore next -- 防御:col 下标由渲染映射生成,恒在 columns 范围内 */
     if (col === undefined) return base
     const originalValue = rows[editing.row]?.[editing.col]
-    // 编辑文本 → 值:空串保持 null(与网格显示一致);数字列尝试转 number。
-    let newValue: unknown = editText
-    if (editText === '') newValue = null
-    else if (isNumericCell(originalValue)) {
-      const n = Number(editText)
-      if (!Number.isNaN(n)) newValue = n
-    }
+    // 编辑文本 → 值:按列类型转换(coerceCellValue)——数值列才转 number,
+    // 数字样式的 VARCHAR(手机号/长 ID)不再被改写成 number;空串保持空串,
+    // 不再静默变 NULL;整串 NULL(大小写不敏感)是显式置 NULL 路径。
+    const colType = tableCols.find(c => c.name === col.name)?.type ?? col.type
+    const newValue = coerceCellValue(editText, colType)
     const next = new Map(base)
     if (valuesEqual(originalValue, newValue)) {
       next.delete(dirtyKey(editing.row, col.name))
@@ -452,6 +506,13 @@ export function DbDataGrid({
   const cancelEdit = (): void => { setEditing(null) }
 
   const hasDirty = dirty.size > 0
+
+  /** 翻页/排序/筛选/刷新等会触发 load(load 成功即清空 dirty)前的拦截:
+   * 有未保存编辑时先确认,取消则不动视图状态。 */
+  const confirmDiscardDirty = (): boolean => {
+    if (dirty.size === 0) return true
+    return window.confirm(`有 ${dirty.size} 处未保存的修改,继续将丢失这些修改。仍要继续吗?`)
+  }
 
   const saveAll = useCallback(async (dirtyOverride?: Map<string, { col: string; originalValue: unknown; newValue: unknown }>) => {
     const source = dirtyOverride ?? dirty
@@ -534,6 +595,7 @@ export function DbDataGrid({
 
   /** 刷新当前表:回到第一页并重新拉取数据/列/行数(单个表刷新)。 */
   const refreshTable = (): void => {
+    if (!confirmDiscardDirty()) return
     setPage(0)
     setWhereFilter('')
     setWhereDraft('')
@@ -574,10 +636,12 @@ export function DbDataGrid({
 
   // ─── WHERE 条件筛选:Enter 应用(服务端 raw filter)/ Esc 清除 / × 按钮清除 ───
   const applyWhereFilter = (): void => {
+    if (!confirmDiscardDirty()) return
     setWhereFilter(whereDraft.trim())
     setPage(0)
   }
   const clearWhereFilter = (): void => {
+    if (whereFilter !== '' && !confirmDiscardDirty()) return
     setWhereFilter('')
     setWhereDraft('')
     setPage(0)
@@ -801,6 +865,7 @@ export function DbDataGrid({
                           data-testid="cell-edit-input"
                           value={editText}
                           autoFocus
+                          title="Enter 提交 · Esc 取消 · 输入 NULL(整串)置为 NULL"
                           onChange={(e) =>{  setEditText(e.target.value) }}
                           onBlur={commitEdit}
                           onKeyDown={(e) => {
@@ -847,13 +912,13 @@ export function DbDataGrid({
         </>
       )}
       <div className={css.pager}>
-        <button type="button" disabled={page === 0} onClick={() =>{  setPage(p => Math.max(0, p - 1)) }}>上一页</button>
+        <button type="button" disabled={page === 0} onClick={() =>{  if (confirmDiscardDirty()) setPage(p => Math.max(0, p - 1)) }}>上一页</button>
         <span>{page + 1} / {pageCount}</span>
-        <button type="button" disabled={page >= pageCount - 1} onClick={() =>{  setPage(p => p + 1) }}>下一页</button>
+        <button type="button" disabled={page >= pageCount - 1} onClick={() =>{  if (confirmDiscardDirty()) setPage(p => p + 1) }}>下一页</button>
         <select
           className={css.sizeSelect}
           value={pageSize}
-          onChange={(e) => { setPageSize(Number(e.target.value)); setPage(0) }}
+          onChange={(e) => { if (!confirmDiscardDirty()) return; setPageSize(Number(e.target.value)); setPage(0) }}
           aria-label="每页行数"
         >
           {PAGE_SIZES.map(s => <option key={s} value={s}>{s}</option>)}

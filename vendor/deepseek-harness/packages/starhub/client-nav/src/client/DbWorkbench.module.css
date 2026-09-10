@@ -89,6 +89,11 @@
 .sqlResize:hover, .sqlResize:active { background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 30%, transparent); }
 /* SQL 模式结果区:撑满剩余高度,内部滚动。 */
 .sqlResultArea { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* 多语句结果集切换条(单语句时不渲染)。 */
+.resultTabs { display: flex; align-items: center; gap: 6px; padding: 4px 2px 0; overflow-x: auto; }
+.resultTab, .resultTabActive { flex: none; border: 1px solid var(--dsw-alias-border-l2); border-radius: 5px; padding: 4px 9px; background: transparent; color: var(--dsw-alias-label-secondary); font-size: 11px; cursor: pointer; }
+.resultTab:hover { border-color: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-state-business-primary); }
+.resultTabActive { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-interactive-bg-active); color: var(--dsw-alias-state-business-primary); font-weight: 700; }
 .sqlBar { display: flex; min-height: 34px; align-items: center; gap: 7px; padding: 0 2px; }
 .sqlBarBtn, .sqlRunBtn { border: 1px solid var(--dsw-alias-border-l2); border-radius: 5px; padding: 5px 10px; background: transparent; color: var(--dsw-alias-label-secondary); font-size: 11px; cursor: pointer; }
 .sqlBarBtn:hover { border-color: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-state-business-primary); }

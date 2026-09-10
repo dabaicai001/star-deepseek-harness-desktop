@@ -107,6 +107,53 @@ describe('NewConnectionDialog create', () => {
     }
   })
 
+  it('submits a sqlite asset with filePath only (no host/port/username fields)', async () => {
+    const create = vi.fn((..._args: unknown[]) => ({}))
+    const restore = stubTauriInternals({ create_asset: args => create(args) })
+    const onClose = vi.fn()
+    try {
+      render(<NewConnectionDialog asset={null} onClose={onClose} onSaved={() => {}} />)
+      fireEvent.change(screen.getByLabelText('类型'), { target: { value: 'sqlite' } })
+      // 文件型库:没有主机/端口/用户名,只有文件路径
+      expect(screen.queryByLabelText('主机 *')).toBeNull()
+      expect(screen.queryByLabelText('端口')).toBeNull()
+      expect(screen.queryByLabelText(/用户名/)).toBeNull()
+      fireEvent.change(screen.getByLabelText('名称 *'), { target: { value: 'local' } })
+      fireEvent.change(screen.getByLabelText('数据库文件路径 *'), { target: { value: '/data/app.db' } })
+      fireEvent.click(screen.getByText('创建'))
+      await vi.waitFor(() =>{  expect(onClose).toHaveBeenCalledTimes(1) })
+      const args = create.mock.calls[0]![0] as { params: { type: string; config: Record<string, unknown> } }
+      expect(args.params.type).toBe('db')
+      expect(args.params.config).toEqual({ dbType: 'sqlite', filePath: '/data/app.db', db: undefined })
+    } finally {
+      restore()
+    }
+  })
+
+  it('submits an MSSQL asset with the 1433 default port', async () => {
+    const create = vi.fn((..._args: unknown[]) => ({}))
+    const restore = stubTauriInternals({ create_asset: args => create(args) })
+    const onClose = vi.fn()
+    try {
+      render(<NewConnectionDialog asset={null} onClose={onClose} onSaved={() => {}} />)
+      fireEvent.change(screen.getByLabelText('类型'), { target: { value: 'mssql' } })
+      expect((screen.getByLabelText<HTMLInputElement>('端口')).value).toBe('1433')
+      fireEvent.change(screen.getByLabelText('名称 *'), { target: { value: 'erp' } })
+      fireEvent.change(screen.getByLabelText('主机 *'), { target: { value: 'sql.internal' } })
+      fireEvent.change(screen.getByLabelText('用户名 *'), { target: { value: 'sa' } })
+      fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'pw' } })
+      fireEvent.change(screen.getByLabelText('数据库(可空)'), { target: { value: 'erp' } })
+      fireEvent.click(screen.getByText('创建'))
+      await vi.waitFor(() =>{  expect(onClose).toHaveBeenCalledTimes(1) })
+      const args = create.mock.calls[0]![0] as { params: { config: Record<string, unknown> } }
+      expect(args.params.config).toMatchObject({
+        dbType: 'mssql', host: 'sql.internal', port: 1433, username: 'sa', password: 'pw', database: 'erp',
+      })
+    } finally {
+      restore()
+    }
+  })
+
   it('submits a redis asset with db index and no username field', async () => {
     const create = vi.fn((..._args: unknown[]) => ({}))
     const restore = stubTauriInternals({ create_asset: args => create(args) })

@@ -60,6 +60,8 @@ export function routeNameForAsset(asset: { type: string; config: Record<string, 
   if (dbType === 'elasticsearch') return 'db-elasticsearch'
   if (dbType === 'clickhouse') return 'db-clickhouse'
   if (dbType === 'postgresql') return 'db-postgresql'
+  if (dbType === 'sqlite') return 'db-sqlite'
+  if (dbType === 'mssql') return 'db-mssql'
   if (dbType === 'kafka' || dbType === 'nsq') return 'db-broker'
   return 'db-mysql'
 }
@@ -70,6 +72,8 @@ export const ROUTE_NAME_PREFIX: Readonly<Record<string, string>> = {
   'db-mysql': '/db/mysql',
   'db-postgresql': '/db/postgresql',
   'db-clickhouse': '/db/clickhouse',
+  'db-sqlite': '/db/sqlite',
+  'db-mssql': '/db/mssql',
   'db-redis': '/db/redis',
   'db-elasticsearch': '/db/elasticsearch',
   'db-broker': '/broker',
@@ -114,6 +118,8 @@ export function assetRowBadge(asset: StarHubAsset, fallback: string): string {
     case 'db-mysql': return 'MySQL'
     case 'db-postgresql': return 'PostgreSQL'
     case 'db-clickhouse': return 'ClickHouse'
+    case 'db-sqlite': return 'SQLite'
+    case 'db-mssql': return 'SQL Server'
     case 'db-redis': return 'Redis'
     case 'db-elasticsearch': return 'ES'
     // Broker 资产归终端子类,行徽标标识消息队列类型。
@@ -142,6 +148,7 @@ export const STARHUB_SUBCATEGORIES: readonly StarHubSubcategory[] = [
     matches: (a) => {
       const name = routeNameForAsset(a)
       return name === 'db-mysql' || name === 'db-postgresql' || name === 'db-clickhouse'
+        || name === 'db-sqlite' || name === 'db-mssql'
         || name === 'db-redis' || name === 'db-elasticsearch'
     },
   },
@@ -189,7 +196,8 @@ export function assetWindowUrl(asset: StarHubAsset): string {
       : route === 'db-redis' ? 'db-redis'
         : route === 'db-elasticsearch' ? 'db-elasticsearch'
           : route === 'docker' ? 'docker'
-            : (route === 'db-mysql' || route === 'db-postgresql' || route === 'db-clickhouse' || route === 'db-elasticsearch') ? route : ''
+            : (route === 'db-mysql' || route === 'db-postgresql' || route === 'db-clickhouse'
+              || route === 'db-sqlite' || route === 'db-mssql') ? route : ''
   if (hint !== '') params.set('workbench', hint)
   return `/starhub-react/index.html?${params.toString()}`
 }

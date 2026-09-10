@@ -41,7 +41,20 @@ import css from './DbWorkbench.module.css'
 /** db_mysql_execute 的返回(与 QueryResult 同构;SQL 执行结果复用)。 */
 interface SqlQueryResult { columns?: unknown; rows?: unknown; error?: string }
 
-/** 一个查询标签页:独立 SQL 草稿与最近一次执行结果(仿 HubHex 新建查询)。 */
+/**
+ * 一条语句的执行结果(多语句执行时逐条保留;此前只留最后一条,
+ * 前面成功的语句结果被丢弃,且 EXPLAIN 整篇文本当一条必报语法错误)。
+ */
+interface SqlStatementResult {
+  /** 该语句原文(结果集标签的 title 用)。 */
+  sql: string
+  /** 成功时的结果;失败为 null。 */
+  result: SqlQueryResult | null
+  /** 失败信息;成功为 null。 */
+  error: string | null
+}
+
+/** 一个查询标签页:独立 SQL 草稿与最近一次执行的全部语句结果(仿 HubHex 新建查询)。 */
 interface QueryTab {
   /** 稳定 id(递增,不作数组下标)。 */
   id: number
@@ -49,15 +62,46 @@ interface QueryTab {
   name: string
   /** 编辑器草稿。 */
   sql: string
-  /** 该标签最近一次执行的结果(null = 未执行过)。 */
-  result: SqlQueryResult | null
+  /** 该标签最近一次执行的逐条结果(空数组 = 未执行过)。 */
+  results: SqlStatementResult[]
+  /** 结果区当前展示的结果集下标(越界时按最后一条兜底)。 */
+  resultIndex: number
   /** 该标签最近一次执行的错误(null = 无错误)。 */
   error: string | null
 }
 
 /** 新建一个空白查询标签(名称按全局序号递增)。 */
 function makeQueryTab(id: number): QueryTab {
-  return { id, name: `查询 ${id}`, sql: '', result: null, error: null }
+  return { id, name: `查询 ${id}`, sql: '', results: [], resultIndex: 0, error: null }
+}
+
+/**
+ * 逐条执行语句并保留**每条**结果:首次失败即停止(不继续下发后续语句),
+ * 但此前成功的语句结果仍留在返回数组里可查——旧实现只保留最后一条,
+ * 多语句脚本前面语句的结果全部丢失。
+ * @param statements - 已拆分的语句列表。
+ * @param run - 执行单条语句(返回 { columns, rows, error? })。
+ * @returns 结果数组,长度 = 实际执行到的语句数。
+ */
+export async function collectStatementResults(
+  statements: readonly string[],
+  run: (sql: string) => Promise<SqlQueryResult>,
+): Promise<SqlStatementResult[]> {
+  const collected: SqlStatementResult[] = []
+  for (const stmt of statements) {
+    try {
+      const res = await run(stmt)
+      if (res.error !== undefined && res.error !== '') {
+        collected.push({ sql: stmt, result: null, error: res.error })
+        break
+      }
+      collected.push({ sql: stmt, result: res, error: null })
+    } catch (caught: unknown) {
+      collected.push({ sql: stmt, result: null, error: caught instanceof Error ? caught.message : String(caught) })
+      break
+    }
+  }
+  return collected
 }
 
 /** 从 db_mysql_list_columns 结果提取列名(返回元素为 {name} 对象行)。 */
@@ -222,6 +266,8 @@ interface DbConnectParams {
   password: string
   database?: string
   ssl?: boolean
+  /** SQLite 专用:数据库文件路径(sidecar SQLiteConnInfo 只认 filePath)。 */
+  filePath?: string
 }
 
 /** 连接结果(与 Vue DbConnectionInfo 同构)。 */
@@ -258,6 +304,8 @@ function connectCommand(dbType: string): string {
   switch (dbType) {
     case 'postgresql': return 'db_postgres_connect'
     case 'clickhouse': return 'db_clickhouse_connect'
+    case 'sqlite': return 'db_sqlite_connect'
+    case 'mssql': return 'db_mssql_connect'
     case 'redis': return 'db_redis_connect'
     case 'elasticsearch': return 'db_es_connect'
     default: return 'db_mysql_connect'
@@ -269,13 +317,26 @@ export function defaultDbPort(dbType: string): number {
   switch (dbType) {
     case 'postgresql': return 5432
     case 'clickhouse': return 9000
+    case 'mssql': return 1433
+    // SQLite 无端口概念(文件型库),占位 0。
+    case 'sqlite': return 0
     case 'redis': return 6379
     case 'elasticsearch': return 9200
     default: return 3306
   }
 }
 
-function toConnectParams(config: Record<string, unknown>, dbType: string): DbConnectParams {
+export function toConnectParams(config: Record<string, unknown>, dbType: string): DbConnectParams {
+  // SQLite 只认文件路径:host/port/username 一律不下发,避免 sidecar 收到无意义字段。
+  if (dbType === 'sqlite') {
+    return {
+      host: '',
+      port: 0,
+      username: '',
+      password: '',
+      ...(typeof config.filePath === 'string' && config.filePath !== '' ? { filePath: config.filePath } : {}),
+    }
+  }
   return {
     host: typeof config.host === 'string' ? config.host : '',
     port: typeof config.port === 'number' ? config.port : defaultDbPort(dbType),
@@ -293,6 +354,8 @@ function disconnectCommand(dbType: string): string {
   switch (dbType) {
     case 'postgresql': return 'db_postgres_disconnect'
     case 'clickhouse': return 'db_clickhouse_disconnect'
+    case 'sqlite': return 'db_sqlite_disconnect'
+    case 'mssql': return 'db_mssql_disconnect'
     case 'redis': return 'db_redis_disconnect'
     case 'elasticsearch': return 'db_es_disconnect'
     default: return 'db_mysql_disconnect'
@@ -413,7 +476,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
   // 改列/索引为 MySQL 方言语法(与 Vue 端一致),仅 MySQL 显示这两项。
   const supportsAlter = dbType === 'mysql'
 
-  const dbTypeLabel = dbType === 'postgresql' ? 'PostgreSQL' : dbType.toUpperCase()
+  const dbTypeLabel = dbType === 'postgresql' ? 'PostgreSQL' : dbType === 'mssql' ? 'SQL Server' : dbType === 'sqlite' ? 'SQLite' : dbType.toUpperCase()
 
   const loadDatabases = useCallback(async (id: string) => {
     setDbsLoading(true)
@@ -432,7 +495,13 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
   // 挂载时建连一次,卸载时断连(连接按资产只建一次)。
   useEffect(() => {
     const params = toConnectParams(asset.config, dbType)
-    if (params.host === '' || params.username === '') {
+    // SQLite 是文件型库:必需参数是 filePath,host/username 不适用。
+    if (dbType === 'sqlite') {
+      if (params.filePath === undefined || params.filePath === '') {
+        setConnectError('SQLite 资产配置不完整(缺 filePath 数据库文件路径)')
+        return
+      }
+    } else if (params.host === '' || params.username === '') {
       setConnectError('数据库资产配置不完整(缺 host/username)')
       return
     }
@@ -602,8 +671,9 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
   }, [activeQueryId, queryTabs])
 
   // SQL 执行(Mod-Enter 执行 / Shift-Mod-e EXPLAIN):调 db_mysql_execute / explain。
-  // 多语句拆分——非 EXPLAIN 时按分号拆多条逐条执行,记录查询历史;结果/错误写回
-  // 执行发起时的活动标签。
+  // 多语句拆分——执行与 EXPLAIN 都按分号拆(EXPLAIN 此前不拆、整篇当一条必报语法错误),
+  // 逐条执行并**保留每条的结果**(此前只留最后一条),某条失败即停止但已成功的语句结果
+  // 仍在结果集标签里可查;结果/错误写回执行发起时的活动标签。
   const executeSql = useCallback(async (statement: string, explain: boolean) => {
     const tabId = activeQueryId
     const id = connRef.current
@@ -616,19 +686,18 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
     patchTab(tabId, { error: null })
     try {
       const cmd = explain ? `${cmdPrefix}_explain` : `${cmdPrefix}_execute`
-      const statements = explain ? [statement] : splitStatements(statement)
+      const statements = splitStatements(statement)
       // 带上当前库:未选库时靠连接默认库;选择器/点表会更新 currentDb。
       const dbArg = currentDb !== '' ? { database: currentDb } : {}
-      let last: SqlQueryResult | null = null
-      for (const stmt of statements) {
-        const res = await tauriInvoke<SqlQueryResult>(cmd, { connId: id, sql: stmt, ...dbArg })
-        last = res
-        if (res.error !== undefined && res.error !== '') {
-          patchTab(tabId, { error: res.error })
-          break
-        }
-      }
-      if (last !== null) patchTab(tabId, { result: last })
+      const collected = await collectStatementResults(statements, (stmt) =>
+        tauriInvoke<SqlQueryResult>(cmd, { connId: id, sql: stmt, ...dbArg }))
+      const failed = collected.find(entry => entry.error !== null)?.error ?? null
+      patchTab(tabId, {
+        results: collected,
+        // 默认展示最后一条(与旧行为一致);失败时展示失败的那条,错误立即可见。
+        resultIndex: Math.max(0, collected.length - 1),
+        ...(failed === null ? {} : { error: failed }),
+      })
       // 执行过的原文记入历史(与 Vue 一致:即使出错也记录尝试)。
       addHistory(statement, currentDb)
     } catch (e) {
@@ -950,7 +1019,7 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
                             onClick={() =>{  setActiveQueryId(tab.id); setMode('sql') }}
                             title={tab.sql !== '' ? tab.sql : tab.name}
                           >
-                            {tab.name}{tab.result !== null ? ' ●' : ''}
+                            {tab.name}{tab.results.length > 0 ? ' ●' : ''}
                           </button>
                           {queryTabs.length > 1 && (
                             <button
@@ -1013,12 +1082,36 @@ export function DbWorkbench({ asset, onClose }: { asset: RustAsset; onClose: () 
                     aria-orientation="horizontal"
                     aria-label="调整 SQL 编辑区高度"
                   />
-                  {/* 结果区:当前活动标签的执行结果,或空态占位。 */}
+                  {/* 结果区:当前活动标签的执行结果(多语句时逐个结果集可切换),或空态占位。 */}
                   <div className={css.sqlResultArea}>
-                    {activeTab.result !== null && activeTab.error === null ? (
-                      <SqlQueryResultView result={activeTab.result} onClose={() =>{  patchTab(activeQueryId, { result: null }) }} />
-                    ) : (
+                    {activeTab.results.length === 0 ? (
                       <div className={css.placeholder}>运行查询后将在此显示结果(执行 / EXPLAIN)</div>
+                    ) : (
+                      <>
+                        {activeTab.results.length > 1 && (
+                          <div className={css.resultTabs} role="tablist" aria-label="结果集">
+                            {activeTab.results.map((entry, index) => (
+                              <button
+                                key={index}
+                                type="button"
+                                role="tab"
+                                aria-selected={index === Math.min(activeTab.resultIndex, activeTab.results.length - 1)}
+                                className={index === Math.min(activeTab.resultIndex, activeTab.results.length - 1) ? css.resultTabActive : css.resultTab}
+                                onClick={() =>{  patchTab(activeQueryId, { resultIndex: index }) }}
+                                title={entry.sql}
+                              >{`结果集 ${index + 1}${entry.error === null ? '' : ' ✕'}`}</button>
+                            ))}
+                          </div>
+                        )}
+                        {(() => {
+                          const shown = activeTab.results[Math.min(activeTab.resultIndex, activeTab.results.length - 1)]
+                          /* v8 ignore next -- 下标已夹在数组范围内,取不到为不可达防御 */
+                          if (shown === undefined) return null
+                          if (shown.error !== null) return <div className={css.error} role="alert">{shown.error}</div>
+                          if (shown.result === null) return null
+                          return <SqlQueryResultView result={shown.result} onClose={() =>{  patchTab(activeQueryId, { results: [], resultIndex: 0 }) }} />
+                        })()}
+                      </>
                     )}
                   </div>
                 </div>
