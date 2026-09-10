@@ -45,7 +45,13 @@ export function BrokerView({ asset }: BrokerViewProps) {
 
   const refresh = useCallback(async () => {
     const host = typeof asset.config.host === 'string' ? asset.config.host : ''
-    if (host === '') return
+    if (host === '') {
+      // 未配置地址时也要收敛 loading,否则五张卡片永久停在加载态且不可点。
+      setError('未配置 Broker 地址(host),请在连接管理中补充后再试')
+      setLoading(false)
+      setRefreshing(false)
+      return
+    }
     setRefreshing(true)
     try {
       // exactOptionalPropertyTypes:可选字段缺省时整体不传(与 Vue 版 undefined 语义一致)。

@@ -34,6 +34,12 @@ export function SandboxPanel() {
   const [error, setError] = useState<string | null>(null)
   const [replay, setReplay] = useState<{ sandboxId: string; frames: ReplayFrame[] } | null>(null)
   const [editing, setEditing] = useState<{ name: string; recipe: string; isNew: boolean } | null>(null)
+  /** 不可逆操作的确认目标:销毁实例 / 删除模板。非 null 时展示确认弹窗。 */
+  const [confirm, setConfirm] = useState<
+    | { kind: 'destroy'; instance: SandboxInstance }
+    | { kind: 'delete-template'; template: SandboxTemplate }
+    | null
+  >(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -106,6 +112,15 @@ export function SandboxPanel() {
     }
   }
 
+  /** 确认弹窗的「确认」:按确认目标分发到销毁/删除,先收弹窗再执行。 */
+  const onConfirm = async () => {
+    if (confirm === null) return
+    const target = confirm
+    setConfirm(null)
+    if (target.kind === 'destroy') await onLifecycle(target.instance, 'destroy')
+    else await onDeleteTemplate(target.template)
+  }
+
   if (loading && overview === null) return <div className={css.status}>加载沙箱…</div>
   if (overview === null) {
     return (
@@ -118,7 +133,19 @@ export function SandboxPanel() {
 
   return (
     <div className={css.root}>
-      {error !== null && <div className={css.errorBanner}>{error}</div>}
+      {error !== null && (
+        <div className={css.errorBanner} role="alert">
+          <span className={css.errorText}>{error}</span>
+          <button
+            type="button"
+            className={css.errorClose}
+            aria-label="关闭错误提示"
+            onClick={() => { setError(null) }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <section className={css.section}>
         <h3 className={css.sectionTitle}>实例({overview.instances.filter(i => i.status !== 'destroyed').length})</h3>
@@ -161,7 +188,7 @@ export function SandboxPanel() {
                 type="button"
                 className={`${css.button} ${css.danger}`}
                 disabled={busy !== null}
-                onClick={() => { void onLifecycle(instance, 'destroy') }}
+                onClick={() => { setConfirm({ kind: 'destroy', instance }) }}
               >
                 销毁
               </button>
@@ -199,7 +226,7 @@ export function SandboxPanel() {
                 type="button"
                 className={`${css.button} ${css.danger}`}
                 disabled={busy !== null}
-                onClick={() => { void onDeleteTemplate(template) }}
+                onClick={() => { setConfirm({ kind: 'delete-template', template }) }}
               >
                 删除
               </button>
@@ -207,6 +234,32 @@ export function SandboxPanel() {
           </div>
         ))}
       </section>
+
+      {confirm !== null && (
+        <div className={css.dialogMask}>
+          <div className={css.dialog} role="dialog" aria-label="确认操作">
+            <h3 className={css.sectionTitle}>
+              {confirm.kind === 'destroy' ? '销毁沙箱' : '删除模板'}
+            </h3>
+            <div className={css.status}>
+              {confirm.kind === 'destroy'
+                ? `即将销毁沙箱「${confirm.instance.task !== '' ? confirm.instance.task : confirm.instance.id.slice(0, 8)}」。此操作不可恢复:容器及其中全部数据将被永久删除。`
+                : `即将删除模板「${confirm.template.name}」。此操作不可恢复,模板配方将被移除。`}
+            </div>
+            <div className={css.cardActions}>
+              <button
+                type="button"
+                className={`${css.button} ${css.danger}`}
+                disabled={busy !== null}
+                onClick={() => { void onConfirm() }}
+              >
+                {confirm.kind === 'destroy' ? '确认销毁' : '确认删除'}
+              </button>
+              <button type="button" className={css.button} onClick={() => { setConfirm(null) }}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editing !== null && (
         <div className={css.dialogMask}>

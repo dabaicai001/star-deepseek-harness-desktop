@@ -16,7 +16,7 @@ import type { PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the 'shell.overlay' SlotMap row (declared by ui-layout).
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SessionId, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { readLocalTextFile, writeLocalTextFile } from './file-service.ts'
+import { readLocalTextFile, writeLocalTextFile, looksLikeBinary } from './file-service.ts'
 import { diffLines } from './diff-lines.ts'
 import type { FileViewDiff, FileViewTarget, FileViewerState } from './state.ts'
 import css from './FileViewerOverlay.module.css'
@@ -109,6 +109,10 @@ export function FileViewerOverlay({ useSessions, useFileViewer, closeViewer }: F
   /** read: 编辑草稿;edit: 右栏(变更后,各 hunk newText 以分隔线相连)。 */
   const [after, setAfter] = useState('')
   const [saving, setSaving] = useState(false)
+  /** read 模式:内容超出 256KB 读取窗口(保存会用截断内容覆盖原文件)→ 禁保存。 */
+  const [truncated, setTruncated] = useState(false)
+  /** read 模式:内容为二进制(lossy 解码产物)→ 只读,禁保存。 */
+  const [binary, setBinary] = useState(false)
   /** edit 模式:右栏是否处于纯文本编辑态(默认查看红绿对比)。 */
   const [editing, setEditing] = useState(false)
 
@@ -127,6 +131,8 @@ export function FileViewerOverlay({ useSessions, useFileViewer, closeViewer }: F
     setNotice(null)
     setSaving(false)
     setEditing(false)
+    setTruncated(false)
+    setBinary(false)
     let cancelled = false
     if (target.kind === 'read') {
       setLoading(true)
@@ -137,7 +143,8 @@ export function FileViewerOverlay({ useSessions, useFileViewer, closeViewer }: F
           if (cancelled) return
           setBefore(result.content)
           setAfter(result.content)
-          if (result.truncated) setNotice('文件较大,只加载了前 256KB;保存会写回已加载部分,请谨慎操作')
+          setTruncated(result.truncated)
+          setBinary(result.content !== '' && looksLikeBinary(result.content))
         })
         .catch((err: unknown) => {
           if (!cancelled) setError(err instanceof Error ? err.message : String(err))
@@ -152,7 +159,7 @@ export function FileViewerOverlay({ useSessions, useFileViewer, closeViewer }: F
   }, [target])
 
   const save = useCallback(async () => {
-    if (target === null || saving || running) return
+    if (target === null || saving || running || truncated || binary) return
     setSaving(true)
     setError(null)
     setNotice(null)
@@ -180,7 +187,7 @@ export function FileViewerOverlay({ useSessions, useFileViewer, closeViewer }: F
     } finally {
       setSaving(false)
     }
-  }, [target, after, saving, running])
+  }, [target, after, saving, running, truncated, binary])
 
   if (target === null) return null
   const dirty = after !== before
@@ -200,8 +207,8 @@ export function FileViewerOverlay({ useSessions, useFileViewer, closeViewer }: F
           <button
             type="button"
             className={css.btnPrimary}
-            disabled={running || saving || loading || !dirty}
-            title={running ? 'AI 运行中只能查看' : undefined}
+            disabled={running || saving || loading || !dirty || truncated || binary}
+            title={running ? 'AI 运行中只能查看' : binary ? '二进制文件不能编辑保存' : truncated ? '文件超出读取窗口,保存已禁用' : undefined}
             onClick={() => { void save() }}
           >
             {saving ? '保存中…' : '保存'}
@@ -215,11 +222,17 @@ export function FileViewerOverlay({ useSessions, useFileViewer, closeViewer }: F
       {loading && <div className={css.banner}>读取中…</div>}
       {error !== null && <div className={css.bannerError} role="alert">{error}</div>}
       {notice !== null && <div className={css.banner}>{notice}</div>}
+      {binary && (
+        <div className={css.bannerError} role="alert">检测到二进制内容,仅支持查看,不能编辑保存</div>
+      )}
+      {!binary && truncated && (
+        <div className={css.banner} role="status">文件较大,仅加载了前 256KB;保存已禁用,避免截断内容覆盖原文件导致数据丢失</div>
+      )}
       {target.kind === 'read' ? (
         <textarea
           className={css.editor}
           value={after}
-          readOnly={running || loading}
+          readOnly={running || loading || truncated || binary}
           spellCheck={false}
           onChange={(ev) => { setAfter(ev.target.value) }}
         />

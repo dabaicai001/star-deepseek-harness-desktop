@@ -174,6 +174,20 @@ describe('BrokerView', () => {
     }
   })
 
+  it('settles out of loading with a clear error when the asset has no host', async () => {
+    const invoke = vi.fn((..._args: unknown[]) => Promise.resolve(kafkaOverview))
+    const restore = stubTauriInternals(invoke)
+    try {
+      render(<BrokerView asset={brokerAsset({ host: undefined })} />)
+      expect(await screen.findByText(/未配置 Broker 地址/)).toBeTruthy()
+      expect(invoke).not.toHaveBeenCalled()
+      // loading 已收敛:卡片显示「异常」而非永久加载中
+      expect(screen.getByText('异常')).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
   it('refreshes on the refresh button and falls back to the default port when unset', async () => {
     const invoke = vi.fn((..._args: unknown[]) => Promise.resolve(kafkaOverview))
     const restore = stubTauriInternals(invoke)

@@ -126,16 +126,30 @@ describe('SandboxPanel', () => {
     await waitFor(() => expect(screen.getByText(/创建沙箱直播窗口失败/)).toBeTruthy())
   })
 
-  it('runs lifecycle actions (pause/destroy) and refreshes', async () => {
+  it('runs lifecycle actions (pause/resume directly; destroy only after confirmation)', async () => {
     await renderPanel()
     fireEvent.click(screen.getByRole('button', { name: '停止' }))
     await waitFor(() => {
       expect(invokeCalls).toContainEqual({ cmd: 'desktop_ui_lifecycle', args: { sandboxId: INSTANCE.id, action: 'pause' } })
     })
+    // 销毁需先经确认弹窗:点「销毁」只开弹窗,不发命令。
     fireEvent.click(screen.getByRole('button', { name: '销毁' }))
+    expect(screen.getByRole('dialog', { name: '确认操作' }).textContent).toContain('不可恢复')
+    expect(invokeCalls).not.toContainEqual({ cmd: 'desktop_ui_lifecycle', args: { sandboxId: INSTANCE.id, action: 'destroy' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认销毁' }))
     await waitFor(() => {
       expect(invokeCalls).toContainEqual({ cmd: 'desktop_ui_lifecycle', args: { sandboxId: INSTANCE.id, action: 'destroy' } })
     })
+    expect(screen.queryByRole('dialog', { name: '确认操作' })).toBeNull()
+  })
+
+  it('cancelling the destroy confirmation does not invoke lifecycle', async () => {
+    await renderPanel()
+    fireEvent.click(screen.getByRole('button', { name: '销毁' }))
+    expect(screen.getByRole('dialog', { name: '确认操作' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog', { name: '确认操作' })).toBeNull()
+    expect(invokeCalls.filter(c => c.cmd === 'desktop_ui_lifecycle')).toEqual([])
   })
 
   it('offers 恢复 for paused instances', async () => {
@@ -182,12 +196,30 @@ describe('SandboxPanel', () => {
     expect(screen.queryByRole('dialog', { name: '编辑模板' })).toBeNull()
   })
 
-  it('deletes a template after confirmation-free button and refreshes', async () => {
+  it('deletes a template only after confirming and refreshes', async () => {
     await renderPanel()
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    // 确认弹窗出现,确认前不发删除命令。
+    expect(screen.getByRole('dialog', { name: '确认操作' }).textContent).toContain('ubuntu-desktop')
+    expect(invokeCalls.filter(c => c.cmd === 'desktop_ui_delete_template')).toEqual([])
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
     await waitFor(() => {
       expect(invokeCalls).toContainEqual({ cmd: 'desktop_ui_delete_template', args: { name: 'ubuntu-desktop' } })
     })
+  })
+
+  it('dismisses the error banner via its close button', async () => {
+    stubTauri()
+    invokeResult = (cmd) => {
+      if (cmd === 'desktop_ui_lifecycle') return Promise.reject(new Error('容器不存在'))
+      return overviewResult()
+    }
+    render(<SandboxPanel />)
+    await waitFor(() => expect(screen.queryByText('加载沙箱…')).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: '停止' }))
+    await waitFor(() => expect(screen.getByText('容器不存在')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '关闭错误提示' }))
+    expect(screen.queryByText('容器不存在')).toBeNull()
   })
 
   it('surfaces lifecycle errors in the banner', async () => {

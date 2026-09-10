@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { applyDiffs, FileViewerOverlay, type FileViewerOverlayProps } from '../src/client/file-viewer/FileViewerOverlay.tsx'
+import { looksLikeBinary } from '../src/client/file-viewer/file-service.ts'
 import type { FileViewerState, FileViewTarget } from '../src/client/file-viewer/state.ts'
 
 /** Tauri IPC stub:local_read_text_file / local_write_text_file。 */
@@ -69,6 +70,26 @@ describe('applyDiffs', () => {
   it('rejects pure-insert hunks and stale oldText', () => {
     expect(() => applyDiffs('x', [{ oldText: '', newText: 'y' }])).toThrow('纯新增')
     expect(() => applyDiffs('x', [{ oldText: 'missing', newText: 'y' }])).toThrow('找不到')
+  })
+})
+
+describe('looksLikeBinary', () => {
+  it('flags content containing a NUL character as binary', () => {
+    expect(looksLikeBinary(`PK${String.fromCharCode(0)}zip`)).toBe(true)
+  })
+
+  it('flags content with a high replacement-char ratio as binary', () => {
+    const fffd = String.fromCharCode(0xFFFD)
+    expect(looksLikeBinary(fffd.repeat(20) + 'ab')).toBe(true)
+  })
+
+  it('keeps normal text and a single boundary replacement char as text', () => {
+    expect(looksLikeBinary('hello\nworld')).toBe(false)
+    expect(looksLikeBinary('')).toBe(false)
+    // UTF-8 窗口边界截断至多 1 个替换符,不误判。
+    expect(looksLikeBinary(`${'x'.repeat(1000)}${String.fromCharCode(0xFFFD)}`)).toBe(false)
+    // 零星几个合法 U+FFFD 字符(占比与数量都低)不误判。
+    expect(looksLikeBinary(`ab${String.fromCharCode(0xFFFD)}cd`)).toBe(false)
   })
 })
 
@@ -143,5 +164,34 @@ describe('FileViewerOverlay', () => {
     restore = stub.restore
     render(<FileViewerOverlay {...makeProps({ kind: 'read', path: PATH, sessionId: 'sess-1' }, false)} />)
     expect(await screen.findByRole('alert')).toBeTruthy()
+  })
+
+  it('read kind with truncated content is read-only and save is disabled', async () => {
+    const w = window as unknown as { __TAURI_INTERNALS__?: { invoke: unknown } }
+    w.__TAURI_INTERNALS__ = {
+      invoke: (cmd: string) => cmd === 'local_read_text_file'
+        ? Promise.resolve({ path: PATH, content: 'partial', offset: 0, bytesRead: 7, totalBytes: 999_999, truncated: true })
+        : Promise.reject(new Error(`unexpected: ${cmd}`)),
+    }
+    restore = () => { delete w.__TAURI_INTERNALS__ }
+    render(<FileViewerOverlay {...makeProps({ kind: 'read', path: PATH, sessionId: 'sess-1' }, false)} />)
+    const editor = await screen.findByDisplayValue('partial')
+    expect(editor.getAttribute('readonly')).not.toBeNull()
+    expect(screen.getByText(/保存已禁用/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: '保存' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('read kind with binary content is view-only and save is disabled', async () => {
+    const binaryContent = `a${String.fromCharCode(0)}b`
+    const w = window as unknown as { __TAURI_INTERNALS__?: { invoke: unknown } }
+    w.__TAURI_INTERNALS__ = {
+      invoke: (cmd: string) => cmd === 'local_read_text_file'
+        ? Promise.resolve({ path: PATH, content: binaryContent, offset: 0, bytesRead: 3, totalBytes: 3, truncated: false })
+        : Promise.reject(new Error(`unexpected: ${cmd}`)),
+    }
+    restore = () => { delete w.__TAURI_INTERNALS__ }
+    render(<FileViewerOverlay {...makeProps({ kind: 'read', path: PATH, sessionId: 'sess-1' }, false)} />)
+    expect(await screen.findByText('检测到二进制内容,仅支持查看,不能编辑保存')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '保存' }).hasAttribute('disabled')).toBe(true)
   })
 })

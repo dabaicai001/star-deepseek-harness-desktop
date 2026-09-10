@@ -137,22 +137,46 @@ describe('FileInfoDialog', () => {
     expect(screen.getByText('AI 运行中只能查看')).toBeTruthy()
   })
 
-  it('marks the preview as truncated when the file is larger than the read window', { timeout: 15_000 }, async () => {
+  it('disables save and warns when the file exceeds the 256KB read window', { timeout: 15_000 }, async () => {
     restore = stubInvoke({
       local_stat_path: () => Promise.resolve({ ...statFile, size: 1024 * 1024 }),
       local_read_text_file: () => Promise.resolve({ path: STAT.path, content: 'x'.repeat(5000), offset: 0, bytesRead: 5000, totalBytes: 1024 * 1024, truncated: true }),
     })
     renderDialog()
-    await screen.findByText(/仅加载并保存开头 8KB/)
+    await screen.findByText(/文件超过 256KB 读取窗口/)
+    // 截断内容即使被改动也不允许保存(避免截断内容覆盖原文件丢数据)。
+    const editor = screen.getByLabelText('文件内容') as HTMLTextAreaElement
+    fireEvent.change(editor, { target: { value: 'edited' } })
+    const save = screen.getByRole('button', { name: '保存' }) as HTMLButtonElement
+    expect(save.disabled).toBe(true)
   })
 
-  it('marks the preview as truncated when untruncated content exceeds the preview limit', { timeout: 15_000 }, async () => {
+  it('does not warn or block saving for untruncated content beyond the old 8KB preview limit', { timeout: 15_000 }, async () => {
     restore = stubInvoke({
       local_stat_path: () => Promise.resolve(statFile),
       local_read_text_file: () => Promise.resolve({ path: STAT.path, content: 'x'.repeat(9000), offset: 0, bytesRead: 9000, totalBytes: 9000, truncated: false }),
     })
     renderDialog()
-    await screen.findByText(/仅加载并保存开头 8KB/)
+    const editor = await screen.findByLabelText('文件内容') as HTMLTextAreaElement
+    // 完整加载(未截断):不再有截断提示,编辑后可正常保存。
+    expect(screen.queryByText(/读取窗口/)).toBeNull()
+    fireEvent.change(editor, { target: { value: 'edited' } })
+    const save = screen.getByRole('button', { name: '保存' }) as HTMLButtonElement
+    expect(save.disabled).toBe(false)
+  })
+
+  it('treats content with NUL bytes as binary: read-only and save disabled', async () => {
+    const binaryContent = `PK${String.fromCharCode(3)}${String.fromCharCode(4)}${String.fromCharCode(0)}binary`
+    restore = stubInvoke({
+      local_stat_path: () => Promise.resolve(statFile),
+      local_read_text_file: () => Promise.resolve({ path: STAT.path, content: binaryContent, offset: 0, bytesRead: binaryContent.length, totalBytes: binaryContent.length, truncated: false }),
+    })
+    renderDialog()
+    await screen.findByText('检测到二进制内容,仅支持查看,不能编辑保存')
+    const editor = screen.getByLabelText('文件内容') as HTMLTextAreaElement
+    expect(editor.readOnly).toBe(true)
+    const save = screen.getByRole('button', { name: '保存' }) as HTMLButtonElement
+    expect(save.disabled).toBe(true)
   })
 
   it('renders directory and other kinds and the readonly badge', async () => {

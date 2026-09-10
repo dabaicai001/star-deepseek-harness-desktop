@@ -33,3 +33,22 @@ export function readLocalTextFile(path: string): Promise<LocalTextRead> {
 export function writeLocalTextFile(path: string, content: string): Promise<number> {
   return tauriInvoke<number>('local_write_text_file', { path, content })
 }
+
+/**
+ * 二进制探测(与 Rust `content_contains` 的前 8KB NUL 探测同族)。内容经
+ * `String::from_utf8_lossy` 解码而来:二进制文件会含 NUL 字符或大量
+ * U+FFFD 替换符。命中即视为二进制——只读展示、禁止保存(保存会把替换符
+ * 写回,永久损坏原文件)。
+ * @param content - 已解码文本。
+ * @returns true = 按二进制处理。
+ */
+export function looksLikeBinary(content: string): boolean {
+  if (content.includes('\u0000')) return true
+  let replacementChars = 0
+  for (const ch of content) {
+    if (ch === '\uFFFD') replacementChars += 1
+  }
+  // 正常文本无替换符;UTF-8 多字节在 256KB 窗口边界截断至多产生 1 个。
+  // 阈值放宽到 ≥4 个且占比 >0.5%,避免误伤含零星 U+FFFD 的合法文本。
+  return replacementChars >= 4 && replacementChars / content.length > 0.005
+}

@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react'
 import { Modal, ReadBlock, type ReadBlockLine } from '@deepseek-ai/dsh-client-ui-primitives'
-import { readLocalTextFile, writeLocalTextFile } from '../file-viewer/file-service.ts'
+import { readLocalTextFile, writeLocalTextFile, looksLikeBinary } from '../file-viewer/file-service.ts'
 import { statLocalPath, type LocalPathInfo } from './file-tree-service.ts'
 import css from './FileInfoDialog.module.css'
 
@@ -68,9 +68,6 @@ export function langFromPath(path: string): string | undefined {
   return Object.hasOwn(LANG_BY_EXTENSION, ext) ? LANG_BY_EXTENSION[ext] : undefined
 }
 
-/** 内容预览截断上限(弹窗内只展示开头,避免整文件渲染)。 */
-const PREVIEW_LIMIT = 8 * 1024
-
 /** 大对话框内 ReadBlock 的头部/尾部展示行数(比聊天的 8 行更从容)。 */
 const DIALOG_READ_MAX_LINES = 32
 
@@ -101,6 +98,8 @@ export function FileInfoDialog({ path, onClose, aiRunning = false, onSaved }: {
   /** 原始内容基线(用于判断是否有改动)。 */
   const [original, setOriginal] = useState('')
   const [truncated, setTruncated] = useState(false)
+  /** 内容为二进制(lossy 解码产物含 NUL / 大量替换符):只读,禁保存。 */
+  const [binary, setBinary] = useState(false)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -113,6 +112,7 @@ export function FileInfoDialog({ path, onClose, aiRunning = false, onSaved }: {
     setContent('')
     setOriginal('')
     setTruncated(false)
+    setBinary(false)
     setError(null)
     setNotice(null)
     setSaving(false)
@@ -130,11 +130,14 @@ export function FileInfoDialog({ path, onClose, aiRunning = false, onSaved }: {
       /* v8 ignore next 1 -- canceled after unmount: the last line sets `cancelled = true`; no state write may follow */
       if (cancelled) return
       setInfo(stat)
-      // 编辑态需要完整内容(不在此截断),保存时写回已加载部分;
-      // 超出读取窗口(256KB)或窗口截断时标 truncated,提示谨慎操作。
+      // 读窗口为 256KB(Rust local_read_text_file 默认 max_bytes)。截断时
+      // 只加载了文件开头,保存会用截断内容覆盖原文件(尾部数据丢失);
+      // 二进制内容经 lossy 解码含替换符,保存同样写坏原文件——两种
+      // 情况都禁用保存,只允许查看。
       setContent(read.content)
       setOriginal(read.content)
-      setTruncated(read.truncated || read.content.length > PREVIEW_LIMIT)
+      setTruncated(read.truncated)
+      setBinary(read.content !== '' && looksLikeBinary(read.content))
     }).catch(() => {
       // stat 失败时整体置错(路径不可达)。
       /* v8 ignore next 1 -- canceled after unmount: covered behavior is the stat-fail path above; this guard only suppresses a state write after teardown */
@@ -146,9 +149,9 @@ export function FileInfoDialog({ path, onClose, aiRunning = false, onSaved }: {
     return () => { cancelled = true }
   }, [path])
 
-  /** 保存当前编辑内容:覆盖写回文件。AI 运行中/保存中/无改动不执行。 */
+  /** 保存当前编辑内容:覆盖写回文件。AI 运行中/保存中/无改动/截断/二进制不执行。 */
   const save = async (): Promise<void> => {
-    if (path === null || saving || aiRunning) return
+    if (path === null || saving || aiRunning || truncated || binary) return
     setSaving(true)
     setError(null)
     setNotice(null)
@@ -169,7 +172,7 @@ export function FileInfoDialog({ path, onClose, aiRunning = false, onSaved }: {
   const name = info?.name ?? path.split(/[\\/]/).at(-1) ?? path
   const previewLines = toReadLines(content)
   const dirty = content !== original
-  const canSave = dirty && !aiRunning && !saving && !loading && info?.kind === 'file'
+  const canSave = dirty && !aiRunning && !saving && !loading && !truncated && !binary && info?.kind === 'file'
 
   return (
     <Modal
@@ -189,7 +192,7 @@ export function FileInfoDialog({ path, onClose, aiRunning = false, onSaved }: {
               type="button"
               className={css.referenceBtn}
               disabled={!canSave}
-              title={aiRunning ? 'AI 运行中只能查看' : dirty ? undefined : '暂无改动'}
+              title={aiRunning ? 'AI 运行中只能查看' : binary ? '二进制文件不能编辑保存' : truncated ? '文件超出读取窗口,保存已禁用' : dirty ? undefined : '暂无改动'}
               onClick={() => { void save() }}
             >
               {saving ? '保存中…' : '保存'}
@@ -212,14 +215,17 @@ export function FileInfoDialog({ path, onClose, aiRunning = false, onSaved }: {
             {info.readonly && <div className={css.metaRow}><dt>权限</dt><dd>只读</dd></div>}
           </dl>
         )}
-        {truncated && content !== '' && (
-          <div className={css.truncatedNotice}>仅加载并保存开头 {PREVIEW_LIMIT / 1024}KB(文件较大,请谨慎操作)</div>
+        {binary && (
+          <div className={css.bannerError} role="alert">检测到二进制内容,仅支持查看,不能编辑保存</div>
+        )}
+        {!binary && truncated && content !== '' && (
+          <div className={css.truncatedNotice}>文件超过 256KB 读取窗口,仅加载了开头部分;保存已禁用,避免截断内容覆盖原文件导致数据丢失</div>
         )}
         {info?.kind === 'file' ? (
           <textarea
             className={css.editor}
             value={content}
-            readOnly={aiRunning || loading}
+            readOnly={aiRunning || loading || binary}
             spellCheck={false}
             aria-label="文件内容"
             onChange={(ev) => { setContent(ev.target.value) }}
