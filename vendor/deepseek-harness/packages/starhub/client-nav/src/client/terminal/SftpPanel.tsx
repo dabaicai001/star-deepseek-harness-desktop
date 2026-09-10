@@ -84,12 +84,44 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
   const [connected, setConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 最后一次失败操作的重放闭包;非 null 时错误横幅给出「重试」按钮。
+  // 重连类失败(通道没建起来)不走这里,由未连接覆盖层的「重试」直接重建通道。
+  const [retryOp, setRetryOp] = useState<(() => void) | null>(null)
+  // 重连通道 nonce:未连接覆盖层「重试」点击 +1,触发 ensure effect 重新建链。
+  const [connectNonce, setConnectNonce] = useState(0)
+
+  /** 记录一次可见失败:错误文本 + 可选的重放闭包(横幅「重试」按钮)。 */
+  const failWith = (message: string, retry: (() => void) | null): void => {
+    // useState 的 setter 会把函数值当 updater,必须再包一层。
+    setRetryOp(retry === null ? null : () => retry)
+    setError(message)
+  }
+
+  /** 关闭错误横幅(并丢弃待重试操作)。 */
+  const dismissError = (): void => {
+    setRetryOp(null)
+    setError(null)
+  }
+
+  /** 重放最后一次失败操作。 */
+  const retryFailed = (): void => {
+    const op = retryOp
+    dismissError()
+    if (op !== null) op()
+  }
   const [path, setPath] = useState('/')
   const [entries, setEntries] = useState<SftpEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
   // SFTP opens at the terminal's current directory by default; users can pause follow explicitly.
-  const [followTerminal, setFollowTerminal] = useState(true)
+  // 开关持久化到 localStorage:缺省开,显式存过 'false' 才关(此前只写不读,刷新后恒回开)。
+  const [followTerminal, setFollowTerminal] = useState(() => {
+    try {
+      return window.localStorage.getItem(FOLLOW_TERMINAL_KEY) !== 'false'
+    } catch {
+      return true
+    }
+  })
   const [pathEditing, setPathEditing] = useState(false)
   const [pathInput, setPathInput] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -117,7 +149,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
     const abort = new AbortController()
     const isAborted = (): boolean => abort.signal.aborted
     setConnecting(true)
-    setError(null)
+    dismissError()
     // SFTP 面板默认 followTerminal=true。首次连接就通知终端侧注入 OSC 7,
     // 让 shell 在每次 cd 后上报 cwd——否则只有在用户手动点「跟随终端路径」
     // 时才注入,面板打开后 cd 不会触发跟随。
@@ -143,6 +175,8 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
         }
       } catch (caught) {
         if (!abort.signal.aborted) {
+          // 通道建立失败:重试 = 重建通道(connectNonce +1 重跑本 effect),
+          // 由未连接覆盖层的「重试」按钮触发,不进操作重放队列。
           setError(caught instanceof Error ? caught.message : String(caught))
         }
       } finally {
@@ -150,7 +184,8 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
       }
     })()
     return () => { abort.abort() }
-  }, [sessionId, sshConnected])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDir/onFollowTerminal 为渲染期闭包,本 effect 只随会话/连接态/手动重连 nonce 重建通道。
+  }, [sessionId, sshConnected, connectNonce])
 
   // ---- transfer event listeners (global; filter by our session) ----
   useEffect(() => {
@@ -249,7 +284,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
       setPath(target)
     } catch (caught) {
       if (thisId !== loadIdRef.current) return
-      setError(caught instanceof Error ? caught.message : String(caught))
+      failWith(caught instanceof Error ? caught.message : String(caught), () => { void loadDir(target) })
     } finally {
       if (thisId === loadIdRef.current) setLoading(false)
     }
@@ -301,7 +336,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
       await sftpStartUpload(sessionId, localPaths, dest)
       setTimeout(() => { void loadDir(path) }, 2000)
     } catch (caught) {
-      setError(`Upload failed: ${caught instanceof Error ? caught.message : String(caught)}`)
+      failWith(`上传失败: ${caught instanceof Error ? caught.message : String(caught)}`, () => { void startUpload(localPaths, dest) })
     }
   }
   async function uploadFiles(): Promise<void> {
@@ -310,7 +345,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
       const picked = await pickPath('files')
       if (picked !== null) await startUpload(picked, path)
     } catch (caught) {
-      setError(`无法打开上传文件选择器: ${caught instanceof Error ? caught.message : String(caught)}`)
+      failWith(`无法打开上传文件选择器: ${caught instanceof Error ? caught.message : String(caught)}`, () => { void uploadFiles() })
     }
   }
   async function uploadFolder(): Promise<void> {
@@ -319,7 +354,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
       const picked = await pickPath('folder')
       if (picked !== null) await startUpload(picked, path)
     } catch (caught) {
-      setError(`无法打开上传文件夹选择器: ${caught instanceof Error ? caught.message : String(caught)}`)
+      failWith(`无法打开上传文件夹选择器: ${caught instanceof Error ? caught.message : String(caught)}`, () => { void uploadFolder() })
     }
   }
   async function download(pick: string[] | null, entry: SftpEntry | null): Promise<void> {
@@ -331,7 +366,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
       if (dir === null || dir[0] === undefined) return
       await sftpStartDownload(sessionId, paths, dir[0])
     } catch (caught) {
-      setError(`无法开始下载: ${caught instanceof Error ? caught.message : String(caught)}`)
+      failWith(`无法开始下载: ${caught instanceof Error ? caught.message : String(caught)}`, () => { void download(pick, entry) })
     }
   }
   function newFolder(): void {
@@ -347,11 +382,8 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
     const paths = selected.size > 0 ? [...selected] : (entry ? [entry.path] : [])
     if (paths.length > 0) setFileDialog({ mode: 'delete', paths })
   }
-  async function submitFileDialog(): Promise<void> {
-    if (fileDialog === null) return
-    const dialog = fileDialog
-    if (dialog.mode !== 'delete' && dialog.value.trim() === '') return
-    setFileDialog(null)
+  /** 执行文件对话框对应的实际操作(新建文件夹/重命名/删除);失败记入可重放错误。 */
+  async function runFileDialogOp(dialog: FileDialog): Promise<void> {
     try {
       if (dialog.mode === 'create-folder') {
         await tauriInvoke<void>('sftp_mkdir', { id: sessionId, path: joinPath(path, dialog.value.trim()) })
@@ -364,12 +396,22 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
       }
       await loadDir(path)
     } catch (caught) {
-      setError(`File operation failed: ${caught instanceof Error ? caught.message : String(caught)}`)
+      failWith(`文件操作失败: ${caught instanceof Error ? caught.message : String(caught)}`, () => { void runFileDialogOp(dialog) })
     }
+  }
+
+  async function submitFileDialog(): Promise<void> {
+    if (fileDialog === null) return
+    const dialog = fileDialog
+    if (dialog.mode !== 'delete' && dialog.value.trim() === '') return
+    setFileDialog(null)
+    await runFileDialogOp(dialog)
   }
   function copyPath(entry: SftpEntry): void {
     setMenu(null)
-    void navigator.clipboard.writeText(entry.path)
+    navigator.clipboard.writeText(entry.path).catch((caught: unknown) => {
+      failWith(`复制路径失败: ${caught instanceof Error ? caught.message : String(caught)}`, null)
+    })
   }
 
   // ---- context menu ----
@@ -396,7 +438,8 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
       {!connected && !connecting && error !== null && (
         <div className={`${css.stateOverlay} ${css.error}`}>
           <pre role="alert">{error}</pre>
-          <button type="button" onClick={() =>{  setError(null) }}>RETRY</button>
+          {/* 重试 = 重建 SFTP 通道(connectNonce +1 重跑 ensure effect),不再只是清错误。 */}
+          <button type="button" onClick={() =>{  dismissError(); setConnectNonce(n => n + 1) }}>重试</button>
         </div>
       )}
       {!connected && !connecting && error === null && (
@@ -404,6 +447,16 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
           <span className={css.stateIcon} aria-hidden="true"><IconFolderOpenOutline16 size={18} /></span>
           <strong>{sshConnected ? '正在准备 SFTP 文件通道' : '终端未连接，SFTP 等待 SSH 会话连接'}</strong>
           <span>{sshConnected ? '正在复用当前 SSH 会话，请稍候。' : '终端连接成功后，文件浏览与传输会自动可用。'}</span>
+        </div>
+      )}
+
+      {connected && error !== null && (
+        /* 已连接后的操作错误(列目录/上传/下载/删除/重命名等)常驻横幅,可重试可关闭;
+           此前这些错误只写进未连接态才渲染的 stateOverlay,连接后全部不可见。 */
+        <div className={css.opError} role="alert">
+          <span className={css.opErrorText}>{error}</span>
+          {retryOp !== null && <button type="button" className={css.opErrorAction} onClick={retryFailed}>重试</button>}
+          <button type="button" className={css.opErrorClose} aria-label="关闭错误提示" onClick={dismissError}>×</button>
         </div>
       )}
 
@@ -423,7 +476,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
               <button type="button" className={css.tbBtn} title="新建文件夹" aria-label="新建文件夹" onClick={newFolder}><IconPlusOutline16 size={15} /></button>
             </div>
             <div className={`${css.toolGroup} ${css.toolsEnd}`}>
-              <button type="button" className={`${css.tbBtn} ${followTerminal ? css.active : ''}`} title={followTerminal ? '已跟随终端路径' : '跟随终端路径'} aria-label="跟随终端路径" disabled={!sshConnected} onClick={toggleFollow}><IconLinkOutline16 size={15} /></button>
+              <button type="button" className={`${css.tbBtn} ${followTerminal ? css.active : ''}`} title={followTerminal ? '已跟随终端路径' : '跟随终端路径'} aria-label="跟随终端路径" aria-pressed={followTerminal} disabled={!sshConnected} onClick={toggleFollow}><IconLinkOutline16 size={15} /></button>
               <button type="button" className={css.tbBtn} title="传输任务" aria-label="传输任务" onClick={() =>{  setShowTransfers(v => !v) }}><IconFolderOpenOutline16 size={15} /></button>
             </div>
           </div>
@@ -497,15 +550,22 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
           {transfers.length === 0 && <div className={css.transferEmpty}>暂无任务</div>}
           {transfers.map((t) => {
             const pct = t.totalBytes > 0 ? Math.round((t.transferredBytes / t.totalBytes) * 100) : 0
+            // 传输控制(暂停/继续/重试/取消)失败此前是 unhandled rejection,UI 无任何反馈;
+            // 统一走错误横幅,可重放该操作。
+            const transferAction = (label: string, run: () => Promise<unknown>) => (): void => {
+              run().catch((caught: unknown) => {
+                failWith(`${label}失败: ${caught instanceof Error ? caught.message : String(caught)}`, () => transferAction(label, run)())
+              })
+            }
             return (
               <div key={t.id} className={css.transferRow}>
                 <span className={css.transferName}>{t.direction === 'upload' ? '↑ 上传' : '↓ 下载'}</span>
                 <span className={css.transferStatus}>{t.status}{t.error ? ` · ${t.error}` : ''}</span>
                 <span className={css.transferProgress}>{pct}% ({formatSize(t.transferredBytes)} / {formatSize(t.totalBytes)})</span>
-                {t.status === 'running' && <button type="button" onClick={() => void sftpPauseTransfer(sessionId, t.id)}>暂停</button>}
-                {t.status === 'paused' && <button type="button" onClick={() => void sftpResumeTransfer(sessionId, t.id)}>继续</button>}
-                {(t.status === 'failed' || t.status === 'cancelled') && <button type="button" onClick={() => void sftpRetryTransfer(sessionId, t.id)}>重试</button>}
-                <button type="button" onClick={() => void sftpCancelTransfer(sessionId, t.id)}>取消</button>
+                {t.status === 'running' && <button type="button" onClick={transferAction('暂停', () => sftpPauseTransfer(sessionId, t.id))}>暂停</button>}
+                {t.status === 'paused' && <button type="button" onClick={transferAction('继续', () => sftpResumeTransfer(sessionId, t.id))}>继续</button>}
+                {(t.status === 'failed' || t.status === 'cancelled') && <button type="button" onClick={transferAction('重试', () => sftpRetryTransfer(sessionId, t.id))}>重试</button>}
+                <button type="button" onClick={transferAction('取消', () => sftpCancelTransfer(sessionId, t.id))}>取消</button>
               </div>
             )
           })}

@@ -4,7 +4,7 @@
  * 输入写回、退出清理(关闭会话 + 销毁 xterm),以及轮询到 running=false 自清理。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 const xterm = vi.hoisted(() => ({
   dispose: vi.fn(),
@@ -142,5 +142,51 @@ describe('DockerExecTerminal', () => {
     await waitFor(() =>{  expect(xterm.open).toHaveBeenCalled() })
     unmount()
     await waitFor(() =>{  expect(xterm.dispose).toHaveBeenCalled() })
+  })
+
+  it('surfaces a start failure and retries the session from the banner', async () => {
+    ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+    installObserver()
+    let attempts = 0
+    const invoke = vi.fn((cmd: string) => {
+      if (cmd === 'docker_exec_session_start') {
+        attempts += 1
+        return attempts === 1 ? Promise.reject(new Error('no such container')) : Promise.resolve({ sessionId: 's1' })
+      }
+      if (cmd === 'docker_exec_session_read') return Promise.resolve({ data: '', running: true })
+      return Promise.resolve(null)
+    })
+    ;(window as unknown as { __TAURI_INTERNALS__: { invoke: typeof invoke } }).__TAURI_INTERNALS__ = { invoke }
+    render(<DockerExecTerminal connId="c" container={container} onClose={vi.fn()} />)
+    // 启动失败不再静默:错误文案 + 重试入口
+    await waitFor(() =>{  expect(screen.getByText(/进入容器失败/)).toBeTruthy() })
+    expect(screen.getByText(/no such container/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    // 重试重新发起会话,失败横幅消失
+    await waitFor(() =>{  expect(attempts).toBe(2) })
+    await waitFor(() =>{  expect(screen.queryByText(/进入容器失败/)).toBeNull() })
+  })
+
+  it('announces an ended session instead of leaving a dead terminal', async () => {
+    ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+    installTauri([{ data: '', running: false }])
+    installObserver()
+    render(<DockerExecTerminal connId="c" container={container} onClose={vi.fn()} />)
+    await waitFor(() =>{  expect(screen.getByText(/会话已结束/)).toBeTruthy() })
+    expect(screen.getByRole('button', { name: '重新打开' })).toBeTruthy()
+  })
+
+  it('surfaces a read failure instead of polling into the void', async () => {
+    ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+    installObserver()
+    const invoke = vi.fn((cmd: string) => {
+      if (cmd === 'docker_exec_session_start') return Promise.resolve({ sessionId: 's1' })
+      if (cmd === 'docker_exec_session_read') return Promise.reject(new Error('session gone'))
+      return Promise.resolve(null)
+    })
+    ;(window as unknown as { __TAURI_INTERNALS__: { invoke: typeof invoke } }).__TAURI_INTERNALS__ = { invoke }
+    render(<DockerExecTerminal connId="c" container={container} onClose={vi.fn()} />)
+    await waitFor(() =>{  expect(screen.getByText(/读取终端输出失败/)).toBeTruthy() })
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy()
   })
 })

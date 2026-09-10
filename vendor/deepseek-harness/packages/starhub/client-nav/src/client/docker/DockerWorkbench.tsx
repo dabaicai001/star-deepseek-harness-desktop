@@ -184,12 +184,20 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
     if (id === null) return
     setContainers(prev => ({ ...prev, loading: true, error: null }))
     try {
+      // showAll=false 时后端(Docker API all=false)只返回运行中容器,停止的容器
+      // 不在响应里、客户端过滤救不回来——所以切换「显示全部」必须重新请求。
       const items = await dockerListContainers(id, showAll)
       setContainers({ items, loading: false, error: null })
     } catch (e) {
       setContainers(prev => ({ ...prev, loading: false, error: e instanceof Error ? e.message : String(e) }))
     }
   }, [showAll])
+
+  // 「显示全部」切换后立即按新的 all 语义重拉(loadContainers 身份随 showAll 变化;
+  // 挂载时 connRef 仍为 null,loadContainers 提前返回,首拉由建连链触发,不重复)。
+  useEffect(() => {
+    void loadContainers()
+  }, [loadContainers])
 
   /** 拉取镜像列表。 */
   const loadImages = useCallback(async () => {
@@ -242,12 +250,14 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
     const id = connRef.current
     /* v8 ignore next -- 仅连接建立后被调用,connRef 恒非空 */
     if (id === null) return
-    if (kind === 'remove' && !window.confirm(`确定删除容器「${c.name}」?进程数据将不可恢复。`)) return
+    // 非运行容器无需 force;运行/暂停中的容器删除前必须明示「会先强制停止」。
+    const removeForce = c.state === 'running' || c.state === 'paused'
+    if (kind === 'remove' && !window.confirm(`确定删除容器「${c.name}」?${removeForce ? '容器正在运行，删除会先强制停止。' : ''}进程数据将不可恢复。`)) return
     try {
       if (kind === 'start') await dockerStartContainer(id, c.id)
       else if (kind === 'stop') await dockerStopContainer(id, c.id)
       else if (kind === 'restart') await dockerRestartContainer(id, c.id)
-      else await dockerRemoveContainer(id, c.id, true)
+      else await dockerRemoveContainer(id, c.id, removeForce)
       notify(`${kind === 'remove' ? '已删除' : (kind === 'start' ? '已启动' : kind === 'stop' ? '已停止' : '已重启')}:${c.name}`)
     } catch (e) {
       notify(`操作失败:${e instanceof Error ? e.message : String(e)}`)
@@ -397,6 +407,7 @@ export function DockerWorkbench({ asset, onClose }: { asset: RustAsset; onClose:
                   load={containers}
                   showAll={showAll}
                   onRefresh={() => void loadContainers()}
+                  onShowAll={() =>{  setShowAll(true) }}
                   onAction={(kind, c) => void runContainerAction(kind, c)}
                   expanded={expanded}
                   detail={detail}
@@ -477,11 +488,13 @@ function DashboardCard({ label, value, accent }: { label: string; value: number;
 
 /** 容器 tab:列表 + 行操作 + 行内统计详情。 */
 function ContainersView({
-  load, showAll, onRefresh, onAction, expanded, detail, onOpenLogs, onToggleStats, onExec,
+  load, showAll, onRefresh, onShowAll, onAction, expanded, detail, onOpenLogs, onToggleStats, onExec,
 }: {
   load: Loadable<ContainerInfo>
   showAll: boolean
   onRefresh: () => void
+  /** 空态里的「显示全部」:真正切开关(触发重拉),而不是只刷新。 */
+  onShowAll: () => void
   onAction: (kind: 'start' | 'stop' | 'restart' | 'remove', c: ContainerInfo) => void
   expanded: string | null
   detail: ContainerDetail
@@ -497,13 +510,18 @@ function ContainersView({
     </div>
   )
   const visible = showAll ? load.items : load.items.filter(c => c.state === 'running')
-  if (!showAll && visible.length === 0 && load.items.length > 0) return (
-    <div className={css.status}>
-      <span>没有运行中的容器。</span>
-      <button type="button" className={css.inlineButton} onClick={onRefresh}>显示全部</button>
-    </div>
-  )
-  if (load.items.length === 0) return <div className={css.status}>暂无容器。</div>
+  // 空态合并两个来源:items 为空(或全被运行中过滤掉,如只有暂停容器)。
+  // 未勾「显示全部」时停止容器不在后端响应里,文案必须是「没有运行中的容器」
+  // 并提供真正切开关的入口;此前 items==0 误报「暂无容器」、按钮只刷新不切开关。
+  if (visible.length === 0) {
+    if (showAll) return <div className={css.status}>暂无容器。</div>
+    return (
+      <div className={css.status}>
+        <span>没有运行中的容器。</span>
+        <button type="button" className={css.inlineButton} onClick={onShowAll}>显示全部</button>
+      </div>
+    )
+  }
   return (
     <div className={css.list}>
       {visible.map(c => (

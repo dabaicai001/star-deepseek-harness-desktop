@@ -152,6 +152,10 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
   const host = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
+  /** 已断开(远端关闭 / 连接失败 / 拒绝主机密钥):此前这些情况一律显示「连接中」。 */
+  const [closed, setClosed] = useState(false)
+  /** 连接代次:点「重新连接」+1,重跑建连 effect(会话 id 与终端随之重建)。 */
+  const [connectNonce, setConnectNonce] = useState(0)
   const [sidePanel, setSidePanel] = useState<SidePanel>(null)
   // SFTP / 网页右栏宽度(px):拖左边框调整,夹在 min 与 max 之间;内存态即可。
   const [sidePanelWidth, setSidePanelWidth] = useState(500)
@@ -516,6 +520,8 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
           tauriListen<string>(`ssh:close:${sessionId}`, (reason) => {
             isConnectedRef.current = false
             setConnected(false)
+            // 远端断开/超时:进入「已断开」态(此前与「连接中」共用同一文案,黄点永远转着)。
+            setClosed(true)
             resetZmodem()
             if (!disposed) term.writeln(`\r\n[连接已关闭: ${reason}]`)
           }),
@@ -566,6 +572,7 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
         }
         isConnectedRef.current = true
         setConnected(true)
+        setClosed(false)
         resizeObserver = new ResizeObserver(resize)
         if (host.current !== null) resizeObserver.observe(host.current)
         resize()
@@ -573,7 +580,11 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
         enableCwdTracking()
         void initCwdFromExec()
       } catch (caught) {
-        if (!disposed) setError(caught instanceof Error ? caught.message : String(caught))
+        if (!disposed) {
+          setError(caught instanceof Error ? caught.message : String(caught))
+          // 建连失败也是终态:状态点/文字进「已断开」,头部给「重新连接」。
+          setClosed(true)
+        }
       }
     }
 
@@ -595,7 +606,8 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
       void tauriInvoke('ssh_disconnect', { id: sessionId }).catch(() => {})
       term.dispose()
     }
-  }, [asset])
+    // connectNonce:「重新连接」按下后重建会话与终端(asset 在窗口生命周期内恒定)。
+  }, [asset, connectNonce])
 
   /** 打开广播弹层:拉取所有已连接的 SSH 会话作为目标列表。 */
   const openBroadcast = async (): Promise<void> => {
@@ -673,8 +685,9 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
     setKbAnswers([])
   }
 
-  /** 处理主机密钥确认决策。拒绝时主动断开 SSH 会话并关闭 overlay,
-   *  避免后端 60s 超时(后续重试会因为 known_hosts 仍没有这个指纹而再次弹)。*/
+  /** 处理主机密钥确认决策。拒绝时主动断开 SSH 会话并进入「已断开」态:
+   *  此前先 setError 再立刻 onClose(),提示随 overlay 一起消失,用户看不到拒绝原因;
+   *  现在保留工作区、显示原因,由用户决定「重新连接」还是「关闭」。*/
   const resolveHostKey = (allowed: boolean, persist: boolean): void => {
     if (hostKeyPrompt === null) return
     const promptSnapshot = hostKeyPrompt
@@ -683,14 +696,22 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
       void tauriInvoke('ssh_hostkey_response', { id: sessionId, allowed: true, persist }).catch(() => {})
       return
     }
-    // 拒绝:不响应 sender,直接关 SSH 让用户回到资产列表。
+    // 拒绝:不信任该指纹,断开本次会话;错误留在工作区内可见。
     void tauriInvoke('ssh_hostkey_response', { id: sessionId, allowed: false, persist: false })
       .catch(() => { /* 后端 sender 可能已被取消;失败不阻塞下面的断开 */ })
     void tauriInvoke('ssh_disconnect', { id: sessionId }).catch(() => {})
     if (!disposedRef.current) {
       setError(`已拒绝主机密钥:${promptSnapshot.remote} (${promptSnapshot.keyType})`)
+      setConnected(false)
+      setClosed(true)
     }
-    onClose()
+  }
+
+  /** 重新连接:清掉上一轮的断开原因,代次 +1 重跑建连 effect。 */
+  const reconnect = (): void => {
+    setError(null)
+    setClosed(false)
+    setConnectNonce(n => n + 1)
   }
 
   const sidePanelLabel = '文件传输'
@@ -703,13 +724,16 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
       <section className={css.panel} aria-label={`SSH 工作区 ${asset.name}`}>
         <header className={css.header}>
           <div className={css.headLeft}>
-            <span className={connected ? css.statusOnline : css.statusPending} aria-label={connected ? 'SSH 已连接' : 'SSH 连接中'} />
+            <span className={connected ? css.statusOnline : (closed ? css.statusOffline : css.statusPending)} aria-label={connected ? 'SSH 已连接' : (closed ? 'SSH 已断开' : 'SSH 连接中')} />
             <div className={css.identity}>
               <span className={css.title}>{asset.name}</span>
               <span className={css.endpoint}>{typeof asset.config.username === 'string' ? `${asset.config.username}@` : ''}{typeof asset.config.host === 'string' ? asset.config.host : '未配置主机'}</span>
             </div>
           </div>
           <div className={css.headRight}>
+            {!connected && closed && (
+              <button type="button" className={css.reconnectAction} onClick={reconnect} title="重新建立 SSH 连接">重新连接</button>
+            )}
             <button type="button" className={css.iconButton} onClick={onClose} title="关闭" aria-label="关闭 SSH 工作区"><IconCloseOutline16 size={16} /></button>
             <button
               type="button"
@@ -751,7 +775,7 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
                 title={connected ? '在独立窗口打开网页访问(webview)' : '等待 SSH 连接后启用网页访问'}
                 aria-pressed={false}
               ><IconLinkOutline16 size={15} /> 网页</button>
-              <span className={css.connectionState}><span className={connected ? css.connectionOnline : css.connectionPending} />{connected ? '已连接' : '连接中'}</span>
+              <span className={css.connectionState}><span className={connected ? css.connectionOnline : (closed ? css.connectionOffline : css.connectionPending)} />{connected ? '已连接' : (closed ? '已断开' : '连接中')}</span>
             </div>
             <div className={css.quickBar} aria-label="快捷命令">
               <span className={css.quickLabel}>QUICK</span>

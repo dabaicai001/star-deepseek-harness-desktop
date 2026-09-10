@@ -6,6 +6,7 @@ const xterm = vi.hoisted(() => ({
   dispose: vi.fn(),
   input: undefined as ((data: string) => void) | undefined,
   write: vi.fn(),
+  writeln: vi.fn(),
 }))
 
 vi.mock('@xterm/xterm', () => ({
@@ -17,6 +18,7 @@ vi.mock('@xterm/xterm', () => ({
     focus() {}
     dispose = xterm.dispose
     write = xterm.write
+    writeln = xterm.writeln
     onData(handler: (data: string) => void) {
       xterm.input = handler
       return { dispose: vi.fn() }
@@ -717,7 +719,7 @@ describe('SshTerminalOverlay', () => {
     unmount()
   })
 
-  it('rejects an unknown host key by responding allowed=false and disconnecting the session', async () => {
+  it('rejects an unknown host key by responding allowed=false, disconnecting, and keeping the reason visible', async () => {
     const callbacks: Array<(event: unknown) => void> = []
     const onClose = vi.fn()
     const invoke = vi.fn((command: string) => {
@@ -749,8 +751,51 @@ describe('SshTerminalOverlay', () => {
     fireEvent.click(screen.getByText('拒绝'))
     await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('ssh_hostkey_response', { id: 'ssh-1', allowed: false, persist: false }) })
     expect(invoke).toHaveBeenCalledWith('ssh_disconnect', { id: 'ssh-1' })
-    expect(onClose).toHaveBeenCalled()
+    // 拒绝后不再自动关窗:拒绝原因必须可见,状态进「已断开」并给重新连接入口
+    // (此前先 setError 再 onClose,提示随 overlay 一起消失,用户看不到原因)。
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByText(/已拒绝主机密钥/)).toBeTruthy()
+    expect(screen.getByText('已断开')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '重新连接' })).toBeTruthy()
     expect(screen.queryByLabelText('主机密钥确认')).toBeNull()
+    unmount()
+  })
+
+  it('marks a remotely closed session as disconnected and reconnects on demand', async () => {
+    const callbacks: Array<(event: unknown) => void> = []
+    const invoke = vi.fn((command: string) => {
+      if (command === 'plugin:event|listen') return Promise.resolve(callbacks.length)
+      return Promise.resolve(null)
+    })
+    ;(window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: typeof invoke
+        transformCallback: (callback: (event: unknown) => void) => number
+      }
+    }).__TAURI_INTERNALS__ = {
+      invoke,
+      transformCallback: (callback) => { callbacks.push(callback); return callbacks.length },
+    }
+    ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+      observe() {}
+      disconnect() {}
+    }
+
+    const { unmount } = render(<SshTerminalOverlay asset={asset} onClose={vi.fn()} />)
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('ssh_connect', expect.any(Object)) })
+    // 连接成功 → 「已连接」
+    await waitFor(() =>{  expect(screen.getByText('已连接')).toBeTruthy() })
+    // 远端关闭事件(第 2 个监听 = ssh:close)
+    callbacks[1]!({ event: 'ssh:close:ssh-1', id: 2, payload: 'Connection reset by peer' })
+    await waitFor(() =>{  expect(screen.getByText('已断开')).toBeTruthy() })
+    // 断开后不再谎报「连接中」,并给出重新连接入口
+    expect(screen.queryByText('连接中')).toBeNull()
+    const connectCalls = invoke.mock.calls.filter(([cmd]) => cmd === 'ssh_connect').length
+    fireEvent.click(screen.getByRole('button', { name: '重新连接' }))
+    // 重新连接 = 重新发起一次 ssh_connect(代次 +1 重建会话)
+    await waitFor(() => {
+      expect(invoke.mock.calls.filter(([cmd]) => cmd === 'ssh_connect').length).toBe(connectCalls + 1)
+    })
     unmount()
   })
 

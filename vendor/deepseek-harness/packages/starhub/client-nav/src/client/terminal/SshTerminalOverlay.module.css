@@ -6,9 +6,13 @@
 .identity { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .title { overflow: hidden; color: var(--dsw-alias-label-primary); font-size: 14px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
 .endpoint { overflow: hidden; color: var(--dsw-alias-label-tertiary); font-family: var(--ds-font-family-code); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.statusOnline, .statusPending, .connectionOnline, .connectionPending { width: 8px; height: 8px; flex: none; border-radius: 50%; }
+.statusOnline, .statusPending, .statusOffline, .connectionOnline, .connectionPending, .connectionOffline { width: 8px; height: 8px; flex: none; border-radius: 50%; }
 .statusOnline, .connectionOnline { background: var(--dsw-alias-state-success-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-success-primary) 15%, transparent); }
 .statusPending, .connectionPending { background: var(--dsw-alias-state-warn-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-warn-primary) 15%, transparent); }
+/* 已断开(远端关闭 / 建连失败 / 拒绝主机密钥):错误色,与「连接中」的黄点区分。 */
+.statusOffline, .connectionOffline { background: var(--dsw-alias-state-error-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-error-primary) 15%, transparent); }
+.reconnectAction { border: 1px solid var(--dsw-alias-state-business-primary); border-radius: 6px; padding: 7px 11px; background: var(--dsw-alias-interactive-bg-active); color: var(--dsw-alias-state-business-primary); cursor: pointer; font-size: 12px; font-weight: 700; }
+.reconnectAction:hover { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .iconButton { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; }
 .iconButton:hover { border-color: var(--dsw-alias-border-l3); background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .broadcastAction { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--dsw-alias-state-business-primary); border-radius: 6px; padding: 7px 11px; background: var(--dsw-alias-interactive-bg-active); color: var(--dsw-alias-state-business-primary); cursor: pointer; font-size: 12px; font-weight: 700; }

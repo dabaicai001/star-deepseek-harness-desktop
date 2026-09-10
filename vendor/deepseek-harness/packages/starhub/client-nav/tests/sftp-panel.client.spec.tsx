@@ -117,4 +117,56 @@ describe('SftpPanel', () => {
     })
     vi.useRealTimers()
   })
+
+  it('surfaces a post-connect operation error in a banner and replays it on 重试', async () => {
+    ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+    let failNext = true
+    const callbacks: Array<(event: unknown) => void> = []
+    const invoke = vi.fn((command: string, args?: Record<string, unknown>) => {
+      if (command === 'plugin:event|listen') return Promise.resolve(callbacks.length)
+      if (command === 'sftp_ensure_session') return Promise.resolve({ mode: 'subsystem' })
+      if (command === 'sftp_home_dir') return Promise.resolve('/home/deploy')
+      if (command === 'sftp_list') {
+        // 已连接后的操作失败:此前错误写进只在未连接态渲染的覆盖层,用户完全看不到
+        if (failNext && args?.path === '/home/deploy/docs') {
+          failNext = false
+          return Promise.reject(new Error('permission denied'))
+        }
+        const path = (args?.path as string) ?? '/'
+        return Promise.resolve(path === '/home/deploy'
+          ? [{ name: 'docs', path: '/home/deploy/docs', isDir: true, size: 0, permissions: 0o755, modified: 0 }]
+          : [{ name: 'inner.txt', path: '/home/deploy/docs/inner.txt', isDir: false, size: 3, permissions: 0o644, modified: 0 }])
+      }
+      if (command === 'sftp_list_transfers') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    ;(window as unknown as {
+      __TAURI_INTERNALS__: { invoke: typeof invoke; transformCallback: (cb: (event: unknown) => void) => number }
+    }).__TAURI_INTERNALS__ = { invoke, transformCallback: (cb) => { callbacks.push(cb); return callbacks.length } }
+
+    render(<SftpPanel asset={asset} sessionId="ssh-1" sshConnected={true} />)
+    await waitFor(() =>{  expect(screen.getByText('docs')).toBeTruthy() })
+    fireEvent.click(screen.getByText('docs'))
+    // 连接态下的失败必须可见(role=alert 横幅),而不是只写进未连接覆盖层
+    const banner = await screen.findByRole('alert')
+    expect(banner.textContent).toContain('permission denied')
+    // 「重试」重放最后一次失败的操作(重新列目录),不是只清错误
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() =>{  expect(screen.getByText('inner.txt')).toBeTruthy() })
+    await waitFor(() =>{  expect(screen.queryByRole('alert')).toBeNull() })
+  })
+
+  it('restores the 跟随终端路径 toggle from localStorage', async () => {
+    ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+    window.localStorage.setItem('starhub.sftp.followTerminal', 'false')
+    try {
+      installTauri([])
+      render(<SftpPanel asset={asset} sessionId="ssh-1" sshConnected={true} />)
+      // 存过 false → 初始即关(此前只写不读,刷新后恒回开)
+      const toggle = await screen.findByRole('button', { name: /跟随终端路径/ })
+      expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    } finally {
+      window.localStorage.removeItem('starhub.sftp.followTerminal')
+    }
+  })
 })

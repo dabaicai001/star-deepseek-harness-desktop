@@ -1102,7 +1102,9 @@ e.preventDefault();e.stopPropagation();
 send({type:'open-in-new-tab',url:href});
 }
 document.addEventListener('contextmenu',function(e){
-e.preventDefault();send({type:'contextmenu',x:e.clientX,y:e.clientY});
+e.preventDefault();
+var l='';try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a)l=new URL(a.getAttribute('href'),location.href).href;}catch(x){}
+send({type:'contextmenu',x:e.clientX,y:e.clientY,link:l});
 },true);
 window.addEventListener('message',function(e){
 var d=e.data;if(!d||d.__starhub!==1)return;
@@ -1320,6 +1322,13 @@ mod tests {
         assert!(out.contains("__starhubBridge"));
         assert!(out.contains("open-in-new-tab"));
         assert!(out.contains("navigated"));
+        // 右键上报必须带 link 字段:壳页右键菜单据此提供「复制链接地址 / 在外部浏览器打开」
+        assert!(out.contains("type:'contextmenu'"));
+        assert!(out.contains("link:l"));
+        // 外层壳页经 cmd-* 命令驱动 in-page history(跨源下壳页碰不到 iframe 的 history)
+        assert!(out.contains("cmd-back"));
+        assert!(out.contains("cmd-forward"));
+        assert!(out.contains("cmd-reload"));
         // 无 head 的文档也能注入(插到最前)
         let out = rewrite_html(r#"<div>hi</div>"#, "http", "a.com:8080");
         assert!(out.contains("__starhubBridge"));

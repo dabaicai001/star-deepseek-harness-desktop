@@ -6,3 +6,9 @@
 .closeButton:hover { border-color: var(--dsw-alias-border-l3); background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .terminalHost { flex: 1; min-height: 0; padding: 10px; background: var(--dsw-alias-markdown-code-block); }
 .terminalHost :global(.xterm) { height: 100%; }
+/* 会话状态条:进入中 / 启动失败 / 会话已结束——覆盖在终端下方,避免死终端无提示。 */
+.stateBar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.stateBarError { color: var(--dsw-alias-label-error, var(--dsw-alias-label-primary)); }
+.stateText { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.stateAction { border: 1px solid var(--dsw-alias-border-l3); border-radius: 6px; padding: 4px 10px; background: transparent; color: var(--dsw-alias-label-primary); cursor: pointer; font-size: 12px; }
+.stateAction:hover { background: var(--dsw-alias-interactive-bg-hover); }

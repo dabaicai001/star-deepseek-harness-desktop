@@ -78,7 +78,8 @@ function installTauri(opts?: {
         return Promise.resolve(opts?.trustedKeys?.[`${host}:${port}`] ?? null)
       }
       case 'docker_connect': return opts?.connectError ? Promise.reject(opts.connectError) : Promise.resolve({ connId: 'c', host: 'h' })
-      case 'docker_list_containers': return opts?.listContainersError ? Promise.reject(opts.listContainersError) : Promise.resolve([running, stopped])
+      // 与后端契约一致:all=false 只返回运行中容器;停止容器必须 all=true 才返回。
+      case 'docker_list_containers': return opts?.listContainersError ? Promise.reject(opts.listContainersError) : Promise.resolve(args?.all === true ? [running, stopped] : [running])
       case 'docker_list_images': return opts?.listImagesError ? Promise.reject(opts.listImagesError) : Promise.resolve([image])
       case 'docker_container_logs': return opts?.logsError ? Promise.reject(opts.logsError) : Promise.resolve([logLine])
       case 'docker_container_stats': return opts?.statsError ? Promise.reject(opts.statsError) : Promise.resolve(stats)
@@ -200,6 +201,10 @@ describe('DockerWorkbench', () => {
     })
     ;(window as unknown as { __TAURI_INTERNALS__: { invoke: typeof invoke } }).__TAURI_INTERNALS__ = { invoke }
     renderWorkbench()
+    // all=false 时无运行中容器 → 空态给「没有运行中的容器」+ 显示全部入口
+    // (不能断言「暂无容器」:停止容器不在 all=false 的响应里,无从判断真的没有容器)
+    await waitFor(() =>{  expect(screen.getByText(/没有运行中的容器/)).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: '显示全部' }))
     await waitFor(() =>{  expect(screen.getByText('暂无容器。')).toBeTruthy() })
     // 切到镜像空态
     fireEvent.click(screen.getByRole('tab', { name: '镜像' }))
@@ -227,17 +232,22 @@ describe('DockerWorkbench', () => {
     await waitFor(() =>{  expect(screen.getByText('db')).toBeTruthy() })
   })
 
-  it('shows the no-running hint when only stopped containers exist', async () => {
+  it('shows the no-running hint when only stopped containers exist, and 显示全部 reveals them', async () => {
     ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
-    const invoke = vi.fn((cmd: string) => {
+    const invoke = vi.fn((cmd: string, args?: Record<string, unknown>) => {
       if (cmd === 'docker_connect') return Promise.resolve({ connId: 'c', host: 'h' })
-      if (cmd === 'docker_list_containers') return Promise.resolve([stopped])
+      // 与后端契约一致:all=false 只返回运行中容器,停止的容器必须 all=true 才可见
+      if (cmd === 'docker_list_containers') return Promise.resolve(args?.all === true ? [stopped] : [])
       if (cmd === 'docker_list_images') return Promise.resolve([])
       return Promise.resolve(null)
     })
     ;(window as unknown as { __TAURI_INTERNALS__: { invoke: typeof invoke } }).__TAURI_INTERNALS__ = { invoke }
     renderWorkbench()
     await waitFor(() =>{  expect(screen.getByText(/没有运行中的容器/)).toBeTruthy() })
+    // 空态里的「显示全部」按钮必须真正切开关并按 all=true 重拉(此前只刷新,停止容器永远出不来)
+    fireEvent.click(screen.getByRole('button', { name: '显示全部' }))
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('docker_list_containers', { connId: 'c', all: true }) })
+    await waitFor(() =>{  expect(screen.getByText('db')).toBeTruthy() })
   })
 
   it('runs container start/stop actions and shows a toast', async () => {
@@ -264,10 +274,32 @@ describe('DockerWorkbench', () => {
     // remove canceled → not invoked
     fireEvent.click(screen.getByLabelText('删除'))
     expect(invoke).not.toHaveBeenCalledWith('docker_remove_container', expect.anything())
-    // confirm true → invoked + toast
+    // confirm true → invoked + toast;运行中容器确认文案必须明示会强制停止,且 force=true
     confirmSpy.mockReturnValue(true)
     fireEvent.click(screen.getByLabelText('删除'))
-    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('docker_remove_container', expect.objectContaining({ containerId: 'c1' })) })
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('强制停止'))
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('docker_remove_container', { connId: 'c', containerId: 'c1', force: true }) })
+    confirmSpy.mockRestore()
+  })
+
+  it('removes a stopped container without force and without the force-stop warning', async () => {
+    ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+    const invoke = installTauri()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    renderWorkbench()
+    await waitFor(() =>{  expect(screen.getByText('web')).toBeTruthy() })
+    // 切「显示全部」让 exited 容器出现
+    fireEvent.click(screen.getByText('显示全部'))
+    await waitFor(() =>{  expect(screen.getByText('db')).toBeTruthy() })
+    const nameEl = screen.getByText('db')
+    // CSS Module 类名带哈希,不能用 .closest('.row');沿祖先找到含行操作按钮的那一层。
+    let rowEl: HTMLElement | null = nameEl
+    while (rowEl !== null && within(rowEl).queryAllByLabelText('删除').length === 0) rowEl = rowEl.parentElement
+    if (rowEl === null) throw new Error('no remove button in stopped row')
+    fireEvent.click(within(rowEl).getByLabelText('删除'))
+    // 非运行容器:文案不含强制停止提示,force=false
+    expect(confirmSpy).toHaveBeenCalledWith(expect.not.stringContaining('强制停止'))
+    await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('docker_remove_container', { connId: 'c', containerId: 'c2', force: false }) })
     confirmSpy.mockRestore()
   })
 
@@ -597,7 +629,7 @@ describe('DockerWorkbench', () => {
     fireEvent.click(screen.getByLabelText('终端'))
     await waitFor(() =>{  expect(screen.getByText(/web · 终端/)).toBeTruthy() })
     await waitFor(() =>{  expect(invoke).toHaveBeenCalledWith('docker_exec_session_start', expect.anything()) })
-    fireEvent.click(within(screen.getByLabelText('web 终端')).getByText('关闭'))
+    fireEvent.click(within(screen.getByLabelText('web 终端')).getByLabelText('关闭终端'))
     await waitFor(() =>{  expect(screen.queryByText(/web · 终端/)).toBeNull() })
   })
 
