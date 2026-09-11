@@ -62,14 +62,24 @@ pub struct TransferTask {
     /// 不序列化到前端(list_tasks 事件不携带)
     #[serde(skip)]
     pub upload_all_files: Option<Vec<(String, String, u64)>>,
+    /// 下载任务的完整文件清单(远程路径, 本地相对路径, 大小),目录递归展开后
+    /// 与 worker 逐文件对应;暂停/重试恢复用;不序列化到前端。
+    #[serde(skip)]
+    pub download_all_files: Option<Vec<(String, String, u64)>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransferProgress {
     pub transfer_id: String,
+    /// 所属 SSH 会话:前端按会话过滤,避免跨窗口广播白跑(此前不带,全部窗口全收)。
+    pub session_id: String,
     pub file_name: String,
+    /// 当前文件的进度(文件级)。
     pub transferred: u64,
     pub total: u64,
+    /// 任务级聚合进度(此前前端错把文件级数字当任务级显示,多文件任务进度回跳)。
+    pub task_transferred: u64,
+    pub task_total: u64,
     pub direction: TransferDirection,
 }

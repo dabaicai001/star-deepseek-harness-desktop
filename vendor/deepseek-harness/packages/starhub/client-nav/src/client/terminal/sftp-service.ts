@@ -51,6 +51,10 @@ export interface TransferTask {
   status: TransferStatus
   totalBytes: number
   transferredBytes: number
+  /** 限速(bytes/sec,0 = 不限;运行中可动态改)。 */
+  speedLimit?: number
+  /** 下载任务的本地落盘目录(「打开目录」用)。 */
+  downloadLocalDir?: string | null
   error?: string | null
 }
 
@@ -63,12 +67,20 @@ export interface TransferStatusEvent {
   error?: string | null
 }
 
-/** `sftp://transfer-progress` payload (Rust `TransferProgress`). */
+/** `sftp://transfer-progress` payload (Rust `TransferProgress`)。 */
 export interface TransferProgressEvent {
   transferId: string
+  /** 所属 SSH 会话(事件为全窗口广播,前端按此过滤)。 */
+  sessionId: string
+  /** 当前文件名(任务内相对路径)。 */
   fileName: string
+  /** 当前文件进度(文件级)。 */
   transferred: number
   total: number
+  /** 任务级聚合进度——任务列表/进度条必须用这两个字段,文件级数字
+   *  在多文件任务里会在文件切换时回跳。 */
+  taskTransferred: number
+  taskTotal: number
   direction: TransferDirection
 }
 
@@ -181,13 +193,42 @@ export function sftpResumeTransfer(id: string, transferId: string): Promise<void
 }
 
 /**
- * Retry a failed/cancelled transfer.
+ * Retry a failed/cancelled transfer (reuses the same task id, resumes from offsets).
  * @param id - the SSH session id.
  * @param transferId - the transfer task id.
- * @returns the new transfer id.
+ * @returns the (same) transfer id.
  */
 export function sftpRetryTransfer(id: string, transferId: string): Promise<string> {
   return tauriInvoke<string>('sftp_retry_transfer', { id, transferId })
+}
+
+/**
+ * Set a transfer's speed limit (bytes/sec, 0 = unlimited); takes effect live.
+ * @param id - the SSH session id.
+ * @param transferId - the transfer task id.
+ * @param speedLimit - bytes per second (0 = unlimited).
+ */
+export function sftpSetSpeedLimit(id: string, transferId: string, speedLimit: number): Promise<void> {
+  return tauriInvoke<void>('sftp_set_speed_limit', { id, transferId, speedLimit })
+}
+
+/**
+ * Clear terminal-state transfer tasks (one when transferId given, otherwise all
+ * finished/failed/cancelled tasks of the session). Running tasks are untouched.
+ * @param id - the SSH session id.
+ * @param transferId - optional single task id.
+ * @returns the number of tasks removed.
+ */
+export function sftpClearTransfers(id: string, transferId?: string): Promise<number> {
+  return tauriInvoke<number>('sftp_clear_transfers', { id, ...(transferId === undefined ? {} : { transferId }) })
+}
+
+/**
+ * Reveal a local path in the OS file manager (downloads "open folder").
+ * @param path - the local absolute path (file or directory).
+ */
+export function sftpRevealLocal(path: string): Promise<void> {
+  return tauriInvoke<void>('sftp_reveal_local', { path })
 }
 
 /**

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use russh_sftp::client::SftpSession;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use super::ops::{download_file, mkdir, stat, upload_file};
+use super::ops::{download_file, list_dir, mkdir, stat, upload_file};
 use super::{TransferDirection, TransferFile, TransferProgress, TransferStatus, TransferTask};
 
 /// 终态任务(Done/Failed/Cancelled)保留上限,超出后按插入顺序淘汰最旧的,
@@ -22,6 +22,10 @@ fn is_terminal(status: &TransferStatus) -> bool {
         TransferStatus::Done | TransferStatus::Failed | TransferStatus::Cancelled
     )
 }
+
+/// 重试契约:失败 / 已取消可重试(复用原任务续传),其余状态拒绝。
+/// 前端按同一规则渲染「重试」按钮,两端必须一致。
+const RETRYABLE: &[TransferStatus] = &[TransferStatus::Failed, TransferStatus::Cancelled];
 
 /// 状态变更事件 payload(emit 到 `sftp://transfer-status`)
 #[derive(Debug, Clone, Serialize)]
@@ -56,6 +60,10 @@ impl TransferControl {
     }
 }
 
+/// 进度事件节流间隔:每文件最多每 100ms 发一次,文件完成(终块)必发。
+/// 此前每 64KB chunk 一次 emit,10GB 文件 ≈ 16 万次 IPC + React setState。
+const PROGRESS_EMIT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// Recursively collect all files under `path`, returning `(local_path, remote_relative_path, size)` tuples.
 /// `relative_prefix` is the base name used to build the remote relative path.
 async fn collect_local_files(
@@ -87,33 +95,101 @@ async fn collect_local_files(
     Ok(results)
 }
 
+/// 递归收集远端文件(目录下载):返回 `(remote_path, local_relative_path, size)`。
+/// stat 失败的条目降级为单文件 size 0(某些远端/FUSE stat 不可用但可读),
+/// 让 worker 尝试 open,与原单文件行为一致。
+async fn collect_remote_files(
+    sftp: &Arc<Mutex<SftpSession>>,
+    remote_path: &str,
+    relative_prefix: &str,
+) -> Result<Vec<(String, String, u64)>> {
+    let entry = match stat(sftp, remote_path).await {
+        Ok(e) => e,
+        Err(err) => {
+            tracing::warn!(
+                "[collect_remote_files] stat failed for {}: {}; treating as single file",
+                remote_path,
+                err
+            );
+            return Ok(vec![(
+                remote_path.to_string(),
+                relative_prefix.to_string(),
+                0,
+            )]);
+        }
+    };
+    if !entry.is_dir {
+        return Ok(vec![(
+            remote_path.to_string(),
+            relative_prefix.to_string(),
+            entry.size,
+        )]);
+    }
+    let mut results = Vec::new();
+    for child in list_dir(sftp, remote_path).await? {
+        // 防环:符号链接目录不递归(按链接本身的大小当文件下,open 失败会落任务失败)
+        if child.is_symlink && child.is_dir {
+            continue;
+        }
+        let child_relative = format!("{}/{}", relative_prefix, child.name);
+        let mut sub = Box::pin(collect_remote_files(sftp, &child.path, &child_relative)).await?;
+        results.append(&mut sub);
+    }
+    Ok(results)
+}
+
+/// 为文件名生成冲突后缀:`a.txt` → `a (1).txt`;无扩展名/点前缀直接追加。
+fn suffixed_name(name: &str, n: usize) -> String {
+    match name.rfind('.') {
+        Some(i) if i > 0 => format!("{} ({}){}", &name[..i], n, &name[i..]),
+        _ => format!("{} ({})", name, n),
+    }
+}
+
+/// 任务内下载落盘重名保护:不同远端路径的同名文件/目录落到同一本地目录时,
+/// 后到的根组件加 ` (n)` 后缀(子项随根一起改),避免互相覆盖丢数据。
+/// 返回每个输入根实际使用的根名(与输入等长、按序)。
+fn dedupe_download_roots(base_names: &[String]) -> Vec<String> {
+    let mut used: HashSet<String> = HashSet::new();
+    let mut roots = Vec::with_capacity(base_names.len());
+    for base in base_names {
+        let mut root = base.clone();
+        let mut n = 1;
+        while used.contains(&root) {
+            root = suffixed_name(base, n);
+            n += 1;
+        }
+        used.insert(root.clone());
+        roots.push(root);
+    }
+    roots
+}
+
 /// Recursively create directories on remote (like `mkdir -p`).
-/// Silently succeeds if directories already exist.
-async fn mkdir_p(sftp: &Arc<Mutex<SftpSession>>, path: &str) {
-    tracing::debug!(
-        "mkdir_p: creating path '{}' via string-match fallback",
-        path
-    );
+/// 用 stat 判定「已存在」而不是字符串匹配错误文本(此前 `contains("Failure")`
+/// 会把权限失败等真错误当已存在吞掉,后续 create 报误导性错误)。
+async fn mkdir_p(sftp: &Arc<Mutex<SftpSession>>, path: &str) -> Result<()> {
     let mut current = String::new();
     for segment in path.split('/').filter(|s| !s.is_empty()) {
         current.push('/');
         current.push_str(segment);
-        if let Err(e) = mkdir(sftp, &current).await {
-            let err_str = e.to_string();
-            // "File already exists" is expected for mkdir -p
-            // Note: string matching is a compatibility fallback; the ideal fix
-            // would inspect russh_sftp's error type, but this works on OpenSSH.
-            if err_str.contains("Failure") || err_str.contains("already exists") {
-                tracing::debug!(
-                    "mkdir {} already exists (matched error: {}), skipping",
-                    current,
-                    err_str
-                );
-            } else {
-                tracing::warn!("mkdir {} failed: {}", current, err_str);
+        match stat(sftp, &current).await {
+            Ok(entry) if entry.is_dir => continue,
+            Ok(_) => {
+                anyhow::bail!("mkdir_p: {} exists and is not a directory", current)
+            }
+            Err(_) => {
+                if let Err(e) = mkdir(sftp, &current).await {
+                    // 并发/竞争下可能恰好被他人创建:再 stat 一次确认,仍不是目录才报错。
+                    match stat(sftp, &current).await {
+                        Ok(entry) if entry.is_dir => continue,
+                        _ => return Err(e),
+                    }
+                }
             }
         }
     }
+    Ok(())
 }
 
 pub struct TransferManager {
@@ -170,10 +246,47 @@ impl TransferManager {
         self.sftp_sessions.lock().await.contains_key(session_id)
     }
 
-    #[allow(dead_code)]
+    /// 轻量探活已注册的传输通道(canonicalize ".");SSH 正常但 sftp 通道死亡
+    /// 时返回 false,调用方应 unregister 后重建(此前 has_session 短路导致
+    /// 死通道永久不自愈,只能重连 SSH)。
+    pub async fn probe_sftp(&self, session_id: &str) -> bool {
+        let sftp = { self.sftp_sessions.lock().await.get(session_id).cloned() };
+        match sftp {
+            Some(s) => {
+                let guard = s.lock().await;
+                guard.canonicalize(".").await.is_ok()
+            }
+            None => false,
+        }
+    }
+
     pub async fn unregister_sftp(&self, session_id: &str) {
         let mut sessions = self.sftp_sessions.lock().await;
         sessions.remove(session_id);
+    }
+
+    /// 清除终态任务(Done/Failed/Cancelled):transfer_id 给定时只清该条,
+    /// 否则清掉该会话全部终态任务;进行中的任务不动。返回清除条数。
+    pub async fn clear_terminal(&self, session_id: &str, transfer_id: Option<&str>) -> u32 {
+        let mut tasks = self.tasks.lock().await;
+        let mut order = self.task_order.lock().await;
+        let removed_ids: Vec<String> = tasks
+            .values()
+            .filter(|t| {
+                t.session_id == session_id
+                    && is_terminal(&t.status)
+                    && (transfer_id.is_none() || transfer_id == Some(t.id.as_str()))
+            })
+            .map(|t| t.id.clone())
+            .collect();
+        let count = removed_ids.len() as u32;
+        for rid in &removed_ids {
+            tasks.remove(rid);
+        }
+        if !removed_ids.is_empty() {
+            order.retain(|id| !removed_ids.contains(id));
+        }
+        count
     }
 
     /// 拿到当前 session 的所有任务(给前端做断线重连/刷新用)
@@ -233,6 +346,20 @@ impl TransferManager {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| local_path.clone());
             let collected = collect_local_files(local_path, &base_name).await?;
+            if collected.is_empty()
+                && tokio::fs::metadata(local_path)
+                    .await
+                    .map(|m| m.is_dir())
+                    .unwrap_or(false)
+            {
+                // 空目录上传:远端仍建出目录(否则任务 0 文件直接 Done,远端什么都没发生)
+                let remote_base = if remote_dir.ends_with('/') {
+                    format!("{}{}", remote_dir, base_name)
+                } else {
+                    format!("{}/{}", remote_dir, base_name)
+                };
+                mkdir_p(&sftp, &remote_base).await?;
+            }
             for (_lp, rp, size) in &collected {
                 files.push(TransferFile {
                     name: rp.clone(),
@@ -259,6 +386,7 @@ impl TransferManager {
             download_remote_paths: None,
             download_local_dir: None,
             upload_all_files: Some(all_files.clone()),
+            download_all_files: None,
         };
 
         {
@@ -349,11 +477,25 @@ impl TransferManager {
                     format!("{}/{}", remote_dir, relative_path)
                 };
 
-                // Ensure parent directory exists on remote (mkdir -p)
+                // Ensure parent directory exists on remote (mkdir -p);
+                // 真错误(权限等)不再被吞:落 Failed 并给出准确原因。
                 if let Some(parent) = Path::new(&remote_path).parent() {
                     let parent_str = parent.to_string_lossy().to_string();
                     if !parent_str.is_empty() && parent_str != "/" {
-                        mkdir_p(&sftp, &parent_str).await;
+                        if let Err(e) = mkdir_p(&sftp, &parent_str).await {
+                            tracing::error!(
+                                "[TransferManager::upload] task {} mkdir_p failed: {}",
+                                tid,
+                                e
+                            );
+                            let mut tasks = tasks.lock().await;
+                            if let Some(t) = tasks.get_mut(&tid) {
+                                t.status = TransferStatus::Failed;
+                                t.error = Some(e.to_string());
+                            }
+                            final_status = Some((TransferStatus::Failed, Some(e.to_string())));
+                            break;
+                        }
                     }
                 }
 
@@ -367,10 +509,16 @@ impl TransferManager {
                 let offset = cumulative_transferred;
                 let ah = app_handle.clone();
                 let tid_clone = tid.clone();
+                let tid_for_emit = tid.clone();
+                let sid_for_progress = session_id_for_emit.clone();
                 let fname = relative_path.clone();
                 let tasks_ref = tasks.clone();
                 let tasks_for_speed = tasks.clone();
                 let tid_for_speed = tid.clone();
+                // 进度事件节流:上次发送时间(初始为「一个间隔前」,首块必发)。
+                let last_emit = Arc::new(std::sync::Mutex::new(
+                    std::time::Instant::now() - PROGRESS_EMIT_INTERVAL,
+                ));
 
                 // Read per-file resume offset from task
                 let resume_from = {
@@ -412,24 +560,46 @@ impl TransferManager {
                     &remote_path,
                     resume_from,
                     move |trans, total| {
-                        let file_progress = trans;
-                        let _ = ah.emit(
-                            "sftp://transfer-progress",
-                            TransferProgress {
-                                transfer_id: tid_clone.clone(),
-                                file_name: fname.clone(),
-                                transferred: file_progress,
-                                total,
-                                direction: TransferDirection::Upload,
-                            },
-                        );
+                        // 先更新任务聚合(try_lock 失败时退回本地估算值),
+                        // 再按节流 emit——事件携带任务级聚合进度。
+                        let mut task_transferred = offset + trans;
+                        let mut task_total = total;
                         if let Ok(mut tasks) = tasks_ref.try_lock() {
                             if let Some(t) = tasks.get_mut(&tid_clone) {
-                                t.transferred_bytes = offset + file_progress;
+                                t.transferred_bytes = offset + trans;
                                 if let Some(f) = t.files.get_mut(i) {
-                                    f.transferred = file_progress;
+                                    f.transferred = trans;
+                                }
+                                task_transferred = t.transferred_bytes;
+                                task_total = t.total_bytes;
+                            }
+                        }
+                        let due = match last_emit.lock() {
+                            Ok(mut last) => {
+                                // 文件完成(终块)必发,不丢边界;其余按间隔节流
+                                if trans >= total || last.elapsed() >= PROGRESS_EMIT_INTERVAL {
+                                    *last = std::time::Instant::now();
+                                    true
+                                } else {
+                                    false
                                 }
                             }
+                            Err(_) => true,
+                        };
+                        if due {
+                            let _ = ah.emit(
+                                "sftp://transfer-progress",
+                                TransferProgress {
+                                    transfer_id: tid_for_emit.clone(),
+                                    session_id: sid_for_progress.clone(),
+                                    file_name: fname.clone(),
+                                    transferred: trans,
+                                    total,
+                                    task_transferred,
+                                    task_total,
+                                    direction: TransferDirection::Upload,
+                                },
+                            );
                         }
                     },
                     move || {
@@ -554,32 +724,34 @@ impl TransferManager {
 
         let transfer_id = Uuid::new_v4().to_string();
 
+        // 递归展开(目录下载与上传递归对称);同名根加 ` (n)` 后缀防互相覆盖。
+        let base_names: Vec<String> = remote_paths
+            .iter()
+            .map(|p| {
+                Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| p.clone())
+            })
+            .collect();
+        let roots = dedupe_download_roots(&base_names);
+
         let mut files = Vec::new();
         let mut total_bytes: u64 = 0;
+        let mut all_files: Vec<(String, String, u64)> = Vec::new();
 
-        for remote_path in &remote_paths {
-            // stat 失败时不直接抛错,让 worker 尝试 open;某些远端/FUSE stat 不可用但可读。
-            let entry_size = match stat(&sftp, remote_path).await {
-                Ok(entry) => entry.size,
-                Err(e) => {
-                    tracing::warn!(
-                        "[TransferManager::download] stat failed for {}: {}; will try open",
-                        remote_path,
-                        e
-                    );
-                    0
-                }
-            };
-            let name = Path::new(remote_path)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| remote_path.clone());
-            files.push(TransferFile {
-                name,
-                size: entry_size,
-                transferred: 0,
-            });
-            total_bytes += entry_size;
+        for (remote_path, root) in remote_paths.iter().zip(roots.iter()) {
+            let collected = collect_remote_files(&sftp, remote_path, root).await?;
+            for (rp, rel, size) in collected {
+                // files[].name 即本地落盘相对路径(含重命名后缀),展示与落盘一致
+                files.push(TransferFile {
+                    name: rel.clone(),
+                    size,
+                    transferred: 0,
+                });
+                total_bytes += size;
+                all_files.push((rp, rel, size));
+            }
         }
 
         let task = TransferTask {
@@ -597,6 +769,7 @@ impl TransferManager {
             download_remote_paths: Some(remote_paths.clone()),
             download_local_dir: Some(local_dir.clone()),
             upload_all_files: None,
+            download_all_files: Some(all_files.clone()),
         };
 
         {
@@ -617,7 +790,7 @@ impl TransferManager {
             transfer_id.clone(),
             session_id,
             sftp,
-            remote_paths,
+            all_files,
             local_dir,
             control,
         );
@@ -625,13 +798,14 @@ impl TransferManager {
         Ok(transfer_id)
     }
 
-    /// 下载 worker:语义同 spawn_upload_worker,暂停后保留任务与断点偏移。
+    /// 下载 worker:语义同 spawn_upload_worker,逐 (remote, rel) 对传输,
+    /// rel 即本地落盘相对路径(含重名后缀);暂停后保留任务与断点偏移。
     fn spawn_download_worker(
         &self,
         tid: String,
         session_id: String,
         sftp: Arc<Mutex<SftpSession>>,
-        remote_paths: Vec<String>,
+        all_files: Vec<(String, String, u64)>,
         local_dir: String,
         control: TransferControl,
     ) {
@@ -662,7 +836,7 @@ impl TransferManager {
             let mut cumulative_transferred: u64 = 0;
             let mut final_status: Option<(TransferStatus, Option<String>)> = None;
 
-            for (i, remote_path) in remote_paths.iter().enumerate() {
+            for (i, (remote_path, rel_path, _size)) in all_files.iter().enumerate() {
                 if control.cancel.is_cancelled() {
                     let mut tasks = tasks.lock().await;
                     if let Some(t) = tasks.get_mut(&tid) {
@@ -680,23 +854,27 @@ impl TransferManager {
                     break;
                 }
 
-                let file_name = Path::new(remote_path)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| remote_path.clone());
+                // rel 即本地落盘相对路径(任务创建期已做重名后缀保护);
+                // 子目录由 download_file 内的 create_dir_all 兜底创建。
                 let local_path = if local_dir.ends_with('/') || local_dir.ends_with('\\') {
-                    format!("{}{}", local_dir, file_name)
+                    format!("{}{}", local_dir, rel_path)
                 } else {
-                    format!("{}/{}", local_dir, file_name)
+                    format!("{}/{}", local_dir, rel_path)
                 };
 
                 let offset = cumulative_transferred;
                 let ah = app_handle.clone();
                 let tid_clone = tid.clone();
-                let fname = file_name.clone();
+                let tid_for_emit = tid.clone();
+                let sid_for_progress = session_id_for_emit.clone();
+                let fname = rel_path.clone();
                 let tasks_ref = tasks.clone();
                 let tasks_for_speed = tasks.clone();
                 let tid_for_speed = tid.clone();
+                // 进度事件节流:上次发送时间(初始为「一个间隔前」,首块必发)。
+                let last_emit = Arc::new(std::sync::Mutex::new(
+                    std::time::Instant::now() - PROGRESS_EMIT_INTERVAL,
+                ));
 
                 // Read per-file resume offset from task
                 let resume_from = {
@@ -738,24 +916,46 @@ impl TransferManager {
                     &local_path,
                     resume_from,
                     move |trans, total| {
-                        let file_progress = trans;
-                        let _ = ah.emit(
-                            "sftp://transfer-progress",
-                            TransferProgress {
-                                transfer_id: tid_clone.clone(),
-                                file_name: fname.clone(),
-                                transferred: file_progress,
-                                total,
-                                direction: TransferDirection::Download,
-                            },
-                        );
+                        // 先更新任务聚合(try_lock 失败时退回本地估算值),
+                        // 再按节流 emit——事件携带任务级聚合进度。
+                        let mut task_transferred = offset + trans;
+                        let mut task_total = total;
                         if let Ok(mut tasks) = tasks_ref.try_lock() {
                             if let Some(t) = tasks.get_mut(&tid_clone) {
-                                t.transferred_bytes = offset + file_progress;
+                                t.transferred_bytes = offset + trans;
                                 if let Some(f) = t.files.get_mut(i) {
-                                    f.transferred = file_progress;
+                                    f.transferred = trans;
+                                }
+                                task_transferred = t.transferred_bytes;
+                                task_total = t.total_bytes;
+                            }
+                        }
+                        let due = match last_emit.lock() {
+                            Ok(mut last) => {
+                                // 文件完成(终块)必发,不丢边界;其余按间隔节流
+                                if trans >= total || last.elapsed() >= PROGRESS_EMIT_INTERVAL {
+                                    *last = std::time::Instant::now();
+                                    true
+                                } else {
+                                    false
                                 }
                             }
+                            Err(_) => true,
+                        };
+                        if due {
+                            let _ = ah.emit(
+                                "sftp://transfer-progress",
+                                TransferProgress {
+                                    transfer_id: tid_for_emit.clone(),
+                                    session_id: sid_for_progress.clone(),
+                                    file_name: fname.clone(),
+                                    transferred: trans,
+                                    total,
+                                    task_transferred,
+                                    task_total,
+                                    direction: TransferDirection::Download,
+                                },
+                            );
                         }
                     },
                     move || {
@@ -902,23 +1102,36 @@ impl TransferManager {
 
     /// 继续一个已暂停的传输:换新控制令牌,重新 spawn worker,从断点偏移续传
     pub async fn resume(&self, transfer_id: &str) -> Result<()> {
-        let (session_id, direction, all_files, remote_dir, remote_paths, local_dir) = {
-            let mut tasks = self.tasks.lock().await;
+        self.respawn(transfer_id, &[TransferStatus::Paused], "resume")
+            .await
+    }
+
+    /// 重试失败/已取消的传输:复用原任务(同一 id,原行复活),从断点偏移续传。
+    /// 此前 retry 用原始参数重建全新任务、偏移清零(99% 处失败要重传 100%),
+    /// 且只接受 Failed——前端对 cancelled 行的「重试」必报错。
+    pub async fn retry(&self, transfer_id: &str) -> Result<String> {
+        self.respawn(transfer_id, RETRYABLE, "retry").await?;
+        Ok(transfer_id.to_string())
+    }
+
+    /// 重新 spawn 处于 allowed 状态的任务的 worker。断点偏移保留在 task.files,
+    /// worker 跳过已完成文件、从部分偏移续传。session 查找先于状态变更,
+    /// 失败不会留下 Queued 残态。
+    async fn respawn(
+        &self,
+        transfer_id: &str,
+        allowed: &[TransferStatus],
+        verb: &str,
+    ) -> Result<()> {
+        let session_id = {
+            let tasks = self.tasks.lock().await;
             let task = tasks
-                .get_mut(transfer_id)
+                .get(transfer_id)
                 .ok_or_else(|| anyhow::anyhow!("Transfer not found: {}", transfer_id))?;
-            if task.status != TransferStatus::Paused {
-                return Err(anyhow::anyhow!("Can only resume paused transfers"));
+            if !allowed.contains(&task.status) {
+                return Err(anyhow::anyhow!("Can only {} {:?} transfers", verb, allowed));
             }
-            task.status = TransferStatus::Queued;
-            (
-                task.session_id.clone(),
-                task.direction.clone(),
-                task.upload_all_files.clone(),
-                task.upload_remote_dir.clone(),
-                task.download_remote_paths.clone(),
-                task.download_local_dir.clone(),
-            )
+            task.session_id.clone()
         };
 
         let sftp = {
@@ -927,6 +1140,32 @@ impl TransferManager {
                 .get(&session_id)
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("SFTP session not found: {}", session_id))?
+        };
+
+        let (
+            direction,
+            upload_all_files,
+            upload_remote_dir,
+            download_all_files,
+            download_local_dir,
+        ) = {
+            let mut tasks = self.tasks.lock().await;
+            let task = tasks
+                .get_mut(transfer_id)
+                .ok_or_else(|| anyhow::anyhow!("Transfer not found: {}", transfer_id))?;
+            // 并发下状态可能在两把锁之间变化,二次确认。
+            if !allowed.contains(&task.status) {
+                return Err(anyhow::anyhow!("Can only {} {:?} transfers", verb, allowed));
+            }
+            task.status = TransferStatus::Queued;
+            task.error = None;
+            (
+                task.direction.clone(),
+                task.upload_all_files.clone(),
+                task.upload_remote_dir.clone(),
+                task.download_all_files.clone(),
+                task.download_local_dir.clone(),
+            )
         };
 
         let control = TransferControl::new();
@@ -940,16 +1179,16 @@ impl TransferManager {
                 transfer_id.to_string(),
                 session_id,
                 sftp,
-                all_files.unwrap_or_default(),
-                remote_dir.unwrap_or_default(),
+                upload_all_files.unwrap_or_default(),
+                upload_remote_dir.unwrap_or_default(),
                 control,
             ),
             TransferDirection::Download => self.spawn_download_worker(
                 transfer_id.to_string(),
                 session_id,
                 sftp,
-                remote_paths.unwrap_or_default(),
-                local_dir.unwrap_or_default(),
+                download_all_files.unwrap_or_default(),
+                download_local_dir.unwrap_or_default(),
                 control,
             ),
         }
@@ -957,61 +1196,111 @@ impl TransferManager {
         Ok(())
     }
 
-    /// Retry a failed transfer — creates a new transfer that resumes from per-file offsets
-    pub async fn retry(&self, transfer_id: &str) -> Result<String> {
-        let (
-            session_id,
-            direction,
-            speed_limit,
-            upload_local_paths,
-            upload_remote_dir,
-            download_remote_paths,
-            download_local_dir,
-        ) = {
-            let tasks = self.tasks.lock().await;
-            let task = tasks
-                .get(transfer_id)
-                .ok_or_else(|| anyhow::anyhow!("Transfer not found: {}", transfer_id))?;
-            if task.status != TransferStatus::Failed {
-                return Err(anyhow::anyhow!("Can only retry failed transfers"));
-            }
-            (
-                task.session_id.clone(),
-                task.direction.clone(),
-                task.speed_limit,
-                task.upload_local_paths.clone().unwrap_or_default(),
-                task.upload_remote_dir.clone().unwrap_or_default(),
-                task.download_remote_paths.clone().unwrap_or_default(),
-                task.download_local_dir.clone().unwrap_or_default(),
-            )
-        };
-
-        match direction {
-            TransferDirection::Upload => {
-                self.upload(
-                    &session_id,
-                    upload_local_paths,
-                    upload_remote_dir,
-                    speed_limit,
-                )
-                .await
-            }
-            TransferDirection::Download => {
-                self.download(
-                    &session_id,
-                    download_remote_paths,
-                    download_local_dir,
-                    speed_limit,
-                )
-                .await
-            }
-        }
-    }
-
     pub async fn set_speed_limit(&self, transfer_id: &str, speed_limit: u64) {
         let mut tasks = self.tasks.lock().await;
         if let Some(t) = tasks.get_mut(transfer_id) {
             t.speed_limit = speed_limit;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn owned(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn task(id: &str, session: &str, status: TransferStatus) -> TransferTask {
+        TransferTask {
+            id: id.to_string(),
+            session_id: session.to_string(),
+            direction: TransferDirection::Download,
+            files: vec![],
+            status,
+            total_bytes: 0,
+            transferred_bytes: 0,
+            speed_limit: 0,
+            error: None,
+            upload_local_paths: None,
+            upload_remote_dir: None,
+            download_remote_paths: None,
+            download_local_dir: None,
+            upload_all_files: None,
+            download_all_files: None,
+        }
+    }
+
+    #[test]
+    fn suffixed_name_appends_before_extension() {
+        assert_eq!(suffixed_name("a.txt", 1), "a (1).txt");
+        assert_eq!(suffixed_name("dir", 2), "dir (2)");
+        // 点前缀(.env)不走扩展名分支,整体追加
+        assert_eq!(suffixed_name(".env", 1), ".env (1)");
+        assert_eq!(suffixed_name("归档.tar.gz", 1), "归档.tar (1).gz");
+    }
+
+    #[test]
+    fn dedupe_download_roots_suffixes_only_collisions() {
+        let roots = dedupe_download_roots(&owned(&["a.txt", "a.txt", "b", "a.txt"]));
+        assert_eq!(roots, owned(&["a.txt", "a (1).txt", "b", "a (2).txt"]));
+        // 无冲突时原样返回
+        let plain = dedupe_download_roots(&owned(&["x", "y"]));
+        assert_eq!(plain, owned(&["x", "y"]));
+    }
+
+    #[test]
+    fn retry_contract_accepts_failed_and_cancelled_only() {
+        assert!(RETRYABLE.contains(&TransferStatus::Failed));
+        assert!(RETRYABLE.contains(&TransferStatus::Cancelled));
+        for s in [
+            TransferStatus::Queued,
+            TransferStatus::Running,
+            TransferStatus::Paused,
+            TransferStatus::Done,
+        ] {
+            assert!(!RETRYABLE.contains(&s), "{:?} must not be retryable", s);
+        }
+    }
+
+    #[test]
+    fn prune_terminal_tasks_keeps_running_and_caps_terminal() {
+        let mut tasks: HashMap<String, TransferTask> = HashMap::new();
+        let mut order: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+        // 1 个进行中 + MAX+2 个终态 → 淘汰最旧的 2 个终态
+        tasks.insert("run".into(), task("run", "s", TransferStatus::Running));
+        order.push_back("run".into());
+        for i in 0..(MAX_RETAINED_TERMINAL_TASKS + 2) {
+            let id = format!("done-{}", i);
+            tasks.insert(id.clone(), task(&id, "s", TransferStatus::Done));
+            order.push_back(id);
+        }
+        TransferManager::prune_terminal_tasks(&mut tasks, &mut order);
+        assert!(tasks.contains_key("run"), "进行中的任务不淘汰");
+        assert!(!tasks.contains_key("done-0") && !tasks.contains_key("done-1"));
+        assert!(tasks.contains_key(&format!("done-{}", MAX_RETAINED_TERMINAL_TASKS + 1)));
+        assert_eq!(
+            tasks.values().filter(|t| is_terminal(&t.status)).count(),
+            MAX_RETAINED_TERMINAL_TASKS
+        );
+    }
+
+    #[test]
+    fn terminal_status_classification() {
+        for s in [
+            TransferStatus::Done,
+            TransferStatus::Failed,
+            TransferStatus::Cancelled,
+        ] {
+            assert!(is_terminal(&s));
+        }
+        for s in [
+            TransferStatus::Queued,
+            TransferStatus::Running,
+            TransferStatus::Paused,
+        ] {
+            assert!(!is_terminal(&s));
         }
     }
 }

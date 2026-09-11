@@ -24,6 +24,8 @@ import ZmodemModule from 'zmodem.js/src/zmodem_browser.js'
 import { tauriInvoke, tauriListen, type TauriUnlisten } from '../tauri.ts'
 import type { RustAsset } from '../store.ts'
 import { SftpPanel } from './SftpPanel.tsx'
+import { TransferDialog } from './TransferDialog.tsx'
+import { useTransferTasks } from './use-transfer-tasks.ts'
 import { formatSize } from './sftp-service.ts'
 import { BroadcastDialog, type BroadcastSession } from './BroadcastDialog.tsx'
 import { createQuickCommand, importQuickCommands, loadQuickCommands, saveQuickCommands, type QuickCommand } from './quick-commands.ts'
@@ -714,6 +716,14 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
     setConnectNonce(n => n + 1)
   }
 
+  // SFTP 传输任务投影(会话级,2026-09-11 弹框化):监听与 SftpPanel 生命周期
+  // 解耦——关掉「文件」页签后传输在后台继续,徽标仍在;弹框由本层承载。
+  // 注意:本 hook 必须保持在组件末尾、所有 useEffect 之后调用——其 effect 的
+  // 事件监听器注册顺序晚于终端自身的 ssh:data 等监听,既有测试按回调注册
+  // 序号取监听器,前置会整体移位。
+  const transferTasks = useTransferTasks(sessionId)
+  const [transferDialogOpen, setTransferDialogOpen] = useState(false)
+
   const sidePanelLabel = '文件传输'
   const toggleSidePanel = (panel: Exclude<SidePanel, null>): void => {
     setSidePanel(current => current === panel ? null : panel)
@@ -764,7 +774,20 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
                 onClick={() =>{  toggleSidePanel('sftp') }}
                 title={connected ? '显示或隐藏 SFTP 文件面板' : '等待 SSH 连接后启用 SFTP'}
                 aria-pressed={sidePanel === 'sftp'}
-              ><IconFolderOpenOutline16 size={15} /> 文件</button>
+              >
+                <IconFolderOpenOutline16 size={15} /> 文件
+                {transferTasks.activeCount > 0 && (
+                  <span
+                    className={css.tabBadge}
+                    title={`${transferTasks.activeCount} 个传输任务进行中(点击查看)`}
+                    onClick={(event) => {
+                      // 徽标点击直接开传输弹框,不切换侧栏
+                      event.stopPropagation()
+                      setTransferDialogOpen(true)
+                    }}
+                  >{transferTasks.activeCount}</span>
+                )}
+              </button>
               <button
                 type="button"
                 className={css.workspaceTab}
@@ -840,6 +863,9 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
                   sshConnected={connected}
                   sshCwd={sshCwd}
                   onFollowTerminal={onFollowTerminal}
+                  transferActiveCount={transferTasks.activeCount}
+                  onOpenTransfers={() => { setTransferDialogOpen(true) }}
+                  uploadDoneNonce={transferTasks.uploadDoneNonce}
                 />
               </div>
             </aside>
@@ -851,6 +877,13 @@ export function SshTerminalOverlay({ asset, onClose }: SshTerminalOverlayProps) 
           commands={quickCommands}
           onChange={updateQuickCommands}
           onClose={() =>{  setQuickEditorOpen(false) }}
+        />
+      )}
+      {transferDialogOpen && (
+        <TransferDialog
+          sessionId={sessionId}
+          api={transferTasks}
+          onClose={() => { setTransferDialogOpen(false) }}
         />
       )}
       {broadcastSessions !== null && (

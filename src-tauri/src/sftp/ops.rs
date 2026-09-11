@@ -51,7 +51,6 @@ async fn get_entry(sftp: &SftpSession, path: &str) -> Result<FileEntry> {
     Ok(metadata_to_entry(&parent, &name, &meta))
 }
 
-#[allow(dead_code)]
 pub async fn list_dir(sftp: &Arc<Mutex<SftpSession>>, path: &str) -> Result<Vec<FileEntry>> {
     let sftp = sftp.lock().await;
     let read_dir = sftp

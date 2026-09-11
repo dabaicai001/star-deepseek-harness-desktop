@@ -270,17 +270,26 @@ pub async fn sftp_rename(
 // ============== 流式传输(走 TransferManager,分块 + progress 事件) ==============
 
 /// 打开一条 SFTP 通道并注册到 TransferManager(后续 sftp_start_*
-/// 会复用它,避免每个文件都新开 SFTP channel)
+/// 会复用它,避免每个文件都新开 SFTP channel)。
+/// 已注册时先轻量探活(canonicalize "."):SSH 正常但 sftp 通道死亡时
+/// 注销旧通道并重建——此前 has_session 直接短路,死通道永久不自愈,
+/// 面板「重试」也被挡住,只能重连整条 SSH。
 #[tauri::command]
 pub async fn sftp_ensure_session(
     manager: State<'_, SshManager>,
     transfer_manager: State<'_, TransferManager>,
     id: String,
 ) -> Result<Option<SftpLaunchInfo>, String> {
-    // 已注册过就直接返回
     if transfer_manager.has_session(&id).await {
-        tracing::info!("[sftp_ensure_session] session {} already registered", id);
-        return Ok(None);
+        if transfer_manager.probe_sftp(&id).await {
+            tracing::info!("[sftp_ensure_session] session {} already registered", id);
+            return Ok(None);
+        }
+        tracing::warn!(
+            "[sftp_ensure_session] session {} sftp channel dead, re-registering",
+            id
+        );
+        transfer_manager.unregister_sftp(&id).await;
     }
     tracing::info!(
         "[sftp_ensure_session] opening SFTP channel for session {}",
@@ -377,7 +386,7 @@ pub async fn sftp_set_speed_limit(
     Ok(())
 }
 
-/// 重试失败的传输(创建新传输,从失败文件处继续)
+/// 重试失败/已取消的传输(复用原任务 id,从断点偏移续传,不再全量重传)
 #[tauri::command]
 pub async fn sftp_retry_transfer(
     transfer_manager: State<'_, TransferManager>,
@@ -385,6 +394,60 @@ pub async fn sftp_retry_transfer(
     transfer_id: String,
 ) -> Result<String, String> {
     transfer_manager.retry(&transfer_id).await.map_err(map_err)
+}
+
+/// 清除终态任务(transferId 给定时只清该条,否则清该会话全部终态任务);
+/// 进行中的任务不受影响。返回清除条数。
+#[tauri::command]
+pub async fn sftp_clear_transfers(
+    transfer_manager: State<'_, TransferManager>,
+    id: String,
+    transfer_id: Option<String>,
+) -> Result<u32, String> {
+    Ok(transfer_manager
+        .clear_terminal(&id, transfer_id.as_deref())
+        .await)
+}
+
+/// 在本机文件管理器中显示下载产物(Windows: explorer /select;
+/// macOS: open -R;Linux: xdg-open 所在目录)。仅接受已存在的本机路径。
+#[tauri::command]
+pub async fn sftp_reveal_local(path: String) -> Result<(), String> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.exists() {
+        return Err(format!("路径不存在: {}", path));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(path.replace('/', "\\"))
+            .spawn()
+            .map_err(map_err)?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn()
+            .map_err(map_err)?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let dir = if p.is_dir() {
+            path.clone()
+        } else {
+            p.parent()
+                .map(|d| d.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.clone())
+        };
+        std::process::Command::new("xdg-open")
+            .arg(dir)
+            .spawn()
+            .map_err(map_err)?;
+    }
+    Ok(())
 }
 
 /// 列出某 session 的所有传输任务(给前端刷新/重连用)

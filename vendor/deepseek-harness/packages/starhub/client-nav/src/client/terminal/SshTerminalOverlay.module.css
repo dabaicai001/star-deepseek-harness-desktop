@@ -62,6 +62,8 @@
 .quickAdd:hover { border-color: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-state-business-primary); }
 .quickDone { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-label-primary); font-weight: 700; }
 .sidePanel { display: flex; width: min(44vw, 560px); min-width: 340px; min-height: 0; flex: 0 1 var(--side-panel-width, 500px); flex-direction: column; border-left: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); }
+/* 「文件」页签上的传输进行中计数徽标(关面板后传输仍在后台,徽标持续指示) */
+.tabBadge { margin-left: 4px; min-width: 15px; padding: 0 4px; border-radius: 8px; background: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-label-inverse, #fff); font-size: 9px; line-height: 15px; text-align: center; }
 
 /* SFTP / 网页面板左边框拖拽把手:细分隔条,横向拖动调整面板宽度。 */
 .sidePanelResize { flex: none; width: 6px; margin-left: -6px; align-self: stretch; cursor: col-resize; user-select: none; touch-action: none; }

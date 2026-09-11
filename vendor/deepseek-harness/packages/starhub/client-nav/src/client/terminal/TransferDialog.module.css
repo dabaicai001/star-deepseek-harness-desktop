@@ -1,0 +1,357 @@
+/* SFTP 传输任务弹框:沿用 SftpPanel 的 fileDialog 骨架与 dsh 设计令牌。 */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--dsw-alias-bg-mask-3);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+  max-width: 92vw;
+  max-height: 78vh;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-3);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 35%);
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.countBadge {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-inverse, #fff);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+.headBtn {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.headBtn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.headBtn:disabled,
+.miniBtn:disabled,
+.miniBtnDanger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.noticeOk,
+.noticeError {
+  flex: none;
+  margin: 8px 12px 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-all;
+}
+
+.noticeOk {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.noticeError {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.empty {
+  padding: 28px 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 8px;
+}
+
+.rowFailed {
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
+.rowHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dirIcon {
+  display: inline-flex;
+  flex: none;
+  color: var(--dsw-alias-state-business-primary);
+}
+
+/* 上传图标复用下载箭头旋转 180°(图标库暂无 Upload 图标)。 */
+.dirIconUp {
+  color: var(--dsw-alias-state-success-primary);
+  transform: rotate(180deg);
+}
+
+.rowTitle {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statusBadge {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.st-queued { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }
+.st-running { background: var(--dsw-alias-interactive-bg-hover-accent); color: var(--dsw-alias-state-business-primary); }
+.st-paused { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-state-warn-primary); }
+.st-done { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-state-success-primary); }
+.st-failed { background: var(--dsw-alias-interactive-bg-hover-danger); color: var(--dsw-alias-state-error-primary); }
+.st-cancelled { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-tertiary); }
+
+.track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--dsw-alias-state-business-primary);
+  transition: width 0.15s linear;
+}
+
+.fillFailed {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.fillDone {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.metaLine {
+  display: flex;
+  gap: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+}
+
+.currentFile {
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.errorLine {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+.errorText {
+  flex: 1 1 auto;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 11px;
+  line-height: 16px;
+  user-select: text;
+  word-break: break-all;
+}
+
+.limitLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.limitLabel {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.limitInput {
+  box-sizing: border-box;
+  width: 90px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  outline: none;
+}
+
+.limitInput:focus {
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.miniBtn,
+.miniBtnDanger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.miniBtn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.miniBtnDanger {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.miniBtnDanger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+.fileList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2, transparent);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.fileRowCurrent {
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+}
+
+.fileName {
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileRowCurrent .fileName {
+  color: var(--dsw-alias-label-primary);
+}
+
+.fileMeta {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+  font-size: 10px;
+}

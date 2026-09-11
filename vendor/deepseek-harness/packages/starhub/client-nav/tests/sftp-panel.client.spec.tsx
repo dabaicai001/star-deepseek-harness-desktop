@@ -169,4 +169,39 @@ describe('SftpPanel', () => {
       window.localStorage.removeItem('starhub.sftp.followTerminal')
     }
   })
+
+  it('opens the transfer dialog from the toolbar and shows the active-count badge', async () => {
+    ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+    installTauri([])
+    const onOpenTransfers = vi.fn()
+    render(
+      <SftpPanel
+        asset={asset} sessionId="ssh-1" sshConnected={true}
+        transferActiveCount={3} onOpenTransfers={onOpenTransfers}
+      />,
+    )
+    const btn = await screen.findByRole('button', { name: '传输任务' })
+    // 进行中计数徽标
+    expect(btn.textContent).toContain('3')
+    fireEvent.click(btn)
+    expect(onOpenTransfers).toHaveBeenCalledTimes(1)
+  })
+
+  it('reloads the current directory when an upload completes (done → refresh)', async () => {
+    ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+    const { invoke } = installTauri([])
+    const view = render(
+      <SftpPanel asset={asset} sessionId="ssh-1" sshConnected={true} uploadDoneNonce={0} />,
+    )
+    const listCalls = (): number =>
+      invoke.mock.calls.filter(([command]) => command === 'sftp_list').length
+    // 等首列目录完成(面板已连接)
+    await waitFor(() => { expect(listCalls()).toBeGreaterThan(0) })
+    const before = listCalls()
+    // 上传完成 nonce 自增 → 面板重列当前目录(替代旧实现「开始后固定 2s」)
+    view.rerender(
+      <SftpPanel asset={asset} sessionId="ssh-1" sshConnected={true} uploadDoneNonce={1} />,
+    )
+    await waitFor(() => { expect(listCalls()).toBeGreaterThan(before) })
+  })
 })

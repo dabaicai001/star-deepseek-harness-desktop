@@ -4,8 +4,10 @@
  * Mirrors the Vue `SftpPanel.vue` behavior: directory browse with breadcrumbs /
  * path editing / hidden toggle, single + ctrl/shift multi-select, context menu
  * (open / download / upload / new-folder / rename / delete / copy path), streamed
- * upload & download through the shared TransferManager, and a live transfer list
- * with pause / resume / cancel / retry.
+ * upload & download through the shared TransferManager. 传输任务列表在 2026-09-11
+ * 移出面板,由 overlay 级 useTransferTasks 投影 + TransferDialog 弹框承载
+ * (关面板传输不丢;本面板只保留工具栏入口按钮 + 未完成任务徽标,并经
+ * uploadDoneNonce 在上传完成后刷新当前目录)。
  *
  * It reuses the terminal's live SSH session (`sessionId`): SFTP never re-auths,
  * it just opens the SFTP subsystem channel via `sftp_ensure_session`. When the
@@ -22,10 +24,10 @@ import { tauriInvoke, tauriListen, type TauriUnlisten } from '../tauri.ts'
 import { isTauriRuntime } from '../settings/services.ts'
 import type { RustAsset } from '../store.ts'
 import {
-  sftpList, sftpEnsureSession, sftpStartUpload, sftpStartDownload, sftpCancelTransfer,
-  sftpPauseTransfer, sftpResumeTransfer, sftpRetryTransfer, sftpRemove, sftpRename, sftpListTransfers,
+  sftpList, sftpEnsureSession, sftpStartUpload, sftpStartDownload,
+  sftpRemove, sftpRename,
   joinPath, parentPath, formatSize,
-  type SftpEntry, type TransferProgressEvent, type TransferStatusEvent, type TransferTask,
+  type SftpEntry,
 } from './sftp-service.ts'
 import css from './SftpPanel.module.css'
 
@@ -40,6 +42,12 @@ export interface SftpPanelProps {
   sshCwd?: string
   /** Fired when the follow-terminal toggle flips; enables OSC 7 injection. */
   onFollowTerminal?: (enabled: boolean) => void
+  /** 进行中(含暂停)的传输任务数:工具栏入口徽标。 */
+  transferActiveCount?: number
+  /** 打开传输任务弹框(overlay 承载)。 */
+  onOpenTransfers?: () => void
+  /** 上传完成 nonce(overlay 级投影在上传 done 时自增):据此刷新当前目录。 */
+  uploadDoneNonce?: number
 }
 
 const FOLLOW_TERMINAL_KEY = 'starhub.sftp.followTerminal'
@@ -80,7 +88,10 @@ async function pickPath(kind: 'file' | 'folder' | 'files'): Promise<string[] | n
  * @param props - asset, live terminal session id, connected state and cwd.
  * @returns the SFTP panel markup.
  */
-export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerminal }: SftpPanelProps) {
+export function SftpPanel({
+  asset, sessionId, sshConnected, sshCwd, onFollowTerminal,
+  transferActiveCount = 0, onOpenTransfers, uploadDoneNonce = 0,
+}: SftpPanelProps) {
   const [connected, setConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -127,8 +138,6 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lastClicked, setLastClicked] = useState(-1)
   const [menu, setMenu] = useState<MenuState | null>(null)
-  const [transfers, setTransfers] = useState<TransferTask[]>([])
-  const [showTransfers, setShowTransfers] = useState(false)
   const [fileDialog, setFileDialog] = useState<FileDialog | null>(null)
   // 原生拖拽上传:OS 文件拖入窗口时显示覆盖层,drop 时把它上传到当前目录。
   const [showDropOverlay, setShowDropOverlay] = useState(false)
@@ -138,6 +147,13 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
   const connectedRef = useRef(false)
   const sshCwdRef = useRef(sshCwd)
   sshCwdRef.current = sshCwd
+  // 跟随终端开关的 ref 镜像:连接/重连 effect 按当前开关决定是否注入 OSC 7,
+  // 不在重连时无视用户已关闭的开关强开(此前恒 onFollowTerminal(true))。
+  const followTerminalRef = useRef(followTerminal)
+  followTerminalRef.current = followTerminal
+  // 上传完成刷新:overlay 级投影在上传 done 时自增 nonce(替代旧实现
+  // 「开始后固定 2s 刷一次」——与完成时机无关,大文件传完列表仍旧)。
+  const lastUploadDoneRef = useRef(uploadDoneNonce)
 
   // ---- connect the SFTP channel on the live session ----
   useEffect(() => {
@@ -150,10 +166,10 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
     const isAborted = (): boolean => abort.signal.aborted
     setConnecting(true)
     dismissError()
-    // SFTP 面板默认 followTerminal=true。首次连接就通知终端侧注入 OSC 7,
+    // SFTP 面板默认 followTerminal=true。连接后按当前开关通知终端侧注入 OSC 7,
     // 让 shell 在每次 cd 后上报 cwd——否则只有在用户手动点「跟随终端路径」
-    // 时才注入,面板打开后 cd 不会触发跟随。
-    onFollowTerminal?.(true)
+    // 时才注入,面板打开后 cd 不会触发跟随。重连时尊重用户已关闭的开关。
+    if (followTerminalRef.current) onFollowTerminal?.(true)
     void (async () => {
       try {
         const info = await sftpEnsureSession(sessionId)
@@ -187,55 +203,13 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDir/onFollowTerminal 为渲染期闭包,本 effect 只随会话/连接态/手动重连 nonce 重建通道。
   }, [sessionId, sshConnected, connectNonce])
 
-  // ---- transfer event listeners (global; filter by our session) ----
+  // ---- 上传完成后刷新当前目录(done → loadDir 联动) ----
   useEffect(() => {
-    let unstatus: TauriUnlisten | undefined
-    let unprogress: TauriUnlisten | undefined
-    void tauriListen<TransferStatusEvent>('sftp://transfer-status', (ev) => {
-      if (ev.sessionId !== sessionId) return
-      setTransfers((prev) => {
-        const found = prev.findIndex(t => t.id === ev.transferId)
-        if (found === -1) {
-          return [...prev, {
-            id: ev.transferId, sessionId, direction: ev.direction, files: [],
-            status: ev.status, totalBytes: 0, transferredBytes: 0, error: ev.error ?? null,
-          }]
-        }
-        const next = prev.slice()
-        const existing = next[found]
-        if (existing === undefined) return prev
-        const err = ev.error ?? null
-        next[found] = {
-          id: existing.id,
-          sessionId: existing.sessionId,
-          direction: existing.direction,
-          files: existing.files,
-          status: ev.status,
-          totalBytes: existing.totalBytes,
-          transferredBytes: existing.transferredBytes,
-          ...(err !== null ? { error: err } : {}),
-        }
-        // completed/cancelled/failed transfers clear from the list after a beat
-        if (ev.status === 'done' || ev.status === 'cancelled' || ev.status === 'failed') {
-          setTimeout(() => {
-            setTransfers(cur => cur.filter(t => t.id !== ev.transferId))
-          }, 4000)
-        }
-        return next
-      })
-    }).then((off) => { unstatus = off })
-    void tauriListen<TransferProgressEvent>('sftp://transfer-progress', (ev) => {
-      setTransfers(prev => prev.map(t => t.id === ev.transferId
-        ? { ...t, transferredBytes: ev.transferred, totalBytes: ev.total || t.totalBytes }
-        : t))
-    }).then((off) => { unprogress = off })
-    // seed with any existing tasks
-    void sftpListTransfers(sessionId).then(setTransfers).catch(() => {})
-    return () => {
-      void unstatus?.()
-      void unprogress?.()
-    }
-  }, [sessionId])
+    if (uploadDoneNonce === lastUploadDoneRef.current) return
+    lastUploadDoneRef.current = uploadDoneNonce
+    if (connectedRef.current) void loadDir(path)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只随 nonce 变化触发;loadDir/path 取当次渲染值即可。
+  }, [uploadDoneNonce])
 
   // ---- native drag-drop upload (OS file dropped into the webview) ----
   useEffect(() => {
@@ -334,7 +308,7 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
     if (localPaths.length === 0) return
     try {
       await sftpStartUpload(sessionId, localPaths, dest)
-      setTimeout(() => { void loadDir(path) }, 2000)
+      // 目录刷新由 uploadDoneNonce 效应在上传真正完成时触发
     } catch (caught) {
       failWith(`上传失败: ${caught instanceof Error ? caught.message : String(caught)}`, () => { void startUpload(localPaths, dest) })
     }
@@ -477,7 +451,17 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
             </div>
             <div className={`${css.toolGroup} ${css.toolsEnd}`}>
               <button type="button" className={`${css.tbBtn} ${followTerminal ? css.active : ''}`} title={followTerminal ? '已跟随终端路径' : '跟随终端路径'} aria-label="跟随终端路径" aria-pressed={followTerminal} disabled={!sshConnected} onClick={toggleFollow}><IconLinkOutline16 size={15} /></button>
-              <button type="button" className={css.tbBtn} title="传输任务" aria-label="传输任务" onClick={() =>{  setShowTransfers(v => !v) }}><IconFolderOpenOutline16 size={15} /></button>
+              {/* 传输任务入口:打开弹框(overlay 承载);有进行中任务时显示计数徽标 */}
+              <button
+                type="button"
+                className={css.tbBtn}
+                title="传输任务"
+                aria-label="传输任务"
+                onClick={() => onOpenTransfers?.()}
+              >
+                <IconDownloadOutline16 size={15} />
+                {transferActiveCount > 0 && <span className={css.tbBadge}>{transferActiveCount}</span>}
+              </button>
             </div>
           </div>
 
@@ -541,35 +525,6 @@ export function SftpPanel({ asset, sessionId, sshConnected, sshCwd, onFollowTerm
             ))}
           </div>
         </>
-      )}
-
-      {/* transfers */}
-      {showTransfers && (
-        <div className={css.transfers}>
-          <div className={css.transfersHead}>传输任务</div>
-          {transfers.length === 0 && <div className={css.transferEmpty}>暂无任务</div>}
-          {transfers.map((t) => {
-            const pct = t.totalBytes > 0 ? Math.round((t.transferredBytes / t.totalBytes) * 100) : 0
-            // 传输控制(暂停/继续/重试/取消)失败此前是 unhandled rejection,UI 无任何反馈;
-            // 统一走错误横幅,可重放该操作。
-            const transferAction = (label: string, run: () => Promise<unknown>) => (): void => {
-              run().catch((caught: unknown) => {
-                failWith(`${label}失败: ${caught instanceof Error ? caught.message : String(caught)}`, () => transferAction(label, run)())
-              })
-            }
-            return (
-              <div key={t.id} className={css.transferRow}>
-                <span className={css.transferName}>{t.direction === 'upload' ? '↑ 上传' : '↓ 下载'}</span>
-                <span className={css.transferStatus}>{t.status}{t.error ? ` · ${t.error}` : ''}</span>
-                <span className={css.transferProgress}>{pct}% ({formatSize(t.transferredBytes)} / {formatSize(t.totalBytes)})</span>
-                {t.status === 'running' && <button type="button" onClick={transferAction('暂停', () => sftpPauseTransfer(sessionId, t.id))}>暂停</button>}
-                {t.status === 'paused' && <button type="button" onClick={transferAction('继续', () => sftpResumeTransfer(sessionId, t.id))}>继续</button>}
-                {(t.status === 'failed' || t.status === 'cancelled') && <button type="button" onClick={transferAction('重试', () => sftpRetryTransfer(sessionId, t.id))}>重试</button>}
-                <button type="button" onClick={transferAction('取消', () => sftpCancelTransfer(sessionId, t.id))}>取消</button>
-              </div>
-            )
-          })}
-        </div>
       )}
 
       {/* context menu */}

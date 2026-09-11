@@ -231,6 +231,8 @@ commands.allow = [
   "sftp_resume_transfer",
   "sftp_retry_transfer",
   "sftp_set_speed_limit",
+  "sftp_clear_transfers",
+  "sftp_reveal_local",
   "sftp_start_download",
   "sftp_start_upload",
   "sftp_stat",

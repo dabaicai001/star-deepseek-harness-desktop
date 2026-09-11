@@ -24,10 +24,12 @@
 .toolGroup { display: flex; align-items: center; gap: 3px; padding-right: 8px; border-right: 1px solid var(--dsw-alias-border-l2); }
 .toolGroup:last-child { border-right: 0; padding-right: 0; }
 .toolsEnd { margin-left: auto; }
-.tbBtn { display: inline-flex; width: 29px; height: 29px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; }
+.tbBtn { position: relative; display: inline-flex; width: 29px; height: 29px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; }
 .tbBtn:hover { border-color: var(--dsw-alias-border-l3); background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-state-business-primary); }
 .tbBtn:disabled { opacity: 0.38; cursor: default; }
 .tbBtn.active { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-interactive-bg-active); color: var(--dsw-alias-state-business-primary); }
+/* 传输任务入口的进行中计数徽标(传输列表已弹框化,徽标承担后台指示) */
+.tbBadge { position: absolute; top: -4px; right: -5px; min-width: 14px; padding: 0 3px; border-radius: 7px; background: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-label-inverse, #fff); font-size: 9px; line-height: 14px; text-align: center; }
 .breadcrumb { display: flex; min-height: 34px; flex-shrink: 0; align-items: center; gap: 2px; overflow-x: auto; padding: 0 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-3); white-space: nowrap; }
 .crumb { border-radius: 4px; padding: 3px 5px; color: var(--dsw-alias-label-tertiary); cursor: pointer; font-family: var(--ds-font-family-code); font-size: 11px; }
 .crumb:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
@@ -43,14 +45,6 @@
 .fileIcon.dir { color: var(--dsw-alias-state-warn-primary); }
 .fileName { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .fileSize { flex: none; color: var(--dsw-alias-label-tertiary); font-family: var(--ds-font-family-code); font-size: 10px; font-variant-numeric: tabular-nums; }
-.transfers { max-height: 42%; flex-shrink: 0; overflow-y: auto; border-top: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-3); }
-.transfersHead { padding: 8px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-state-business-primary); font-size: 12px; font-weight: 750; }
-.transferEmpty { padding: 10px 12px; color: var(--dsw-alias-label-tertiary); }
-.transferRow { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--dsw-alias-border-l1); font-size: 11px; }
-.transferRow button { border: 1px solid var(--dsw-alias-border-l2); border-radius: 4px; padding: 3px 7px; background: var(--dsw-alias-button-floating-hover); color: var(--dsw-alias-label-primary); cursor: pointer; }
-.transferName { width: 58px; flex: none; color: var(--dsw-alias-state-business-primary); }
-.transferStatus { min-width: 0; flex: 1; overflow: hidden; color: var(--dsw-alias-label-secondary); text-overflow: ellipsis; white-space: nowrap; }
-.transferProgress { flex: none; color: var(--dsw-alias-label-tertiary); font-family: var(--ds-font-family-code); font-variant-numeric: tabular-nums; }
 .menuBackdrop, .fileDialogBackdrop { position: fixed; inset: 0; z-index: 90; }
 .contextMenu { position: fixed; z-index: 91; min-width: 174px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; padding: 5px; background: var(--dsw-alias-bg-layer-3); box-shadow: var(--dsw-shadow-lv2); }
 .menuItem { display: block; width: 100%; border: 0; border-radius: 4px; padding: 7px 10px; background: transparent; color: var(--dsw-alias-label-primary); cursor: pointer; font-size: 12px; text-align: left; }

@@ -278,6 +278,8 @@ fn main() {
             commands::sftp::sftp_list_transfers,
             commands::sftp::sftp_set_speed_limit,
             commands::sftp::sftp_retry_transfer,
+            commands::sftp::sftp_clear_transfers,
+            commands::sftp::sftp_reveal_local,
             // 截图(区域截图),仅截图特性启用时注册
             #[cfg(feature = "screenshot")]
             commands::screenshot::screenshot_list_monitors,
