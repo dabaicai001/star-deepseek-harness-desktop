@@ -11,7 +11,7 @@ StarHub 是跨平台(Windows / macOS / Linux)DevOps 桌面应用,单一窗口整
 | 仓库 | https://github.com/dabaicai001/star-dsh-desktop |
 | 主分支 | `main` |
 | 协议 | MIT |
-| 当前版本 | v0.117.0(**数据库工作台支持 SQLite 与 SQL Server(此前「连资产都建不出来」)**:连接对话框新增 SQLite / SQL Server 两种类型,SQLite 走文件路径(`filePath`,不再要求 host/username)、SQL Server 走 host/port(默认 1433)/账号/库;工作台按类型分派 `db_sqlite_connect` / `db_mssql_connect` 建连,数据面(PG/SQLite/MSSQL)复用 sidecar 的通用关系型 handler;资产行徽标与独立窗口路由同步(SQLite / SQL Server)。) |
+| 当前版本 | v0.118.0(**Git 工作台**:会话头部的 git 分支胶囊融合为工作台入口,工具抽屉新增跟随当前会话工作区的 Git 视图——变更(暂存/取消暂存/两步确认放弃/单文件 diff 紧随选中项所在分段)、提交已暂存(含 AI 提交信息草稿)、历史(50 条 + git show 补丁)、分支(搜索/切换/拉取远程),页面重新可见时自动刷新当前 Tab。) |
 
 ## 架构一句话
 
@@ -130,4 +130,4 @@ npm run tauri:build          # 当前平台打包(beforeBuildCommand 已编排�
 
 ---
 
-*最后更新: 2026-09-10 (v0.117.0)*
+*最后更新: 2026-09-11 (v0.118.0)*
