@@ -17,7 +17,7 @@ function installTauri(seed: TransferTask[] = []) {
   const callbacks = new Map<number, Listener>()
   let nextId = 0
   let nextEventId = 100
-  const invoke = vi.fn((command: string, args?: Record<string, unknown>) => {
+  const invoke = vi.fn((command: string, args?: Record<string, unknown>): Promise<unknown> => {
     if (command === 'plugin:event|listen') {
       const event = args?.event as string
       const cb = callbacks.get(args?.handler as number)
@@ -201,7 +201,7 @@ describe('useTransferTasks', () => {
 
   it('keeps the list empty when the initial seed fails (preview / session not ready)', async () => {
     const t = installTauri([])
-    t.invoke.mockImplementation((command: string) => {
+    t.invoke.mockImplementation((command: string, _args?: Record<string, unknown>) => {
       if (command === 'sftp_list_transfers') return Promise.reject(new Error('no session'))
       if (command === 'plugin:event|listen') return Promise.resolve(999)
       return Promise.resolve(null)
@@ -292,7 +292,7 @@ describe('useTransferTasks', () => {
     expect(result.current.tasks.map(x => x.id)).toEqual(['r1', 'd1'])
 
     // 重 seed 也失败 → 保持本地投影(不抛错)
-    t.invoke.mockImplementation((command: string) => {
+    t.invoke.mockImplementation((command: string, _args?: Record<string, unknown>) => {
       if (command === 'plugin:event|listen') return Promise.resolve(1)
       if (command === 'sftp_clear_transfers') return Promise.reject(new Error('channel dead'))
       if (command === 'sftp_list_transfers') return Promise.reject(new Error('still dead'))

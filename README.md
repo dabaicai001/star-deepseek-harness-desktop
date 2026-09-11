@@ -7,7 +7,7 @@
 **All-in-One DevOps Desktop Command Center**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.118.0-cyan)]()
+[![Version](https://img.shields.io/badge/version-v0.118.1-cyan)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
 [![Downloads](https://img.shields.io/badge/downloads-GitHub%20Releases-blue)](https://github.com/dabaicai001/star-dsh-desktop/releases)
 [![官网](https://img.shields.io/badge/官网-starthub.waouzzz.cc-cyan)](https://starthub.waouzzz.cc/)
@@ -48,11 +48,8 @@ StarHub 是一个跨平台桌面应用,把开发运维每天要用到的工具�
 
 ## 当前版本
 
-### v0.118.0 (2026-09-11)
-- ✨ **Git 工作台**:会话头部的 git 分支胶囊融合为工作台入口,工具抽屉新增跟随当前会话工作区的 Git 视图——变更(暂存/取消暂存/两步确认放弃/单文件 diff 紧随选中项所在分段)、提交已暂存(含 AI 提交信息草稿)、历史(50 条 + git show 补丁)、分支(搜索/切换/拉取远程),页面重新可见时自动刷新当前 Tab。
-- ✨ **SFTP 传输中心(弹框化)**:传输任务列表从面板内联区块升级为独立弹框——任务级聚合进度条(多文件不再回跳)、当前文件名、实时速度与剩余时间、逐文件明细展开、暂停/继续/取消/重试(失败与已取消都支持,断点续传复用原任务)、单条删除/清除已完成/全部暂停、失败原因完整展示并支持复制、运行中动态调整限速(KB/s)、下载完成一键「打开目录」。任务投影提升到 SSH 工作区级:关掉「文件」页签传输不丢,「文件」页签与面板工具栏显示进行中计数徽标。
-- 🐛 **Git 工作台修复集**:`git show` 参数顺序错误导致历史补丁恒为空(实机验证);工作台支持按初始 Tab 打开(分支胶囊直达「分支」);重连/可见性恢复时刷新当前 Tab 数据;切换文件后旧的两步确认残留不再误伤新文件;危险/主按钮 hover 态与设计令牌对齐(原裸色突兀)。
-- 🐛 **SFTP 传输可靠性修复集**:进度条误用文件级数字(多文件任务回跳)改为任务级聚合字段;终态任务 4 秒自动清除改为保留到手动清除(失败原因可读、重试不失窗口);UI 对「已取消」提供重试但 Rust 拒绝的契约不一致(现两端一致);SFTP 通道死亡后传输操作永久失败(ensure 时探测并自动重建);「重试」此前是整包重传(现真断点续传);目录下载不支持(现递归展开 + 符号链接环防护);同名文件静默覆盖(现自动 `a (1).txt` 改名);进度事件无节流无会话隔离(现 100ms 节流 + sessionId 过滤);上传完成后目录不刷新(2 秒盲刷改为 done 事件联动);监听器异步注册泄漏;「跟随终端」重连时无视用户已关闭的开关;终态任务行上残留无效的「取消」按钮。
+### v0.118.1 (2026-09-11)
+- 🔧 **SSH 终端工作区视觉规范重写**:移除状态点发光阴影与赛博朋克效果;蓝色(business-primary)严格保留给交互强调(按钮、活跃 Tab、链接),非交互元素改用中性色;终端暗色前景从近纯白 `#f9fafb` 柔和化为 `#c4c9cf`(长时间使用不刺眼);所有交互元素统一 150ms ease 过渡(Tab 切换、hover、按钮、进度条);头部高度 58px→52px;对话框阴影 lv3→lv2;ZMODEM 进度条 4px→3px;SFTP 面板/传输弹框/广播对话框同步扁平化。修复 CI 三处 TypeScript 类型错误(transfer-dialog/use-transfer-tasks 测试 mock 类型)。
 
 > 历史版本见 [CHANGELOG.md](./CHANGELOG.md)。
 

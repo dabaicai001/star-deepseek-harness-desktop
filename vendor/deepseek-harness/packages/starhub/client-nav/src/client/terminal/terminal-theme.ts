@@ -31,10 +31,12 @@ export interface TerminalTheme {
 export function dshTerminalTheme(dark: boolean): TerminalTheme {
   return dark
     ? {
-        background: '#1b1b1c', foreground: '#f9fafb', cursor: '#f9fafb', cursorAccent: '#1b1b1c',
-        selectionBackground: 'rgba(125, 162, 230, 0.38)', selectionForeground: '#f9fafb',
-        selectionInactiveBackground: 'rgba(125, 162, 230, 0.22)',
-      }  // neutral-bluish-900 / -50
+        // Foreground intentionally softened from pure-white (#f9fafb) to a
+        // warm-gray that stays readable for 8-hour sessions without eye strain.
+        background: '#1b1b1c', foreground: '#c4c9cf', cursor: '#c4c9cf', cursorAccent: '#1b1b1c',
+        selectionBackground: 'rgba(125, 162, 230, 0.30)', selectionForeground: '#e8eaed',
+        selectionInactiveBackground: 'rgba(125, 162, 230, 0.18)',
+      }  // neutral-bluish-900 / soft-gray
     : {
         background: '#f5f6f7', foreground: '#1f2329', cursor: '#1f2329', cursorAccent: '#f5f6f7',
         // Dark selection so selected text is clearly distinguishable on the

@@ -203,8 +203,8 @@ describe('TransferDialog', () => {
   it('gates concurrent actions while one is in flight', async () => {
     const { invoke } = installTauri()
     let release!: () => void
-    invoke.mockImplementation((command: string) => {
-      if (command === 'sftp_pause_transfer') return new Promise<void>((resolve) => { release = resolve })
+    invoke.mockImplementation((_command: string, _args?: Record<string, unknown>) => {
+      if (_command === 'sftp_pause_transfer') return new Promise<null>((resolve) => { release = () => { resolve(null) } })
       return Promise.resolve(null)
     })
     render(<TransferDialog sessionId="ssh-1" api={apiFor([task({ id: 't1', status: 'running' })])} onClose={() => {}} />)

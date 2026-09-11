@@ -5,10 +5,10 @@ import { dshTerminalTheme } from '../src/client/terminal/terminal-theme.ts'
 describe('dshTerminalTheme', () => {
   it('uses the DSH dark neutral surface when dark', () => {
     expect(dshTerminalTheme(true)).toEqual({
-      background: '#1b1b1c', foreground: '#f9fafb',
-      cursor: '#f9fafb', cursorAccent: '#1b1b1c',
-      selectionBackground: 'rgba(125, 162, 230, 0.38)', selectionForeground: '#f9fafb',
-      selectionInactiveBackground: 'rgba(125, 162, 230, 0.22)',
+      background: '#1b1b1c', foreground: '#c4c9cf',
+      cursor: '#c4c9cf', cursorAccent: '#1b1b1c',
+      selectionBackground: 'rgba(125, 162, 230, 0.30)', selectionForeground: '#e8eaed',
+      selectionInactiveBackground: 'rgba(125, 162, 230, 0.18)',
     })
   })
 
@@ -33,8 +33,8 @@ describe('dshTerminalTheme', () => {
     expect(light.selectionBackground).toMatch(/rgba\(31, 35, 41/)
     expect(light.selectionForeground).toBe('#f5f6f7')
     const dark = dshTerminalTheme(true)
-    expect(dark.selectionBackground).toContain('0.38')
-    expect(dark.selectionForeground).toBe('#f9fafb')
+    expect(dark.selectionBackground).toContain('0.30')
+    expect(dark.selectionForeground).toBe('#e8eaed')
     expect(dark.selectionBackground).not.toBe(light.selectionBackground)
   })
 
