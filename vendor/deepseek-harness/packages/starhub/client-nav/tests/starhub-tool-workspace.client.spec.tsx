@@ -29,11 +29,13 @@ function workspaceProps(opts: { cwd?: string; sessionId?: string; panelOpen?: bo
   const assets = createSnapshotStore<StarHubAssetListState>({ assets: [], loading: false, error: null, preview: false })
   const bridge = createToolSelectionBridge()
   const fileTree = createSnapshotStore<{ open: boolean }>({ open: false })
+  const gitWorkbench = createSnapshotStore<{ open: boolean; initialTab: 'changes' | 'history' | 'branches' }>({ open: false, initialTab: 'changes' })
   const toolsPanel = createSnapshotStore<{ open: boolean }>({ open: opts.panelOpen ?? true })
   const execRecords = createSnapshotStore<ExecRecordsState>({ viewOpen: false, records: [] })
   const useAssets = <S,>(sel: (s: StarHubAssetListState) => S) => sel(assets.getSnapshot())
   const useSelection = <S,>(sel: (s: ToolSelection) => S) => sel(bridge.source.getSnapshot())
   const useFileTree = <S,>(sel: (s: { open: boolean }) => S) => sel(fileTree.getSnapshot())
+  const useGitWorkbench = <S,>(sel: (s: { open: boolean; initialTab: 'changes' | 'history' | 'branches' }) => S) => sel(gitWorkbench.getSnapshot())
   const useToolsPanel = <S,>(sel: (s: { open: boolean }) => S) => sel(toolsPanel.getSnapshot())
   const useExecRecords = <S,>(sel: (s: ExecRecordsState) => S) => sel(execRecords.getSnapshot())
   const sessionId = opts.sessionId === undefined ? undefined : opts.sessionId as never
@@ -50,11 +52,13 @@ function workspaceProps(opts: { cwd?: string; sessionId?: string; panelOpen?: bo
     assets,
     bridge,
     fileTree,
+    gitWorkbench,
     toolsPanel,
     execRecords,
     refreshAssets: vi.fn(),
     openConnectionManager: vi.fn(),
     closeFileTree: vi.fn(),
+    closeGitWorkbench: vi.fn(),
     closeExecView: vi.fn(),
     clearExecRecords: vi.fn(),
     disconnectExecSession: vi.fn(),
@@ -65,6 +69,7 @@ function workspaceProps(opts: { cwd?: string; sessionId?: string; panelOpen?: bo
     useAssets,
     useSelection,
     useFileTree,
+    useGitWorkbench,
     useToolsPanel,
     useSessions,
     useExecRecords,
@@ -472,6 +477,37 @@ describe('StarHubToolWorkspace', () => {
     expect(screen.getByText(/暂无记录/)).toBeTruthy()
     const clear = screen.getByText('清空') as HTMLButtonElement
     expect(clear.disabled).toBe(true)
+  })
+
+  it('switches to the Git workbench view when the bridge is open and a session cwd exists', async () => {
+    const props = workspaceProps({ cwd: 'E:\\ws\\demo', sessionId: 'sess-1' })
+    props.gitWorkbench.update((d) => { d.open = true })
+    render(<StarHubToolWorkspace {...props} />)
+    // 测试环境无 Tauri IPC → 探测失败后渲染非 git 空态(面板确已挂载)
+    expect(await screen.findByText('当前工作区不是 git 仓库')).toBeTruthy()
+    expect(screen.getByText('E:\\ws\\demo')).toBeTruthy()
+    // 面板头「关闭」走注入的 closeGitWorkbench
+    fireEvent.click(screen.getByLabelText('关闭 Git 工作台'))
+    expect(props.closeGitWorkbench).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the exec view in precedence over the Git workbench view', () => {
+    const props = workspaceProps({ cwd: 'E:\\ws\\demo', sessionId: 'sess-1' })
+    props.gitWorkbench.update((d) => { d.open = true })
+    props.execRecords.update((d) => { d.viewOpen = true })
+    render(<StarHubToolWorkspace {...props} />)
+    expect(screen.getByText('SSH 执行记录')).toBeTruthy()
+    expect(screen.queryByText('当前工作区不是 git 仓库')).toBeNull()
+  })
+
+  it('does not render the Git workbench view without a session cwd even when open', () => {
+    const props = workspaceProps()
+    props.gitWorkbench.update((d) => { d.open = true })
+    props.bridge.selectSubcategory('terminal')
+    props.assets.update((d) => { d.assets = [sshAsset] })
+    render(<StarHubToolWorkspace {...props} />)
+    expect(screen.getByText('prod-server')).toBeTruthy()
+    expect(screen.queryByText('当前工作区不是 git 仓库')).toBeNull()
   })
 
 })

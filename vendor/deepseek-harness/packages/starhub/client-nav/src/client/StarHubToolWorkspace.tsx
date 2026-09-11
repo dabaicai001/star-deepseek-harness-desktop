@@ -35,6 +35,8 @@ import type { RustAsset, StarHubAssetListState, ToolSelection, ToolsPanelState }
 import { ContextMenu, useContextMenu } from './ContextMenu.tsx'
 import { FileTreePanel } from './file-tree/FileTreePanel.tsx'
 import type { FileTreeState } from './file-tree/state.ts'
+import { GitWorkbenchPanel } from './git/GitWorkbenchPanel.tsx'
+import type { GitWorkbenchState } from './git/git-workbench-state.ts'
 import { ExecRecordList } from './conn/ExecRecordList.tsx'
 import type { ExecRecordsState } from './conn/exec-records.ts'
 import { SandboxPanel } from './sandbox/SandboxPanel.tsx'
@@ -54,6 +56,8 @@ export interface StarHubToolWorkspaceInjected {
   openConnectionManager: (asset?: RustAsset) => void
   /** 切回资产列表视图(文件树面板头部「返回资产列表」)。 */
   closeFileTree: () => void
+  /** 切回资产列表视图(Git 工作台面板头「关闭」;v0.118.0 Git 工作台视图)。 */
+  closeGitWorkbench: () => void
   /** 切回资产列表视图(执行记录视图头部「返回」;v0.100.0 执行记录入抽屉)。 */
   closeExecView: () => void
   /** 清空当前会话的执行记录(执行记录视图头部「清空」,随会话隔离)。 */
@@ -72,6 +76,7 @@ export interface StarHubToolWorkspaceInjected {
     selection: SnapshotStore<ToolSelection>
     assets: SnapshotStore<StarHubAssetListState>
     fileTree: SnapshotStore<FileTreeState>
+    gitWorkbench: SnapshotStore<GitWorkbenchState>
     toolsPanel: SnapshotStore<ToolsPanelState>
     execRecords: SnapshotStore<ExecRecordsState>
   }
@@ -172,14 +177,19 @@ function AssetRow({ asset, badgeLabel, active, onOpen, onReference, onEdit, onDe
  * 「执行」按钮把 execRecords 桥置 viewOpen 后,抽屉切换为 ExecRecordList
  * (仅本会话的静默执行记录,行点击展开/收起,行尾按钮断开连接并移除,
  * 容器纵向滚动);ssh:exec-done 由 apply 层订阅入桥,本组件只是读端。
+ *
+ * Git 工作台视图(v0.118.0):会话头部分支胶囊(GitBranchPill,已融合为
+ * 工作台入口)把 gitWorkbench 桥置 open 后,抽屉切换为 GitWorkbenchPanel
+ * (以当前会话 cwd 为工作区:变更/暂存/提交/diff/历史/分支);三个视图
+ * 互斥,开关组合由 apply 层的注册注入保证。
  * @param props - composed slot props (overlay runtime share + injected face).
  * @returns null when closed; otherwise the drawer layer.
  */
 export function StarHubToolWorkspace({
   openAsset, refreshAssets, openConnectionManager,
-  closeFileTree, closeExecView, clearExecRecords, disconnectExecSession,
+  closeFileTree, closeGitWorkbench, closeExecView, clearExecRecords, disconnectExecSession,
   closeTools, selectSubcategory, insertFileReference, insertAssetReference,
-  useSelection, useAssets, useFileTree, useToolsPanel, useSessions, useExecRecords,
+  useSelection, useAssets, useFileTree, useGitWorkbench, useToolsPanel, useSessions, useExecRecords,
 }: StarHubToolWorkspaceProps) {
   // toolsPanel 开关:未提供该 hook(组件在旧测试桩/独立渲染下)时默认视为打开。
   const panelOpen = useToolsPanel?.(s => s.open) ?? true
@@ -191,6 +201,9 @@ export function StarHubToolWorkspace({
   const activeSubcategory = useSelection(s => s.subcategory)
   const activeAssetId = useSelection(s => s.assetId)
   const fileTreeOpen = useFileTree(s => s.open)
+  // Git 工作台视图(v0.118.0):hook 未提供时视为关闭(独立渲染兼容)。
+  const gitOpen = useGitWorkbench?.(s => s.open) ?? false
+  const gitInitialTab = useGitWorkbench?.(s => s.initialTab) ?? 'changes'
   // 执行记录视图(v0.100.0):hook 未提供时视为关闭 + 空列表(独立渲染兼容)。
   const execViewOpen = useExecRecords?.(s => s.viewOpen) ?? false
   const execRecords = useExecRecords?.(s => s.records) ?? []
@@ -216,6 +229,8 @@ export function StarHubToolWorkspace({
             onClear={clearExecRecords}
             onDisconnect={disconnectExecSession}
           />
+        ) : gitOpen && sessionCwd !== undefined ? (
+          <GitWorkbenchPanel cwd={sessionCwd} initialTab={gitInitialTab} onClose={closeGitWorkbench} />
         ) : fileTreeOpen && sessionCwd !== undefined ? (
           <FileTreePanel
             cwd={sessionCwd}

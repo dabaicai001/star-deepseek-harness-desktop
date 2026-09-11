@@ -7,6 +7,7 @@
  * (PowerShell 单引号转义);不提供任意命令入口。
  */
 import { tauriInvoke } from '../tauri.ts'
+import { GIT_LOG_PRETTY, parseGitLogPretty, parseGitStatusZ, type GitLogEntry, type GitStatusEntry } from './git-parse.ts'
 
 /** `local_shell_exec` 的返回(serde camelCase)。 */
 export interface LocalShellResult {
@@ -160,6 +161,117 @@ export function gitPush(cwd: string): Promise<GitOutcome> {
  */
 export function gitPull(cwd: string): Promise<GitOutcome> {
   return runGit(cwd, 'git pull', 120)
+}
+
+/**
+ * 读工作区状态(porcelain v1 -z:路径含中文/空格不会被引号破坏)。
+ * @param cwd - 会话工作区绝对路径。
+ * @returns 状态记录;非 git 仓库/命令失败返回 null(调用方据以渲染空态)。
+ */
+export async function gitStatus(cwd: string): Promise<readonly GitStatusEntry[] | null> {
+  const result = await runGit(cwd, 'git status --porcelain=v1 -z')
+  if (!result.ok) return null
+  return parseGitStatusZ(result.stdout)
+}
+
+/**
+ * 暂存指定文件(git add -- <paths>;未跟踪文件同样适用)。
+ * @param cwd - 会话工作区绝对路径。
+ * @param paths - 相对仓库根的文件路径(来自 git status 输出,经单引号转义)。
+ * @returns 简化结果。
+ */
+export function gitStage(cwd: string, paths: readonly string[]): Promise<GitOutcome> {
+  return runGit(cwd, `git add -- ${paths.map(psQuote).join(' ')}`)
+}
+
+/**
+ * 暂存全部改动(git add -A,含删除与新文件)。
+ * @param cwd - 会话工作区绝对路径。
+ * @returns 简化结果。
+ */
+export function gitStageAll(cwd: string): Promise<GitOutcome> {
+  return runGit(cwd, 'git add -A')
+}
+
+/**
+ * 取消暂存(git restore --staged -- <paths>;不动工作树内容)。
+ * @param cwd - 会话工作区绝对路径。
+ * @param paths - 相对仓库根的文件路径。
+ * @returns 简化结果。
+ */
+export function gitUnstage(cwd: string, paths: readonly string[]): Promise<GitOutcome> {
+  return runGit(cwd, `git restore --staged -- ${paths.map(psQuote).join(' ')}`)
+}
+
+/**
+ * 放弃工作树改动(git restore -- <paths>;仅已跟踪文件,不可恢复)。
+ * @param cwd - 会话工作区绝对路径。
+ * @param paths - 相对仓库根的已跟踪文件路径。
+ * @returns 简化结果。
+ */
+export function gitDiscard(cwd: string, paths: readonly string[]): Promise<GitOutcome> {
+  return runGit(cwd, `git restore -- ${paths.map(psQuote).join(' ')}`)
+}
+
+/**
+ * 删除未跟踪文件(git clean -f -- <paths>;pathspec 限定到具体文件,不递归目录)。
+ * @param cwd - 会话工作区绝对路径。
+ * @param paths - 相对仓库根的未跟踪文件路径。
+ * @returns 简化结果。
+ */
+export function gitCleanPath(cwd: string, paths: readonly string[]): Promise<GitOutcome> {
+  return runGit(cwd, `git clean -f -- ${paths.map(psQuote).join(' ')}`)
+}
+
+/**
+ * 读单文件 diff(--no-ext-diff 禁外部 diff 工具;-U3 上下文)。
+ * @param cwd - 会话工作区绝对路径。
+ * @param path - 相对仓库根的文件路径。
+ * @param staged - true 读已暂存 diff(--cached),false 读未暂存 diff。
+ * @returns diff 文本(无差异为空串);命令失败返回 null。
+ */
+export async function gitDiffFile(cwd: string, path: string, staged: boolean): Promise<string | null> {
+  const command = staged
+    ? `git diff --no-ext-diff -U3 --cached -- ${psQuote(path)}`
+    : `git diff --no-ext-diff -U3 -- ${psQuote(path)}`
+  const result = await runGit(cwd, command)
+  return result.ok ? result.stdout : null
+}
+
+/**
+ * 读提交历史(新→旧;git log 定制 pretty,\x1f/\x1e 控制字符分字段/分记录,
+ * 主题含引号/反引号不会破坏解析)。
+ * @param cwd - 会话工作区绝对路径。
+ * @param limit - 读取条数(内部固定值,非用户输入)。
+ * @returns 提交列表;非 git 仓库/命令失败(含空仓库无 HEAD)返回 null。
+ */
+export async function gitLog(cwd: string, limit: number): Promise<readonly GitLogEntry[] | null> {
+  const result = await runGit(cwd, `git log -n ${limit} "--pretty=${GIT_LOG_PRETTY}"`)
+  if (!result.ok) return null
+  return parseGitLogPretty(result.stdout)
+}
+
+/**
+ * 提交已暂存改动(git commit -m;不自动暂存,提交哪些由暂存区决定)。
+ * @param cwd - 会话工作区绝对路径。
+ * @param message - 提交信息(PowerShell 单引号转义)。
+ * @returns 简化结果。
+ */
+export function gitCommitStaged(cwd: string, message: string): Promise<GitOutcome> {
+  return runGit(cwd, `git commit -m ${psQuote(message)}`)
+}
+
+/**
+ * 读单条提交的完整补丁(git show,含提交头与 unified diff)。hash 必须放在
+ * `--` 之前——`--` 之后是 pathspec,`git show ... -- <hash>` 会把哈希当路径
+ * 过滤而返回空输出(已实测)。
+ * @param cwd - 会话工作区绝对路径。
+ * @param hash - 完整哈希(来自 gitLog 输出)。
+ * @returns 补丁文本;命令失败返回 null。
+ */
+export async function gitShowCommit(cwd: string, hash: string): Promise<string | null> {
+  const result = await runGit(cwd, `git show --no-ext-diff -U3 --no-color "--pretty=commit %h  %s%n%an  %aI" ${psQuote(hash)} --`)
+  return result.ok ? result.stdout : null
 }
 
 /** AI 生成提交信息的 host 端点(dsh-starhub-commit-message 插件注册)。 */

@@ -51,6 +51,7 @@ import { ScreenshotButton } from './screenshot/ScreenshotButton.tsx'
 import { StarHubOverlay } from './StarHubOverlay.tsx'
 import { StarHubFooterButton } from './StarHubFooterButton.tsx'
 import { GitBranchPill } from './git/GitBranchPill.tsx'
+import { createGitWorkbenchBridge } from './git/git-workbench-state.ts'
 import { FileTreeButton } from './file-tree/FileTreeButton.tsx'
 import { createFileTreeBridge } from './file-tree/state.ts'
 import { StarHubToolWorkspace, type StarHubToolWorkspaceInjected } from './StarHubToolWorkspace.tsx'
@@ -99,6 +100,9 @@ export function apply(ctx: Context): void {
   // 会话文件树视图开关(2026-08-24):头部按钮(header.actions)写,
   // 右侧工作区列(details.workspace)读——同一裸 source 桥范式。
   const fileTree = createFileTreeBridge()
+  // Git 工作台视图开关(v0.118.0):会话头部分支胶囊(入口)与工具抽屉
+  // (视图承载)共享,与文件树/执行记录视图三向互斥。
+  const gitWorkbench = createGitWorkbenchBridge()
   // SSH 执行记录桥(v0.100.0,v0.100.1 会话隔离):ssh:exec-done 事件在
   // apply 层订阅(下方 ctx.effect),记录打上「当时活跃会话」标记;头部
   // 「执行」按钮与工具抽屉的执行记录视图只展示当前会话的条目。
@@ -214,6 +218,8 @@ export function apply(ctx: Context): void {
     openConnectionManager: connectionManager.open,
     // 文件树视图:面板内「文件树」开关(关闭回到资产列表)。
     closeFileTree: fileTree.close,
+    // Git 工作台视图(v0.118.0):面板头「关闭」回到资产列表。
+    closeGitWorkbench: gitWorkbench.close,
     // 执行记录视图(v0.100.0):头部「执行」按钮的开关与清空(关闭回到资产列表)。
     closeExecView: execRecords.closeView,
     clearExecRecords: execRecords.clear,
@@ -229,9 +235,10 @@ export function apply(ctx: Context): void {
     // 一并复位文件树视图:面板已关,若 fileTree.open 仍为 true,下回点会话
     // 头部「文件」胶囊会走到 closeFileTree 而非 openFileTree,看起来没反应。
     closeTools: () => {
-      // 一并复位两个视图开关:面板已关,若残留 true,下回点「文件/执行」
+      // 一并复位三个视图开关:面板已关,若残留 true,下回点「分支/文件/执行」
       // 胶囊会走到 close 分支而非打开,看起来没反应。
       fileTree.close()
+      gitWorkbench.close()
       execRecords.closeView()
       toolsPanel.close()
     },
@@ -278,6 +285,7 @@ export function apply(ctx: Context): void {
       selection: selection.source,
       assets: assets.source,
       fileTree: fileTree.source,
+      gitWorkbench: gitWorkbench.source,
       toolsPanel: toolsPanel.source,
       execRecords: execRecords.source,
     },
@@ -307,14 +315,26 @@ export function apply(ctx: Context): void {
     () => inputTriggers.registerSource(createStarhubFileSource({ sessions })),
     'starhub: @ file source',
   )
-  // 会话头部「git 分支胶囊」(2026-08-21):会话 cwd 下的分支展示 + 搜索/切换
-  // 分支 + commit/push;非 git 工作区与浏览器预览(无 Tauri IPC)不渲染。
-  // order 30:排在 ui-jobs 后台任务(20)之后、utilities 之前。
+  // 会话头部「git 分支胶囊」(2026-08-21;v0.118.0 起为 Git 工作台入口):
+  // 显示当前会话工作区分支 + 脏点,点击把工具抽屉切到「Git 工作台」视图
+  // (分支/暂存/提交/历史/同步全在工作台内);非 git 工作区与浏览器预览
+  // (无 Tauri IPC)不渲染。order 30:排在 ui-jobs 后台任务(20)之后、
+  // utilities 之前。
   ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
     name: 'conversation.session.header.actions',
     id: 'starhub-git-branch',
     order: 30,
     label: 'StarHub Git',
+    inject: () => ({
+      // 胶囊的首要意图是分支管理,工作台落到「分支」Tab(变更/历史可再切)。
+      openWorkbench: () => {
+        gitWorkbench.open('branches')
+        fileTree.close()
+        execRecords.closeView()
+        toolsPanel.open()
+      },
+      hooks: { gitWorkbench: gitWorkbench.source },
+    }),
   }, GitBranchPill))
   // 会话头部「文件树」按钮(2026-08-24):分支胶囊旁,点击打开工具抽屉
   // (shell.overlay 承载的 StarHubToolWorkspace)并切到项目文件目录树视图;
@@ -331,6 +351,7 @@ export function apply(ctx: Context): void {
       openFileTree: () => {
         fileTree.open()
         execRecords.closeView()
+        gitWorkbench.close()
         toolsPanel.open()
       },
       closeFileTree: fileTree.close,
@@ -350,6 +371,7 @@ export function apply(ctx: Context): void {
       openExecView: () => {
         execRecords.openView()
         fileTree.close()
+        gitWorkbench.close()
         toolsPanel.open()
       },
       closeExecView: execRecords.closeView,
